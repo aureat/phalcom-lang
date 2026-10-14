@@ -429,8 +429,6 @@ pub enum CasePayloadSyntax {
 pub struct AlgebraicCaseSyntax {
     pub name: String,
     pub name_range: SourceRange,
-    /// Span of the explicit `@variant` marker, if any.
-    pub variant_marker_range: Option<SourceRange>,
     /// Generic parameters owned by this case constructor.
     pub generic_parameters: Vec<GenericParameterSyntax>,
     /// Generic `where` constraints attached to this case constructor.
@@ -842,7 +840,6 @@ pub enum BuiltinAttr {
     Set,
     Data,
     Sealed,
-    Variant,
     Invariant,
     Requires,
     Ensures,
@@ -861,7 +858,6 @@ impl BuiltinAttr {
         BuiltinAttr::Set,
         BuiltinAttr::Data,
         BuiltinAttr::Sealed,
-        BuiltinAttr::Variant,
         BuiltinAttr::Invariant,
         BuiltinAttr::Requires,
         BuiltinAttr::Ensures,
@@ -880,7 +876,6 @@ impl BuiltinAttr {
             BuiltinAttr::Set => "set",
             BuiltinAttr::Data => "data",
             BuiltinAttr::Sealed => "sealed",
-            BuiltinAttr::Variant => "variant",
             BuiltinAttr::Invariant => "invariant",
             BuiltinAttr::Requires => "requires",
             BuiltinAttr::Ensures => "ensures",
@@ -900,7 +895,6 @@ impl BuiltinAttr {
             "set" => Some(BuiltinAttr::Set),
             "data" => Some(BuiltinAttr::Data),
             "sealed" => Some(BuiltinAttr::Sealed),
-            "variant" => Some(BuiltinAttr::Variant),
             "invariant" => Some(BuiltinAttr::Invariant),
             "requires" => Some(BuiltinAttr::Requires),
             "ensures" => Some(BuiltinAttr::Ensures),
@@ -1713,12 +1707,6 @@ pub enum ClassMember {
     /// A declared source/implementation field at class-body position. See
     /// [`FieldDef`].
     Field(FieldDef),
-    /// A `@variant Name(labels...)` arm inside a `@sealed` class body
-    /// (U-ANNOT-LAYOUT §3.4, `annotations-data.md` §"`@variant`"). See
-    /// [`VariantDef`]. Never compiled directly — stripped and expanded into a
-    /// sibling top-level [`Statement::Class`] by `phalcom-core`'s
-    /// `compiler::attributes::expand_class_attributes`.
-    Variant(VariantDef),
     /// A bracket-delimited subscript method — `[_ idx] { ... }` (read) or
     /// `[_ idx]=(_ value) { ... }` (write), U-INDEX,
     /// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md).
@@ -1736,7 +1724,6 @@ impl ClassMember {
             ClassMember::Setter(s) => s.is_static,
             ClassMember::Delegation(_) => false,
             ClassMember::Index(_) => false,
-            ClassMember::Variant(_) => false,
             ClassMember::Field(f) => f.is_static,
             ClassMember::TypeMember(_) => false,
         }
@@ -1756,7 +1743,6 @@ impl ClassMember {
             ClassMember::Setter(s) => &s.attributes,
             ClassMember::Delegation(d) => &d.attributes,
             ClassMember::Index(i) => &i.attributes,
-            ClassMember::Variant(v) => &v.attributes,
             ClassMember::Field(f) => &f.attributes,
             ClassMember::TypeMember(t) => &t.attributes,
         }
@@ -1769,7 +1755,6 @@ impl ClassMember {
             ClassMember::Setter(s) => &mut s.attributes,
             ClassMember::Delegation(d) => &mut d.attributes,
             ClassMember::Index(i) => &mut i.attributes,
-            ClassMember::Variant(v) => &mut v.attributes,
             ClassMember::Field(f) => &mut f.attributes,
             ClassMember::TypeMember(t) => &mut t.attributes,
         }
@@ -1782,7 +1767,6 @@ impl ClassMember {
             ClassMember::Setter(s) => s.range,
             ClassMember::Delegation(d) => d.range,
             ClassMember::Index(i) => i.range,
-            ClassMember::Variant(v) => v.range,
             ClassMember::Field(f) => f.range,
             ClassMember::TypeMember(t) => t.range,
         }
@@ -1795,7 +1779,6 @@ impl ClassMember {
             ClassMember::Setter(s) => s.name_range,
             ClassMember::Delegation(d) => d.name_range,
             ClassMember::Index(i) => i.name_range,
-            ClassMember::Variant(v) => v.name_range,
             ClassMember::Field(f) => f.name_range,
             ClassMember::TypeMember(t) => t.selector.range(),
         }
@@ -1808,7 +1791,6 @@ impl ClassMember {
             ClassMember::Setter(s) => s.visibility,
             ClassMember::Delegation(_) => Visibility::Public,
             ClassMember::Index(i) => i.visibility,
-            ClassMember::Variant(_) => Visibility::Public,
             ClassMember::Field(f) => f.visibility,
             ClassMember::TypeMember(_) => Visibility::Public,
         }
@@ -1821,7 +1803,6 @@ impl ClassMember {
             ClassMember::Setter(s) => s.visibility_range,
             ClassMember::Delegation(_) => None,
             ClassMember::Index(i) => i.visibility_range,
-            ClassMember::Variant(_) => None,
             ClassMember::Field(f) => f.visibility_range,
             ClassMember::TypeMember(_) => None,
         }
@@ -1834,7 +1815,6 @@ impl ClassMember {
             ClassMember::Setter(s) => s.implementation,
             ClassMember::Delegation(_) => ImplementationKind::Phalcom,
             ClassMember::Index(i) => i.implementation,
-            ClassMember::Variant(_) => ImplementationKind::Phalcom,
             ClassMember::Field(f) => f.implementation,
             ClassMember::TypeMember(t) => t.implementation,
         }
@@ -1847,7 +1827,6 @@ impl ClassMember {
             ClassMember::Setter(s) => s.implementation_range,
             ClassMember::Delegation(_) => None,
             ClassMember::Index(i) => i.implementation_range,
-            ClassMember::Variant(_) => None,
             ClassMember::Field(f) => f.implementation_range,
             ClassMember::TypeMember(t) => t.implementation_range,
         }
@@ -1899,40 +1878,6 @@ pub struct IndexMethodDef {
     /// distinct from [`Self::range`]'s whole-declaration span. See
     /// [`ClassDef::name_range`]'s doc for why this exists as its own field.
     pub name_range: SourceRange,
-}
-
-/// A single `@variant Name(label1:, label2:, ...)` arm declared inside a
-/// `@sealed` class body (U-ANNOT-LAYOUT §3.4, `annotations-data.md`
-/// §"`@variant`").
-///
-/// Distinct grammar from every other [`ClassMember`]: `Name(labels...)` has
-/// no body and no expression value per label — each label is a bare
-/// identifier followed by `:` (no type, no default), naming one field the
-/// generated sibling class will carry. The `@variant` [`Attribute`] itself is
-/// always present in [`Self::attributes`] (it is what tells the parser's
-/// `parse_class_body` to parse this production instead of an ordinary
-/// member); a bare `Name(labels...)` with no `@variant` prefix is not valid
-/// grammar and never produces this node.
-#[derive(Debug, Clone)]
-pub struct VariantDef {
-    /// The variant's name (e.g. `"Circle"`) — becomes the generated sibling
-    /// class's name, an ordinary **global** class name (Draft 0.1 has no
-    /// nested/namespaced variant naming, `annotations-data.md`'s own
-    /// simplification).
-    pub name: String,
-    /// The source span of just the variant name token.
-    pub name_range: SourceRange,
-    /// The declared field labels, in declaration order (e.g. `["radius"]`
-    /// for `@variant Circle(radius:)`) — R3, field order is API. Each label
-    /// becomes one `FieldDef` (named `"_" + label`) on the generated sibling
-    /// class, and one keyword-labeled parameter on the enclosing sealed
-    /// class's generated `match(...)` visitor.
-    pub labels: Vec<String>,
-    /// `@name(args…)` attributes attached to this variant declaration — in
-    /// practice always exactly one entry, the `@variant` attribute itself.
-    pub attributes: Vec<Attribute>,
-    /// The source span of the whole `@variant Name(labels...)` declaration.
-    pub range: SourceRange,
 }
 
 /// A declared class field: `_name [= expr]` for immutable storage or

@@ -556,8 +556,8 @@ SC-2 removes positional generic guessing.
 For:
 
 ```phalcom
-enum Result<T, E> {
-    @variant Ok(_ value: T)
+data Result<T, E> {
+    Ok(_ value: T)
 }
 ```
 

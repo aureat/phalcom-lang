@@ -135,11 +135,11 @@ fn iface_08_export_undeclared_rejected() {
     );
 }
 
-/// IFACE-09 — Enum declaration becomes exportable
+/// IFACE-09 — Data declaration becomes exportable
 #[test]
-fn iface_09_enum_becomes_exportable() {
+fn iface_09_data_becomes_exportable() {
     let id = make_test_id("test_mod");
-    let src = "enum Option {\n    @variant Some(_ value: Object)\n    @variant None\n}\nexport Option\n";
+    let src = "data Option {\n    Some(_ value: Object)\n    None\n}\nexport Option\n";
     let parse_result = parse(src, 0);
     assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
 
@@ -151,11 +151,11 @@ fn iface_09_enum_becomes_exportable() {
     );
 }
 
-/// IFACE-10 — Duplicate class and enum name is rejected
+/// IFACE-10 — Duplicate class and data name is rejected
 #[test]
-fn iface_10_enum_and_class_duplicate_name_rejected() {
+fn iface_10_data_and_class_duplicate_name_rejected() {
     let id = make_test_id("test_mod");
-    let src = "class Option {}\nenum Option {\n    @variant None\n}\n";
+    let src = "class Option {}\ndata Option {\n    None\n}\n";
     let parse_result = parse(src, 0);
     assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
 

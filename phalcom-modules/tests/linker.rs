@@ -2,7 +2,7 @@ use phalcom_ast::parser::parse;
 use phalcom_modules::{
     DependencyPhase, ImportBindingId, ImportPhaseSummary, InterfaceBuilder, LinkError, LinkedReadSpec, ModuleComponent, ModuleDiagnostic,
     ModuleDiagnosticKind, ModuleId, ModuleImportPhaseProduct, ModuleKind, ModuleLinker, ModulePath, PhaseEvidenceCoverage, ProjectUniverse,
-    ResolvedProjectId, SymbolId, UnlinkedModuleInterface,
+    ResolvedProjectId, RuntimeDependencyReason, RuntimeDependencyRequirement, SymbolId, UnlinkedModuleInterface,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -74,6 +74,10 @@ fn semantic_link_preserves_item_identity_without_executable_slots() {
         module: exporter,
         name: "Second".into(),
     }));
+
+    let unfinalized = linked.to_unfinalized_program();
+    assert_eq!(unfinalized.modules[&importer].linked_reads.len(), 2);
+    assert!(unfinalized.initialization_order.is_empty());
 }
 
 #[test]
@@ -119,6 +123,101 @@ fn finalization_omits_proven_interface_import_and_keeps_unknown_runtime() {
     assert!(linked.modules[&importer].bindings.imports.contains_key("Unknown"));
     assert_eq!(linked.modules[&importer].linked_reads.len(), 1);
     assert_eq!(unknown.local.0, 1);
+}
+
+#[test]
+fn finalization_includes_generated_runtime_requirements() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[
+            (exporter.clone(), "class TypeOnly {}\nexport TypeOnly\n"),
+            (importer.clone(), "from .exporter import TypeOnly\n"),
+        ]),
+    );
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter.clone())]);
+    let semantic = linker.link_semantic(importer.clone(), &resolved).expect("symbolic link should succeed");
+    let type_only = semantic.modules[&importer].imports.by_local_name["TypeOnly"].clone();
+    let phase = ModuleImportPhaseProduct {
+        module: importer.clone(),
+        bindings: BTreeMap::from([(
+            type_only,
+            ImportPhaseSummary {
+                phase: DependencyPhase::InterfaceOnly,
+                observed: true,
+            },
+        )]),
+        coverage: PhaseEvidenceCoverage::Complete,
+    };
+    let requirement = RuntimeDependencyRequirement {
+        importer: importer.clone(),
+        dependency: exporter.clone(),
+        range: Default::default(),
+        reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+        read_target: Some(LinkedReadSpec::Binding(SymbolId {
+            module: exporter.clone(),
+            name: "TypeOnly".into(),
+        })),
+    };
+
+    let executable = linker
+        .finalize_executable_with_requirements(semantic, &BTreeMap::from([(importer.clone(), phase)]), &[requirement])
+        .expect("generated runtime requirement should be finalized");
+    let program = executable.as_program();
+    assert!(!program.modules[&importer].bindings.imports.contains_key("TypeOnly"));
+    assert_eq!(program.modules[&importer].runtime_dependencies, vec![exporter.clone()]);
+    assert!(
+        program
+            .graphs
+            .runtime
+            .edges_from(&importer)
+            .iter()
+            .any(|edge| { edge.reason == RuntimeDependencyReason::RuntimeDeclarationReference && edge.dependency == exporter })
+    );
+    assert_eq!(
+        executable.runtime_read(
+            &importer,
+            &LinkedReadSpec::Binding(SymbolId {
+                module: exporter.clone(),
+                name: "TypeOnly".into(),
+            })
+        ),
+        Some(ImportBindingId(0)),
+        "generated canonical read must receive a finalized immutable slot"
+    );
+}
+
+#[test]
+fn finalization_rejects_cycles_created_by_generated_runtime_requirements() {
+    let a = module("a");
+    let b = module("b");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[(a.clone(), "class A {}\n"), (b.clone(), "class B {}\n")]),
+    );
+    let semantic = linker.link_semantic(a.clone(), &BTreeMap::new()).expect("symbolic link should succeed");
+    let requirements = [
+        RuntimeDependencyRequirement {
+            importer: a.clone(),
+            dependency: b.clone(),
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            read_target: None,
+        },
+        RuntimeDependencyRequirement {
+            importer: b.clone(),
+            dependency: a.clone(),
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            read_target: None,
+        },
+    ];
+
+    assert!(matches!(
+        linker.finalize_executable_with_requirements(semantic, &BTreeMap::new(), &requirements),
+        Err(LinkError::RuntimeCycle(_))
+    ));
 }
 
 /// LINK-02 — Selective import of non-exported name produces LinkError::MissingExport

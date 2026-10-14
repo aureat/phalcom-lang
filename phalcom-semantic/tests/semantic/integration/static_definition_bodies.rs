@@ -22,7 +22,7 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
     let fixture = WorkspaceFixture::new()
         .module(
             "main",
-            "data Point { x: Int, y: Int }\ndata LeftChoice { @variant Same(_ first: Int, _ second: Int) }\ndata RightChoice { @variant Same(_ first: Int, _ second: Int) }\ndata Boxed<T> { value: T }\nconst base: Int = 2\ntype ReadBase: Int = base\ntype AddBase: Int = base + 0\ntype AddLiteral: Int = 1 + 2\ntype Choose: Int = if true { 7 } else { 9 }\ntype ChooseElse: Int = if false { 7 } else { 9 }\ntype NestedChoose: Int = if false { 0 } else { if true { 5 } else { 6 } }\ntype NestedArithmetic: Int = 1 + (2 + 3)\ntype LazyAnd: Bool = false and (true == true)\ntype EagerAnd: Bool = true and (true == true)\ntype LazyOr: Bool = true or (true == true)\ntype TupleValue: (Int, Int) { (1, 2) }\ntype RecordValue: {left: Int, right: Int} { {left: 1, right: 2} }\ntype MixedRecordValue: { [#same]: Int, [\"same\"]: Int, [42]: Int, [true]: Bool } { { [#same]: 1, [\"same\"]: 2, [42]: 3, [true]: false } }\ntype InvalidRecordKeyOrder: { [#valid]: Int } { { [1.5]: 1 + true } }\ntype SymbolValue: Symbol = #move\ntype MutableLocal: Int { let mut value = 1\n value = 2\n value }\ntype OrderedWrites: Int { let mut value = 0\n value = 1\n value = 2\n value }\ntype UninitializedRead: Int { let value: Int\n value }\ntype ImmutableReassignment: Int { let value = 1\n value = 2\n value }\ntype Literal: Int = 3\ntype Applied: Int = Literal<>\ntype Identity<N: Int>: Int { N }\ntype AppliedValue: Int = Identity<7>\ntype Mixed<T: Type, N: Int>: Int { N }\ntype AppliedMixed: Int = Mixed<Int, 9>\ntype FixedKind<N: Int>: Type = Int\ntype ForwardKind<T: Type, N: Int>: Type = T\ntype CompositeKind<T: Type, N: Int>: Type = Boxed<T>\ntype KindConsumer<T: Type>: Int { 11 }\ntype AppliedFixedKind: Int = KindConsumer<FixedKind<0>>\ntype AppliedForwardKind: Int = KindConsumer<ForwardKind<Int, 0>>\ntype AppliedCompositeKind: Int = KindConsumer<CompositeKind<Int, 0>>\ntype OuterValue: Int { Literal<> }\ntype RecursiveValue: Int { RecursiveValue<> }\ntype RecursiveA: Int { RecursiveB<> }\ntype RecursiveB: Int { RecursiveA<> }\ntype StaticPoint: Point { Point { y: 2, x: 1 } }\ntype StaticLeft: LeftChoice { LeftChoice::Same(3, 4) }\ntype StaticRight: RightChoice { RightChoice::Same(3, 4) }\n",
+            "data Point { x: Int, y: Int }\ndata LeftChoice { Same(_ first: Int, _ second: Int) }\ndata RightChoice { Same(_ first: Int, _ second: Int) }\ndata Boxed<T> { value: T }\nconst base: Int = 2\ntype ReadBase: Int = base\ntype AddBase: Int = base + 0\ntype AddLiteral: Int = 1 + 2\ntype Choose: Int = if true { 7 } else { 9 }\ntype ChooseElse: Int = if false { 7 } else { 9 }\ntype NestedChoose: Int = if false { 0 } else { if true { 5 } else { 6 } }\ntype NestedArithmetic: Int = 1 + (2 + 3)\ntype LazyAnd: Bool = false and (true == true)\ntype EagerAnd: Bool = true and (true == true)\ntype LazyOr: Bool = true or (true == true)\ntype TupleValue: (Int, Int) { (1, 2) }\ntype RecordValue: {left: Int, right: Int} { {left: 1, right: 2} }\ntype MixedRecordValue: { [#same]: Int, [\"same\"]: Int, [42]: Int, [true]: Bool } { { [#same]: 1, [\"same\"]: 2, [42]: 3, [true]: false } }\ntype InvalidRecordKeyOrder: { [#valid]: Int } { { [1.5]: 1 + true } }\ntype SymbolValue: Symbol = #move\ntype MutableLocal: Int { let mut value = 1\n value = 2\n value }\ntype OrderedWrites: Int { let mut value = 0\n value = 1\n value = 2\n value }\ntype UninitializedRead: Int { let value: Int\n value }\ntype ImmutableReassignment: Int { let value = 1\n value = 2\n value }\ntype Literal: Int = 3\ntype Applied: Int = Literal<>\ntype Identity<N: Int>: Int { N }\ntype AppliedValue: Int = Identity<7>\ntype Mixed<T: Type, N: Int>: Int { N }\ntype AppliedMixed: Int = Mixed<Int, 9>\ntype FixedKind<N: Int>: Type = Int\ntype ForwardKind<T: Type, N: Int>: Type = T\ntype CompositeKind<T: Type, N: Int>: Type = Boxed<T>\ntype KindConsumer<T: Type>: Int { 11 }\ntype AppliedFixedKind: Int = KindConsumer<FixedKind<0>>\ntype AppliedForwardKind: Int = KindConsumer<ForwardKind<Int, 0>>\ntype AppliedCompositeKind: Int = KindConsumer<CompositeKind<Int, 0>>\ntype OuterValue: Int { Literal<> }\ntype RecursiveValue: Int { RecursiveValue<> }\ntype RecursiveA: Int { RecursiveB<> }\ntype RecursiveB: Int { RecursiveA<> }\ntype StaticPoint: Point { Point { y: 2, x: 1 } }\ntype StaticLeft: LeftChoice { LeftChoice::Same(3, 4) }\ntype StaticRight: RightChoice { RightChoice::Same(3, 4) }\n",
         )
         .analyze();
     let module = fixture.module("main").clone();
@@ -601,7 +601,10 @@ fn symbolic_vector_identity_spread_stays_unreduced_before_reading_its_source() {
     let symbolic_resolution = symbolic.sequence_literals.values().next().expect("generic checked identity spread");
     let symbolic_type = symbolic_resolution.result_type;
     let symbolic_extent = symbolic_resolution.extent.expect("symbolic Vector extent");
-    assert!(matches!(fixture.analysis.snapshot.store.get(symbolic_extent), phalcom_semantic::types::store::TypeData::Parameter(_)));
+    assert!(matches!(
+        fixture.analysis.snapshot.store.get(symbolic_extent),
+        phalcom_semantic::types::store::TypeData::Parameter(_)
+    ));
 
     let copied = fixture
         .analysis
@@ -625,16 +628,15 @@ fn symbolic_vector_identity_spread_stays_unreduced_before_reading_its_source() {
     checked.sequence_literals = Arc::new(resolutions);
 
     let mut values = StaticValueStore::new();
-    let outcome = StaticEvaluator::for_checked_expression(
-        &checked,
-        &mut values,
-        &mut QueryBudget::default(),
-        &CancellationToken::new(),
-    )
-    .with_type_store(&fixture.analysis.snapshot.store)
-    .evaluate();
+    let outcome = StaticEvaluator::for_checked_expression(&checked, &mut values, &mut QueryBudget::default(), &CancellationToken::new())
+        .with_type_store(&fixture.analysis.snapshot.store)
+        .evaluate();
     assert!(matches!(outcome, StaticEvalOutcome::Symbolic(_)));
-    assert_eq!(values.len(), 0, "the symbolic spread must stop before reading its source or publishing a sequence root");
+    assert_eq!(
+        values.len(),
+        0,
+        "the symbolic spread must stop before reading its source or publishing a sequence root"
+    );
 }
 
 #[test]
@@ -782,10 +784,7 @@ type BreakCaller: Int { BreakCallee<> }
 fn static_while_uses_loop_control_work_and_rejects_while_true_as_static_control() {
     let boolean_flag_loop = |name: &str, iterations: usize| {
         let flags = (0..iterations).map(|index| format!("flag_{index}")).collect::<Vec<_>>();
-        let declarations = flags
-            .iter()
-            .map(|flag| format!("  let mut {flag} = true\n"))
-            .collect::<String>();
+        let declarations = flags.iter().map(|flag| format!("  let mut {flag} = true\n")).collect::<String>();
         let condition = flags.join(" or ");
         let mut branch = format!("{last} = false", last = flags.last().expect("at least one loop flag"));
         for index in (0..iterations.saturating_sub(1)).rev() {
@@ -885,7 +884,10 @@ type WhileNonBool: Int { while 1 { break }
     let mut long_budget = QueryBudget::new(1_000_000);
     let (long, _) = evaluate("WhileLong", &mut long_budget, &CancellationToken::new());
     assert!(matches!(long, StaticEvalOutcome::Reduced(_)));
-    assert!(long_budget.steps_taken > short_budget.steps_taken, "longer loops must charge more Work transitions");
+    assert!(
+        long_budget.steps_taken > short_budget.steps_taken,
+        "longer loops must charge more Work transitions"
+    );
 
     let mut bounded_budget = QueryBudget::new(64);
     let (bounded, _) = evaluate("WhileForever", &mut bounded_budget, &CancellationToken::new());
@@ -941,7 +943,12 @@ type WhileNonBool: Int { while 1 { break }
         .static_definition(&fixture.decl("main", "WhileNonBool"))
         .and_then(|definition| definition.checked_body.as_ref())
         .expect("checked non-Bool while condition");
-    assert!(non_bool.diagnostics.iter().any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeMismatch));
+    assert!(
+        non_bool
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeMismatch)
+    );
 }
 
 #[test]
@@ -1356,7 +1363,7 @@ fn static_for_visits_fixed_record_fields_without_enumerating_an_open_tail() {
 #[test]
 fn static_evaluator_executes_match_for_and_proof_predicates() {
     let source = r#"
-data Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }
+data Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }
 
 trait MarkerTrait {}
 impl MarkerTrait for Int {}

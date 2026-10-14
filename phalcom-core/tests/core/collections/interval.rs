@@ -103,9 +103,9 @@ let passed = rUnordered and rOrdered
 fn probe_t0_p5_ordinary_sum_and_product_data() {
     let source = r#"
 data BoundProbe<T> {
-    @variant Unbounded
-    @variant Included(value: T)
-    @variant Excluded(value: T)
+    Unbounded
+    Included(value: T)
+    Excluded(value: T)
 }
 
 data IntervalProbe<T>(_ lower: BoundProbe<T>, _ upper: BoundProbe<T>)

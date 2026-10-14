@@ -1,10 +1,10 @@
 // area: errors
-// spec: annotations-data.md @variant / this implementation specification
+// spec: objects/enums.md
 // status: PASS
 
 data Ordering {
-  @variant Less
-  @variant Greater
+  Less
+  Greater
 }
 
 System.print(Ordering::Less)

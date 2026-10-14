@@ -9,7 +9,7 @@ fn associated_expression_attaches_to_one_formal_source_site() {
     let source: Arc<str> = Arc::from(
         r#"
 data State {
-  @variant Ready
+  Ready
 }
 class Probe {
   @class run() { State::Ready }

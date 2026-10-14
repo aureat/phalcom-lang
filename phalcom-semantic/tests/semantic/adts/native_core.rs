@@ -67,8 +67,8 @@ class Test {
 fn test_native_option_canonical_enum_semantics() {
     let source = r#"
 native data Option<T> {
-    @variant Some(_ value: T)
-    @variant None
+    Some(_ value: T)
+    None
 }
 
 class Test {
@@ -104,8 +104,8 @@ class Test {
 fn test_native_result_canonical_enum_semantics() {
     let source = r#"
 native data Result<T, E> {
-    @variant Ok(_ value: T)
-    @variant Error(_ error: E)
+    Ok(_ value: T)
+    Error(_ error: E)
 }
 
 class Test {
@@ -141,10 +141,10 @@ class Test {
 fn test_native_ordering_canonical_enum_semantics() {
     let source = r#"
 native data Ordering {
-    @variant Less
-    @variant Equal
-    @variant Greater
-    @variant Unordered
+    Less
+    Equal
+    Greater
+    Unordered
 }
 
 class Test {
@@ -266,8 +266,8 @@ class Test {
     let native = analyze_adt(
         r#"
 native data Option<T> {
-  @variant Some(_ value: T)
-  @variant None
+  Some(_ value: T)
+  None
 }
 
 class Test {

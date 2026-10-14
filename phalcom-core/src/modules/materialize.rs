@@ -699,7 +699,7 @@ impl VM {
             .get(id)
             .ok_or_else(|| RuntimeError::Internal(format!("module {id} not found in registry")))?
             .object;
-        let bindings = program.linked.modules.get(id).map(CompileBindings::from_linked_module);
+        let bindings = CompileBindings::from_executable_linked_program(&program.linked, id);
         let closure = self
             .compile_closure_as_with_bindings(obj_ref, source, crate::compiler::lib::UnitKind::File, bindings)
             .inspect_err(|err| {

@@ -13,8 +13,8 @@ fn gadt_constructor_resolution_refines_owner_and_keeps_runtime_result_known() {
     let source: Arc<str> = Arc::from(
         r#"
 data Expr<T> {
-  @variant IntLit(_ value: Int) -> Expr<Int>
-  @variant BoolLit(_ value: Bool) -> Expr<Bool>
+  IntLit(_ value: Int) -> Expr<Int>
+  BoolLit(_ value: Bool) -> Expr<Bool>
 }
 class Probe {
   @class run() { Expr<Int>::IntLit(42) }

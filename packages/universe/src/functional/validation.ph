@@ -5,8 +5,8 @@ from .algebra import Semigroup
 /// zipWith accumulates BOTH errors through an explicit combining operation.
 /// E can be a string, an immutable collection, or a domain-specific report.
 data Validation<T, E> {
-  @variant Valid(_ value: T)
-  @variant Invalid(_ error: E)
+  Valid(_ value: T)
+  Invalid(_ error: E)
 }
 
 impl<T, E> Validation<T, E> {

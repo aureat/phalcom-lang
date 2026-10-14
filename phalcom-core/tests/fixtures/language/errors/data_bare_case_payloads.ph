@@ -1,10 +1,10 @@
 // area: errors
-// spec: annotations-data.md @variant / this implementation specification
+// spec: objects/enums.md
 // status: PASS
 
 data Shape {
-  @variant Circle(radius: Int)
-  @variant Rect(w: Int, h: Int)
+  Circle(radius: Int)
+  Rect(w: Int, h: Int)
 }
 
 let c = Shape::Circle(radius: 3)

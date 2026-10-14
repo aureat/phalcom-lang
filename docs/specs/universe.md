@@ -1138,8 +1138,8 @@ Required: `json` has a module semantic target for `universe.json`.
 
 ```phalcom
 data Result {
-    @variant Ok(_ value: Int)
-    @variant Failure(_ message: String)
+    Ok(_ value: Int)
+    Failure(_ message: String)
 }
 ```
 

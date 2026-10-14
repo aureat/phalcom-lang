@@ -411,9 +411,9 @@ fn immediate_family_call_publishes_static_application_resolution() {
     let source: Arc<str> = Arc::from(
         r#"
 data Weird {
-  @variant Marker
-  @variant Marker()
-  @variant Marker(_ value: Int)
+  Marker
+  Marker()
+  Marker(_ value: Int)
 }
 
 class Probe {
@@ -439,9 +439,9 @@ fn stored_family_call_publishes_static_application_resolution() {
     let source: Arc<str> = Arc::from(
         r#"
 data Weird {
-  @variant Marker
-  @variant Marker()
-  @variant Marker(_ value: Int)
+  Marker
+  Marker()
+  Marker(_ value: Int)
 }
 
 class Probe {
@@ -470,9 +470,9 @@ fn stored_family_dynamic_pack_publishes_frozen_candidates() {
     let source: Arc<str> = Arc::from(
         r#"
 data Weird {
-  @variant Marker
-  @variant Marker()
-  @variant Marker(_ value: Int)
+  Marker
+  Marker()
+  Marker(_ value: Int)
 }
 
 class Probe {
@@ -603,7 +603,7 @@ fn generic_associated_variant_family_recovers_constructor_signature() {
     let source: Arc<str> = Arc::from(
         r#"
 data Option<T> {
-  @variant Some(_ value: T) -> Option<T>
+  Some(_ value: T) -> Option<T>
 }
 
 class Probe {
@@ -647,7 +647,7 @@ fn family_wrong_shape_reports_associated_call_shape() {
     let source: Arc<str> = Arc::from(
         r#"
 data Weird {
-  @variant Marker(_ value: Int)
+  Marker(_ value: Int)
 }
 
 class Probe {

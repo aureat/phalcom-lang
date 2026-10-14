@@ -24,7 +24,7 @@ fn write_parity_package(root: &Path) {
     fs::write(root.join("main.ph"), "import .either as EitherModule\nfrom .constants import version\n").unwrap();
     fs::write(
         root.join("either.ph"),
-        "data Either<L, R> {\n    @variant\n    Left(_ value: L)\n\n    @variant\n    Right(_ value: R)\n}\nexport Either\n",
+        "data Either<L, R> {\n    Left(_ value: L)\n\n    Right(_ value: R)\n}\nexport Either\n",
     )
     .unwrap();
     fs::write(root.join("constants.ph"), "const version = \"1\"\nexport version\n").unwrap();

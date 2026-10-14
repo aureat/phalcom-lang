@@ -1,10 +1,35 @@
 use phalcom_core::modules::RuntimeLinkedRead;
-use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
+use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer, ProgramCompileError, ProgramCompiler};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use phalcom_modules::{LinkError, LinkedReadSpec, ModuleComponent, ModuleId, ModulePath, ModuleResolutionError};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+
+fn semantic_session_with_private_numbers_child_exposed() -> phalcom_semantic::SemanticWorkspaceSession {
+    static NEXT_WORKSPACE_ID: AtomicU64 = AtomicU64::new(40_000);
+
+    let universe_provider = phalcom_modules::UniverseSourceProvider::new();
+    let numbers = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("numbers").expect("valid module component"),
+    ]));
+    let numbers_source = universe_provider.source_text(&numbers).expect("canonical numbers source");
+    let compatible_numbers_source = numbers_source.replacen("from .capabilities import", "expose .capabilities\nfrom .capabilities import", 1);
+    assert_ne!(
+        compatible_numbers_source,
+        numbers_source.as_ref(),
+        "test fixture must amend the private child exposure"
+    );
+    let universe_provider = phalcom_modules::UniverseSourceProvider::with_test_source_override(numbers, Arc::from(compatible_numbers_source))
+        .expect("test-only Universe source override is valid");
+    phalcom_semantic::SemanticWorkspaceSession::with_universe_source_provider(
+        phalcom_semantic::identity::WorkspaceId::from_raw(NEXT_WORKSPACE_ID.fetch_add(1, Ordering::Relaxed)),
+        universe_provider,
+    )
+}
 
 fn fixture_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/modules_linker").join(name)
@@ -170,6 +195,193 @@ fn comp_07_cycle_ab_detected_and_rejected() {
         matches!(result, Err(ProgramCompileError::Link(LinkError::RuntimeCycle(_)))),
         "expected RuntimeCycle error, got {:?}",
         result
+    );
+}
+
+/// Semantic-only selected imports remain resolvable without executable reads,
+/// while analysis publishes a finalized runtime layout.
+#[test]
+fn semantic_type_cycle_finalizes_without_runtime_import_slots() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let src_dir = root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"phase_links\"\nnamespace = \"phase_links\"\nversion = \"0.1.0\"\nentry = \"phase_links.main\"\n",
+    )
+    .unwrap();
+    std::fs::write(src_dir.join("package.ph"), "expose .a\nexpose .b\nexpose .main\n").unwrap();
+    std::fs::write(src_dir.join("a.ph"), "from .b import B\nclass A { _value: B }\nexport A\n").unwrap();
+    std::fs::write(src_dir.join("b.ph"), "from .a import A\nclass B { _value: A }\nexport B\n").unwrap();
+    std::fs::write(src_dir.join("main.ph"), "from .a import A\nlet value = A\n").unwrap();
+
+    let analyzed = ProgramAnalyzer::analyze_entry_selection_with_session(
+        EntrySelection::Project(root.to_path_buf()),
+        semantic_session_with_private_numbers_child_exposed(),
+    )
+    .expect("mutual type imports should pass symbolic semantic linking");
+    assert!(!analyzed.semantic.has_errors(), "{:#?}", analyzed.semantic.diagnostics);
+
+    let a_id = analyzed
+        .linked
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "a")
+        .expect("module a is linked");
+    let b_id = analyzed
+        .linked
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "b")
+        .expect("module b is linked");
+    let main_id = analyzed
+        .linked
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "main")
+        .expect("entry module is linked");
+
+    for (module, local_name) in [(a_id, "B"), (b_id, "A")] {
+        let linked = &analyzed.linked.modules[module];
+        assert!(
+            !linked.bindings.imports.contains_key(local_name),
+            "interface-only `{local_name}` must not have a runtime slot"
+        );
+        assert!(linked.linked_reads.is_empty(), "interface-only import must not create a linked read");
+        assert!(
+            analyzed.linked.graphs.runtime.edges_from(module).is_empty(),
+            "interface-only import must not enter the runtime graph"
+        );
+    }
+
+    let main = &analyzed.linked.modules[main_id];
+    assert!(main.bindings.imports.contains_key("A"), "value-position import retains its runtime slot");
+    assert_eq!(main.linked_reads.len(), 1);
+
+    assert!(analyzed.linked.modules.contains_key(a_id));
+    assert!(analyzed.linked.modules.contains_key(b_id));
+}
+
+/// A protocol default may construct an adapter that depends on the protocol
+/// only for conformance. The finalized runtime edge stays one-way.
+#[test]
+fn protocol_default_to_adapter_cycle_is_only_semantic_on_adapter_side() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let src_dir = root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"phase_iteration\"\nnamespace = \"phase_iteration\"\nversion = \"0.1.0\"\nentry = \"phase_iteration.main\"\n",
+    )
+    .unwrap();
+    std::fs::write(src_dir.join("package.ph"), "expose .adapter\nexpose .main\nexpose .protocol\n").unwrap();
+    std::fs::write(
+        src_dir.join("protocol.ph"),
+        "from .adapter import Adapter\ntrait Builds { build() -> Int { let adapter = Adapter.new(); 23 } }\nexport Builds\n",
+    )
+    .unwrap();
+    std::fs::write(
+        src_dir.join("adapter.ph"),
+        "from .protocol import Builds\nclass Adapter {}\nimpl Builds for Adapter {}\nexport Adapter\n",
+    )
+    .unwrap();
+    std::fs::write(src_dir.join("main.ph"), "from .adapter import Adapter\nlet result = Adapter.new().build()\n").unwrap();
+
+    let analyzed = ProgramAnalyzer::analyze_entry_selection_with_session(
+        EntrySelection::Project(root.to_path_buf()),
+        semantic_session_with_private_numbers_child_exposed(),
+    )
+    .expect("interface-only conformance edge should not form a runtime cycle");
+    let protocol_id = analyzed
+        .linked
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "protocol")
+        .expect("protocol module is linked");
+    let adapter_id = analyzed
+        .linked
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "adapter")
+        .expect("adapter module is linked");
+    let main_id = analyzed
+        .linked
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "main")
+        .expect("entry module is linked");
+
+    assert!(
+        analyzed
+            .semantic
+            .trait_headers
+            .contains(&phalcom_semantic::identity::DeclarationId::new(protocol_id.clone(), "Builds".into())),
+        "the adapter's interface-only import must retain the protocol's canonical trait identity"
+    );
+    assert!(
+        analyzed
+            .linked
+            .graphs
+            .runtime
+            .edges_from(protocol_id)
+            .iter()
+            .any(|edge| &edge.dependency == adapter_id),
+        "the default's adapter construction contributes the protocol-to-adapter runtime edge"
+    );
+    assert!(
+        analyzed
+            .linked
+            .graphs
+            .runtime
+            .edges_from(adapter_id)
+            .iter()
+            .all(|edge| &edge.dependency != protocol_id),
+        "adapter conformance alone does not create an adapter-to-protocol runtime edge"
+    );
+    let adapter_module = &analyzed.linked.modules[adapter_id];
+    assert!(!adapter_module.bindings.imports.contains_key("Builds"));
+    assert!(adapter_module.linked_reads.is_empty(), "the semantic-only trait import has no executable slot");
+    let order = &analyzed.linked.initialization_order;
+    assert!(order.iter().position(|id| id == adapter_id).unwrap() < order.iter().position(|id| id == protocol_id).unwrap());
+    assert!(order.iter().position(|id| id == protocol_id).unwrap() < order.iter().position(|id| id == main_id).unwrap());
+}
+
+/// The same protocol/default → adapter path still rejects a runtime edge in
+/// the reverse direction; strict cycle checking is independent of semantic
+/// conformance edges.
+#[test]
+fn protocol_default_adapter_runtime_cycle_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let src_dir = root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"phase_iteration_cycle\"\nnamespace = \"phase_iteration_cycle\"\nversion = \"0.1.0\"\nentry = \"phase_iteration_cycle.main\"\n",
+    )
+    .unwrap();
+    std::fs::write(src_dir.join("package.ph"), "expose .adapter\nexpose .main\nexpose .protocol\n").unwrap();
+    std::fs::write(
+        src_dir.join("protocol.ph"),
+        "from .adapter import Adapter\ntrait Builds { build() -> Int { let adapter = Adapter.new(); 23 } }\nexport Builds\n",
+    )
+    .unwrap();
+    std::fs::write(
+        src_dir.join("adapter.ph"),
+        "from .protocol import Builds\nclass Adapter {}\nimpl Builds for Adapter {}\nlet protocol = Builds\nexport Adapter\n",
+    )
+    .unwrap();
+    std::fs::write(src_dir.join("main.ph"), "from .adapter import Adapter\nlet result = Adapter.new().build()\n").unwrap();
+
+    let result = ProgramAnalyzer::analyze_entry_selection_with_session(
+        EntrySelection::Project(root.to_path_buf()),
+        semantic_session_with_private_numbers_child_exposed(),
+    );
+    assert!(
+        matches!(result, Err(ProgramCompileError::Link(LinkError::RuntimeCycle(_)))),
+        "a runtime value use of the protocol from the adapter must restore strict cycle rejection; got {result:?}"
     );
 }
 

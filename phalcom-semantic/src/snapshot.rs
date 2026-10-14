@@ -225,8 +225,8 @@ pub struct SemanticSnapshot {
     pub semantic_structure_shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
     /// Observed and inferred dependency use-phases for each imported source binding.
     pub import_phase_products: Arc<BTreeMap<ModuleId, phalcom_modules::linker::ModuleImportPhaseProduct>>,
-    /// Non-source runtime dependency requirements discovered during semantic analysis.
-    pub generated_runtime_requirements: Arc<[phalcom_modules::graph::RuntimeDependencyEdge]>,
+    /// Runtime dependency requirements discovered during semantic analysis.
+    pub generated_runtime_requirements: Arc<[phalcom_modules::RuntimeDependencyRequirement]>,
     pub status: SnapshotStatus,
 }
 

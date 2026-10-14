@@ -4,8 +4,7 @@ use crate::method::{SignatureKind, encode_selector};
 use crate::vm::ClassKey;
 use phalcom_ast::ast::{
     AssignmentExpr, AttrKind, Attribute, BinaryExpr, BinaryOp, BuiltinAttr, ClassDef, ClassMember, Expr, FieldDef, FieldKind, GetPropertyExpr, GetterDef,
-    ImplementationKind, IndexAccessor, MemberBody, MethodDef, ParameterDef, RestMode, ReturnStatement, SetterDef, StaticSymbolRef, TypeAnnotation,
-    TypeAnnotationExpr, VariantDef, Visibility,
+    ImplementationKind, IndexAccessor, MemberBody, MethodDef, ParameterDef, RestMode, ReturnStatement, SetterDef, Visibility,
 };
 use phalcom_common::range::SourceRange;
 use phalcom_semantic::identity::{CallableId, DeclarationId};
@@ -64,29 +63,8 @@ pub struct ExpandCtx<'a> {
     /// instead of raising `attr.unknown` (see `resolves_to_attribute_class`
     /// in this module).
     pub class_parents: &'a HashMap<ClassKey, ClassKey>,
-    /// The compile-unit-scoped sealed-class table
-    /// ([`crate::vm::VM::sealed_classes`]), read-only here — the **second**
-    /// source of "is this class sealed?", and the only one that knows about a
-    /// class sealed by a path other than its own `@sealed` attribute.
-    ///
-    /// Needed because the two sealing paths populate different things and
-    /// neither is complete on its own (DEFERRED CB-3 / `drafts/sealed-classes.md`
-    /// S-1):
-    ///
-    /// - a **user** `@sealed class Shape` is not in this table yet when its body
-    ///   is expanded — `class_decl.rs` inserts it only *after* the body compiles
-    ///   and the class's global is defined — so the attribute list is the only
-    ///   evidence available here;
-    /// - **bootstrap-sealed** `Option`/`Some`/`None` are in this table but carry
-    ///   no `@sealed` attribute at all (`vm/bootstrap.rs` writes it directly,
-    ///   because `None` has no `.ph` class reopen to hang an annotation on), so
-    ///   the table is the only evidence.
-    ///
-    /// A gate that consults either source alone is wrong for the other case, so
-    /// [`expand_class_attributes`] takes the union. See `has_sealed` there.
-    pub sealed_classes: &'a HashMap<ClassKey, ObjRef>,
     /// The module handle for the currently-compiling unit. Used to build a
-    /// [`ClassKey`] for lookups in `class_parents` and `sealed_classes`.
+    /// [`ClassKey`] for lookups in `class_parents`.
     pub module: ObjRef,
     /// Handle to the Universe root, used for canonical builtin fallback in
     /// [`ClassKey`]-based lookups (when a name resolves from the core module).
@@ -133,13 +111,6 @@ pub enum Target {
     /// A declared [`phalcom_ast::ast::ClassMember::Field`] (U-ANNOT-LAYOUT
     /// §3.1) — the legal target for the `@get`/`@set` derive tier (§3.2).
     Field,
-    /// A declared [`phalcom_ast::ast::ClassMember::Variant`] (U-ANNOT-LAYOUT
-    /// §3.4, `annotations-data.md` §"`@variant`") — the sole legal target for
-    /// `@variant`. Distinguishes a variant arm from an ordinary `Method`, so
-    /// `@variant` on a plain method is `attr.illegal_target`
-    /// (`annotations-legality-grammar.md`'s legality table: "`@variant` |
-    /// Class-nested variant decl | plain method").
-    Variant,
     /// A declared [`phalcom_ast::ast::ClassMember::Index`] (U-INDEX,
     /// ADR-0060's bracket subscript method, `[idx] { ... }`). No expander
     /// currently lists this as a legal target — an attribute attached to a
@@ -775,28 +746,6 @@ impl AttributeExpander for SealedExpander {
     }
 }
 
-/// Registry entry for `@variant` (U-ANNOT-LAYOUT §3.4, `annotations-data.md`
-/// §"`@variant`"). Same deliberate-no-op shape as [`GetExpander`]: `@variant`'s
-/// real derive — stripping the [`phalcom_ast::ast::ClassMember::Variant`] arm
-/// and generating a sibling top-level class plus the enclosing class's
-/// `match(...)` visitor — needs the whole class's `@variant` arm set and
-/// returns *sibling statements*, a shape [`AttributeExpander::expand`] cannot
-/// produce, so it runs once from [`expand_class_attributes`] via
-/// `expand_variants`. This row only exists so `attr.unknown`/
-/// `attr.illegal_target` fire correctly for `@variant` (e.g. `@variant` on an
-/// ordinary method, per the legality table's "plain method" illegal-target
-/// row).
-pub struct VariantExpander;
-impl AttributeExpander for VariantExpander {
-    fn legal_targets(&self) -> &'static [Target] {
-        &[Target::Variant]
-    }
-
-    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
-        Ok(())
-    }
-}
-
 /// Registry entry for `@On` — the builtin attribute carrying legality + tier
 /// for a user `Attribute` subclass's own header (M-ATTR-ROOT,
 /// `attribute-classes.md` §"`@On`"). Like [`InvariantExpander`]/
@@ -901,7 +850,6 @@ impl Default for AttributeRegistry {
         expanders[BuiltinAttr::Set as usize] = Some(Box::new(SetExpander));
         expanders[BuiltinAttr::Data as usize] = Some(Box::new(DataExpander));
         expanders[BuiltinAttr::Sealed as usize] = Some(Box::new(SealedExpander));
-        expanders[BuiltinAttr::Variant as usize] = Some(Box::new(VariantExpander));
         expanders[BuiltinAttr::On as usize] = Some(Box::new(OnExpander));
         expanders[BuiltinAttr::Ignore as usize] = Some(Box::new(IgnoreExpander));
         expanders[BuiltinAttr::Primitive as usize] = Some(Box::new(RetiredPrimitiveExpander));
@@ -1341,7 +1289,7 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
 /// Returns the derived selector `m` would occupy if `m` is a
 /// [`ClassMember::Method`]/[`ClassMember::Getter`]/[`ClassMember::Setter`],
 /// or `None` for a member kind with no ordinary dispatch selector of its own
-/// ([`ClassMember::Field`]/[`ClassMember::Variant`]).
+/// ([`ClassMember::Field`]).
 /// Shared by [`check_selector_collision`]/[`class_has_selector`] — the one
 /// place this module computes "what selector does this existing member
 /// occupy" generically across member kinds.
@@ -1372,7 +1320,7 @@ fn member_selector(m: &ClassMember) -> Result<Option<String>, CompilerError> {
             };
             Some(encode_selector("", &labels, kind))
         }
-        ClassMember::Delegation(_) | ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::TypeMember(_) => None,
+        ClassMember::Delegation(_) | ClassMember::Field(_) | ClassMember::TypeMember(_) => None,
     })
 }
 
@@ -2035,240 +1983,6 @@ fn make_signature_getter(base: &str) -> String {
     encode_selector(base, &[], SignatureKind::Getter)
 }
 
-/// Lower-cases the first character of `name` (e.g. `"Circle"` → `"circle"`),
-/// leaving the rest unchanged — the variant-name-to-keyword-label convention
-/// [`expand_variants`]'s generated `match(...)` visitor and `__matchArm`
-/// overrides use (`annotations-data.md`'s worked `Circle`/`Rect` example:
-/// `match(circle:, rect:)`). Byte-based (not full Unicode case-folding) —
-/// consistent with every other identifier-shaping helper in this module
-/// ([`strip_leading_underscore`]).
-fn lower_first(name: &str) -> String {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
-    }
-}
-
-/// Expands every `@variant Name(labels...)` arm declared in `class`'s body
-/// (U-ANNOT-LAYOUT §3.4, `annotations-data.md` §"`@variant`") into a sibling
-/// top-level `Statement::Class`, `extends class.name`, itself carrying
-/// `@data` and one `FieldDef` per label — then, once every arm is known,
-/// appends the enclosing class's generated `match(...)` visitor
-/// (`self.__matchArm(...)`, double-dispatched to each variant's own
-/// `__matchArm` override).
-///
-/// Returns the generated sibling [`Statement::Class`] nodes for the caller
-/// (`compiler::lib::class_decl::Compiler::compile_class`, DEC-ANNOT-G) to
-/// compile immediately after the enclosing class — this is the one place
-/// this tier's generate phase produces something other than a member of the
-/// class it's attached to, the load-bearing reason
-/// [`expand_class_attributes`]'s return type widened to include a
-/// `Vec<Statement>` alongside the (still member-only) `ClassDef` it returns.
-///
-/// Returns an empty `Vec` (no-op) if `class` declares no `@variant` arms at
-/// all.
-///
-/// # Errors
-///
-/// Returns a compile error if `class` declares one or more `@variant` arms
-/// but `has_sealed` is `false` — `@variant` is only meaningful inside a
-/// `@sealed` class body (`annotations-data.md`'s own worked example always
-/// pairs the two; `@sealed` is what lets the generated visitor be checked
-/// exhaustive at all, per that doc's `@sealed` section).
-fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Statement>, CompilerError> {
-    let variants: Vec<VariantDef> = class
-        .members
-        .iter()
-        .filter_map(|m| match m {
-            ClassMember::Variant(v) => Some(v.clone()),
-            _ => None,
-        })
-        .collect();
-    if variants.is_empty() {
-        return Ok(Vec::new());
-    }
-    if !has_sealed {
-        return Err(CompilerError::Message(format!(
-            "attr.illegal_target: `@variant` requires its enclosing class `{}` to also carry `@sealed`",
-            class.name
-        )));
-    }
-
-    class.members.retain(|m| !matches!(m, ClassMember::Variant(_)));
-
-    let variant_kw_names: Vec<String> = variants.iter().map(|v| lower_first(&v.name)).collect();
-    let mut siblings = Vec::with_capacity(variants.len());
-
-    for v in &variants {
-        let mut members = Vec::with_capacity(v.labels.len() + 1);
-        for label in &v.labels {
-            members.push(ClassMember::Field(FieldDef {
-                name: format!("_{}", label),
-                name_range: v.range,
-                mutable: true,
-                is_static: false,
-                visibility: Visibility::Public,
-                visibility_range: None,
-                implementation: phalcom_common::modifier::ImplementationKind::Phalcom,
-                implementation_range: None,
-                annotation: None,
-                default: None,
-                attributes: Vec::new(),
-                range: v.range,
-            }));
-        }
-
-        // `matchArm(k1, k2, ...) { return <ownKeyword>.call(self) }` — every
-        // variant implements the identical selector (same keyword-name list,
-        // positional, in `@variant` declaration order across the *whole*
-        // sealed family), overriding only which positional block it calls —
-        // the double-dispatch step the enclosing class's `match(...)` defers
-        // to.
-        let own_kw = lower_first(&v.name);
-        let params: Vec<ParameterDef> = variant_kw_names
-            .iter()
-            .map(|n| ParameterDef {
-                name: n.clone(),
-                name_range: v.range,
-                label: None,
-                label_range: None,
-                rest_mode: RestMode::None,
-                annotation: None,
-                range: v.range,
-            })
-            .collect();
-        let call_expr = Expr::MethodCall(Box::new(MethodCallExpr {
-            object: Expr::Var { value: own_kw, range: v.range },
-            method: "call".to_string(),
-            method_range: None,
-            args: vec![PackItem::Positional {
-                expr: Expr::SelfVar { range: v.range },
-                range: v.range,
-            }],
-            invocation_authority: Default::default(),
-            range: v.range,
-        }));
-        members.push(ClassMember::Method(MethodDef {
-            name: "matchArm".to_string(),
-            generic_parameters: Vec::new(),
-            params,
-            return_annotation: None,
-            where_clause: None,
-            body: MemberBody::Block(vec![Statement::Return(ReturnStatement {
-                value: Some(call_expr),
-                range: v.range,
-            })]),
-            is_static: false,
-            is_constructor: false,
-            attributes: Vec::new(),
-            visibility: Visibility::Private,
-            visibility_range: None,
-            implementation: ImplementationKind::Phalcom,
-            implementation_range: None,
-            is_primitive: false,
-            range: v.range,
-            name_range: v.range,
-        }));
-
-        siblings.push(Statement::Class(ClassDef {
-            name: v.name.clone(),
-            generic_parameters: Vec::new(),
-            superclass: Some(TypeAnnotation {
-                expr: TypeAnnotationExpr::Reference(StaticSymbolRef {
-                    root: class.name.clone(),
-                    root_range: v.range,
-                    members: Vec::new(),
-                    range: v.range,
-                }),
-                range: v.range,
-            }),
-            where_clause: None,
-            associated_type_data: Vec::new(),
-            members,
-            attributes: vec![Attribute {
-                kind: AttrKind::Builtin(BuiltinAttr::Data),
-                name: "data".to_string(),
-                args: Vec::new(),
-                range: v.range,
-            }],
-            invariants: Vec::new(),
-            implementation: ImplementationKind::Phalcom,
-            implementation_range: None,
-            is_primitive: false,
-            range: v.range,
-            name_range: v.range,
-        }));
-    }
-
-    // `match(k1, k2, ...) { return self.matchArm(k1, k2, ...) }` on the
-    // enclosing sealed class — the keyword-argument list is exactly the
-    // declared `@variant` names, in declaration order (`annotations-data.md`:
-    // "exhaustiveness for free" — a call site omitting or misnaming an arm
-    // is an ordinary missing-keyword-argument dispatch miss, no new
-    // diagnostic needed).
-    let match_range = variants.first().expect("checked non-empty above").range;
-    let match_params: Vec<ParameterDef> = variant_kw_names
-        .iter()
-        .map(|n| ParameterDef {
-            name: n.clone(),
-            name_range: match_range,
-            label: Some(n.clone()),
-            label_range: Some(match_range),
-            rest_mode: RestMode::None,
-            annotation: None,
-            range: match_range,
-        })
-        .collect();
-    let arm_args: Vec<PackItem> = variant_kw_names
-        .iter()
-        .map(|n| PackItem::Positional {
-            expr: Expr::Var {
-                value: n.clone(),
-                range: match_range,
-            },
-            range: match_range,
-        })
-        .collect();
-    let arm_call = Expr::MethodCall(Box::new(MethodCallExpr {
-        object: Expr::SelfVar { range: match_range },
-        method: "matchArm".to_string(),
-        method_range: None,
-        args: arm_args,
-        invocation_authority: Default::default(),
-        range: match_range,
-    }));
-    let synthetic_attr = Attribute {
-        name: "__synthetic".to_string(),
-        kind: AttrKind::User("__synthetic".to_string()),
-        args: Vec::new(),
-        range: match_range,
-    };
-    class.members.push(ClassMember::Method(MethodDef {
-        name: "match".to_string(),
-        generic_parameters: Vec::new(),
-        params: match_params,
-        return_annotation: None,
-        where_clause: None,
-        body: MemberBody::Block(vec![Statement::Return(ReturnStatement {
-            value: Some(arm_call),
-            range: match_range,
-        })]),
-        is_static: false,
-        is_constructor: false,
-        attributes: vec![synthetic_attr],
-        visibility: Visibility::Public,
-        visibility_range: None,
-        implementation: ImplementationKind::Phalcom,
-        implementation_range: None,
-        is_primitive: false,
-        range: match_range,
-        name_range: match_range,
-    }));
-
-    Ok(siblings)
-}
-
 /// Walks `name`'s compile-time `extends` chain
 /// ([`ExpandCtx::class_parents`]) up to the `Attribute` root, returning
 /// whether `name` names a (possibly transitive) `Attribute` subclass.
@@ -2416,11 +2130,7 @@ fn validate_attribute_class(class: &ClassDef, class_attrs: &[phalcom_ast::ast::A
 /// consult (`AttributeExpander::legal_targets`).
 ///
 /// Called by [`expand_class_attributes`]'s `@ignore`
-/// legality-check-then-drop pass (which runs *before* `expand_variants`, so a
-/// [`ClassMember::Variant`] arm is genuinely reachable there) and by its
-/// member-attribute loop (which runs *after* `expand_variants` has already
-/// stripped every `Variant` arm, so that call site never actually observes
-/// `Target::Variant` — see the loop's own comment).
+/// legality-check-then-drop pass and its member-attribute loop.
 fn member_target(member: &ClassMember) -> Target {
     match member {
         ClassMember::Method(_) => Target::Method,
@@ -2431,7 +2141,6 @@ fn member_target(member: &ClassMember) -> Target {
             phalcom_ast::ast::DelegatedAccessorKind::Getter | phalcom_ast::ast::DelegatedAccessorKind::ReadWrite => Target::Getter,
         },
         ClassMember::Field(_) => Target::Field,
-        ClassMember::Variant(_) => Target::Variant,
         ClassMember::Index(_) => Target::Index,
         ClassMember::TypeMember(_) => Target::TypeMember,
     }
@@ -2451,7 +2160,6 @@ fn member_has_attr(member: &ClassMember, name: &str) -> bool {
         ClassMember::Getter(g) => &g.attributes,
         ClassMember::Setter(s) => &s.attributes,
         ClassMember::Field(f) => &f.attributes,
-        ClassMember::Variant(v) => &v.attributes,
         ClassMember::Index(ix) => &ix.attributes,
         ClassMember::Delegation(delegation) => &delegation.attributes,
         ClassMember::TypeMember(tm) => &tm.attributes,
@@ -2459,32 +2167,8 @@ fn member_has_attr(member: &ClassMember, name: &str) -> bool {
     attrs.iter().any(|a| a.name == name)
 }
 
-/// Expands every `@name(args…)` attribute attached to `class` or one of its
-/// members (U-ANNOT-CONTRACTS's core pass, grown by U-ANNOT-LAYOUT's `@get`/
-/// `@set`/`@construct`/`@data`/`@sealed`/`@variant` rows) into ordinary AST,
-/// returning the rewritten class alongside any sibling top-level statements
-/// its expansion produced.
-///
-/// # Return shape (DEC-ANNOT-G)
-///
-/// Returns `(ClassDef, Vec<Statement>)`, not a bare `ClassDef` — the one
-/// non-additive change U-ANNOT-LAYOUT makes to U-ANNOT-CONTRACTS's own
-/// landed shape (§3.4 "the one place this plan's stated 'strict dependency,
-/// not reshape' assumption needs a caveat"). The `Vec<Statement>` is always
-/// `Statement::Class` nodes generated by `expand_variants` (a private helper
-/// in this module) — every `@variant
-/// Name(labels...)` arm inside `class`'s body becomes a sibling top-level
-/// class, `extends class.name`, which this function cannot append to
-/// `class.members` itself (a variant is a sibling *global* class, not a
-/// member of the class that declares it). The caller
-/// (`compiler::lib::class_decl::Compiler::compile_class`) compiles each
-/// returned sibling immediately after `class` itself, via a recursive
-/// `compile_class` call — this keeps every generate-phase decision owned by
-/// this module, per DEC-ANNOT-G's recommendation (a), rather than leaking
-/// `@variant`-specific knowledge into `compiler::lib`. The returned `Vec` is
-/// empty for every class that declares no `@variant` arms (the overwhelming
-/// majority) — no behavioral change to any pre-existing caller's assumptions
-/// beyond destructuring the new tuple.
+/// Expands attributes attached to a class and its members into ordinary AST,
+/// returning the rewritten class and canonical constructor projections.
 ///
 /// # Errors
 ///
@@ -2493,50 +2177,17 @@ fn member_has_attr(member: &ClassMember, name: &str) -> bool {
 /// member colliding with a derived one (`@get`/`@set`/`@construct`/`@data`),
 /// `contract.impure_predicate` for an impure `@invariant` predicate, or any
 /// error a specific expander/derive raises (`derive_construct`,
-/// `derive_data`, `expand_variants`, `validate_attribute_class`).
+/// `derive_data`, `validate_attribute_class`).
 pub fn expand_class_attributes(
     mut class: ClassDef,
     ctx: &mut ExpandCtx,
     registry: &AttributeRegistry,
     is_attribute_class: bool,
-) -> Result<(ClassDef, Vec<Statement>, Vec<ConstructorMemberProjection>), CompilerError> {
+) -> Result<(ClassDef, Vec<ConstructorMemberProjection>), CompilerError> {
     register_source_constructor_products(&class, ctx)?;
     // 1. Expand class-level attributes
     let class_attrs = std::mem::take(&mut class.attributes);
     let mut class_invariants = std::mem::take(&mut class.invariants);
-    // U-ANNOT-LAYOUT §3.4: whether `class` is sealed — read before
-    // `class_attrs` is moved back into `class.attributes` below, and threaded
-    // into `expand_variants` (a `@variant` arm with no enclosing `@sealed` is a
-    // compile error, not a silent open hierarchy).
-    //
-    // The **union** of the two sealing sources, neither of which is complete
-    // (DEFERRED CB-3, `drafts/sealed-classes.md` S-1 — see `ExpandCtx::sealed_classes`):
-    //
-    // - the **attribute list** carries a user's own `@sealed class Shape`. Its
-    //   `VM::sealed_classes` row does not exist yet at this point —
-    //   `class_decl.rs` inserts it only after the body compiles — so reading the
-    //   table alone would reject every user `@variant`, inverting the bug this
-    //   fixes.
-    // - the **table** carries bootstrap-sealed `Option`/`Some`/`None`, which
-    //   have no `@sealed` attribute to find (`vm/bootstrap.rs` seals them
-    //   directly). Reading the attribute list alone rejected a `@variant` inside
-    //   an `Option` reopen with "`Option` must also carry `@sealed`" — a false
-    //   diagnostic about a class that *is* sealed.
-    let sealed_by_attr = class_attrs.iter().any(|a| a.name == "sealed");
-    let sealed_by_table = {
-        // The class **being declared** (§4.1 of the U-CLASSNS implementation
-        // spec): own-module key only, no core-module fallback. A user
-        // module's own class of the same name as a kernel class is a
-        // distinct class (PDR-0001 — classes are closed) and must not
-        // inherit the kernel class's sealed status by name collision.
-        let name_sym = ctx.interner.intern(&class.name);
-        let key = ClassKey {
-            module: ctx.module,
-            name: name_sym,
-        };
-        ctx.sealed_classes.contains_key(&key)
-    };
-    let has_sealed = sealed_by_attr || sealed_by_table;
     for attr in &class_attrs {
         if matches!(&attr.kind, AttrKind::Builtin(BuiltinAttr::Primitive)) {
             return Err(CompilerError::Message(
@@ -2570,7 +2221,6 @@ pub fn expand_class_attributes(
                     | BuiltinAttr::Class
                     | BuiltinAttr::Get
                     | BuiltinAttr::Set
-                    | BuiltinAttr::Variant
                     | BuiltinAttr::Requires
                     | BuiltinAttr::Ensures
                     | BuiltinAttr::On
@@ -2673,20 +2323,14 @@ pub fn expand_class_attributes(
         }
     }
     // Drop *after* every marked member has cleared the legality check above.
-    // Runs before `derive_accessors`/`expand_variants`/the member-attribute
-    // loop/the `@invariant` weave, so no derive or contract weave ever sees a
+    // Runs before `derive_accessors`/the member-attribute loop/the
+    // `@invariant` weave, so no derive or contract weave ever sees a
     // member that is about to vanish.
     class.members.retain(|m| !member_has_attr(m, "ignore"));
 
     // 1.5. Derive @get/@set accessors from declared fields, before the
     // member-level loop below consumes each Field's attributes.
     derive_accessors(&mut class, ctx)?;
-
-    // 1.6. Expand @variant arms into sibling top-level classes + the
-    // enclosing class's generated `match(...)` visitor — also before the
-    // member-level loop below, so a stripped `Variant` member never reaches
-    // it (U-ANNOT-LAYOUT §3.4, DEC-ANNOT-G).
-    let sibling_statements = expand_variants(&mut class, has_sealed)?;
 
     // 2. Expand member-level attributes
     for member in &mut class.members {
@@ -2697,7 +2341,6 @@ pub fn expand_class_attributes(
             ClassMember::Getter(g) => std::mem::take(&mut g.attributes),
             ClassMember::Setter(s) => std::mem::take(&mut s.attributes),
             ClassMember::Field(f) => std::mem::take(&mut f.attributes),
-            ClassMember::Variant(v) => std::mem::take(&mut v.attributes),
             ClassMember::Index(ix) => std::mem::take(&mut ix.attributes),
             ClassMember::Delegation(delegation) => std::mem::take(&mut delegation.attributes),
             ClassMember::TypeMember(tm) => std::mem::take(&mut tm.attributes),
@@ -2724,7 +2367,6 @@ pub fn expand_class_attributes(
             ClassMember::Getter(g) => g.attributes = attrs,
             ClassMember::Setter(s) => s.attributes = attrs,
             ClassMember::Field(f) => f.attributes = attrs,
-            ClassMember::Variant(v) => v.attributes = attrs,
             ClassMember::Index(ix) => ix.attributes = attrs,
             ClassMember::Delegation(delegation) => delegation.attributes = attrs,
             ClassMember::TypeMember(tm) => tm.attributes = attrs,
@@ -2788,7 +2430,7 @@ pub fn expand_class_attributes(
     let constructor_projections = lower_constructors(&mut class.members, ctx)?;
 
     class.invariants = class_invariants;
-    Ok((class, sibling_statements, constructor_projections))
+    Ok((class, constructor_projections))
 }
 
 /// Lowers each semantic constructor product into an ordinary class-side

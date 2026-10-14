@@ -23,8 +23,8 @@ fn fixture() -> WorkspaceAnalysisFixture {
     WorkspaceFixture::new()
         .module(
             "main",
-             "data Boxed<T> { value: T }\n\
-             data Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\n\
+            "data Boxed<T> { value: T }\n\
+             data Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }\n\
              trait MarkerTrait {}\n\
              impl MarkerTrait for Int {}\n\
              type Grow<T: Type>: Type { Grow<Boxed<T>> }\n\
@@ -113,8 +113,15 @@ fn changing_composite_arguments_reach_budget_without_mutating_prior_snapshot() {
         matches!(&grow, StaticEvalOutcome::BudgetExceeded(report) if report.kind() == phalcom_semantic::types::outcome::BudgetKind::Steps),
         "changing arguments must continue until the step budget, got {grow:?}"
     );
-    assert!(session_store.type_count() > prior_type_count, "composite specializations should be interned in the active session store");
-    assert_eq!(prior_store.type_count(), prior_type_count, "copy-on-write evaluation must leave the published snapshot unchanged");
+    assert!(
+        session_store.type_count() > prior_type_count,
+        "composite specializations should be interned in the active session store"
+    );
+    assert_eq!(
+        prior_store.type_count(),
+        prior_type_count,
+        "copy-on-write evaluation must leave the published snapshot unchanged"
+    );
 }
 
 #[test]
@@ -134,7 +141,13 @@ fn exact_applications_are_memoized_but_distinct_arguments_are_not() {
 
     let mut distinct_budget = QueryBudget::default();
     let mut distinct_values = StaticValueStore::new();
-    let distinct = evaluate(&fixture, "Distinct", &mut distinct_budget, &mut distinct_values, Arc::make_mut(&mut session_store));
+    let distinct = evaluate(
+        &fixture,
+        "Distinct",
+        &mut distinct_budget,
+        &mut distinct_values,
+        Arc::make_mut(&mut session_store),
+    );
     let StaticEvalOutcome::Reduced(distinct) = distinct else {
         panic!("different applications should reduce independently, got {distinct:?}");
     };
@@ -161,7 +174,10 @@ fn recursive_cycle_is_observed_only_in_the_selected_match_arm() {
         &mut StaticValueStore::new(),
         Arc::make_mut(&mut session_store),
     );
-    assert!(matches!(selected, StaticEvalOutcome::Recursive(_)), "selected recursive arm should enter the exact cycle: {selected:?}");
+    assert!(
+        matches!(selected, StaticEvalOutcome::Recursive(_)),
+        "selected recursive arm should enter the exact cycle: {selected:?}"
+    );
 
     let mut values = StaticValueStore::new();
     let untaken = evaluate(
@@ -174,7 +190,10 @@ fn recursive_cycle_is_observed_only_in_the_selected_match_arm() {
     let StaticEvalOutcome::Reduced(value) = untaken else {
         panic!("untaken recursive arm must not be evaluated: {untaken:?}");
     };
-    assert_eq!(values.get(value).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(0)));
+    assert_eq!(
+        values.get(value).unwrap(),
+        &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(0))
+    );
 }
 
 #[test]
@@ -283,9 +302,7 @@ fn open_parameter_reads_and_applications_produce_normalized_residuals() {
         .static_definition(&fixture.decl("main", "ApplyMixed"))
         .expect("ApplyMixed definition");
     let mixed_body = mixed.checked_body.as_ref().expect("ApplyMixed checked body");
-    let type_parameter = mixed.definition.signature.parameters[0]
-        .type_parameter_id
-        .expect("kinded mixed parameter");
+    let type_parameter = mixed.definition.signature.parameters[0].type_parameter_id.expect("kinded mixed parameter");
     let type_argument = Arc::make_mut(&mut types).parameter_form(type_parameter);
     let exact_value = values.intern_int(5);
     let outcome = StaticEvaluator::new(
@@ -309,18 +326,13 @@ fn open_parameter_reads_and_applications_produce_normalized_residuals() {
     let StaticEvalOutcome::Symbolic(mixed_application) = outcome else {
         panic!("partially known arguments should remain in an Apply residual, got {outcome:?}");
     };
-    let phalcom_semantic::static_eval::StaticResidualData::Apply { application, .. } =
-        residuals.get(mixed_application).expect("mixed Apply residual")
-    else {
+    let phalcom_semantic::static_eval::StaticResidualData::Apply { application, .. } = residuals.get(mixed_application).expect("mixed Apply residual") else {
         panic!("expected mixed Apply residual");
     };
     assert_eq!(application.definition, fixture.decl("main", "MixedIdentity"));
     assert_eq!(application.arguments.len(), 2);
     assert!(matches!(application.arguments[0], phalcom_semantic::static_eval::StaticEvalTerm::Residual(_)));
-    assert_eq!(
-        application.arguments[1],
-        phalcom_semantic::static_eval::StaticEvalTerm::Value(exact_value)
-    );
+    assert_eq!(application.arguments[1], phalcom_semantic::static_eval::StaticEvalTerm::Value(exact_value));
 
     let wrong_domain = residuals
         .parameter(
@@ -343,7 +355,10 @@ fn open_parameter_reads_and_applications_produce_normalized_residuals() {
     .with_residuals(&mut residuals)
     .evaluate();
     assert!(
-        matches!(outcome, StaticEvalOutcome::Invalid(phalcom_semantic::static_eval::StaticEvalError::InvalidArgumentKind { index: 0 })),
+        matches!(
+            outcome,
+            StaticEvalOutcome::Invalid(phalcom_semantic::static_eval::StaticEvalError::InvalidArgumentKind { index: 0 })
+        ),
         "invalid residual domain must fail closed: {outcome:?}"
     );
 }
@@ -357,9 +372,7 @@ fn open_proof_goals_are_preserved_as_typed_proof_residuals() {
         .snapshot
         .static_definition(&fixture.decl("main", "IsSubtype"))
         .expect("IsSubtype definition");
-    let parameter = product.definition.signature.parameters[0]
-        .type_parameter_id
-        .expect("kinded proof parameter");
+    let parameter = product.definition.signature.parameters[0].type_parameter_id.expect("kinded proof parameter");
     let argument = Arc::make_mut(&mut types).parameter_form(parameter);
     let body = product.checked_body.as_ref().expect("IsSubtype checked body");
     let mut values = StaticValueStore::new();
@@ -445,13 +458,7 @@ fn proof_residuals_specialize_through_structural_and_user_conformance() {
         ("MarkerTrue", true),
         ("MarkerFalse", false),
     ] {
-        let outcome = evaluate(
-            &fixture,
-            name,
-            &mut QueryBudget::default(),
-            &mut values,
-            Arc::make_mut(&mut session_store),
-        );
+        let outcome = evaluate(&fixture, name, &mut QueryBudget::default(), &mut values, Arc::make_mut(&mut session_store));
         let StaticEvalOutcome::Reduced(value) = outcome else {
             panic!("{name} should specialize its proof to Bool, got {outcome:?}");
         };
@@ -548,16 +555,19 @@ fn checked_structural_projection_residualizes_open_and_reduces_exact_subjects() 
     Arc::make_mut(&mut body.member_projections).insert(expression, projection);
     body.result = phalcom_semantic::static_domain::StaticValueDomain::ValueType(product_shape);
     let body = body;
-    assert!(body.member_projections.values().any(|projection| {
-        matches!(
-            projection,
-            phalcom_semantic::member_projection::MemberProjection {
-                member: phalcom_semantic::member_projection::MemberDeclarationIdentity::TraitAssociated { trait_ref, requirement },
-                result_domain: phalcom_semantic::static_domain::StaticValueDomain::ValueType(domain),
-                ..
-            } if trait_ref.declaration == structural_ids.product && requirement.index == 1 && *domain == product_shape
-        )
-    }), "the checked body should publish the canonical Product::Shape site and result domain");
+    assert!(
+        body.member_projections.values().any(|projection| {
+            matches!(
+                projection,
+                phalcom_semantic::member_projection::MemberProjection {
+                    member: phalcom_semantic::member_projection::MemberDeclarationIdentity::TraitAssociated { trait_ref, requirement },
+                    result_domain: phalcom_semantic::static_domain::StaticValueDomain::ValueType(domain),
+                    ..
+                } if trait_ref.declaration == structural_ids.product && requirement.index == 1 && *domain == product_shape
+            )
+        }),
+        "the checked body should publish the canonical Product::Shape site and result domain"
+    );
 
     let mut values = StaticValueStore::new();
     let mut residuals = phalcom_semantic::static_eval::StaticResidualStore::new();
@@ -627,7 +637,11 @@ fn checked_structural_projection_residualizes_open_and_reduces_exact_subjects() 
     let StaticEvalOutcome::Reduced(value) = exact else {
         panic!("an exact structural projection should reduce to a static value, got {exact:?}");
     };
-    assert!(matches!(values.get(value), Ok(StaticValueData::Data(_) | StaticValueData::Variant(_))), "expected a reflected ProductShape value, got {:?}", values.get(value));
+    assert!(
+        matches!(values.get(value), Ok(StaticValueData::Data(_) | StaticValueData::Variant(_))),
+        "expected a reflected ProductShape value, got {:?}",
+        values.get(value)
+    );
     let actual_type = values
         .static_value_type(
             value,

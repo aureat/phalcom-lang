@@ -593,7 +593,7 @@ For a variant payload constructor:
 
 ```phalcom
 data Option<T> {
-  @variant Some(_ value: T)
+  Some(_ value: T)
 }
 ```
 

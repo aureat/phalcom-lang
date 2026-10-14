@@ -163,10 +163,6 @@ fn harvest_universe_sources(classes: &mut BTreeMap<String, Vec<SelectorEntry>>) 
                     // A declared field (U-ANNOT-LAYOUT §3.1) has no selector of
                     // its own to harvest — it is not a dispatchable member.
                     ClassMember::Field(_) => {}
-                    // A `@variant` arm (U-ANNOT-LAYOUT §3.4) is expanded away at
-                    // compile time into a sibling top-level class this raw-AST
-                    // harvest never sees — nothing to harvest here either.
-                    ClassMember::Variant(_) => {}
                     // A bracket subscript method (U-INDEX, ADR-0060: `[idx] {
                     // ... }` / `[idx, put:] { ... }`) — harvested in the same
                     // bracket-delimited, no-name comma-form spelling
@@ -199,7 +195,6 @@ fn member_is_class_side(member: &ClassMember) -> bool {
         ClassMember::Setter(s) => (s.is_static, s.attributes.as_slice()),
         ClassMember::Index(ix) => (false, ix.attributes.as_slice()),
         ClassMember::Field(f) => (f.is_static, f.attributes.as_slice()),
-        ClassMember::Variant(v) => (false, v.attributes.as_slice()),
         ClassMember::Delegation(d) => (false, d.attributes.as_slice()),
         ClassMember::TypeMember(tm) => (false, tm.attributes.as_slice()),
     };
@@ -216,7 +211,7 @@ fn member_visibility(member: &ClassMember) -> &'static str {
         ClassMember::Setter(s) => s.visibility,
         ClassMember::Index(ix) => ix.visibility,
         ClassMember::Field(f) => f.visibility,
-        ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => Visibility::Public,
+        ClassMember::Delegation(_) | ClassMember::TypeMember(_) => Visibility::Public,
     };
     match visibility {
         Visibility::Public => "public",

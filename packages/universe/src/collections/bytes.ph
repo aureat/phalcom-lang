@@ -817,3 +817,5 @@ class BufferedReader is Resource {
     return result
   }
 }
+
+export Bytes

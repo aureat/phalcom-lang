@@ -12,9 +12,9 @@ fn weird_variant_forms_compose_into_one_associated_family_with_three_resolutions
     let source: Arc<str> = Arc::from(
         r#"
 data Weird {
-  @variant Marker
-  @variant Marker()
-  @variant Marker(_ value: Int)
+  Marker
+  Marker()
+  Marker(_ value: Int)
 }
 class Probe {
   @class singleton() { Weird::Marker }

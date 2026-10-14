@@ -1,0 +1,9 @@
+[project]
+name = "uuid-tests"
+namespace = "uuid_tests"
+version = "0.0.0"
+source = "src"
+entry = "uuid_tests.main"
+
+[dependencies]
+uuid = { path = ".." }

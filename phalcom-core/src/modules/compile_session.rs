@@ -135,6 +135,7 @@ impl ProgramCompilationSession {
             .linked()
             .cloned()
             .ok_or_else(|| ProgramCompileError::Io("module session published no linked program".to_owned()))?;
+        let linked = Arc::new(phalcom_modules::ExecutableLinkedProgram::from_conservative_link(linked.as_ref().clone())?);
         let entry = self.fixture_module_id.clone();
         let analyzed = AnalyzedProgram {
             project_universe: Arc::new(module_session.universe().clone()),

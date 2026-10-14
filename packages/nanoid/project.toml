@@ -1,0 +1,6 @@
+[project]
+name = "nanoid"
+namespace = "nanoid"
+version = "0.1.0"
+source = "src"
+entry = "nanoid.main"

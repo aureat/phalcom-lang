@@ -17,40 +17,26 @@ export Demo, render
 
 
 // ---------------------------------------------------------------------------
-// Classes, fields, attributes, variants, constructors, accessors
+// Classes, data cases, fields, attributes, constructors, accessors
 // ---------------------------------------------------------------------------
 
-@sealed
-@documentation("A small algebraic-looking value container.")
-class Option {
-  @variant Some(value:)
-  @variant None()
+data Option<T> {
+  Some(_ value: T)
+  None
+}
 
-  _value
-
-  @constructor
-  new(_ value) {
-    _value = value
-  }
-
+impl Option<T> {
   is_some() {
-    _value != None
-  }
-
-  value {
-    _value
-  }
-
-  value=(_ next) {
-    _value = next
-    self
+    match self {
+      Option::Some(_) => true
+      Option::None => false
+    }
   }
 
   unwrap_or(_ fallback) {
-    if (_value != None) {
-      _value
-    } else {
-      fallback
+    match self {
+      Option::Some(value) => value
+      Option::None => fallback
     }
   }
 }
@@ -243,28 +229,27 @@ let callback_call = values.map |item| { item + 1 }
 let labeled_callback_call = values.reduce(initial: 0, step: |total, item| total + item)
 
 
-@sealed @data
-class SyntaxNode {
+data SyntaxNode {
   /// Variant for literal values, such as numbers, strings, and booleans.
-  @variant Literal(value:, kind:)
+  Literal { value: Object, kind: Object }
 
   /// Variant for identifiers, such as variable names and function names.
-  @variant Identifier(name:)
+  Identifier { name: String }
 
   /// Variant for unary operations, such as negation and logical not.
-  @variant Unary(operator:, operand:)
+  Unary { operator: Object, operand: Object }
 
   /// Variant for binary operations, such as addition and multiplication.
-  @variant Binary(left:, operator:, right:)
+  Binary { left: Object, operator: Object, right: Object }
 
   /// Variant for function or method calls, including the callee and arguments.
-  @variant Call(callee:, arguments:)
+  Call { callee: Object, arguments: Object }
 
   /// Variant for conditional expressions, including the condition, then branch, and else branch.
-  @variant Block(statements:)
+  Block { statements: Object }
 
   /// Missing variant to represent the absence of a syntax node, useful for optional fields or error recovery.
-  @variant Missing()
+  Missing
 }
 
 

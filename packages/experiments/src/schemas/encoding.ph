@@ -2,10 +2,10 @@ import universe.math as math
 from universe.functional.chain import Chain
 
 data Encoding {
-  @variant Continuous
-  @variant PositiveLog
-  @variant BoundedLogit(_ lower: Float, _ upper: Float)
-  @variant Categorical(_ labels: Chain<String>)
+  Continuous
+  PositiveLog
+  BoundedLogit(_ lower: Float, _ upper: Float)
+  Categorical(_ labels: Chain<String>)
 }
 data CodecError(_ message: String)
 

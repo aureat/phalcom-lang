@@ -44,8 +44,8 @@ fn nested_adt_payload_edges_survive_then_collect_with_outer_case() {
 fn registered_hidden_case_classes_remain_gc_roots() {
     let source = r#"
 data Shape {
-  @variant None
-  @variant Pair(_ value: Int)
+  None
+  Pair(_ value: Int)
 }
 
 let pair = Shape::Pair(1)

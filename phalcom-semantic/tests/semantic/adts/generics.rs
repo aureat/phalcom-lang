@@ -48,7 +48,7 @@ fn default_gadt_result_keeps_case_environment_empty() {
 
 #[test]
 fn adt_gen_01_option_payload_substitutes_to_concrete_type() {
-    let case = super::support::analyze_adt("data Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\n");
+    let case = super::support::analyze_adt("data Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }\n");
     let option = case.declaration("Option");
     let signature = option.generic_signature.as_ref().expect("Option<T>");
     let some = case.variant(
@@ -63,7 +63,7 @@ fn adt_gen_01_option_payload_substitutes_to_concrete_type() {
 
 #[test]
 fn adt_gen_02_result_parameters_are_independent_per_variant() {
-    let case = super::support::analyze_adt("data Result<T, E> { @variant Ok(_ value: T) -> Result<T, E> @variant Err(_ error: E) -> Result<T, E> }\n");
+    let case = super::support::analyze_adt("data Result<T, E> { Ok(_ value: T) -> Result<T, E> Err(_ error: E) -> Result<T, E> }\n");
     let signature = case.declaration("Result").generic_signature.as_ref().expect("Result<T,E>");
     let ok = case.variant(
         "Result",
@@ -83,7 +83,7 @@ fn adt_gen_02_result_parameters_are_independent_per_variant() {
 
 #[test]
 fn adt_gen_03_nested_generic_payload_keeps_application_shape() {
-    let case = super::support::analyze_adt("data Boxed<T> { @variant Value(_ value: Option<T>) -> Boxed<T> }\n");
+    let case = super::support::analyze_adt("data Boxed<T> { Value(_ value: Option<T>) -> Boxed<T> }\n");
     let value = case.variant(
         "Boxed",
         phalcom_common::selector::Selector::method("Value", [phalcom_common::selector::SelectorSlot::Positional]).expect("Value"),
@@ -96,7 +96,7 @@ fn adt_gen_03_nested_generic_payload_keeps_application_shape() {
 
 #[test]
 fn adt_gen_04_variant_local_generic_signature_owns_payload_and_result_scope() {
-    let case = super::support::analyze_adt("data Expr<T> { @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object }\n");
+    let case = super::support::analyze_adt("data Expr<T> { Pack<U>(_ value: U) -> Expr<U> where U <: Object }\n");
     let pack = case.variant(
         "Expr",
         phalcom_common::selector::Selector::method("Pack", [phalcom_common::selector::SelectorSlot::Positional]).expect("Pack"),
@@ -126,7 +126,7 @@ fn adt_gen_04_variant_local_generic_signature_owns_payload_and_result_scope() {
 
 #[test]
 fn adt_gadt_04_case_instantiation_shares_one_rigid_per_variant_binder() {
-    let case = super::support::analyze_adt("data Expr<T> { @variant Equal<U>(_ left: U, _ right: U) -> Expr<T> where U <: Object }\n");
+    let case = super::support::analyze_adt("data Expr<T> { Equal<U>(_ left: U, _ right: U) -> Expr<T> where U <: Object }\n");
     let variant = case.variant(
         "Expr",
         phalcom_common::selector::Selector::method(
@@ -153,7 +153,7 @@ fn adt_gadt_04_case_instantiation_shares_one_rigid_per_variant_binder() {
 
 #[test]
 fn adt_gadt_01_case_environment_is_owned_by_specialized_variant() {
-    let case = super::support::analyze_adt("data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\n");
+    let case = super::support::analyze_adt("data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\n");
     let int = case.variant(
         "Expr",
         phalcom_common::selector::Selector::method("Int", [phalcom_common::selector::SelectorSlot::Positional]).expect("Int"),
@@ -185,7 +185,7 @@ fn adt_gadt_02_multi_parameter_relationship_is_recorded() {
 #[test]
 fn adt_gadt_03_contradictory_specialization_is_not_ordinary_subtyping_failure() {
     let case = super::support::analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run(_ value: Expr<Bool>) { match value { Expr::Int(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run(_ value: Expr<Bool>) { match value { Expr::Int(x) => x } } }\n",
     );
     assert_eq!(
         case.only_match().arm(0).resolution().usefulness,
@@ -198,7 +198,7 @@ fn adt_gen_05_constructor_solves_enum_and_variant_domains() {
     let fixture = Fixture::new(
         r#"
 data Expr<T> {
-  @variant Pair<U>(_ first: T, _ second: U) -> Expr<T>
+  Pair<U>(_ first: T, _ second: U) -> Expr<T>
 }
 
 class Probe {
@@ -248,7 +248,7 @@ fn adt_gen_06_constructor_payload_result_conflict_is_rejected() {
     let fixture = Fixture::new(
         r#"
 data Expr<T> {
-  @variant Pair<U>(_ first: T, _ second: U) -> Expr<T>
+  Pair<U>(_ first: T, _ second: U) -> Expr<T>
 }
 
 class Probe {
@@ -271,7 +271,7 @@ fn adt_gen_07_generic_variant_family_instantiates_at_invocation() {
     let fixture = Fixture::new(
         r#"
 data Expr<T> {
-  @variant Pair<U>(_ first: T, _ second: U) -> Expr<T>
+  Pair<U>(_ first: T, _ second: U) -> Expr<T>
 }
 
 class Probe {

@@ -206,9 +206,9 @@ Interval semantics are independent of numeric/progression/slicing `Range`.
 
 ```telos
 data Bound<T> {
-  @variant Unbounded
-  @variant Included(value: T)
-  @variant Excluded(value: T)
+  Unbounded
+  Included(value: T)
+  Excluded(value: T)
 }
 ```
 

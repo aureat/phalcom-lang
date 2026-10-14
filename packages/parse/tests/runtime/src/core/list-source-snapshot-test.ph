@@ -6,10 +6,8 @@ from parse.run import Parse
 from parse.source.list_source import ListSource
 
 data Token {
-  @variant
   Integer(_ value: Int)
 
-  @variant
   Text(_ value: String)
 }
 

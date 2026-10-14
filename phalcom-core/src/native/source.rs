@@ -724,7 +724,6 @@ impl NativeSourceIndex {
                 let typed = ix.return_annotation.is_some() && ix.params.iter().all(|param| param.annotation.is_some());
                 (is_native, side, selector, false, typed, ix.visibility, ix.range)
             }
-            ClassMember::Variant(_) => return Ok(()),
             ClassMember::Delegation(_) => return Ok(()),
             ClassMember::TypeMember(_) => return Ok(()),
         };

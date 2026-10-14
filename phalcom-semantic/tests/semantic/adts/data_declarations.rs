@@ -1255,6 +1255,54 @@ fn data_phantom_applications_remain_distinct() {
 }
 
 #[test]
+fn phantom_tagged_identifier_rejects_cross_domain_argument() {
+    use phalcom_modules::{ModuleComponent, UniverseSourceProvider};
+    use phalcom_semantic::identity::WorkspaceId;
+    use phalcom_semantic::session::SemanticWorkspaceSession;
+
+    let source = r#"
+data UserTag()
+data OrderTag()
+data Identifier<Tag> private(_ raw: Int)
+
+impl<Tag> Identifier<Tag> {
+    @class
+    fromInt(_ raw: Int) -> Identifier<Tag> { Identifier<Tag>(raw) }
+}
+
+class Consumer {
+    @class
+    accept(_ id: Identifier<OrderTag>) -> Int { id.raw }
+
+    @class
+    run() -> Int {
+        let order: Identifier<OrderTag> = Identifier<OrderTag>.fromInt(1)
+        let user: Identifier<UserTag> = Identifier<UserTag>.fromInt(2)
+        Consumer.accept(order)
+        Consumer.accept(user)
+    }
+}
+"#;
+    let numbers = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("numbers").unwrap()]));
+    let canonical = UniverseSourceProvider::new().source_text(&numbers).expect("numbers source");
+    let exposed = canonical.replacen("from .capabilities import", "expose .capabilities\nfrom .capabilities import", 1);
+    assert_ne!(exposed, canonical.as_ref());
+    let provider = UniverseSourceProvider::with_test_source_override(numbers, Arc::from(exposed)).expect("test-only Universe fixture");
+    let mut session = SemanticWorkspaceSession::with_universe_source_provider(WorkspaceId::from_raw(73_001), provider);
+    let module = test_module();
+    let update = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 1));
+    let diagnostics = update.snapshot.diagnostics_for(&module).unwrap_or_default();
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::ArgumentMismatch)
+            .count(),
+        1,
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
 fn data_declaration_cold_incremental_equivalence() {
     let module = test_module();
     let source = "data Point(x: Int, y: Int)\nclass Geometry { @class test() -> Int { let p = Point(x: 10, y: 20); p.x } }\n";

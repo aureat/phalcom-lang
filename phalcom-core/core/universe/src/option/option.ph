@@ -20,11 +20,9 @@ native data Option<T> {
   /// An `Option` containing a value.
   ///
   /// @param value The wrapped value.
-  @variant
   Some(_ value: T)
 
   /// An `Option` containing no value.
-  @variant
   None
 }
 

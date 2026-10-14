@@ -4,8 +4,8 @@ from universe.collections.iteration import Iterator, Iterable
 /// An immutable homogeneous sequence. Link shares its tail without copying.
 /// Iteration and the operations below use loops rather than recursive calls.
 data Chain<T> {
-  @variant Empty
-  @variant Link(_ head: T, _ tail: Chain<T>)
+  Empty
+  Link(_ head: T, _ tail: Chain<T>)
 }
 
 impl<T> Chain<T> {

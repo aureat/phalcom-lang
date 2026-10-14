@@ -2268,13 +2268,6 @@ fn collect_anonymous_product_statements(statements: &[phalcom_ast::ast::Statemen
                                 collect_anonymous_product_expr(default, out);
                             }
                         }
-                        ClassMember::Variant(variant) => {
-                            for attribute in &variant.attributes {
-                                for argument in &attribute.args {
-                                    collect_anonymous_product_expr(argument, out);
-                                }
-                            }
-                        }
                         ClassMember::Delegation(_) => {}
                         ClassMember::TypeMember(_) => {}
                     }

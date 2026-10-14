@@ -13,9 +13,9 @@ fn associated_variant_forms_keep_value_and_constructor_invocation_distinct() {
     let source: Arc<str> = Arc::from(
         r#"
 data Weird {
-  @variant Marker
-  @variant Marker()
-  @variant Marker(_ value: Int)
+  Marker
+  Marker()
+  Marker(_ value: Int)
 }
 
 class Probe {

@@ -11,7 +11,7 @@ use crate::modules::{CompileBindings, RuntimeLinkedRead};
 use crate::vm::VM;
 use phalcom_ast::ast::Program;
 use phalcom_ast::parse_source;
-use phalcom_modules::ImportBindingId;
+use phalcom_modules::{ImportBindingId, LinkedReadSpec, SymbolId};
 use std::sync::Arc;
 
 pub enum ExitCode {
@@ -77,22 +77,42 @@ impl VM {
         bindings: Option<CompileBindings>,
     ) -> PhResult<ObjRef> {
         self.unit_kind = kind;
-        let bindings = self.attach_prelude_bindings(module, bindings.unwrap_or_default());
+        let bindings = self.attach_prelude_bindings(module, bindings.unwrap_or_default())?;
         let compiler = Compiler::new_with_bindings_and_mode(self, module, source_id, kind, Some(bindings), self.product_optimization_mode);
         let closure = compiler.compile(program)?;
         Ok(closure)
     }
 
-    fn attach_prelude_bindings(&mut self, module: ObjRef, mut bindings: CompileBindings) -> CompileBindings {
+    fn attach_prelude_bindings(&mut self, module: ObjRef, mut bindings: CompileBindings) -> PhResult<CompileBindings> {
         let mut prelude = self.prelude_bindings.iter().collect::<Vec<_>>();
         prelude.sort_by(|(left, _), (right, _)| self.resolve_symbol(**left).cmp(self.resolve_symbol(**right)));
-        let start = self.heap.module(module).linked_reads.len();
-        for (offset, (name, binding)) in prelude.into_iter().enumerate() {
-            let Ok(index) = u32::try_from(start + offset) else { break };
-            self.heap.module_mut(module).linked_reads.push(RuntimeLinkedRead::Binding(*binding));
-            bindings.add_prelude(self.resolve_symbol(*name).to_owned().into_boxed_str(), ImportBindingId(index));
+        if bindings.is_finalized() {
+            for (name, binding) in prelude {
+                let owner = self.heap.module(binding.module);
+                let slot = owner
+                    .name_to_slot
+                    .iter()
+                    .filter_map(|(symbol, slot)| (*slot == usize::from(binding.slot)).then_some(*symbol))
+                    .find_map(|symbol| {
+                        let target = LinkedReadSpec::Binding(SymbolId {
+                            module: owner.id.clone(),
+                            name: self.resolve_symbol(symbol).to_owned().into_boxed_str(),
+                        });
+                        bindings.runtime_binding(&target)
+                    });
+                if let Some(slot) = slot {
+                    bindings.add_prelude(self.resolve_symbol(*name).to_owned().into_boxed_str(), slot);
+                }
+            }
+        } else {
+            let start = self.heap.module(module).linked_reads.len();
+            for (offset, (name, binding)) in prelude.into_iter().enumerate() {
+                let Ok(index) = u32::try_from(start + offset) else { break };
+                self.heap.module_mut(module).linked_reads.push(RuntimeLinkedRead::Binding(*binding));
+                bindings.add_prelude(self.resolve_symbol(*name).to_owned().into_boxed_str(), ImportBindingId(index));
+            }
         }
-        bindings
+        Ok(bindings)
     }
 
     /// Compiles a pre-parsed AST for `module` with `kind`.
@@ -178,5 +198,73 @@ impl VM {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod finalized_link_tests {
+    use super::{UnitKind, VM};
+    use crate::modules::{BindingRef, CompileBindings};
+    use crate::value::Value;
+    use phalcom_ast::parser::parse;
+    use phalcom_modules::{
+        ExecutableLinkedProgram, InterfaceBuilder, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId,
+    };
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    #[test]
+    fn finalized_compilation_fails_closed_without_appending_a_prelude_read() {
+        let importer = ModuleId::resolved(
+            ResolvedProjectId::from_raw(23),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("importer").expect("valid module component")]),
+        );
+        let program = parse("let result = Number\n", 0).program;
+        let interface = InterfaceBuilder::build(importer.clone(), ModuleKind::Module, &program).expect("module interface");
+        let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), BTreeMap::from([(importer.clone(), interface)]));
+        let linked = linker.link(importer.clone(), &BTreeMap::new()).expect("conservative linked program");
+        let executable = ExecutableLinkedProgram::from_conservative_link(linked).expect("validated executable link");
+        let bindings = CompileBindings::from_executable_linked_program(&executable, &importer).expect("finalized compiler namespace");
+
+        let mut vm = VM::new_kernel();
+        let module = vm.create_module_with_id(importer, ModuleKind::Module, "importer", "<test>");
+        let number_owner = VM::canonical_universe_module_id(phalcom_native_meta::UniverseKey::from_name("Number").expect("canonical Number key"))
+            .expect("canonical Number module");
+        let number_module = vm.create_module_with_id(number_owner, ModuleKind::Module, "numbers", "<test>");
+        let number = vm.interner.intern("Number");
+        let slot = vm.define_global(number_module, number, Value::nil()).expect("reserve canonical Number slot");
+        vm.prelude_bindings.insert(
+            number,
+            BindingRef {
+                module: number_module,
+                slot: u16::try_from(slot).expect("test slot fits u16"),
+            },
+        );
+
+        let before = vm.heap.module(module).linked_reads.len();
+        let bindings = vm.attach_prelude_bindings(module, bindings).expect("attach finalized prelude bindings");
+        assert!(bindings.is_finalized());
+        assert!(
+            !bindings.prelude.contains_key("Number"),
+            "a missing canonical slot must not be fabricated during attachment"
+        );
+        assert_eq!(
+            vm.heap.module(module).linked_reads.len(),
+            before,
+            "finalized attachment must leave the read layout unchanged"
+        );
+
+        let error = vm
+            .compile_closure_as_with_bindings(module, "let result = Number\n", UnitKind::File, Some(bindings))
+            .expect_err("a compiler reference without a finalized read must fail closed");
+        assert!(
+            error.to_string().contains("finalized executable link has no runtime read for `Number`"),
+            "unexpected compiler error: {error}"
+        );
+        assert_eq!(
+            vm.heap.module(module).linked_reads.len(),
+            before,
+            "compiler failure must not append a late read"
+        );
     }
 }

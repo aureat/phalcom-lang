@@ -13,150 +13,106 @@ branch: feat/telos-collections
 
 # MODL001.C2.P4 continuation handoff
 
-## 1. Mission and authority
+## Mission and authority
 
-Continue the phase-aware source-dependency implementation in the `collections`
-worktree (`/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/collections` on branch `feat/telos-collections`).
-The binding architectural authority is:
+Continue the amended phase-aware source-dependency implementation in this
+worktree. The adopted authority is
+[the architectural ruling](MODL001.C2.P4-architectural-ruling-and-implementer-directive.md)
+and the user's INC-1 decision recorded in
+[the incident record](MODL001.C2.P4-runtime-requirement-closure-incident.md).
+Do not create P5; continue T4–T8 under P4.
 
-```text
-/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/collections/
-docs/implementation/MODL001-module-architecture/C2-module-project-model/
-MODL001.C2.P4-architectural-ruling-and-implementer-directive.md
-```
-
-The invariant pipeline fixed by this ruling is:
+The fixed pipeline is:
 
 ```text
 source/interfaces
-  -> semantic/symbolic link: canonical identities, no executable slots/order
-  -> canonical semantic analysis: retained per-binding evidence and generated requirements
-  -> executable finalization: one runtime closure, slots, strict DAG, init order
-  -> compilation/materialization: finalized product only; no late dependency discovery
+  -> symbolic semantic links with canonical identities
+  -> semantic phase evidence and generated requirements
+  -> one executable finalizer for canonical reads, runtime graph, and DAG check
+  -> lowering/materialization from ExecutableLinkedProgram only
 ```
 
-Hard constraints:
-- Do NOT introduce new import syntax (`import type`, etc.).
-- Do NOT weaken strict runtime cycle rejection.
-- Preserve concurrent work in `packages/universe`, `packages/nanoid`, and modernization documents.
-- Keep `phalcom-modules` free of any dependency on `phalcom-semantic`.
+Keep strict runtime-cycle rejection, existing import syntax, and crate ownership
+(`phalcom-modules` must not depend on `phalcom-semantic`). Preserve all
+concurrent Universe, nanoid, and modernization edits. No commit or push has
+been requested.
 
----
+## Current implementation state
 
-## 2. Status overview across tasks
+- **T0–T3:** Complete and focused-tested. Symbolic module identities/products,
+  semantic resolution, and retained source-import phase evidence are in place.
+  Resolver integration passed 4/4.
+- **T4:** Partial. Snapshot products include per-import phases and
+  `RuntimeDependencyRequirement`s. Producers cover superclass, class-object /
+  type-form, contextual realization, structural pattern, runtime attributes,
+  nested-loop Error/Zip, and source-derived callable/witness/type/static roots.
+  User-attribute constructors and simple argument roots are projected, but
+  nonempty attribute arguments leave module coverage incomplete; exact
+  generated callable/witness reads for unsupported expression forms are not
+  closed. Break/continue trap ownership also remains incomplete. The focused
+  phase-evidence integration suite passed 11/11; the complete ruling family
+  matrix is not yet covered.
+- **T5:** Partial, focused-tested. Modules owns requirement transport and the
+  finalizer projects canonical read slots and generated runtime edges together
+  before strict DAG validation. The linker integration suite passed 18/18.
+  Positive source fixtures pass analysis/finalization; CV-01/02/04 still lack
+  full source-to-compiled cross-stage proofs.
+- **T6:** Partial, focused-tested. All three `ProgramAnalyzer` paths preserve
+  `ExecutableLinkedProgram`; finalized compiler/prelude paths fail closed
+  rather than append reads. `RUSTFLAGS='' cargo check -p phalcom-core` passed.
+  The contextual-read test and two missing-mapping tests each passed 1/1.
+- **T7:** Partial. CV-06 and CV-07 pass at the semantic boundary (the focused
+  semantic suite passed 11/11). CV-03 has linker-boundary evidence for
+  conservative fallback and strict generated-cycle rejection. CV-05 passes
+  analysis/finalization, but executable compile acceptance remains open. CV-01,
+  CV-02, CV-04, and CV-08 remain partial across layers; CV-09 has positive
+  finalized-graph and negative-cycle evidence, with execution still open.
+- **T8:** Partial. The mutual type-cycle finalization fixture and the positive
+  protocol/default-to-adapter finalization fixture pass. The paired reverse
+  runtime-cycle fixture passes and strict rejection remains active. Lowering /
+  execution is still unverified: an attempted `ProgramCompiler::compile_analyzed`
+  reached legacy metadata export and returned `NonExportableRecordKeyDomain`.
+  This failure is not established as a clean-checkout baseline.
 
-| Task | Description | Status | Evidence / Notes |
-|---|---|---|---|
-| **T0** | Architecture documentation & plan amendment | **DONE** | Checkpoint & P4 records updated |
-| **T1** | Module-layer staged identities & symbolic products | **DONE** | Unit tests pass in `phalcom-modules/tests/linker.rs` (16/16 pass) |
-| **T2** | Semantic resolver decoupling & symbolic resolution | **DONE** | `resolver.rs` updated; 4/4 integration tests pass in `phalcom-semantic/tests/semantic/integration/resolver.rs` including cycle resolution |
-| **T3** | Checking context & AST phase evidence collection | **DONE** | `CallableAnalysis` updated with `observed_import_phases`; `phase_evidence.rs` implemented; `CheckingContext` and `expression.rs` track imported binding provenance and phases |
-| **T4** | Snapshot phase products & session integration | **DONE** | `SemanticSnapshot` carries `import_phase_products` and `generated_runtime_requirements`; `session.rs` wires `semantic_linked` into type resolvers, query inputs, and computes module import phase products at snapshot creation |
-| **T5** | Executable finalization with generated requirements | **READY** | Finalize `finalize_executable_with_requirements` in `phalcom-modules/src/linker.rs` |
-| **T6** | Core compilation pipeline integration | **PENDING** | Hook `link_semantic` and `finalize_executable_with_requirements` into `phalcom-core/src/modules/compile.rs` |
-| **T7** | Cross-stage contract verification suite (CV-01 .. CV-09) | **PENDING** | Targeted discriminator tests |
-| **T8** | S4 iteration-split prerequisite validation | **PENDING** | Minimal protocol/adapter cycle fixture |
+The core fixtures need a test-only Universe source override because default
+`SemanticWorkspaceSession::new()` hits the private `numbers.capabilities` child
+in the committed source graph. The override adds that child to the test
+session's `numbers` exposure; production Universe sources were not changed.
 
----
+## Current focused evidence
 
-## 3. What has landed and verified in this session
+Commands run in this continuation:
 
-1. **`phalcom-modules/` (T1):**
-   - Added `SourceImportBindingId`, `SymbolicImportTable`, `SemanticLinkedProgram`.
-   - All 16 linker unit tests pass in `phalcom-modules/tests/linker.rs`.
-
-2. **`phalcom-semantic/src/resolver.rs` (T2):**
-   - Decoupled `LinkedTypeResolver` so that `linked: Option<Arc<LinkedProgram>>` is optional and `semantic_linked: Option<Arc<SemanticLinkedProgram>>` is supported.
-   - Added `from_semantic`, `from_semantic_with_prelude`, and `with_semantic_linked(impl Into<Option<Arc<SemanticLinkedProgram>>>)`.
-   - Updated `resolve_module_alias` and `resolve_type_name` to resolve against `SymbolicImportTable` and `LinkedModuleInterface` without touching executable slots or `LinkedReadSpec`.
-   - Implemented `resolve_import_binding_id(&self, module: &ModuleId, name: &str) -> Option<SourceImportBindingId>`.
-   - **Verification:** Ran `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic integration::resolver`: 4/4 pass.
-
-3. **`phalcom-semantic/src/checker/` and `phase_evidence.rs` (T3):**
-   - `phase_evidence.rs`: Created and fully mapped AST types to extract type annotation roots and declaration type roots.
-   - `CallableAnalysis.observed_import_phases`: `Arc<BTreeMap<SourceImportBindingId, DependencyPhase>>`.
-   - `CheckingContext`: Added `imported_source_bindings` and `observed_import_phases`. Added `record_import_phase` and `seed_symbolic_module_import_values`.
-   - `Expr::Var` in `checker/expression.rs`: Records `DependencyPhase::Runtime` when reading imported local bindings or nominal types in expression position.
-   - `resolve_type_annotation`: Records `DependencyPhase::InterfaceOnly`.
-   - `BodyAnalysisContext`: Added `semantic_linked_module`.
-
-4. **`phalcom-semantic/src/snapshot.rs` and `session.rs` (T4):**
-   - `SemanticSnapshot`: Added `import_phase_products: Arc<BTreeMap<ModuleId, ModuleImportPhaseProduct>>` and `generated_runtime_requirements: Arc<[RuntimeDependencyEdge]>`.
-   - `session.rs`: Wired `semantic_linked` into type resolvers, 5 seeding loops, and all 9 `FormalQueryInputs` sites.
-   - At snapshot assembly in `session.rs`, calls `crate::phase_evidence::compute_module_import_phase_products` when `input.semantic_linked` is present and sets `snapshot_obj.import_phase_products` and `snapshot_obj.generated_runtime_requirements`.
-   - Test mock fixtures updated in `effects_control.rs`, `integration_matrix.rs`, `termination.rs`, `source_index.rs`, `presentation.rs`, `fingerprints.rs`, `traits.rs`, and `query_ownership.rs`.
-   - Both `cargo check -p phalcom-semantic` and `cargo test -p phalcom-semantic --test semantic integration::resolver` compile clean and pass.
-
----
-
-## 4. Next steps for the continuing agent
-
-### A. Executable Finalization with Requirements (T5)
-In `phalcom-modules/src/linker.rs`:
-1. Provide helper on `SemanticLinkedProgram`:
-   ```rust
-   pub fn to_unfinalized_program(&self) -> Arc<LinkedProgram>
-   ```
-2. Implement `finalize_executable_with_requirements`:
-   ```rust
-   pub fn finalize_executable_with_requirements(
-       &self,
-       semantic: SemanticLinkedProgram,
-       phase_products: &BTreeMap<ModuleId, ModuleImportPhaseProduct>,
-       requirements: &[RuntimeDependencyEdge],
-   ) -> Result<Arc<LinkedProgram>, Vec<Diagnostic>>
-   ```
-   - Incorporate `requirements` into `graphs.runtime` before computing initialization order.
-   - For each selective import, if `phase_products` records `DependencyPhase::InterfaceOnly`, omit the executable read slot and runtime edge. If `Runtime` (or missing/unobserved), project the runtime read slot and runtime edge.
-   - Validate that `graphs.runtime` is an acyclic DAG. Reject cycles strictly.
-
-### B. Core Compilation Pipeline Integration (T6)
-In `phalcom-core/src/modules/compile.rs`:
-1. Link semantically:
-   ```rust
-   let semantic = linker.link_semantic(&universe, &interfaces)?;
-   ```
-2. Feed `semantic` into semantic analysis:
-   ```rust
-   let workspace_input = SemanticWorkspaceInput::from_semantic(semantic.clone(), sources, generation);
-   let outcome = session.update_with_budget_and_cancel(workspace_input, ...)?;
-   ```
-3. Finalize executable from semantic products:
-   ```rust
-   let linked = linker.finalize_executable_with_requirements(
-       semantic,
-       &snapshot.import_phase_products,
-       &snapshot.generated_runtime_requirements,
-   )?;
-   ```
-4. Hand `linked` to lowering and code generation.
-
-### C. Contract Verification Suite (T7 & T8)
-Run and verify:
-- CV-01: Module-level item identities preserved through symbolic linking.
-- CV-02: Pre-executable symbolic resolution succeeds without runtime slots.
-- CV-03: Mutual type cycle resolves at interface phase without runtime slots.
-- CV-04: Selective import used in value position becomes `DependencyPhase::Runtime`.
-- CV-05: Non-source declaration requirement (e.g. superclass) becomes `RuntimeDependencyEdge`.
-- CV-06: Strict runtime cycle rejection preserved when a cyclic runtime edge is present.
-- CV-07: Phase evidence retained across incremental reuse.
-- CV-08: Lowering/compilation consumes finalized `LinkedProgram` only.
-- CV-09: S4 iteration-split prerequisite validation.
-
----
-
-## 5. Verification commands
-
-Run serially from `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/collections`:
-
-```sh
-# 1. Semantic compiler and tests
-RUSTFLAGS='' cargo check -p phalcom-semantic
-RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic integration::resolver
-
-# 2. Module linker unit tests
+```text
+RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic integration::phase_evidence
+  11 passed
 RUSTFLAGS='' cargo test -p phalcom-modules --test linker
-
-# 3. Core module compilation check
+  18 passed
 RUSTFLAGS='' cargo check -p phalcom-core
+  passed
+RUSTFLAGS='' cargo test -p phalcom-core --lib contextual_realization_receiver_projects_canonical_runtime_read
+  1 passed
+RUSTFLAGS='' cargo test -p phalcom-core --test core modules_linking::semantic_type_cycle_finalizes_without_runtime_import_slots -- --nocapture
+  1 passed
+RUSTFLAGS='' cargo test -p phalcom-core --test core modules_linking::protocol_default_to_adapter_cycle_is_only_semantic_on_adapter_side -- --nocapture
+  1 passed
+RUSTFLAGS='' cargo test -p phalcom-core --test core modules_linking::protocol_default_adapter_runtime_cycle_is_rejected -- --nocapture
+  1 passed
 ```
+
+Earlier focused checks remain relevant: resolver integration passed 4/4; the
+compiler/prelude missing-mapping tests each passed 1/1. The failed compile
+attempt is recorded above and is not a pass. No workspace/release suite was run.
+
+## Next work
+
+1. Resolve or isolate the legacy metadata-export failure needed to prove the
+   positive T8 fixture through lowering and execution. Do not change metadata
+   representation speculatively; confirm ownership and scope first.
+2. Close the remaining T4 generated-requirement families and establish explicit
+   coverage for unsupported families.
+3. Add the missing CV-01/02/04/08 cross-stage evidence, including no uncovered
+   `GetLinked` reads, then update this handoff and the checkpoint with the actual
+   outcomes.
+4. Keep P4 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` until those acceptance gaps
+   are resolved. Do not stage, commit, or push unrelated work.

@@ -260,7 +260,7 @@ impl TypeReferenceTargetCollector<'_> {
                             }
                             self.where_clause(type_member.where_clause.as_ref(), &type_member_bound);
                         }
-                        ClassMember::Variant(_) | ClassMember::Delegation(_) => {}
+                        ClassMember::Delegation(_) => {}
                     }
                 }
             }
@@ -1685,7 +1685,7 @@ impl SourceScopeBuilder<'_> {
                     },
                 );
             }
-            ClassMember::Variant(_) | ClassMember::Delegation(_) => {}
+            ClassMember::Delegation(_) => {}
         }
     }
 

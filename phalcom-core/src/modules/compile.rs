@@ -4,9 +4,10 @@ use super::artifact::ModuleMaterializationPlan;
 use crate::typing::{MetadataPoolId, RuntimeCallEnvironmentRecipe, RuntimeTypeRecipe, RuntimeTypeRef};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{
-    EntryOwnership, FilesystemSourceProvider, ImportSurface, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram, ModuleComponent,
-    ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError, SourceId,
-    SourceLocation, SourceProvider, UniverseSourceProvider, classify_entry_ownership,
+    EntryOwnership, ExecutableLinkedProgram, FilesystemSourceProvider, ImportSurface, InterfaceBuilder, InterfaceError, LinkError, LinkedModule,
+    LinkedReadSpec, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse,
+    RuntimeDependencyReason, RuntimeDependencyRequirement, SourceError, SourceId, SourceLocation, SourceProvider, SymbolId, UniverseSourceProvider,
+    classify_entry_ownership,
 };
 use phalcom_semantic::SemanticDiagnostic;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -67,6 +68,600 @@ fn close_covering_body_bindings(
     Ok(closed)
 }
 
+/// Collects canonical owners referenced by a runtime metadata type root.
+/// These are graph requirements rather than linked reads: metadata preserves
+/// declaration identity, while runtime values are projected by their own
+/// semantic requirements.
+struct RuntimeMetadataTypeOwnerCollector<'a> {
+    store: &'a phalcom_semantic::types::store::TypeStore,
+    static_domain_constructors: &'a BTreeMap<phalcom_semantic::types::id::StaticDomainId, Box<[phalcom_semantic::types::id::AlgebraicStaticConstructorId]>>,
+    associated_domain_constructors:
+        &'a BTreeMap<phalcom_semantic::identity::AssociatedStaticDomainDeclarationId, Box<[phalcom_semantic::types::id::AlgebraicStaticConstructorId]>>,
+    owners: BTreeSet<ModuleId>,
+    seen_types: BTreeSet<phalcom_semantic::types::id::TypeId>,
+    seen_rows: BTreeSet<phalcom_semantic::types::id::RecordRowId>,
+    seen_lambdas: BTreeSet<phalcom_semantic::types::id::TypeLambdaId>,
+    seen_scoped: BTreeSet<phalcom_semantic::types::id::ScopedTypeId>,
+    seen_kinds: BTreeSet<phalcom_semantic::types::id::KindId>,
+    seen_static_domains: BTreeSet<phalcom_semantic::types::id::StaticDomainId>,
+    seen_static_constructors: BTreeSet<phalcom_semantic::types::id::AlgebraicStaticConstructorId>,
+}
+
+impl<'a> RuntimeMetadataTypeOwnerCollector<'a> {
+    fn new(
+        store: &'a phalcom_semantic::types::store::TypeStore,
+        static_domain_constructors: &'a BTreeMap<phalcom_semantic::types::id::StaticDomainId, Box<[phalcom_semantic::types::id::AlgebraicStaticConstructorId]>>,
+        associated_domain_constructors: &'a BTreeMap<
+            phalcom_semantic::identity::AssociatedStaticDomainDeclarationId,
+            Box<[phalcom_semantic::types::id::AlgebraicStaticConstructorId]>,
+        >,
+    ) -> Self {
+        Self {
+            store,
+            static_domain_constructors,
+            associated_domain_constructors,
+            owners: BTreeSet::new(),
+            seen_types: BTreeSet::new(),
+            seen_rows: BTreeSet::new(),
+            seen_lambdas: BTreeSet::new(),
+            seen_scoped: BTreeSet::new(),
+            seen_kinds: BTreeSet::new(),
+            seen_static_domains: BTreeSet::new(),
+            seen_static_constructors: BTreeSet::new(),
+        }
+    }
+
+    fn add_declaration(&mut self, declaration: &phalcom_modules::DeclarationId) {
+        self.owners.insert(declaration.module.clone());
+    }
+
+    fn add_parameter(&mut self, parameter: phalcom_semantic::types::id::TypeParameterId) {
+        use phalcom_semantic::types::parameter::TypeParameterOwner;
+
+        match &self.store.type_parameter(parameter).owner {
+            TypeParameterOwner::Declaration(declaration) => self.add_declaration(declaration),
+            TypeParameterOwner::Callable(callable) => {
+                self.owners.insert(callable.module().clone());
+            }
+            TypeParameterOwner::Impl(implementation) => {
+                self.owners.insert(implementation.module.clone());
+            }
+        }
+    }
+
+    fn add_static_domain(&mut self, domain: phalcom_semantic::types::id::StaticDomainId) {
+        use phalcom_semantic::types::{parameter::TypeParameterOwner, store::StaticDomainData};
+
+        if !self.seen_static_domains.insert(domain) {
+            return;
+        }
+        let (owner, constructors) = match self.store.static_domain(domain).cloned() {
+            Some(StaticDomainData::Nominal { declaration }) => {
+                self.add_declaration(&declaration);
+                (Some(declaration), self.static_domain_constructors.get(&domain).cloned())
+            }
+            Some(StaticDomainData::Associated { declaration, owner_arguments }) => {
+                self.add_declaration(&declaration.owner);
+                for argument in owner_arguments.iter().copied() {
+                    self.add_static_argument(argument);
+                }
+                (Some(declaration.owner.clone()), self.associated_domain_constructors.get(&declaration).cloned())
+            }
+            Some(StaticDomainData::ConstInt) | None => (None, None),
+        };
+
+        if let Some(owner) = owner {
+            let parameters = self.store.type_parameters_for_owner(&TypeParameterOwner::Declaration(owner));
+            let kinds = parameters
+                .into_iter()
+                .map(|parameter| self.store.type_parameter(parameter).kind)
+                .collect::<Vec<_>>();
+            for kind in kinds {
+                self.add_kind(kind);
+            }
+        }
+
+        if let Some(constructors) = constructors {
+            for constructor in constructors.iter().copied() {
+                self.add_static_constructor(constructor);
+            }
+        }
+    }
+
+    fn add_static_constructor(&mut self, constructor: phalcom_semantic::types::id::AlgebraicStaticConstructorId) {
+        if !self.seen_static_constructors.insert(constructor) {
+            return;
+        }
+        let Some(constructor) = self.store.static_constructor(constructor) else {
+            return;
+        };
+        let declaration = constructor.declaration.clone();
+        let parameter_kinds = constructor.parameter_kinds.to_vec();
+        self.add_declaration(&declaration);
+        for kind in parameter_kinds {
+            self.add_kind(kind);
+        }
+    }
+
+    fn add_kind(&mut self, kind: phalcom_semantic::types::id::KindId) {
+        use phalcom_semantic::types::kind::KindData;
+
+        if !self.seen_kinds.insert(kind) {
+            return;
+        }
+        let arrow = match self.store.get_kind(kind) {
+            KindData::Arrow { parameters, result } => Some((parameters.to_vec(), *result)),
+            KindData::StaticDomain(domain) => {
+                self.add_static_domain(*domain);
+                None
+            }
+            KindData::Type | KindData::RecordRow | KindData::TypePack | KindData::LabeledTypePack | KindData::CompleteTypePack => None,
+        };
+        if let Some((parameters, result)) = arrow {
+            for parameter in parameters {
+                self.add_kind(parameter);
+            }
+            self.add_kind(result);
+        }
+    }
+
+    fn add_static_argument(&mut self, argument: phalcom_semantic::types::store::StaticArgument) {
+        use phalcom_semantic::types::store::StaticArgument;
+
+        match argument {
+            StaticArgument::Term(ty) => self.add_type(ty),
+            StaticArgument::RecordRow(row) => self.add_row(row),
+            StaticArgument::DynamicType => {}
+        }
+    }
+
+    fn add_tuple_remainder(&mut self, remainder: phalcom_semantic::types::store::AnonymousTupleRemainder) {
+        if let phalcom_semantic::types::store::AnonymousTupleRemainder::Typed(ty) = remainder {
+            self.add_type(ty);
+        }
+    }
+
+    fn add_record_remainder(&mut self, remainder: phalcom_semantic::types::row::AnonymousRecordRemainder) {
+        self.add_type(remainder.key_type());
+        if let Some(value_type) = remainder.value_type() {
+            self.add_type(value_type);
+        }
+    }
+
+    fn add_row(&mut self, row_id: phalcom_semantic::types::id::RecordRowId) {
+        use phalcom_semantic::types::row::RecordRowTail;
+
+        if !self.seen_rows.insert(row_id) {
+            return;
+        }
+        let row = self.store.record_row(row_id);
+        for field in row.fields.iter() {
+            self.add_type(field.ty);
+        }
+        match row.tail {
+            RecordRowTail::Closed => {}
+            RecordRowTail::Anonymous(remainder) => self.add_record_remainder(remainder),
+            RecordRowTail::Parameter(parameter) => self.add_parameter(parameter),
+            RecordRowTail::Projection(ty) => self.add_type(ty),
+        }
+    }
+
+    fn add_type(&mut self, ty: phalcom_semantic::types::id::TypeId) {
+        use phalcom_semantic::types::store::TypeData;
+        use phalcom_semantic::types::type_member::{ProjectionSubject, TypeMemberArgument};
+
+        if !self.seen_types.insert(ty) {
+            return;
+        }
+        match self.store.get(ty) {
+            TypeData::Nominal { declaration } | TypeData::ClassObject { declaration } => self.add_declaration(declaration),
+            TypeData::StaticDomainForm { domain } => self.add_static_domain(*domain),
+            TypeData::Applied { origin, arguments } => {
+                self.add_type(*origin);
+                for argument in arguments.iter().copied() {
+                    self.add_static_argument(argument);
+                }
+            }
+            TypeData::ExactCase { variant, enum_type } => {
+                self.add_declaration(&self.store.variant_identity(*variant).owner);
+                self.add_type(*enum_type);
+            }
+            TypeData::Union(members) | TypeData::TypePack(members) | TypeData::TypePackConcat(members) | TypeData::LabeledTypePackConcat(members) => {
+                for member in members.iter().copied() {
+                    self.add_type(member);
+                }
+            }
+            TypeData::Tuple(tuple) => {
+                for element in tuple.elements.iter() {
+                    self.add_type(element.ty);
+                }
+                self.add_tuple_remainder(tuple.positional_remainder);
+                self.add_tuple_remainder(tuple.labeled_remainder);
+            }
+            TypeData::Record(row) => self.add_row(*row),
+            TypeData::LabeledTypePack(elements) => {
+                for element in elements.iter() {
+                    self.add_type(element.element);
+                }
+            }
+            TypeData::CompleteTypePack { positionals, labeled }
+            | TypeData::TupleFromPacks { positionals, labeled }
+            | TypeData::PackFromPacks { positionals, labeled } => {
+                self.add_type(*positionals);
+                self.add_type(*labeled);
+            }
+            TypeData::Pack(pack) => {
+                for element in pack.elements.iter() {
+                    self.add_type(element.ty);
+                }
+                self.add_tuple_remainder(pack.positional_remainder);
+                self.add_tuple_remainder(pack.labeled_remainder);
+            }
+            TypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                self.add_type(*positionals);
+                self.add_type(*labeled);
+                self.add_type(*return_type);
+            }
+            TypeData::Callable(callable) => {
+                for parameter in callable.parameters.iter() {
+                    self.add_type(parameter.ty);
+                }
+                self.add_type(callable.return_type);
+            }
+            TypeData::Family(family) => {
+                for member in self.store.get_family(*family).members.iter() {
+                    self.add_type(member.ty);
+                }
+            }
+            TypeData::Parameter(parameter) => self.add_parameter(*parameter),
+            TypeData::Lambda(lambda) => self.add_lambda(*lambda),
+            TypeData::SelfType(term) => self.add_declaration(&term.owner),
+            TypeData::AssociatedProjection(projection) => {
+                self.add_declaration(&projection.trait_ref.declaration);
+                self.add_declaration(&projection.requirement.owner);
+                self.add_type(projection.subject);
+                for argument in projection.trait_ref.arguments.iter().copied() {
+                    self.add_type(argument);
+                }
+            }
+            TypeData::TypeMemberProjection(projection) => {
+                if let Some(source) = &projection.source_declaration {
+                    self.add_declaration(&source.owner);
+                }
+                match &projection.subject {
+                    ProjectionSubject::Type(subject) => self.add_type(*subject),
+                    ProjectionSubject::RecordRow(row) => self.add_row(*row),
+                }
+                for argument in projection.arguments.iter() {
+                    match argument {
+                        TypeMemberArgument::Type(argument) => self.add_type(*argument),
+                        TypeMemberArgument::RecordRow(row) => self.add_row(*row),
+                        TypeMemberArgument::Const(_) => {}
+                    }
+                }
+            }
+            TypeData::StaticData(term) => {
+                self.add_static_domain(term.domain);
+                if let Some(constructor) = self.store.static_constructor(term.constructor) {
+                    self.add_declaration(&constructor.declaration);
+                }
+                for argument in term.arguments.iter().copied() {
+                    self.add_static_argument(argument);
+                }
+            }
+            TypeData::Never | TypeData::Unit | TypeData::ConstInt(_) => {}
+        }
+    }
+
+    fn add_lambda(&mut self, lambda: phalcom_semantic::types::id::TypeLambdaId) {
+        if self.seen_lambdas.insert(lambda) {
+            let (parameter_kinds, result_kind, body) = {
+                let lambda = self.store.arena().get_lambda(lambda);
+                (lambda.parameter_kinds.to_vec(), lambda.result_kind, lambda.body)
+            };
+            for kind in parameter_kinds {
+                self.add_kind(kind);
+            }
+            self.add_kind(result_kind);
+            self.add_scoped_type(body);
+        }
+    }
+
+    fn add_scoped_type(&mut self, scoped: phalcom_semantic::types::id::ScopedTypeId) {
+        use phalcom_semantic::types::type_lambda::{ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
+
+        if !self.seen_scoped.insert(scoped) {
+            return;
+        }
+        match self.store.arena().get_scoped(scoped) {
+            ScopedTypeData::Bound { .. } => {}
+            ScopedTypeData::Free(ty) => self.add_type(*ty),
+            ScopedTypeData::Applied { origin, arguments } => {
+                self.add_scoped_type(*origin);
+                for argument in arguments.iter().copied() {
+                    self.add_scoped_type(argument);
+                }
+            }
+            ScopedTypeData::Union(members)
+            | ScopedTypeData::TypePack(members)
+            | ScopedTypeData::TypePackConcat(members)
+            | ScopedTypeData::LabeledTypePackConcat(members) => {
+                for member in members.iter().copied() {
+                    self.add_scoped_type(member);
+                }
+            }
+            ScopedTypeData::Tuple(elements) => {
+                for element in elements.iter() {
+                    self.add_scoped_type(element.ty);
+                }
+            }
+            ScopedTypeData::Record(fields) => {
+                for field in fields.iter() {
+                    self.add_scoped_type(field.ty);
+                }
+            }
+            ScopedTypeData::OpenRecord(record) => {
+                for field in record.fields.iter() {
+                    self.add_scoped_type(field.ty);
+                }
+                match record.tail {
+                    ScopedRecordTail::Bound { .. } => {}
+                    ScopedRecordTail::FreeParameter(parameter) => self.add_parameter(parameter),
+                    ScopedRecordTail::Anonymous(remainder) => {
+                        self.add_scoped_type(remainder.key_type());
+                        if let Some(value_type) = remainder.value_type() {
+                            self.add_scoped_type(value_type);
+                        }
+                    }
+                }
+            }
+            ScopedTypeData::RecordRow(row) => {
+                for field in row.fields.iter() {
+                    self.add_scoped_type(field.ty);
+                }
+                match row.tail {
+                    ScopedRecordRowTail::Closed | ScopedRecordRowTail::Bound { .. } => {}
+                    ScopedRecordRowTail::FreeParameter(parameter) => self.add_parameter(parameter),
+                    ScopedRecordRowTail::Anonymous(remainder) => {
+                        self.add_scoped_type(remainder.key_type());
+                        if let Some(value_type) = remainder.value_type() {
+                            self.add_scoped_type(value_type);
+                        }
+                    }
+                    ScopedRecordRowTail::Projection(ty) => self.add_type(ty),
+                }
+            }
+            ScopedTypeData::Callable(callable) => {
+                for parameter in callable.parameters.iter() {
+                    self.add_scoped_type(parameter.ty);
+                }
+                self.add_scoped_type(callable.return_type);
+            }
+            ScopedTypeData::Pack(pack) => {
+                for element in pack.elements.iter() {
+                    self.add_scoped_type(element.ty);
+                }
+                if let phalcom_semantic::types::type_lambda::ScopedPackRemainder::Typed(ty) = pack.positional_remainder {
+                    self.add_scoped_type(ty);
+                }
+                if let phalcom_semantic::types::type_lambda::ScopedPackRemainder::Typed(ty) = pack.labeled_remainder {
+                    self.add_scoped_type(ty);
+                }
+            }
+            ScopedTypeData::LabeledTypePack(elements) => {
+                for element in elements.iter() {
+                    self.add_scoped_type(element.element);
+                }
+            }
+            ScopedTypeData::CompleteTypePack { positionals, labeled }
+            | ScopedTypeData::TupleFromPacks { positionals, labeled }
+            | ScopedTypeData::PackFromPacks { positionals, labeled } => {
+                self.add_scoped_type(*positionals);
+                self.add_scoped_type(*labeled);
+            }
+            ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => {
+                self.add_scoped_type(*positionals);
+                self.add_scoped_type(*labeled);
+                self.add_scoped_type(*return_type);
+            }
+            ScopedTypeData::PackProjection { subject, .. } => self.add_scoped_type(*subject),
+            ScopedTypeData::Lambda(lambda) => self.add_lambda(*lambda),
+        }
+    }
+}
+
+type RuntimeMetadataTypeRoot = (ModuleId, SourceRange, phalcom_semantic::types::id::TypeId);
+
+fn add_conformance_type_roots(
+    module: &ModuleId,
+    range: SourceRange,
+    evidence: &phalcom_semantic::generic_evidence::GenericConformanceEvidence,
+    roots: &mut Vec<RuntimeMetadataTypeRoot>,
+) {
+    use phalcom_semantic::generic_evidence::GenericConformanceEvidence;
+
+    let bindings = match evidence {
+        GenericConformanceEvidence::Exact(evidence) => evidence.impl_environment.bindings.values().copied().collect::<Vec<_>>(),
+        GenericConformanceEvidence::Derived(evidence) => evidence.impl_bindings.bindings().values().copied().collect(),
+        GenericConformanceEvidence::Assumed(_) | GenericConformanceEvidence::CompilerDerived(_) => Vec::new(),
+    };
+    roots.extend(bindings.into_iter().map(|ty| (module.clone(), range, ty)));
+}
+
+fn add_realization_selection_type_roots(
+    module: &ModuleId,
+    range: SourceRange,
+    selection: &phalcom_semantic::checker::analysis::RealizationCapabilitySelection,
+    roots: &mut Vec<RuntimeMetadataTypeRoot>,
+) {
+    let phalcom_semantic::checker::analysis::RealizationCapabilitySelection::Evidenced(selection) = selection else {
+        return;
+    };
+    add_conformance_type_roots(module, range, &selection.evidence, roots);
+}
+
+fn contextual_receiver_read_requirement(
+    importer: &ModuleId,
+    target_type: phalcom_semantic::types::id::TypeId,
+    range: SourceRange,
+    store: &phalcom_semantic::types::store::TypeStore,
+) -> Option<RuntimeDependencyRequirement> {
+    let declaration = store.nominal_origin_declaration(target_type)?;
+    (&declaration.module != importer).then(|| RuntimeDependencyRequirement {
+        importer: importer.clone(),
+        dependency: declaration.module.clone(),
+        range,
+        reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+        read_target: Some(LinkedReadSpec::Binding(SymbolId {
+            module: declaration.module.clone(),
+            name: declaration.name.clone(),
+        })),
+    })
+}
+
+/// Projects the same runtime reification/type roots consumed by metadata
+/// export into graph-only owner requirements before executable finalization.
+fn runtime_metadata_type_requirements(
+    snapshot: &phalcom_semantic::SemanticSnapshot,
+    sources: &BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    runtime_modules: &BTreeSet<ModuleId>,
+) -> Vec<RuntimeDependencyRequirement> {
+    use phalcom_semantic::checker::analysis::{ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource};
+    use phalcom_semantic::generic_evidence::GenericConformanceEvidence;
+
+    let mut roots = Vec::<RuntimeMetadataTypeRoot>::new();
+    let mut contextual_receiver_requirements = Vec::new();
+    for module in runtime_modules {
+        if let Some(source) = sources.get(module) {
+            roots.extend(
+                super::semantic_lowering::anonymous_product_type_roots(module, snapshot, &source.program)
+                    .into_iter()
+                    .map(|(range, ty)| (module.clone(), range, ty)),
+            );
+        }
+        for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == module) {
+            let _ = callable;
+            for expression in analysis.expressions.values() {
+                let range = expression.range;
+                if let Some(specialization) = expression.call_specialization.as_ref() {
+                    roots.extend(specialization.bindings.iter().map(|(_, ty)| (module.clone(), range, *ty)));
+                    for conformance in specialization.conformances.iter() {
+                        if let phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence } = &conformance.source {
+                            roots.extend(evidence.impl_bindings.bindings().values().copied().map(|ty| (module.clone(), range, ty)));
+                        }
+                    }
+                }
+                if let Some(capability) = expression.conditional_capability.as_ref() {
+                    roots.extend(capability.applicability.bindings.values().copied().map(|ty| (module.clone(), range, ty)));
+                    for conformance in capability.applicability.conformance_provenance.iter().flatten() {
+                        if let phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence } = &conformance.source {
+                            roots.extend(evidence.impl_bindings.bindings().values().copied().map(|ty| (module.clone(), range, ty)));
+                        }
+                    }
+                }
+                if let Some(realization) = expression.contextual_realization.as_ref() {
+                    add_realization_selection_type_roots(module, realization.source_range, &realization.realization, &mut roots);
+                    if let RealizationCapabilitySelection::Evidenced(selection) = &realization.realization
+                        && let Some(requirement) =
+                            contextual_receiver_read_requirement(module, selection.exact_target, realization.source_range, snapshot.store())
+                    {
+                        contextual_receiver_requirements.push(requirement);
+                    }
+                    if let ContextualRealizationOperation::Basis { basis_type, coefficient, .. } = &realization.operation {
+                        // The basis constructor is materialized from its canonical
+                        // declaration and runtime type metadata, not a GetLinked
+                        // class read. Keep its owner in the graph/type lane.
+                        roots.push((module.clone(), realization.source_range, *basis_type));
+                        if let RealizationCoefficientSource::One { one, .. } = coefficient {
+                            add_realization_selection_type_roots(module, realization.source_range, one, &mut roots);
+                            if let RealizationCapabilitySelection::Evidenced(selection) = one
+                                && let Some(requirement) =
+                                    contextual_receiver_read_requirement(module, selection.exact_target, realization.source_range, snapshot.store())
+                            {
+                                contextual_receiver_requirements.push(requirement);
+                            }
+                        }
+                    }
+                }
+                if let Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) = expression.trait_dispatch.as_ref()
+                    && let Some(evidence) = snapshot.conformance_evidence_for(selection.exact_target, &selection.exact_trait_ref)
+                {
+                    roots.extend(evidence.impl_environment.bindings.values().copied().map(|ty| (module.clone(), range, ty)));
+                }
+            }
+            for (expression_id, resolution) in analysis.callable_reference_resolutions.iter() {
+                let Some(range) = analysis.expressions.get(expression_id).map(|expression| expression.range) else {
+                    continue;
+                };
+                if let phalcom_semantic::checker::associated::CallableReferenceResolutionKind::BoundFamily { members, .. } = &resolution.kind {
+                    for capability in members.iter().filter_map(|member| member.conditional_capability.as_ref()) {
+                        roots.extend(capability.applicability.bindings.values().copied().map(|ty| (module.clone(), range, ty)));
+                        for conformance in capability.applicability.conformance_provenance.iter().flatten() {
+                            if let phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence } = &conformance.source {
+                                roots.extend(evidence.impl_bindings.bindings().values().copied().map(|ty| (module.clone(), range, ty)));
+                            }
+                        }
+                    }
+                }
+            }
+            for lane in analysis.for_iteration_lanes.values() {
+                for resolution in [&lane.iterator, &lane.next] {
+                    if let phalcom_semantic::checker::ForIterationRequirementResolution::Evidence { evidence, .. } = resolution {
+                        if matches!(evidence, GenericConformanceEvidence::Exact(_) | GenericConformanceEvidence::Derived(_)) {
+                            add_conformance_type_roots(module, lane.source_range, evidence, &mut roots);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut static_domain_constructors = BTreeMap::new();
+    for info in snapshot.data_semantics.data_decls.values() {
+        if let Some(static_data) = &info.static_data {
+            static_domain_constructors.insert(static_data.domain, static_data.constructors.clone());
+        }
+    }
+    for info in snapshot.enum_semantics.enums.values() {
+        if let Some(static_data) = &info.static_data {
+            static_domain_constructors.insert(static_data.domain, static_data.constructors.clone());
+        }
+    }
+    let associated_domain_constructors = snapshot
+        .associated_static_domains
+        .values()
+        .map(|product| (product.id.clone(), product.constructors.clone()))
+        .collect::<BTreeMap<_, _>>();
+
+    let mut seen = BTreeSet::new();
+    let mut requirements = contextual_receiver_requirements;
+    for (importer, range, ty) in roots {
+        let mut owners = RuntimeMetadataTypeOwnerCollector::new(snapshot.store(), &static_domain_constructors, &associated_domain_constructors);
+        owners.add_type(ty);
+        for dependency in owners.owners {
+            if dependency == importer || !seen.insert((importer.clone(), dependency.clone(), range)) {
+                continue;
+            }
+            requirements.push(RuntimeDependencyRequirement {
+                importer: importer.clone(),
+                dependency,
+                range,
+                reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+                read_target: None,
+            });
+        }
+    }
+    requirements
+}
+
 fn add_runtime_trait_environment_roots(
     roots: &mut Vec<RuntimeTraitEnvironmentRootSpec>,
     seen: &mut BTreeSet<(
@@ -111,9 +706,7 @@ fn add_contextual_realization_trait_roots(
     module: &ModuleId,
     realization: &phalcom_semantic::checker::analysis::ContextualRealization,
 ) {
-    use phalcom_semantic::checker::analysis::{
-        ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource,
-    };
+    use phalcom_semantic::checker::analysis::{ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource};
 
     let mut add_selection = |selection: &RealizationCapabilitySelection| {
         let RealizationCapabilitySelection::Evidenced(selection) = selection else {
@@ -224,7 +817,7 @@ pub struct CompiledProgram {
     /// Resolved project universe shared by every linked module.
     pub project_universe: Arc<ProjectUniverse>,
     /// Original linked program plan.
-    pub linked: Arc<LinkedProgram>,
+    pub linked: Arc<ExecutableLinkedProgram>,
     /// Compiled modules keyed by semantic identity.
     pub modules: BTreeMap<ModuleId, CompiledModule>,
     /// Program entry module.
@@ -362,7 +955,7 @@ pub enum ProgramCompileError {
 #[derive(Clone, Debug)]
 pub struct AnalyzedProgram {
     pub project_universe: Arc<ProjectUniverse>,
-    pub linked: Arc<LinkedProgram>,
+    pub linked: Arc<ExecutableLinkedProgram>,
     pub semantic: Arc<phalcom_semantic::SemanticSnapshot>,
     pub sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
     /// Modules that this program owns at runtime. Semantic support modules may
@@ -449,9 +1042,81 @@ pub(crate) fn discover_reachable_dependencies<P: SourceProvider>(
     Ok(DiscoveredProgramClosure { interfaces, sources, resolved })
 }
 
+/// Runs semantic analysis between symbolic linking and executable finalization.
+/// The semantic import identities stay available during analysis; only the
+/// finalized projection is returned to compiler consumers.
+fn link_analyze_finalize(
+    linker: &ModuleLinker,
+    entry: ModuleId,
+    resolved: &BTreeMap<(ModuleId, String), ModuleId>,
+    sources: &BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    runtime_modules: &BTreeSet<ModuleId>,
+    generation: u64,
+    semantic_session: Option<&mut phalcom_semantic::SemanticWorkspaceSession>,
+) -> Result<(Arc<ExecutableLinkedProgram>, Arc<phalcom_semantic::SemanticSnapshot>), ProgramCompileError> {
+    let semantic = Arc::new(linker.link_semantic(entry.clone(), resolved)?);
+    let semantic_input =
+        phalcom_semantic::SemanticWorkspaceInput::new(semantic.to_unfinalized_program(), sources.clone(), generation).with_semantic_linked(semantic.clone());
+
+    let mut owned_semantic_session;
+    let semantic_session = match semantic_session {
+        Some(semantic_session) => semantic_session,
+        None => {
+            owned_semantic_session = phalcom_semantic::SemanticWorkspaceSession::new();
+            &mut owned_semantic_session
+        }
+    };
+    let snapshot = semantic_session
+        .update_with_budget_and_cancel(
+            semantic_input,
+            phalcom_semantic::db::QueryBudget::default(),
+            &phalcom_semantic::db::CancellationToken::new(),
+        )
+        .map_err(phalcom_semantic::SemanticUpdateFailure::from)?
+        .snapshot;
+
+    // Semantic snapshots also cover source-backed Universe support modules.
+    // Those modules are already initialized by the VM and are not part of this
+    // program's materialization closure, so only generated requirements owned
+    // by modules we compile can contribute this program's runtime DAG/read
+    // layout. Requirements from a user module that target a preinitialized
+    // Universe declaration remain in the projection.
+    let mut generated_requirements = snapshot
+        .generated_runtime_requirements
+        .iter()
+        .filter(|requirement| runtime_modules.contains(&requirement.importer))
+        .cloned()
+        .collect::<Vec<_>>();
+    generated_requirements.extend(runtime_metadata_type_requirements(&snapshot, sources, runtime_modules));
+
+    let executable = linker.finalize_executable_with_requirements((*semantic).clone(), &snapshot.import_phase_products, &generated_requirements)?;
+    Ok((Arc::new(executable), snapshot))
+}
+
 impl ProgramAnalyzer {
     /// Analyzes an entry selection into an [`AnalyzedProgram`].
     pub fn analyze_entry_selection(entry: EntrySelection) -> Result<AnalyzedProgram, ProgramCompileError> {
+        Self::analyze_entry_selection_inner(entry, None)
+    }
+
+    /// Analyzes an entry selection using a caller-configured semantic session.
+    ///
+    /// This supports embeddings and tests that need to control the canonical
+    /// semantic source provider while exercising the same link/analyze/finalize
+    /// pipeline used by [`Self::analyze_entry_selection`]. The session is
+    /// consumed by this one analysis so its workspace generation remains local
+    /// to the resulting program.
+    pub fn analyze_entry_selection_with_session(
+        entry: EntrySelection,
+        mut semantic_session: phalcom_semantic::SemanticWorkspaceSession,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        Self::analyze_entry_selection_inner(entry, Some(&mut semantic_session))
+    }
+
+    fn analyze_entry_selection_inner(
+        entry: EntrySelection,
+        mut semantic_session: Option<&mut phalcom_semantic::SemanticWorkspaceSession>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
         match entry {
             EntrySelection::ModuleId(entry_id) => Err(ProgramCompileError::Io(format!(
                 "EntrySelection::ModuleId({entry_id}) cannot be analyzed without an existing linked project universe"
@@ -479,7 +1144,7 @@ impl ProgramAnalyzer {
                     path: entry_path,
                 };
                 let provider = FilesystemSourceProvider::new();
-                Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
+                Self::discover_and_analyze(Arc::new(universe), provider, entry_id, semantic_session.as_deref_mut())
             }
             EntrySelection::Package(pkg_dir) => {
                 let canonical_pkg = pkg_dir
@@ -502,7 +1167,7 @@ impl ProgramAnalyzer {
                     ]),
                 };
                 let provider = FilesystemSourceProvider::new();
-                Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
+                Self::discover_and_analyze(Arc::new(universe), provider, entry_id, semantic_session.as_deref_mut())
             }
             EntrySelection::Module(file_path) => {
                 let canonical = file_path
@@ -522,7 +1187,7 @@ impl ProgramAnalyzer {
                             path: module_path,
                         };
                         let provider = FilesystemSourceProvider::new();
-                        Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
+                        Self::discover_and_analyze(Arc::new(universe), provider, entry_id, semantic_session.as_deref_mut())
                     }
                     EntryOwnership::StandalonePackageOwned { package_root } => {
                         let root_id = universe.load_standalone_package(&package_root, None)?;
@@ -536,10 +1201,10 @@ impl ProgramAnalyzer {
                             path: module_path,
                         };
                         let provider = FilesystemSourceProvider::new();
-                        Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
+                        Self::discover_and_analyze(Arc::new(universe), provider, entry_id, semantic_session.as_deref_mut())
                     }
-                    EntryOwnership::StandaloneModule { file } => Self::analyze_standalone_module(file),
-                    EntryOwnership::Inline { .. } => Self::analyze_standalone_module(file_path),
+                    EntryOwnership::StandaloneModule { file } => Self::analyze_standalone_module(file, semantic_session.as_deref_mut()),
+                    EntryOwnership::Inline { .. } => Self::analyze_standalone_module(file_path, semantic_session.as_deref_mut()),
                 }
             }
             EntrySelection::Inline(source_text) => {
@@ -613,23 +1278,34 @@ impl ProgramAnalyzer {
                         resolved.insert((module.clone(), path.to_string()), target.id);
                     }
                 }
-                let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).link_all(entry_id.clone(), &resolved)?);
-
-                let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0))?;
+                let linker = ModuleLinker::new(universe.clone(), interfaces);
+                let runtime_modules = BTreeSet::from([entry_id.clone()]);
+                let (linked, semantic) = link_analyze_finalize(
+                    &linker,
+                    entry_id.clone(),
+                    &resolved,
+                    &sources,
+                    &runtime_modules,
+                    0,
+                    semantic_session.as_deref_mut(),
+                )?;
 
                 Ok(AnalyzedProgram {
                     project_universe: universe,
                     linked,
-                    semantic: analysis.snapshot,
+                    semantic,
                     sources,
-                    runtime_modules: BTreeSet::from([entry_id.clone()]),
+                    runtime_modules,
                     entry: entry_id,
                 })
             }
         }
     }
 
-    fn analyze_standalone_module(file_path: PathBuf) -> Result<AnalyzedProgram, ProgramCompileError> {
+    fn analyze_standalone_module(
+        file_path: PathBuf,
+        semantic_session: Option<&mut phalcom_semantic::SemanticWorkspaceSession>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
         let canonical = file_path
             .canonicalize()
             .map_err(|e| ProgramCompileError::Io(format!("{}: {e}", file_path.display())))?;
@@ -721,16 +1397,24 @@ impl ProgramAnalyzer {
         }
         let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, [entry_id.clone()], Some(&entry_id))?;
 
-        let linked = Arc::new(ModuleLinker::new(universe.clone(), discovered.interfaces).link_all(entry_id.clone(), &discovered.resolved)?);
-
-        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0))?;
+        let runtime_modules = BTreeSet::from([entry_id.clone()]);
+        let linker = ModuleLinker::new(universe.clone(), discovered.interfaces);
+        let (linked, semantic) = link_analyze_finalize(
+            &linker,
+            entry_id.clone(),
+            &discovered.resolved,
+            &discovered.sources,
+            &runtime_modules,
+            0,
+            semantic_session,
+        )?;
 
         Ok(AnalyzedProgram {
             project_universe: universe,
             linked,
-            semantic: analysis.snapshot,
+            semantic,
             sources: discovered.sources,
-            runtime_modules: BTreeSet::from([entry_id.clone()]),
+            runtime_modules,
             entry: entry_id,
         })
     }
@@ -739,6 +1423,7 @@ impl ProgramAnalyzer {
         universe: Arc<ProjectUniverse>,
         source_provider: FilesystemSourceProvider,
         entry: ModuleId,
+        semantic_session: Option<&mut phalcom_semantic::SemanticWorkspaceSession>,
     ) -> Result<AnalyzedProgram, ProgramCompileError> {
         let mut resolver = ModuleResolver::new(&universe, &source_provider);
         let mut interfaces = BTreeMap::new();
@@ -790,19 +1475,22 @@ impl ProgramAnalyzer {
 
         let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, pending, None)?;
 
+        let runtime_modules = discovered
+            .interfaces
+            .keys()
+            .filter(|id| !id.project.is_universe())
+            .cloned()
+            .collect::<BTreeSet<_>>();
         let linker = ModuleLinker::new(universe.clone(), discovered.interfaces);
-        let linked = Arc::new(linker.link_all(entry.clone(), &discovered.resolved)?);
-
-        let semantic_input = phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0);
-        let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::new();
-        let analysis = semantic_session
-            .update_with_budget_and_cancel(
-                semantic_input,
-                phalcom_semantic::db::QueryBudget::default(),
-                &phalcom_semantic::db::CancellationToken::new(),
-            )
-            .map_err(phalcom_semantic::SemanticUpdateFailure::from)?
-            .snapshot;
+        let (linked, semantic) = link_analyze_finalize(
+            &linker,
+            entry.clone(),
+            &discovered.resolved,
+            &discovered.sources,
+            &runtime_modules,
+            0,
+            semantic_session,
+        )?;
 
         Ok(AnalyzedProgram {
             project_universe: universe,
@@ -810,9 +1498,9 @@ impl ProgramAnalyzer {
             // runtime state. Keep them in the linked/semantic closure, but do
             // not rematerialize their project-specific artifacts over that
             // state when an ordinary package is run in a full VM.
-            runtime_modules: linked.modules.keys().filter(|id| !id.project.is_universe()).cloned().collect(),
+            runtime_modules,
             linked,
-            semantic: analysis,
+            semantic,
             sources: discovered.sources,
             entry,
         })
@@ -1958,9 +2646,15 @@ fn compile_module(
 
 #[cfg(test)]
 mod tests {
-    use super::ProgramCompileError;
+    use super::{ProgramCompileError, RuntimeMetadataTypeOwnerCollector, SourceRange, contextual_receiver_read_requirement};
     use crate::typing::RuntimeTypeRecipe;
-    use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
+    use phalcom_modules::{LinkedReadSpec, ModuleComponent, ModuleId, ModulePath, RuntimeDependencyReason, RuntimeDependencyRequirement, SymbolId};
+    use phalcom_semantic::identity::DeclarationId;
+    use phalcom_semantic::types::id::StaticDomainId;
+    use phalcom_semantic::types::kind::KindData;
+    use phalcom_semantic::types::store::{TupleTypeElement, TypeStore};
+    use phalcom_semantic::types::type_lambda::ScopedTypeData;
+    use std::collections::{BTreeMap, BTreeSet};
 
     #[test]
     fn compiler_error_keeps_semantic_publication_failure_typed() {
@@ -1999,6 +2693,129 @@ mod tests {
         assert!(
             matches!(recipe.bindings.as_ref(), [(_, RuntimeTypeRecipe::Closed(_))]),
             "RangeIterator lowerOpt.isNone must close Option.T as Number at {range:?}, got {recipe:?}"
+        );
+    }
+
+    #[test]
+    fn runtime_metadata_type_roots_retain_nested_nominal_owners() {
+        let owner = ModuleId::resolved(
+            phalcom_modules::identity::ResolvedProjectId::from_raw(77),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("types").expect("valid module name")]),
+        );
+        let declaration = DeclarationId::new(owner.clone(), "External".into());
+        let mut store = TypeStore::new();
+        let external = store.nominal_type(declaration);
+        let tuple = store.tuple(Box::new([TupleTypeElement::unlabeled(external)]));
+        let static_domain_constructors = BTreeMap::new();
+        let associated_domain_constructors = BTreeMap::new();
+
+        let mut collector = RuntimeMetadataTypeOwnerCollector::new(&store, &static_domain_constructors, &associated_domain_constructors);
+        collector.add_type(tuple);
+
+        assert_eq!(collector.owners, BTreeSet::from([owner]));
+    }
+
+    #[test]
+    fn runtime_metadata_type_roots_follow_lambda_kinds_and_current_domain_products() {
+        let domain_owner = ModuleId::resolved(
+            phalcom_modules::identity::ResolvedProjectId::from_raw(78),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("domain").expect("valid module name")]),
+        );
+        let payload_owner = ModuleId::resolved(
+            phalcom_modules::identity::ResolvedProjectId::from_raw(79),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("payload").expect("valid module name")]),
+        );
+        let domain_declaration = DeclarationId::new(domain_owner.clone(), "Domain".into());
+        let payload_declaration = DeclarationId::new(payload_owner.clone(), "Payload".into());
+        let mut store = TypeStore::new();
+        let domain = store.nominal_static_domain(domain_declaration);
+        let payload_domain = store.nominal_static_domain(payload_declaration);
+        let domain_kind = store.static_domain_kind(domain);
+        let payload_kind = store.static_domain_kind(payload_domain);
+        let constructor = store.intern_static_constructor(
+            domain,
+            DeclarationId::new(domain_owner.clone(), "Domain".into()),
+            "Some",
+            Box::new([payload_kind]),
+        );
+        let lambda_kind = store.arrow_kind(Box::new([domain_kind]), domain_kind);
+        let body_type = store.unit();
+        let body = store.arena_mut().intern_scoped(ScopedTypeData::Free(body_type));
+        let lambda = store.lambda(Box::new([lambda_kind]), body, lambda_kind);
+        let static_domain_constructors = BTreeMap::from([(domain, vec![constructor].into_boxed_slice())]);
+        let associated_domain_constructors = BTreeMap::new();
+
+        let mut collector = RuntimeMetadataTypeOwnerCollector::new(&store, &static_domain_constructors, &associated_domain_constructors);
+        collector.add_type(lambda);
+
+        assert_eq!(collector.owners, BTreeSet::from([domain_owner, payload_owner]));
+        assert!(matches!(store.get_kind(lambda_kind), KindData::Arrow { .. }));
+    }
+
+    #[test]
+    fn runtime_metadata_type_roots_ignore_stale_store_constructors() {
+        let domain_owner = ModuleId::resolved(
+            phalcom_modules::identity::ResolvedProjectId::from_raw(80),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("current").expect("valid module name")]),
+        );
+        let stale_owner = ModuleId::resolved(
+            phalcom_modules::identity::ResolvedProjectId::from_raw(81),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("stale").expect("valid module name")]),
+        );
+        let declaration = DeclarationId::new(domain_owner.clone(), "Current".into());
+        let mut store = TypeStore::new();
+        let domain: StaticDomainId = store.nominal_static_domain(declaration);
+        let stale_payload = store.nominal_type(DeclarationId::new(stale_owner, "HistoricalPayload".into()));
+        let stale_kind = store.kind_of(stale_payload);
+        store.intern_static_constructor(
+            domain,
+            DeclarationId::new(domain_owner.clone(), "Current".into()),
+            "OldCase",
+            Box::new([stale_kind]),
+        );
+        let root = store.associated_static_domain_form(domain);
+        let static_domain_constructors = BTreeMap::new();
+        let associated_domain_constructors = BTreeMap::new();
+
+        let mut collector = RuntimeMetadataTypeOwnerCollector::new(&store, &static_domain_constructors, &associated_domain_constructors);
+        collector.add_type(root);
+
+        assert_eq!(collector.owners, BTreeSet::from([domain_owner]));
+    }
+
+    #[test]
+    fn contextual_realization_receiver_projects_canonical_runtime_read() {
+        let importer = ModuleId::resolved(
+            phalcom_modules::identity::ResolvedProjectId::from_raw(82),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("consumer").expect("valid module name")]),
+        );
+        let owner = ModuleId::resolved(
+            phalcom_modules::identity::ResolvedProjectId::from_raw(83),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("scalar").expect("valid module name")]),
+        );
+        let declaration = DeclarationId::new(owner.clone(), "Scalar".into());
+        let mut store = TypeStore::new();
+        let target = store.nominal_type(declaration);
+
+        let requirement = contextual_receiver_read_requirement(&importer, target, SourceRange::default(), &store)
+            .expect("external contextual receiver must produce a runtime read");
+
+        assert_eq!(
+            requirement,
+            RuntimeDependencyRequirement {
+                importer: importer.clone(),
+                dependency: owner.clone(),
+                range: SourceRange::default(),
+                reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+                read_target: Some(LinkedReadSpec::Binding(SymbolId {
+                    module: owner.clone(),
+                    name: "Scalar".into(),
+                })),
+            }
+        );
+        assert!(
+            contextual_receiver_read_requirement(&owner, target, SourceRange::default(), &store).is_none(),
+            "a local contextual receiver uses its own module global"
         );
     }
 }

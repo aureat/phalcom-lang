@@ -12,25 +12,18 @@ from parse.run import Parse
 from parse.source.list_source import ListSource
 
 data Token {
-  @variant
   Integer(_ value: Int)
 
-  @variant
   Name(_ text: String)
 
-  @variant
   Plus
 
-  @variant
   Star
 
-  @variant
   Caret
 
-  @variant
   LeftParen
 
-  @variant
   RightParen
 }
 

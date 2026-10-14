@@ -180,16 +180,16 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
 
     #[cfg(test)]
     CANONICAL_LINKS.fetch_add(1, Ordering::Relaxed);
-    let linked = ModuleLinker::new(project_universe.clone(), interfaces)
+    let linked_program = ModuleLinker::new(project_universe.clone(), interfaces)
         .link_all(ModuleId::universe_root(), &resolved)
         .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?;
-    let linked = Arc::new(linked);
+    let linked_for_semantics = Arc::new(linked_program.clone());
     let sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>> =
         source_index.units.iter().map(|unit| (unit.id.clone(), unit.clone())).collect();
     #[cfg(test)]
     CANONICAL_SEMANTIC_ANALYSES.fetch_add(1, Ordering::Relaxed);
     let semantic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        phalcom_semantic::try_analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0))
+        phalcom_semantic::try_analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked_for_semantics.clone(), sources.clone(), 0))
     }))
     .map_err(|_| CanonicalUniverseBuildError::SemanticAnalysisPanicked)?;
     let semantic = semantic?;
@@ -204,6 +204,11 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
         return Err(CanonicalUniverseBuildError::NativeContracts(diagnostic.message.clone()));
     }
     ensure_executable_match_coverage(&semantic.snapshot)?;
+
+    let linked = Arc::new(
+        phalcom_modules::ExecutableLinkedProgram::from_conservative_link(linked_program)
+            .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?,
+    );
 
     let analyzed = AnalyzedProgram {
         project_universe,

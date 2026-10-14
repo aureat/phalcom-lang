@@ -10,6 +10,34 @@ completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 ```
 
+## Compatibility Update — Bare `data` Cases and Retired `@variant` (2026-10-13)
+
+- `@variant` is retired everywhere. Sum cases are declared directly inside a
+  sum-shaped `data` declaration; class bodies, including sealed classes, cannot
+  declare cases. The parser reports `syntax.data.variant_marker_retired` or
+  `syntax.class.variant_marker_retired` at the marker. `BuiltinAttr::Variant`,
+  `ClassMember::Variant`, `VariantDef`, and the compiler's generated sibling
+  classes / match visitor have been removed. `AlgebraicCaseSyntax` no longer
+  stores a marker range. Case identity, payloads, attributes, GADT annotations,
+  declaration order, and runtime representation remain unchanged.
+- Active package sources, examples, fixtures, embedded programs, and current
+  normative examples now use `data` cases. Behavior remains in `impl`
+  declarations. Archived snapshots and historical implementation-plan text
+  remain unchanged.
+- Focused parser coverage passes for bare singleton, nullary, positional,
+  record-payload, and GADT cases, plus both retired-marker diagnostics and
+  marker ranges (7 tests). Changed example sources that parse cleanly include
+  the variance example, symbolic Ordering example, benchmark showcase, and the
+  migrated data fixtures. The full symbolic torture file still stops at its
+  pre-existing `const` field syntax error. UUID and NanoID package source
+  loader tests, Universe shadow-source parsing, and the data interface
+  extraction tests pass.
+- The focused semantic declaration and core algebraic-data gates fail before
+  reaching ADT assertions because canonical Universe bootstrap cannot resolve
+  `universe.numbers.capabilities` (the path is private). This is the same
+  unrelated worktree blocker observed before the full class-marker retirement;
+  `cargo check` for core, semantic, LSP, and modules passes.
+
 ## Plan Ledger
 
 | Plan | Title | Status | Completion | Verification |

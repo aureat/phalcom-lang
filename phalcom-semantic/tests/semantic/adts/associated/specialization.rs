@@ -9,8 +9,8 @@ fn generic_constructor_metadata_keeps_owner_and_payload_specialization() {
     let case = analyze_adt(
         r#"
 data Option<T> {
-    @variant Some(_ value: T) -> Option<T>
-    @variant None -> Option<T>
+    Some(_ value: T) -> Option<T>
+    None -> Option<T>
 }
 "#,
     );

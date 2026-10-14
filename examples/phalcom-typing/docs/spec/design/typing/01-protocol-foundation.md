@@ -451,7 +451,7 @@ The following are rejected:
 - protocol-composition clauses before Document 10;
 - duplicate complete selectors on the same side;
 - `@native`, `@abstract`, contract-weaving attributes, or any other behavior-changing requirement attribute;
-- combining `@protocol` with `@data`, `@sealed`, `@variant`, `@abstract`, `@immutable`, or another declaration-product attribute;
+- combining `@protocol` with `@data`, `@sealed`, `@abstract`, `@immutable`, or another declaration-product attribute;
 - applying `@protocol` to a method, field, local binding, or any non-class-shaped declaration;
 - using `@class` on anything other than a bodyless requirement inside a protocol declaration;
 - constructor-like requirements marked with `@constructor`; use an ordinary class-side factory selector instead.
@@ -807,21 +807,15 @@ The source is presented as one conceptual `core/typing/protocol.ph` module. Docu
 // Native anchors protect trusted declaration shells and owned descriptor
 // construction; their visible source bodies define the required semantics.
 
-@data
-@immutable
-@sealed
-class ProtocolRequirementSide {
-  @variant Instance
-  @variant ClassSide
+data ProtocolRequirementSide {
+  Instance
+  ClassSide
 }
 
-@data
-@immutable
-@sealed
-class ProtocolParameterKind {
-  @variant Positional
-  @variant Labeled
-  @variant Rest
+data ProtocolParameterKind {
+  Positional
+  Labeled
+  Rest
 }
 
 @data
@@ -2726,11 +2720,11 @@ Tools must not coerce a `ProtocolRequirement` into a `Method` because it lacks e
 
 `@native` is legal only on the trusted standard-library source anchors in Section 6. User-authored protocol requirements marked `@native` are rejected because a requirement has no implementation binding.
 
-### 11.9 `@data`, `@sealed`, `@variant`, and `@immutable`
+### 11.9 Algebraic declarations and immutability
 
-These declaration-product or layout-affecting decorators cannot combine with `@protocol` in the first version.
+These declaration-product or layout-affecting attributes cannot combine with `@protocol` in the first version. Sum cases are declared inside `data` declarations; `@variant` is retired.
 
-The protocol descriptor implementation itself may use `@data`, `@sealed`, and `@immutable` on supporting standard-library value classes, as Section 6 does. That is unrelated to decorating a user protocol declaration with them.
+The protocol descriptor implementation itself may use `data` declarations and `@immutable` on supporting standard-library values, as Section 6 does. That is unrelated to decorating a user protocol declaration with them.
 
 ### 11.10 `@abstract`
 

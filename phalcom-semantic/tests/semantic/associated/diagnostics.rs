@@ -9,7 +9,7 @@ fn getter_lookup_does_not_fall_back_to_zero_argument_constructor() {
     let source: Arc<str> = Arc::from(
         r#"
 data State {
-  @variant Ready()
+  Ready()
 }
 class Probe {
   @class run() { State::Ready }

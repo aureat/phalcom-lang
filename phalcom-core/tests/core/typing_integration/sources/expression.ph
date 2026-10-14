@@ -1,45 +1,36 @@
 data Expression<F: Type -> Type, T> {
-    @variant
     Pure<A>(_ value: A) -> Expression<F, A>
 
-    @variant
     IntLiteral(_ value: Int) -> Expression<F, Int>
 
-    @variant
     BoolLiteral(_ value: Bool) -> Expression<F, Bool>
 
-    @variant
     Add(
         _ left: Expression<F, Int>,
         _ right: Expression<F, Int>
     ) -> Expression<F, Int>
 
-    @variant
     If<A>(
         _ condition: Expression<F, Bool>,
         _ yes: Expression<F, A>,
         _ no: Expression<F, A>
     ) -> Expression<F, A>
 
-    @variant
     Map<A, B>(
         _ source: Expression<F, A>,
         _ transform: (A) -> B
     ) -> Expression<F, B>
 
-    @variant
     FlatMap<A, B>(
         _ source: Expression<F, A>,
         _ next: (A) -> Expression<F, B>
     ) -> Expression<F, B>
 
-    @variant
     Apply<A, B>(
         _ function: Expression<F, (A) -> B>,
         _ argument: Expression<F, A>
     ) -> Expression<F, B>
 
-    @variant
     Lift<A>(_ effect: F<A>) -> Expression<F, A>
 }
 

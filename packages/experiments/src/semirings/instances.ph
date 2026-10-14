@@ -45,8 +45,8 @@ impl Semiring for Weight {
 /// Min-plus with exact integer costs and an explicit positive infinity.
 /// Negative finite costs are permitted; bounded walks do not solve negative cycles.
 data Tropical {
-  @variant Infinity
-  @variant Cost(_ value: Int)
+  Infinity
+  Cost(_ value: Int)
 }
 impl Semiring for Tropical {
   @class zero -> Tropical { Tropical::Infinity }

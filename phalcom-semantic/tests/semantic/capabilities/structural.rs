@@ -479,9 +479,9 @@ fn compiler_derived_structural_reflection_evaluates_shapes_and_variants() {
     let f = Fixture::new(
         r#"
 data Color {
-  @variant Red
-  @variant Green(_ value: Int)
-  @variant Blue(intensity: Int)
+  Red
+  Green(_ value: Int)
+  Blue(intensity: Int)
 }
 
 class Probe<T, S> {

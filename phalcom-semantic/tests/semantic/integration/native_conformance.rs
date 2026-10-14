@@ -59,8 +59,8 @@ fn test_presentation_ir_and_virtual_source() {
 fn test_native_enum_merge_preserves_declarations() {
     let source = r#"
 native data Option<T> {
-    @variant Some(_ value: T)
-    @variant None
+    Some(_ value: T)
+    None
 
 }
 "#;

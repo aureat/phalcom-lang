@@ -446,12 +446,6 @@ impl VM {
             .modules
             .get(id)
             .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe compiled module {id} is missing from canonical program")))?;
-        let linked = canonical
-            .program()
-            .linked
-            .modules
-            .get(id)
-            .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe linked module {id} is missing from canonical program")))?;
         let module = self
             .module_registry
             .get(id)
@@ -460,7 +454,8 @@ impl VM {
 
         self.heap.module_mut(module).lowering = Some(compiled.lowering.clone());
         self.materialize_linked_reads_for_module(id, compiled)?;
-        let bindings = crate::modules::CompileBindings::from_linked_module(linked);
+        let bindings = crate::modules::CompileBindings::from_executable_linked_program(&canonical.program().linked, id)
+            .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe executable link has no finalized module {id}")))?;
         let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(parsed.text.to_string()));
         #[cfg(test)]
         if COUNT_UNIVERSE_BOOTSTRAP.with(Cell::get) {

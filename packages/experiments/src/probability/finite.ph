@@ -3,9 +3,9 @@ from universe.numbers import Rational, Zero, One
 
 data Outcome<T>(_ value: T, _ weight: Rational)
 data FiniteError {
-  @variant ZeroMass
-  @variant NegativeWeight(_ weight: Rational)
-  @variant ZeroEvent
+  ZeroMass
+  NegativeWeight(_ weight: Rational)
+  ZeroEvent
 }
 
 /// Nonempty, normalized, positive rational masses on equivalence classes.

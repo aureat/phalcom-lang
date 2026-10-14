@@ -7,16 +7,12 @@ type LabeledPack<T: Type> = Pack<**: T>
 type CompletePack<T: Type> = Pack<***: T>
 
 data PositionalPackView<T> {
-  @variant
   Empty
-  @variant
   Entry(_ value: T, _ rest: PositionalPack<T>)
 }
 
 data LabeledPackView<T> {
-  @variant
   Empty
-  @variant
   Entry(_ label: Symbol, _ value: T, _ rest: LabeledPack<T>)
 }
 

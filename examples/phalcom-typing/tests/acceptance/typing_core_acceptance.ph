@@ -1,7 +1,7 @@
 // Executable design acceptance for the future generic-aware Phalcom toolchain.
 // The Python verifier checks this file structurally until that toolchain exists.
 
-import Type, TypeParameter, AppliedType from typing
+import Type, TypeParameter, AppliedType, Variance from typing
 
 class Box<T> {
   const _value: T
@@ -25,7 +25,7 @@ const parameter: TypeParameter = Box.typeParameters.first
 assert(parameter.name == #T)
 assert(parameter.owner === Box)
 assert(parameter.index == 0)
-assert(parameter.variance == Variance.Invariant)
+assert(parameter.variance == Variance::Invariant)
 
 const intBox = Box<Int>
 assert(intBox.origin === Box)

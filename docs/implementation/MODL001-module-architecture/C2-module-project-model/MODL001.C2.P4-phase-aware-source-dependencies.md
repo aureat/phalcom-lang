@@ -32,6 +32,43 @@ supersedes: null
 
 Modules owns transport, identity, slots and graphs; semantic owns the proof; core owns orchestration and executable semantic projection. `ImportBindingId` is executable-only. Generated requirements may name canonical owners without an authored imported binding. Evidence must survive query reuse and retract on invalidation; a generic snapshot status is not phase completeness. Completion requires T1–T8 evidence, not merely introducing the staged types.
 
+## Approved Level 2 amendment — INC-1 (2026-10-13)
+
+The user selected amendment of P4 rather than a corrective P5. Preserve the
+same checkpoint acceptance objective and make the following implementation
+contract explicit:
+
+1. `phalcom-modules` owns `RuntimeDependencyRequirement`, a transport for a
+   runtime dependency edge plus an optional canonical `LinkedReadSpec` target.
+   It contains no semantic-crate types. When present, the target module must
+   agree with the dependency edge; graph-only requirements remain representable.
+2. Semantic analysis and core's semantic/runtime projection produce requirements
+   before executable finalization. They cover every T4 family in the ruling,
+   not only authored imports and external superclasses.
+3. The finalizer projects authored runtime imports and generated read targets
+   into one immutable canonical read layout, adds every dependency edge, and
+   strictly validates the runtime DAG before publishing
+   `ExecutableLinkedProgram`. Runtime-cycle rejection remains mandatory.
+4. `ProgramCompiler`, compiler bindings, and P3 materialization preserve the
+   `ExecutableLinkedProgram` boundary. Finalized bindings are closed: compiler
+   and prelude-attachment paths cannot append linked reads. Missing mappings
+   fail closed as an internal invariant error. Any legacy conservative path is
+   explicitly isolated and must validate its DAG/read coverage before producing
+   the executable type.
+5. T7 includes every owner-specific CV in the ruling, generated mapping
+   coverage, no-uncovered-`GetLinked`, and missing-mapping fail-closed tests.
+   T8 remains gated on T1–T7 and adds both the protocol/default-to-adapter
+   positive and runtime-cycle negative.
+
+The pre-amendment detailed task notes below are superseded by the T0–T8
+sequence above. Keep the crate ownership boundary, canonical identity, strict
+cycle rejection, and no-import-syntax-change invariants fixed.
+
+The current implementation remains partial. T4 producer coverage and T7/T8
+cross-stage acceptance are still open. The T5 finalizer and T6 executable
+compiler boundary are implemented and focused-tested; see the checkpoint and
+current continuation handoff for evidence and remaining acceptance gaps.
+
 ## 0. Executor contract
 
 Implement a sound source-to-runtime dependency path under the architecture below. The work may adapt private helpers and data layout to the live tree. It must not add import syntax, weaken cycle validation, or infer interface-only status from missing runtime edges. Stop for architectural consultation if semantic usage cannot be proven before executable linking, or if any runtime read cannot be represented in the finalized runtime graph.
@@ -275,9 +312,13 @@ Follow repository guidance. A graph mismatch or missing runtime read is semantic
 
 Classify unexpected results A/B/C/D per `AGENTS.md`. Do not rerun unchanged baseline failures. Any pre-existing module or semantic issue that blocks the exact phase proof is a blocker to this plan and must be reported; unrelated subsystem failures are recorded and deferred.
 
-## 18. Tasks
+## 18. Superseded pre-amendment task notes
 
-### T1 — Separate semantic import links from executable runtime projection
+The following detail is retained as provenance only. The active task ledger is
+the T0–T8 sequence above, including the INC-1 amendment. Do not use these old
+T1–T4 headings to infer current task ownership or completion.
+
+### Original T1 — Separate semantic import links from executable runtime projection
 
 #### Purpose
 
@@ -341,7 +382,7 @@ An ordinary import remains available to semantic resolution; a pre-semantic prod
 
 Stop if current semantic analysis can only resolve imported declarations through runtime linked-read materialization or if runtime link finalization cannot be deferred without changing accepted execution semantics.
 
-### T2 — Publish canonical per-import semantic phase evidence
+### Original T2 — Publish canonical per-import semantic phase evidence
 
 #### Purpose
 
@@ -389,7 +430,7 @@ Type/conformance-only imported references produce `InterfaceOnly`; a value use o
 
 Stop if semantic analysis cannot represent the phase proof without a second resolver, a full unrelated occurrence-index redesign, or a new user-visible import/type namespace rule.
 
-### T3 — Finalize and validate the executable runtime graph
+### Original T3 — Finalize and validate the executable runtime graph
 
 #### Purpose
 
@@ -439,7 +480,7 @@ Runtime ordering derives from the finalized projection; every emitted read is re
 
 Stop if any code path can initialize modules from a provisional product or if runtime codegen emits a read that cannot be mapped back to a semantic phase fact.
 
-### T4 — Prove the Universe iteration dependency shape
+### Original T4 — Prove the Universe iteration dependency shape
 
 #### Purpose
 

@@ -19,9 +19,9 @@ fn run_inline(source: &str) -> Result<(VM, phalcom_core::heap::ObjRef), PhError>
 fn associated_family_freezes_variant_capabilities() {
     let source = r#"
 data Weird {
-  @variant Marker
-  @variant Marker()
-  @variant Marker(_ value: Int)
+  Marker
+  Marker()
+  Marker(_ value: Int)
 }
 
 let family = &Weird::Marker...;
@@ -62,7 +62,7 @@ let family = &Weird::Marker...;
 fn singleton_reference_is_a_getter_family_for_the_canonical_value() {
     let source = r#"
 data Option {
-  @variant None
+  None
 }
 
 let direct = Option::None
@@ -93,7 +93,7 @@ let same_value = direct === via_value
 fn associated_dynamic_pack_preserves_arguments_and_native_option() {
     let (vm, module) = run_inline(
         r#"
-data PairBox { @variant Pair(_ x: Int, _ y: Int) }
+data PairBox { Pair(_ x: Int, _ y: Int) }
 let pair_fn = &PairBox::Pair...
 let pair = pair_fn(*[7, 8])
 let some_fn = &Option<Int>::Some...

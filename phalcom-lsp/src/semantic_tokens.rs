@@ -736,7 +736,7 @@ fn collect_behavior_decl_name(member: &BehaviorMember, out: &mut Vec<DeclNameOve
 }
 
 /// Pushes `member`'s own name-span override (if it has one — a
-/// [`ClassMember::Field`]/[`ClassMember::Variant`] does not) and recurses
+/// [`ClassMember::Field`] does not) and recurses
 /// into its body, mirroring [`collect_decl_names`]'s class-body traversal.
 fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<DeclNameOverride>) {
     match member {
@@ -778,7 +778,6 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<DeclNameOverride
                 is_index: false,
             });
         }
-        ClassMember::Variant(_) => {}
         ClassMember::Index(index_def) => {
             out.push(DeclNameOverride {
                 range: index_def.name_range,

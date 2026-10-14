@@ -8,9 +8,9 @@
 /// An endpoint is either `Unbounded` (representing -infinity for a lower bound,
 /// +infinity for an upper bound), `Included(value)`, or `Excluded(value)`.
 data Bound<T> {
-  @variant Unbounded
-  @variant Included(_ endpoint: T)
-  @variant Excluded(_ endpoint: T)
+  Unbounded
+  Included(_ endpoint: T)
+  Excluded(_ endpoint: T)
 }
 
 impl<T> Bound<T> {
