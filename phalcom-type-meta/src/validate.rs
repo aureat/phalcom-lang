@@ -2281,13 +2281,13 @@ fn validate_static_values(bundle: &SemanticMetadataBundle) -> Result<(), Metadat
                     }
                 }
             }
-            crate::static_value::StaticValueNode::Type(ty) | crate::static_value::StaticValueNode::StaticTerm(ty) => {
-                if ty.0 as usize >= bundle.types.len() {
-                    return Err(MetadataValidationError::InvalidTypeIndex {
-                        index: ty.0,
-                        total: bundle.types.len(),
-                    });
-                }
+            crate::static_value::StaticValueNode::Type(ty) | crate::static_value::StaticValueNode::StaticTerm(ty)
+                if ty.0 as usize >= bundle.types.len() =>
+            {
+                return Err(MetadataValidationError::InvalidTypeIndex {
+                    index: ty.0,
+                    total: bundle.types.len(),
+                });
             }
             _ => {}
         }

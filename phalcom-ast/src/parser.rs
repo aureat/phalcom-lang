@@ -2813,7 +2813,8 @@ impl<'source> Parser<'source> {
                 name,
                 range: (start..self.prev_end).into(),
             })
-        } else if self.eat(&Token::Hash) {
+        } else if matches!(self.peek(), Token::Hash) {
+            // parse_hash_symbol consumes '#' itself and checks adjacency.
             let sym = self.parse_hash_symbol()?;
             let name = match sym {
                 SymbolLiteralKind::Name(n) => n,
