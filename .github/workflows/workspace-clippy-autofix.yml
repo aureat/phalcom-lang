@@ -1,0 +1,55 @@
+name: One-shot pinned Clippy mechanical remediation
+
+on:
+  push:
+    branches:
+      - chore/workspace-clippy-fix
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pinned-workspace-clippy-autofix
+  cancel-in-progress: false
+
+env:
+  RUSTFLAGS: ""
+  RUSTC_WRAPPER: ""
+  CARGO_TERM_COLOR: always
+
+jobs:
+  auto-fix:
+    name: Generate compiler-suggested lint corrections on isolated branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: clippy,rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply machine-applicable pinned Clippy suggestions
+        shell: bash
+        run: |
+          set +e
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' clippy --fix --allow-dirty --allow-staged --workspace --all-targets -- -D warnings
+          result=$?
+          set -e
+          echo "Clippy fix command status: $result"
+          git diff --check
+          git diff --stat
+      - name: Commit suggested edits on isolated branch only
+        run: |
+          if git diff --quiet; then
+            echo "No machine-applicable fixes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git commit -m "style(clippy): apply pinned lint machine suggestions"
+          git push origin HEAD:refs/heads/chore/workspace-clippy-fix
