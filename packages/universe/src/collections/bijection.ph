@@ -105,7 +105,7 @@ class BijectionIterator<K, V> {
 
   next -> Option<(key: K, value: V)> {
     if _index < _keys.size {
-      let k = _keys.at(_index)
+      let k = _keys[_index]
       _index = _index + 1
       let optVal = _bijection.get(k)
       let v = optVal.unwrapOr(None)

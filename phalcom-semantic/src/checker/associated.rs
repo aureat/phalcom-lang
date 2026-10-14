@@ -447,6 +447,41 @@ fn callable_type_from_signature(ctx: &mut CheckingContext<'_>, signature: &crate
     }))
 }
 
+/// Candidate discovery may exclude only cases refuted by canonical case proof.
+/// Unknown/blocked evidence remains a candidate and never becomes a mismatch.
+pub(crate) fn contextual_variant_is_refuted(ctx: &mut CheckingContext<'_>, variant: &crate::identity::VariantId, owner_type: TypeId) -> bool {
+    let Some(info) = ctx.variant_info(variant).cloned() else {
+        return false;
+    };
+    matches!(
+        crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &variant.owner, &info, owner_type),
+        crate::checker::gadt_proof::GadtProofResult::Refuted
+    )
+}
+
+/// Enforces declaration-owned construction access for both associated lookup
+/// (including constructor references) and direct invocation. Pattern visibility
+/// is independent of construction permission.
+pub(crate) fn authorize_variant_construction(
+    ctx: &mut CheckingContext<'_>,
+    variant: &crate::enum_semantics::VariantInfo,
+    range: SourceRange,
+) -> Result<(), AssociatedResolutionError> {
+    if ctx.declaration_member_is_accessible(&variant.id.owner, variant.visibility.construct) {
+        return Ok(());
+    }
+    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+        ctx.current_module.clone(),
+        DiagnosticCode::AssociatedMemberInaccessible,
+        format!(
+            "construction of `{}::{}` is not accessible from this declaration",
+            variant.id.owner.name, variant.id.selector
+        ),
+        range,
+    ));
+    Err(AssociatedResolutionError)
+}
+
 /// Specializes an associated member against the owner's supplied type arguments,
 /// verifying GADT owner compatibility and producing specialized types/signatures.
 pub fn specialize_associated_member(
@@ -467,6 +502,8 @@ pub fn specialize_associated_member(
                 ));
                 return Err(AssociatedResolutionError);
             };
+
+            authorize_variant_construction(ctx, &variant_info, range)?;
 
             let env =
                 crate::types::specialization::specialize_receiver_to_owner(ctx.store, &ctx.hierarchy, owner.owner_form, &owner.lookup_owner, &ctx.control)

@@ -1183,6 +1183,29 @@ impl<'a> CheckingContext<'a> {
         resolved
     }
 
+    /// Checks a candidate without committing solver, flow, rigid or publication
+    /// state. Dependency reads and budget/cancellation remain shared. A unique
+    /// winner must subsequently be checked through the live application path.
+    pub(crate) fn run_candidate_probe<T>(
+        &mut self,
+        run: impl FnOnce(&mut CheckingContext<'_>) -> T,
+    ) -> T {
+        let resolver = self.resolver.inner;
+        let mut probe = self.with_resolver(resolver);
+        probe.inference_contexts = probe
+            .inference_contexts
+            .iter()
+            .map(|(id, session)| (*id, Rc::new(RefCell::new(session.borrow().fork()))))
+            .collect();
+        let deferred = probe.resolver.deferred_static_definitions.borrow().clone();
+        probe.resolver.deferred_static_definitions = Rc::new(RefCell::new(deferred));
+        let result = run(&mut probe);
+        let dependencies = probe.dependencies.clone();
+        drop(probe);
+        self.dependencies.extend(dependencies);
+        result
+    }
+
     /// Runs a speculative flow probe in an isolated child context.
     /// Child-local products (diagnostics, derivations, callable exits, expressions,
     /// dependencies) are discarded while the canonical TypeStore is updated monotonically

@@ -1885,6 +1885,11 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::Var { value, range } => {
+                if self.lowering().is_some_and(|lowering| {
+                    lowering.associated.keys().any(|site| site.range == range && site.kind == LoweringSiteKind::AssociatedLookup)
+                }) {
+                    return self.compile_associated_lookup_at(range);
+                }
                 if value == "nil" {
                     return Err(CompilerError::UndefinedVariable(value.clone()));
                 }

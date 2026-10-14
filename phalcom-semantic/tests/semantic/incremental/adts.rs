@@ -16,6 +16,65 @@ fn module() -> ModuleId {
 }
 
 #[test]
+fn contextual_enum_rejected_candidate_edits_agree_with_cold_analysis() {
+    let module = module();
+    let source = r#"
+data Number { make(_ value: Int) }
+data Text { make(_ value: String) }
+class Probe { @class run() -> Number | Text { make(1) } }
+"#;
+    let revised = source.replace("value: String", "value: Int");
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("initial publication");
+    assert!(
+        !first
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedCallAmbiguous)
+    );
+    let callable = CallableId::new(
+        DeclarationId::new(module.clone(), "Probe".into()),
+        Selector::method("run", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let dependencies = session
+        .db()
+        .index()
+        .dependencies_of(&QueryKey::CallableBody(callable.clone()))
+        .expect("body dependencies");
+    for owner in ["Number", "Text"] {
+        assert!(
+            dependencies.iter().any(|edge| edge.dependency
+                == QueryKey::EnumDeclaration(DeclarationId::new(module.clone(), owner.into()))),
+            "both selected and rejected owners must be dependencies: {owner}"
+        );
+    }
+    let incremental = session
+        .update(single_module_input(module.clone(), &revised, 2))
+        .expect("incremental publication");
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold = cold
+        .update(single_module_input(module, &revised, 1))
+        .expect("cold publication");
+    let codes = |snapshot: &SemanticSnapshot| {
+        snapshot
+            .all_diagnostics()
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>()
+    };
+    assert!(codes(&incremental.snapshot).contains(&DiagnosticCode::AssociatedCallAmbiguous));
+    assert_eq!(codes(&incremental.snapshot), codes(&cold.snapshot));
+    assert!(
+        incremental.snapshot.callable_analyses[&callable]
+            .associated_resolutions
+            .is_empty(),
+        "an ambiguous call must not retain the former winner"
+    );
+}
+
+#[test]
 fn adt_incr_00_indexed_outer_apply_match_has_bounded_type_store_growth() {
     let module = module();
     let mut session = SemanticWorkspaceSession::new();

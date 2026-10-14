@@ -160,7 +160,7 @@ class BagIterator<T> {
 
   next -> Option<T> {
     while _countRemaining <= 0 and _keyIndex < _keys.size {
-      let k = _keys.at(_keyIndex)
+      let k = _keys[_keyIndex]
       _keyIndex = _keyIndex + 1
       _currentKey = Some(k)
       _countRemaining = _bag.rawCount(k)

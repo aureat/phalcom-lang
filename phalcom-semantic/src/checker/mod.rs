@@ -9,6 +9,7 @@ pub mod call;
 pub mod causal;
 pub(crate) mod composition;
 pub mod context;
+pub(crate) mod contextual_variant;
 pub(crate) mod control;
 pub(crate) mod coverage;
 pub mod data_declaration;

@@ -1,0 +1,63 @@
+name: Enum and feature convergence focused
+
+on:
+  push:
+    branches: [feat/all-features-consolidation]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: all-features-focused-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: ""
+  RUSTC_WRAPPER: ""
+
+jobs:
+  enum-semantic:
+    name: Enum inference semantic acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Contextual enum candidate inference
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic contextual_enum -- --nocapture
+      - name: Associated construction and visibility
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic associated::lookup -- --nocapture
+      - name: Repeated owner patterns and GADT matching
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic adts::matching -- --nocapture
+      - name: Type and row candidate isolation
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --lib candidate_fork_detaches_inherited_type_and_row_constraints -- --nocapture
+      - name: Module graph and linker retained
+        run: |
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-modules --test linker
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-modules --test graph
+
+  enum-executable:
+    name: Canonical bootstrap and contextual enum runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Check core compiler
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' check -p phalcom-core
+      - name: Contextual enums compile and execute
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core contextual_enum_construction_and_union_payload_patterns_execute -- --nocapture
+      - name: Canonical bootstrap and finalized linked reads remain intact
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core modules_linking::mat_01_export_slots_populated -- --exact --nocapture
+      - name: Native-floor None class identity
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core object_model_invariants::isa_is_reflexive_and_superclass_closed -- --exact --nocapture
