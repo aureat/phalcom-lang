@@ -1033,3 +1033,45 @@ class Probe { @class run() -> Expr<Int> { boolean(true) } }
     case.assert_diagnostic_primary_contains(DiagnosticCode::AssociatedGadtOwnerConflict, "boolean(true)");
     assert!(case.diagnostics_for(DiagnosticCode::AssociatedCallAmbiguous).is_empty());
 }
+
+#[test]
+fn contextual_enum_generic_owner_preserves_parameterized_expectation() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Wrapped<T> {
+  wrap(_ value: T)
+  empty
+}
+
+class Holder<T> {
+  mut _current: Wrapped<T>
+
+  @constructor
+  new(_ value: T) {
+    _current = wrap(value)
+  }
+
+  take(_ value: T) -> Wrapped<T> {
+    return wrap(value)
+  }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "generic contextual fixture must parse: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program))
+        .expect("semantic generic contextual fixture publishes");
+    let diagnostics = analysis.snapshot.diagnostics_for(&module).unwrap_or_default();
+    assert!(
+        !diagnostics.iter().any(|d| {
+            matches!(
+                d.code,
+                DiagnosticCode::GenericInferenceConflict
+                    | DiagnosticCode::AssociatedGenericOwnerConflict
+                    | DiagnosticCode::ArgumentMismatch
+            )
+        }),
+        "contextual construction within a generic owner must preserve T: {diagnostics:#?}"
+    );
+}
