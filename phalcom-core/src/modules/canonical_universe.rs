@@ -604,8 +604,10 @@ mod tests {
     fn canonical_cycle_differential_identifies_combined_requirement_cycle() {
         use phalcom_modules::{
             DependencyPhase, ImportPhaseSummary, InterfaceBuilder, LinkError, ModuleImportPhaseProduct, ModuleKind,
-            PhaseEvidenceCoverage, RuntimeDependencyReason, RuntimeDependencyRequirement,
+            ModuleLinker, PhaseEvidenceCoverage, ProjectUniverse, RuntimeDependencyReason, RuntimeDependencyRequirement,
         };
+        use std::collections::BTreeMap;
+        use std::sync::Arc;
 
         let a = ModuleId::universe(ModulePath::from_components(vec![
             ModuleComponent::from_identifier("a").expect("valid module name"),
