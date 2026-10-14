@@ -25,6 +25,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub(crate) struct CanonicalUniverseProgram {
     /// VM-independent linked and lowered module program.
     program: Arc<CompiledProgram>,
+    /// Semantic-owned immutable formal image.
+    formal_image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
     /// Canonical parsed source units used by each VM's local compiler.
     source_index: Arc<NativeSourceIndex>,
     /// Modules reachable from the canonical Universe root.
@@ -33,9 +35,71 @@ pub(crate) struct CanonicalUniverseProgram {
     bootstrap_order: Arc<[ModuleId]>,
 }
 
+/// Canonical compatibility identity for the persistent compiler-image boundary.
+/// Captures the immutable identity, ABIs, and extent contracts required to safely
+/// project or reconstitute the canonical Universe.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CanonicalCompatibilityIdentity {
+    pub semantic_world: phalcom_semantic::canonical_image::CanonicalSemanticWorldId,
+    pub semantic_model_version: u32,
+    pub native_surface_schema_version: u32,
+    pub metadata_schema_version: u32,
+    pub interface_fingerprint: [u8; 16],
+    pub source_fingerprint: [u8; 16],
+    pub type_prefix_extent: usize,
+    pub static_lineage_id: phalcom_semantic::static_value::StaticValueStoreId,
+}
+
+/// Composition of the immutable canonical formal image, the authoritative
+/// RuntimePublic metadata bundle, and compatibility identity.
+///
+/// This is the core-owned serialization-ready view required by P5.T10 and
+/// consumed by P7 to produce `universe.telosc`.
+#[derive(Clone, Debug)]
+pub struct CanonicalCompilerImageView<'a> {
+    pub formal: &'a phalcom_semantic::canonical_image::CanonicalUniverseFormalImage,
+    pub metadata: &'a phalcom_type_meta::SemanticMetadataBundle,
+    pub compatibility: CanonicalCompatibilityIdentity,
+}
+
+impl<'a> CanonicalCompilerImageView<'a> {
+    /// In-memory capability census confirming that runtime metadata is composed.
+    pub fn capabilities(&self) -> phalcom_semantic::canonical_image::CanonicalImageCapabilities {
+        let mut caps = self.formal.capabilities();
+        caps.runtime_metadata_composed = true;
+        caps
+    }
+}
+
 impl CanonicalUniverseProgram {
     pub(crate) fn program(&self) -> &CompiledProgram {
         &self.program
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn formal_image(&self) -> &phalcom_semantic::canonical_image::CanonicalUniverseFormalImage {
+        &self.formal_image
+    }
+
+    /// Exposes the persistent compiler-image boundary view composing formal image,
+    /// metadata authority, and compatibility identity.
+    #[allow(dead_code)]
+    pub fn compiler_image_view(&self) -> Option<CanonicalCompilerImageView<'_>> {
+        let metadata = self.program.semantic_metadata.as_deref()?;
+        Some(CanonicalCompilerImageView {
+            formal: &self.formal_image,
+            metadata,
+            compatibility: CanonicalCompatibilityIdentity {
+                semantic_world: self.formal_image.world().clone(),
+                semantic_model_version: metadata.header.semantic_model_version,
+                native_surface_schema_version: metadata.header.native_surface_schema_version,
+                metadata_schema_version: metadata.header.schema_version,
+                interface_fingerprint: metadata.header.interface_fingerprint.0,
+                source_fingerprint: metadata.header.source_fingerprint.0,
+                type_prefix_extent: self.formal_image.type_prefix().type_count(),
+                static_lineage_id: self.formal_image.static_lineage(),
+            },
+        })
     }
 
     pub(crate) fn source_index(&self) -> &NativeSourceIndex {
@@ -144,6 +208,14 @@ pub(crate) fn canonical_universe_program() -> Result<&'static CanonicalUniverseP
     )
 }
 
+/// Returns the canonical compiler image view composing formal image,
+/// authoritative RuntimePublic metadata, and compatibility identity.
+#[allow(dead_code)]
+pub(crate) fn canonical_compiler_image_view() -> Result<Option<CanonicalCompilerImageView<'static>>, &'static CanonicalUniverseBuildError> {
+    let program = canonical_universe_program()?;
+    Ok(program.compiler_image_view())
+}
+
 fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, CanonicalUniverseBuildError> {
     #[cfg(any(test, feature = "test-timings"))]
     crate::instrumentation::record_canonical_universe_product_build();
@@ -209,6 +281,7 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
 
     Ok(CanonicalUniverseProgram {
         program: Arc::new(program),
+        formal_image: image.clone(),
         source_index,
         root_reachable: Arc::from(root_reachable.into_boxed_slice()),
         bootstrap_order: Arc::from(bootstrap_order.into_boxed_slice()),
@@ -395,5 +468,28 @@ mod tests {
     fn canonical_universe_program_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<super::CanonicalUniverseProgram>();
+    }
+
+    #[test]
+    fn canonical_compiler_image_view_composes_formal_image_metadata_and_compatibility() {
+        let canonical = canonical_universe_program().expect("canonical Universe compiler product");
+        let view = canonical.compiler_image_view().expect("canonical compiler image view must compose");
+
+        assert_eq!(view.formal.snapshot().status, phalcom_semantic::snapshot::SnapshotStatus::Complete);
+        assert_eq!(&view.compatibility.semantic_world, view.formal.world());
+        assert_eq!(view.compatibility.semantic_model_version, view.metadata.header.semantic_model_version);
+        assert_eq!(
+            view.compatibility.native_surface_schema_version,
+            view.metadata.header.native_surface_schema_version
+        );
+        assert_eq!(view.compatibility.metadata_schema_version, view.metadata.header.schema_version);
+        assert!(view.compatibility.type_prefix_extent > 0);
+        assert_eq!(view.compatibility.static_lineage_id, view.formal.static_lineage());
+        assert!(!view.metadata.declarations.is_empty());
+
+        let caps = view.capabilities();
+        assert!(caps.runtime_metadata_composed);
+        assert_eq!(caps.module_count, view.formal.modules().sources().len());
+        assert_eq!(caps.canonical_type_count, view.formal.type_prefix().type_count());
     }
 }

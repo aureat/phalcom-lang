@@ -25,6 +25,10 @@ pub enum PerfCounter {
     CanonicalImageRecursionAttempts,
     #[serde(rename = "canonical_image.snapshot_completeness_failures")]
     CanonicalImageCompletenessFailures,
+    #[serde(rename = "canonical_aggregate.entries_copied")]
+    CanonicalAggregateEntriesCopied,
+    #[serde(rename = "canonical_aggregate.parent_handles_attached")]
+    CanonicalParentHandlesAttached,
     #[serde(rename = "canonical_query.total_rows_examined")]
     CanonicalQueryRowsExamined,
     #[serde(rename = "canonical_query.ready_eligible")]

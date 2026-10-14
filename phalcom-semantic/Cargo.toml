@@ -28,6 +28,7 @@ num-bigint = { workspace = true }
 [dev-dependencies]
 tempfile = "3.17"
 phalcom-modules = { path = "../phalcom-modules", features = ["test-support"] }
+telos-observability = { path = "../telos-observability" }
 
 [[test]]
 name = "semantic"

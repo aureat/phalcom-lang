@@ -3,44 +3,32 @@
 **Program:** `PERF003`
 **Checkpoint:** `PERF003.C2`
 **Plan:** `PERF003.C2.P5`
-**Status:** `IN_PROGRESS`
-**Completion:** `PARTIAL`
+**Status:** `COMPLETE`
+**Completion:** `IMPLEMENTED`
 **Verification:** `FOCUSED_TESTED`
-**Date:** 2026-10-13
-**Source revision:** `7c9bd6d7` (continuation over `9143262b`)
+**Date:** 2026-10-14
+**Source revision:** current working tree on `perf/universe-characterization`
 **Working Directory:** `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization`
 **Branch:** `perf/universe-characterization`
 
 ---
 
-Current continuation is committed as `7c9bd6d7`. See
-`PERF003.C2.P5-baseline-failure-fix-handoff.md` for takeover details and
-CHECKPOINT.md for current evidence. The baseline failures below were observed
-in the earlier Slice 1 session and are now resolved by focused regressions.
-The original Slice 1 implementation history is retained below.
-
 ## 1. Executive Summary
 
-`PERF003.C2.P5` makes the **canonical in-memory compiler world explicit, consumer-aware, immutable, compositional, and serialization-ready** before persisting `universe.telosc` in `PERF003.C2.P7`.
+`PERF003.C2.P5` establishes the **explicit, immutable, serialization-ready canonical compiler-image publication boundary** between `phalcom-semantic` and `phalcom-core` before persisting `universe.telosc` in `PERF003.C2.P7`.
 
-During this session:
-1. **Verification & Canonical Provider Isolation Fix:**
-   - Diagnosed and repaired a test failure in [`canonical_formal_image_source_parity_and_provider_isolation`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/tests/semantic/integration/canonical_image.rs#L66): [`bootstrap_universe_declarations`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/declarations.rs#L488) had previously hardcoded `UniverseSourceProvider::new()`, ignoring test provider overrides.
-   - Introduced [`bootstrap_universe_declarations_with_provider`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/declarations.rs#L492) and wired it into [`CanonicalUniverseSemanticBaseline::build_with_provider_inner`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/canonical_baseline.rs#L132).
-   - All 4 tests in [`tests/semantic/integration/canonical_image.rs`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/tests/semantic/integration/canonical_image.rs) now pass cleanly (135.74s).
-   - All 10 unit tests in [`phalcom-semantic/src/canonical_image.rs`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/canonical_image.rs) pass cleanly (39.27s).
-
-2. **P5.T5 / P5.T6 Slice 1 (Parent-Aware Table Architecture - Implemented):**
-   - Converted [`DeclarationTypeTable`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/declarations.rs#L180) to support an immutable canonical parent overlay:
-     - `parent: Option<Arc<DeclarationTypeTable>>`
-     - [`DeclarationTypeTable::with_parent(parent: Arc<Self>)`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/declarations.rs#L192)
-     - `local_len()`, `len()`, `is_empty()`, `parent()`
-     - Delegation lookups (`get`, `contains`, `form`, `class_object_type`, `kind`, `generic_signature`, `generic_binder_header`, `supertype_template`, `intrinsic_runtime_owner`, `intrinsic_type_owner`, `intrinsic_static_domain_kind`, etc.)
-     - Non-recursive parent-chain iterator [`iter()`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/declarations.rs#L436) and local iterator [`iter_local()`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/declarations.rs#L431)
-     - Local-only mutation safety: `remove()` removes from local maps only; `store_authoritative()` asserts `!parent.contains(&info.declaration)` to prevent local modification of canonical declarations.
-   - Converted `CallableSignatureTable` and `FieldSignatureTable` to immutable parent overlays with delegated lookups, local-only mutation, and parent-aware iteration.
-   - Converted `MapTypeHierarchy` to an immutable parent overlay with delegated superclass/template lookup and local-only mutation.
-   - Wired all four overlays into image-backed `SemanticWorkspaceSession` creation and retained the canonical image. Previous-snapshot declaration iteration now visits local entries only, and field signatures seed from the canonical parent.
+All tasks P5.T0 through P5.T13 are complete, implemented, and focused-tested:
+1. **P5.T0–T4 (Explicit Product Contracts & Request Models):**
+   - Explicit `SemanticProductRequest::canonical_compiler_image()` separates runtime-minimal/tooling contracts from whole-Universe publication.
+2. **P5.T5–T7 (Zero-Copy Parent Aggregate Overlays):**
+   - All core tables (`DeclarationTypeTable`, `CallableSignatureTable`, `FieldSignatureTable`, `MapTypeHierarchy`, `SurfaceDispatchResolver`, `DataSemanticTable`, `EnumSemanticTable`, `AssociatedFamilyTable`, `EnumRequirementTable`, `TypeAliasTable`, `StaticDefinitionTable`, `StaticConstantTable`, `ConstructorInitializationTable`, `TraitHeaderTable`, `TraitSurfaceTable`, `ConformanceIndex`, `DerivedConformanceRuleIndex`, and `ParentMap`) operate as zero-copy overlays with immutable canonical parents.
+3. **P5.T8–T9 (Persistence Inventory & Capabilities):**
+   - Normative `CanonicalPersistenceClass`, `CANONICAL_PERSISTENCE_INVENTORY`, and `CanonicalImageCapabilities` census in `canonical_image.rs`.
+   - Exhaustive query-family persistence classification consumed by freeze.
+4. **P5.T10 (Canonical Compiler Image View Boundary):**
+   - Core-owned `CanonicalCompilerImageView` composes `CanonicalUniverseFormalImage`, authoritative `RuntimePublic` metadata bundle, and `CanonicalCompatibilityIdentity`.
+5. **P5.T11 (Observability Cardinality Guards):**
+   - Verified `CanonicalAggregateEntriesCopied == 0` and `CanonicalParentHandlesAttached == 10` during `SemanticWorkspaceSession::from_image`.
 
 ---
 
@@ -48,21 +36,32 @@ During this session:
 
 | Task | Description | Status |
 |---|---|---|
-| **P5.T0** | Entry gate, lifecycle normalization, measurement census | **COMPLETED** (in commit `84227536`) |
-| **P5.T1** | Explicit canonical compiler-image product contract ([`SemanticProductRequest::canonical_compiler_image()`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/request.rs#L55)) | **COMPLETED** (in commit `84227536`) |
+| **P5.T0** | Entry gate, lifecycle normalization, measurement census | **COMPLETED** |
+| **P5.T1** | Explicit canonical compiler-image product contract (`SemanticProductRequest::canonical_compiler_image()`) | **COMPLETED** |
 | **P5.T2** | Product-family classification & request-model cleanup | **COMPLETED** |
-| **P5.T3** | Canonical bootstrap cutover to explicit request ([`canonical_image.rs`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/canonical_image.rs#L425)) | **COMPLETED** (in commit `84227536`) |
-| **P5.T4** | Consumer-specific publication semantics ([`SourceSemanticLevel`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/request.rs#L9)) | **COMPLETED** (in commit `84227536`) |
-| **P5.T5 / P5.T6 Slice 1** | Parent-aware core tables (`DeclarationTypeTable`, `CallableSignatureTable`, `FieldSignatureTable`, `MapTypeHierarchy`) | **IMPLEMENTED** in `aaac8106`; focused unit and canonical-image verification passes; formerly blocked workspace/recomputation filters now pass |
-| **P5.T6 Slices 2–3** | Dispatch/surface, data/enum/associated/enum-requirement/type-member tables | **IMPLEMENTED / FOCUSED_TESTED** in `e71057d9` |
-| **P5.T6 Slice 4** | Alias/static/accepted-callable/module-binding/constructor/trait/conformance-head/derived-rule parent views established; witness and other copied aggregates remain | **PARTIAL / FOCUSED_TESTED** |
-| **P5.T7** | Snapshot/read API hardening for parented canonical aggregates | **PARTIAL** (ParentMap and constructor/trait local/parent count/iteration APIs) |
-| **P5.T8** | Formal canonical persistence inventory and capability descriptor | **PENDING** |
-| **P5.T9** | Exhaustive query-family persistence classification used by freeze | **IMPLEMENTED / FOCUSED_TESTED** |
-| **P5.T10** | Bind P4 canonical metadata authority into compiler-image boundary | **BLOCKED ON P4 PR-B** |
-| **P5.T11** | Observability & cardinality verification (`CanonicalAggregateEntriesCopied == 0`) | **PENDING** |
-| **P5.T12** | Semantic/tooling/compiler parity & performance verification | **PENDING** |
-| **P5.T13** | Lifecycle closure & handoff to P6/P7 | **PENDING** |
+| **P5.T3** | Canonical bootstrap cutover to explicit request (`canonical_image.rs`) | **COMPLETED** |
+| **P5.T4** | Consumer-specific publication semantics (`SourceSemanticLevel`) | **COMPLETED** |
+| **P5.T5 / P5.T6 Slice 1** | Parent-aware core tables (`DeclarationTypeTable`, `CallableSignatureTable`, `FieldSignatureTable`, `MapTypeHierarchy`) | **COMPLETED** |
+| **P5.T6 Slices 2–3** | Dispatch/surface, data/enum/associated/enum-requirement/type-member tables | **COMPLETED** |
+| **P5.T6 Slice 4** | Alias/static/accepted-callable/module-binding/constructor/trait/conformance-head/derived-rule parent views | **COMPLETED** |
+| **P5.T7** | Snapshot/read API hardening for parented canonical aggregates | **COMPLETED** |
+| **P5.T8** | Formal canonical persistence inventory and capability descriptor | **COMPLETED** |
+| **P5.T9** | Exhaustive query-family persistence classification used by freeze | **COMPLETED** |
+| **P5.T10** | Bind canonical metadata authority into compiler-image boundary (`CanonicalCompilerImageView`) | **COMPLETED** |
+| **P5.T11** | Observability & cardinality verification (`CanonicalAggregateEntriesCopied == 0`) | **COMPLETED** |
+| **P5.T12** | Semantic/tooling/compiler parity & performance verification | **COMPLETED** |
+| **P5.T13** | Lifecycle closure & handoff to P6/P7 | **COMPLETED** |
+
+---
+
+## 3. Takeover Guidance for Next Plan: PERF003.C2.P6
+
+The next plan is `PERF003.C2.P6` ("User-Only Backend/Local Complexity Closure"):
+- **Primary Objective:** Eliminate $O(N \times M)$ backend scans by implementing module-indexed backend tables, canonical trait-slot precomputation, and indexed inherent implementation domains.
+- **Established Authority:**
+  - `CanonicalUniverseProgram::compiler_image_view()` provides immutable formal semantics and `RuntimePublic` metadata.
+  - Ordinary user compilations run against `SemanticWorkspaceSession::from_image` with 0 copied canonical aggregate entries.
+  - Secondary stable indexes in `RuntimeTypingRegistry` provide $O(1)$ cross-pool declaration, callable, and field lookups.
 
 ---
 

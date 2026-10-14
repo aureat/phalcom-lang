@@ -40,6 +40,16 @@ pub struct CanonicalTypePrefixId {
     types: usize,
 }
 
+impl CanonicalTypePrefixId {
+    pub fn store(&self) -> TypeStoreId {
+        self.store
+    }
+
+    pub fn type_count(&self) -> usize {
+        self.types
+    }
+}
+
 /// Failure before a completed image can be safely published or read.
 #[derive(Debug, Error)]
 pub enum CanonicalImageError {
@@ -526,12 +536,21 @@ pub const CANONICAL_PERSISTENCE_INVENTORY: &[(CanonicalProductFamily, CanonicalP
     (CanonicalProductFamily::StaticValueArena, CanonicalPersistenceClass::RequiredSemantic),
     (CanonicalProductFamily::DeclarationsAndAliases, CanonicalPersistenceClass::RequiredSemantic),
     (CanonicalProductFamily::HierarchyAndDispatch, CanonicalPersistenceClass::RequiredSemantic),
-    (CanonicalProductFamily::CallableSignaturesAndDefinitions, CanonicalPersistenceClass::RequiredSemantic),
+    (
+        CanonicalProductFamily::CallableSignaturesAndDefinitions,
+        CanonicalPersistenceClass::RequiredSemantic,
+    ),
     (CanonicalProductFamily::CallableAnalyses, CanonicalPersistenceClass::RequiredSemantic),
     (CanonicalProductFamily::TraitsAndConformance, CanonicalPersistenceClass::RequiredSemantic),
-    (CanonicalProductFamily::ConformanceWitnessesAndDispatch, CanonicalPersistenceClass::RequiredSemantic),
+    (
+        CanonicalProductFamily::ConformanceWitnessesAndDispatch,
+        CanonicalPersistenceClass::RequiredSemantic,
+    ),
     (CanonicalProductFamily::DataAndEnums, CanonicalPersistenceClass::RequiredSemantic),
-    (CanonicalProductFamily::AssociatedAndStaticSemantics, CanonicalPersistenceClass::RequiredSemantic),
+    (
+        CanonicalProductFamily::AssociatedAndStaticSemantics,
+        CanonicalPersistenceClass::RequiredSemantic,
+    ),
     (CanonicalProductFamily::FrozenStructuralQueries, CanonicalPersistenceClass::EligibleQuery),
     (CanonicalProductFamily::RuntimePublicMetadata, CanonicalPersistenceClass::RequiredMetadata),
     // Until P7 proves source-independent regeneration, compiler-facing source
@@ -799,7 +818,9 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
     }
     image_counter!(CanonicalImageCompleteUpdates, 1);
     let snapshot = update.snapshot;
-    image_span(ImagePhase::Validate, || validate_publication(&snapshot, &modules, &crate::request::SemanticProductRequest::canonical_compiler_image()))?;
+    image_span(ImagePhase::Validate, || {
+        validate_publication(&snapshot, &modules, &crate::request::SemanticProductRequest::canonical_compiler_image())
+    })?;
     let queries = Arc::new(image_span(ImagePhase::QueryFreeze, || {
         CanonicalSemanticQueryImage::freeze(session.db(), world.clone(), &snapshot, &modules)
     })?);
@@ -1375,8 +1396,14 @@ mod negative_fact_tests {
 
     #[test]
     fn query_persistence_classification_is_fail_closed_for_nonstructural_products() {
-        assert_eq!(canonical_query_persistence(QueryKind::ParsedModule), CanonicalQueryPersistence::EligibleStructural);
-        assert_eq!(canonical_query_persistence(QueryKind::ModuleStaticBindings), CanonicalQueryPersistence::EligibleStructural);
+        assert_eq!(
+            canonical_query_persistence(QueryKind::ParsedModule),
+            CanonicalQueryPersistence::EligibleStructural
+        );
+        assert_eq!(
+            canonical_query_persistence(QueryKind::ModuleStaticBindings),
+            CanonicalQueryPersistence::EligibleStructural
+        );
         assert_eq!(canonical_query_persistence(QueryKind::GenericConformance), CanonicalQueryPersistence::OpenWorld);
         assert_eq!(canonical_query_persistence(QueryKind::CallableBody), CanonicalQueryPersistence::OpenWorld);
         assert_eq!(canonical_query_persistence(QueryKind::StaticConstant), CanonicalQueryPersistence::Unsupported);
@@ -1454,14 +1481,8 @@ mod negative_fact_tests {
         let listed: BTreeSet<_> = CANONICAL_PERSISTENCE_INVENTORY.iter().map(|(family, _)| *family).collect();
         assert_eq!(listed.len(), CANONICAL_PERSISTENCE_INVENTORY.len());
         assert_eq!(listed, BTreeSet::from(all));
-        assert!(CANONICAL_PERSISTENCE_INVENTORY.contains(&(
-            CanonicalProductFamily::RuntimePublicMetadata,
-            CanonicalPersistenceClass::RequiredMetadata,
-        )));
-        assert!(CANONICAL_PERSISTENCE_INVENTORY.contains(&(
-            CanonicalProductFamily::CompilerSourceAttachments,
-            CanonicalPersistenceClass::RequiredSemantic,
-        )));
+        assert!(CANONICAL_PERSISTENCE_INVENTORY.contains(&(CanonicalProductFamily::RuntimePublicMetadata, CanonicalPersistenceClass::RequiredMetadata,)));
+        assert!(CANONICAL_PERSISTENCE_INVENTORY.contains(&(CanonicalProductFamily::CompilerSourceAttachments, CanonicalPersistenceClass::RequiredSemantic,)));
         let image = canonical_universe_formal_image().unwrap();
         let capabilities = image.capabilities();
         assert_eq!(capabilities.module_count, image.sources().len());

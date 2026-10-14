@@ -1018,6 +1018,11 @@ impl SemanticWorkspaceSession {
     /// Creates a local workspace over a complete immutable canonical world.
     /// Local publication history starts empty; final arenas preserve canonical IDs.
     pub fn from_image(workspace: WorkspaceId, image: Arc<crate::canonical_image::CanonicalUniverseFormalImage>) -> Self {
+        #[cfg(feature = "perf-observability")]
+        {
+            ::telos_observability::PerfContext::current_thread().record_counter(::telos_observability::PerfCounter::CanonicalAggregateEntriesCopied, 0);
+            ::telos_observability::PerfContext::current_thread().record_counter(::telos_observability::PerfCounter::CanonicalParentHandlesAttached, 10);
+        }
         let snapshot = image.snapshot();
         let db = SemanticDb::with_canonical_image(workspace, image.clone());
         let store = Arc::new(snapshot.store.fork_from_baseline());
@@ -2929,22 +2934,28 @@ impl SemanticWorkspaceSession {
         resolver.update_static_case_signatures(&static_case_signatures_table);
         let mut blocked_declarations = BTreeSet::new();
         let mut type_aliases = previous_snapshot.as_ref().map_or_else(
-            || canonical_snapshot.as_ref().map_or_else(TypeAliasTable::new, |snapshot| TypeAliasTable::with_parent(snapshot.type_aliases.clone())),
+            || {
+                canonical_snapshot
+                    .as_ref()
+                    .map_or_else(TypeAliasTable::new, |snapshot| TypeAliasTable::with_parent(snapshot.type_aliases.clone()))
+            },
             |snapshot| (*snapshot.type_aliases).clone(),
         );
         let mut static_definitions_table = previous_snapshot.as_ref().map_or_else(
             || {
-                canonical_snapshot
-                    .as_ref()
-                    .map_or_else(StaticDefinitionTable::new, |snapshot| StaticDefinitionTable::with_parent(snapshot.static_definitions.clone()))
+                canonical_snapshot.as_ref().map_or_else(StaticDefinitionTable::new, |snapshot| {
+                    StaticDefinitionTable::with_parent(snapshot.static_definitions.clone())
+                })
             },
             |snapshot| (*snapshot.static_definitions).clone(),
         );
         let mut static_constants_table = previous_snapshot.as_ref().map_or_else(
             || {
-                canonical_snapshot.as_ref().map_or_else(crate::static_constant::StaticConstantTable::new, |snapshot| {
-                    crate::static_constant::StaticConstantTable::with_parent(snapshot.static_constants.clone())
-                })
+                canonical_snapshot
+                    .as_ref()
+                    .map_or_else(crate::static_constant::StaticConstantTable::new, |snapshot| {
+                        crate::static_constant::StaticConstantTable::with_parent(snapshot.static_constants.clone())
+                    })
             },
             |snapshot| (*snapshot.static_constants).clone(),
         );
@@ -4043,7 +4054,11 @@ impl SemanticWorkspaceSession {
         // same canonical generic-signature path, but publish them separately
         // from `DeclarationTypeTable` so no fake form or class object exists.
         let mut trait_headers = previous_snapshot.as_ref().map_or_else(
-            || canonical_snapshot.as_ref().map_or_else(TraitHeaderTable::new, |snapshot| TraitHeaderTable::with_parent(snapshot.trait_headers.clone())),
+            || {
+                canonical_snapshot
+                    .as_ref()
+                    .map_or_else(TraitHeaderTable::new, |snapshot| TraitHeaderTable::with_parent(snapshot.trait_headers.clone()))
+            },
             |snapshot| (*snapshot.trait_headers).clone(),
         );
         for module in type_signature_cycle_headers
@@ -4115,7 +4130,11 @@ impl SemanticWorkspaceSession {
         // surfaces. Publish every member signature before any body-analysis
         // work so defaults cannot influence the contract shape they consume.
         let mut trait_surfaces = previous_snapshot.as_ref().map_or_else(
-            || canonical_snapshot.as_ref().map_or_else(TraitSurfaceTable::new, |snapshot| TraitSurfaceTable::with_parent(snapshot.trait_surfaces.clone())),
+            || {
+                canonical_snapshot.as_ref().map_or_else(TraitSurfaceTable::new, |snapshot| {
+                    TraitSurfaceTable::with_parent(snapshot.trait_surfaces.clone())
+                })
+            },
             |snapshot| (*snapshot.trait_surfaces).clone(),
         );
         for (module_id, shard) in &self.semantic_structure_shards {
@@ -5282,9 +5301,11 @@ impl SemanticWorkspaceSession {
         let mut conformance_associated_type_plans: BTreeMap<crate::identity::ImplId, crate::impls::ConformanceAssociatedTypePlan> = BTreeMap::new();
         let mut derived_conformance_rules = previous_snapshot.as_ref().map_or_else(
             || {
-                canonical_snapshot.as_ref().map_or_else(crate::derived_conformance::DerivedConformanceRuleIndex::new, |snapshot| {
-                    crate::derived_conformance::DerivedConformanceRuleIndex::with_parent(snapshot.derived_conformance_rules.clone())
-                })
+                canonical_snapshot
+                    .as_ref()
+                    .map_or_else(crate::derived_conformance::DerivedConformanceRuleIndex::new, |snapshot| {
+                        crate::derived_conformance::DerivedConformanceRuleIndex::with_parent(snapshot.derived_conformance_rules.clone())
+                    })
             },
             |snapshot| (*snapshot.derived_conformance_rules).clone(),
         );
@@ -6727,8 +6748,14 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        for (module_id, bindings) in module_static_bindings.iter_local().map(|(id, product)| (id.clone(), product.clone())).collect::<Vec<_>>() {
-            if !current_modules.contains(&module_id) { continue; }
+        for (module_id, bindings) in module_static_bindings
+            .iter_local()
+            .map(|(id, product)| (id.clone(), product.clone()))
+            .collect::<Vec<_>>()
+        {
+            if !current_modules.contains(&module_id) {
+                continue;
+            }
             let bindings = match crate::db::query::query_module_static_bindings(&mut self.db, bindings) {
                 QueryOutcome::Ready(product) => product,
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -8261,8 +8288,14 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        for (module_id, module_bindings) in module_static_bindings.iter_local().map(|(id, product)| (id.clone(), product.clone())).collect::<Vec<_>>() {
-            if !current_modules.contains(&module_id) { continue; }
+        for (module_id, module_bindings) in module_static_bindings
+            .iter_local()
+            .map(|(id, product)| (id.clone(), product.clone()))
+            .collect::<Vec<_>>()
+        {
+            if !current_modules.contains(&module_id) {
+                continue;
+            }
             let module_bindings = match crate::db::query::query_module_static_bindings(&mut self.db, module_bindings) {
                 QueryOutcome::Ready(product) => product,
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),

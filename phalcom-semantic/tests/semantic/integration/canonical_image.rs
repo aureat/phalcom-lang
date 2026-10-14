@@ -142,13 +142,23 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         "from universe.collections import Array\nconst value: Int = 1\n",
         "from universe.random import Xoshiro256PlusPlus\nlet value = Xoshiro256PlusPlus.seed(42).nextU64\n",
         "const replacement: Int = 2\n",
-    ].into_iter().enumerate() {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let started = std::time::Instant::now();
-        let update = session.apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlayForModule {
-            module: local.clone(),
-            source: SourceLocation { source_id: SourceId("image-overlay.ph".into()), display_path: "/tmp/image-overlay.ph".into() },
-            text: Arc::from(source), revision: SourceRevision(revision as u64 + 1), recovered_program: None,
-        }]).unwrap();
+        let update = session
+            .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlayForModule {
+                module: local.clone(),
+                source: SourceLocation {
+                    source_id: SourceId("image-overlay.ph".into()),
+                    display_path: "/tmp/image-overlay.ph".into(),
+                },
+                text: Arc::from(source),
+                revision: SourceRevision(revision as u64 + 1),
+                recovered_program: None,
+            }])
+            .unwrap();
         eprintln!("local image update {revision}: {:?}; stats {:?}", started.elapsed(), update.stats);
         assert_eq!(update.snapshot.sources.len(), 1);
         assert!(update.snapshot.sources.contains_key(&local));
@@ -170,15 +180,16 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         );
         for rule in image.snapshot().derived_conformance_rules.iter() {
             assert!(std::ptr::eq(
-                update.snapshot.derived_conformance_rules.get_rule(&rule.impl_id).expect("canonical derived rule"),
+                update
+                    .snapshot
+                    .derived_conformance_rules
+                    .get_rule(&rule.impl_id)
+                    .expect("canonical derived rule"),
                 rule
             ));
         }
         assert_eq!(update.snapshot.conformance_index.local_len(), 0);
-        assert_eq!(
-            update.snapshot.conformance_index.parent_len(),
-            image.snapshot().conformance_index.len()
-        );
+        assert_eq!(update.snapshot.conformance_index.parent_len(), image.snapshot().conformance_index.len());
         for (impl_id, contribution) in image.snapshot().conformance_index.iter() {
             assert!(std::ptr::eq(
                 update.snapshot.conformance_index.get(impl_id).expect("canonical conformance head"),
@@ -195,16 +206,27 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         assert_eq!(update.snapshot.static_definitions.local_len(), 0);
         assert_eq!(update.snapshot.callable_definitions.local_len(), 0);
         assert_eq!(update.snapshot.module_static_bindings.local_len(), 1);
-        assert_eq!(update.snapshot.module_static_bindings.parent_len(), image.snapshot().module_static_bindings.len());
+        assert_eq!(
+            update.snapshot.module_static_bindings.parent_len(),
+            image.snapshot().module_static_bindings.len()
+        );
         assert_eq!(update.snapshot.constructor_initializations.local_len(), 0);
-        assert_eq!(update.snapshot.constructor_initializations.parent_len(), image.snapshot().constructor_initializations.iter().count());
+        assert_eq!(
+            update.snapshot.constructor_initializations.parent_len(),
+            image.snapshot().constructor_initializations.iter().count()
+        );
         assert_eq!(update.snapshot.trait_headers.local_len(), 0);
         assert_eq!(update.snapshot.trait_headers.parent_len(), image.snapshot().trait_headers.iter().count());
         assert_eq!(update.snapshot.trait_surfaces.local_len(), 0);
         assert_eq!(update.snapshot.trait_surfaces.parent_len(), image.snapshot().trait_surfaces.iter().count());
         assert_eq!(
             update.snapshot.static_constants.local_len(),
-            update.snapshot.static_constants.iter().filter(|(id, _)| !id.module().project.is_universe()).count()
+            update
+                .snapshot
+                .static_constants
+                .iter()
+                .filter(|(id, _)| !id.module().project.is_universe())
+                .count()
         );
         for (id, surface) in image.snapshot().dispatch.surfaces().iter() {
             assert!(std::ptr::eq(update.snapshot.dispatch.get_surface(id).unwrap(), surface));
@@ -256,4 +278,40 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
     constants.remove_module(constant_id.module());
     assert!(std::ptr::eq(constants.get(constant_id).unwrap(), constant));
     assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| constants.insert(constant.clone()))).is_err());
+}
+
+#[test]
+fn from_image_zero_canonical_entries_copied_cardinality_guard() {
+    let image = canonical_universe_formal_image().unwrap();
+    let recorder = ::telos_observability::PerfRecorder::new(::telos_observability::PerfRunMetadata::new(
+        "p5-t11-cardinality",
+        ::telos_observability::ObservabilityLevel::Summary,
+    ));
+    let context = recorder.context();
+    let _guard = context.install_current_thread();
+
+    let session = phalcom_semantic::SemanticWorkspaceSession::from_image(phalcom_semantic::identity::WorkspaceId::from_raw(999), image.clone());
+    assert!(session.canonical_image().is_some());
+
+    #[cfg(feature = "perf-observability")]
+    {
+        let report = recorder.report();
+        assert_eq!(
+            report
+                .counters
+                .get(&::telos_observability::PerfCounter::CanonicalAggregateEntriesCopied)
+                .copied()
+                .unwrap_or(0),
+            0,
+            "from_image must deep-copy zero canonical aggregate entries"
+        );
+        assert_eq!(
+            report
+                .counters
+                .get(&::telos_observability::PerfCounter::CanonicalParentHandlesAttached)
+                .copied(),
+            Some(10),
+            "from_image must attach all 10 canonical parent table handles"
+        );
+    }
 }

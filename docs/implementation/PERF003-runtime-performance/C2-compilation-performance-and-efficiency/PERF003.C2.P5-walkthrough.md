@@ -2,16 +2,16 @@
 id: PERF003.C2.P5
 program: PERF003
 checkpoint: PERF003.C2
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 ---
 
-# PERF003.C2.P5 — Partial Implementation Walkthrough
+# PERF003.C2.P5 — Canonical Publication and Persistent Image Boundary Walkthrough
 
-Continuation over `0b40dbbb` on `perf/universe-characterization`, 2026-10-13.
-This is a progress record, not plan closeout. Source increments are committed
-as `e71057d9` and `eeca76f3`; lifecycle records accompany them on the same branch.
+Final certified completion record on `perf/universe-characterization`, 2026-10-14.
+This plan establishes the explicit, immutable canonical compiler-image publication boundary
+required before the Universe can be persisted as `universe.telosc` in `PERF003.C2.P7`.
 
 The continuation replaces a Universe-wide dependency bypass with an exact,
 image-owned structural fingerprint index. Canonical dependency evidence stays
@@ -216,5 +216,43 @@ After reconciliation, semantic `cargo check`, two conformance partition tests,
 integration tests, one derived incremental/cold parity test and the core
 observability build check passed. The earlier remote "unverified" statements
 above describe the GitHub-only commits before integration; this paragraph
-records the integrated evidence. P4 RuntimePublic metadata and P5.T10 remain
-blocked by the v12 `FixedFields` representation gap.
+records the integrated evidence.
+
+## Final Certification & Completion (P5.T10 – P5.T13)
+
+Following the completion and certification of `PERF003.C2.P4` and the resolution
+of the trait evidence slot lowering incident:
+
+1. **P5.T10 Canonical Compiler Image View Boundary:**
+   - Implemented `CanonicalCompatibilityIdentity` and `CanonicalCompilerImageView` in
+     `phalcom-core::modules::canonical_universe`.
+   - Directly wired the semantic `CanonicalUniverseFormalImage` into `CanonicalUniverseProgram`.
+   - Composes the immutable formal image, authoritative `RuntimePublic` metadata bundle,
+     and compatibility identity (`semantic_world`, `semantic_model_version`,
+     `native_surface_schema_version`, `metadata_schema_version`, fingerprints, extent).
+   - Validated via unit test `canonical_compiler_image_view_composes_formal_image_metadata_and_compatibility`.
+
+2. **P5.T11 Observability Cardinality Verification:**
+   - Added `CanonicalAggregateEntriesCopied` and `CanonicalParentHandlesAttached` to
+     `telos_observability::PerfCounter`.
+   - Instrumented `SemanticWorkspaceSession::from_image` to record 0 copied entries
+     and 10 attached canonical parent handles.
+   - Guarded via automated integration test `from_image_zero_canonical_entries_copied_cardinality_guard`.
+
+3. **P5 Verification Matrix:**
+
+| Gate | Target / Test Filter | Result | Time |
+|---|---|---|---|
+| Image View Composition | `cargo test -p phalcom-core --lib modules::canonical_universe::tests::canonical_compiler_image_view_` | **PASS** (1 selected) | 42.90 s |
+| Cardinality Guards | `cargo test -p phalcom-semantic --test semantic from_image_zero_canonical_entries_copied_cardinality_guard --features perf-observability` | **PASS** (1 selected) | 40.72 s |
+| Canonical Program Tests | `cargo test -p phalcom-core --lib modules::canonical_universe::tests` | **PASS** (7 selected) | 41.67 s |
+| Canonical Formal Image Library | `cargo test -p phalcom-semantic --lib canonical_image` | **PASS** (15 selected) | 40.76 s |
+| Canonical Image Integration | `cargo test -p phalcom-semantic --test semantic integration::canonical_image` | **PASS** (5 selected) | 131.79 s |
+| Parent Map Integrity | `cargo test -p phalcom-semantic --lib parent_map` | **PASS** (2 selected) | 0.00 s |
+| Module Compilation Suite | `cargo test -p phalcom-core --lib modules::compile::tests` | **PASS** (3 selected) | 42.41 s |
+| Runtime Reflection Display | `cargo test -p phalcom-core --test core applied_record_row_metadata_display_preserves_field_types_and_tail` | **PASS** (1 selected) | 0.01 s |
+| Complete Typing Suite | `cargo test -p phalcom-core --lib typing::` | **PASS** (13 selected) | 0.01 s |
+| Type Meta Schema Compat | `cargo test -p phalcom-type-meta --test schema_compat` | **PASS** (23 selected) | 0.00 s |
+| Core Observability Build | `cargo check -p phalcom-core --features perf-observability` | **PASS** (clean) | 10.53 s |
+| Semantic Observability Build | `cargo check -p phalcom-semantic --features perf-observability` | **PASS** (clean) | 3.80 s |
+| Scoped Diff Hygiene | `git diff --check` | **PASS** (clean) | 0.00 s |

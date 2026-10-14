@@ -20,6 +20,7 @@ pub mod semantic_lowering;
 mod static_constant;
 
 pub use artifact::{ClassBlueprint, EnumBlueprint, ModuleMaterializationPlan, RuntimeDeclarationBlueprint, VariantBlueprint};
+pub use canonical_universe::{CanonicalCompatibilityIdentity, CanonicalCompilerImageView};
 pub(crate) use canonical_universe::{CanonicalUniverseProgram, canonical_universe_program};
 pub use compile::{
     AnalyzedProgram, CompiledModule, CompiledProgram, EntrySelection, ProgramAnalyzer, ProgramCompilationOptions, ProgramCompileError, ProgramCompiler,
