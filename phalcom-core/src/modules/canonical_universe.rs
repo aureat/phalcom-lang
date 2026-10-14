@@ -411,6 +411,38 @@ mod tests {
     use phalcom_native_meta::UniverseKey;
 
     #[test]
+    fn canonical_cycle_diagnostic_preserves_generated_requirement_provenance() {
+        use phalcom_modules::{LinkError, LinkedReadSpec, ModuleGraphError, RuntimeDependencyReason, RuntimeDependencyRequirement, SymbolId};
+
+        let a = ModuleId::universe_root();
+        let b = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("errors").expect("module component"),
+        ]));
+        let requirement = RuntimeDependencyRequirement {
+            importer: a.clone(),
+            dependency: b.clone(),
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            read_target: Some(LinkedReadSpec::Binding(SymbolId {
+                module: b.clone(),
+                name: "Error".into(),
+            })),
+        };
+        let error = LinkError::RuntimeCycle(ModuleGraphError::RuntimeCycle {
+            cycle: vec![a, b],
+        });
+        let detail = super::canonical_runtime_cycle_requirements(&error, &[requirement]);
+        assert!(detail.contains("generated requirements inside rejected runtime SCC"));
+        assert!(detail.contains("Error"));
+        assert!(detail.contains("RuntimeDeclarationReference"));
+        assert!(detail.contains("linked read: Some("));
+        assert!(super::canonical_runtime_cycle_requirements(
+            &LinkError::RuntimeCycle(ModuleGraphError::RuntimeCycle { cycle: vec![] }),
+            &[]
+        ).contains("no generated requirement edges"));
+    }
+
+    #[test]
     fn canonical_semantic_failure_is_distinct_from_panic() {
         let error: CanonicalUniverseBuildError = phalcom_semantic::SemanticUpdateFailure::Failed("injected update failure".into()).into();
         assert!(
