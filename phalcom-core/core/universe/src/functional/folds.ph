@@ -30,18 +30,11 @@ class Folds {
   {
     let mut result = Chain<T>::Empty
     let iterator = source.iterator
-    let mut step: Option<<I as Iterable>::Item> = iterator.next
-    while step.isSome {
-      match step {
-        Option::Some(value) => {
-          match f.call(value) {
-            Result::Ok(item) => { result = result.prepend(item) }
-            Result::Error(error) => { return Result<Chain<T>, E>::Error(error) }
-          }
-        }
-        Option::None => {}
+    while let Option::Some(value) = iterator.next {
+      match f.call(value) {
+        Result::Ok(item) => { result = result.prepend(item) }
+        Result::Error(error) => { return Result<Chain<T>, E>::Error(error) }
       }
-      step = iterator.next
     }
     Result<Chain<T>, E>::Ok(result.reverse)
   }
@@ -52,18 +45,11 @@ class Folds {
   {
     let mut result = Chain<T>::Empty
     let iterator = source.iterator
-    let mut step: Option<<I as Iterable>::Item> = iterator.next
-    while step.isSome {
-      match step {
-        Option::Some(value) => {
-          match f.call(value) {
-            Option::Some(item) => { result = result.prepend(item) }
-            Option::None => { return Option<Chain<T>>::None }
-          }
-        }
-        Option::None => {}
+    while let Option::Some(value) = iterator.next {
+      match f.call(value) {
+        Option::Some(item) => { result = result.prepend(item) }
+        Option::None => { return Option<Chain<T>>::None }
       }
-      step = iterator.next
     }
     Option<Chain<T>>::Some(result.reverse)
   }
@@ -77,18 +63,11 @@ class Folds {
     let mut values = Chain<T>::Empty
     let mut errors = Chain<E>::Empty
     let iterator = source.iterator
-    let mut step: Option<<I as Iterable>::Item> = iterator.next
-    while step.isSome {
-      match step {
-        Option::Some(value) => {
-          match f.call(value) {
-            Validation::Valid(item) => { values = values.prepend(item) }
-            Validation::Invalid(error) => { errors = errors.prepend(error) }
-          }
-        }
-        Option::None => {}
+    while let Option::Some(value) = iterator.next {
+      match f.call(value) {
+        Validation::Valid(item) => { values = values.prepend(item) }
+        Validation::Invalid(error) => { errors = errors.prepend(error) }
       }
-      step = iterator.next
     }
     match NonEmpty<E>.fromChain(errors.reverse) {
       Option::Some(nonempty) => Validation<Chain<T>, NonEmpty<E>>::Invalid(nonempty)

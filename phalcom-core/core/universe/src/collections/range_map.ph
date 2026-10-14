@@ -614,7 +614,7 @@ impl<K, V> CanonicalIterator for RangeMapIterator<K, V> {
 impl<K, V> CanonicalIterable for RangeMap<K, V> {
   type Item = (interval: Interval<K>, value: V)
   type Iterator = RangeMapIterator<K, V>
-  iterator -> RangeMapIterator<K, V> { RangeMapIterator<K, V>.new(self._root) }
+  iterator -> RangeMapIterator<K, V> { self.iterator }
 }
 
 export RangeMap, RangeMapIterator
