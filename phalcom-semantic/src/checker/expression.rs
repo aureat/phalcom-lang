@@ -6275,15 +6275,15 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
                 "redundant match arm: earlier patterns already cover every reachable value of this pattern",
                 arm.range,
             ));
-        } else if usefulness == crate::match_semantics::PatternUsefulness::Impossible {
-            if !crate::checker::pattern::pattern_is_variant_of_scrutinee_family(ctx.store, &pattern_res, scrutinee_subject.canonical) {
-                ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+        } else if usefulness == crate::match_semantics::PatternUsefulness::Impossible
+            && !crate::checker::pattern::pattern_is_variant_of_scrutinee_family(ctx.store, &pattern_res, scrutinee_subject.canonical)
+        {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),
                     crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
                     "impossible match pattern: it cannot match any value of the scrutinee type",
-                    arm.range,
-                ));
-            }
+                arm.range,
+            ));
         }
 
         let mut reachable_summary = if usefulness == crate::match_semantics::PatternUsefulness::Useful {

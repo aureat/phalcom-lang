@@ -939,7 +939,7 @@ impl<'a> StaticEvaluator<'a> {
         environment: &StaticSpecializationEnvironmentKey,
     ) -> Result<StaticTrustedBranchContext, Stop> {
         let old_environment = std::mem::replace(&mut self.inherited_specialization_environment, environment.clone());
-        let old_context = std::mem::replace(&mut self.inherited_trusted_branch_context, StaticTrustedBranchContext::default());
+        let old_context = std::mem::take(&mut self.inherited_trusted_branch_context);
         let old_active_proofs = std::mem::take(&mut self.active_branch_proofs);
         let result = (|| {
             let Some(mut types) = evaluator_type_store_ref(&self.canonical_types).cloned() else {

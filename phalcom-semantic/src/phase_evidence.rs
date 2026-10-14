@@ -418,7 +418,7 @@ fn add_conformance_type_owner_requirements(
         if let Some(declaration) = type_store.nominal_origin_declaration(ty) {
             push_binding_owner_requirement(
                 importer,
-                &declaration,
+                declaration,
                 range,
                 phalcom_modules::RuntimeRequirementProducer::ConformanceTypeOwner,
                 requirements,

@@ -1184,7 +1184,7 @@ impl SemanticWorkspaceSession {
             structural_recomputed_modules.insert(module.clone());
             stats.semantic_structure_shards_recomputed += 1;
         }
-        let contribution_delta = contribution_delta(&semantic_structure_shards, &previous_structure_shards);
+        let contribution_delta = contribution_delta(&semantic_structure_shards, previous_structure_shards);
         self.semantic_structure_shards = semantic_structure_shards;
         #[cfg(test)]
         self.fail_at_test_publication_point(SemanticPublicationFailpoint::AfterStructuralShards)?;
@@ -2470,7 +2470,7 @@ impl SemanticWorkspaceSession {
         associated_surface_recompute_modules.extend(removed_modules.iter().cloned());
         let (associated_surface_owners, source_associated_surfaces, current_inherent_impl_surface_owners) = build_source_associated_surfaces(
             &self.semantic_structure_shards,
-            &previous_structure_shards,
+            previous_structure_shards,
             &resolver,
             &declarations,
             Arc::make_mut(&mut self.store),

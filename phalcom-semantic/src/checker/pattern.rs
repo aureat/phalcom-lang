@@ -88,15 +88,15 @@ fn resolve_pattern_with_mode(
                         "redundant or-pattern alternative: earlier alternatives already cover its reachable value space",
                         *range,
                     ));
-                } else if usefulness == crate::match_semantics::PatternUsefulness::Impossible {
-                    if !pattern_is_variant_of_scrutinee_family(ctx.store, &resolution, subject.canonical) {
-                        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                } else if usefulness == crate::match_semantics::PatternUsefulness::Impossible
+                    && !pattern_is_variant_of_scrutinee_family(ctx.store, &resolution, subject.canonical)
+                {
+                    ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                             ctx.current_module.clone(),
                             crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
                             "impossible or-pattern alternative: it cannot match any value of the scrutinee type",
-                            alternative.range(),
-                        ));
-                    }
+                        alternative.range(),
+                    ));
                 }
                 prior_coverage_alts.push(cov_alt);
 

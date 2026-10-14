@@ -998,14 +998,14 @@ fn evaluate_conformance_goal(key: &GenericConformanceKey, context: &mut Conforma
                 crate::structural::StructuralClassification::Unsupported
             };
 
-            let is_satisfied = match (kind, &classification) {
+            let is_satisfied = matches!(
+                (kind, &classification),
                 (CompilerDerivedConformanceKind::Product, crate::structural::StructuralClassification::OrderedProduct(_))
-                | (CompilerDerivedConformanceKind::Product, crate::structural::StructuralClassification::UnorderedProduct(_)) => true,
-                (CompilerDerivedConformanceKind::OrderedProduct, crate::structural::StructuralClassification::OrderedProduct(_)) => true,
-                (CompilerDerivedConformanceKind::UnorderedProduct, crate::structural::StructuralClassification::UnorderedProduct(_)) => true,
-                (CompilerDerivedConformanceKind::Sum, crate::structural::StructuralClassification::Sum { .. }) => true,
-                _ => false,
-            };
+                    | (CompilerDerivedConformanceKind::Product, crate::structural::StructuralClassification::UnorderedProduct(_))
+                    | (CompilerDerivedConformanceKind::OrderedProduct, crate::structural::StructuralClassification::OrderedProduct(_))
+                    | (CompilerDerivedConformanceKind::UnorderedProduct, crate::structural::StructuralClassification::UnorderedProduct(_))
+                    | (CompilerDerivedConformanceKind::Sum, crate::structural::StructuralClassification::Sum { .. })
+            );
 
             if is_satisfied {
                 let evidence = Arc::new(CompilerDerivedConformanceEvidence {
