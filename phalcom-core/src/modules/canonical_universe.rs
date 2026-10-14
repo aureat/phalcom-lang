@@ -218,7 +218,10 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     requirements.extend(crate::modules::compile::runtime_metadata_type_requirements(&semantic.snapshot, &sources, &runtime_modules));
     let linked = Arc::new(
         linker.finalize_executable_with_requirements((*symbolic).clone(), &semantic.snapshot.import_phase_products, &requirements)
-            .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?,
+            .map_err(|error| {
+                let detail = canonical_runtime_cycle_requirements(&error, &requirements);
+                CanonicalUniverseBuildError::Linking(format!("{error}{detail}"))
+            })?,
     );
 
     let analyzed = AnalyzedProgram {
@@ -254,6 +257,45 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
         root_reachable: Arc::from(root_reachable.into_boxed_slice()),
         bootstrap_order: Arc::from(bootstrap_order.into_boxed_slice()),
     })
+}
+
+/// Supplies the exact generated requirement edges inside a rejected canonical
+/// runtime SCC. Retain the original cycle error and strict rejection unchanged;
+/// authored import edges remain represented by the SCC but are not reproduced
+/// here, because the source linker owns their provenance.
+fn canonical_runtime_cycle_requirements(
+    error: &phalcom_modules::LinkError,
+    requirements: &[phalcom_modules::RuntimeDependencyRequirement],
+) -> String {
+    let phalcom_modules::LinkError::RuntimeCycle(
+        phalcom_modules::ModuleGraphError::RuntimeCycle { cycle },
+    ) = error else {
+        return String::new();
+    };
+    let members = cycle.iter().collect::<std::collections::BTreeSet<_>>();
+    let mut edges = requirements
+        .iter()
+        .filter(|requirement| {
+            members.contains(&requirement.importer)
+                && members.contains(&requirement.dependency)
+        })
+        .map(|requirement| {
+            format!(
+                "  {} -> {} at {:?} ({:?}, linked read: {:?})",
+                requirement.importer,
+                requirement.dependency,
+                requirement.range,
+                requirement.reason,
+                requirement.read_target
+            )
+        })
+        .collect::<Vec<_>>();
+    edges.sort();
+    edges.dedup();
+    if edges.is_empty() {
+        return "\nno generated requirement edges inside the reported cycle; inspect authored imports".into();
+    }
+    format!("\ngenerated requirements inside rejected runtime SCC:\n{}", edges.join("\n"))
 }
 
 /// Ensures the canonical product never asks executable lowering to interpret a
