@@ -1,6 +1,6 @@
 //! Composable one-pass folds with fresh per-run state and typed projections.
 from .chain import Chain
-from universe.collections.iterator_laws import Iterable
+from universe.collections.iteration import Iterable
 from universe.numbers.capabilities import Addable, Zero
 
 /// A fold with private accumulator S, input A, and output B.
