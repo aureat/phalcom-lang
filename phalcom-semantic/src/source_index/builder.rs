@@ -1896,7 +1896,7 @@ impl SourceScopeBuilder<'_> {
             Expr::IfLet(if_let) => {
                 self.visit_expr(scope, &if_let.value);
                 let then_scope = self.new_scope(scope, if_let.then_body.range);
-                self.declare_pattern(then_scope, &if_let.pattern, SourceBindingKind::Destructure, false);
+                self.declare_pattern_with_annotation(then_scope, &if_let.pattern, SourceBindingKind::Destructure, false, if_let.annotation.is_some());
                 self.visit_statements(then_scope, &if_let.then_body.body, false);
                 if let Some(else_body) = &if_let.else_body {
                     let else_scope = self.new_scope(scope, else_body.range);
@@ -1925,7 +1925,7 @@ impl SourceScopeBuilder<'_> {
             Expr::WhileLet(while_let) => {
                 let loop_scope = self.new_scope(scope, while_let.range);
                 self.visit_expr(loop_scope, &while_let.value);
-                self.declare_pattern(loop_scope, &while_let.pattern, SourceBindingKind::Destructure, false);
+                self.declare_pattern_with_annotation(loop_scope, &while_let.pattern, SourceBindingKind::Destructure, false, while_let.annotation.is_some());
                 self.visit_statements(loop_scope, &while_let.body, false);
             }
             Expr::Membership(membership) => {
