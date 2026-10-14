@@ -1,0 +1,28 @@
+name: Enum completion discriminators
+
+on:
+  push:
+    branches:
+      - feat/enum-inference-acceptance
+
+permissions:
+  contents: read
+
+env:
+  RUSTFLAGS: ""
+  RUSTC_WRAPPER: ""
+  RUST_BACKTRACE: 1
+
+jobs:
+  semantic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Generic projection, mutable flow, and incremental candidate invalidation
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic contextual_enum_completion -- --nocapture
