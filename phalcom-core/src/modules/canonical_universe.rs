@@ -215,11 +215,16 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
 
     let runtime_modules = symbolic.modules.keys().cloned().collect();
     let mut requirements = semantic.snapshot.generated_runtime_requirements.to_vec();
+    let semantic_requirement_count = requirements.len();
     requirements.extend(crate::modules::compile::runtime_metadata_type_requirements(&semantic.snapshot, &sources, &runtime_modules));
     let linked = Arc::new(
         linker.finalize_executable_with_requirements((*symbolic).clone(), &semantic.snapshot.import_phase_products, &requirements)
             .map_err(|error| {
-                let detail = canonical_runtime_cycle_requirements(&error, &requirements);
+                let detail = canonical_runtime_cycle_requirements(
+                    &error,
+                    &requirements[..semantic_requirement_count],
+                    &requirements[semantic_requirement_count..],
+                );
                 CanonicalUniverseBuildError::Linking(format!("{error}{detail}"))
             })?,
     );
@@ -259,13 +264,15 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     })
 }
 
-/// Supplies the exact generated requirement edges inside a rejected canonical
-/// runtime SCC. Retain the original cycle error and strict rejection unchanged;
-/// authored import edges remain represented by the SCC but are not reproduced
-/// here, because the source linker owns their provenance.
+/// Reports generated requirements within a rejected runtime SCC, grouped by
+/// the producing stage. The linker still owns edge inclusion and DAG rejection;
+/// this diagnostic neither modifies the edge set nor guesses native-floor
+/// availability. Authored imports are represented by the original cycle error
+/// but their individual ranges are not available here.
 fn canonical_runtime_cycle_requirements(
     error: &phalcom_modules::LinkError,
-    requirements: &[phalcom_modules::RuntimeDependencyRequirement],
+    semantic_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
+    metadata_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
 ) -> String {
     let phalcom_modules::LinkError::RuntimeCycle(
         phalcom_modules::ModuleGraphError::RuntimeCycle { cycle },
@@ -273,29 +280,45 @@ fn canonical_runtime_cycle_requirements(
         return String::new();
     };
     let members = cycle.iter().collect::<std::collections::BTreeSet<_>>();
-    let mut edges = requirements
-        .iter()
-        .filter(|requirement| {
-            members.contains(&requirement.importer)
-                && members.contains(&requirement.dependency)
-        })
-        .map(|requirement| {
-            format!(
-                "  {} -> {} at {:?} ({:?}, linked read: {:?})",
-                requirement.importer,
-                requirement.dependency,
-                requirement.range,
-                requirement.reason,
-                requirement.read_target
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut edges = [
+        ("semantic-generated", semantic_requirements),
+        ("metadata-type-owner", metadata_requirements),
+    ]
+    .into_iter()
+    .flat_map(|(origin, requirements)| {
+        requirements
+            .iter()
+            .filter(|requirement| members.contains(&requirement.importer) && members.contains(&requirement.dependency))
+            .map(move |requirement| {
+                format!(
+                    "  [{origin}] {} -> {} at {:?} ({:?}, linked read: {:?})",
+                    requirement.importer,
+                    requirement.dependency,
+                    requirement.range,
+                    requirement.reason,
+                    requirement.read_target
+                )
+            })
+    })
+    .collect::<Vec<_>>();
     edges.sort();
     edges.dedup();
     if edges.is_empty() {
         return "\nno generated requirement edges inside the reported cycle; inspect authored imports".into();
     }
-    format!("\ngenerated requirements inside rejected runtime SCC:\n{}", edges.join("\n"))
+    const MAX_DISPLAY_EDGES: usize = 128;
+    let omitted = edges.len().saturating_sub(MAX_DISPLAY_EDGES);
+    edges.truncate(MAX_DISPLAY_EDGES);
+    let omitted_note = if omitted == 0 {
+        String::new()
+    } else {
+        format!("\n  ... {omitted} additional generated requirement edges omitted")
+    };
+    format!(
+        "\ngenerated requirements inside rejected runtime SCC:\n{}{}",
+        edges.join("\n"),
+        omitted_note
+    )
 }
 
 /// Ensures the canonical product never asks executable lowering to interpret a
@@ -487,15 +510,40 @@ mod tests {
         let error = LinkError::RuntimeCycle(ModuleGraphError::RuntimeCycle {
             cycle: vec![a, b],
         });
-        let detail = super::canonical_runtime_cycle_requirements(&error, &[requirement]);
+        let detail = super::canonical_runtime_cycle_requirements(&error, &[requirement], &[]);
         assert!(detail.contains("generated requirements inside rejected runtime SCC"));
         assert!(detail.contains("Error"));
         assert!(detail.contains("RuntimeDeclarationReference"));
+        assert!(detail.contains("[semantic-generated]"));
         assert!(detail.contains("linked read: Some("));
         assert!(super::canonical_runtime_cycle_requirements(
             &LinkError::RuntimeCycle(ModuleGraphError::RuntimeCycle { cycle: vec![] }),
+            &[],
             &[]
         ).contains("no generated requirement edges"));
+    }
+
+    #[test]
+    fn canonical_cycle_diagnostic_distinguishes_metadata_owner_requirements() {
+        use phalcom_modules::{LinkError, ModuleGraphError, RuntimeDependencyReason, RuntimeDependencyRequirement};
+
+        let importer = ModuleId::universe_root();
+        let dependency = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("errors").expect("module component"),
+        ]));
+        let requirement = RuntimeDependencyRequirement {
+            importer: importer.clone(),
+            dependency: dependency.clone(),
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            read_target: None,
+        };
+        let error = LinkError::RuntimeCycle(ModuleGraphError::RuntimeCycle {
+            cycle: vec![importer, dependency],
+        });
+        let detail = super::canonical_runtime_cycle_requirements(&error, &[], &[requirement]);
+        assert!(detail.contains("[metadata-type-owner]"));
+        assert!(detail.contains("linked read: None"));
     }
 
     #[test]
