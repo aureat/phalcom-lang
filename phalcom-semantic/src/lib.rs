@@ -9,6 +9,7 @@
 pub mod access;
 pub mod advisory;
 pub mod algebraic_semantics;
+pub mod artifact;
 pub mod associated;
 pub mod canonical_baseline;
 pub mod canonical_image;

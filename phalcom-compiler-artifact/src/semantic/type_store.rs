@@ -27,6 +27,131 @@ graph_id!(
     ArtifactStaticDomainId,
     ArtifactStaticConstructorId
 );
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum CanonicalRootFamilyTag {
+    DeclarationShell = 1,
+    HierarchyAndAlias = 2,
+    GenericSignature = 3,
+    ConstructorContract = 4,
+    DataContract = 5,
+    EnumContract = 6,
+    VariantContract = 7,
+    ParameterCurrentSlot = 8,
+    CallableSignature = 9,
+    SurfaceAndDispatch = 10,
+    TraitAndConformance = 11,
+    TypeMemberAndDomain = 12,
+    StaticDefAndBinding = 13,
+    CallableAnalysis = 14,
+    SelectedQueryRoot = 15,
+}
+
+impl Wire for CanonicalRootFamilyTag {
+    fn write(&self, out: &mut BinaryWriter) -> Result<(), ArtifactError> {
+        out.write_u8(*self as u8);
+        Ok(())
+    }
+    fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
+        match input.reader.read_u8()? {
+            1 => Ok(Self::DeclarationShell),
+            2 => Ok(Self::HierarchyAndAlias),
+            3 => Ok(Self::GenericSignature),
+            4 => Ok(Self::ConstructorContract),
+            5 => Ok(Self::DataContract),
+            6 => Ok(Self::EnumContract),
+            7 => Ok(Self::VariantContract),
+            8 => Ok(Self::ParameterCurrentSlot),
+            9 => Ok(Self::CallableSignature),
+            10 => Ok(Self::SurfaceAndDispatch),
+            11 => Ok(Self::TraitAndConformance),
+            12 => Ok(Self::TypeMemberAndDomain),
+            13 => Ok(Self::StaticDefAndBinding),
+            14 => Ok(Self::CallableAnalysis),
+            15 => Ok(Self::SelectedQueryRoot),
+            _ => Err(invalid("invalid CanonicalRootFamilyTag")),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StableOwnerRef {
+    Declaration(StableDeclarationRef),
+    Callable(StableCallableRef),
+    Impl(StableImplRef),
+    Module(StableModuleRef),
+    TypeMember(StableTypeMemberRef),
+    Variant(StableVariantRef),
+}
+
+impl Wire for StableOwnerRef {
+    fn write(&self, out: &mut BinaryWriter) -> Result<(), ArtifactError> {
+        match self {
+            Self::Declaration(decl) => {
+                out.write_u8(0);
+                decl.write(out)
+            }
+            Self::Callable(callable) => {
+                out.write_u8(1);
+                callable.write(out)
+            }
+            Self::Impl(imp) => {
+                out.write_u8(2);
+                imp.write(out)
+            }
+            Self::Module(module) => {
+                out.write_u8(3);
+                module.write(out)
+            }
+            Self::TypeMember(tm) => {
+                out.write_u8(4);
+                tm.write(out)
+            }
+            Self::Variant(v) => {
+                out.write_u8(5);
+                v.write(out)
+            }
+        }
+    }
+    fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
+        input.nested(|input| match input.reader.read_u8()? {
+            0 => Ok(Self::Declaration(StableDeclarationRef::read(input)?)),
+            1 => Ok(Self::Callable(StableCallableRef::read(input)?)),
+            2 => Ok(Self::Impl(StableImplRef::read(input)?)),
+            3 => Ok(Self::Module(StableModuleRef::read(input)?)),
+            4 => Ok(Self::TypeMember(StableTypeMemberRef::read(input)?)),
+            5 => Ok(Self::Variant(StableVariantRef::read(input)?)),
+            _ => Err(invalid("invalid StableOwnerRef tag")),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CanonicalTypeRootKey {
+    pub family_tag: CanonicalRootFamilyTag,
+    pub owner: StableOwnerRef,
+    pub product_subkey: u32,
+}
+
+impl Wire for CanonicalTypeRootKey {
+    fn write(&self, out: &mut BinaryWriter) -> Result<(), ArtifactError> {
+        self.family_tag.write(out)?;
+        self.owner.write(out)?;
+        self.product_subkey.write(out)?;
+        Ok(())
+    }
+    fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
+        input.nested(|input| {
+            Ok(Self {
+                family_tag: CanonicalRootFamilyTag::read(input)?,
+                owner: StableOwnerRef::read(input)?,
+                product_subkey: u32::read(input)?,
+            })
+        })
+    }
+}
+
 impl<T: Wire> Wire for Box<[T]> {
     fn write(&self, out: &mut BinaryWriter) -> Result<(), ArtifactError> {
         out.write_u32(u32::try_from(self.len()).map_err(|_| invalid("boxed vector exceeds u32"))?);

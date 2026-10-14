@@ -1,0 +1,369 @@
+diff --git a/phalcom-compiler-artifact/src/semantic/aggregates.rs b/phalcom-compiler-artifact/src/semantic/aggregates.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-compiler-artifact/src/semantic/aggregates.rs
+@@ -0,0 +1,82 @@
++//! Structural primary contract DTOs loaded before static ADTs (`PERF003.C2.P7.T7.A`).
++
++use crate::semantic::static_value::ArtifactStaticValueId;
++use crate::semantic::type_store::{ArtifactTypeId, ArtifactTypeParameterId, ArtifactVariantTypeId};
++use phalcom_type_meta::identity::{StableDeclarationRef, StableVariantRef};
++
++#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++pub struct PendingStaticValueRefV1 {
++    pub owner: StableDeclarationRef,
++    pub target_value: ArtifactStaticValueId,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct DeclarationShellV1 {
++    pub declaration: StableDeclarationRef,
++    pub self_type: ArtifactTypeId,
++    pub parameters: Vec<ArtifactTypeParameterId>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct HierarchyAndAliasV1 {
++    pub declaration: StableDeclarationRef,
++    pub superclass: Option<StableDeclarationRef>,
++    pub aliased_type: Option<ArtifactTypeId>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct NormalizedConstraintV1 {
++    pub subject: ArtifactTypeId,
++    pub bound: ArtifactTypeId,
++    pub kind_tag: u8,
++    pub pending_static: Option<PendingStaticValueRefV1>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct GenericSignatureV1 {
++    pub owner: StableDeclarationRef,
++    pub parameters: Vec<ArtifactTypeParameterId>,
++    pub constraints: Vec<NormalizedConstraintV1>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct DataComponentContractV1 {
++    pub name: String,
++    pub component_type: ArtifactTypeId,
++    pub declared_index: u32,
++    pub default_static: Option<PendingStaticValueRefV1>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct DataInfoV1 {
++    pub owner: StableDeclarationRef,
++    pub constructor_selector: String,
++    pub result_type: ArtifactTypeId,
++    pub components: Vec<DataComponentContractV1>,
++    pub has_expansions: bool,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct VariantInfoV1 {
++    pub variant: StableVariantRef,
++    pub variant_type: ArtifactVariantTypeId,
++    pub result_type: ArtifactTypeId,
++    pub fields: Vec<DataComponentContractV1>,
++    pub discriminant_static: Option<PendingStaticValueRefV1>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct EnumInfoV1 {
++    pub owner: StableDeclarationRef,
++    pub enum_type: ArtifactTypeId,
++    pub variants: Vec<VariantInfoV1>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq, Default)]
++pub struct StructuralPrimaryContractsV1 {
++    pub declaration_shells: Vec<DeclarationShellV1>,
++    pub hierarchy_and_aliases: Vec<HierarchyAndAliasV1>,
++    pub generic_signatures: Vec<GenericSignatureV1>,
++    pub data_contracts: Vec<DataInfoV1>,
++    pub enum_contracts: Vec<EnumInfoV1>,
++}
+diff --git a/phalcom-compiler-artifact/src/semantic/static_value.rs b/phalcom-compiler-artifact/src/semantic/static_value.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-compiler-artifact/src/semantic/static_value.rs
+@@ -0,0 +1,109 @@
++//! Per-arena StaticValue wire DTOs (`PERF003.C2.P7.T6`).
++
++use crate::semantic::type_store::{ArtifactTypeId, FieldKeyV1};
++use phalcom_type_meta::identity::{StableDeclarationRef, StableVariantRef};
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++pub struct ArtifactStaticValueId(pub u32);
++#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++pub struct ArtifactStaticStringId(pub u32);
++#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++pub struct ArtifactStaticSymbolId(pub u32);
++#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++pub struct ArtifactStaticTupleId(pub u32);
++#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++pub struct ArtifactStaticSequenceId(pub u32);
++#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++pub struct ArtifactStaticRecordId(pub u32);
++#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++pub struct ArtifactStaticDataId(pub u32);
++#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++pub struct ArtifactStaticVariantId(pub u32);
++#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++pub struct ArtifactStaticPackBackingId(pub u32);
++#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++pub struct ArtifactStaticPackId(pub u32);
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++#[repr(u8)]
++pub enum SequenceFamilyV1 {
++    Array = 1,
++    Vector = 2,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct StaticSequenceV1 {
++    pub family: SequenceFamilyV1,
++    pub result_type: ArtifactTypeId,
++    pub elements: Vec<ArtifactStaticValueId>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct StaticRecordFieldV1 {
++    pub key: FieldKeyV1,
++    pub value: ArtifactStaticValueId,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct StaticDataValueV1 {
++    pub owner: StableDeclarationRef,
++    pub constructor_selector: String,
++    pub result_type: ArtifactTypeId,
++    pub components: Vec<(String, ArtifactStaticValueId)>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct StaticVariantValueV1 {
++    pub variant: StableVariantRef,
++    pub result_type: ArtifactTypeId,
++    pub fields: Vec<(String, ArtifactStaticValueId)>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct StaticPackBackingV1 {
++    pub positionals: Vec<ArtifactStaticValueId>,
++    pub labels: Vec<ArtifactStaticSymbolId>,
++    pub labeled_values: Vec<ArtifactStaticValueId>,
++}
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub struct StaticPackSliceV1 {
++    pub backing: ArtifactStaticPackBackingId,
++    pub positional_start: u32,
++    pub positional_len: u32,
++    pub labeled_start: u32,
++    pub labeled_len: u32,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub enum StaticValueV1 {
++    Unit,
++    Bool { value: bool },
++    Char { scalar: u32 },
++    Int { decimal: String },
++    Float { bits: u64 },
++    String { id: ArtifactStaticStringId },
++    Symbol { id: ArtifactStaticSymbolId },
++    Type { ty: ArtifactTypeId },
++    StaticTerm { ty: ArtifactTypeId },
++    Tuple { id: ArtifactStaticTupleId },
++    Sequence { id: ArtifactStaticSequenceId },
++    Record { id: ArtifactStaticRecordId },
++    Data { id: ArtifactStaticDataId },
++    Variant { id: ArtifactStaticVariantId },
++    Pack { id: ArtifactStaticPackId },
++}
++
++#[derive(Clone, Debug, Eq, PartialEq, Default)]
++pub struct StaticValueGraphV1 {
++    pub values: Vec<StaticValueV1>,
++    pub strings: Vec<String>,
++    pub symbols: Vec<String>,
++    pub tuples: Vec<Vec<ArtifactStaticValueId>>,
++    pub sequences: Vec<StaticSequenceV1>,
++    pub records: Vec<Vec<StaticRecordFieldV1>>,
++    pub data_values: Vec<StaticDataValueV1>,
++    pub variant_values: Vec<StaticVariantValueV1>,
++    pub pack_backings: Vec<StaticPackBackingV1>,
++    pub packs: Vec<StaticPackSliceV1>,
++}
+diff --git a/phalcom-compiler-artifact/src/query.rs b/phalcom-compiler-artifact/src/query.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-compiler-artifact/src/query.rs
+@@ -0,0 +1,65 @@
++//! Portable `QUERY_IMAGE` wire DTOs and exhaustive profile dispositions (`PERF003.C2.P7.T9`).
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++#[repr(u16)]
++pub enum PortableQueryKindV1 {
++    ParsedModule = 1,
++    UnlinkedInterface = 2,
++    ResolvedImports = 3,
++    LinkedInterface = 4,
++    DeclarationShell = 5,
++    HierarchyEdge = 6,
++    CallableDefinition = 7,
++    CallableSignature = 8,
++    FieldSignature = 9,
++    DeclarationSurface = 10,
++    TraitHeader = 11,
++    TraitSurface = 12,
++    DataDeclaration = 13,
++    EnumDeclaration = 14,
++    AssociatedSurface = 15,
++    TypeMemberDeclaration = 16,
++    ModuleStaticBindingCatalog = 17,
++    ModuleStaticBindings = 18,
++}
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum QueryProfileSupport {
++    OmittedSourceDependent,
++    SupportedReusableRoot,
++    AggregateDependencyEvidenceOnly,
++}
++
++impl PortableQueryKindV1 {
++    pub const fn profile_support(self) -> QueryProfileSupport {
++        match self {
++            Self::ParsedModule => QueryProfileSupport::OmittedSourceDependent,
++            Self::HierarchyEdge => QueryProfileSupport::AggregateDependencyEvidenceOnly,
++            _ => QueryProfileSupport::SupportedReusableRoot,
++        }
++    }
++}
++
++#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
++pub struct PortableQueryKeyV1 {
++    pub kind: PortableQueryKindV1,
++    pub stable_owner_key: String,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct QueryRootEntryV1 {
++    pub key: PortableQueryKeyV1,
++    pub dependency_indices: Vec<u32>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct DependencyEvidenceEntryV1 {
++    pub key: PortableQueryKeyV1,
++    pub stable_aggregate_owner: String,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq, Default)]
++pub struct QueryImageV1 {
++    pub supported_roots: Vec<QueryRootEntryV1>,
++    pub dependency_evidence: Vec<DependencyEvidenceEntryV1>,
++}
+diff --git a/phalcom-compiler-artifact/src/metadata.rs b/phalcom-compiler-artifact/src/metadata.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-compiler-artifact/src/metadata.rs
+@@ -0,0 +1,93 @@
++//! Bounded `METADATA` section wrapper for `RuntimePublic` `SemanticMetadataBundle` (`PERF003.C2.P7.T10`).
++
++use phalcom_type_meta::header::{MetadataIdentityMode, MetadataProfile};
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub struct MetadataPreflightLimits {
++    pub max_metadata_bytes: usize,
++    pub max_token_count: u32,
++    pub max_container_count: u32,
++    pub max_nesting_depth: u16,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct MetadataSectionV1 {
++    pub wrapper_version: u16,
++    pub inner_schema_version: u16,
++    pub profile: MetadataProfile,
++    pub identity_mode: MetadataIdentityMode,
++    pub package_digest: [u8; 32],
++    pub preflight_tokens: u32,
++    pub preflight_containers: u32,
++    pub preflight_nesting: u16,
++    pub encoded_bundle: Vec<u8>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub enum MetadataSectionError {
++    NonRuntimePublicProfile(MetadataProfile),
++    NonStandardIdentityMode(MetadataIdentityMode),
++    UnsupportedVersion { wrapper: u16, inner: u16 },
++    PackageDigestMismatch,
++    ByteBudgetExceeded { limit: usize, actual: usize },
++    TokenBudgetExceeded { limit: u32, actual: u32 },
++    ContainerBudgetExceeded { limit: u32, actual: u32 },
++    NestingBudgetExceeded { limit: u16, actual: u16 },
++    SharedArtifactBudgetExhausted { remaining: usize, requested: usize },
++}
++
++pub fn validate_and_charge_metadata_preflight(
++    section: &MetadataSectionV1,
++    limits: &MetadataPreflightLimits,
++    expected_package_digest: &[u8; 32],
++    shared_remaining_bytes: &mut usize,
++) -> Result<(), MetadataSectionError> {
++    if section.profile != MetadataProfile::RuntimePublic {
++        return Err(MetadataSectionError::NonRuntimePublicProfile(section.profile));
++    }
++    if section.identity_mode != MetadataIdentityMode::V1Standard {
++        return Err(MetadataSectionError::NonStandardIdentityMode(section.identity_mode));
++    }
++    if section.wrapper_version != 1 || section.inner_schema_version != 1 {
++        return Err(MetadataSectionError::UnsupportedVersion {
++            wrapper: section.wrapper_version,
++            inner: section.inner_schema_version,
++        });
++    }
++    if &section.package_digest != expected_package_digest {
++        return Err(MetadataSectionError::PackageDigestMismatch);
++    }
++    let len = section.encoded_bundle.len();
++    if len > limits.max_metadata_bytes {
++        return Err(MetadataSectionError::ByteBudgetExceeded {
++            limit: limits.max_metadata_bytes,
++            actual: len,
++        });
++    }
++    if section.preflight_tokens > limits.max_token_count {
++        return Err(MetadataSectionError::TokenBudgetExceeded {
++            limit: limits.max_token_count,
++            actual: section.preflight_tokens,
++        });
++    }
++    if section.preflight_containers > limits.max_container_count {
++        return Err(MetadataSectionError::ContainerBudgetExceeded {
++            limit: limits.max_container_count,
++            actual: section.preflight_containers,
++        });
++    }
++    if section.preflight_nesting > limits.max_nesting_depth {
++        return Err(MetadataSectionError::NestingBudgetExceeded {
++            limit: limits.max_nesting_depth,
++            actual: section.preflight_nesting,
++        });
++    }
++    if *shared_remaining_bytes < len {
++        return Err(MetadataSectionError::SharedArtifactBudgetExhausted {
++            remaining: *shared_remaining_bytes,
++            requested: len,
++        });
++    }
++    *shared_remaining_bytes -= len;
++    Ok(())
++}

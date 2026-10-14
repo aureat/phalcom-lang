@@ -1,0 +1,155 @@
+diff --git a/phalcom-core/src/modules/canonical_artifact.rs b/phalcom-core/src/modules/canonical_artifact.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/src/modules/canonical_artifact.rs
+@@ -0,0 +1,150 @@
++//! Deterministic `universe.telosc` builder, atomic writer, and source-free loader (`PERF003.C2.P7.T10/T11/T12`).
++
++use crate::modules::compile::{
++    CompiledProgram, EntrySelection, ProgramCompilationOptions, ProgramCompileError, ProgramCompiler,
++};
++use phalcom_compiler_artifact::metadata::{
++    validate_and_charge_metadata_preflight, MetadataPreflightLimits, MetadataSectionError,
++    MetadataSectionV1,
++};
++use phalcom_semantic::canonical_image::{CanonicalImageError, CanonicalUniverseFormalImage};
++use phalcom_type_meta::SemanticMetadataBundle;
++use std::fs::{self, File};
++use std::io::Write;
++use std::path::Path;
++use std::sync::Arc;
++use std::time::{Duration, Instant};
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub struct TeloscCapabilities {
++    pub module_world: bool,
++    pub semantic_world: bool,
++    pub query_image: bool,
++    pub runtime_public_metadata: bool,
++    pub portable_executable: bool,
++}
++
++impl TeloscCapabilities {
++    pub const fn compiler_only_v1() -> Self {
++        Self {
++            module_world: true,
++            semantic_world: true,
++            query_image: true,
++            runtime_public_metadata: true,
++            portable_executable: false,
++        }
++    }
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct TeloscBuildSummary {
++    pub capabilities: TeloscCapabilities,
++    pub module_world_bytes: usize,
++    pub semantic_world_bytes: usize,
++    pub query_image_bytes: usize,
++    pub metadata_bytes: usize,
++    pub artifact_digest: [u8; 32],
++}
++
++#[derive(Clone, Debug)]
++pub struct BuiltUniverseTelosc {
++    pub bytes: Vec<u8>,
++    pub summary: TeloscBuildSummary,
++}
++
++#[derive(Clone, Copy, Debug, Default)]
++pub struct TeloscLoadTimings {
++    pub file_read: Duration,
++    pub container_validation: Duration,
++    pub section_validation: Duration,
++    pub relocation: Duration,
++    pub publication: Duration,
++}
++
++#[derive(Debug, thiserror::Error)]
++pub enum TeloscArtifactError {
++    #[error("artifact io error: {0}")]
++    Io(#[from] std::io::Error),
++    #[error("metadata section error: {0:?}")]
++    Metadata(MetadataSectionError),
++    #[error("canonical image error: {0}")]
++    CanonicalImage(#[from] CanonicalImageError),
++    #[error("capability error: {0}")]
++    Capability(&'static str),
++    #[error("allocation budget exceeded: limit {limit_bytes} bytes")]
++    BudgetExceeded { limit_bytes: usize },
++}
++
++/// Immutable loaded Universe compiler artifact (`PERF003.C2.P7.T12`).
++pub struct LoadedUniverseArtifact {
++    pub capabilities: TeloscCapabilities,
++    pub formal_image: Arc<CanonicalUniverseFormalImage>,
++    pub metadata: Arc<SemanticMetadataBundle>,
++    pub timings: TeloscLoadTimings,
++    pub executable_reserved_p8: Option<()>,
++}
++
++impl LoadedUniverseArtifact {
++    pub fn compile_user_entry(&self, entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
++        ProgramCompiler::compile_entry_selection_with_image(entry, self.formal_image.clone())
++    }
++
++    pub fn compile_user_entry_with_options(
++        &self,
++        entry: EntrySelection,
++        options: &ProgramCompilationOptions,
++    ) -> Result<CompiledProgram, ProgramCompileError> {
++        ProgramCompiler::compile_entry_selection_with_options_and_image(entry, self.formal_image.clone(), options)
++    }
++}
++
++/// Atomically writes `universe.telosc` via a same-directory temporary file (`PERF003.C2.P7.T11`).
++pub fn write_universe_telosc(path: &Path, built: &BuiltUniverseTelosc) -> Result<(), TeloscArtifactError> {
++    if built.summary.capabilities.portable_executable {
++        return Err(TeloscArtifactError::Capability(
++            "P7 compiler-only artifact must not declare PORTABLE_EXECUTABLE",
++        ));
++    }
++    let parent = path.parent().unwrap_or_else(|| Path::new("."));
++    let base = path.file_name().and_then(|s| s.to_str()).unwrap_or("universe.telosc");
++    let tmp_path = parent.join(format!(".{base}.tmp.{}", std::process::id()));
++    let res = (|| -> Result<(), TeloscArtifactError> {
++        let mut f = File::create(&tmp_path)?;
++        f.write_all(&built.bytes)?;
++        f.sync_all()?;
++        drop(f);
++        fs::rename(&tmp_path, path)?;
++        Ok(())
++    })();
++    if res.is_err() {
++        let _ = fs::remove_file(&tmp_path);
++    }
++    res
++}
++
++/// Validates metadata section preflight and constructs `Arc<LoadedUniverseArtifact>` (`PERF003.C2.P7.T10/T12`).
++pub fn finish_loaded_universe_telosc(
++    capabilities: TeloscCapabilities,
++    metadata_section: &MetadataSectionV1,
++    metadata_limits: &MetadataPreflightLimits,
++    expected_package_digest: &[u8; 32],
++    shared_remaining_bytes: &mut usize,
++    formal_image: Arc<CanonicalUniverseFormalImage>,
++    metadata: Arc<SemanticMetadataBundle>,
++    mut timings: TeloscLoadTimings,
++) -> Result<Arc<LoadedUniverseArtifact>, TeloscArtifactError> {
++    if !capabilities.module_world || !capabilities.semantic_world || !capabilities.query_image || !capabilities.runtime_public_metadata {
++        return Err(TeloscArtifactError::Capability("missing required compiler-only capability"));
++    }
++    validate_and_charge_metadata_preflight(metadata_section, metadata_limits, expected_package_digest, shared_remaining_bytes)
++        .map_err(TeloscArtifactError::Metadata)?;
++    let t_pub = Instant::now();
++    let artifact = Arc::new(LoadedUniverseArtifact {
++        capabilities,
++        formal_image,
++        metadata,
++        timings: { timings.publication = t_pub.elapsed(); timings },
++        executable_reserved_p8: None,
++    });
++    Ok(artifact)
++}
