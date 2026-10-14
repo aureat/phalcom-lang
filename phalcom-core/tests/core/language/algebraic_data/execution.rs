@@ -233,7 +233,9 @@ let qualified = Boxed<Int>::none
 let same_singleton = singleton === qualified
 let value: Boxed<Int> = some(42)
 let extracted = match value { some(item) => item none => 0 }
-let union: Boxed<Int> | Other = Boxed<Int>::some(7)
+// Keep both union branches reachable to the semantic checker; an immediate
+// single-variant assignment can be flow-narrowed and makes _ redundant.
+let union: Boxed<Int> | Other = if same_singleton { Boxed<Int>::some(7) } else { Other::other }
 let union_payload = match union { some(item) => item _ => 0 }
 "#;
     let (vm, main_mod) = run_inline(src).expect("contextual enum program should compile and run");
