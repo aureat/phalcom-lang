@@ -47,10 +47,11 @@ pub use static_iteration::{
 };
 
 pub use analysis::{
-    AlgebraicBasisAxis, AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ContextualRealization,
-    ContextualRealizationOperation, ExpressionAnalysis, ExpressionAnalysisIndex, FlowStateSummary, ForIterationLaneResolution, ForIterationLaneResolutionIndex,
-    ForIterationRequirementResolution, RealizationCapabilitySelection, RealizationCoefficientSource, RealizationEvaluationPlan, SequenceConstructionPlan,
-    SequenceExpansionResolution, SequenceLiteralFamily, SequenceLiteralResolution, SequenceLiteralResolutionIndex,
+    AlgebraicBasisAxis, AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, CallableAnalysisTable,
+    ContextualRealization, ContextualRealizationOperation, ExpressionAnalysis, ExpressionAnalysisIndex, FlowStateSummary, ForIterationLaneResolution,
+    ForIterationLaneResolutionIndex, ForIterationRequirementResolution, RealizationCapabilitySelection, RealizationCoefficientSource,
+    RealizationEvaluationPlan, SequenceConstructionPlan, SequenceExpansionResolution, SequenceLiteralFamily, SequenceLiteralResolution,
+    SequenceLiteralResolutionIndex,
 };
 pub use annotation_elaboration::{AnnotationElaboration, InferenceHoleOrigin, annotation_contains_inference_hole, elaborate_annotation};
 pub use associated::{

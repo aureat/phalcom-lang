@@ -985,6 +985,49 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
     )
 }
 
+/// Borrowed facade providing module-local semantic products to lowering.
+/// Prevents accidental linear scans over workspace-wide or canonical tables.
+pub struct ModuleLoweringInputView<'a> {
+    pub module: &'a ModuleId,
+    pub snapshot: &'a SemanticSnapshot,
+}
+
+impl<'a> ModuleLoweringInputView<'a> {
+    pub fn new(module: &'a ModuleId, snapshot: &'a SemanticSnapshot) -> Self {
+        Self { module, snapshot }
+    }
+
+    pub fn callable_analyses(&self) -> impl Iterator<Item = (&'a CallableId, &'a Arc<phalcom_semantic::checker::CallableAnalysis>)> {
+        self.snapshot.callable_analyses.iter_module(self.module).inspect(|_| {
+            crate::perf_counter!(telos_observability::PerfCounter::CompilerBackendCallableAnalysesVisited, 1);
+        })
+    }
+
+    pub fn callable_definitions(&self) -> impl Iterator<Item = (&'a CallableId, &'a phalcom_semantic::impls::EffectiveCallableDefinition)> {
+        self.snapshot.callable_definitions_in_module(self.module).inspect(|_| {
+            crate::perf_counter!(telos_observability::PerfCounter::CompilerBackendCallableDefinitionsVisited, 1);
+        })
+    }
+
+    pub fn data_declarations(&self) -> impl Iterator<Item = (&'a DeclarationId, &'a Arc<phalcom_semantic::data_semantics::DataInfo>)> {
+        self.snapshot.data_semantics.iter_module(self.module).inspect(|_| {
+            crate::perf_counter!(telos_observability::PerfCounter::CompilerBackendDataDeclarationsVisited, 1);
+        })
+    }
+
+    pub fn enum_declarations(&self) -> impl Iterator<Item = (&'a DeclarationId, &'a Arc<phalcom_semantic::enum_semantics::EnumInfo>)> {
+        self.snapshot.enum_semantics.iter_module(self.module).inspect(|_| {
+            crate::perf_counter!(telos_observability::PerfCounter::CompilerBackendEnumDeclarationsVisited, 1);
+        })
+    }
+
+    pub fn intrinsic_runtime_declarations(&self) -> Box<dyn Iterator<Item = (&'a DeclarationId, phalcom_semantic::declarations::IntrinsicRuntimeOwner)> + 'a> {
+        Box::new(self.snapshot.declarations.intrinsic_runtime_declarations_in_module(self.module).inspect(|_| {
+            crate::perf_counter!(telos_observability::PerfCounter::CompilerBackendDeclarationsVisited, 1);
+        }))
+    }
+}
+
 pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_calls(
     module: &ModuleId,
     snapshot: &SemanticSnapshot,
@@ -1003,11 +1046,10 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         SourceId(module.to_string().into_boxed_str())
     };
 
+    let view = ModuleLoweringInputView::new(module, snapshot);
+
     let mut constructor_super_initializers = BTreeMap::new();
-    for (callable, analysis) in snapshot.callable_analyses.iter() {
-        if *callable.owner.module() != *module {
-            continue;
-        }
+    for (_callable, analysis) in view.callable_analyses() {
         let Some(resolution) = analysis.constructor_super_initializer.as_ref() else {
             continue;
         };
@@ -1026,38 +1068,49 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
     // not recreate lexical name resolution in the optimizer.
     let mut bindings = BTreeMap::new();
     if let Some(module_index) = snapshot.source_index().module(module) {
-        for callable_id in snapshot.callable_analyses.keys().filter(|callable| callable.owner.module() == module) {
+        let mut binding_by_decl_site = BTreeMap::new();
+        for (callable_id, _) in view.callable_analyses() {
             let Some(attachment) = snapshot.source_index().formal_attachment(callable_id) else {
                 continue;
             };
-            let binding_by_site = attachment
-                .formal_bindings
-                .iter()
-                .map(|(binding, site)| (site, *binding))
-                .collect::<BTreeMap<_, _>>();
-
             for (binding, site) in &attachment.formal_bindings {
                 if let Some(source_site) = snapshot.source_index().source_site(site) {
                     bindings.insert(source_site.range, *binding);
                 }
+                binding_by_decl_site.insert(site.clone(), *binding);
             }
+        }
 
+        let mut resolved_via_target_index = false;
+        for (site, binding) in &binding_by_decl_site {
+            let target = SemanticTargetId::Binding(site.clone());
+            if let Some(set) = snapshot.source_index().references().target_set(&target) {
+                for occ_site in set.lexical_references.iter().chain(set.semantic_references.iter()) {
+                    if let Some(source_site) = snapshot.source_index().source_site(occ_site) {
+                        bindings.insert(source_site.range, *binding);
+                        resolved_via_target_index = true;
+                    }
+                }
+            }
+        }
+
+        if !resolved_via_target_index && !binding_by_decl_site.is_empty() {
+            crate::perf_counter!(telos_observability::PerfCounter::CompilerBindingOccurrenceFullScans, 1);
             for occurrence in module_index.occurrences.all() {
                 let Some(SemanticTargetId::Binding(site)) = module_index.occurrences.target_for(&occurrence.site) else {
                     continue;
                 };
-                if let Some(binding) = binding_by_site.get(site) {
+                if let Some(binding) = binding_by_decl_site.get(site) {
                     bindings.insert(occurrence.range, *binding);
                 }
             }
+        } else if resolved_via_target_index {
+            crate::perf_counter!(telos_observability::PerfCounter::CompilerBindingOccurrencesResolvedByTargetIndex, 1);
         }
     }
 
     let mut binding_read_safeties = BTreeMap::new();
-    for (callable_id, analysis) in snapshot.callable_analyses.iter() {
-        if *callable_id.owner.module() != *module {
-            continue;
-        }
+    for (_callable_id, analysis) in view.callable_analyses() {
         for expr in analysis.expressions.values() {
             if let Some(safety) = expr.binding_read_safety {
                 binding_read_safeties.insert(expr.range, safety);
@@ -1068,10 +1121,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
     // 1. Project Enums in this module
     let core_ids = phalcom_semantic::core_surface::CoreDeclarationIds::default();
     let mut enums = Vec::new();
-    for (owner, enum_info) in snapshot.enum_semantics.enums.iter() {
-        if owner.module != *module {
-            continue;
-        }
+    for (owner, enum_info) in view.enum_declarations() {
         let mut variants = Vec::new();
         for variant_id in enum_info.variants.iter() {
             let vinfo = snapshot
@@ -1122,10 +1172,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
 
     // 2. Project Data Declarations in this module
     let mut data_decls = Vec::new();
-    for (owner, data_info) in snapshot.data_semantics.data_decls.iter() {
-        if owner.module != *module {
-            continue;
-        }
+    for (owner, data_info) in view.data_declarations() {
         let mut components = Vec::new();
         let mut component_specs = Vec::new();
         for (idx, comp) in data_info.components.iter().enumerate() {
@@ -1148,10 +1195,8 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
     }
     data_decls.sort_by(|a, b| a.owner.cmp(&b.owner));
 
-    let mut intrinsic_runtime_facades = snapshot
-        .declarations
+    let mut intrinsic_runtime_facades = view
         .intrinsic_runtime_declarations()
-        .filter(|(declaration, _)| &declaration.module == module)
         .map(|(declaration, owner)| IntrinsicRuntimeFacadeLoweringSpec {
             declaration: declaration.clone(),
             owner,
@@ -1162,7 +1207,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
     // 2b. Project the semantic owner's exact accepted inherent definitions.
     // Source locations locate bodies; they never establish authorization.
     let mut inherent_impls_by_id = BTreeMap::<ImplId, (InherentImplLoweringTarget, Vec<InherentImplMemberLowering>)>::new();
-    for definition in snapshot.callable_definitions.values() {
+    for (_callable_id, definition) in view.callable_definitions() {
         let phalcom_semantic::impls::CallableDefinitionOrigin::InherentImpl(impl_id) = &definition.origin else {
             continue;
         };
@@ -1251,11 +1296,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
     let mut sequence_literals = BTreeMap::new();
     let mut detached_methods = BTreeMap::new();
 
-    for definition in snapshot
-        .callable_definitions
-        .values()
-        .filter(|definition| definition.callable.module() == module)
-    {
+    for (_callable_id, definition) in view.callable_definitions() {
         if let phalcom_semantic::impls::CallableDefinitionOrigin::ConformanceWitness(impl_id) = &definition.origin {
             detached_methods.insert(
                 definition.callable.clone(),
@@ -1305,13 +1346,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         }
     }
 
-    let requirement_slots = trait_default_requirement_slots(snapshot)?;
-
-    for (callable_id, analysis) in snapshot.callable_analyses.iter() {
-        if callable_id.owner.module() != module {
-            continue;
-        }
-
+    for (callable_id, analysis) in view.callable_analyses() {
         // Associated resolutions
         for (expr_id, resolution) in analysis.associated_resolutions.iter() {
             let expr_analysis = analysis.expressions.get(expr_id);
@@ -1373,13 +1408,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                 .conformance_witness_plans
                 .get(impl_id)
                 .and_then(|plan| plan.generic_signature.as_ref())
-                .or_else(|| {
-                    snapshot
-                        .derived_conformance_rules
-                        .iter()
-                        .find(|r| &r.impl_id == impl_id)
-                        .map(|r| &r.generic_signature)
-                }),
+                .or_else(|| snapshot.derived_conformance_rules.get_rule(impl_id).map(|r| &r.generic_signature)),
             _ if callable_id.side == phalcom_semantic::identity::DispatchSide::Instance => callable_id.try_declaration_owner().and_then(|owner| {
                 snapshot
                     .declarations
@@ -1407,11 +1436,8 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         {
             let impl_signature = snapshot
                 .dispatch
-                .conditional_members()
-                .values()
-                .flat_map(|members| members.members.iter())
-                .find(|member| &member.impl_id == source_impl)
-                .and_then(|member| member.domain.generic_signature.as_ref());
+                .inherent_impl_domain(source_impl)
+                .and_then(|domain| domain.generic_signature.as_ref());
             if let Some(impl_signature) = impl_signature {
                 let impl_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
                     &impl_signature.constraints,
@@ -1439,8 +1465,8 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         }
 
         for lane in analysis.for_iteration_lanes.values() {
-            let iterator = project_for_iteration_requirement(&lane.iterator, &generic_evidence, &requirement_slots, snapshot)?;
-            let next = project_for_iteration_requirement(&lane.next, &generic_evidence, &requirement_slots, snapshot)?;
+            let iterator = project_for_iteration_requirement(&lane.iterator, &generic_evidence, snapshot)?;
+            let next = project_for_iteration_requirement(&lane.next, &generic_evidence, snapshot)?;
             if for_iteration_lanes
                 .insert(
                     lane.source_range,
@@ -1462,8 +1488,8 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
             }
         }
         for expansion in analysis.positional_expansions.values() {
-            let iterator = project_for_iteration_requirement(&expansion.iterator, &generic_evidence, &requirement_slots, snapshot)?;
-            let next = project_for_iteration_requirement(&expansion.next, &generic_evidence, &requirement_slots, snapshot)?;
+            let iterator = project_for_iteration_requirement(&expansion.iterator, &generic_evidence, snapshot)?;
+            let next = project_for_iteration_requirement(&expansion.next, &generic_evidence, snapshot)?;
             if positional_expansions
                 .insert(
                     expansion.source_range,
@@ -1539,9 +1565,15 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
 
             match expression.trait_dispatch.as_ref() {
                 Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) => {
-                    let Some(&raw_slot) = requirement_slots.get(&selection.requirement) else {
-                        return Err(ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()));
-                    };
+                    crate::perf_counter!(telos_observability::PerfCounter::CompilerTraitRequirementSlotsLookedUp, 1);
+                    let surface = snapshot
+                        .trait_surfaces
+                        .get(&selection.requirement.owner)
+                        .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()))?;
+                    let raw_slot = surface
+                        .requirement_slot(&selection.requirement)
+                        .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()))?;
+                    let raw_slot = u16::try_from(raw_slot).map_err(|_| ProjectionError::SlotOverflow(raw_slot as usize))?;
                     let call_environment_recipe = runtime_call_environment_recipes.get(&expression.range).cloned();
                     let callee_generic_evidence_len = if let Some(recipe) = &call_environment_recipe {
                         u16::try_from(recipe.conformance_slots.len()).map_err(|_| ProjectionError::SlotOverflow(recipe.conformance_slots.len()))?
@@ -1561,11 +1593,15 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                             .map_or(0, |env| env.len() as u16)
                     };
                     let requirement_slot = callee_generic_evidence_len + raw_slot;
-                    let req_slots = requirement_slots
+                    let req_slots = surface
+                        .requirement_layout
+                        .slots()
                         .iter()
-                        .filter(|(requirement, _)| requirement.owner == selection.requirement.owner)
-                        .map(|(requirement, slot)| (requirement.clone(), callee_generic_evidence_len + *slot))
-                        .collect();
+                        .map(|(requirement, slot)| {
+                            let slot_u16 = u16::try_from(*slot).map_err(|_| ProjectionError::SlotOverflow(*slot as usize))?;
+                            Ok((requirement.clone(), callee_generic_evidence_len + slot_u16))
+                        })
+                        .collect::<Result<Box<[_]>, ProjectionError>>()?;
                     // A checked call-entry recipe already supplies the complete
                     // selected callable generic prefix (owner and method bounds).
                     // Project trait-header antecedents only for unspecialized
@@ -1589,9 +1625,15 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                     );
                 }
                 Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::AbstractRequirement { requirement }) => {
-                    let Some(&raw_slot) = requirement_slots.get(requirement) else {
-                        return Err(ProjectionError::MissingTraitRequirementSlot(requirement.clone()));
-                    };
+                    crate::perf_counter!(telos_observability::PerfCounter::CompilerTraitRequirementSlotsLookedUp, 1);
+                    let surface = snapshot
+                        .trait_surfaces
+                        .get(&requirement.owner)
+                        .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                    let raw_slot = surface
+                        .requirement_slot(requirement)
+                        .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                    let raw_slot = u16::try_from(raw_slot).map_err(|_| ProjectionError::SlotOverflow(raw_slot as usize))?;
                     let requirement_slot = (generic_evidence.len() as u16) + raw_slot;
                     let site = LoweringSite::new(source_id.clone(), expression.range, LoweringSiteKind::TraitRequirementInvoke);
                     trait_requirement_invocations.insert(
@@ -1764,7 +1806,7 @@ fn project_static_constants(module: &ModuleId, snapshot: &SemanticSnapshot) -> B
 
 fn project_type_form_values(module: &ModuleId, snapshot: &SemanticSnapshot) -> BTreeMap<SourceRange, RuntimeTypeFormValueSpec> {
     let mut projected = BTreeMap::new();
-    for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == module) {
+    for (callable, analysis) in snapshot.callable_analyses.iter_module(module) {
         let _ = callable;
         for expression in analysis.expressions.values() {
             let Some(SemanticDenotation::TypeForm(form)) = expression.denotation.as_ref() else {
@@ -1783,15 +1825,19 @@ fn project_type_form_values(module: &ModuleId, snapshot: &SemanticSnapshot) -> B
 fn project_for_iteration_requirement(
     requirement: &phalcom_semantic::checker::ForIterationRequirementResolution,
     generic_evidence: &phalcom_semantic::generic_evidence::GenericEvidenceEnvironment,
-    requirement_slots: &BTreeMap<phalcom_semantic::traits::TraitRequirementId, u16>,
     snapshot: &SemanticSnapshot,
 ) -> Result<ForIterationRequirementSpec, ProjectionError> {
     match requirement {
         phalcom_semantic::checker::ForIterationRequirementResolution::AbstractRequirement { requirement, .. } => {
-            let raw_slot = requirement_slots
-                .get(requirement)
-                .copied()
+            crate::perf_counter!(telos_observability::PerfCounter::CompilerTraitRequirementSlotsLookedUp, 1);
+            let surface = snapshot
+                .trait_surfaces
+                .get(&requirement.owner)
                 .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+            let raw_slot = surface
+                .requirement_slot(requirement)
+                .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+            let raw_slot = u16::try_from(raw_slot).map_err(|_| ProjectionError::SlotOverflow(raw_slot as usize))?;
             let requirement_slot = (generic_evidence.len() as u16) + raw_slot;
             Ok(ForIterationRequirementSpec::Requirement(TraitRequirementInvocationSpec {
                 requirement: requirement.clone(),
@@ -1832,10 +1878,15 @@ fn project_for_iteration_requirement(
                     selection,
                     requirement_targets: exact.requirements.clone(),
                 };
-                let raw_slot = requirement_slots
-                    .get(requirement)
-                    .copied()
+                crate::perf_counter!(telos_observability::PerfCounter::CompilerTraitRequirementSlotsLookedUp, 1);
+                let surface = snapshot
+                    .trait_surfaces
+                    .get(&requirement.owner)
                     .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                let raw_slot = surface
+                    .requirement_slot(requirement)
+                    .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                let raw_slot = u16::try_from(raw_slot).map_err(|_| ProjectionError::SlotOverflow(raw_slot as usize))?;
                 let callee_generic_evidence_len = snapshot
                     .trait_headers
                     .get(&requirement.owner)
@@ -1850,11 +1901,15 @@ fn project_for_iteration_requirement(
                     })
                     .map_or(0, |env| env.len() as u16);
                 let requirement_slot = callee_generic_evidence_len + raw_slot;
-                let req_slots = requirement_slots
+                let req_slots = surface
+                    .requirement_layout
+                    .slots()
                     .iter()
-                    .filter(|(id, _)| id.owner == requirement.owner)
-                    .map(|(id, slot)| (id.clone(), callee_generic_evidence_len + *slot))
-                    .collect();
+                    .map(|(id, slot)| {
+                        let slot_u16 = u16::try_from(*slot).map_err(|_| ProjectionError::SlotOverflow(*slot as usize))?;
+                        Ok((id.clone(), callee_generic_evidence_len + slot_u16))
+                    })
+                    .collect::<Result<Box<[_]>, ProjectionError>>()?;
                 let antecedent_slots = project_antecedent_slots(evidence, snapshot)?;
                 Ok(ForIterationRequirementSpec::Selected(TraitInvocationSpec {
                     selection,
@@ -1896,10 +1951,15 @@ fn project_for_iteration_requirement(
                     selection,
                     requirement_targets: derived.requirements().clone(),
                 };
-                let raw_slot = requirement_slots
-                    .get(requirement)
-                    .copied()
+                crate::perf_counter!(telos_observability::PerfCounter::CompilerTraitRequirementSlotsLookedUp, 1);
+                let surface = snapshot
+                    .trait_surfaces
+                    .get(&requirement.owner)
                     .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                let raw_slot = surface
+                    .requirement_slot(requirement)
+                    .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
+                let raw_slot = u16::try_from(raw_slot).map_err(|_| ProjectionError::SlotOverflow(raw_slot as usize))?;
                 let callee_generic_evidence_len = snapshot
                     .trait_headers
                     .get(&requirement.owner)
@@ -1914,11 +1974,15 @@ fn project_for_iteration_requirement(
                     })
                     .map_or(0, |env| env.len() as u16);
                 let requirement_slot = callee_generic_evidence_len + raw_slot;
-                let req_slots = requirement_slots
+                let req_slots = surface
+                    .requirement_layout
+                    .slots()
                     .iter()
-                    .filter(|(id, _)| id.owner == requirement.owner)
-                    .map(|(id, slot)| (id.clone(), callee_generic_evidence_len + *slot))
-                    .collect();
+                    .map(|(id, slot)| {
+                        let slot_u16 = u16::try_from(*slot).map_err(|_| ProjectionError::SlotOverflow(*slot as usize))?;
+                        Ok((id.clone(), callee_generic_evidence_len + slot_u16))
+                    })
+                    .collect::<Result<Box<[_]>, ProjectionError>>()?;
                 let antecedent_slots = project_antecedent_slots(evidence, snapshot)?;
                 Ok(ForIterationRequirementSpec::Selected(TraitInvocationSpec {
                     selection,
@@ -2386,8 +2450,7 @@ fn collect_anonymous_product_module_roots(program: &phalcom_ast::ast::Program) -
 fn canonical_pack_construction_ranges(module: &ModuleId, snapshot: &SemanticSnapshot) -> BTreeSet<SourceRange> {
     snapshot
         .callable_analyses
-        .iter()
-        .filter(|(callable, _)| callable.owner.module() == module)
+        .iter_module(module)
         .flat_map(|(_, analysis)| {
             analysis.associated_resolutions.iter().filter_map(|(expression, resolution)| {
                 let AssociatedResolutionKind::StaticInvoke {
@@ -2414,8 +2477,7 @@ fn project_anonymous_products(
     let mut sources = Vec::new();
     collect_anonymous_product_statements(&program.statements, &mut sources);
     let mut expression_facts = BTreeMap::<SourceRange, Option<TypeId>>::new();
-    for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == module) {
-        let _ = callable;
+    for (_callable, analysis) in snapshot.callable_analyses.iter_module(module) {
         for expression in analysis.expressions.values() {
             expression_facts
                 .entry(expression.range)
@@ -2572,8 +2634,7 @@ pub fn anonymous_product_type_roots(module: &ModuleId, snapshot: &SemanticSnapsh
     let mut sources = Vec::new();
     collect_anonymous_product_statements(&program.statements, &mut sources);
     let mut expression_facts = BTreeMap::<SourceRange, Option<TypeId>>::new();
-    for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == module) {
-        let _ = callable;
+    for (_callable, analysis) in snapshot.callable_analyses.iter_module(module) {
         for expression in analysis.expressions.values() {
             expression_facts
                 .entry(expression.range)

@@ -125,6 +125,8 @@ pub struct EnumInfo {
 pub struct EnumSemanticTable {
     pub enums: Arc<crate::parent_map::ParentMap<DeclarationId, Arc<EnumInfo>>>,
     pub variants: Arc<crate::parent_map::ParentMap<VariantId, Arc<VariantInfo>>>,
+    module_enums: std::collections::HashMap<phalcom_modules::identity::ModuleId, std::collections::BTreeSet<DeclarationId>>,
+    parent: Option<Arc<Self>>,
 }
 
 impl EnumSemanticTable {
@@ -133,6 +135,8 @@ impl EnumSemanticTable {
         Self {
             enums: Arc::new(crate::parent_map::ParentMap::with_parent(parent.enums.clone())),
             variants: Arc::new(crate::parent_map::ParentMap::with_parent(parent.variants.clone())),
+            module_enums: std::collections::HashMap::new(),
+            parent: Some(parent),
         }
     }
 
@@ -141,6 +145,7 @@ impl EnumSemanticTable {
     }
 
     pub fn insert_enum(&mut self, info: Arc<EnumInfo>) {
+        self.module_enums.entry(info.owner.module.clone()).or_default().insert(info.owner.clone());
         Arc::make_mut(&mut self.enums).insert(info.owner.clone(), info);
     }
 
@@ -149,6 +154,7 @@ impl EnumSemanticTable {
     }
 
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        self.module_enums.remove(module);
         Arc::make_mut(&mut self.enums).retain(|owner, _| &owner.module != module);
         Arc::make_mut(&mut self.variants).retain(|variant, _| &variant.owner.module != module);
     }
@@ -159,5 +165,18 @@ impl EnumSemanticTable {
 
     pub fn variant_info(&self, id: &VariantId) -> Option<&VariantInfo> {
         self.variants.get(id).map(|a| a.as_ref())
+    }
+
+    /// Iterates enum declarations belonging to the specified module without full-table scanning.
+    pub fn iter_module<'a>(&'a self, module: &'a phalcom_modules::identity::ModuleId) -> Box<dyn Iterator<Item = (&'a DeclarationId, &'a Arc<EnumInfo>)> + 'a> {
+        let local_iter = self
+            .module_enums
+            .get(module)
+            .into_iter()
+            .flat_map(move |ids| ids.iter().filter_map(move |id| self.enums.get(id).map(|info| (id, info))));
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter_module(module).chain(local_iter)),
+            None => Box::new(local_iter),
+        }
     }
 }

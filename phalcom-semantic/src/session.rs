@@ -9035,7 +9035,7 @@ impl SemanticWorkspaceSession {
             Arc::new(hierarchy),
             Arc::new(diagnostics_map),
             Arc::new(semantic_graph),
-            Arc::new(callable_analyses),
+            Arc::new(crate::checker::CallableAnalysisTable::from(callable_analyses)),
             Arc::new(formal_projection),
         );
 
@@ -12581,7 +12581,7 @@ struct InferredCallableRefreshInputs<'a> {
     callable_signatures: &'a mut CallableSignatureTable,
     constructor_initializations: &'a ConstructorInitializationTable,
     callable_analyses: &'a mut HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
-    previous_callable_analyses: Option<&'a HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    previous_callable_analyses: Option<&'a crate::checker::CallableAnalysisTable>,
     field_signatures: &'a FieldSignatureTable,
     field_lifecycle: &'a crate::checker::field_lifecycle::FieldLifecycleTable,
     enum_semantics: &'a EnumSemanticTable,

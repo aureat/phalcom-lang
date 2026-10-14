@@ -183,6 +183,7 @@ pub struct DeclarationTypeTable {
     entries: HashMap<DeclarationId, DeclarationTypeInfo>,
     intrinsic_static_domains: HashMap<DeclarationId, KindId>,
     intrinsic_type_owners: HashMap<DeclarationId, IntrinsicTypeOwner>,
+    module_declarations: HashMap<ModuleId, std::collections::BTreeSet<DeclarationId>>,
 }
 
 impl DeclarationTypeTable {
@@ -197,6 +198,7 @@ impl DeclarationTypeTable {
             entries: HashMap::new(),
             intrinsic_static_domains: HashMap::new(),
             intrinsic_type_owners: HashMap::new(),
+            module_declarations: HashMap::new(),
         }
     }
 
@@ -275,12 +277,19 @@ impl DeclarationTypeTable {
                 self.intrinsic_type_owners.insert(info.declaration.clone(), type_owner);
             }
         }
+        self.module_declarations
+            .entry(info.declaration.module.clone())
+            .or_default()
+            .insert(info.declaration.clone());
         self.entries.insert(info.declaration.clone(), info);
     }
 
     /// Registers an authored intrinsic facade against an existing compiler-owned kind.
     /// This deliberately does not create a type form or nominal static domain.
     pub fn register_intrinsic_static_domain(&mut self, declaration: DeclarationId, kind: KindId) {
+        if let Some(set) = self.module_declarations.get_mut(&declaration.module) {
+            set.remove(&declaration);
+        }
         self.entries.remove(&declaration);
         let owner = match kind {
             KindId::TYPE_PACK => Some(IntrinsicTypeOwner::TypePack),
@@ -379,20 +388,20 @@ impl DeclarationTypeTable {
     }
 
     pub fn is_intrinsic_static_domain(&self, declaration: &DeclarationId) -> bool {
-        self.intrinsic_static_domains.contains_key(declaration)
-            || self.parent.as_ref().is_some_and(|p| p.is_intrinsic_static_domain(declaration))
+        self.intrinsic_static_domains.contains_key(declaration) || self.parent.as_ref().is_some_and(|p| p.is_intrinsic_static_domain(declaration))
     }
 
     pub fn remove(&mut self, declaration: &DeclarationId) -> Option<DeclarationTypeInfo> {
         self.intrinsic_static_domains.remove(declaration);
         self.intrinsic_type_owners.remove(declaration);
+        if let Some(set) = self.module_declarations.get_mut(&declaration.module) {
+            set.remove(declaration);
+        }
         self.entries.remove(declaration)
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&DeclarationTypeInfo> {
-        self.entries
-            .get(declaration)
-            .or_else(|| self.parent.as_ref().and_then(|p| p.get(declaration)))
+        self.entries.get(declaration).or_else(|| self.parent.as_ref().and_then(|p| p.get(declaration)))
     }
 
     pub fn contains(&self, declaration: &DeclarationId) -> bool {
@@ -430,6 +439,30 @@ impl DeclarationTypeTable {
 
     pub fn supertype_template(&self, declaration: &DeclarationId) -> Option<&GenericSupertypeTemplate> {
         self.get(declaration).and_then(|info| info.supertype_template.as_ref())
+    }
+
+    /// Iterates declarations belonging to the specified module without full-table scanning.
+    pub fn iter_module<'a>(&'a self, module: &'a ModuleId) -> Box<dyn Iterator<Item = (&'a DeclarationId, &'a DeclarationTypeInfo)> + 'a> {
+        let local_iter = self
+            .module_declarations
+            .get(module)
+            .into_iter()
+            .flat_map(move |ids| ids.iter().filter_map(move |id| self.entries.get(id).map(|info| (id, info))));
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter_module(module).chain(local_iter)),
+            None => Box::new(local_iter),
+        }
+    }
+
+    /// Iterates only the intrinsic runtime declarations belonging to the specified module.
+    pub fn intrinsic_runtime_declarations_in_module<'a>(
+        &'a self,
+        module: &'a ModuleId,
+    ) -> Box<dyn Iterator<Item = (&'a DeclarationId, IntrinsicRuntimeOwner)> + 'a> {
+        Box::new(
+            self.iter_module(module)
+                .filter_map(|(id, info)| info.binding.runtime_owner.map(|owner| (id, owner))),
+        )
     }
 
     /// Iterates only local overlay declarations (excluding parent entries).

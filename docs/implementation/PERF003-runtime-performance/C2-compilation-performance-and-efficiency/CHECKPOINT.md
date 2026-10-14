@@ -5,12 +5,12 @@ kind: optimization
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P6
-latest_completed_plan: PERF003.C2.P5
-next_plan: PERF003.C2.P7
+active_plan: PERF003.C2.P7
+latest_completed_plan: PERF003.C2.P6
+next_plan: PERF003.C2.P8
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: f17b9c6b
-latest_tested_revision: f17b9c6b
+execution_tree_head: 69c618c8
+latest_tested_revision: 69c618c8
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
 
@@ -24,16 +24,15 @@ checkpoint: PERF003.C2
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P6
-latest_completed_plan: PERF003.C2.P5
-next_plan: PERF003.C2.P7
+active_plan: PERF003.C2.P7
+latest_completed_plan: PERF003.C2.P6
+next_plan: PERF003.C2.P8
 next_action: >
-  PERF003.C2.P5 is complete, implemented, and focused-tested:
-  CanonicalCompilerImageView boundary implemented in phalcom-core composing
-  formal image, authoritative RuntimePublic metadata, and CanonicalCompatibilityIdentity.
-  Observability counters verify zero copied canonical aggregate entries
-  (CanonicalAggregateEntriesCopied == 0) and 10 parent handles attached.
-  Proceed to PERF003.C2.P6 ("User-Only Backend/Local Complexity Closure").
+  PERF003.C2.P6 is complete, implemented, and focused-tested:
+  ModuleLoweringInputView and module-indexed semantic products eliminate whole-world
+  scans from compiler lowering and projection. Reverse-target binding occurrence lookup,
+  precomputed TraitRequirementLayout, and direct inherent impl domain indexing verified.
+  Proceed to PERF003.C2.P7 (".telosc Container Schema + Persisted Semantic Compiler Image").
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -123,7 +122,7 @@ After:
 | `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact indexed witness lookup, module-bounded effective-surface signature enumeration, ConformanceIndex partitioning (nominal family + open heads) with brute-force parity, SCC inferred-return settlement, and shared requirement-view passing implemented; focused regressions pass. Retained structural witness plans across revisions and generic proof memoization remain |
 | `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1 options, reachability closure T2–T5, PR-A intrinsic classification, PR-B schema v13/contextual decode/fingerprints, canonical external authority T6, registry stable indexes T7, cross-pool reflection T8, compatibility validation T9, and observability guards T10 implemented and certified. |
 | `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Explicit compiler image product contract, zero-copy parent overlays across all core tables, canonical persistence inventory/capabilities, query classification, CanonicalCompilerImageView boundary, and observability cardinality guards (CanonicalAggregateEntriesCopied == 0) implemented and certified. |
-| `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E (historical P5) | PROPOSED | NOT_STARTED | UNVERIFIED | Normalized P6 (formerly P5): module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes, elimination of O(N×M) backend scans |
+| `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | ModuleLoweringInputView, module-indexed callable analyses/definitions/declarations/data/enums, reverse-target occurrence resolution, precomputed TraitRequirementLayout, and direct inherent impl domain indexing implemented and certified. |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
 
 ---

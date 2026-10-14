@@ -520,6 +520,8 @@ fn append_record_component(
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DataSemanticTable {
     pub data_decls: Arc<crate::parent_map::ParentMap<DeclarationId, Arc<DataInfo>>>,
+    module_data: std::collections::HashMap<phalcom_modules::identity::ModuleId, std::collections::BTreeSet<DeclarationId>>,
+    parent: Option<Arc<Self>>,
 }
 
 impl DataSemanticTable {
@@ -527,6 +529,8 @@ impl DataSemanticTable {
     pub fn with_parent(parent: Arc<Self>) -> Self {
         Self {
             data_decls: Arc::new(crate::parent_map::ParentMap::with_parent(parent.data_decls.clone())),
+            module_data: std::collections::HashMap::new(),
+            parent: Some(parent),
         }
     }
 
@@ -535,6 +539,7 @@ impl DataSemanticTable {
     }
 
     pub fn insert_data(&mut self, info: Arc<DataInfo>) {
+        self.module_data.entry(info.owner.module.clone()).or_default().insert(info.owner.clone());
         Arc::make_mut(&mut self.data_decls).insert(info.owner.clone(), info);
     }
 
@@ -547,6 +552,20 @@ impl DataSemanticTable {
     }
 
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        self.module_data.remove(module);
         Arc::make_mut(&mut self.data_decls).retain(|owner, _| &owner.module != module);
+    }
+
+    /// Iterates data declarations belonging to the specified module without full-table scanning.
+    pub fn iter_module<'a>(&'a self, module: &'a phalcom_modules::identity::ModuleId) -> Box<dyn Iterator<Item = (&'a DeclarationId, &'a Arc<DataInfo>)> + 'a> {
+        let local_iter = self
+            .module_data
+            .get(module)
+            .into_iter()
+            .flat_map(move |ids| ids.iter().filter_map(move |id| self.data_decls.get(id).map(|info| (id, info))));
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter_module(module).chain(local_iter)),
+            None => Box::new(local_iter),
+        }
     }
 }

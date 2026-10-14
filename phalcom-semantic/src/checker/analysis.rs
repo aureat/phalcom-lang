@@ -659,6 +659,109 @@ pub struct CallableAnalysis {
     pub status: CallableAnalysisStatus,
 }
 
+/// Secondary module-indexed table of callable analyses.
+/// Provides O(1) module-bounded iteration for compiler lowering while
+/// preserving fast ID lookups and familiar map-like query methods.
+#[derive(Clone, Debug, Default)]
+pub struct CallableAnalysisTable {
+    by_id: std::collections::HashMap<CallableId, Arc<CallableAnalysis>>,
+    by_module: std::collections::HashMap<crate::identity::ModuleId, std::collections::BTreeSet<CallableId>>,
+}
+
+impl CallableAnalysisTable {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, callable: CallableId, analysis: Arc<CallableAnalysis>) {
+        self.by_module.entry(callable.owner.module().clone()).or_default().insert(callable.clone());
+        self.by_id.insert(callable, analysis);
+    }
+
+    pub fn remove(&mut self, callable: &CallableId) -> Option<Arc<CallableAnalysis>> {
+        if let Some(set) = self.by_module.get_mut(callable.owner.module()) {
+            set.remove(callable);
+        }
+        self.by_id.remove(callable)
+    }
+
+    pub fn retain(&mut self, mut predicate: impl FnMut(&CallableId, &mut Arc<CallableAnalysis>) -> bool) {
+        let by_module = &mut self.by_module;
+        self.by_id.retain(|callable, analysis| {
+            let keep = predicate(callable, analysis);
+            if !keep {
+                if let Some(set) = by_module.get_mut(callable.owner.module()) {
+                    set.remove(callable);
+                }
+            }
+            keep
+        });
+    }
+
+    pub fn get(&self, callable: &CallableId) -> Option<&Arc<CallableAnalysis>> {
+        self.by_id.get(callable)
+    }
+
+    pub fn contains_key(&self, callable: &CallableId) -> bool {
+        self.by_id.contains_key(callable)
+    }
+
+    pub fn len(&self) -> usize {
+        self.by_id.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_id.is_empty()
+    }
+
+    pub fn keys(&self) -> std::collections::hash_map::Keys<'_, CallableId, Arc<CallableAnalysis>> {
+        self.by_id.keys()
+    }
+
+    pub fn values(&self) -> std::collections::hash_map::Values<'_, CallableId, Arc<CallableAnalysis>> {
+        self.by_id.values()
+    }
+
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, CallableId, Arc<CallableAnalysis>> {
+        self.by_id.iter()
+    }
+
+    /// Iterates only the callable analyses belonging to the specified module.
+    /// This is an O(callables in module) operation instead of O(all callables).
+    pub fn iter_module<'a>(&'a self, module: &'a crate::identity::ModuleId) -> impl Iterator<Item = (&'a CallableId, &'a Arc<CallableAnalysis>)> {
+        self.by_module
+            .get(module)
+            .into_iter()
+            .flat_map(move |ids| ids.iter().filter_map(move |id| self.by_id.get(id).map(|analysis| (id, analysis))))
+    }
+}
+
+impl std::ops::Index<&CallableId> for CallableAnalysisTable {
+    type Output = Arc<CallableAnalysis>;
+
+    fn index(&self, key: &CallableId) -> &Self::Output {
+        self.get(key).expect("callable analysis is present in table")
+    }
+}
+
+impl std::ops::Deref for CallableAnalysisTable {
+    type Target = std::collections::HashMap<CallableId, Arc<CallableAnalysis>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.by_id
+    }
+}
+
+impl From<std::collections::HashMap<CallableId, Arc<CallableAnalysis>>> for CallableAnalysisTable {
+    fn from(map: std::collections::HashMap<CallableId, Arc<CallableAnalysis>>) -> Self {
+        let mut by_module = std::collections::HashMap::<crate::identity::ModuleId, std::collections::BTreeSet<CallableId>>::new();
+        for id in map.keys() {
+            by_module.entry(id.owner.module().clone()).or_default().insert(id.clone());
+        }
+        Self { by_id: map, by_module }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

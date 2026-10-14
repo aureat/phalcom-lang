@@ -32,9 +32,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-fn collect_internal_incidents(
-    callable_analyses: &HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
-) -> Arc<[InternalSemanticIncident]> {
+fn collect_internal_incidents(callable_analyses: &crate::checker::CallableAnalysisTable) -> Arc<[InternalSemanticIncident]> {
     let mut incidents = callable_analyses
         .values()
         .flat_map(|analysis| analysis.internal_incidents.iter().cloned())
@@ -191,7 +189,7 @@ pub struct SemanticSnapshot {
     pub hierarchy: Arc<MapTypeHierarchy>,
     pub diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
     pub semantic_graph: Arc<SemanticGraph>,
-    pub callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    pub callable_analyses: Arc<crate::checker::CallableAnalysisTable>,
     /// Internal analyzer incidents, kept separate from source diagnostics.
     pub internal_incidents: Arc<[InternalSemanticIncident]>,
     pub formal_projection: Arc<FormalSemanticProjection>,
@@ -269,7 +267,7 @@ impl SemanticSnapshot {
             hierarchy,
             diagnostics,
             semantic_graph,
-            callable_analyses: Arc::new(HashMap::new()),
+            callable_analyses: Arc::new(crate::checker::CallableAnalysisTable::new()),
             internal_incidents: Arc::from([]),
             formal_projection: Arc::new(FormalSemanticProjection::default()),
             source_index: Arc::new(SourceSemanticIndex::default()),
@@ -306,7 +304,7 @@ impl SemanticSnapshot {
         hierarchy: Arc<MapTypeHierarchy>,
         diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
         semantic_graph: Arc<SemanticGraph>,
-        callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+        callable_analyses: Arc<crate::checker::CallableAnalysisTable>,
         formal_projection: Arc<FormalSemanticProjection>,
     ) -> Self {
         let store_id = store.id();
@@ -570,7 +568,7 @@ impl SemanticSnapshot {
         crate::types::normalize_type(&mut store, ty, &mut context)
     }
 
-    pub fn with_callable_analyses(mut self, callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>) -> Self {
+    pub fn with_callable_analyses(mut self, callable_analyses: Arc<crate::checker::CallableAnalysisTable>) -> Self {
         self.internal_incidents = collect_internal_incidents(&callable_analyses);
         self.callable_analyses = callable_analyses;
         self
@@ -724,8 +722,25 @@ impl SemanticSnapshot {
         &self.semantic_graph
     }
 
-    pub fn callable_analyses(&self) -> &Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>> {
+    pub fn callable_analyses(&self) -> &Arc<crate::checker::CallableAnalysisTable> {
         &self.callable_analyses
+    }
+
+    /// Iterates only the callable analyses belonging to the specified module.
+    /// Provides O(callables in module) traversal instead of whole-snapshot filtering.
+    pub fn callable_analyses_in_module<'a>(
+        &'a self,
+        module: &'a ModuleId,
+    ) -> impl Iterator<Item = (&'a crate::identity::CallableId, &'a Arc<crate::checker::CallableAnalysis>)> {
+        self.callable_analyses.iter_module(module)
+    }
+
+    /// Iterates only the accepted callable definitions belonging to the specified module.
+    pub fn callable_definitions_in_module<'a>(
+        &'a self,
+        module: &'a ModuleId,
+    ) -> impl Iterator<Item = (&'a crate::identity::CallableId, &'a crate::impls::EffectiveCallableDefinition)> {
+        self.callable_definitions.iter().filter(move |(id, _)| id.owner.module() == module)
     }
 
     /// Returns source semantic products published with this snapshot.

@@ -255,6 +255,42 @@ impl TraitSurfaceMember {
     }
 }
 
+/// Precomputed trait requirement layout in canonical BTree key order.
+/// Enables O(1) requirement slot lookup for backend lowering without
+/// snapshot-wide trait table enumeration.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TraitRequirementLayout {
+    slots: BTreeMap<TraitRequirementId, u32>,
+    ordered: Arc<[TraitRequirementId]>,
+}
+
+impl TraitRequirementLayout {
+    pub fn from_members(members: &BTreeMap<TraitRequirementId, TraitSurfaceMember>) -> Self {
+        let mut slots = BTreeMap::new();
+        let mut ordered = Vec::with_capacity(members.len());
+        for (slot, requirement) in members.keys().enumerate() {
+            slots.insert(requirement.clone(), slot as u32);
+            ordered.push(requirement.clone());
+        }
+        Self {
+            slots,
+            ordered: Arc::from(ordered.into_boxed_slice()),
+        }
+    }
+
+    pub fn slot(&self, requirement: &TraitRequirementId) -> Option<u32> {
+        self.slots.get(requirement).copied()
+    }
+
+    pub fn ordered_requirements(&self) -> &[TraitRequirementId] {
+        &self.ordered
+    }
+
+    pub fn slots(&self) -> &BTreeMap<TraitRequirementId, u32> {
+        &self.slots
+    }
+}
+
 /// Complete, body-independent behavioral surface for one trait declaration.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraitSurface {
@@ -263,6 +299,7 @@ pub struct TraitSurface {
     pub members: BTreeMap<TraitRequirementId, TraitSurfaceMember>,
     pub associated_types: BTreeMap<AssociatedTypeRequirementId, TraitAssociatedTypeRequirement>,
     pub diagnostics: Box<[crate::diagnostic::SemanticDiagnostic]>,
+    pub requirement_layout: TraitRequirementLayout,
 }
 
 impl TraitSurface {
@@ -273,7 +310,20 @@ impl TraitSurface {
             members: BTreeMap::new(),
             associated_types: BTreeMap::new(),
             diagnostics: Box::new([]),
+            requirement_layout: TraitRequirementLayout::default(),
         }
+    }
+
+    pub fn requirement_slot(&self, requirement: &TraitRequirementId) -> Option<u32> {
+        self.requirement_layout.slot(requirement)
+    }
+
+    pub fn requirement_layout(&self) -> &TraitRequirementLayout {
+        &self.requirement_layout
+    }
+
+    pub fn finalize_requirement_layout(&mut self) {
+        self.requirement_layout = TraitRequirementLayout::from_members(&self.members);
     }
 
     pub fn get(&self, requirement: &TraitRequirementId) -> Option<&TraitSurfaceMember> {
@@ -356,7 +406,9 @@ impl TraitSurfaceTable {
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&Arc<TraitSurface>> {
-        self.entries.get(declaration).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
+        self.entries
+            .get(declaration)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
     }
 
     pub fn contains(&self, declaration: &DeclarationId) -> bool {
@@ -599,6 +651,7 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
     }
     diagnostics.extend(ctx.diagnostics.iter().cloned());
     surface.diagnostics = diagnostics.into_boxed_slice();
+    surface.finalize_requirement_layout();
     surface
 }
 
@@ -828,7 +881,9 @@ impl TraitHeaderTable {
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&Arc<TraitHeader>> {
-        self.entries.get(declaration).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
+        self.entries
+            .get(declaration)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
     }
 
     pub fn contains(&self, declaration: &DeclarationId) -> bool {

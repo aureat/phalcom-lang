@@ -334,6 +334,7 @@ pub struct SurfaceDispatchResolver {
     conditional_members: Arc<crate::parent_map::ParentMap<InherentImplTarget, Arc<ConditionalInherentMemberSet>>>,
     conditional_targets_by_owner: HashMap<DeclarationId, BTreeSet<InherentImplTarget>>,
     type_declarations: Arc<crate::parent_map::ParentMap<TypeId, DeclarationId>>,
+    inherent_impl_domains: Arc<crate::parent_map::ParentMap<crate::identity::ImplId, Arc<crate::impls::InherentImplDomain>>>,
     module_surfaces: HashMap<ModuleId, BTreeSet<DeclarationId>>,
     declaration_types: HashMap<DeclarationId, BTreeSet<TypeId>>,
 }
@@ -349,6 +350,7 @@ impl SurfaceDispatchResolver {
             surfaces: Arc::new(crate::parent_map::ParentMap::with_parent(parent.surfaces.clone())),
             conditional_members: Arc::new(crate::parent_map::ParentMap::with_parent(parent.conditional_members.clone())),
             type_declarations: Arc::new(crate::parent_map::ParentMap::with_parent(parent.type_declarations.clone())),
+            inherent_impl_domains: Arc::new(crate::parent_map::ParentMap::with_parent(parent.inherent_impl_domains.clone())),
             ..Self::default()
         }
     }
@@ -358,7 +360,17 @@ impl SurfaceDispatchResolver {
             .entry(target.declaration().clone())
             .or_default()
             .insert(target.clone());
+        let domain_map = Arc::make_mut(&mut self.inherent_impl_domains);
+        for member in &members.members {
+            if !domain_map.contains_key(&member.impl_id) {
+                domain_map.insert(member.impl_id.clone(), member.domain.clone());
+            }
+        }
         Arc::make_mut(&mut self.conditional_members).insert(target, members);
+    }
+
+    pub fn inherent_impl_domain(&self, impl_id: &crate::identity::ImplId) -> Option<&Arc<crate::impls::InherentImplDomain>> {
+        self.inherent_impl_domains.get(impl_id)
     }
 
     pub fn get_conditional_members(&self, target: &InherentImplTarget) -> Option<&Arc<ConditionalInherentMemberSet>> {
@@ -381,6 +393,7 @@ impl SurfaceDispatchResolver {
 
     /// Removes declaration-owned dispatch surfaces and type registrations.
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        Arc::make_mut(&mut self.inherent_impl_domains).retain(|impl_id, _| &impl_id.module != module);
         let removed = self.module_surfaces.remove(module).unwrap_or_default();
         for declaration in removed {
             self.remove_surface(&declaration);
