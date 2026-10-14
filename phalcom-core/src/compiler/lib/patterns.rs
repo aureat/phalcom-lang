@@ -42,7 +42,10 @@ pub(crate) fn count_pattern_temp_depth(pattern: &ExecutablePattern) -> usize {
         }
         ExecutablePattern::List { elements, rest } => {
             let elem_max = elements.iter().map(|e| 1 + count_pattern_temp_depth(e)).max().unwrap_or(0);
-            let rest_max = rest.as_ref().map_or(0, |r| 1 + count_pattern_temp_depth(r));
+            // A rest extraction holds both the newly built tail list and the
+            // copying-loop index. Its child pattern starts at depth + 1 and
+            // can reuse the index slot only after the copy loop completes.
+            let rest_max = rest.as_ref().map_or(0, |r| 2.max(1 + count_pattern_temp_depth(r)));
             elem_max.max(rest_max)
         }
         ExecutablePattern::Record { entries } => {
@@ -372,11 +375,10 @@ impl<'vm> Compiler<'vm> {
         Ok(slot)
     }
 
-    /// Claims the evaluation temporary at `depth` — pre-reserved by
-    /// [`Self::setup_pattern_frame`] so that re-executing the pattern (loop
-    /// iterations, alternative branches) never reserves or releases scratch
-    /// locals mid-flight; falls back to a fresh pack scratch only when the
-    /// frame under-provisioned (e.g. a legacy caller without a full frame).
+    /// Claims the evaluation temporary at `depth`, pre-reserved by
+    /// [`Self::setup_pattern_frame`]. Under-provisioning is a compiler
+    /// invariant failure, not permission to allocate a new local in a loop
+    /// iteration or while resolving alternative pattern branches.
     fn claim_pattern_temp_at_depth(
         &mut self,
         frame: &PatternExecutionFrame,
@@ -384,10 +386,11 @@ impl<'vm> Compiler<'vm> {
         prefix: &str,
         range: SourceRange,
     ) -> Result<u16, CompilerError> {
-        let slot = match frame.temp_slots.get(depth) {
-            Some(&slot) => slot,
-            None => self.reserve_pack_scratch(prefix, range)?,
-        };
+        let slot = frame.temp_slots.get(depth).copied().ok_or_else(|| {
+            CompilerError::Message(format!(
+                "pattern scratch layout under-provisioned for {prefix} at depth {depth}"
+            ))
+        })?;
         self.emit(Bytecode::SetLocal(slot), range);
         self.emit(Bytecode::Pop, range);
         Ok(slot)
@@ -905,5 +908,48 @@ fn contains_char_literal(pattern: &Pattern) -> bool {
         }
         Pattern::Map { entries, .. } => entries.iter().any(|entry| contains_char_literal(&entry.pattern)),
         Pattern::Name { .. } | Pattern::Wildcard { .. } => false,
+    }
+}
+
+#[cfg(test)]
+mod pattern_temp_depth_tests {
+    use super::{ExecutablePattern, count_pattern_temp_depth};
+
+    fn rest_binding() -> ExecutablePattern {
+        ExecutablePattern::Binding {
+            binding_index: 0,
+            name: "tail".into(),
+        }
+    }
+
+    #[test]
+    fn list_rest_reserves_tail_and_copy_counter_even_for_binding() {
+        let pattern = ExecutablePattern::List {
+            elements: Box::new([]),
+            rest: Some(Box::new(rest_binding())),
+        };
+        assert_eq!(count_pattern_temp_depth(&pattern), 2);
+    }
+
+    #[test]
+    fn nested_list_rest_uses_one_slot_per_nested_frame_plus_copy_counter() {
+        let inner = ExecutablePattern::List {
+            elements: Box::new([]),
+            rest: Some(Box::new(rest_binding())),
+        };
+        let outer = ExecutablePattern::List {
+            elements: Box::new([]),
+            rest: Some(Box::new(inner)),
+        };
+        assert_eq!(count_pattern_temp_depth(&outer), 3);
+    }
+
+    #[test]
+    fn list_without_rest_needs_only_element_projection_temp() {
+        let pattern = ExecutablePattern::List {
+            elements: vec![rest_binding()].into_boxed_slice(),
+            rest: None,
+        };
+        assert_eq!(count_pattern_temp_depth(&pattern), 1);
     }
 }
