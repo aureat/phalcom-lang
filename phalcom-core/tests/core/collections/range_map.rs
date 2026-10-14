@@ -976,7 +976,7 @@ let passed = lookup32Ok and lookup1024Ok and lookup32768Ok and oneRemoved32.size
     for (name, expected_size) in [("map32", 32), ("map1024", 1024), ("map32768", 32768)] {
         let (_, nodes, height) = tree_snapshot(&vm, global(&vm, module, name));
         assert_eq!(nodes.len(), expected_size, "{name} contains the expected distinct nodes");
-        let generous_log_bound = 2 * (usize::BITS - (expected_size as usize).leading_zeros()) as i64;
+        let generous_log_bound = 2 * (usize::BITS - expected_size.leading_zeros()) as i64;
         assert!(
             height <= generous_log_bound,
             "{name} height {height} stays logarithmic within bound {generous_log_bound}"

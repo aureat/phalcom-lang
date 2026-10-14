@@ -1559,7 +1559,7 @@ type ConformsMarkerFalse: Bool = Conforms<String, MarkerTrait>
     assert_eq!(evaluate_int("ForEmpty"), 0);
 
     // Proof predicate tests
-    assert_eq!(evaluate_bool("EquivTrue"), true);
+    assert!(evaluate_bool("EquivTrue"));
     let equiv_false = fixture
         .analysis
         .snapshot
@@ -1581,8 +1581,8 @@ type ConformsMarkerFalse: Bool = Conforms<String, MarkerTrait>
         matches!(equiv_false_outcome, StaticEvalOutcome::Symbolic(_)),
         "failure to prove type equivalence must remain symbolic, got {equiv_false_outcome:?}"
     );
-    assert_eq!(evaluate_bool("SubtypeTrue"), true);
-    assert_eq!(evaluate_bool("SubtypeFalse"), false);
-    assert_eq!(evaluate_bool("ConformsMarkerTrue"), true);
-    assert_eq!(evaluate_bool("ConformsMarkerFalse"), false);
+    assert!(evaluate_bool("SubtypeTrue"));
+    assert!(!evaluate_bool("SubtypeFalse"));
+    assert!(evaluate_bool("ConformsMarkerTrue"));
+    assert!(!evaluate_bool("ConformsMarkerFalse"));
 }

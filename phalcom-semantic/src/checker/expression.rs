@@ -5554,7 +5554,7 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
         // Consume the same linked type-name authority used by selective reads
         // and retain both the class-object type and its represented type form.
         if ctx.resolver.resolve_module_alias(&ctx.current_module, module_alias).is_some()
-            && let Some(declaration) = ctx.resolve_type_name_with_path(module_alias, &[get.property.clone()])
+            && let Some(declaration) = ctx.resolve_type_name_with_path(module_alias, std::slice::from_ref(&get.property))
             && let Some(info) = ctx.declaration_info(&declaration)
         {
             return TypedExpression::established(info.class_object_type, EvidenceOrigin::DeclarationSemantics, get.range)

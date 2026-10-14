@@ -117,11 +117,10 @@ fn specialize_parameter(
 
     let mut matching_argument = None;
     for (formal, argument) in composed.argument_bindings() {
-        if formal.owner == parameter.owner && formal.index == parameter.index {
-            if matching_argument.replace(*argument).is_some() {
+        if formal.owner == parameter.owner && formal.index == parameter.index
+            && matching_argument.replace(*argument).is_some() {
                 return Err(Stop::from(StaticSpecializationEnvironmentError::MalformedEnvironment));
             }
-        }
     }
     if let Some(argument) = matching_argument {
         let argument = match argument {
@@ -294,11 +293,10 @@ fn specialize_member_projection(
     }
 
     // Check No-New-Facts identity
-    if !changed && !result_domain_changed && composed_env == *environment {
-        if member_projection_is_open(&specialized_projection, evaluator)? {
+    if !changed && !result_domain_changed && composed_env == *environment
+        && member_projection_is_open(&specialized_projection, evaluator)? {
             return Ok(StaticEvalTerm::Residual(original));
         }
-    }
 
     // 3. If still open: re-intern MemberProjection
     if member_projection_is_open(&specialized_projection, evaluator)? || value_domain_is_open(result_domain, evaluator)? {

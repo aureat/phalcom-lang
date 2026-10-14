@@ -3722,7 +3722,7 @@ fn discharge_generic_obligations_with_instantiation(
                             match crate::types::instantiation::materialize_type(
                                 ctx.store,
                                 *ty,
-                                &instantiation,
+                                instantiation,
                                 crate::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
                             ) {
                                 Ok(m_ty) => TypeTerm::Canonical(m_ty),
@@ -3740,7 +3740,7 @@ fn discharge_generic_obligations_with_instantiation(
                         match crate::types::instantiation::materialize_type(
                             ctx.store,
                             arg,
-                            &instantiation,
+                            instantiation,
                             crate::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
                         ) {
                             Ok(m_arg) => instantiated_args.push(m_arg),
@@ -3863,7 +3863,7 @@ fn discharge_generic_obligations_with_instantiation(
                         TypeTerm::Canonical(ty) => match crate::types::instantiation::materialize_type(
                             ctx.store,
                             *ty,
-                            &instantiation,
+                            instantiation,
                             crate::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
                         ) {
                             Ok(m_ty) => m_ty,
@@ -3878,7 +3878,7 @@ fn discharge_generic_obligations_with_instantiation(
                         TypeTerm::Canonical(ty) => match crate::types::instantiation::materialize_type(
                             ctx.store,
                             *ty,
-                            &instantiation,
+                            instantiation,
                             crate::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
                         ) {
                             Ok(m_ty) => m_ty,

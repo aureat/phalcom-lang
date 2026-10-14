@@ -528,7 +528,8 @@ fn integer_math_keeps_existing_limits_and_divides_before_multiplying() {
         .send_dynamic(gcd, call, &[negative, Value::int(3)])
         .expect_err("gcd normalization uses ordinary checked negation");
     assert_numeric_limit(&mut vm, &error);
-    for (declarations, expression, limit) in [("", "math.isqrt(81)", 4)] {
+    {
+        let (declarations, expression, limit) = ("", "math.isqrt(81)", 4);
         let (_temp, program) = compile_package(&format!("import universe.math as math\n{declarations}let result = {expression}\n"));
         let mut vm = VM::new();
         vm.numeric_policy.max_integer_bits = Some(limit);

@@ -346,7 +346,8 @@ fn static_const_sequence_imports_and_reexports_keep_canonical_owner() {
     for name in ["selected", "renamed", "qualified", "transitive"] {
         assert_eq!(read(name), vector, "{name} resolves the canonical Vector value");
     }
-    for name in ["transitiveArray"] {
+    {
+        let name = "transitiveArray";
         assert_eq!(read(name), array, "{name} resolves the canonical frozen Array value");
     }
     let second_obj = vm.module_registry.get(find_module("second")).unwrap().object;

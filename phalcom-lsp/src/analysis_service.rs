@@ -1164,6 +1164,20 @@ fn classify_scan_semantic_publication<T>(
     }
 }
 
+fn canonical_uri(uri: &Url) -> Url {
+    uri.to_file_path()
+        .ok()
+        .and_then(|path| {
+            path.canonicalize().ok().or_else(|| {
+                let file_name = path.file_name()?.to_owned();
+                let parent = path.parent()?.canonicalize().ok()?;
+                Some(parent.join(file_name))
+            })
+        })
+        .and_then(|path| Url::from_file_path(path).ok())
+        .unwrap_or_else(|| uri.clone())
+}
+
 #[cfg(test)]
 mod scan_publication_tests {
     use super::{ScanSemanticPublication, classify_scan_semantic_publication};
@@ -1181,18 +1195,4 @@ mod scan_publication_tests {
         let result = classify_scan_semantic_publication::<()>(Ok(()), 7, 8);
         assert!(matches!(result, ScanSemanticPublication::Stale));
     }
-}
-
-fn canonical_uri(uri: &Url) -> Url {
-    uri.to_file_path()
-        .ok()
-        .and_then(|path| {
-            path.canonicalize().ok().or_else(|| {
-                let file_name = path.file_name()?.to_owned();
-                let parent = path.parent()?.canonicalize().ok()?;
-                Some(parent.join(file_name))
-            })
-        })
-        .and_then(|path| Url::from_file_path(path).ok())
-        .unwrap_or_else(|| uri.clone())
 }

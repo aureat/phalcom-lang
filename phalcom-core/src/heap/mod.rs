@@ -347,7 +347,7 @@ impl Heap {
 
     /// Allocates a compiler-owned dynamic Array literal builder.
     pub(crate) fn alloc_array_literal_builder(&mut self) -> ObjRef {
-        self.insert(Object::ArrayLiteralBuilder(Box::new(ArrayLiteralBuilderObject::new())))
+        self.insert(Object::ArrayLiteralBuilder(Box::default()))
     }
 
     /// Allocates an empty [`Object::Map`] and returns its [`ObjRef`].
@@ -387,7 +387,7 @@ impl Heap {
 
     /// Allocates an empty persistent Bag.
     pub fn alloc_bag(&mut self) -> ObjRef {
-        self.insert(Object::Bag(Box::new(BagObject::new())))
+        self.insert(Object::Bag(Box::default()))
     }
 
     /// Allocates a persistent Bag with root, total count, and distinct count.
@@ -397,7 +397,7 @@ impl Heap {
 
     /// Allocates an empty persistent Bijection.
     pub fn alloc_bijection(&mut self) -> ObjRef {
-        self.insert(Object::Bijection(Box::new(BijectionObject::new())))
+        self.insert(Object::Bijection(Box::default()))
     }
 
     /// Allocates a persistent Bijection with forward and reverse roots and length.

@@ -166,62 +166,6 @@ fn write_stable_callable_fingerprint(builder: &mut FingerprintBuilder, callable:
     builder.write_str(&callable.selector);
 }
 
-#[cfg(test)]
-mod callable_owner_fingerprint_tests {
-    use super::*;
-    use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableDispatchSide, StableImplRef, StableVariantRef};
-
-    #[test]
-    fn callable_parameter_owner_fingerprints_do_not_collapse_owner_kinds() {
-        let module = StableModuleRef {
-            project: StableProjectRef::Builtin {
-                namespace: "universe".into(),
-                version: "0.1.0".into(),
-            },
-            path: Box::new([]),
-        };
-        let declaration = StableDeclarationRef {
-            module: module.clone(),
-            path: Box::new(["X".into()]),
-        };
-        let owners = [
-            StableCallableOwnerRef::Declaration(declaration.clone()),
-            StableCallableOwnerRef::Variant(StableVariantRef {
-                owner: declaration.clone(),
-                selector: "A()".into(),
-            }),
-            StableCallableOwnerRef::Variant(StableVariantRef {
-                owner: declaration,
-                selector: "B()".into(),
-            }),
-            StableCallableOwnerRef::Conformance(StableImplRef {
-                module: module.clone(),
-                local_id: 1,
-            }),
-            StableCallableOwnerRef::Conformance(StableImplRef { module, local_id: 2 }),
-        ];
-        let store = TypeStore::new();
-        let exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
-        let fingerprints: Vec<_> = owners
-            .into_iter()
-            .map(|owner| {
-                let parameter = StableTypeParameterRef {
-                    owner: StableTypeParameterOwnerRef::Callable(StableCallableRef {
-                        owner,
-                        side: StableDispatchSide::Instance,
-                        selector: "foo()".into(),
-                    }),
-                    index: 0,
-                };
-                let mut builder = FingerprintBuilder::new();
-                exporter.write_stable_parameter_fingerprint(&mut builder, &parameter);
-                builder.finish()
-            })
-            .collect();
-        assert_eq!(fingerprints.iter().collect::<std::collections::HashSet<_>>().len(), fingerprints.len());
-    }
-}
-
 /// Exporter context driving hash-consing and topological node indexing.
 pub struct MetadataExporter<'a> {
     store: &'a TypeStore,
@@ -2895,5 +2839,61 @@ impl<'a> MetadataExporter<'a> {
             static_definitions: Box::new([]),
             extensions: Box::new([]),
         })
+    }
+}
+
+#[cfg(test)]
+mod callable_owner_fingerprint_tests {
+    use super::*;
+    use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableDispatchSide, StableImplRef, StableVariantRef};
+
+    #[test]
+    fn callable_parameter_owner_fingerprints_do_not_collapse_owner_kinds() {
+        let module = StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: Box::new([]),
+        };
+        let declaration = StableDeclarationRef {
+            module: module.clone(),
+            path: Box::new(["X".into()]),
+        };
+        let owners = [
+            StableCallableOwnerRef::Declaration(declaration.clone()),
+            StableCallableOwnerRef::Variant(StableVariantRef {
+                owner: declaration.clone(),
+                selector: "A()".into(),
+            }),
+            StableCallableOwnerRef::Variant(StableVariantRef {
+                owner: declaration,
+                selector: "B()".into(),
+            }),
+            StableCallableOwnerRef::Conformance(StableImplRef {
+                module: module.clone(),
+                local_id: 1,
+            }),
+            StableCallableOwnerRef::Conformance(StableImplRef { module, local_id: 2 }),
+        ];
+        let store = TypeStore::new();
+        let exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+        let fingerprints: Vec<_> = owners
+            .into_iter()
+            .map(|owner| {
+                let parameter = StableTypeParameterRef {
+                    owner: StableTypeParameterOwnerRef::Callable(StableCallableRef {
+                        owner,
+                        side: StableDispatchSide::Instance,
+                        selector: "foo()".into(),
+                    }),
+                    index: 0,
+                };
+                let mut builder = FingerprintBuilder::new();
+                exporter.write_stable_parameter_fingerprint(&mut builder, &parameter);
+                builder.finish()
+            })
+            .collect();
+        assert_eq!(fingerprints.iter().collect::<std::collections::HashSet<_>>().len(), fingerprints.len());
     }
 }

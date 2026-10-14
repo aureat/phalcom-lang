@@ -1317,7 +1317,7 @@ impl ProgramAnalyzer {
                     &sources,
                     &runtime_modules,
                     0,
-                    semantic_session.as_deref_mut(),
+                    semantic_session,
                 )?;
 
                 Ok(AnalyzedProgram {

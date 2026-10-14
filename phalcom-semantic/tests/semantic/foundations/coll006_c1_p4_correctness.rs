@@ -39,7 +39,7 @@ const mismatch: Vector<String, 2> = [*source]
 "#,
     );
     assert!(rejected.analysis.snapshot.has_errors(), "incompatible spread type must be rejected");
-    assert!(rejected.diagnostics(DiagnosticCode::BindingInitializerMismatch).len() > 0);
+    assert!(!rejected.diagnostics(DiagnosticCode::BindingInitializerMismatch).is_empty());
     let mismatch_id = StaticConstantId::new(rejected.module.clone(), "mismatch");
     let mismatch = rejected.analysis.snapshot.static_constant(&mismatch_id).expect("failed constant product");
     assert!(mismatch.value().is_none(), "a rejected spread has no static value");

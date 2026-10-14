@@ -706,7 +706,7 @@ fn axis_declaration(axis: AlgebraicBasisAxis) -> Option<DeclarationId> {
 fn standard_math_declaration(path: &[&str], name: &str) -> Option<DeclarationId> {
     let components = path
         .iter()
-        .map(|component| ModuleComponent::from_identifier(*component).ok())
+        .map(|component| ModuleComponent::from_identifier(component).ok())
         .collect::<Option<Vec<_>>>()?;
     Some(DeclarationId::new(ModuleId::universe(ModulePath::from_components(components)), name.into()))
 }

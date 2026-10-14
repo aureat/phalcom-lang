@@ -124,8 +124,7 @@ impl ProgramCompilationSession {
         let semantic_started = Instant::now();
         let publication = self
             .semantic_session
-            .update_module_workspace_with_cancel(module_update, &phalcom_semantic::db::CancellationToken::new())
-            .map_err(phalcom_semantic::SemanticUpdateFailure::from)?;
+            .update_module_workspace_with_cancel(module_update, &phalcom_semantic::db::CancellationToken::new())?;
         #[cfg(any(test, feature = "test-timings"))]
         {
             self.last_fixture_timing.semantic_update = semantic_started.elapsed();

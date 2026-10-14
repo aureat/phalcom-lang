@@ -292,7 +292,7 @@ fn exact_availability_proof_removes_edge_but_keeps_canonical_read_slot() {
     )]);
 
     let executable = linker
-        .finalize_executable_with_availability(semantic, &BTreeMap::new(), &[requirement.clone()], &availability)
+        .finalize_executable_with_availability(semantic, &BTreeMap::new(), std::slice::from_ref(&requirement), &availability)
         .expect("exact native-floor proof should finalize");
     assert!(executable.graphs.runtime.edges_from(&importer).is_empty());
     assert_eq!(executable.modules[&importer].linked_reads, vec![read.clone()]);
@@ -448,7 +448,7 @@ fn exact_binding_identity_proof_satisfies_authored_import_and_keeps_its_read_slo
     )]);
 
     let executable = linker
-        .finalize_executable_with_availability(semantic, &BTreeMap::new(), &[requirement.clone()], &availability)
+        .finalize_executable_with_availability(semantic, &BTreeMap::new(), std::slice::from_ref(&requirement), &availability)
         .expect("exact declaration identity proof should satisfy authored import ordering");
     assert!(executable.graphs.runtime.edges_from(&importer).is_empty());
     assert_eq!(

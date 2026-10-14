@@ -84,8 +84,8 @@ fn evaluate(
             &fixture.analysis.snapshot.trait_surfaces,
             &fixture.analysis.snapshot.declarations,
         );
-    let outcome = evaluator.evaluate();
-    outcome
+
+    evaluator.evaluate()
 }
 
 #[test]
@@ -388,7 +388,6 @@ fn open_proof_goals_are_preserved_as_typed_proof_residuals() {
         residuals.get(residual).expect("proof residual"),
         phalcom_semantic::static_eval::StaticResidualData::Proof {
             goal: phalcom_semantic::checker::proof_predicate::ProofPredicateGoal::Subtype { .. },
-            result_type: _,
             ..
         }
     ));
