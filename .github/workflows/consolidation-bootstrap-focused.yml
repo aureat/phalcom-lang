@@ -1,0 +1,61 @@
+name: Consolidation bootstrap focused verification
+
+on:
+  push:
+    branches:
+      - feat/consolidation-bootstrap-integrated
+
+permissions:
+  contents: read
+
+concurrency:
+  group: consolidation-bootstrap-focused-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: ""
+  RUSTC_WRAPPER: ""
+
+jobs:
+  module-contracts:
+    name: Module dependency and semantic contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Strict graph, linked reads, and generated-requirement tests
+        run: |
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-modules --test graph
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-modules --test linker
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic integration::phase_evidence
+
+  canonical-bootstrap:
+    name: Canonical Universe executable bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Check integrated core
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' check -p phalcom-core
+      - name: Bootstrap order and preallocated pattern scratch regression
+        run: |
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --lib finalized_bootstrap_order_ -- --nocapture
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --lib pattern_temp_depth_tests -- --nocapture
+      - name: Exact native-floor inventory
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --lib native_floor_contract_matches_fresh_vm_values_and_excludes_source_only_slots -- --nocapture
+      - name: Canonical Universe bootstrap and finalized user linked reads
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core modules_linking::mat_01_export_slots_populated -- --exact --nocapture
+      - name: Class-membership and None identity
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core object_model_invariants::isa_is_reflexive_and_superclass_closed -- --exact --nocapture
