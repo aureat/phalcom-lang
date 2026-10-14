@@ -13,7 +13,8 @@ data Journal<T> {
 impl<T> Journal<T> {
   isEmpty -> Bool {
     // A user-created Concat may contain only empty subtrees.
-    let mut pending: Chain<Journal<T>> = Chain<Journal<T>>::Empty.prepend(self)
+    let emptyPending: Chain<Journal<T>> = Chain<Journal<T>>::Empty
+    let mut pending: Chain<Journal<T>> = emptyPending.prepend(self)
     while not pending.isEmpty {
       match pending {
         Chain::Empty => {}
@@ -35,8 +36,9 @@ impl<T> Journal<T> {
 
   /// Flattens left to right in O(tree nodes + entries), with no recursive calls.
   entries -> Chain<T> {
-    let mut pending: Chain<Journal<T>> = Chain<Journal<T>>::Empty.prepend(self)
-    let mut result = Chain<T>::Empty
+    let emptyPending: Chain<Journal<T>> = Chain<Journal<T>>::Empty
+    let mut pending: Chain<Journal<T>> = emptyPending.prepend(self)
+    let mut result: Chain<T> = Chain<T>::Empty
     while not pending.isEmpty {
       match pending {
         Chain::Empty => {}
@@ -54,7 +56,8 @@ impl<T> Journal<T> {
   }
 
   fold<R>(initial seed: R, using f: (R, T) -> R) -> R {
-    let mut pending: Chain<Journal<T>> = Chain<Journal<T>>::Empty.prepend(self)
+    let emptyPending: Chain<Journal<T>> = Chain<Journal<T>>::Empty
+    let mut pending: Chain<Journal<T>> = emptyPending.prepend(self)
     let mut result = seed
     while not pending.isEmpty {
       match pending {

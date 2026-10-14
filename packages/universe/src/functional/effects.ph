@@ -34,7 +34,8 @@ class Effects {
           I |= Iterable, <I as Iterable>::Item == A
   {
     let snapshot = Chain<A>.fromIterable(source)
-    let mut accumulated = D.pure(Chain<B>::Empty)
+    let empty: Chain<B> = Chain<B>::Empty
+    let mut accumulated = D.pure(empty)
     let mut remaining: Chain<A> = snapshot
     while not remaining.isEmpty {
       match remaining {

@@ -15,7 +15,7 @@ impl<T> Chain<T> {
   fromIterable<I>(_ values: I) -> Chain<T>
     where I |= Iterable, <I as Iterable>::Item == T
   {
-    let mut result = Chain<T>::Empty
+    let mut result: Chain<T> = Chain<T>::Empty
     let iterator = values.iterator
     let mut step: Option<T> = iterator.next
     while step.isSome {
@@ -64,7 +64,7 @@ impl<T> Chain<T> {
   }
 
   reverse -> Chain<T> {
-    let mut result = Chain<T>::Empty
+    let mut result: Chain<T> = Chain<T>::Empty
     let mut remaining: Chain<T> = self
     while true {
       match remaining {
@@ -87,7 +87,7 @@ impl<T> Chain<T> {
   }
 
   map<U>(_ f: (T) -> U) -> Chain<U> {
-    let mut result = Chain<U>::Empty
+    let mut result: Chain<U> = Chain<U>::Empty
     let mut remaining: Chain<T> = self
     while true {
       match remaining {
@@ -99,7 +99,7 @@ impl<T> Chain<T> {
 
   /// Calls f once per element, left to right, preserving each returned order.
   flatMap<U>(_ f: (T) -> Chain<U>) -> Chain<U> {
-    let mut result = Chain<U>::Empty
+    let mut result: Chain<U> = Chain<U>::Empty
     let mut remaining: Chain<T> = self
     while true {
       match remaining {
@@ -119,7 +119,7 @@ impl<T> Chain<T> {
   }
 
   filter(_ predicate: (T) -> Bool) -> Chain<T> {
-    let mut result = Chain<T>::Empty
+    let mut result: Chain<T> = Chain<T>::Empty
     let mut remaining: Chain<T> = self
     while true {
       match remaining {
@@ -145,7 +145,7 @@ impl<T> Chain<T> {
 
   /// Visits all values once and retains only present callback results.
   filterMap<U>(_ f: (T) -> Option<U>) -> Chain<U> {
-    let mut result = Chain<U>::Empty
+    let mut result: Chain<U> = Chain<U>::Empty
     let mut remaining: Chain<T> = self
     while true {
       match remaining {
@@ -163,7 +163,7 @@ impl<T> Chain<T> {
 
   /// Nonpositive counts produce an empty sequence.
   take(_ count: Int) -> Chain<T> {
-    let mut result = Chain<T>::Empty
+    let mut result: Chain<T> = Chain<T>::Empty
     let mut remaining: Chain<T> = self
     let mut left = count
     while left > 0 {
@@ -215,7 +215,7 @@ impl<T> Chain<T> {
 
   /// Partitions in one pass, retaining each side's original order.
   partition(_ predicate: (T) -> Bool) -> Partition<T> {
-    let mut matching = Chain<T>::Empty
+    let mut matching: Chain<T> = Chain<T>::Empty
     let mut remaining: Chain<T> = Chain<T>::Empty
     let iterator = self.iterator
     let mut step: Option<T> = iterator.next
@@ -235,7 +235,7 @@ impl<T> Chain<T> {
   zipWith<U, R>(_ other: Chain<U>, combine: (T, U) -> R) -> Chain<R> {
     let mut left: Chain<T> = self
     let mut right: Chain<U> = other
-    let mut result = Chain<R>::Empty
+    let mut result: Chain<R> = Chain<R>::Empty
     while not left.isEmpty and not right.isEmpty {
       match left {
         Chain::Empty => {}

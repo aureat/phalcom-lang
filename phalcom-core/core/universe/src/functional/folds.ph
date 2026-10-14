@@ -28,7 +28,7 @@ class Folds {
   traverseResult<I, T, E>(_ source: I, using f: (<I as Iterable>::Item) -> Result<T, E>) -> Result<Chain<T>, E>
     where I |= Iterable
   {
-    let mut result = Chain<T>::Empty
+    let mut result: Chain<T> = Chain<T>::Empty
     let iterator = source.iterator
     while let Option::Some(value) = iterator.next {
       match f.call(value) {
@@ -43,7 +43,7 @@ class Folds {
   traverseOption<I, T>(_ source: I, using f: (<I as Iterable>::Item) -> Option<T>) -> Option<Chain<T>>
     where I |= Iterable
   {
-    let mut result = Chain<T>::Empty
+    let mut result: Chain<T> = Chain<T>::Empty
     let iterator = source.iterator
     while let Option::Some(value) = iterator.next {
       match f.call(value) {
@@ -60,8 +60,8 @@ class Folds {
   validateAll<I, T, E>(_ source: I, using f: (<I as Iterable>::Item) -> Validation<T, E>) -> Validation<Chain<T>, NonEmpty<E>>
     where I |= Iterable
   {
-    let mut values = Chain<T>::Empty
-    let mut errors = Chain<E>::Empty
+    let mut values: Chain<T> = Chain<T>::Empty
+    let mut errors: Chain<E> = Chain<E>::Empty
     let iterator = source.iterator
     while let Option::Some(value) = iterator.next {
       match f.call(value) {

@@ -275,6 +275,26 @@ impl<T> Interval<T> {
     }
   }
 
+  /// Returns the shared finite coordinate when two facing bounds have one.
+  @class
+  private equalFiniteBoundary(_ upper: Bound<T>, _ lower: Bound<T>) -> Option<T> {
+    match upper.value {
+      Option::Some(upperValue) => {
+        match lower.value {
+          Option::Some(lowerValue) => {
+            if Interval.compareDomain(upperValue, lowerValue) == Ordering::Equal {
+              Option::Some(upperValue)
+            } else {
+              None
+            }
+          }
+          None => None
+        }
+      }
+      None => None
+    }
+  }
+
   // --- Instance Semantic Queries ---
 
   /// True iff lower <= upper (or at least one endpoint is Unbounded).
@@ -572,9 +592,9 @@ impl<T> Interval<T> {
     if rems.size == 0 {
       IntervalPieces::Zero
     } else if rems.size == 1 {
-      IntervalPieces::One(rems.at(0))
+      IntervalPieces::One(rems.rawAt(0))
     } else {
-      IntervalPieces::Two(rems.at(0), rems.at(1))
+      IntervalPieces::Two(rems.rawAt(0), rems.rawAt(1))
     }
   }
 
@@ -597,22 +617,37 @@ impl<T> Interval<T> {
       let rightOnly = other.subtract(self)
       return IntervalRelation::Intersects(shared, leftOnly, rightOnly)
     }
-    if self.touchesWithoutGap(other) {
-      if Interval.compareLower(self.lower, other.lower) == Ordering::Less {
-        let b = self.upper.value.unwrap()
-        let gap = Interval(self.upper, other.lower)
-        return IntervalRelation::TouchesBefore(b, gap)
-      } else {
-        let b = other.upper.value.unwrap()
-        let gap = Interval(other.upper, self.lower)
-        return IntervalRelation::TouchesAfter(b, gap)
+    match Interval.equalFiniteBoundary(self.upper, other.lower) {
+      Option::Some(boundary) => {
+        let gap = Interval(
+          Interval.complementUpperForRightLower(self.upper),
+          Interval.complementLowerForLeftUpper(other.lower)
+        )
+        return IntervalRelation::TouchesBefore(boundary, gap)
       }
+      None => {}
+    }
+    match Interval.equalFiniteBoundary(other.upper, self.lower) {
+      Option::Some(boundary) => {
+        let gap = Interval(
+          Interval.complementUpperForRightLower(other.upper),
+          Interval.complementLowerForLeftUpper(self.lower)
+        )
+        return IntervalRelation::TouchesAfter(boundary, gap)
+      }
+      None => {}
     }
     if Interval.compareUpper(self.upper, other.lower) == Ordering::Less {
-      let gap = Interval(self.upper, other.lower)
+      let gap = Interval(
+        Interval.complementUpperForRightLower(self.upper),
+        Interval.complementLowerForLeftUpper(other.lower)
+      )
       IntervalRelation::Before(gap)
     } else {
-      let gap = Interval(other.upper, self.lower)
+      let gap = Interval(
+        Interval.complementUpperForRightLower(other.upper),
+        Interval.complementLowerForLeftUpper(self.lower)
+      )
       IntervalRelation::After(gap)
     }
   }
