@@ -2654,10 +2654,10 @@ impl<'vm> Compiler<'vm> {
         // Pattern names live only in then-body. Keep their declaration scope
         // separate so an else-body cannot resolve them accidentally.
         self.begin_scope();
-        let frame = self.setup_pattern_frame(&spec.bindings, node.pattern.range())?;
-        let pattern_scratch_count = self.functions.last().unwrap().num_locals - frame.scope_start as usize;
+        let frame = self.setup_pattern_frame(&spec.bindings, &spec.pattern, node.pattern.range())?;
         let mut failures = Vec::new();
         self.emit_executable_pattern(&spec.pattern, value_slot, &frame, &mut failures, node.pattern.range())?;
+        let pattern_scratch_count = self.functions.last().unwrap().num_locals - frame.scope_start as usize;
         self.commit_pattern_frame(&frame, node.pattern.range())?;
         self.compile_inline_lexical_body(node.then_body.body, node.then_body.range)?;
         self.end_scope(range);
@@ -2729,13 +2729,15 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Pop, range);
 
         self.begin_scope();
-        let frame = self.setup_pattern_frame(&spec.bindings, node.pattern.range())?;
+        let frame = self.setup_pattern_frame(&spec.bindings, &spec.pattern, node.pattern.range())?;
         let pattern_scratch_count = self.functions.last().unwrap().num_locals - frame.scope_start as usize;
 
         self.push_loop_context();
         let loop_start = self.chunk_len();
         self.compile_expr(node.value)?;
         self.emit(Bytecode::SetLocal(value_slot), range);
+        self.emit(Bytecode::Pop, range);
+
         let mut failures = Vec::new();
         self.emit_executable_pattern(&spec.pattern, value_slot, &frame, &mut failures, node.pattern.range())?;
         self.commit_pattern_frame(&frame, node.pattern.range())?;
