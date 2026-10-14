@@ -1,0 +1,44 @@
+name: One-shot pinned workspace Rustfmt repair
+
+on:
+  push:
+    branches:
+      - chore/workspace-rustfmt
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pinned-workspace-rustfmt-repair
+  cancel-in-progress: false
+
+jobs:
+  format:
+    name: Reconcile the pinned formatter without semantic edits
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustfmt
+      - name: Generate the exact pinned Rustfmt change
+        run: |
+          cargo +nightly-2026-07-10 fmt --all
+          git diff --check
+          git diff --stat
+      - name: Commit only formatter-owned tracked changes to this isolated branch
+        run: |
+          if git diff --quiet; then
+            echo "No Rustfmt changes required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git commit -m "style(workspace): apply pinned nightly Rustfmt"
+          git push origin HEAD:refs/heads/chore/workspace-rustfmt
