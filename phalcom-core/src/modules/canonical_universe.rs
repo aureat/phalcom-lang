@@ -364,27 +364,6 @@ fn validate_canonical_product(
         }
     }
 
-    // The source-index execution order and the finalized executable DAG are
-    // independent products. Validate their agreement before materialization:
-    // a generated read must never observe a source dependency initialized later.
-    let positions = bootstrap_order
-        .iter()
-        .enumerate()
-        .map(|(index, module)| (module.clone(), index))
-        .collect::<BTreeMap<_, _>>();
-    for importer in bootstrap_order {
-        for dependency in program.linked.as_program().graphs.runtime.dependencies(importer) {
-            if let Some(&dependency_position) = positions.get(&dependency) {
-                if dependency_position >= positions[importer] {
-                    return Err(CanonicalUniverseBuildError::BootstrapRuntimeDependencyOrder {
-                        importer: importer.clone(),
-                        dependency,
-                    });
-                }
-            }
-        }
-    }
-
     let mut seen = std::collections::BTreeSet::new();
     for id in bootstrap_order {
         if !seen.insert(id.clone()) {
@@ -401,6 +380,38 @@ fn validate_canonical_product(
         }
     }
 
+    // Only actual initializers participate in this order check: dependency
+    // targets outside this bootstrap closure are validated by the appropriate
+    // materialization or native-floor owner, not by this execution schedule.
+    validate_bootstrap_runtime_order(&program.linked.as_program().graphs.runtime, bootstrap_order)?;
+
+    Ok(())
+}
+
+/// Confirms the source-index schedule respects all finalized runtime edges
+/// between source modules whose initializers this VM will execute.
+fn validate_bootstrap_runtime_order(
+    graph: &phalcom_modules::RuntimeDependencyGraph,
+    bootstrap_order: &[ModuleId],
+) -> Result<(), CanonicalUniverseBuildError> {
+    let positions = bootstrap_order
+        .iter()
+        .enumerate()
+        .map(|(index, module)| (module.clone(), index))
+        .collect::<BTreeMap<_, _>>();
+    for importer in bootstrap_order {
+        for dependency in graph.dependencies(importer) {
+            if let Some(&dependency_position) = positions.get(&dependency) {
+                if dependency_position >= positions[importer] {
+                    return Err(CanonicalUniverseBuildError::BootstrapRuntimeDependencyOrder {
+                        importer: importer.clone(),
+                        dependency,
+                    });
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -409,6 +420,51 @@ mod tests {
     use super::{CanonicalUniverseBuildError, canonical_universe_program};
     use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
     use phalcom_native_meta::UniverseKey;
+
+    #[test]
+    fn finalized_bootstrap_order_rejects_reversed_generated_dependency() {
+        use phalcom_modules::{RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason};
+
+        let importer = ModuleId::universe_root();
+        let dependency = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("errors").expect("module component"),
+        ]));
+        let mut graph = RuntimeDependencyGraph::default();
+        graph.add(RuntimeDependencyEdge {
+            importer: importer.clone(),
+            dependency: dependency.clone(),
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+        });
+
+        assert!(matches!(
+            super::validate_bootstrap_runtime_order(&graph, &[importer.clone(), dependency.clone()]),
+            Err(CanonicalUniverseBuildError::BootstrapRuntimeDependencyOrder {
+                importer: actual_importer, dependency: actual_dependency
+            }) if actual_importer == importer && actual_dependency == dependency
+        ));
+        super::validate_bootstrap_runtime_order(&graph, &[dependency, importer])
+            .expect("dependency-first order must pass");
+    }
+
+    #[test]
+    fn finalized_bootstrap_order_ignores_nonexecuted_dependency_targets() {
+        use phalcom_modules::{RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason};
+
+        let importer = ModuleId::universe_root();
+        let external = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("errors").expect("module component"),
+        ]));
+        let mut graph = RuntimeDependencyGraph::default();
+        graph.add(RuntimeDependencyEdge {
+            importer: importer.clone(),
+            dependency: external,
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+        });
+        super::validate_bootstrap_runtime_order(&graph, &[importer])
+            .expect("this check covers only the executed source initializer schedule");
+    }
 
     #[test]
     fn canonical_cycle_diagnostic_preserves_generated_requirement_provenance() {
