@@ -123,8 +123,7 @@ fn match_res_02_qualified_singleton_has_one_exact_candidate() {
 
 #[test]
 fn match_res_03_qualified_nullary_has_constructor_identity() {
-    let case =
-        analyze_adt("data Status { Ready() Done }\nclass Test { run(_ value: Status) { match value { Status::Ready() => 1 _ => 0 } } }\n");
+    let case = analyze_adt("data Status { Ready() Done }\nclass Test { run(_ value: Status) { match value { Status::Ready() => 1 _ => 0 } } }\n");
     let handle = case.only_match();
     handle.assert_arm_candidate_variants(
         0,
@@ -134,9 +133,8 @@ fn match_res_03_qualified_nullary_has_constructor_identity() {
 
 #[test]
 fn match_res_04_exact_positional_constructor_projects_field() {
-    let case = analyze_adt(
-        "data Status { Ready(_ code: Int) Done }\nclass Test { run(_ value: Status) { match value { Status::Ready(code) => code _ => 0 } } }\n",
-    );
+    let case =
+        analyze_adt("data Status { Ready(_ code: Int) Done }\nclass Test { run(_ value: Status) { match value { Status::Ready(code) => code _ => 0 } } }\n");
     let handle = case.only_match();
     assert_eq!(handle.arm(0).resolution().bindings.len(), 1);
     handle.arm(0).assert_binding_names(&["code"]);
@@ -172,9 +170,7 @@ fn match_res_07_contextual_none_resolves_singleton_member() {
 
 #[test]
 fn match_res_08_ambiguous_contextual_owner_reports_no_arbitrary_candidate() {
-    let case = analyze_adt(
-        "data Left { Same }\ndata Right { Same }\nclass Test { run(_ value: Left | Right) { match value { Same => 1 _ => 0 } } }\n",
-    );
+    let case = analyze_adt("data Left { Same }\ndata Right { Same }\nclass Test { run(_ value: Left | Right) { match value { Same => 1 _ => 0 } } }\n");
     case.assert_diagnostic_primary_contains(phalcom_semantic::diagnostic::DiagnosticCode::MatchPatternUnresolved, "Same");
     let handle = case.only_match();
     let arm = handle.arm(0);
@@ -206,9 +202,7 @@ fn match_res_09_nested_contextual_resolution_uses_specialized_payload_domain() {
 
 #[test]
 fn match_res_10_callable_family_includes_only_callable_candidates() {
-    let case = analyze_adt(
-        "data Animal { Dog Dog(_ name: String) Cat }\nclass Test { run(_ value: Animal) { match value { Dog(...) => 1 _ => 0 } } }\n",
-    );
+    let case = analyze_adt("data Animal { Dog Dog(_ name: String) Cat }\nclass Test { run(_ value: Animal) { match value { Dog(...) => 1 _ => 0 } } }\n");
     let arm = case.only_match().arm(0);
     assert!(arm.resolution().bindings.is_empty());
     let PatternResolution::Variant(pattern) = &arm.resolution().pattern else {
@@ -257,9 +251,7 @@ fn match_res_13_prefix_and_suffix_gap_join_field_projections() {
 
 #[test]
 fn match_res_14_whole_family_candidate_set_is_explicit() {
-    let case = analyze_adt(
-        "data Animal { Dog Dog() Dog(_ name: String) Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Cat => 2 } } }\n",
-    );
+    let case = analyze_adt("data Animal { Dog Dog() Dog(_ name: String) Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Cat => 2 } } }\n");
     let handle = case.only_match();
     let candidates = match &handle.arm(0).resolution().pattern {
         phalcom_semantic::match_semantics::PatternResolution::Variant(pattern) => pattern.candidates.len(),
@@ -270,8 +262,7 @@ fn match_res_14_whole_family_candidate_set_is_explicit() {
 
 #[test]
 fn match_res_15_candidate_order_is_stable_across_repeated_analysis() {
-    let source =
-        "data Animal { Dog Dog() Dog(_ name: String) }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 } } }\n";
+    let source = "data Animal { Dog Dog() Dog(_ name: String) }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 } } }\n";
     let first = analyze_adt(source);
     let second = analyze_adt(source);
     let first_ids = match &first.only_match().arm(0).resolution().pattern {
@@ -350,4 +341,50 @@ class Test {
         0,
         &[case.variant_id("Plain", Selector::method("Take", [phalcom_common::selector::SelectorSlot::Positional]).unwrap())],
     );
+}
+
+#[test]
+fn contextual_enum_repeated_owner_union_pattern_preserves_each_specialization() {
+    let case = analyze_adt(
+        r#"
+data Restricted<T> { Take(_ value: Bool) -> Restricted<Bool> Other }
+class Test {
+  run(_ value: Restricted<Int> | Restricted<Bool>) -> Bool {
+    match value { Take(item) => item _ => false }
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+    let arm = case.only_match().arm(0);
+    arm.assert_binding_names(&["item"]);
+    let ty = arm.resolution().bindings[0].knowledge.ty().expect("payload type");
+    assert_eq!(case.analysis.snapshot.store.format_type(ty), "Bool");
+    case.only_match().assert_arm_candidate_variants(
+        0,
+        &[case.variant_id(
+            "Restricted",
+            Selector::method("Take", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        )],
+    );
+}
+
+#[test]
+fn contextual_enum_repeated_owner_union_pattern_joins_payload_specializations() {
+    let case = analyze_adt(
+        r#"
+data Boxed<T> { Take(_ value: T) Empty }
+class Test {
+  run(_ value: Boxed<Int> | Boxed<String>) -> Int {
+    match value { Take(item) => 0 _ => 0 }
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+    let arm = case.only_match().arm(0);
+    arm.assert_binding_names(&["item"]);
+    let binding = &arm.resolution().bindings[0];
+    let ty = binding.knowledge.ty().expect("payload type");
+    assert_eq!(case.analysis.snapshot.store.format_type(ty), "Int | String");
 }
