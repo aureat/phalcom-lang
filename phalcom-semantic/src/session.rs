@@ -3658,6 +3658,12 @@ impl SemanticWorkspaceSession {
         // same canonical generic-signature path, but publish them separately
         // from `DeclarationTypeTable` so no fake form or class object exists.
         let mut trait_headers = previous_snapshot.as_ref().map(|snapshot| (*snapshot.trait_headers).clone()).unwrap_or_default();
+        // Trait headers are source-owned formal products. A structural
+        // replacement or module removal retires every prior trait contract
+        // from that module before current source is rebuilt below.
+        for module in structural_recomputed_modules.iter().chain(removed_modules.iter()) {
+            trait_headers.remove_module(module);
+        }
         for module in type_signature_cycle_headers
             .iter()
             .map(|declaration| declaration.module.clone())
@@ -3730,6 +3736,12 @@ impl SemanticWorkspaceSession {
             .as_ref()
             .map(|snapshot| (*snapshot.trait_surfaces).clone())
             .unwrap_or_default();
+        // Recomputed modules must not retain deleted trait surfaces. Retaining
+        // one would allow its default-member signatures to be reintroduced
+        // after the callable-removal delta has already retired them.
+        for module in structural_recomputed_modules.iter().chain(removed_modules.iter()) {
+            trait_surfaces.remove_module(module);
+        }
         for (module_id, shard) in &self.semantic_structure_shards {
             for stmt in &shard.source.program.statements {
                 let Statement::Trait(trait_def) = stmt else { continue };
