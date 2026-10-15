@@ -8,6 +8,30 @@ use num_integer::Integer;
 use num_traits::{ToPrimitive, Zero};
 use std::num::FpCategory;
 
+// IEEE-754 adjacent representable values, compatible with the workspace's
+// Rust 1.85 MSRV (f64::next_up/down require Rust 1.86).
+fn next_up_f64(value: f64) -> f64 {
+    if value.is_nan() || value == f64::INFINITY {
+        return value;
+    }
+    if value == 0.0 {
+        return f64::from_bits(1);
+    }
+    let bits = value.to_bits();
+    f64::from_bits(if value.is_sign_positive() { bits + 1 } else { bits - 1 })
+}
+
+fn next_down_f64(value: f64) -> f64 {
+    if value.is_nan() || value == f64::NEG_INFINITY {
+        return value;
+    }
+    if value == 0.0 {
+        return f64::from_bits((1u64 << 63) | 1);
+    }
+    let bits = value.to_bits();
+    f64::from_bits(if value.is_sign_positive() { bits - 1 } else { bits + 1 })
+}
+
 fn expect_float_value(value: &Value) -> Result<f64, RuntimeError> {
     value.as_float().ok_or(RuntimeError::Type {
         expected: "Float",
@@ -18,13 +42,13 @@ fn expect_float_value(value: &Value) -> Result<f64, RuntimeError> {
 /// Signature: `Float::nextUp` — the adjacent representable value toward +infinity.
 #[phalcom_native_macros::primitive(Float, "nextUp")]
 pub fn float_next_up(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    Ok(Value::float(expect_float_value(receiver)?.next_up()))
+    Ok(Value::float(next_up_f64(expect_float_value(receiver)?)))
 }
 
 /// Signature: `Float::nextDown` — the adjacent representable value toward -infinity.
 #[phalcom_native_macros::primitive(Float, "nextDown")]
 pub fn float_next_down(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    Ok(Value::float(expect_float_value(receiver)?.next_down()))
+    Ok(Value::float(next_down_f64(expect_float_value(receiver)?)))
 }
 
 /// Signature: `Float::ulp` — the spacing at the magnitude of the receiver.
@@ -38,9 +62,9 @@ pub fn float_ulp(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
         if magnitude == 0.0 {
             f64::from_bits(1)
         } else {
-            let above = magnitude.next_up();
+            let above = next_up_f64(magnitude);
             if above.is_infinite() {
-                magnitude - magnitude.next_down()
+                magnitude - next_down_f64(magnitude)
             } else {
                 above - magnitude
             }
