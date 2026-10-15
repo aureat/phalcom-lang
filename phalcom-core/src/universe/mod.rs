@@ -559,14 +559,13 @@ let r = || { i < 3 }.whileTrue || { i = i + 1 }
     }
 
     #[test]
-    fn kernel_option_match_override_reroutes_every_combinator() {
-        // Was absence/absence_combinators_route_through_match.ph. Every
-        // `Option` combinator (isSome/isNone/ifNone/orElse) is derived
-        // purely over the match(some:none:) eliminator in core.ph — no
-        // combinator peeks at a variant tag. `match` is not a sacred
-        // selector (no inliner, no pristine flag): this is ordinary
-        // world_version-based dispatch invalidation on a kernel class,
-        // proving the *routing* property, not a deopt guard.
+    fn kernel_option_match_override_cannot_intercept_native_pattern_matching() {
+        // Option combinators now use the language-native `match self` pattern,
+        // rather than sending the historical `match(some,none)` method.
+        // Replacing the method must affect explicit dynamic sends but must
+        // not redirect source-level enum pattern elimination.
+        // This differentiates the migrated structural operation from ordinary
+        // dispatch and guards against accidentally coupling the two again.
         let mut vm = VM::new();
         let baseline_module = vm.create_module("main", "kernel_option_match_baseline");
         let baseline_source = "
@@ -588,10 +587,8 @@ let baselineNone = None.isNone
             signature,
             MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(always_takes_none_arm)),
         ))));
-        // `match` is not a sacred selector — no `note_method_installed` call
-        // needed, but `add_method` + the `world_version` bump alone (not
-        // `install_kernel_method`, which also calls it) still busts any
-        // warmed cache in core.ph's own combinator bodies.
+        // Updating a non-sacred method still invalidates ordinary dispatch
+        // caches. Native pattern matching has no method-cache dependency.
         let before = vm.world_version;
         vm.heap.class_mut(option_class).add_method(match_selector, method);
         vm.world_version += 1;
@@ -608,10 +605,14 @@ let routed = Some(1).orElse || { Some(9) }.match(some: |v| { v }, none: || { -1 
 
         assert_eq!(
             read_global(&vm, module, "someIsSome"),
-            Value::bool(false),
-            "a real Some forced through the none: arm must report itself absent"
+            Value::bool(true),
+            "native Some pattern elimination must be unaffected by a method override"
         );
-        assert_eq!(read_global(&vm, module, "someIsNone"), Value::bool(true));
+        assert_eq!(
+            read_global(&vm, module, "someIsNone"),
+            Value::bool(false),
+            "native Some pattern elimination must not become an absence"
+        );
         assert_eq!(
             read_global(&vm, module, "routed"),
             Value::int(-1),
