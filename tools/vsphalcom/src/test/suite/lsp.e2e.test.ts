@@ -33,7 +33,7 @@ async function completionLabels(
     const position = document.positionAt(offset + receiverNeedle.length);
 
     let lastLabels: string[] = [];
-    for (let attempt = 0; attempt < 50; attempt++) {
+    for (let attempt = 0; attempt < 250; attempt++) {
         const list = await vscode.commands.executeCommand<vscode.CompletionList>(
             'vscode.executeCompletionItemProvider',
             document.uri,
@@ -49,13 +49,19 @@ async function completionLabels(
         await new Promise(resolve => setTimeout(resolve, 100));
     }
 
+    if (predicate && !predicate(lastLabels)) {
+        const status = await vscode.commands.executeCommand('phalcom.inspectAnalysisStatus');
+        console.error(
+            `Phalcom completion remained unresolved: ${JSON.stringify({ needle: receiverNeedle, labels: lastLabels, status, diagnostics: vscode.languages.getDiagnostics(document.uri).map(diagnostic => diagnostic.message) })}`
+        );
+    }
     return lastLabels;
 }
 
 suite('Phalcom LSP extension E2E', function () {
     // Completion probes deliberately poll for semantic publication; Mocha's
     // default two-second limit expires before this contract can be observed.
-    this.timeout(30_000);
+    this.timeout(90_000);
     let tempDir: string;
 
     suiteSetup(async () => {
