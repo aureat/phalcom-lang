@@ -629,3 +629,14 @@ completed result supports that claim.
 
 The repository objective is trustworthy forward progress, not maximum
 verification ceremony per edit.
+
+---
+
+## Sloptrim prose guidance
+
+For prose deliverables such as documentation, READMEs, reports, and user-facing
+drafts, apply the repository-local Sloptrim skill at
+`.agents/skills/sloptrim/SKILL.md`. Its scope excludes source code, code
+comments, configuration, logs, and conversational replies. The detector and
+pattern reference live beside the skill; Sloptrim describes writing patterns,
+not authorship.

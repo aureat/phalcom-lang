@@ -16,6 +16,7 @@ skills-lock.json
 
 # Generated files
 *.log
+__pycache__/
 .graphify_version
 # graphify code knowledge graph (generated; rebuilt locally via post-commit hook)
 /graphify-out
