@@ -179,7 +179,10 @@ fn test_equivalent_proof_fingerprint_is_commutative() {
 #[test]
 fn test_residual_node_growth_budget_exhaustion() {
     let mut store = StaticResidualStore::new();
-    let mut budget = QueryBudget { max_residual_nodes: 2, ..Default::default() };
+    let mut budget = QueryBudget {
+        max_residual_nodes: 2,
+        ..Default::default()
+    };
 
     let decl = DeclarationId::new(ModuleId::universe_root(), "Foo".into());
     let p0 = StaticResidualParameter {
