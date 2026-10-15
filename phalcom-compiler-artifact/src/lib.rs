@@ -22,8 +22,8 @@ pub use digest::{
 };
 pub use error::{ArtifactError, CodecError, ContainerError, ValidationError};
 pub use header::{
-    TeloscCapabilities, TeloscHeaderV1, TELOSC_CONTAINER_SCHEMA_V1, TELOSC_MAGIC,
-    TELOSC_MIN_READER_SCHEMA_V1,
+    TeloscCapabilities, TeloscHeaderV2, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MAGIC,
+    TELOSC_MIN_READER_SCHEMA_V2,
 };
 pub use identity::{CanonicalCompatibilityIdentity, TeloscPackageIdentity};
 pub use limits::ValidationLimits;

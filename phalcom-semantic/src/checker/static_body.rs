@@ -557,6 +557,7 @@ fn analyze_static_body_inner(
     intrinsics: &StaticIntrinsicRegistry,
 ) -> CheckedStaticBody {
     context.phase = crate::checker::context::EvaluationPhase::Static;
+    context.current_static_body_owner = Some(StaticBodyId(definition.id.clone()));
     let diagnostic_start = context.diagnostics.len();
     let existing_expressions = context.expressions.keys().copied().collect::<BTreeSet<_>>();
     let expression_start = context.next_local_expr_id;

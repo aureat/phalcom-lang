@@ -43,6 +43,7 @@ pub struct CanonicalCompatibilityIdentity {
     pub semantic_world: phalcom_semantic::canonical_image::CanonicalSemanticWorldId,
     pub semantic_model_version: u32,
     pub native_surface_schema_version: u32,
+    pub native_catalog_fingerprint: [u8; 16],
     pub metadata_schema_version: u32,
     pub interface_fingerprint: [u8; 16],
     pub source_fingerprint: [u8; 16],
@@ -93,6 +94,7 @@ impl CanonicalUniverseProgram {
                 semantic_world: self.formal_image.world().clone(),
                 semantic_model_version: metadata.header.semantic_model_version,
                 native_surface_schema_version: metadata.header.native_surface_schema_version,
+                native_catalog_fingerprint: phalcom_native_surface::catalog_fingerprint().0,
                 metadata_schema_version: metadata.header.schema_version,
                 interface_fingerprint: metadata.header.interface_fingerprint.0,
                 source_fingerprint: metadata.header.source_fingerprint.0,
@@ -481,6 +483,10 @@ mod tests {
         assert_eq!(
             view.compatibility.native_surface_schema_version,
             view.metadata.header.native_surface_schema_version
+        );
+        assert_eq!(
+            view.compatibility.native_catalog_fingerprint,
+            phalcom_native_surface::catalog_fingerprint().0
         );
         assert_eq!(view.compatibility.metadata_schema_version, view.metadata.header.schema_version);
         assert!(view.compatibility.type_prefix_extent > 0);

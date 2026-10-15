@@ -572,6 +572,7 @@ fn allocation_error(error: AllocationError) -> ArtifactError {
             AllocationError::Exhausted => "module materialization allocation budget exceeded",
             AllocationError::Overflow => "module materialization allocation layout overflow",
             AllocationError::Failed => "module materialization allocation failed",
+            AllocationError::UnaccountedBoundary => "semantic artifact operation has an unaccounted allocation boundary",
         }
         .into(),
     )
@@ -585,16 +586,12 @@ fn load_module_world_inner(
     if wire.modules.is_empty() || wire.modules.len() > limits.max_modules {
         return Err(invalid("invalid canonical module count"));
     }
-    let mut ids = allocations
-        .vector::<ModuleId>(wire.modules.len())
-        .map_err(allocation_error)?;
+    let mut ids = allocations.vector::<ModuleId>(wire.modules.len()).map_err(allocation_error)?;
     for module in &wire.modules {
         if module.path.len() > limits.max_recursion_depth {
             return Err(invalid("module path exceeds depth limit"));
         }
-        let mut components = allocations
-            .vector::<ModuleComponent>(module.path.len())
-            .map_err(allocation_error)?;
+        let mut components = allocations.vector::<ModuleComponent>(module.path.len()).map_err(allocation_error)?;
         for part in &module.path {
             components.push(ModuleComponent::from_identifier(part).map_err(|error| invalid(error.to_string()))?);
         }
@@ -769,17 +766,23 @@ fn load_module_world_inner(
         if crate::fingerprint::linked_dependency_fingerprint(&linked_module).raw() != payload.dependency_fingerprint {
             return Err(invalid("private linkage fingerprint mismatch"));
         }
-        let mut global_indices = BTreeSet::new();
+        let mut global_indices = allocations.vector::<bool>(payload.globals.len()).map_err(allocation_error)?;
+        global_indices.resize(payload.globals.len(), false);
         for value in &payload.globals {
-            if value.index as usize >= payload.globals.len() || !global_indices.insert(value.index) || !interface.declarations.contains_key(&value.name) {
+            let index = value.index as usize;
+            if index >= payload.globals.len() || global_indices[index] || !interface.declarations.contains_key(&value.name) {
                 return Err(invalid("invalid global binding layout"));
             }
+            global_indices[index] = true;
         }
-        let mut import_indices = BTreeSet::new();
+        let mut import_indices = allocations.vector::<bool>(payload.linked_reads.len()).map_err(allocation_error)?;
+        import_indices.resize(payload.linked_reads.len(), false);
         for value in &payload.import_bindings {
-            if value.index as usize >= payload.linked_reads.len() || !import_indices.insert(value.index) || interface.declarations.contains_key(&value.name) {
+            let index = value.index as usize;
+            if index >= payload.linked_reads.len() || import_indices[index] || interface.declarations.contains_key(&value.name) {
                 return Err(invalid("invalid import binding layout"));
             }
+            import_indices[index] = true;
         }
         graphs.references.replace(
             id.clone(),
@@ -829,13 +832,19 @@ fn load_module_world_inner(
                 parent,
             },
         );
-        let mut child_set = BTreeSet::new();
+        let mut child_indices = allocations.vector::<u32>(payload.topology_children.len()).map_err(allocation_error)?;
         for value in &payload.topology_children {
-            let child = module_id(&ids, *value)?;
-            if !child_set.insert(child) {
-                return Err(invalid("duplicate topology child"));
-            }
+            module_id(&ids, *value)?;
+            child_indices.push(value.0);
         }
+        child_indices.sort_unstable();
+        if child_indices.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(invalid("duplicate topology child"));
+        }
+        let child_set = child_indices
+            .into_iter()
+            .map(|index| module_id(&ids, ArtifactModuleId(index)))
+            .collect::<Result<BTreeSet<_>, _>>()?;
         if !child_set.is_empty() {
             children.insert(id.clone(), child_set);
         }
@@ -865,12 +874,23 @@ fn load_module_world_inner(
             }
         }
     }
-    let mut semantic_nodes = BTreeSet::new();
+    let mut semantic_node_refs = allocations.vector::<&SemanticNodeV1>(wire.semantic_rows.len()).map_err(allocation_error)?;
+    semantic_node_refs.extend(wire.semantic_rows.iter().map(|row| &row.node));
+    fn semantic_node_key(node: &SemanticNodeV1) -> (ArtifactModuleId, u8, &str) {
+        match node {
+            SemanticNodeV1::Module { module } => (*module, 0_u8, ""),
+            SemanticNodeV1::Declaration { module, name } => (*module, 1_u8, name.as_str()),
+        }
+    }
+    semantic_node_refs.sort_unstable_by_key(|node| semantic_node_key(node));
+    if semantic_node_refs
+        .windows(2)
+        .any(|pair| semantic_node_key(pair[0]) == semantic_node_key(pair[1]))
+    {
+        return Err(invalid("duplicate semantic graph row"));
+    }
     for row in &wire.semantic_rows {
         let node = node_in(&row.node, &ids)?;
-        if !semantic_nodes.insert(node.clone()) {
-            return Err(invalid("duplicate semantic graph row"));
-        }
         graphs.semantics.replace(
             node.clone(),
             row.edges
@@ -929,7 +949,7 @@ fn load_module_world_inner(
         }
     }
     // Ordering evidence above proves the eager subgraph; validate all modules too.
-    validate_runtime_dag(&graphs.runtime, &ids)?;
+    validate_runtime_dag(&graphs.runtime, &ids, allocations)?;
     let universe = allocations.arc(ProjectUniverse::new()).map_err(allocation_error)?;
     let topology = ModuleTopology {
         generation: ResolverGeneration(0),
@@ -940,36 +960,58 @@ fn load_module_world_inner(
         exposed_children: exposed,
     };
     topology.validate_completed(&universe).map_err(invalid)?;
-    let linked = allocations.arc(LinkedProgram {
-        universe,
-        modules,
-        graphs,
-        entry,
-        initialization_order,
-    }).map_err(allocation_error)?;
+    let linked = allocations
+        .arc(LinkedProgram {
+            universe,
+            modules,
+            graphs,
+            entry,
+            initialization_order,
+        })
+        .map_err(allocation_error)?;
     let topology = allocations.arc(topology).map_err(allocation_error)?;
     CanonicalExternalModuleWorld::from_parts(linked, interfaces, topology).map_err(invalid)
 }
 /// Iterative Kahn validation avoids recursive SCC traversal on artifact input.
-fn validate_runtime_dag(graph: &RuntimeDependencyGraph, ids: &[ModuleId]) -> Result<(), ArtifactError> {
-    let mut degrees = BTreeMap::new();
-    let mut users: BTreeMap<ModuleId, Vec<ModuleId>> = BTreeMap::new();
-    for id in ids {
-        let dependencies = graph.dependencies(id);
-        degrees.insert(id.clone(), dependencies.len());
-        for dependency in dependencies {
-            users.entry(dependency).or_default().push(id.clone());
+fn validate_runtime_dag(graph: &RuntimeDependencyGraph, ids: &[ModuleId], allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+    let edge_count = ids
+        .iter()
+        .try_fold(0_usize, |count, id| {
+            count.checked_add(graph.edges_from(id).len()).ok_or(AllocationError::Overflow)
+        })
+        .map_err(allocation_error)?;
+    let mut edges = allocations.vector::<(usize, usize)>(edge_count).map_err(allocation_error)?;
+    let mut degrees = allocations.vector::<usize>(ids.len()).map_err(allocation_error)?;
+    degrees.resize(ids.len(), 0);
+    for (user, id) in ids.iter().enumerate() {
+        for edge in graph.edges_from(id) {
+            let dependency = ids.binary_search(&edge.dependency).map_err(|_| invalid("runtime graph dependency is absent"))?;
+            degrees[user] = degrees[user].checked_add(1).ok_or(AllocationError::Overflow)?;
+            edges.push((dependency, user));
         }
     }
-    let mut ready = degrees.iter().filter_map(|(id, count)| (*count == 0).then_some(id.clone())).collect::<Vec<_>>();
+    edges.sort_unstable();
+
+    let offset_count = ids.len().checked_add(1).ok_or(AllocationError::Overflow)?;
+    let mut offsets = allocations.vector::<usize>(offset_count).map_err(allocation_error)?;
+    offsets.resize(offset_count, 0);
+    for &(dependency, _) in &edges {
+        offsets[dependency + 1] = offsets[dependency + 1].checked_add(1).ok_or(AllocationError::Overflow)?;
+    }
+    for index in 0..ids.len() {
+        offsets[index + 1] = offsets[index + 1].checked_add(offsets[index]).ok_or(AllocationError::Overflow)?;
+    }
+
+    let mut ready = allocations.vector::<usize>(ids.len()).map_err(allocation_error)?;
+    ready.extend(degrees.iter().enumerate().filter_map(|(index, degree)| (*degree == 0).then_some(index)));
     let mut processed = 0;
-    while let Some(id) = ready.pop() {
+    while let Some(dependency) = ready.pop() {
         processed += 1;
-        for user in users.get(&id).into_iter().flatten() {
+        for &(_, user) in &edges[offsets[dependency]..offsets[dependency + 1]] {
             let degree = degrees.get_mut(user).ok_or_else(|| invalid("runtime graph user is absent"))?;
             *degree = degree.checked_sub(1).ok_or_else(|| invalid("runtime graph degree underflow"))?;
             if *degree == 0 {
-                ready.push(user.clone());
+                ready.push(user);
             }
         }
     }
@@ -983,12 +1025,12 @@ fn validate_target(target: &LinkedReadSpec, interfaces: &BTreeMap<ModuleId, Arc<
     if let LinkedReadSpec::Binding(symbol) = target {
         if !interfaces
             .get(&symbol.module)
-            .is_some_and(|interface| {
-                interface.declarations.contains_key(symbol.name.as_ref())
-                    || interface.exports.contains_key(symbol.name.as_ref())
-            })
+            .is_some_and(|interface| interface.declarations.contains_key(symbol.name.as_ref()) || interface.exports.contains_key(symbol.name.as_ref()))
         {
-            return Err(invalid(format!("linked binding has no owning declaration: {:?}::{}", symbol.module, symbol.name)));
+            return Err(invalid(format!(
+                "linked binding has no owning declaration: {:?}::{}",
+                symbol.module, symbol.name
+            )));
         }
     }
     Ok(())
@@ -1000,6 +1042,54 @@ impl CanonicalExternalModuleWorld {
     }
     pub fn decode_artifact(bytes: &[u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {
         load_module_world(&ModuleWorldV1::decode(bytes, limits)?, limits)
+    }
+}
+
+#[cfg(test)]
+mod allocation_materialization_tests {
+    use super::validate_runtime_dag;
+    use crate::graph::{RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason};
+    use crate::identity::{ModuleComponent, ModuleId, ModulePath};
+    use phalcom_common::range::SourceRange;
+    use phalcom_type_meta::allocation::AllocationBudget;
+    use std::alloc::Layout;
+
+    fn module(name: &str) -> ModuleId {
+        ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap()]))
+    }
+
+    fn add_edge(graph: &mut RuntimeDependencyGraph, importer: &ModuleId, dependency: &ModuleId) {
+        graph.add(RuntimeDependencyEdge {
+            importer: importer.clone(),
+            dependency: dependency.clone(),
+            range: SourceRange::default(),
+            reason: RuntimeDependencyReason::WholeModuleImport,
+        });
+    }
+
+    #[test]
+    fn runtime_dag_validation_uses_charged_dense_scratch_and_detects_cycles() {
+        let ids = [module("a"), module("b"), module("c")];
+        let mut graph = RuntimeDependencyGraph::default();
+        for id in &ids {
+            graph.add_node(id.clone());
+        }
+        add_edge(&mut graph, &ids[0], &ids[1]);
+        add_edge(&mut graph, &ids[0], &ids[1]);
+        add_edge(&mut graph, &ids[1], &ids[2]);
+
+        let mut allocations = AllocationBudget::new(1024);
+        validate_runtime_dag(&graph, &ids, &mut allocations).unwrap();
+        let expected = Layout::array::<(usize, usize)>(3).unwrap().size()
+            + Layout::array::<usize>(ids.len()).unwrap().size()
+            + Layout::array::<usize>(ids.len() + 1).unwrap().size()
+            + Layout::array::<usize>(ids.len()).unwrap().size();
+        assert_eq!(allocations.requested(), expected);
+
+        add_edge(&mut graph, &ids[2], &ids[0]);
+        let mut cycle_allocations = AllocationBudget::new(1024);
+        assert!(validate_runtime_dag(&graph, &ids, &mut cycle_allocations).is_err());
+        assert!(cycle_allocations.requested() > 0);
     }
 }
 

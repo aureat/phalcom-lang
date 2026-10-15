@@ -1,40 +1,28 @@
 //! Deterministic `universe.telosc` builder, atomic writer, and source-free loader (`PERF003.C2.P7.T10/T11/T12`).
 
 use crate::modules::canonical_universe::CanonicalCompilerImageView;
-use crate::modules::compile::{
-    CompiledProgram, EntrySelection, ProgramCompilationOptions, ProgramCompileError, ProgramCompiler,
-};
+use crate::modules::compile::{CompiledProgram, EntrySelection, ProgramCompilationOptions, ProgramCompileError, ProgramCompiler};
 use phalcom_compiler_artifact::container::{TeloscContainerBuilder, TeloscContainerView};
 use phalcom_compiler_artifact::digest::{
-    ArtifactDigest, ArtifactHasher, DOMAIN_METADATA, DOMAIN_MODULE_WORLD, DOMAIN_QUERY_IMAGE, DOMAIN_SEMANTIC_WORLD,
-    DOMAIN_SOURCE,
+    ArtifactDigest, ArtifactHasher, DOMAIN_METADATA, DOMAIN_MODULE_WORLD, DOMAIN_QUERY_IMAGE, DOMAIN_SEMANTIC_WORLD, DOMAIN_SOURCE,
 };
-use phalcom_compiler_artifact::header::{
-    TeloscHeaderV1, TELOSC_CONTAINER_SCHEMA_V1, TELOSC_MIN_READER_SCHEMA_V1,
-};
+use phalcom_compiler_artifact::header::{TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscHeaderV2};
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
-use phalcom_compiler_artifact::metadata::{
-    MetadataPreflightLimits, MetadataSectionError, MetadataSectionV1, METADATA_SECTION_SCHEMA_V1,
-};
+use phalcom_compiler_artifact::metadata::{METADATA_SECTION_SCHEMA_V1, MetadataPreflightLimits, MetadataSectionError, MetadataSectionV1};
 use phalcom_compiler_artifact::module_world::MODULE_WORLD_SCHEMA_V1;
-use phalcom_compiler_artifact::query::{QueryImageV1, QUERY_IMAGE_SCHEMA_V1};
+use phalcom_compiler_artifact::query::{QUERY_IMAGE_SCHEMA_V1, QueryImageV1};
 use phalcom_compiler_artifact::section::{SectionFlags, SectionKind};
-use phalcom_compiler_artifact::semantic::world::{SemanticWorldV1, SEMANTIC_WORLD_SCHEMA_V1};
+use phalcom_compiler_artifact::semantic::world::{SEMANTIC_WORLD_SCHEMA_V2, SemanticWorldV2};
 use phalcom_native_meta::NATIVE_SURFACE_SCHEMA_VERSION;
 use phalcom_semantic::artifact::export::{export_query_image, export_semantic_world};
 use phalcom_semantic::artifact::import::validate_and_import_semantic_world_with_allocation_budget;
 use phalcom_semantic::artifact::query::reconstruct_query_image_with_allocation_budget;
-use phalcom_semantic::canonical_image::{
-    CanonicalImageError, CanonicalSemanticWorldId, CanonicalUniverseFormalImage,
-    CanonicalWorldProvenance,
-};
+use phalcom_semantic::canonical_image::{CanonicalImageError, CanonicalSemanticWorldId, CanonicalUniverseFormalImage, CanonicalWorldProvenance};
 use phalcom_semantic::static_value::StaticExportContext;
 use phalcom_semantic::types::store::artifact::TypeExportContext;
-use phalcom_type_meta::{
-    SemanticMetadataBundle, SEMANTIC_MODEL_VERSION, TYPE_METADATA_SCHEMA_VERSION,
-};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
+use phalcom_type_meta::{SEMANTIC_MODEL_VERSION, SemanticMetadataBundle, TYPE_METADATA_SCHEMA_VERSION};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -105,8 +93,9 @@ pub enum TeloscArtifactError {
 
 fn allocation_error(error: AllocationError, limit_bytes: usize) -> TeloscArtifactError {
     match error {
-        AllocationError::Exhausted | AllocationError::Overflow | AllocationError::Failed => {
-            TeloscArtifactError::BudgetExceeded { limit_bytes }
+        AllocationError::Exhausted | AllocationError::Overflow | AllocationError::Failed => TeloscArtifactError::BudgetExceeded { limit_bytes },
+        AllocationError::UnaccountedBoundary => {
+            TeloscArtifactError::Artifact(phalcom_compiler_artifact::ArtifactError::Allocation(error))
         }
     }
 }
@@ -131,20 +120,13 @@ impl LoadedUniverseArtifact {
         ProgramCompiler::compile_entry_selection_with_image(entry, self.formal_image.clone())
     }
 
-    pub fn compile_user_entry_with_options(
-        &self,
-        entry: EntrySelection,
-        options: &ProgramCompilationOptions,
-    ) -> Result<CompiledProgram, ProgramCompileError> {
+    pub fn compile_user_entry_with_options(&self, entry: EntrySelection, options: &ProgramCompilationOptions) -> Result<CompiledProgram, ProgramCompileError> {
         ProgramCompiler::compile_entry_selection_with_options_and_image(entry, self.formal_image.clone(), options)
     }
 }
 
 /// Builds a deterministic `universe.telosc` compilation artifact from a canonical compiler image view (`PERF003.C2.P7.T11`).
-pub fn build_universe_telosc(
-    view: &CanonicalCompilerImageView<'_>,
-    limits: &ValidationLimits,
-) -> Result<BuiltUniverseTelosc, TeloscArtifactError> {
+pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &ValidationLimits) -> Result<BuiltUniverseTelosc, TeloscArtifactError> {
     let capabilities = TeloscCapabilities::compiler_only_v1();
 
     // 1. MODULE_WORLD
@@ -186,17 +168,17 @@ pub fn build_universe_telosc(
     let bundle_limits = phalcom_type_meta::ValidationLimits::default();
     let package_identity = TeloscPackageIdentity::universe();
     let package_digest = *package_identity.digest().as_bytes();
-    let metadata_section = MetadataSectionV1::from_bundle(view.metadata, package_digest, &preflight_limits, &bundle_limits)
-        .map_err(TeloscArtifactError::Metadata)?;
+    let metadata_section =
+        MetadataSectionV1::from_bundle(view.metadata, package_digest, &preflight_limits, &bundle_limits).map_err(TeloscArtifactError::Metadata)?;
     let metadata_bytes = metadata_section
         .encode()
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
 
     // Header:
     let source_digest = canonical_source_digest(view.formal)?;
-    let header = TeloscHeaderV1 {
-        container_schema: TELOSC_CONTAINER_SCHEMA_V1,
-        minimum_reader_schema: TELOSC_MIN_READER_SCHEMA_V1,
+    let header = TeloscHeaderV2 {
+        container_schema: TELOSC_CONTAINER_SCHEMA_V2,
+        minimum_reader_schema: TELOSC_MIN_READER_SCHEMA_V2,
         package_identity,
         semantic_model_version: SEMANTIC_MODEL_VERSION,
         stable_identity_schema: 1,
@@ -204,6 +186,7 @@ pub fn build_universe_telosc(
         semantic_artifact_abi: 1,
         query_fingerprint_abi: 1,
         native_surface_schema_version: NATIVE_SURFACE_SCHEMA_VERSION,
+        native_catalog_fingerprint: view.compatibility.native_catalog_fingerprint,
         type_metadata_schema_version: TYPE_METADATA_SCHEMA_VERSION,
         capabilities: phalcom_compiler_artifact::header::TeloscCapabilities::CANONICAL_COMPILER_IMAGE_V1
             | phalcom_compiler_artifact::header::TeloscCapabilities::RUNTIME_PUBLIC_METADATA,
@@ -217,12 +200,33 @@ pub fn build_universe_telosc(
     };
 
     let mut builder = TeloscContainerBuilder::new(header);
-    builder.add_section(SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V1, SectionFlags::REQUIRED, module_world_bytes.clone());
-    builder.add_section(SectionKind::SemanticWorld, SEMANTIC_WORLD_SCHEMA_V1, SectionFlags::REQUIRED, semantic_world_bytes.clone());
-    builder.add_section(SectionKind::QueryImage, QUERY_IMAGE_SCHEMA_V1, SectionFlags::REQUIRED, query_image_bytes.clone());
-    builder.add_section(SectionKind::Metadata, METADATA_SECTION_SCHEMA_V1, SectionFlags::REQUIRED, metadata_bytes.clone());
+    builder.add_section(
+        SectionKind::ModuleWorld,
+        MODULE_WORLD_SCHEMA_V1,
+        SectionFlags::REQUIRED,
+        module_world_bytes.clone(),
+    );
+    builder.add_section(
+        SectionKind::SemanticWorld,
+        SEMANTIC_WORLD_SCHEMA_V2,
+        SectionFlags::REQUIRED,
+        semantic_world_bytes.clone(),
+    );
+    builder.add_section(
+        SectionKind::QueryImage,
+        QUERY_IMAGE_SCHEMA_V1,
+        SectionFlags::REQUIRED,
+        query_image_bytes.clone(),
+    );
+    builder.add_section(
+        SectionKind::Metadata,
+        METADATA_SECTION_SCHEMA_V1,
+        SectionFlags::REQUIRED,
+        metadata_bytes.clone(),
+    );
 
-    let built_bytes = builder.build()
+    let built_bytes = builder
+        .build()
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
 
     // Self-validate output bytes
@@ -238,10 +242,7 @@ pub fn build_universe_telosc(
         artifact_digest: *container_view.header().artifact_digest.as_bytes(),
     };
 
-    Ok(BuiltUniverseTelosc {
-        bytes: built_bytes,
-        summary,
-    })
+    Ok(BuiltUniverseTelosc { bytes: built_bytes, summary })
 }
 
 /// Atomically writes `universe.telosc` via a same-directory temporary file (`PERF003.C2.P7.T11`).
@@ -265,24 +266,30 @@ pub fn write_universe_telosc(path: &Path, built: &BuiltUniverseTelosc) -> Result
 /// Loads a compiled `universe.telosc` artifact from disk (`PERF003.C2.P7.T12`).
 pub fn load_universe_telosc(path: &Path, limits: &ValidationLimits) -> Result<Arc<LoadedUniverseArtifact>, TeloscArtifactError> {
     let t0 = Instant::now();
-    let transaction_limit = usize::try_from(limits.max_decoded_section_bytes)
-        .map_err(|_| TeloscArtifactError::BudgetExceeded { limit_bytes: usize::MAX })?;
+    let transaction_limit = usize::try_from(limits.max_total_allocation_bytes).map_err(|_| TeloscArtifactError::BudgetExceeded { limit_bytes: usize::MAX })?;
     let mut allocations = AllocationBudget::new(transaction_limit);
     let mut file = File::open(path)?;
     let file_len = file.metadata()?.len();
     if file_len > limits.max_artifact_bytes {
-        return Err(TeloscArtifactError::BudgetExceeded { limit_bytes: limits.max_artifact_bytes as usize });
+        return Err(TeloscArtifactError::BudgetExceeded {
+            limit_bytes: limits.max_artifact_bytes as usize,
+        });
     }
     let capacity = usize::try_from(file_len).map_err(|_| TeloscArtifactError::BudgetExceeded { limit_bytes: usize::MAX })?;
-    let mut bytes = allocations
-        .vector::<u8>(capacity)
-        .map_err(|error| allocation_error(error, transaction_limit))?;
+    let mut bytes = allocations.vector::<u8>(capacity).map_err(|error| allocation_error(error, transaction_limit))?;
     let mut chunk = [0u8; 8192];
     loop {
         let read = file.read(&mut chunk)?;
-        if read == 0 { break; }
-        let next = bytes.len().checked_add(read).filter(|len| *len as u64 <= limits.max_artifact_bytes)
-            .ok_or(TeloscArtifactError::BudgetExceeded { limit_bytes: limits.max_artifact_bytes as usize })?;
+        if read == 0 {
+            break;
+        }
+        let next = bytes
+            .len()
+            .checked_add(read)
+            .filter(|len| *len as u64 <= limits.max_artifact_bytes)
+            .ok_or(TeloscArtifactError::BudgetExceeded {
+                limit_bytes: limits.max_artifact_bytes as usize,
+            })?;
         let additional = next - bytes.len();
         allocations
             .grow_vector_exact(&mut bytes, additional)
@@ -299,8 +306,7 @@ pub fn load_universe_telosc(path: &Path, limits: &ValidationLimits) -> Result<Ar
 /// Loads a compiled `universe.telosc` artifact from an in-memory buffer (`PERF003.C2.P7.T12`).
 pub fn load_universe_telosc_from_bytes(bytes: &[u8], limits: &ValidationLimits) -> Result<Arc<LoadedUniverseArtifact>, TeloscArtifactError> {
     let mut timings = TeloscLoadTimings::default();
-    let transaction_limit = usize::try_from(limits.max_decoded_section_bytes)
-        .map_err(|_| TeloscArtifactError::BudgetExceeded { limit_bytes: usize::MAX })?;
+    let transaction_limit = usize::try_from(limits.max_total_allocation_bytes).map_err(|_| TeloscArtifactError::BudgetExceeded { limit_bytes: usize::MAX })?;
     let mut allocations = AllocationBudget::new(transaction_limit);
     load_universe_telosc_from_bytes_with_timings_and_budget(bytes, limits, &mut timings, &mut allocations)
 }
@@ -312,59 +318,41 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     allocations: &mut AllocationBudget,
 ) -> Result<Arc<LoadedUniverseArtifact>, TeloscArtifactError> {
     let t_container = Instant::now();
-    let container = TeloscContainerView::parse(bytes, limits)
+    let container = TeloscContainerView::parse_with_allocation_budget(bytes, limits, allocations)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
     validate_reader_header(container.header())?;
     timings.container_validation = t_container.elapsed();
 
     let t_section = Instant::now();
-    let module_world_sec = container.require_section(SectionKind::ModuleWorld)
+    let module_world_sec = container
+        .require_section(SectionKind::ModuleWorld)
         .map_err(|_| TeloscArtifactError::Capability("missing MODULE_WORLD section"))?;
-    let semantic_world_sec = container.require_section(SectionKind::SemanticWorld)
+    let semantic_world_sec = container
+        .require_section(SectionKind::SemanticWorld)
         .map_err(|_| TeloscArtifactError::Capability("missing SEMANTIC_WORLD section"))?;
-    let query_image_sec = container.require_section(SectionKind::QueryImage)
+    let query_image_sec = container
+        .require_section(SectionKind::QueryImage)
         .map_err(|_| TeloscArtifactError::Capability("missing QUERY_IMAGE section"))?;
-    let metadata_sec = container.require_section(SectionKind::Metadata)
+    let metadata_sec = container
+        .require_section(SectionKind::Metadata)
         .map_err(|_| TeloscArtifactError::Capability("missing METADATA section"))?;
-    validate_section_provenance(
-        container.header(),
-        module_world_sec,
-        semantic_world_sec,
-        query_image_sec,
-        metadata_sec,
-    )?;
+    validate_section_provenance(container.header(), module_world_sec, semantic_world_sec, query_image_sec, metadata_sec)?;
 
-    let module_world_v1 = phalcom_compiler_artifact::module_world::ModuleWorldV1::decode_with_allocation_budget(
-        module_world_sec,
-        limits,
-        allocations,
-    )
-    .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    let module_world_v1 = phalcom_compiler_artifact::module_world::ModuleWorldV1::decode_with_allocation_budget(module_world_sec, limits, allocations)
+        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
     let modules = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_world_v1, limits, allocations)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
 
-    let world_v1 = SemanticWorldV1::decode_with_allocation_budget(
-        semantic_world_sec,
-        limits,
-        allocations,
-    )
-    .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
-    let parts = validate_and_import_semantic_world_with_allocation_budget(world_v1, limits, allocations)
+    let world_v2 = SemanticWorldV2::decode_with_allocation_budget(semantic_world_sec, limits, allocations)
+        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    let parts = validate_and_import_semantic_world_with_allocation_budget(world_v2, limits, allocations)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
 
-    let query_v1 = QueryImageV1::decode_with_allocation_budget(
-        query_image_sec,
-        limits,
-        allocations,
-    )
-    .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    let query_v1 = QueryImageV1::decode_with_allocation_budget(query_image_sec, limits, allocations)
+        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
 
-    let meta_v1 = MetadataSectionV1::decode_with_allocation_budget(
-        metadata_sec,
-        limits,
-        allocations,
-    )
-    .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    let meta_v1 = MetadataSectionV1::decode_with_allocation_budget(metadata_sec, limits, allocations)
+        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
     timings.section_validation = t_section.elapsed();
 
     let t_reloc = Instant::now();
@@ -378,22 +366,12 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
         module_semantic_abi: container.header().module_semantic_abi,
         semantic_artifact_abi: container.header().semantic_artifact_abi,
         native_surface_schema_version: container.header().native_surface_schema_version,
+        native_catalog_fingerprint: container.header().native_catalog_fingerprint,
         type_metadata_schema_version: container.header().type_metadata_schema_version,
     };
-    let world_id = CanonicalSemanticWorldId::for_artifact_world(
-        1,
-        container.header().source_digest,
-        compatibility,
-    );
+    let world_id = CanonicalSemanticWorldId::for_artifact_world(1, container.header().source_digest, compatibility);
 
-    let (query_image, fingerprints) = reconstruct_query_image_with_allocation_budget(
-        &query_v1,
-        &parts.snapshot,
-        &world_id,
-        &modules,
-        limits,
-        allocations,
-    )?;
+    let (query_image, fingerprints) = reconstruct_query_image_with_allocation_budget(&query_v1, &parts.snapshot, &world_id, &modules, limits, allocations)?;
 
     let preflight_limits = MetadataPreflightLimits {
         max_metadata_bytes: limits.max_metadata_bytes as usize,
@@ -403,31 +381,17 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     };
     let bundle_limits = phalcom_type_meta::ValidationLimits::default();
     let expected_package_digest = *container.header().package_identity.digest().as_bytes();
-    let metadata_bundle = meta_v1.decode_bundle_with_allocation_budget(
-        &preflight_limits,
-        &bundle_limits,
-        &expected_package_digest,
-        allocations,
-    )
+    let metadata_bundle = meta_v1
+        .decode_bundle_with_allocation_budget(&preflight_limits, &bundle_limits, &expected_package_digest, allocations)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
 
-    let transaction_limit = usize::try_from(limits.max_decoded_section_bytes).unwrap_or(usize::MAX);
-    let modules = allocations
-        .arc(modules)
-        .map_err(|error| allocation_error(error, transaction_limit))?;
-    let formal_image = CanonicalUniverseFormalImage::from_loaded_artifact(
-        world_id,
-        modules,
-        parts.snapshot,
-        query_image,
-        fingerprints,
-    )?;
+    let transaction_limit = usize::try_from(limits.max_total_allocation_bytes).unwrap_or(usize::MAX);
+    let modules = allocations.arc(modules).map_err(|error| allocation_error(error, transaction_limit))?;
+    let formal_image = CanonicalUniverseFormalImage::from_loaded_artifact(world_id, modules, parts.snapshot, query_image, fingerprints)?;
 
     timings.relocation = t_reloc.elapsed();
 
-    let metadata_bundle = allocations
-        .arc(metadata_bundle)
-        .map_err(|error| allocation_error(error, transaction_limit))?;
+    let metadata_bundle = allocations.arc(metadata_bundle).map_err(|error| allocation_error(error, transaction_limit))?;
     finish_loaded_universe_telosc(
         TeloscCapabilities::compiler_only_v1(),
         &meta_v1,
@@ -456,20 +420,25 @@ pub fn finish_loaded_universe_telosc(
     }
     let t_pub = Instant::now();
     let transaction_limit = allocation_budget.remaining().saturating_add(allocation_budget.requested());
-    let artifact = allocation_budget.arc(LoadedUniverseArtifact {
-        capabilities,
-        formal_image,
-        metadata,
-        timings: { timings.publication = t_pub.elapsed(); timings },
-        executable_reserved_p8: None,
-    }).map_err(|error| allocation_error(error, transaction_limit))?;
+    let artifact = allocation_budget
+        .arc(LoadedUniverseArtifact {
+            capabilities,
+            formal_image,
+            metadata,
+            timings: {
+                timings.publication = t_pub.elapsed();
+                timings
+            },
+            executable_reserved_p8: None,
+        })
+        .map_err(|error| allocation_error(error, transaction_limit))?;
     Ok(artifact)
 }
 
 /// Validate reader compatibility independently of digest integrity.
-fn validate_reader_header(header: &TeloscHeaderV1) -> Result<(), TeloscArtifactError> {
-    use phalcom_compiler_artifact::header::TeloscCapabilities as WireCapabilities;
+fn validate_reader_header(header: &TeloscHeaderV2) -> Result<(), TeloscArtifactError> {
     use phalcom_compiler_artifact::ValidationError;
+    use phalcom_compiler_artifact::header::TeloscCapabilities as WireCapabilities;
     if header.package_identity != TeloscPackageIdentity::universe() {
         return Err(phalcom_compiler_artifact::ArtifactError::from(ValidationError::IncompatibleWorld("unsupported Universe package identity".into())).into());
     }
@@ -479,12 +448,30 @@ fn validate_reader_header(header: &TeloscHeaderV1) -> Result<(), TeloscArtifactE
         ("module_semantic_abi", header.module_semantic_abi, 1),
         ("semantic_artifact_abi", header.semantic_artifact_abi, 1),
         ("query_fingerprint_abi", header.query_fingerprint_abi, 1),
-        ("native_surface_schema_version", header.native_surface_schema_version, NATIVE_SURFACE_SCHEMA_VERSION),
-        ("type_metadata_schema_version", header.type_metadata_schema_version, TYPE_METADATA_SCHEMA_VERSION),
+        (
+            "native_surface_schema_version",
+            header.native_surface_schema_version,
+            NATIVE_SURFACE_SCHEMA_VERSION,
+        ),
+        (
+            "type_metadata_schema_version",
+            header.type_metadata_schema_version,
+            TYPE_METADATA_SCHEMA_VERSION,
+        ),
     ] {
         if found != expected {
             return Err(phalcom_compiler_artifact::ArtifactError::from(ValidationError::IncompatibleAbi { kind, found, expected }).into());
         }
+    }
+    let expected_catalog = phalcom_native_surface::catalog_fingerprint().0;
+    if header.native_catalog_fingerprint != expected_catalog {
+        return Err(
+            phalcom_compiler_artifact::ArtifactError::from(ValidationError::NativeCatalogFingerprintMismatch {
+                found: header.native_catalog_fingerprint,
+                expected: expected_catalog,
+            })
+            .into(),
+        );
     }
     let required = WireCapabilities::CANONICAL_COMPILER_IMAGE_V1 | WireCapabilities::RUNTIME_PUBLIC_METADATA;
     if header.capabilities != required {
@@ -494,7 +481,7 @@ fn validate_reader_header(header: &TeloscHeaderV1) -> Result<(), TeloscArtifactE
 }
 
 fn validate_section_provenance(
-    header: &TeloscHeaderV1,
+    header: &TeloscHeaderV2,
     module_world: &[u8],
     semantic_world: &[u8],
     query_image: &[u8],
@@ -505,27 +492,35 @@ fn validate_section_provenance(
     // zero placeholder; the container digest binds this asserted identity to
     // the exact serialized header.
     if header.source_digest == ArtifactDigest::ZERO {
-        return Err(phalcom_compiler_artifact::ArtifactError::from(
-            phalcom_compiler_artifact::ValidationError::IncompatibleWorld(
+        return Err(
+            phalcom_compiler_artifact::ArtifactError::from(phalcom_compiler_artifact::ValidationError::IncompatibleWorld(
                 "source provenance digest is missing".into(),
-            ),
-        )
-        .into());
+            ))
+            .into(),
+        );
     }
     let expected = [
-        ("interface", header.interface_digest, ArtifactDigest::digest_domain(DOMAIN_MODULE_WORLD, module_world)),
-        ("semantic", header.semantic_digest, ArtifactDigest::digest_domain(DOMAIN_SEMANTIC_WORLD, semantic_world)),
+        (
+            "interface",
+            header.interface_digest,
+            ArtifactDigest::digest_domain(DOMAIN_MODULE_WORLD, module_world),
+        ),
+        (
+            "semantic",
+            header.semantic_digest,
+            ArtifactDigest::digest_domain(DOMAIN_SEMANTIC_WORLD, semantic_world),
+        ),
         ("query", header.query_digest, ArtifactDigest::digest_domain(DOMAIN_QUERY_IMAGE, query_image)),
         ("metadata", header.metadata_digest, ArtifactDigest::digest_domain(DOMAIN_METADATA, metadata)),
     ];
     for (name, found, actual) in expected {
         if found != actual {
-            return Err(phalcom_compiler_artifact::ArtifactError::from(
-                phalcom_compiler_artifact::ValidationError::IncompatibleWorld(
-                    format!("{name} provenance digest mismatch"),
-                ),
-            )
-            .into());
+            return Err(
+                phalcom_compiler_artifact::ArtifactError::from(phalcom_compiler_artifact::ValidationError::IncompatibleWorld(format!(
+                    "{name} provenance digest mismatch"
+                )))
+                .into(),
+            );
         }
     }
     Ok(())

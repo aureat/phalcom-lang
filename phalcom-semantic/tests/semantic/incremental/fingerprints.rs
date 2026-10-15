@@ -112,9 +112,11 @@ fn callable_analysis() -> CallableAnalysis {
     let callable = CallableId::new(declaration("Owner"), Selector::getter("value").expect("selector"), DispatchSide::Instance);
     CallableAnalysis {
         callable,
+        body_source_owner: None,
         body_range: SourceRange { start: 0, end: 20 },
         expressions: BTreeMap::new(),
         bindings: BTreeMap::new(),
+        binding_origins: BTreeMap::new(),
         for_iteration_lanes: Arc::new(BTreeMap::new()),
         positional_expansions: Arc::new(BTreeMap::new()),
         known_invalid_positional_expansions: Arc::new(BTreeMap::new()),
@@ -833,10 +835,12 @@ fn callable_body_product_ignores_source_ranges_and_type_provenance() {
 #[test]
 fn callable_body_product_ignores_flow_source_ranges() {
     let mut left = callable_analysis();
-    let node = Arc::make_mut(&mut left.flow_graph).add_node(FlowNodeKind::Entry, SourceRange { start: 1, end: 4 });
-    Arc::make_mut(&mut left.flow_graph).entry = Some(node);
+    let node = Arc::make_mut(&mut left.flow_graph)
+        .add_node(FlowNodeKind::Entry, SourceRange { start: 1, end: 4 })
+        .unwrap();
+    Arc::make_mut(&mut left.flow_graph).try_set_entry(Some(node)).unwrap();
     let mut right = left.clone();
-    Arc::make_mut(&mut right.flow_graph).nodes.get_mut(&node).expect("flow node").range = SourceRange { start: 101, end: 104 };
+    Arc::make_mut(&mut right.flow_graph).try_node_mut(&node).unwrap().expect("flow node").range = SourceRange { start: 101, end: 104 };
 
     assert_eq!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
 }

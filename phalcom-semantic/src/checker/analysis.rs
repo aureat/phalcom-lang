@@ -5,6 +5,7 @@ use crate::checker::incident::InternalSemanticIncident;
 use crate::diagnostic::SemanticDiagnostic;
 use crate::identity::{
     AnalysisIncidentId, BindingId, CallResolutionId, CallableId, CallableParameterId, DiagnosticCauseId, ExplanationId, ExpressionId, FieldId, ImplId,
+    SourceOwner,
 };
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::{DynamicReason, TypeKnowledge};
@@ -249,12 +250,13 @@ pub struct GenericCallConformanceBinding {
 
 /// Solved generic arguments and discharged conformance bindings for one canonical callable application.
 ///
-/// Bindings contain canonical `TypeId`s only. Inference-local variables never
-/// cross this publication boundary.
+/// Each binding retains its canonical static-argument category. Dynamic is an
+/// explicit boundary, not a missing binding or a proper `TypeId`. Inference-
+/// local variables never cross this publication boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallSpecialization {
     pub callable: CallableId,
-    pub bindings: Box<[(TypeParameterId, TypeId)]>,
+    pub bindings: Box<[(TypeParameterId, crate::types::store::StaticArgument)]>,
     pub conformances: Box<[GenericCallConformanceBinding]>,
 }
 
@@ -516,6 +518,27 @@ pub type ExpressionAnalysisIndex = BTreeMap<ExpressionId, ExpressionAnalysis>;
 /// Index of binding states within a body.
 pub type BindingAnalysisIndex = BTreeMap<BindingId, BindingState>;
 
+/// Storage authority for one binding handle retained by a callable analysis.
+///
+/// Body-local handles are qualified by the owning [`CallableAnalysis`]. A
+/// module value keeps its canonical linker symbol and, for a selective
+/// import, the exact module-local import binding used to reach it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CallableBindingOrigin {
+    /// A lexical binding whose storage belongs to this callable body.
+    BodyLocal,
+    /// A module-owned global value seeded into this callable's lexical scope.
+    ModuleValue {
+        /// Canonical storage identity shared by declarations and imported aliases.
+        symbol: phalcom_modules::linker::SymbolId,
+        /// Exact linked import slot, absent for a declaration owned by this module.
+        import: Option<phalcom_modules::linker::ImportBindingId>,
+    },
+}
+
+/// Storage-origin map keyed by body-local analysis handles.
+pub type CallableBindingOriginIndex = BTreeMap<BindingId, CallableBindingOrigin>;
+
 use crate::identity::{DeclarationId, ModuleId};
 
 /// Semantic dependency representing query-invalidating semantic consumption by a callable body.
@@ -559,6 +582,32 @@ pub enum CallableAnalysisStatus {
     Cancelled,
     BudgetExceeded,
     InternalFailure(AnalysisIncidentId),
+}
+
+impl CallableAnalysisStatus {
+    /// Returns whether this body analysis has reached the complete status.
+    ///
+    /// Artifact publication separately validates that the required body facts
+    /// are present and represented.
+    pub const fn is_complete(self) -> bool {
+        matches!(self, Self::Complete)
+    }
+}
+
+#[cfg(test)]
+mod callable_analysis_status_tests {
+    use super::CallableAnalysisStatus;
+    use crate::identity::InternalSemanticIncidentId;
+
+    #[test]
+    fn only_complete_callable_analysis_is_publishable() {
+        assert!(CallableAnalysisStatus::Complete.is_complete());
+        assert!(!CallableAnalysisStatus::Partial.is_complete());
+        assert!(!CallableAnalysisStatus::Blocked.is_complete());
+        assert!(!CallableAnalysisStatus::Cancelled.is_complete());
+        assert!(!CallableAnalysisStatus::BudgetExceeded.is_complete());
+        assert!(!CallableAnalysisStatus::InternalFailure(InternalSemanticIncidentId(0)).is_complete());
+    }
 }
 
 /// Exact semantic link from an explicit constructor-chain call to its target.
@@ -623,8 +672,16 @@ pub type SequenceLiteralResolutionIndex = BTreeMap<ExpressionId, SequenceLiteral
 pub struct CallableAnalysis {
     pub callable: CallableId,
     pub body_range: SourceRange,
+    /// Explicit source namespace when a callable body is checked against
+    /// declarations owned outside its callable shard (for example, the
+    /// synthetic module-body `<main>` analysis).
+    pub body_source_owner: Option<SourceOwner>,
     pub expressions: ExpressionAnalysisIndex,
     pub bindings: BindingAnalysisIndex,
+    /// Explicit storage authority for every binding state retained by this
+    /// callable. `BindingId` remains body-local even when its origin is a
+    /// module-owned global symbol.
+    pub binding_origins: CallableBindingOriginIndex,
     /// Canonical evidence-backed iteration facts consumed by core lowering.
     pub for_iteration_lanes: Arc<ForIterationLaneResolutionIndex>,
     /// Canonical evidence-backed positional expansion facts consumed by core lowering.

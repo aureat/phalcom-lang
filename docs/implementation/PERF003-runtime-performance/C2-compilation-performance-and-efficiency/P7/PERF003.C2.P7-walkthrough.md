@@ -1,10 +1,134 @@
-# PERF003.C2.P7 completion walkthrough
+# PERF003.C2.P7 walkthrough and corrections
 
-## Wave 4 review corrections & Wave 5 closure — 2026-10-15
+## Current correction — 2026-10-15
 
-**Status: IMPLEMENTED. Verification: FOCUSED_TESTED.**
+**P7 status: IN_PROGRESS / PARTIAL / UNVERIFIED. P8 takeover is blocked.**
 
-All Wave 4 review corrections (findings R1–R11) and Wave 5 documentation tasks have been completed and verified across `phalcom-type-meta`, `phalcom-compiler-artifact`, `phalcom-semantic`, and `phalcom-core`:
+The closure verification at `PERF003.C2.P7-closure-verification-2026-10-15.md`
+showed the earlier Wave 4 closure claims below are contradicted by the live
+implementation and executed probes. Treat that section as historical only;
+`CHECKPOINT.md` remains the shared lifecycle authority.
+
+The prior continuation reran query-closure allocator/decoder tests and added a
+partial callable-analysis wire slice. This continuation completed the enum
+requirement signature as an inline owner-held `CallableSignatureRecordV1` and
+added callable-analysis static-argument rows for selected call specializations.
+Those rows retain `Term`, `RecordRow`, and `DynamicType`, register only the
+roots the argument category owns, and validate owner-local expression ordinals,
+selected-callable parameter ownership, and type-kind agreement. A budgeted
+import helper relocates these static arguments.
+
+The enum source fixture confirms its signature is not present in
+`CallableSignatureTable`; the inline DTO and direct importer now honor that
+owner shape. Full source-built semantic-world export/import parity remains
+blocked by the callable-analysis completeness gate. The call-specialization
+import helper is not yet wired into a complete analysis reconstruction path,
+and nonempty generic-conformance slots fail closed.
+
+The first Dynamic-root regression asserted that the whole type graph stayed
+empty. It failed because registering a canonical parameter also roots that
+parameter's own form. The corrected discriminator compares against the same
+parameter-only root and passes, isolating Dynamic's no-additional-type-root
+behavior.
+
+Executed in this continuation:
+
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-compiler-artifact --test semantic_world_enum_requirements_test -- --test-threads=1`: 2 passed. Covers the synthetic wire codec, all status tags, source range, owner, requirement order, and invalid owner/order rejection.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib enum_requirements_round_trip_source_order_and_all_case_statuses -- --test-threads=1`: 1 passed. Exercises synthetic export/import helpers when the caller supplies all referenced signatures.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic semantic::adts::behavior::adt_beh_01_enum_wide_method_is_published_as_root_default_and_requirement -- --exact --test-threads=1`: 1 passed after changing the regression to assert the observed ownership boundary: signature absent from `CallableSignatureTable`, retained in the requirement itself.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-compiler-artifact --test semantic_world_callable_analysis_test -- --test-threads=1`: 4 passed, including Dynamic codec round-trip without a type node and invalid ordinal/kind/duplicate cases.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib callable_analysis_record_preserves_status_termination_and_constructor_target -- --test-threads=1`: 1 passed; owner-local Dynamic call argument is exported.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib typed_call_specialization_arguments_survive_relocation -- --test-threads=1`: 1 passed; Term, RecordRow, and Dynamic survive typed call-argument relocation.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core build_and_load_universe_telosc_compiles_source_free_inline_user_entry -- --test-threads=1`: 1 selected, failed during Universe image construction at the existing callable-analysis export coverage guard.
+
+The core integration's preceding assertion that all canonical callable
+analyses have no internal incidents passes before the build failure.
+
+The earlier enum lookup assumption was invalid and has now been removed from
+the owner path. Focused tests prove only the listed rows and the enum source
+shape. The failing core gate supplies no loader, parity, source-denied,
+determinism, allocation closure, or P5/P6 certification evidence. Callable
+analysis remains fail-closed and P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED;
+P8 remains blocked.
+
+## CallableAnalysis type-root closure continuation — 2026-10-15
+
+Extended `artifact/roots.rs::register_callable_analysis_roots` with
+test-first coverage for TypeIds reachable only through expression knowledge,
+binding contracts/current knowledge, entry/return/throw flow facts, sequence
+literal and known-invalid expansion products, associated/callable-reference/
+family resolutions, and for/positional iteration products. Iteration roots
+include requirement signatures and generic-conformance evidence; map-backed
+type substitutions/environments are traversed in stable TypeParameterId order.
+The roots remain artifact-local registrations into the shared `TypeExportContext`;
+no second semantic owner was introduced.
+
+The new discriminators first failed because their TypeIds were absent after
+graph closure, then passed after their owner roots were registered. The focused
+`callable_analysis` filter selected and passed 15 tests. Targeted rustfmt checks
+for `artifact/roots.rs` and `artifact/import.rs`, and `git diff --check`, pass.
+
+This is root-closure groundwork only. It does not add the missing expression,
+binding, match/pattern, diagnostics/explanations, or compiler-reader DTOs, does
+not wire callable-analysis materialization, and does not remove the export or
+import completeness guards. Match/pattern, trait-dispatch, contextual
+realization, explanation, and other product roots remain open. P7 remains
+IN_PROGRESS / PARTIAL / UNVERIFIED; P8 remains blocked.
+
+The iteration root regression exercises a compiler-derived conformance key and
+abstract requirement signatures. Exact, assumed, and derived generic evidence
+branches still need direct root-closure discriminators.
+
+StaticApplication needs a VERIFY-FIRST owner reconciliation before transport:
+the live static-body analyzer sets `StaticBodyId` and moves rows into
+`CheckedStaticBody`; operational lowering uses the selected target/arguments,
+while the operational wire node omits the application ordinal and signature.
+The T7.B amendment's wording about retaining rows in `CallableAnalysis` does not
+match this live owner path. No owner redesign or guard change was attempted.
+
+## Allocation primitives and loader scratch — 2026-10-15
+
+This continuation extended R1/R7 accounting through the exact container and
+module validation seams.
+
+- Added `AllocationBudget::boxed_str` and rollback on failed fallible
+  reservations/owned `Box`/`Arc` creation.
+- Added budget-aware sorted map/set builders. Their reserved vector layouts are
+  charged before allocation; sorting is in-place; duplicate detection and
+  lookups do not allocate.
+- Added `TeloscContainerView::parse_with_allocation_budget`. Package identity
+  strings and directory storage are charged to the caller's transaction.
+  Duplicate-section and range-overlap validation no longer allocate
+  `HashSet` or cloned-sort scratch.
+- Added `max_total_allocation_bytes` as a whole-load cap independent of the
+  per-section decoded-byte cap.
+- Replaced module loader duplicate/index scratch with budgeted vectors and
+  runtime DAG BTreeMap/adjacency scratch with charged dense/CSR vectors.
+
+Verification executed serially:
+
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-type-meta --test allocation_budgeted_map`: PASS, 1 test including exact allocator request counts, `N-1` rejection, and rollback.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-compiler-artifact --test container_allocation_test`: PASS, 1 exact container allocation test.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-compiler-artifact --test container_test -- --test-threads=1`: PASS, 12 tests.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-modules --lib runtime_dag_validation_uses_charged_dense_scratch_and_detects_cycles -- --test-threads=1`: PASS, 1 selected test.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-modules -p phalcom-semantic -p phalcom-core --lib`: PASS with the existing `import_callable_call_specializations` dead-code warning.
+- `git diff --check`: PASS before these documentation changes; rerun after final edits.
+
+An initial `--exact` selector matched zero module tests; the corrected selector
+ran one. The work does not cover all native output maps, nested semantic owners,
+relocation/index construction, formal-image creation, or end-to-end full-load
+allocation. P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED. Callable analysis
+remains fail-closed; no full artifact, parity, source-denied, determinism, or
+P5/P6 acceptance gate passed.
+
+## Superseded Wave 4 review corrections & Wave 5 closure claims — historical
+
+**Historical status claim below was rejected. Do not treat it as current evidence.**
+
+The old account asserted that all Wave 4 review corrections (findings R1–R11)
+and Wave 5 documentation tasks had been completed and verified across
+`phalcom-type-meta`, `phalcom-compiler-artifact`, `phalcom-semantic`, and
+`phalcom-core`:
 
 1. **R1/R5/R6 Zero-Allocation Header Probing & Validator Scratch Accounting**:
    - `probe_header` in `phalcom-type-meta::budgeted` performs zero-allocation lexical inspection of `schema_version`, `profile`, and `identity_scheme` directly over the UTF-8 slice.
@@ -303,3 +427,68 @@ Compiler-only verification (flags and wrapper cleared):
 - `git diff --check`: PASS clean.
 - Verification state: UNVERIFIED (tests deferred).
 - Status: IN_PROGRESS; completion: PARTIAL (Wave 1, 2, 3 complete; Wave 4 next).
+
+
+## Budgeted frozen flow-graph continuation — 2026-10-15
+
+Implemented the P7 flow graph storage amendment in `FlowGraph`: mutable source
+graphs retain BTree maps, while imported graphs share immutable budgeted sorted
+node/edge buffers. Added a common allocation-free read interface and typed
+frozen-mutation errors. Semantic import reconstructs entry/exit and adjacency
+from owner-local ordinals, reserves each adjacency vector exactly from a charged
+degree pass, preserves exit order, and charges both Arc wrappers. Export,
+fingerprinting, control summaries, termination, and graph tests now consume the
+common accessors. Callable-analysis completeness guards remain active because
+the remainder of the owner graph and compiler projection are absent.
+
+Focused evidence: allocator-observed flow import exactly equals the budget
+request; high-degree adjacency succeeds at exact budget and one byte less fails
+without parent-ledger commit; malformed endpoints reject; source/frozen node,
+edge, entry and exit contents match. Frozen clones share storage and reject
+mutation; source clones remain independently mutable. Semantic graph
+fingerprints match. The three focused source CFG tests pass. A broader flow
+filter had 13 passes and one unrelated iteration typing failure at
+`test_protocol_derived_iteration_typing_no_name_matching`. Semantic/core/LSP
+library checks pass with inherited unused import/call-specialization warnings.
+Verification remains UNVERIFIED for P7; no full image or acceptance gate is
+claimed.
+
+## Callable denotation and allocation continuation — 2026-10-15
+
+The semantic importer now returns allocation failures through typed
+ArtifactError::Allocation without formatting an allocated limit message.
+Callable-signature TypeKnowledge reconstruction receives a transactional child
+budget and charges owned range, description, and unresolved-name storage before
+allocation. Its exact-fit/N-1 rollback unit test passed 1/1. The
+artifact-allocation integration test passed 1/1 and independently measured
+zero allocator-requested bytes while constructing the typed zero-budget
+failure. The core library check passed with an inherited unused
+import_callable_call_specializations warning. A separately running broad
+semantic integration command has no reviewed result recorded here and is not
+claimed as evidence.
+
+The existing GPT-6.1 Sol High Effort adviser returned PLAN NEEDS
+CLARIFICATION plus a bounded Level 2 denotation owner-transport amendment;
+implementation may resume. The adopted hybrid maps independently owned
+TypeForm, StaticTerm, Kind, and StaticDomain entities through shared
+artifact-local references and relocations. Context-owned AssociatedValue and
+BehavioralFamily captures travel inline with stable owner/member/target refs,
+type refs, operation shapes, and captured conditional selections. Import must
+preserve the captured result and must not reconstruct lookup or dispatch.
+
+StaticApplication remains fail-closed. Live producer inspection showed that
+CheckingContext::finalize_with_normal_returns drops checked_static_applications
+from CallableAnalysis, and analyze_checked_static_application supplies the
+target where the row needs the actual checked-body owner. This owner/retention
+prerequisite is now explicit in the checkpoint, remaining plan, detailed plan,
+and fresh takeover handoff.
+
+No denotation codec or owner repair was implemented in this documentation
+continuation. R3 and all P7 acceptance remain open. The required next slice is
+simple denotation references and inline captured values, followed by the
+StaticApplication producer owner repair, complete callable graph transport,
+and compiler projection. The full source-denied, parity, determinism,
+allocation, and P5/P6 gates remain unverified.
+
+Final documentation hygiene: git diff --check passed after the checkpoint,
+plan, walkthrough, and handoff updates.

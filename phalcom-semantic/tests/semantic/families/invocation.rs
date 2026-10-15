@@ -208,14 +208,16 @@ fn qualified_module_value_dependencies_follow_reads_not_import_seeding_or_shadow
     let client = incremental_module_id("client");
     let client_source = r#"
 import .math as math
+from .math import value as imported_value
 class Client {
   @class used() { math.value }
   @class unused() { 1 }
   @class shadowed() { let math = 2; math }
+  @class selective() { imported_value }
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    session
+    let publication = session
         .update(module_value_input(&math, "let value = 1\nexport value\n", &client, client_source, 1))
         .expect("semantic test update should succeed");
 
@@ -245,6 +247,35 @@ class Client {
             "{owner} must not depend on module exports when the import is unused or shadowed"
         );
     }
+
+    let selective = CallableId::new(
+        DeclarationId::new(client.clone(), "Client".into()),
+        phalcom_common::selector::Selector::method("selective", []).expect("method selector"),
+        DispatchSide::Class,
+    );
+    let analysis = publication.snapshot.callable_analyses.get(&selective).expect("selective import body analysis");
+    let imported_symbol = phalcom_modules::linker::SymbolId {
+        module: math,
+        name: "value".into(),
+    };
+    let imported_binding = analysis
+        .binding_origins
+        .iter()
+        .find_map(|(binding, origin)| match origin {
+            phalcom_semantic::checker::analysis::CallableBindingOrigin::ModuleValue {
+                symbol,
+                import: Some(_),
+            } if symbol == &imported_symbol => Some(*binding),
+            _ => None,
+        })
+        .expect("selective alias retains its canonical remote symbol and import slot");
+    assert!(publication.snapshot.source_index.source_site_for_binding(&selective, imported_binding).is_none());
+    let read = analysis
+        .expressions
+        .values()
+        .find(|expression| expression.binding_read == Some(imported_binding))
+        .expect("read retains the imported body's binding handle");
+    assert_eq!(client_source.get(read.range.start..read.range.end), Some("imported_value"));
 }
 
 #[test]

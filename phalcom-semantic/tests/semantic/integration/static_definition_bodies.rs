@@ -230,6 +230,12 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
     assert_eq!(applied.static_applications.len(), 1);
     let application = &applied.static_applications[0];
     assert_eq!(application.target, fixture.decl("main", "Literal"));
+    assert_eq!(application.id.ordinal, 0);
+    assert_eq!(
+        application.id.body,
+        phalcom_semantic::static_definition::StaticBodyId(fixture.decl("main", "Applied")),
+        "application ordinals are qualified by the enclosing checked body, not the selected target"
+    );
     assert!(application.signature.parameters.is_empty());
     assert!(application.arguments.is_empty());
     assert!(applied.dependencies.iter().any(|dependency| matches!(
@@ -265,6 +271,12 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
     assert_eq!(applied_value.static_applications.len(), 1);
     let value_application = &applied_value.static_applications[0];
     assert_eq!(value_application.target, fixture.decl("main", "Identity"));
+    assert_eq!(value_application.id.ordinal, 0);
+    assert_eq!(
+        value_application.id.body,
+        phalcom_semantic::static_definition::StaticBodyId(fixture.decl("main", "AppliedValue")),
+        "overlapping application ordinals remain qualified by their actual checked-body owners"
+    );
     assert_eq!(value_application.signature.parameters.len(), 1);
     assert!(matches!(
         value_application.arguments.as_ref(),

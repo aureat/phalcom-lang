@@ -273,6 +273,14 @@ fn test_decision_engine_pure_cases() {
 
     let mut candidate = CandidateBinding {
         binding: BindingId(1),
+        identity: phalcom_core::modules::semantic_lowering::LoweringBindingIdentity::BodyLocal {
+            callable: phalcom_semantic::identity::CallableId::method(
+                DeclarationId::new(phalcom_modules::ModuleId::universe_root(), "OptimizerTest".into()),
+                phalcom_common::selector::Selector::getter("body").unwrap(),
+                phalcom_semantic::identity::DispatchSide::Instance,
+            ),
+            binding: BindingId(1),
+        },
         name: "pt".to_string(),
         range: SourceRange::new(0, 0),
         mutable: false,

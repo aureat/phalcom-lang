@@ -23,10 +23,14 @@ impl TypeEnvironment {
     }
 
     pub fn bind_param(&mut self, param: TypeParameterId, ty: TypeId) {
+        self.dynamic_bindings.remove(&param);
+        self.row_bindings.remove(&param);
         self.bindings.insert(param, ty);
     }
 
     pub fn bind_dynamic(&mut self, param: TypeParameterId) {
+        self.bindings.remove(&param);
+        self.row_bindings.remove(&param);
         self.dynamic_bindings.insert(param);
     }
 
@@ -35,7 +39,19 @@ impl TypeEnvironment {
     }
 
     pub fn bind_row(&mut self, param: TypeParameterId, row: RecordRowId) {
+        self.bindings.remove(&param);
+        self.dynamic_bindings.remove(&param);
         self.row_bindings.insert(param, row);
+    }
+
+    /// Returns the one canonical argument category bound to `param`, if any.
+    pub fn argument(&self, param: TypeParameterId) -> Option<super::store::StaticArgument> {
+        self.bindings
+            .get(&param)
+            .copied()
+            .map(super::store::StaticArgument::Term)
+            .or_else(|| self.dynamic_bindings.contains(&param).then_some(super::store::StaticArgument::DynamicType))
+            .or_else(|| self.row_bindings.get(&param).copied().map(super::store::StaticArgument::RecordRow))
     }
 
     pub fn bind_self(&mut self, ty: TypeId) {
@@ -73,6 +89,9 @@ impl TypeEnvironment {
         }
         for (&parameter, &row) in &self.row_bindings {
             instantiation.bind_row(parameter, row);
+        }
+        for &parameter in &self.dynamic_bindings {
+            instantiation.bind_dynamic(parameter);
         }
         instantiation
     }

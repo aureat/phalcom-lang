@@ -7,6 +7,7 @@
 pub use phalcom_native_meta::*;
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::sync::OnceLock;
 
 /// Native member category.
@@ -198,17 +199,28 @@ pub fn native_surfaces_for_owner(owner: UniverseKey) -> impl Iterator<Item = &'s
 /// are not part of `PrimitiveSurfaceSpec` and therefore cannot affect this
 /// value.
 pub fn catalog_fingerprint() -> NativeCatalogFingerprint {
-    NATIVE_SURFACE_CATALOG.fingerprint()
+    static FINGERPRINT: OnceLock<NativeCatalogFingerprint> = OnceLock::new();
+    *FINGERPRINT.get_or_init(|| NATIVE_SURFACE_CATALOG.fingerprint())
 }
 
 pub fn catalog_fingerprint_for(records: &[NativeSurfaceRecord]) -> NativeCatalogFingerprint {
-    let mut ordered: Vec<&NativeSurfaceRecord> = records.iter().collect();
-    ordered.sort_by_key(|record| record.surface.key.sort_key());
-
     let mut left = 0xcbf29ce484222325_u64;
     let mut right = 0x84222325cbf29ce4_u64;
-    for record in ordered {
-        let structural = format!(
+    let mut previous_key = None;
+    for _ in 0..records.len() {
+        // Catalog keys are unique (validated by `validate_native_surface_catalog`).
+        // Repeated selection preserves the historical sorted byte stream without
+        // allocating a sorted index during source-free artifact loading.
+        let Some(record) = records
+            .iter()
+            .filter(|record| previous_key.map_or(true, |key| record.surface.key.sort_key() > key))
+            .min_by_key(|record| record.surface.key.sort_key())
+        else {
+            break;
+        };
+        let mut writer = FingerprintWriter { left: &mut left, right: &mut right };
+        std::write!(
+            writer,
             "{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
             record.surface.key.owner,
             record.surface.key.side,
@@ -230,18 +242,31 @@ pub fn catalog_fingerprint_for(records: &[NativeSurfaceRecord]) -> NativeCatalog
             record.surface.conceptual,
             record.abi,
             record.return_shape,
-        );
-        for byte in structural.as_bytes() {
-            left ^= u64::from(*byte);
-            left = left.wrapping_mul(0x100000001b3);
-            right ^= u64::from(*byte).rotate_left(1);
-            right = right.wrapping_mul(0x9e3779b185ebca87);
-        }
+        )
+        .expect("writing a fingerprint cannot fail");
+        previous_key = Some(record.surface.key.sort_key());
     }
     let mut bytes = [0_u8; 16];
     bytes[..8].copy_from_slice(&left.to_le_bytes());
     bytes[8..].copy_from_slice(&right.to_le_bytes());
     NativeCatalogFingerprint(bytes)
+}
+
+struct FingerprintWriter<'a> {
+    left: &'a mut u64,
+    right: &'a mut u64,
+}
+
+impl std::fmt::Write for FingerprintWriter<'_> {
+    fn write_str(&mut self, value: &str) -> std::fmt::Result {
+        for byte in value.as_bytes() {
+            *self.left ^= u64::from(*byte);
+            *self.left = self.left.wrapping_mul(0x100000001b3);
+            *self.right ^= u64::from(*byte).rotate_left(1);
+            *self.right = self.right.wrapping_mul(0x9e3779b185ebca87);
+        }
+        Ok(())
+    }
 }
 
 /// Validates intrinsic declarations against their legal fallback selectors.

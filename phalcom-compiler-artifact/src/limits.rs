@@ -4,6 +4,8 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ValidationLimits {
     pub max_artifact_bytes: u64,
+    /// Cumulative allocator-requested byte limit for one complete artifact load.
+    pub max_total_allocation_bytes: u64,
     pub max_section_count: usize,
     pub max_encoded_section_bytes: u64,
     pub max_decoded_section_bytes: u64,
@@ -23,11 +25,12 @@ pub struct ValidationLimits {
 impl Default for ValidationLimits {
     fn default() -> Self {
         Self {
-            max_artifact_bytes: 256 * 1024 * 1024, // 256 MiB
+            max_artifact_bytes: 256 * 1024 * 1024,         // 256 MiB
+            max_total_allocation_bytes: 512 * 1024 * 1024, // 512 MiB
             max_section_count: 64,
             max_encoded_section_bytes: 128 * 1024 * 1024, // 128 MiB
             max_decoded_section_bytes: 256 * 1024 * 1024, // 256 MiB
-            max_string_bytes: 16 * 1024 * 1024,          // 16 MiB
+            max_string_bytes: 16 * 1024 * 1024,           // 16 MiB
             max_modules: 10_000,
             max_type_nodes: 1_000_000,
             max_kind_nodes: 1_000_000,

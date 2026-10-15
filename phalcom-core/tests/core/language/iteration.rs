@@ -31,7 +31,9 @@ fn range_iterator_take_infers_and_publishes_specialized_constructor_result() {
     let specialization = constructor_call.call_specialization.as_ref().expect("generic constructor specialization");
     assert_eq!(&specialization.callable, constructor_callable);
     assert_eq!(specialization.bindings.len(), 1);
-    let (_, iterator_type) = specialization.bindings[0];
+    let (_, phalcom_semantic::types::store::StaticArgument::Term(iterator_type)) = specialization.bindings[0] else {
+        panic!("iterator constructor specialization must carry a proper type term")
+    };
     assert_eq!(analyzed.semantic.store.format_type(iterator_type), "RangeIterator");
 
     let constructor_result = constructor_call.knowledge.ty().expect("known specialized constructor result");

@@ -99,9 +99,11 @@ fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
 
     let leaf_analysis = CallableAnalysis {
         callable: leaf_id.clone(),
+        body_source_owner: None,
         body_range: RANGE,
         expressions: leaf_exprs,
         bindings: BTreeMap::new(),
+        binding_origins: BTreeMap::new(),
         for_iteration_lanes: Arc::new(BTreeMap::new()),
         positional_expansions: Arc::new(BTreeMap::new()),
         known_invalid_positional_expansions: Arc::new(BTreeMap::new()),
@@ -128,9 +130,11 @@ fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
 
     let caller_analysis = CallableAnalysis {
         callable: caller_id.clone(),
+        body_source_owner: None,
         body_range: RANGE,
         expressions: BTreeMap::new(),
         bindings: BTreeMap::new(),
+        binding_origins: BTreeMap::new(),
         for_iteration_lanes: Arc::new(BTreeMap::new()),
         positional_expansions: Arc::new(BTreeMap::new()),
         known_invalid_positional_expansions: Arc::new(BTreeMap::new()),
@@ -172,11 +176,11 @@ fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
 fn test_matrix_3_termination_and_control_facts() {
     let cid = test_callable_id("terminating_fn");
     let mut graph = FlowGraph::new();
-    let entry = graph.add_node(FlowNodeKind::Entry, RANGE);
-    let exit = graph.add_node(FlowNodeKind::Exit, RANGE);
-    graph.entry = Some(entry);
-    graph.exits.push(exit);
-    graph.add_edge(entry, exit, None);
+    let entry = graph.add_node(FlowNodeKind::Entry, RANGE).unwrap();
+    let exit = graph.add_node(FlowNodeKind::Exit, RANGE).unwrap();
+    graph.try_set_entry(Some(entry)).unwrap();
+    graph.try_push_exit(exit).unwrap();
+    graph.add_edge(entry, exit, None).unwrap();
 
     let facts = ControlFacts::from_flow_graph(&graph);
     assert!(facts.may_return_normally);
@@ -184,9 +188,11 @@ fn test_matrix_3_termination_and_control_facts() {
 
     let analysis = CallableAnalysis {
         callable: cid.clone(),
+        body_source_owner: None,
         body_range: RANGE,
         expressions: BTreeMap::new(),
         bindings: BTreeMap::new(),
+        binding_origins: BTreeMap::new(),
         for_iteration_lanes: Arc::new(BTreeMap::new()),
         positional_expansions: Arc::new(BTreeMap::new()),
         known_invalid_positional_expansions: Arc::new(BTreeMap::new()),
@@ -282,9 +288,11 @@ fn test_matrix_5_invariants_hold_across_boundaries() {
     );
     let analysis = CallableAnalysis {
         callable: cid.clone(),
+        body_source_owner: None,
         body_range: RANGE,
         expressions: exprs,
         bindings: BTreeMap::new(),
+        binding_origins: BTreeMap::new(),
         for_iteration_lanes: Arc::new(BTreeMap::new()),
         positional_expansions: Arc::new(BTreeMap::new()),
         known_invalid_positional_expansions: Arc::new(BTreeMap::new()),

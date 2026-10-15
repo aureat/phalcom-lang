@@ -6,19 +6,14 @@ use crate::db::product::{CallableSignatureProduct, DeclarationSurfaceProduct, Se
 use crate::db::{DependencyEdge, InputFingerprint, ProductFingerprint};
 use crate::metadata::stable_identity::{from_stable_callable, from_stable_declaration, from_stable_field};
 use crate::snapshot::SemanticSnapshot;
-use phalcom_compiler_artifact::query::{
-    PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryProfileSupport,
-};
-use phalcom_compiler_artifact::{ArtifactError, ValidationError};
+use phalcom_compiler_artifact::ArtifactError;
+use phalcom_compiler_artifact::error::QueryImageError;
+use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryProfileSupport};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{StableCallableRef, StableDeclarationRef, StableFieldRef};
 use serde::de::DeserializeOwned;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
-
-fn invalid(message: impl Into<String>) -> ArtifactError {
-    ValidationError::ReferentialIntegrity(message.into()).into()
-}
 
 fn incomplete(message: impl Into<String>) -> CanonicalImageError {
     CanonicalImageError::IncompletePublication(message.into())
@@ -26,45 +21,99 @@ fn incomplete(message: impl Into<String>) -> CanonicalImageError {
 
 /// Validates that `QueryImageV1` contains no source-dependent roots, has closed
 /// acyclic dependencies, and separates aggregate dependency evidence (`P7.T9`).
-pub fn validate_query_image_closure(image: &QueryImageV1) -> Result<BTreeSet<PortableQueryKeyV1>, ArtifactError> {
-    let mut retained = BTreeSet::new();
+/// Scratch is charged against the caller's load transaction before allocation.
+pub fn validate_query_image_closure_with_allocation_budget(
+    image: &QueryImageV1,
+    limits: &phalcom_compiler_artifact::ValidationLimits,
+    transaction: &mut AllocationBudget,
+) -> Result<(), ArtifactError> {
     let len = image.supported_roots.len();
+    let root_limit = limits.max_semantic_entries_per_family.min(limits.max_query_roots);
+    if len > root_limit {
+        return Err(QueryImageError::CountLimitExceeded.into());
+    }
+
     for (idx, root) in image.supported_roots.iter().enumerate() {
         if root.key.kind.profile_support() != QueryProfileSupport::SupportedReusableRoot {
-            return Err(invalid("unsupported or source-dependent query root in QueryImageV1"));
+            return Err(QueryImageError::UnsupportedRoot.into());
         }
-        if !retained.insert(root.key.clone()) {
-            return Err(invalid("duplicate query root key in QueryImageV1"));
+        if root.dependency_indices.len() > limits.max_query_dependencies_per_root {
+            return Err(QueryImageError::CountLimitExceeded.into());
         }
         for &dep in &root.dependency_indices {
-            if (dep as usize) >= len || (dep as usize) == idx {
-                return Err(invalid("out-of-bounds or self-referential query dependency index"));
+            let dep = usize::try_from(dep).map_err(|_| QueryImageError::InvalidDependencyIndex)?;
+            if dep >= len || dep == idx {
+                return Err(QueryImageError::InvalidDependencyIndex.into());
             }
         }
     }
-    let mut pending: BTreeSet<usize> = (0..len).collect();
-    loop {
-        let leaves = pending
-            .iter()
-            .copied()
-            .filter(|&i| image.supported_roots[i].dependency_indices.iter().all(|&d| !pending.contains(&(d as usize))))
-            .collect::<Vec<_>>();
-        if leaves.is_empty() {
-            break;
-        }
-        for leaf in leaves {
-            pending.remove(&leaf);
-        }
-    }
-    if !pending.is_empty() {
-        return Err(invalid("cyclic dependency in QueryImageV1"));
-    }
+
     for evidence in &image.dependency_evidence {
         if evidence.key.kind.profile_support() == QueryProfileSupport::OmittedSourceDependent {
-            return Err(invalid("ParsedModule cannot appear in dependency evidence"));
+            return Err(QueryImageError::SourceDependentEvidence.into());
         }
     }
-    Ok(retained)
+
+    let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| AllocationError::Overflow)?;
+    let mut scratch = transaction.child(section_limit);
+    let mut ordered_keys = scratch.vector::<&PortableQueryKeyV1>(len).map_err(ArtifactError::from)?;
+    for root in &image.supported_roots {
+        ordered_keys.push(&root.key);
+    }
+
+    ordered_keys.sort_unstable();
+    if ordered_keys.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(QueryImageError::DuplicateRoot.into());
+    }
+
+    let mut colors = scratch.vector::<u8>(len).map_err(ArtifactError::from)?;
+    colors.resize(len, 0);
+    let mut stack = scratch.vector::<(usize, usize)>(len).map_err(ArtifactError::from)?;
+
+    // Iterative three-color DFS is O(V + E), bounded by the root count, and
+    // avoids recursion and repeated whole-graph leaf scans for untrusted input.
+    for start in 0..len {
+        if colors[start] != 0 {
+            continue;
+        }
+        colors[start] = 1;
+        stack.push((start, 0));
+
+        while let Some(&(node, next_dependency)) = stack.last() {
+            let dependencies = &image.supported_roots[node].dependency_indices;
+            if next_dependency == dependencies.len() {
+                colors[node] = 2;
+                stack.pop();
+                continue;
+            }
+
+            let dependency = usize::try_from(dependencies[next_dependency]).map_err(|_| QueryImageError::InvalidDependencyIndex)?;
+            let Some(frame) = stack.last_mut() else {
+                break;
+            };
+            frame.1 = next_dependency.checked_add(1).ok_or(AllocationError::Overflow)?;
+
+            match colors[dependency] {
+                1 => return Err(QueryImageError::DependencyCycle.into()),
+                2 => {}
+                _ => {
+                    colors[dependency] = 1;
+                    stack.push((dependency, 0));
+                }
+            }
+        }
+    }
+
+    transaction.commit_child(scratch).map_err(ArtifactError::from)?;
+    Ok(())
+}
+
+/// Validates the query closure using a local bounded allocation budget.
+pub fn validate_query_image_closure(image: &QueryImageV1) -> Result<(), ArtifactError> {
+    let limits = phalcom_compiler_artifact::ValidationLimits::default();
+    let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| AllocationError::Overflow)?;
+    let mut budget = AllocationBudget::new(section_limit);
+    validate_query_image_closure_with_allocation_budget(image, &limits, &mut budget)
 }
 
 fn decode_owner<T: DeserializeOwned>(key: &PortableQueryKeyV1, tag: &str) -> Result<T, CanonicalImageError> {
@@ -336,7 +385,7 @@ pub fn reconstruct_query_image_with_allocation_budget(
     let section_limit = usize::try_from(limits.max_decoded_section_bytes)
         .map_err(|_| allocation_error(AllocationError::Overflow))?;
     let mut allocations = transaction.child(section_limit);
-    let reconstructed = reconstruct_query_image_inner(image, snapshot, world, modules, &mut allocations)?;
+    let reconstructed = reconstruct_query_image_inner(image, snapshot, world, modules, limits, &mut allocations)?;
     transaction
         .commit_child(allocations)
         .map_err(allocation_error)?;
@@ -344,11 +393,7 @@ pub fn reconstruct_query_image_with_allocation_budget(
 }
 
 fn allocation_error(error: AllocationError) -> CanonicalImageError {
-    incomplete(match error {
-        AllocationError::Exhausted => "query reconstruction allocation budget exceeded",
-        AllocationError::Overflow => "query reconstruction allocation layout overflow",
-        AllocationError::Failed => "query reconstruction allocation failed",
-    })
+    CanonicalImageError::Artifact(ArtifactError::Allocation(error))
 }
 
 fn reconstruct_query_image_inner(
@@ -356,9 +401,10 @@ fn reconstruct_query_image_inner(
     snapshot: &Arc<SemanticSnapshot>,
     world: &CanonicalSemanticWorldId,
     modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,
+    limits: &phalcom_compiler_artifact::ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<(Arc<CanonicalSemanticQueryImage>, BTreeMap<QueryKey, ProductFingerprint>), CanonicalImageError> {
-    validate_query_image_closure(image).map_err(|error| incomplete(error.to_string()))?;
+    validate_query_image_closure_with_allocation_budget(image, limits, allocations)?;
 
     let mut roots = allocations
         .vector::<(QueryKey, Arc<SemanticProduct>, ProductFingerprint, InputFingerprint)>(image.supported_roots.len())

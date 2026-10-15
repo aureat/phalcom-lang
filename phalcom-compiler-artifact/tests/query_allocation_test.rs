@@ -1,8 +1,7 @@
+use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::limits::ValidationLimits;
-use phalcom_compiler_artifact::query::{
-    PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1,
-};
-use phalcom_type_meta::allocation::AllocationBudget;
+use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -58,6 +57,7 @@ fn query_decode_rejects_before_vector_allocation_when_transaction_is_too_small()
     let allocated = ALLOCATED.load(Ordering::Relaxed) - before;
 
     assert!(result.is_err());
+    assert!(matches!(result, Err(ArtifactError::Allocation(AllocationError::Exhausted))));
     assert_eq!(transaction.requested(), 0, "failed child decode must not commit");
     assert!(allocated < 1024, "rejected decode allocated {allocated} bytes");
 }
@@ -71,7 +71,7 @@ fn query_decode_enforces_section_limit_independently_of_transaction_budget() {
     let mut transaction = AllocationBudget::new(1024 * 1024);
     let result = QueryImageV1::decode_with_allocation_budget(&bytes, &limits, &mut transaction);
 
-    assert!(result.is_err());
+    assert!(matches!(result, Err(ArtifactError::Allocation(AllocationError::Exhausted))));
     assert_eq!(transaction.requested(), 0, "failed child decode must not commit");
 }
 

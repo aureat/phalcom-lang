@@ -12,6 +12,15 @@ pub enum RuntimeTypeRecipe {
     Template(RuntimeTypeRef),
 }
 
+/// Typed argument carried across generic call entry. Dynamic remains an
+/// explicit boundary and is never represented by an absent type recipe.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum RuntimeCallArgumentRecipe {
+    Term(RuntimeTypeRecipe),
+    RecordRow(crate::typing::overlay::RuntimeRecordRow),
+    DynamicType,
+}
+
 /// Executable recipe for one generic conformance evidence slot at call entry.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RuntimeConformanceSlotRecipe {
@@ -35,7 +44,7 @@ pub enum RuntimeConformanceSlotRecipe {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RuntimeCallEnvironmentRecipe {
     pub callable: StableCallableRef,
-    pub bindings: Box<[(StableTypeParameterRef, RuntimeTypeRecipe)]>,
+    pub bindings: Box<[(StableTypeParameterRef, RuntimeCallArgumentRecipe)]>,
     pub conformance_slots: Box<[RuntimeConformanceSlotRecipe]>,
 }
 
@@ -51,12 +60,12 @@ impl RuntimeTypeEnvironmentId {
 /// A compact, immutable generic substitution environment.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RuntimeTypeEnvironment {
-    /// Canonical parameter -> runtime type bindings, kept sorted by parameter identity.
-    pub bindings: Box<[(StableTypeParameterRef, RuntimeTypeRef)]>,
+    /// Canonical parameter -> tagged static argument, kept sorted by identity.
+    pub bindings: Box<[(StableTypeParameterRef, crate::typing::overlay::RuntimeStaticArgument)]>,
 }
 
 impl RuntimeTypeEnvironment {
-    pub fn new(mut bindings: Vec<(StableTypeParameterRef, RuntimeTypeRef)>) -> Self {
+    pub fn new(mut bindings: Vec<(StableTypeParameterRef, crate::typing::overlay::RuntimeStaticArgument)>) -> Self {
         bindings.sort_by(|(a, _), (b, _)| a.cmp(b));
         Self {
             bindings: bindings.into_boxed_slice(),
@@ -64,7 +73,14 @@ impl RuntimeTypeEnvironment {
     }
 
     pub fn get(&self, param: &StableTypeParameterRef) -> Option<RuntimeTypeRef> {
-        self.bindings.binary_search_by(|(p, _)| p.cmp(param)).ok().map(|idx| self.bindings[idx].1)
+        match self.get_argument(param)? {
+            crate::typing::overlay::RuntimeStaticArgument::Term(ty) => Some(*ty),
+            crate::typing::overlay::RuntimeStaticArgument::RecordRow(_) | crate::typing::overlay::RuntimeStaticArgument::DynamicType => None,
+        }
+    }
+
+    pub fn get_argument(&self, param: &StableTypeParameterRef) -> Option<&crate::typing::overlay::RuntimeStaticArgument> {
+        self.bindings.binary_search_by(|(p, _)| p.cmp(param)).ok().map(|idx| &self.bindings[idx].1)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -145,7 +161,7 @@ fn instantiate_type_ref(
                     for arg in arguments.iter() {
                         new_args.push(match arg {
                             crate::typing::overlay::RuntimeStaticArgument::Term(arg) => {
-                                crate::typing::overlay::RuntimeStaticArgument::Term(instantiate_type_ref(*arg, env, context, registry, depth + 1)?)
+                                instantiate_static_argument(*arg, env, context, registry, depth + 1)?
                             }
                             crate::typing::overlay::RuntimeStaticArgument::RecordRow(row) => {
                                 crate::typing::overlay::RuntimeStaticArgument::RecordRow(instantiate_record_row(row, env, context, registry, depth + 1)?)
@@ -233,11 +249,15 @@ fn instantiate_type_ref(
                     // Degrade to Dynamic: the correct erasure fallback. Dynamic dispatch is
                     // always by selector, never by the value of a type argument, so the
                     // missing binding does not affect correctness of the call itself.
-                    Some(env.get(param).unwrap_or_else(|| {
-                        context
-                            .overlay
-                            .type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Special("Dynamic".into()))
-                    }))
+                    match env.get_argument(param) {
+                        Some(crate::typing::overlay::RuntimeStaticArgument::Term(bound)) => Some(*bound),
+                        Some(crate::typing::overlay::RuntimeStaticArgument::RecordRow(_) | crate::typing::overlay::RuntimeStaticArgument::DynamicType) => None,
+                        None => Some(
+                            context
+                                .overlay
+                                .type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Special("Dynamic".into())),
+                        ),
+                    }
                 }
                 phalcom_type_meta::type_node::TypeNode::Nominal { .. }
                 | phalcom_type_meta::type_node::TypeNode::Never
@@ -255,9 +275,13 @@ fn instantiate_type_ref(
                     let mut new_args = Vec::with_capacity(arguments.len());
                     for arg in arguments.iter() {
                         new_args.push(match arg {
-                            phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) => crate::typing::overlay::RuntimeStaticArgument::Term(
-                                instantiate_type_ref(RuntimeTypeRef::Base { pool, node: *arg }, env, context, registry, depth + 1)?,
-                            ),
+                            phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) => instantiate_static_argument(
+                                RuntimeTypeRef::Base { pool, node: *arg },
+                                env,
+                                context,
+                                registry,
+                                depth + 1,
+                            )?,
                             phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) => {
                                 let mut fields = Vec::with_capacity(row.fields.len());
                                 for field in row.fields.iter() {
@@ -376,6 +400,43 @@ fn instantiate_type_ref(
             }
         }
     }
+}
+
+fn instantiate_static_argument(
+    ty: RuntimeTypeRef,
+    env: &RuntimeTypeEnvironment,
+    context: &mut crate::typing::context::TypingContextData,
+    registry: &crate::typing::registry::RuntimeTypingRegistry,
+    depth: usize,
+) -> Option<crate::typing::overlay::RuntimeStaticArgument> {
+    if let RuntimeTypeRef::Base { pool, node } = ty
+        && let Some(parameter) = registry
+            .get_pool(pool)
+            .and_then(|loaded| loaded.bundle.types.get(node.0 as usize))
+            .and_then(|entry| match &entry.form {
+                phalcom_type_meta::type_node::TypeNode::Parameter(parameter) => Some(parameter),
+                _ => None,
+            })
+    {
+        return match env.get_argument(parameter) {
+            Some(crate::typing::overlay::RuntimeStaticArgument::Term(bound)) => Some(crate::typing::overlay::RuntimeStaticArgument::Term(*bound)),
+            Some(crate::typing::overlay::RuntimeStaticArgument::RecordRow(row)) => Some(crate::typing::overlay::RuntimeStaticArgument::RecordRow(row.clone())),
+            Some(crate::typing::overlay::RuntimeStaticArgument::DynamicType) => Some(crate::typing::overlay::RuntimeStaticArgument::DynamicType),
+            None => Some(crate::typing::overlay::RuntimeStaticArgument::Term(instantiate_type_ref(ty, env, context, registry, depth)?)),
+        };
+    }
+    Some(crate::typing::overlay::RuntimeStaticArgument::Term(instantiate_type_ref(
+        ty, env, context, registry, depth,
+    )?))
+}
+
+pub fn instantiate_runtime_record_row(
+    row: &crate::typing::overlay::RuntimeRecordRow,
+    env: &RuntimeTypeEnvironment,
+    context: &mut crate::typing::context::TypingContextData,
+    registry: &crate::typing::registry::RuntimeTypingRegistry,
+) -> Option<crate::typing::overlay::RuntimeRecordRow> {
+    instantiate_record_row(row, env, context, registry, 0)
 }
 
 fn instantiate_record_row(
@@ -573,11 +634,67 @@ mod tests {
             index: 0,
         };
         let int_ty = RuntimeTypeRef::Overlay(crate::typing::handle::RuntimeOverlayTypeId(1));
-        let env = RuntimeTypeEnvironment::new(vec![(param.clone(), int_ty)]);
+        let env = RuntimeTypeEnvironment::new(vec![(param.clone(), RuntimeStaticArgument::Term(int_ty))]);
 
         let id = registry.intern(env.clone());
         assert_eq!(registry.intern(env), id);
         assert_eq!(registry.get(id).unwrap().get(&param), Some(int_ty));
+    }
+
+    #[test]
+    fn explicit_dynamic_environment_binding_is_distinct_from_missing() {
+        let mut registry = RuntimeTypeEnvironmentRegistry::new();
+        let parameter = StableTypeParameterRef {
+            owner: StableTypeParameterOwnerRef::Declaration(StableDeclarationRef {
+                module: StableModuleRef {
+                    project: StableProjectRef::Builtin {
+                        namespace: "core".into(),
+                        version: "1.0.0".into(),
+                    },
+                    path: Box::new(["runtime-dynamic-test".into()]),
+                },
+                path: Box::new(["Box".into()]),
+            }),
+            index: 0,
+        };
+        let missing = registry.intern(RuntimeTypeEnvironment::new(Vec::new()));
+        let dynamic = registry.intern(RuntimeTypeEnvironment::new(vec![(parameter.clone(), RuntimeStaticArgument::DynamicType)]));
+
+        assert_ne!(missing, dynamic);
+        assert_eq!(registry.get(dynamic).unwrap().get(&parameter), None);
+        assert_eq!(
+            registry.get(dynamic).unwrap().get_argument(&parameter),
+            Some(&RuntimeStaticArgument::DynamicType)
+        );
+    }
+
+    #[test]
+    fn explicit_dynamic_substitutes_nested_type_arguments_but_not_a_bare_term() {
+        let (bundle, parameter, _) = row_test_bundle();
+        let registry = row_test_registry(bundle);
+        let mut context = TypingContextData::new(Box::new([]));
+        let parameter_term = RuntimeTypeRef::Base {
+            pool: MetadataPoolId(0),
+            node: TypeNodeId(2),
+        };
+        let dynamic_env = RuntimeTypeEnvironment::new(vec![(parameter, RuntimeStaticArgument::DynamicType)]);
+        let bare_parameter = RuntimeTypeRecipe::Template(parameter_term);
+
+        assert_eq!(instantiate_type_recipe(bare_parameter, &dynamic_env, &mut context, &registry), None);
+
+        let origin = context.overlay.type_ref(RuntimeOverlayTypeNode::Nominal {
+            class: ObjRef::from_opaque_u64(104),
+        });
+        let applied = context.overlay.type_ref(RuntimeOverlayTypeNode::Applied {
+            origin,
+            arguments: Box::new([RuntimeStaticArgument::Term(parameter_term)]),
+        });
+        let specialized = instantiate_type_recipe(RuntimeTypeRecipe::Template(applied), &dynamic_env, &mut context, &registry)
+            .expect("proper applied type can carry Dynamic as an explicit static argument");
+        assert!(matches!(
+            crate::typing::inspect::static_arguments(&context, &registry, specialized).as_deref(),
+            Some([RuntimeStaticArgument::DynamicType])
+        ));
     }
 
     #[test]
@@ -612,8 +729,8 @@ mod tests {
         let string_ty = context.overlay.type_ref(RuntimeOverlayTypeNode::Nominal {
             class: ObjRef::from_opaque_u64(102),
         });
-        let int_env = RuntimeTypeEnvironment::new(vec![(parameter.clone(), int_ty)]);
-        let string_env = RuntimeTypeEnvironment::new(vec![(parameter.clone(), string_ty)]);
+        let int_env = RuntimeTypeEnvironment::new(vec![(parameter.clone(), RuntimeStaticArgument::Term(int_ty))]);
+        let string_env = RuntimeTypeEnvironment::new(vec![(parameter.clone(), RuntimeStaticArgument::Term(string_ty))]);
         let int_recipe = RuntimeTypeRecipe::Template(RuntimeTypeRef::Base {
             pool: MetadataPoolId(0),
             node: TypeNodeId(4),
@@ -772,7 +889,7 @@ mod tests {
         let int_ty = context.overlay.type_ref(RuntimeOverlayTypeNode::Nominal {
             class: ObjRef::from_opaque_u64(103),
         });
-        let env = RuntimeTypeEnvironment::new(vec![(parameter, int_ty)]);
+        let env = RuntimeTypeEnvironment::new(vec![(parameter, RuntimeStaticArgument::Term(int_ty))]);
         let open_recipe = RuntimeTypeRecipe::Template(RuntimeTypeRef::Base {
             pool: MetadataPoolId(0),
             node: TypeNodeId(5),

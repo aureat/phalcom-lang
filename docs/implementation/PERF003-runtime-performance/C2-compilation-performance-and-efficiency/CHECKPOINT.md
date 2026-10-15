@@ -21,15 +21,97 @@ latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ## Current P7 status — 2026-10-15
 
 Plan PERF003.C2.P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED. This continuation
-corrected source provenance, made metadata content preflight allocation-free,
-charged the module string copy before fallible allocation, and made query
-reconstruction reject absent products without echoing untrusted owner strings.
-The semantic wire schema still omits required compiler authority. Export now
-fails before producing a partial semantic image, and import promotes a
-snapshot to `Complete` only after its required-family check. These safeguards
-do not complete P7 or authorize P8 takeover. Focused library `cargo check`s
-pass for `phalcom-compiler-artifact`, `phalcom-semantic`, and `phalcom-core`;
-no tests, runtime probes, or certification gates were run in this continuation.
+added fallible `boxed_str` allocation and transactional budget rollback,
+budget-aware ordered map/set builders, and allocator-counting probes. Container
+package identity strings and the directory buffer now use the caller's shared
+budget; duplicate/overlap validation no longer allocates hash/sort scratch. A
+separate `max_total_allocation_bytes` now bounds the full core load transaction,
+independent of the decoded-section cap. Module-loader duplicate/index scratch
+and runtime-DAG validation now use budgeted vectors and dense CSR scratch.
+Focused allocator/container/module checks and affected library checks pass.
+
+Enum requirement records carry the complete owner-held callable signature.
+Callable-analysis rows carry a partial typed call-static-argument transport.
+The full callable-analysis graph/import and compiler reader projection remain
+missing, so export/import still fail closed for nonempty body analyses. Other
+primary/query owner families and R1/R2/R4–R11 acceptance remain incomplete.
+No complete artifact construction, source-denied compilation, full semantic
+parity, or P5/P6 acceptance has passed; P7 remains open and P8 takeover blocked.
+
+The latest R1 slice makes semantic allocation failures return the typed
+`ArtifactError::Allocation` without allocating a `LimitExceeded(String)` and
+threads the load ledger through callable-signature type-evidence import.
+Evidence range/description buffers and unresolved-name ownership are charged;
+the helper commits its child ledger only after reconstruction succeeds. Focused
+exact-fit/N-1 rollback coverage was added. This does not close the remaining
+semantic-owner, decoder, native-output, whole-load census, or R3 callable-body
+gaps.
+
+The current review correction makes budgeted SemanticWorld validation and
+semantic import return the typed `UnaccountedBoundary` error before validation
+scratch or semantic materialization runs. This keeps the caller's load budget
+uncommitted while validator scratch, TypeStore reconstruction, and primary or
+static owner allocations remain outside exact accounting. Semantic artifact
+loading therefore remains unavailable until those requests are budget-visible
+and fallible; P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+
+The latest denotation consultation selected a hybrid owner transport: TypeForm,
+StaticTerm, Kind, and StaticDomain carry references into the shared artifact
+type/kind/domain graph; context-owned AssociatedValue and BehavioralFamily
+captures travel inline with stable owner/member/target references and relocated
+type refs. Import must preserve the captured selection and never rerun lookup
+or dispatch. StaticApplication remains fail-closed until the producer retains
+the checked row under the actual checked-body owner. This is a Level 2 T7.B
+clarification; P7 acceptance is unchanged.
+
+The implementation slice now registers every supported denotation graph root,
+round-trips associated exact/family and behavioral-family captures through
+relocation, and validates captured associated members against their primary
+owner products. The family importer is tested at exact allocation fit and
+one-byte-short rollback. Static-definition applications now receive the
+enclosing checked static-body identity rather than the selected target; two
+different bodies both using ordinal zero are covered. Focused root/import and
+semantic-world tests pass. This does not retain checked application rows in
+`CallableAnalysis` or remove the callable-analysis fail-closed guard.
+
+The latest continuation extends callable-analysis graph-root registration to
+expression and binding knowledge/contracts, entry/exit/throw flow facts,
+sequence and positional-expansion products, associated/callable-reference/
+family resolutions, and for/positional iteration requirements including their
+signatures and generic conformance evidence. The focused
+`cargo test -p phalcom-semantic --lib callable_analysis -- --test-threads=1`
+gate passes 15 tests; targeted rustfmt and `git diff --check` also pass. This
+closes only those TypeExportContext roots: match/pattern, trait-dispatch,
+contextual-realization, explanation, and other callable products still need
+root census, and no callable-analysis wire/materialization path was added. The
+iteration regression covers compiler-derived conformance evidence; exact,
+assumed, and derived evidence root branches still need direct discriminators.
+
+StaticApplication transport remains fail-closed. A live-source review found a
+VERIFY-FIRST discrepancy in the adopted owner wording: `analyze_static_body_inner`
+sets the `StaticBodyId`, then moves the checked rows into `CheckedStaticBody`;
+ordinary `CallableAnalysis::finalize_with_normal_returns` is a separate path.
+Operational lowering consumes checked-body rows but the operational wire form
+currently retains target/arguments rather than the owner-qualified row and full
+signature. Do not duplicate those rows into CallableAnalysis or alter their
+owner without reconciling this with the accepted T7.B decision.
+
+The explicit Dynamic call-environment prerequisite now transports tagged
+Term/RecordRow/Dynamic arguments through semantic call specialization,
+conformance rejection, compiler roots, runtime recipes, and interned runtime
+environments. Focused semantic tests prove `Box<Int>` and `Box<Dynamic>` retain
+distinct arguments without internal incidents, nested `Box<T>` materializes as
+`Box<Dynamic>`, Dynamic-dependent conformance publishes no specialization, and
+the call fingerprint distinguishes Dynamic from a concrete term. Core tests
+prove Dynamic differs from a missing environment entry and remains a tagged
+static argument in nested runtime applications. The exact canonical artifact
+test now passes its no-internal-incidents assertion, then fails closed at the
+existing incomplete callable-analysis export guard. No call-specialization
+wire DTO/import parity exists yet. A separate fresh-VM unit probe is blocked by
+the current Universe bootstrap error in `universe:reflection.structural`
+(`ProductKind` has no canonical facade binding); it was removed rather than
+retained as a failing test. These results are focused evidence only; P7 remains
+IN_PROGRESS / PARTIAL / UNVERIFIED.
 
 ## 0. Checkpoint state
 
@@ -44,9 +126,16 @@ active_plan: PERF003.C2.P7
 latest_completed_plan: PERF003.C2.P6
 next_plan: PERF003.C2.P7
 next_action: >
-  Continue P7.T7.B primary semantic owner transport and T8/T9 parity. Keep
-  P7 IN_PROGRESS / PARTIAL / UNVERIFIED until all required families and gates
-  have evidence; do not start P8 from the incomplete artifact interface.
+  Continue full CallableAnalysis wire/export/import/materialization and compiler
+  binding/site/target projection. Extend the still-partial callable type-root
+  census before closing the shared graph. Before changing StaticApplication,
+  reconcile the plan's CallableAnalysis retention wording with the live
+  CheckedStaticBody owner and operational-template projection; keep it
+  fail-closed until that owner decision and wire validation are complete. Close
+  remaining primary/witness/query owners and allocation accounting, then run
+  named P7 parity, source-denied, determinism, and P5/P6 gates. Keep P7
+  IN_PROGRESS / PARTIAL / UNVERIFIED and P8 blocked until all required rows and
+  acceptance gates pass.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -138,8 +227,52 @@ After:
 | `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Explicit compiler image product contract, zero-copy parent overlays across all core tables, canonical persistence inventory/capabilities, query classification, CanonicalCompilerImageView boundary, and observability cardinality guards (CanonicalAggregateEntriesCopied == 0) implemented and certified. |
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | ModuleLoweringInputView, module-indexed callable analyses/definitions/declarations/data/enums, reverse-target occurrence resolution, precomputed TraitRequirementLayout, and direct inherent impl domain indexing implemented and certified. |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
-| `PERF003.C2.P7` (normalized) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | Several boundary corrections and focused library checks are recorded below. Required callable analysis, witness view, static, associated/type-member, and query-owner parity remain incomplete; no completion or P8 takeover claim. |
+| `PERF003.C2.P7` (normalized) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | Container identity/directory and module DAG validation allocations are budgeted with exact focused probes; the whole-load cap is distinct from section limits. Callable-analysis now has budgeted frozen flow-graph reconstruction, but the body owner and compiler projection remain incomplete and fail-closed. Enum requirements carry the complete owner-held signature. Witness views, static/associated/type-member, query-owner, remaining allocation, source-denied, determinism and P5/P6 gates remain open; no completion or P8 takeover claim. |
 | `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | PLANNED | NOT_STARTED | UNVERIFIED | Detailed plan prepared; BUILD depends on complete P7 compiler interfaces; deferred P7/P8 acceptance still controls closure |
+
+## P7 flow-graph allocation ruling — 2026-10-15
+
+The existing single Level 2 adviser was consulted after confirming that the
+full callable-analysis import must materialize canonical `FlowGraph` data while
+its source representation uses public `BTreeMap`s whose node allocations cannot
+be charged to the artifact budget. The adviser selected dual backing inside
+the existing `FlowGraph` owner: source graphs retain mutable map storage;
+imported graphs use shared frozen `BudgetedSortedMap` node/edge storage plus
+budgeted entry/exit and adjacency buffers. Keep
+`CallableAnalysis.flow_graph: Arc<FlowGraph>` and preserve one allocation-free
+read interface for both representations. Frozen mutation must return a typed
+error and never thaw/rebuild BTree maps. Reconstruct adjacency from validated
+edges using charged count/reservation scratch, preserve edge ordinal order and
+the wire's stored exit sequence, and charge graph buffers and publication
+wrappers. Do not use `reachable_nodes()` on the charged import path.
+
+The decision does not close any other P7 callable-analysis fields, allocation
+families, source-denied, determinism, parity, or P5/P6 gates. Exact acceptance
+must cover source/frozen read parity, fingerprints, malformed graph rejection,
+clone/mutation behavior, and allocator-measured adjacency success/failure
+rollback before removing fail-closed guards.
+
+### Implemented flow-graph slice — 2026-10-15
+
+`FlowGraph` now owns either its existing mutable source maps or shared frozen
+`BudgetedSortedMap` node/edge storage. The importer reconstructs adjacency from
+edge ordinals with charged degree and exact-capacity vectors, preserves exit
+order, and charges both Arc publication layers. Shared read accessors keep
+source/frozen iteration and fingerprint behavior aligned. The callable-analysis
+family-completeness guard remains unchanged because expressions, bindings,
+flow summaries, exits, resolution products, diagnostics, explanations, and
+compiler reader attachments are still absent from transport.
+
+Focused evidence: artifact allocation/adjacency probe 1/1 (independent request
+count equality, exact-budget success, one-byte-short rollback, malformed
+endpoint rejection, source/frozen content parity, frozen mutation rejection,
+source clone isolation); frozen-storage unit test 1/1; source/frozen graph
+fingerprint test 1/1; source CFG construction filter 3/3; semantic/core/LSP
+library check passes with only inherited unused-import/call-specialization
+warnings. A broader `foundations::flow_graph` filter selected 14 tests and had
+one unrelated failure in `test_protocol_derived_iteration_typing_no_name_matching`
+at the existing `List<String>` initializer mismatch assertion; this slice did
+not change iteration analysis and the three graph-construction tests passed.
 
 ---
 
@@ -927,10 +1060,178 @@ verification is FOCUSED_TESTED.
 - The exporter currently fails closed on semantic families the wire schema
   cannot represent. That exposes the P7 blocker at artifact construction; it
   does not satisfy semantic parity.
-- Verification in this continuation: `cargo check -p
-  phalcom-compiler-artifact --lib`, `cargo check -p phalcom-semantic --lib`,
-  `cargo check -p phalcom-core --lib`, and `git diff --check` passed. No tests,
-  runtime probes, or certification gates were run.
-- Next action: implement owner DTOs/materialization for the remaining P7.T7.B
-  families and their query products, then rerun the mandated parity
-  discriminators before changing checkpoint status.
+- Verification in this continuation: focused enum-signature/owner tests,
+  native catalog fingerprint tests, container/core loader tests, `cargo check
+  -p phalcom-core`, and `git diff --check` passed. The real source-free artifact
+  build was attempted and stopped at the callable-analysis export coverage
+  guard; it therefore provides no downstream loader or parity evidence.
+- Next action: complete the callable-analysis owner graph DTO and importer
+  (the new call-static-argument row is only one subfamily), then continue the
+  remaining required P7.T7.B owners and run the mandated parity discriminators
+  before changing checkpoint status.
+
+- P7.T7.B callable-signature ownership consultation (2026-10-15): the live enum
+  fixture proves `EnumRequirement` owns a complete signature absent from
+  `CallableSignatureTable`, while both the enum DTO and ordinary signature DTO
+  omit canonical signature fields. The adviser selected one complete
+  `CallableSignatureRecordV1` reused by both owners, a shared signature-root
+  registration helper, and direct relocation/materialization with redundant
+  identity checks. Portable native metadata must retain its symbolic values and
+  exact stable native key, then match the fingerprint-compatible canonical
+  native catalog before borrowing static values; never leak or default fields.
+  Any valid noncatalog static metadata remains an open representation boundary
+  requiring a Level 2 amendment if encountered. This is a Level 1 clarification
+  of the existing owner-authoritative DTO plan, not a change to semantic
+  authority. Focused signature-owner and round-trip checks now pass; broader P7
+  gaps remain open.
+
+- Native catalog compatibility amendment (2026-10-15): the adviser found that
+  exact key plus transported effects/raises/flow/lifecycle does not detect
+  drift in native callable contracts, ABI, intrinsic, trust, or return shape.
+  Add a 16-byte catalog fingerprint to the portable compatibility identity
+  and container header; advance the container header schema and reject the old
+  header explicitly. The source-built view captures the fingerprint, the
+  writer stamps it, the loader checks it against the trusted catalog before
+  section materialization, and loaded compatibility retains/compares it.
+  Keep exact key/payload validation. Add matching-catalog success, foreign
+  fingerprint rejection before materialization, and exact-payload mismatch
+  regressions. This is a Level 2 compatibility amendment; it does not authorize
+  a broader identity redesign. The fingerprint computation must be allocation
+  free or included in the load allocation ledger.
+
+- Callable-analysis owner-graph amendment (2026-10-15; Level 2): the adviser
+  confirmed complete callable analysis is compiler-required and may not be
+  replaced by execution summaries. Persist every owned expression, binding,
+  checked resolution, flow/exit, dependency, diagnostic, explanation, and
+  constructor product with stable callable-qualified artifact ordinals. Build
+  deterministic old-handle maps on export and explicitly relocate every
+  reference on load; validate closure before publication. Recompute
+  `callable_body_product_fingerprint` after relocation and reconstruct query
+  fingerprints from relocated owners. Preserve diagnostic judgments and
+  causal sharing; reject nonempty call-resolution/predicate handles until an
+  actual owner exists, and reject canonical internal incidents rather than
+  erase them. The compiler-required binding/site/target authority used by
+  lowering must be available from these owner facts without name-based
+  reconstruction. Keep genuine empty optionals, but do not synthesize facts.
+  T7.B/T8/T9/T12 and the field/evidence manifests are amended in the P7 plan.
+
+- Callable binding storage-origin amendment (2026-10-15; Level 2): the adviser
+  confirmed that retained ambient module `BindingState`s need explicit
+  provenance from `CheckingContext::seed_linked_module_import_values`. Keep
+  every state and attach either `BodyLocal` or `ModuleValue { SymbolId, import
+  provenance }`; this adds no binding identity. Lowering uses
+  `BodyLocal { callable, binding }` versus `ModuleValue { symbol }`, with
+  source ranges serving only as site locators. Module declarations/import
+  aliases are projected once through module-owned authority; ambient copies
+  never become local declarations. Reads/writes preserve exact occurrences and
+  target the canonical global symbol. Missing origins and contradictory
+  ownership fail closed. Cross-callable numeric IDs are never compared bare.
+  Plans and the callable-analysis field/evidence manifests are amended before
+  implementation. Current discriminator: source-free Universe artifact build
+  previously failed at an ambient top-level binding in
+  `universe:errors.unsupported`; no parity or loader evidence follows from that
+  failed attempt.
+
+- `<main>` source-owner/attachment amendment (2026-10-15; Level 2): the same
+  adviser selected option A for top-level lambdas whose lexical parameters are
+  checked under the synthetic module `<main>` callable. Keep `<main>` as the
+  analysis owner and register its relation explicitly as
+  `CallableId → SourceOwner::Module(module)` when producing the analysis.
+  Generalize the body-to-source-owner relation so ordinary bodies map to
+  `SourceOwner::Callable(source_callable)` and constructors retain their
+  already-approved declaration-owner mapping. Include registered module-body
+  analyses when constructing formal source attachments; the attachment map
+  remains keyed by the original analysis `CallableId`.
+
+  A `<main>` lexical parameter such as `text` remains `BodyLocal` and attaches
+  to the exact existing module-owned `SourceSiteId`. Module ownership names
+  the source namespace; it does not make a lexical value a `ModuleValue`. Keep
+  storage origin, source owner, lexical scope, `(CallableId, BindingId)` body
+  identity, and `SourceSiteId` attachment separate. Correct the `<main>` body
+  range to cover executable module statements and nested bodies, including
+  when the preamble is empty. Carry this relationship through callable-analysis
+  and compiler-facts transport, relocating binding, expression, and site
+  references together. Synthetic `<main>` gets no ordinary callable
+  declaration/signature row.
+
+  Do not infer this mapping from selector spelling at attachment lookup, merge
+  equal-range formal-expression sites with module AST sites, or extend the
+  count/order range-rebasing shortcut to module bodies. Required focused
+  discriminators: two top-level lambdas with `text` parameters each attach to
+  their exact module sites and reads resolve to their own parameters; ordinary
+  callable module-value reads remain `ModuleValue`; source/import owner parity;
+  and successful lowering with empty and documentation-bearing preambles.
+  This amendment fixes a P7 R3 source-attachment blocker and reduces no
+  acceptance gate. At decision time, the exact Universe artifact test still
+  failed at `universe:json` `<main>` `text` with
+  `MissingFormalBindingAttachment`; no later loader or source-denied evidence
+  follows.
+
+- Explicit Dynamic generic call-environment amendment (2026-10-15; Level 2):
+  the focused `Box<Dynamic>.ping()` discriminator confirms that dispatch selects
+  the canonical `Box.ping` callable and supplies `StaticArgument::DynamicType`
+  under Box's canonical declaration-owned type parameter. The receiver
+  environment reports `get_param(T) == None`, `is_dynamic(T) == true`, and
+  `get_row(T) == None`; finalization's TypeId-only read emits
+  `receiver specialization is missing a required owner binding`. The
+  `Box<Int>` control publishes its concrete T binding without incidents.
+  Preserve the canonical receiver environment as authority and carry a tagged
+  term/Dynamic/row argument through `CallSpecialization`, checked generic
+  instantiation, conformance discharge, callable-analysis persistence,
+  compiler root and call-entry projection, runtime recipes, and runtime
+  environments. Reuse `StaticArgument` and `RuntimeStaticArgument` where their
+  owners fit. Dynamic is not a `TypeId`, missing entry, nominal substitute, or
+  proof; Dynamic-dependent conformance produces no static evidence. Generic
+  materialization distinguishes proper terms, Dynamic boundaries, and missing
+  bindings. Include the call-specialization discriminant in body/query
+  fingerprints. The existing `SEMANTIC_WORLD` V2 amendment covers this payload
+  change; no container-header change is needed. Required discriminators cover
+  cold/import parity, forwarding and nested `List<T>`, missing-binding
+  rejection, no fabricated Dynamic conformance, runtime interning distinction,
+  fingerprint sensitivity, and elimination of all four real Universe
+  incidents, followed by the exact artifact gate. This is a bounded P7
+  prerequisite, not a new language semantic or checkpoint objective. General
+  row-environment execution, new Dynamic inference, automatic runtime witness
+  acquisition, and unrelated native erasure remain outside the amendment and
+  must be separately escalated if required. Exporter's internal-incident
+  rejection remains unchanged.
+
+- Callable-analysis typed static-argument transport (2026-10-15):
+  `CallableAnalysisRecordV1` now carries owner-local call-specialization rows
+  with canonical type-parameter references and tagged `Term`, `RecordRow`, or
+  `DynamicType` arguments. Export registers term/row/parameter roots; semantic
+  world validation checks expression ordinals, unique parameters, selected
+  callable ownership, and kind/category agreement. Import has a budgeted
+  relocation helper for these rows. Dynamic is preserved without a proper-type
+  node. Nonempty conformance bindings remain fail-closed because their complete
+  proof owner payload is not implemented; the full callable-analysis importer
+  still rejects every nonempty analysis until all body facts are transported.
+  Focused tests passed: semantic export record 1/1, import relocation 1/1, and
+  compiler-artifact world codec/validation 4/4. The exact Universe image test
+  first asserts that all canonical callable analyses are free of internal
+  incidents, then fails at callable-analysis export coverage (1 selected). It
+  supplies no import, parity, source-denied, or P7 closure evidence. P7 remains
+  IN_PROGRESS / PARTIAL / UNVERIFIED.
+
+- Callable denotation owner transport (2026-10-15; Level 2): the same existing
+  GPT-6.1 Sol High Effort adviser found that SemanticDenotation mixes references
+  to independently owned type/kind/domain entities with context-owned
+  associated and behavioral captures. Adopt the hybrid DTO recorded in the
+  detailed plan: reference TypeForm, StaticTerm, Kind, and StaticDomain through
+  shared graph relocation; carry AssociatedValue and BehavioralFamily
+  captures inline with stable owner/member/target references and relocated
+  type references. Preserve checker-captured selections; do not re-run lookup
+  or dispatch. StaticApplication remains fail-closed until the producer retains
+  its checked row with actual checked-body ownership. No acceptance was reduced.
+  The active plan now specifies dependency order and focused owner/closure/
+  source-denied discriminators.
+
+- R1 semantic importer allocation slice (2026-10-15): typed allocation errors
+  avoid allocating an error string; callable-signature TypeKnowledge import
+  charges evidence ranges, descriptions, and unresolved-name ownership through
+  a transactional child ledger. Exact-fit/N-1 rollback unit test passed 1/1;
+  semantic artifact-allocation integration test passed 1/1, including a
+  zero-byte allocation observation for the typed failure path. The core library
+  check passed with the inherited dead-code warning. This does not close
+  semantic output maps, native allocations, full-load accounting, or R1.
+  P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED.

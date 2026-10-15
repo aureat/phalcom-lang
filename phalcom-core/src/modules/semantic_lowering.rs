@@ -13,7 +13,7 @@ use phalcom_semantic::checker::associated::{
 };
 use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::{
-    BindingId, CallableId, DataComponentId, DataConstructorId, ExpressionId, ImplId, InvocationTargetId, SemanticTargetId, VariantFieldId, VariantId,
+    BindingId, CallableId, DataComponentId, DataConstructorId, ExpressionId, ImplId, InvocationTargetId, VariantFieldId, VariantId,
 };
 use phalcom_semantic::snapshot::SemanticSnapshot;
 use phalcom_semantic::types::denotation::{AssociatedValueDenotation, SemanticDenotation};
@@ -579,7 +579,7 @@ pub struct ModuleLoweringSemantics {
     /// Canonical local-binding attachments keyed by their current source
     /// ranges. The compiler may use these facts to classify AST uses, but it
     /// never resolves names or scopes independently.
-    pub bindings: BTreeMap<SourceRange, BindingId>,
+    pub bindings: BTreeMap<SourceRange, LoweringBindingIdentity>,
     /// Read safety classifications for binding reads published by static flow analysis.
     pub binding_read_safeties: BTreeMap<SourceRange, phalcom_semantic::checker::flow::BindingReadSafety>,
     pub type_form_values: BTreeMap<SourceRange, RuntimeTypeFormValueSpec>,
@@ -613,6 +613,16 @@ pub struct ModuleLoweringSemantics {
     pub known_invalid_positional_expansions: BTreeMap<SourceRange, TypeId>,
     pub sequence_literals: BTreeMap<SourceRange, SequenceLiteralLoweringSpec>,
     pub detached_methods: BTreeMap<CallableId, DetachedMethodSpec>,
+}
+
+/// Qualified semantic identity used by compiler projections and optimization
+/// planning. A source range locates a site; it does not identify a binding.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum LoweringBindingIdentity {
+    /// Lexical storage owned by one callable body.
+    BodyLocal { callable: CallableId, binding: BindingId },
+    /// Global storage owned by the canonical linked module symbol.
+    ModuleValue { symbol: phalcom_modules::linker::SymbolId },
 }
 
 /// Checked sequence literal lowering specification (COLL006.C1.P1).
@@ -720,6 +730,20 @@ pub enum ProjectionError {
     AmbiguousLoweringSiteAttachment(LoweringSite),
     #[error("ambiguous constructor super-initializer attachment at {0:?}")]
     AmbiguousConstructorSuperInitializerAttachment(SourceRange),
+    #[error("ambiguous canonical binding attachment at {range:?}: {existing:?} ({existing_origin}) conflicts with {incoming:?} ({incoming_origin})")]
+    AmbiguousBindingAttachment {
+        range: SourceRange,
+        existing: LoweringBindingIdentity,
+        incoming: LoweringBindingIdentity,
+        existing_origin: String,
+        incoming_origin: String,
+    },
+    #[error("callable {callable:?} binding {binding:?} has no explicit storage origin")]
+    MissingBindingOrigin { callable: CallableId, binding: BindingId },
+    #[error("callable {callable:?} binding {binding:?} has an invalid storage origin")]
+    InvalidBindingOrigin { callable: CallableId, binding: BindingId },
+    #[error("callable analysis table key disagrees with its owner: {0:?}")]
+    InconsistentCallableAnalysisOwner(CallableId),
     #[error("ambiguous contextual algebraic realization at {0:?}")]
     AmbiguousContextualRealization(SourceRange),
     #[error("contextual algebraic realization {0:?} requires runtime reification for an assumed class-side receiver")]
@@ -736,6 +760,14 @@ pub enum ProjectionError {
     MissingFieldLayout(Box<VariantFieldId>, Box<VariantId>),
     #[error("missing pattern binding for {0:?}")]
     MissingPatternBinding(phalcom_semantic::identity::BindingId),
+    #[error("missing formal binding source attachment for {binding:?} ({name:?}, range {range:?}, parameter {parameter:?}) in {callable:?}")]
+    MissingFormalBindingAttachment {
+        callable: CallableId,
+        binding: BindingId,
+        name: String,
+        range: SourceRange,
+        parameter: Option<phalcom_semantic::identity::CallableParameterId>,
+    },
     #[error("pattern binding index overflow for {0}")]
     PatternBindingIndexOverflow(usize),
     #[error("arity overflow for length {0}")]
@@ -764,6 +796,61 @@ pub enum ProjectionError {
     MissingConformanceMetadata(ImplId),
     #[error("static associated result cannot be lowered as a runtime value")]
     StaticAssociatedResultInRuntimeContext,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BindingAttachment {
+    identity: LoweringBindingIdentity,
+    origin: String,
+}
+
+fn insert_binding_attachment(
+    bindings: &mut BTreeMap<SourceRange, BindingAttachment>,
+    range: SourceRange,
+    identity: LoweringBindingIdentity,
+    origin: impl Into<String>,
+) -> Result<(), ProjectionError> {
+    let incoming = BindingAttachment {
+        identity,
+        origin: origin.into(),
+    };
+    if let Some(existing) = bindings.get(&range).filter(|existing| existing.identity != incoming.identity) {
+        return Err(ProjectionError::AmbiguousBindingAttachment {
+            range,
+            existing: existing.identity.clone(),
+            incoming: incoming.identity,
+            existing_origin: existing.origin.clone(),
+            incoming_origin: incoming.origin,
+        });
+    }
+    bindings.insert(range, incoming);
+    Ok(())
+}
+
+fn lowering_binding_identity(
+    callable: &CallableId,
+    analysis: &phalcom_semantic::checker::analysis::CallableAnalysis,
+    binding: BindingId,
+) -> Result<LoweringBindingIdentity, ProjectionError> {
+    if !analysis.bindings.contains_key(&binding) {
+        return Err(ProjectionError::InvalidBindingOrigin {
+            callable: callable.clone(),
+            binding,
+        });
+    }
+    match analysis.binding_origins.get(&binding) {
+        Some(phalcom_semantic::checker::analysis::CallableBindingOrigin::BodyLocal) => Ok(LoweringBindingIdentity::BodyLocal {
+            callable: callable.clone(),
+            binding,
+        }),
+        Some(phalcom_semantic::checker::analysis::CallableBindingOrigin::ModuleValue { symbol, .. }) => {
+            Ok(LoweringBindingIdentity::ModuleValue { symbol: symbol.clone() })
+        }
+        None => Err(ProjectionError::MissingBindingOrigin {
+            callable: callable.clone(),
+            binding,
+        }),
+    }
 }
 
 fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -> bool {
@@ -1067,45 +1154,76 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
     // Both paths are keyed by source-site identity, so this projection does
     // not recreate lexical name resolution in the optimizer.
     let mut bindings = BTreeMap::new();
-    if let Some(module_index) = snapshot.source_index().module(module) {
-        let mut binding_by_decl_site = BTreeMap::new();
-        for (callable_id, _) in view.callable_analyses() {
-            let Some(attachment) = snapshot.source_index().formal_attachment(callable_id) else {
+    for (callable, analysis) in view.callable_analyses() {
+        if &analysis.callable != callable {
+            return Err(ProjectionError::InconsistentCallableAnalysisOwner(callable.clone()));
+        }
+        // Declarations without a body (for example native surface methods)
+        // have no executable AST attachment sites. Their signature bindings
+        // remain in formal semantic products, but must not be inserted into
+        // this module body's range-keyed lowering index.
+        if analysis.body_range.start == analysis.body_range.end {
+            continue;
+        }
+        let source_callable = snapshot
+            .callable_signatures
+            .id_for_body(callable)
+            .unwrap_or_else(|| callable.clone());
+        for binding in analysis.bindings.values() {
+            let identity = lowering_binding_identity(callable, analysis, binding.binding)?;
+            if matches!(identity, LoweringBindingIdentity::ModuleValue { .. }) {
+                // The declaration belongs to module storage and is projected
+                // through module-owned authority, not as a callable local.
                 continue;
-            };
-            for (binding, site) in &attachment.formal_bindings {
-                if let Some(source_site) = snapshot.source_index().source_site(site) {
-                    bindings.insert(source_site.range, *binding);
-                }
-                binding_by_decl_site.insert(site.clone(), *binding);
             }
-        }
-
-        let mut resolved_via_target_index = false;
-        for (site, binding) in &binding_by_decl_site {
-            let target = SemanticTargetId::Binding(site.clone());
-            if let Some(set) = snapshot.source_index().references().target_set(&target) {
-                for occ_site in set.lexical_references.iter().chain(set.semantic_references.iter()) {
-                    if let Some(source_site) = snapshot.source_index().source_site(occ_site) {
-                        bindings.insert(source_site.range, *binding);
-                        resolved_via_target_index = true;
-                    }
-                }
-            }
-        }
-
-        if !resolved_via_target_index && !binding_by_decl_site.is_empty() {
-            crate::perf_counter!(telos_observability::PerfCounter::CompilerBindingOccurrenceFullScans, 1);
-            for occurrence in module_index.occurrences.all() {
-                let Some(SemanticTargetId::Binding(site)) = module_index.occurrences.target_for(&occurrence.site) else {
+            let Some(range) = snapshot.formal_projection.binding_attachment_range(callable, binding.binding) else {
+                if binding
+                    .parameter
+                    .as_ref()
+                    .is_some_and(|parameter| !snapshot.source_index.has_parameter_source_site(&source_callable, parameter))
+                {
+                    // Implicit receiver facts have semantic identity but no
+                    // declaration token that can key the compiler's range map.
                     continue;
-                };
-                if let Some(binding) = binding_by_decl_site.get(site) {
-                    bindings.insert(occurrence.range, *binding);
+                }
+                return Err(ProjectionError::MissingFormalBindingAttachment {
+                    callable: callable.clone(),
+                    binding: binding.binding,
+                    name: binding.name.clone(),
+                    range: binding.range,
+                    parameter: binding.parameter.clone(),
+                });
+            };
+            insert_binding_attachment(
+                &mut bindings,
+                range,
+                identity,
+                format!("formal binding {:?} parameter {:?}", binding.name, binding.parameter),
+            )?;
+        }
+        for expression in analysis.expressions.values() {
+            if let Some(binding) = expression.binding_read {
+                let identity = lowering_binding_identity(callable, analysis, binding)?;
+                insert_binding_attachment(&mut bindings, expression.range, identity, "expression read")?;
+            }
+            if let Some(binding) = expression.binding_write {
+                let identity = lowering_binding_identity(callable, analysis, binding)?;
+                insert_binding_attachment(&mut bindings, expression.range, identity, "expression write")?;
+            }
+        }
+        for resolution in analysis.match_resolutions.values() {
+            for arm in resolution.arms.iter() {
+                for binding in arm.bindings.iter() {
+                    let identity = lowering_binding_identity(callable, analysis, binding.binding)?;
+                    insert_binding_attachment(&mut bindings, binding.source, identity, "match pattern")?;
                 }
             }
-        } else if resolved_via_target_index {
-            crate::perf_counter!(telos_observability::PerfCounter::CompilerBindingOccurrencesResolvedByTargetIndex, 1);
+        }
+        for resolution in analysis.pattern_site_resolutions.values() {
+            for binding in resolution.bindings.iter() {
+                let identity = lowering_binding_identity(callable, analysis, binding.binding)?;
+                insert_binding_attachment(&mut bindings, binding.source, identity, "pattern site")?;
+            }
         }
     }
 
@@ -1754,7 +1872,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         callable_signatures: snapshot.callable_signatures.clone(),
         constructor_initializations: snapshot.constructor_initializations.clone(),
         constructor_super_initializers,
-        bindings,
+        bindings: bindings.into_iter().map(|(range, attachment)| (range, attachment.identity)).collect(),
         binding_read_safeties,
         type_form_values,
         anonymous_products,
@@ -3785,7 +3903,7 @@ fn data_constructor_operation(snapshot: &SemanticSnapshot, constructor: &DataCon
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectionError, classify_realization_prerequisite_projection, contains_exact_case};
+    use super::{LoweringBindingIdentity, ProjectionError, classify_realization_prerequisite_projection, contains_exact_case, insert_binding_attachment};
     use phalcom_common::selector::Selector;
     use phalcom_modules::identity::ModuleId;
     use phalcom_semantic::generic_evidence::{
@@ -3804,6 +3922,52 @@ mod tests {
     use phalcom_semantic::types::{KindId, ScopedTypeData, TypeStore};
     use std::collections::BTreeMap;
     use std::sync::Arc;
+
+    #[test]
+    fn canonical_binding_attachment_reader_accepts_same_owner_and_rejects_range_collisions() {
+        let range = phalcom_common::range::SourceRange { start: 4, end: 5 };
+        let first = phalcom_semantic::identity::BindingId(3);
+        let second = phalcom_semantic::identity::BindingId(9);
+        let owner = DeclarationId::new(ModuleId::universe_root(), "BindingOwner".into());
+        let callable = CallableId::method(owner.clone(), Selector::getter("first").unwrap(), DispatchSide::Instance);
+        let other_callable = CallableId::method(owner, Selector::getter("second").unwrap(), DispatchSide::Instance);
+        let first_identity = LoweringBindingIdentity::BodyLocal {
+            callable: callable.clone(),
+            binding: first,
+        };
+        let second_identity = LoweringBindingIdentity::BodyLocal {
+            callable: callable.clone(),
+            binding: second,
+        };
+        let mut bindings = BTreeMap::new();
+
+        insert_binding_attachment(&mut bindings, range, first_identity.clone(), "test").expect("first owner fact attaches");
+        insert_binding_attachment(&mut bindings, range, first_identity.clone(), "test").expect("duplicate authority is stable");
+        assert_eq!(bindings.get(&range).map(|attachment| attachment.identity.clone()), Some(first_identity.clone()));
+        assert_eq!(
+            insert_binding_attachment(&mut bindings, range, second_identity.clone(), "test"),
+            Err(ProjectionError::AmbiguousBindingAttachment {
+                range,
+                existing: first_identity.clone(),
+                incoming: second_identity,
+                existing_origin: "test".into(),
+                incoming_origin: "test".into(),
+            })
+        );
+        assert_eq!(bindings.get(&range).map(|attachment| attachment.identity.clone()), Some(first_identity));
+
+        let other_owner_identity = LoweringBindingIdentity::BodyLocal {
+            callable: other_callable.clone(),
+            binding: first,
+        };
+        let other_range = phalcom_common::range::SourceRange { start: 8, end: 9 };
+        insert_binding_attachment(&mut bindings, other_range, other_owner_identity.clone(), "other callable")
+            .expect("same numeric id under another owner is distinct");
+        assert_ne!(
+            LoweringBindingIdentity::BodyLocal { callable, binding: first },
+            other_owner_identity
+        );
+    }
 
     fn exact_conformance_evidence() -> Arc<ConformanceEvidence> {
         let module = ModuleId::universe_root();

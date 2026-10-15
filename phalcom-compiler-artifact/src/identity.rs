@@ -92,6 +92,7 @@ pub struct CanonicalCompatibilityIdentity {
     pub module_semantic_abi: u32,
     pub semantic_artifact_abi: u32,
     pub native_surface_schema_version: u32,
+    pub native_catalog_fingerprint: [u8; 16],
     pub type_metadata_schema_version: u32,
 }
 
@@ -133,6 +134,12 @@ impl CanonicalCompatibilityIdentity {
                 expected: other.native_surface_schema_version,
             });
         }
+        if self.native_catalog_fingerprint != other.native_catalog_fingerprint {
+            return Err(ValidationError::NativeCatalogFingerprintMismatch {
+                found: self.native_catalog_fingerprint,
+                expected: other.native_catalog_fingerprint,
+            });
+        }
         if self.type_metadata_schema_version != other.type_metadata_schema_version {
             return Err(ValidationError::TypeMetadataSchemaMismatch {
                 found: self.type_metadata_schema_version,
@@ -152,5 +159,35 @@ impl CanonicalCompatibilityIdentity {
             )));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_catalog_fingerprint_participates_in_compatibility() {
+        let identity = CanonicalCompatibilityIdentity {
+            package: TeloscPackageIdentity::universe(),
+            source_digest: ArtifactDigest::ZERO,
+            interface_digest: ArtifactDigest::ZERO,
+            semantic_digest: ArtifactDigest::ZERO,
+            semantic_model_version: 1,
+            stable_identity_schema: 1,
+            module_semantic_abi: 1,
+            semantic_artifact_abi: 1,
+            native_surface_schema_version: 1,
+            native_catalog_fingerprint: [1; 16],
+            type_metadata_schema_version: 1,
+        };
+        assert!(identity.check_compatible(&identity).is_ok());
+
+        let mut foreign = identity.clone();
+        foreign.native_catalog_fingerprint = [2; 16];
+        assert!(matches!(
+            identity.check_compatible(&foreign),
+            Err(ValidationError::NativeCatalogFingerprintMismatch { .. })
+        ));
     }
 }

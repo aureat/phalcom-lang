@@ -18,9 +18,9 @@ impl ControlFacts {
     /// Extracts control facts from a FlowGraph.
     pub fn from_flow_graph(graph: &FlowGraph) -> Self {
         let mut cycle_candidates = Vec::new();
-        let may_return_normally = !graph.exits.is_empty();
+        let may_return_normally = !graph.exits().is_empty();
 
-        for node in graph.nodes.values() {
+        for node in graph.nodes() {
             if matches!(node.kind, FlowNodeKind::LoopHeader) {
                 cycle_candidates.push(node.id);
             }

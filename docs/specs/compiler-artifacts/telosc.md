@@ -19,7 +19,7 @@ module-world projection; semantic owns formal type/static/query authority;
 core owns executable projection, native binding, and VM materialization.
 Raw snapshots, semantic databases, heaps, and live runtime objects are not wire payloads.
 
-## Container v1
+## Container schema v2
 
 All integers are fixed-width little endian. No host padding, pointer widths,
 native enum discriminants, or native-endian memory appear on disk.
@@ -27,18 +27,22 @@ Strings are UTF-8 with a u32 byte-length prefix. Booleans use 0/1;
 optional values and variants use explicit stable tags. Every decoded count,
 length, graph depth, and total allocation is bounded by validation limits.
 
-Magic: `54 45 4c 4f 53 43 01 00` (eight bytes). Container schema and minimum
-reader schema are u32, initially 1. The header encodes package identity,
+Magic: `54 45 4c 4f 53 43 01 00` (eight bytes; stable across container schema
+revisions). Container schema and minimum reader schema are u32. This contract
+uses schema 2; readers reject schema 1 because its header does not carry the
+native catalog compatibility fingerprint. The header encodes package identity,
 semantic-model version, stable-identity schema, module semantic ABI,
-semantic artifact ABI, query fingerprint ABI, native-surface schema,
-type-metadata schema, capability bits, six 32-byte digests, and section count.
+semantic artifact ABI, query fingerprint ABI, native-surface schema, the
+trusted native catalog fingerprint `[u8; 16]`, type-metadata schema, capability
+bits, six 32-byte digests, and section count.
 Package tags are 0 (builtin namespace/version) and 1 (package name/version).
 Digests are source, interface, semantic, query, metadata, and artifact, in that order.
 
 Each directory entry is 68 bytes: kind u32, section schema u32, flags u32,
 offset u64, encoded length u64, decoded length u64, and digest [u8;32].
 Section order is ascending numeric kind. Payloads follow the directory and
-must be nonoverlapping. V1 writes uncompressed payloads; compression is rejected.
+must be nonoverlapping. Schema 2 writes uncompressed payloads; compression is
+rejected.
 
 | Tag | Section | Capability |
 | --- | --- | --- |
@@ -53,7 +57,7 @@ must be nonoverlapping. V1 writes uncompressed payloads; compression is rejected
 Capability bits 0 through 4 are compiler image, RuntimePublic metadata,
 presentation, source maps, and portable executable respectively.
 Section flag bit 0 means REQUIRED. Bit 1 reserves COMPRESSED and is unsupported
-in v1. Unknown flag bits are rejected. Unknown required section kinds are
+in schema 2. Unknown flag bits are rejected. Unknown required section kinds are
 rejected; unknown optional kinds may be skipped. Known section schemas must
 be supported before decoding. Declaring a capability never substitutes for
 its required payload. A complete Universe artifact declares compiler-image,
@@ -68,7 +72,16 @@ The whole-artifact digest hashes the header with its artifact-digest field
 zeroed, directory bytes, and payload bytes in directory order.
 Integrity digests are separate from internal semantic fingerprints.
 
-Compatibility uses stable package identity and explicit schemas/ABIs.
+Compatibility uses stable package identity, explicit schemas/ABIs, and the
+trusted native catalog fingerprint. The fingerprint covers the canonical
+native row contracts and runtime surface facts that may change while an
+individual borrowed row's transported effects, raises, flow, and lifecycle
+remain equal. Readers compare it with the current trusted catalog immediately
+after container parsing and before section materialization. They also validate
+each borrowed row's exact stable key and transported symbolic payload before
+borrowing catalog-owned static values. The fingerprint is a compatibility
+discriminator, not an authenticity mechanism; artifact digests provide
+integrity, not producer authentication.
 Artifact loading relocates graph indices into fresh type/static stores and
 stable owners into receiving-process semantic identities. It does not restore
 WorkspaceId, project graph numbers, TypeStoreId, StaticValueStoreId, ClassId,
@@ -89,6 +102,42 @@ products without semantic reanalysis. QUERY_IMAGE uses the existing canonical
 query eligibility authority and contains only closed, immutable, relocatable
 products. METADATA transports the existing canonical RuntimePublic bundle;
 loading does not invoke its exporter.
+
+### Semantic-world payload schema 2
+
+`SEMANTIC_WORLD` starts with a u32 payload schema. Schema 2 carries the complete
+compiler-required callable-analysis owner graph. Every body-local expression,
+binding, explanation, flow node/edge, diagnostic cause, and related handle uses
+a deterministic artifact-local ordinal qualified by its stable callable owner.
+Loaders validate owner/reference closure and relocate every handle into fresh
+process-local identities before publishing the snapshot. Source ranges are
+attachments, never identities; overlapping ranges remain distinct expressions.
+
+The payload preserves exact expression judgments, binding state, selected
+semantic products, control-flow and exit facts, diagnostics, causal sharing,
+explanation graphs, and dependencies. The body result fingerprint is recomputed
+after relocation, and query products/fingerprints are rebuilt from relocated
+owners. Canonical images reject nonempty internal incidents, nonempty
+call-resolution handles without a transported owner, and predicate references
+without their owner. Empty optionals remain empty. The compiler-required
+binding/site/target reader is reconstructed from the same callable owner facts;
+the broad source index and raw syntax remain optional/omitted.
+
+Each callable binding handle also carries an explicit storage origin. A
+`BodyLocal` binding is qualified by its callable owner. A `ModuleValue` binding
+retains the canonical module symbol and, for a selective import, the exact
+module-local import slot validated against `MODULE_WORLD`. Its body-local
+`BindingId` is only an analysis handle; it does not create a second global or
+callable storage identity. Ambient copies of a module value never become local
+declarations in that callable. Source ranges locate expression and declaration
+sites but do not establish identity. Lowering and product planning compare
+`BodyLocal { callable, binding }` or `ModuleValue { symbol }`, so equal numeric
+binding handles in different callables remain distinct while copies of one
+module symbol agree. Missing origins, mismatched import slots, and conflicting
+qualified identities fail closed.
+
+Readers reject semantic-world schema 1, whose callable-analysis rows do not
+contain this complete owner graph.
 
 Optional presentation/source provenance is a separate tooling capability.
 Source-built images may retain it without requiring it for formal authority.

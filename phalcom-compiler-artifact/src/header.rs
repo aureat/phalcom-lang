@@ -5,10 +5,11 @@ use crate::digest::ArtifactDigest;
 use crate::error::{CodecError, ContainerError};
 use crate::identity::TeloscPackageIdentity;
 use crate::limits::ValidationLimits;
+use phalcom_type_meta::allocation::AllocationBudget;
 
 pub const TELOSC_MAGIC: &[u8; 8] = b"TELOSC\x01\x00";
-pub const TELOSC_CONTAINER_SCHEMA_V1: u32 = 1;
-pub const TELOSC_MIN_READER_SCHEMA_V1: u32 = 1;
+pub const TELOSC_CONTAINER_SCHEMA_V2: u32 = 2;
+pub const TELOSC_MIN_READER_SCHEMA_V2: u32 = 2;
 
 bitflags::bitflags! {
     /// Capabilities declared by the `.telosc` artifact.
@@ -27,9 +28,9 @@ bitflags::bitflags! {
     }
 }
 
-/// The v1 container header for `.telosc` artifacts.
+/// The v2 container header for `.telosc` artifacts.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TeloscHeaderV1 {
+pub struct TeloscHeaderV2 {
     pub container_schema: u32,
     pub minimum_reader_schema: u32,
     pub package_identity: TeloscPackageIdentity,
@@ -41,6 +42,8 @@ pub struct TeloscHeaderV1 {
     pub query_fingerprint_abi: u32,
 
     pub native_surface_schema_version: u32,
+    /// Structural compatibility identity for the complete trusted native catalog.
+    pub native_catalog_fingerprint: [u8; 16],
     pub type_metadata_schema_version: u32,
 
     pub capabilities: TeloscCapabilities,
@@ -55,7 +58,7 @@ pub struct TeloscHeaderV1 {
     pub section_count: u32,
 }
 
-impl TeloscHeaderV1 {
+impl TeloscHeaderV2 {
     /// Encodes the header into the writer, returning the byte offset of `artifact_digest`.
     pub fn encode(&self, writer: &mut BinaryWriter) -> usize {
         writer.write_fixed(TELOSC_MAGIC);
@@ -82,6 +85,7 @@ impl TeloscHeaderV1 {
         writer.write_u32(self.query_fingerprint_abi);
 
         writer.write_u32(self.native_surface_schema_version);
+        writer.write_fixed(&self.native_catalog_fingerprint);
         writer.write_u32(self.type_metadata_schema_version);
 
         writer.write_u32(self.capabilities.bits());
@@ -101,41 +105,41 @@ impl TeloscHeaderV1 {
     }
 
     /// Decodes the header from reader, returning the header and the byte offset of `artifact_digest`.
-    pub fn decode(
+    pub fn decode(reader: &mut BinaryReader<'_>, limits: &ValidationLimits) -> Result<(Self, usize), ContainerError> {
+        let mut allocations = AllocationBudget::new(usize::MAX);
+        Self::decode_with_allocation_budget(reader, limits, &mut allocations)
+    }
+
+    /// Decodes owned package identity strings through the caller's load budget.
+    pub fn decode_with_allocation_budget(
         reader: &mut BinaryReader<'_>,
         limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
     ) -> Result<(Self, usize), ContainerError> {
-        let magic = reader
-            .read_fixed::<8>()
-            .map_err(|_| ContainerError::BadMagic([0; 8]))?;
+        let magic = reader.read_fixed::<8>().map_err(|_| ContainerError::BadMagic([0; 8]))?;
         if &magic != TELOSC_MAGIC {
             return Err(ContainerError::BadMagic(magic));
         }
 
-        let container_schema = reader
-            .read_u32()
-            .map_err(|_| ContainerError::UnsupportedContainerSchema {
-                found: 0,
-                supported: TELOSC_CONTAINER_SCHEMA_V1,
-            })?;
-        if container_schema != TELOSC_CONTAINER_SCHEMA_V1 {
+        let container_schema = reader.read_u32().map_err(|_| ContainerError::UnsupportedContainerSchema {
+            found: 0,
+            supported: TELOSC_CONTAINER_SCHEMA_V2,
+        })?;
+        if container_schema != TELOSC_CONTAINER_SCHEMA_V2 {
             return Err(ContainerError::UnsupportedContainerSchema {
                 found: container_schema,
-                supported: TELOSC_CONTAINER_SCHEMA_V1,
+                supported: TELOSC_CONTAINER_SCHEMA_V2,
             });
         }
 
-        let minimum_reader_schema =
-            reader
-                .read_u32()
-                .map_err(|_| ContainerError::UnsupportedReaderSchema {
-                    found: 0,
-                    supported: TELOSC_CONTAINER_SCHEMA_V1,
-                })?;
-        if minimum_reader_schema > TELOSC_CONTAINER_SCHEMA_V1 {
+        let minimum_reader_schema = reader.read_u32().map_err(|_| ContainerError::UnsupportedReaderSchema {
+            found: 0,
+            supported: TELOSC_CONTAINER_SCHEMA_V2,
+        })?;
+        if minimum_reader_schema > TELOSC_CONTAINER_SCHEMA_V2 {
             return Err(ContainerError::UnsupportedReaderSchema {
                 found: minimum_reader_schema,
-                supported: TELOSC_CONTAINER_SCHEMA_V1,
+                supported: TELOSC_CONTAINER_SCHEMA_V2,
             });
         }
 
@@ -155,8 +159,8 @@ impl TeloscHeaderV1 {
                     .map_err(|_| CodecError::CorruptedData("invalid package version".into()))
                     .map_err(|_| ContainerError::BadMagic([0; 8]))?;
                 TeloscPackageIdentity::Builtin {
-                    namespace: namespace.into(),
-                    version: version.into(),
+                    namespace: allocations.boxed_str(namespace)?,
+                    version: allocations.boxed_str(version)?,
                 }
             }
             1 => {
@@ -169,8 +173,8 @@ impl TeloscHeaderV1 {
                     .map_err(|_| CodecError::CorruptedData("invalid package version".into()))
                     .map_err(|_| ContainerError::BadMagic([0; 8]))?;
                 TeloscPackageIdentity::Package {
-                    package: package.into(),
-                    version: version.into(),
+                    package: allocations.boxed_str(package)?,
+                    version: allocations.boxed_str(version)?,
                 }
             }
             other => {
@@ -201,6 +205,10 @@ impl TeloscHeaderV1 {
 
         let native_surface_schema_version = reader
             .read_u32()
+            .map_err(|_| CodecError::UnexpectedEof)
+            .map_err(|_| ContainerError::BadMagic([0; 8]))?;
+        let native_catalog_fingerprint = reader
+            .read_fixed::<16>()
             .map_err(|_| CodecError::UnexpectedEof)
             .map_err(|_| ContainerError::BadMagic([0; 8]))?;
         let type_metadata_schema_version = reader
@@ -266,7 +274,7 @@ impl TeloscHeaderV1 {
         }
 
         Ok((
-            TeloscHeaderV1 {
+            TeloscHeaderV2 {
                 container_schema,
                 minimum_reader_schema,
                 package_identity,
@@ -276,6 +284,7 @@ impl TeloscHeaderV1 {
                 semantic_artifact_abi,
                 query_fingerprint_abi,
                 native_surface_schema_version,
+                native_catalog_fingerprint,
                 type_metadata_schema_version,
                 capabilities,
                 source_digest,

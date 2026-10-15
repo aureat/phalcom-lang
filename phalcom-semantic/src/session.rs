@@ -6539,6 +6539,9 @@ impl SemanticWorkspaceSession {
                 .map(|(callable, analysis)| (callable.clone(), analysis.clone()))
                 .collect()
         });
+        // This relation is registered at the producer that creates the
+        // synthetic module-body analysis. Consumers do not recognize module
+        // bodies later from selector spelling.
 
         // Retained conformance definitions still have source bodies and access
         // modifiers even when their modules need no structural reconstruction.
@@ -6697,10 +6700,11 @@ impl SemanticWorkspaceSession {
                 }
             }
 
-            let body_range = parsed_unit.program.preamble.range;
+            let body_range = crate::source_index::builder::statements_range(&parsed_unit.program.statements);
             let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
             let callable_id = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
-            let analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
+            let mut analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
+            analysis.body_source_owner = Some(crate::identity::SourceOwner::Module(module_id.clone()));
             callable_analyses.insert(callable_id, Arc::new(analysis));
         }
 
@@ -6806,7 +6810,7 @@ impl SemanticWorkspaceSession {
                     let Some(fact) = module_static_bindings.get(&symbol.module).and_then(|bindings| bindings.get(symbol)) else {
                         continue;
                     };
-                    ctx.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase);
+                    ctx.declare_module_value_binding(local_name.to_string(), &fact.state, fact.phase, symbol.clone(), Some(*import_id));
                 }
             }
 
@@ -6824,10 +6828,11 @@ impl SemanticWorkspaceSession {
                 }
             }
 
-            let body_range = parsed_unit.program.preamble.range;
+            let body_range = crate::source_index::builder::statements_range(&parsed_unit.program.statements);
             let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
             let callable_id = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
-            let analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
+            let mut analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
+            analysis.body_source_owner = Some(crate::identity::SourceOwner::Module(module_id.clone()));
             callable_analyses.insert(callable_id, Arc::new(analysis));
         }
 
@@ -7991,6 +7996,24 @@ impl SemanticWorkspaceSession {
 
         let source_semantics_requested = input.product_request.source_semantics != crate::request::SourceSemanticLevel::None;
         let presentation_requested = input.product_request.presentation != crate::request::PresentationLevel::None;
+        // A module-body analysis has callable-qualified facts but its lexical
+        // declarations live in the module source namespace. Build source
+        // attachments for just those canonical modules whose main analysis
+        // actually has BodyLocal bindings; the broader Universe source index
+        // remains opt-in presentation data.
+        let module_body_attachment_modules = callable_analyses
+            .values()
+            .filter_map(|analysis| {
+                let crate::identity::SourceOwner::Module(module) = analysis.body_source_owner.as_ref()? else {
+                    return None;
+                };
+                analysis
+                    .binding_origins
+                    .values()
+                    .any(|origin| matches!(origin, crate::checker::analysis::CallableBindingOrigin::BodyLocal))
+                    .then(|| module.clone())
+            })
+            .collect::<BTreeSet<_>>();
         let mut source_index_rebuild_modules = if source_semantics_requested {
             changed_modules.clone()
         } else {
@@ -8005,6 +8028,9 @@ impl SemanticWorkspaceSession {
         }
         if !presentation_requested {
             source_index_rebuild_modules.retain(|module| !module.project.is_universe() || input.sources.contains_key(module));
+        }
+        if source_semantics_requested {
+            source_index_rebuild_modules.extend(module_body_attachment_modules.iter().cloned());
         }
         let source_index_effect_modules = source_index_rebuild_modules.clone();
         let canonical_presentation_modules = if presentation_requested {
@@ -8029,6 +8055,9 @@ impl SemanticWorkspaceSession {
         } else {
             BTreeSet::new()
         };
+        if source_semantics_requested {
+            source_index_current_modules.extend(module_body_attachment_modules.iter().cloned());
+        }
         source_index_current_modules.extend(canonical_presentation_modules);
         let mut source_index_retired_modules = removed_modules.clone();
         if !presentation_requested {
@@ -8037,7 +8066,7 @@ impl SemanticWorkspaceSession {
                     .as_deref()
                     .into_iter()
                     .flat_map(|snapshot| snapshot.source_index.modules())
-                    .filter(|(module, _)| module.project.is_universe() && !input.sources.contains_key(module))
+                    .filter(|(module, _)| module.project.is_universe() && !input.sources.contains_key(module) && !module_body_attachment_modules.contains(*module))
                     .map(|(module, _)| module.clone()),
             );
         }
@@ -8049,13 +8078,19 @@ impl SemanticWorkspaceSession {
             let mut callables = BTreeSet::new();
             callables.extend(shard.callable_signature_fingerprints.keys().cloned());
             callables.extend(shard.callable_body_fingerprints.keys().cloned());
+            callables.extend(callable_analyses.iter().filter_map(|(callable, analysis)| {
+                (callable.module() == module
+                    && analysis.body_source_owner.as_ref() == Some(&crate::identity::SourceOwner::Module(module.clone())))
+                .then(|| callable.clone())
+            }));
             source_index_analysis_callables.insert(module.clone(), callables);
         }
         let source_index_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateSourceIndex);
         let (mut source_index, presentation_sources) = build_source_semantic_index(SourceSemanticIndexInputs {
-            sources: &input.sources,
+            sources: &retained_sources,
             universe_source_provider: self.universe_source_provider.as_ref(),
             callable_analyses: &callable_analyses,
+            callable_signatures: &callable_signatures,
             import_products: &input.import_products,
             require_canonical_import_products: input.require_canonical_import_products,
             linked: input.linked.as_ref(),
@@ -11322,6 +11357,7 @@ struct SourceSemanticIndexInputs<'a> {
     sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     universe_source_provider: Option<&'a phalcom_modules::UniverseSourceProvider>,
     callable_analyses: &'a HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
+    callable_signatures: &'a CallableSignatureTable,
     import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
     require_canonical_import_products: bool,
     linked: &'a LinkedProgram,
@@ -11358,6 +11394,7 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
         sources,
         universe_source_provider,
         callable_analyses,
+        callable_signatures,
         import_products,
         require_canonical_import_products,
         linked,
@@ -11387,12 +11424,9 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
     };
     let mut index_sources = BTreeMap::new();
     if previous.is_none() {
-        index_sources.extend(
-            sources
-                .iter()
-                .filter(|(module, _)| include_canonical_presentation || !module.project.is_universe() || sources.contains_key(module))
-                .map(|(module, source)| (module.clone(), source.clone())),
-        );
+        index_sources.extend(current_modules.iter().filter_map(|module| {
+            sources.get(module).map(|source| (module.clone(), source.clone()))
+        }));
     } else {
         for module in rebuild_modules {
             if let Some(source) = sources.get(module) {
@@ -11401,7 +11435,14 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
         }
     }
     for module in &presentation_modules {
-        if sources.contains_key(module) || (previous.is_some() && !rebuild_modules.contains(module)) {
+        if let Some(parsed) = sources.get(module) {
+            presentation_sources.insert(module.clone(), parsed.text.clone());
+            if previous.is_none() || rebuild_modules.contains(module) {
+                index_sources.insert(module.clone(), parsed.clone());
+            }
+            continue;
+        }
+        if previous.is_some() && !rebuild_modules.contains(module) {
             continue;
         }
         let parsed = provider.expect("source presentation requires a source provider").load_parsed(module).expect("canonical Universe presentation source must load");
@@ -11421,6 +11462,16 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
             .collect(),
         ..SourceIndexContext::default()
     };
+    for (body_callable, analysis) in callable_analyses {
+        let source_owner = analysis.body_source_owner.clone().or_else(|| {
+            callable_signatures
+                .id_for_body(body_callable)
+                .map(crate::identity::SourceOwner::Callable)
+        });
+        if let Some(source_owner) = source_owner {
+            context.body_source_owners.insert(body_callable.clone(), source_owner);
+        }
+    }
     for (module, source) in &index_sources {
         for statement in &source.program.statements {
             match statement {
@@ -11602,7 +11653,6 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
                 })
             })
             .map(Arc::as_ref)
-            .filter(|analysis| !matches!(&analysis.callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "<main>"))
             .collect::<Vec<_>>();
         module_analyses.sort_by_key(|analysis| analysis.callable.clone());
         let (shard, incidents) = crate::source_index::ModuleSourceIndex::from_scope_index_with_formal(scope, source, Some(&context), &module_analyses);

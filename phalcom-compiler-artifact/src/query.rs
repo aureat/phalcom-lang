@@ -210,12 +210,7 @@ impl QueryImageV1 {
 }
 
 fn allocation_error(error: AllocationError) -> ArtifactError {
-    ArtifactError::LimitExceeded(match error {
-        AllocationError::Exhausted => "query image allocation budget exceeded",
-        AllocationError::Overflow => "query image allocation layout overflow",
-        AllocationError::Failed => "query image allocation failed",
-    }
-    .into())
+    ArtifactError::Allocation(error)
 }
 
 fn reserve_vec<T>(remaining: &mut AllocationBudget, count: usize) -> Result<Vec<T>, ArtifactError> {

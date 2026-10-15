@@ -67,7 +67,11 @@ class Probe {
         fixture.assert_expression_ready(expression);
         let specialization = expression.call_specialization.as_ref().expect("class-side call specialization");
         assert_eq!(specialization.bindings.len(), 1, "{expression_text}: {specialization:#?}");
-        assert_eq!(specialization.bindings[0].1, expected_ty, "{expression_text}: {specialization:#?}");
+        assert_eq!(
+            specialization.bindings[0].1,
+            phalcom_semantic::types::store::StaticArgument::Term(expected_ty),
+            "{expression_text}: {specialization:#?}"
+        );
     }
 
     assert!(

@@ -2,22 +2,34 @@
 
 use super::id::{RecordRowId, TypeId, TypeParameterId};
 use super::row::{RecordRowField, RecordRowFormationError, RecordRowTail};
-use super::store::{CallableParameterType, CallableType, PackFormationError, TupleTypeElement, TypeData, TypeStore};
+use super::store::{CallableParameterType, CallableType, PackFormationError, StaticArgument, TupleTypeElement, TypeData, TypeStore};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct GenericInstantiation {
     type_bindings: HashMap<TypeParameterId, TypeId>,
     row_bindings: HashMap<TypeParameterId, RecordRowId>,
+    dynamic_bindings: HashSet<TypeParameterId>,
 }
 
 impl GenericInstantiation {
     pub fn bind_type(&mut self, parameter: TypeParameterId, ty: TypeId) {
+        self.row_bindings.remove(&parameter);
+        self.dynamic_bindings.remove(&parameter);
         self.type_bindings.insert(parameter, ty);
     }
 
     pub fn bind_row(&mut self, parameter: TypeParameterId, row: RecordRowId) {
+        self.type_bindings.remove(&parameter);
+        self.dynamic_bindings.remove(&parameter);
         self.row_bindings.insert(parameter, row);
+    }
+
+    /// Binds a parameter to the explicit Dynamic boundary.
+    pub fn bind_dynamic(&mut self, parameter: TypeParameterId) {
+        self.type_bindings.remove(&parameter);
+        self.row_bindings.remove(&parameter);
+        self.dynamic_bindings.insert(parameter);
     }
 
     pub fn type_binding(&self, parameter: TypeParameterId) -> Option<TypeId> {
@@ -28,12 +40,30 @@ impl GenericInstantiation {
         self.row_bindings.get(&parameter).copied()
     }
 
+    /// Returns whether `parameter` is explicitly Dynamic rather than absent.
+    pub fn is_dynamic(&self, parameter: TypeParameterId) -> bool {
+        self.dynamic_bindings.contains(&parameter)
+    }
+
+    /// Returns the single canonical argument category bound to `parameter`.
+    pub fn argument(&self, parameter: TypeParameterId) -> Option<StaticArgument> {
+        self.type_binding(parameter)
+            .map(StaticArgument::Term)
+            .or_else(|| self.row_binding(parameter).map(StaticArgument::RecordRow))
+            .or_else(|| self.is_dynamic(parameter).then_some(StaticArgument::DynamicType))
+    }
+
     pub fn type_bindings(&self) -> &HashMap<TypeParameterId, TypeId> {
         &self.type_bindings
     }
 
     pub fn row_bindings(&self) -> &HashMap<TypeParameterId, RecordRowId> {
         &self.row_bindings
+    }
+
+    /// Iterates parameters explicitly bound to Dynamic.
+    pub fn dynamic_bindings(&self) -> impl Iterator<Item = TypeParameterId> + '_ {
+        self.dynamic_bindings.iter().copied()
     }
 }
 
@@ -45,6 +75,8 @@ pub enum RowMaterializationMode {
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum TypeMaterializationError {
+    #[error("type parameter is explicitly Dynamic and has no proper type term")]
+    DynamicBoundary(TypeParameterId),
     #[error("record row parameter has no solved row binding")]
     UnresolvedRowParameter(TypeParameterId),
     #[error("recursive record row substitution")]
@@ -74,19 +106,20 @@ fn materialize_type_inner(
     visiting_rows: &mut HashSet<TypeParameterId>,
 ) -> Result<TypeId, TypeMaterializationError> {
     match store.get(ty).clone() {
-        TypeData::Parameter(parameter) => Ok(instantiation.type_binding(parameter).unwrap_or(ty)),
+        TypeData::Parameter(parameter) => match instantiation.argument(parameter) {
+            Some(StaticArgument::Term(ty)) => Ok(ty),
+            Some(StaticArgument::DynamicType) => Err(TypeMaterializationError::DynamicBoundary(parameter)),
+            Some(StaticArgument::RecordRow(_)) => Err(TypeMaterializationError::TypeApplication),
+            None => Ok(ty),
+        },
         TypeData::Applied { origin, arguments } => {
             let origin = materialize_type_inner(store, origin, instantiation, row_mode, visiting_rows)?;
             let arguments = arguments
                 .iter()
                 .map(|argument| match argument {
-                    super::store::StaticArgument::Term(argument) => Ok(super::store::StaticArgument::Term(materialize_type_inner(
-                        store,
-                        *argument,
-                        instantiation,
-                        row_mode,
-                        visiting_rows,
-                    )?)),
+                    super::store::StaticArgument::Term(argument) => {
+                        materialize_term_argument(store, *argument, instantiation, row_mode, visiting_rows)
+                    }
                     super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(materialize_row_id(
                         store,
                         *row,
@@ -311,13 +344,9 @@ fn materialize_type_inner(
                 .arguments
                 .iter()
                 .map(|argument| match argument {
-                    super::store::StaticArgument::Term(argument) => Ok(super::store::StaticArgument::Term(materialize_type_inner(
-                        store,
-                        *argument,
-                        instantiation,
-                        row_mode,
-                        visiting_rows,
-                    )?)),
+                    super::store::StaticArgument::Term(argument) => {
+                        materialize_term_argument(store, *argument, instantiation, row_mode, visiting_rows)
+                    }
                     super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(materialize_row_id(
                         store,
                         *row,
@@ -342,6 +371,21 @@ fn materialize_type_inner(
         | TypeData::StaticDomainForm { .. }
         | TypeData::ClassObject { .. } => Ok(ty),
     }
+}
+
+fn materialize_term_argument(
+    store: &mut TypeStore,
+    ty: TypeId,
+    instantiation: &GenericInstantiation,
+    row_mode: RowMaterializationMode,
+    visiting_rows: &mut HashSet<TypeParameterId>,
+) -> Result<StaticArgument, TypeMaterializationError> {
+    if let TypeData::Parameter(parameter) = store.get(ty)
+        && instantiation.is_dynamic(*parameter)
+    {
+        return Ok(StaticArgument::DynamicType);
+    }
+    Ok(StaticArgument::Term(materialize_type_inner(store, ty, instantiation, row_mode, visiting_rows)?))
 }
 
 fn materialize_row(

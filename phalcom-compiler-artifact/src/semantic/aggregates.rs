@@ -338,6 +338,9 @@ impl StructuralPrimaryContractsV1 {
                 }
             }
         }
+        if self.enum_contracts.windows(2).any(|pair| pair[0].owner >= pair[1].owner) {
+            return Err(invalid("enum contracts must be unique and sorted by owner"));
+        }
         if !variant_rows.is_empty() {
             return Err(invalid("structural variant row belongs to no enum contract"));
         }

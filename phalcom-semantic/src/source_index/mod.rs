@@ -13,7 +13,7 @@ use crate::associated::AssociatedMemberId;
 use crate::checker::CallableAnalysis;
 use crate::checker::associated::AssociatedResolutionKind;
 use crate::db::ProductFingerprint;
-use crate::identity::{BindingId, CallableId, DeclarationId, ExpressionId, FieldId, ModuleId, SemanticTargetId, SourceSiteId};
+use crate::identity::{BindingId, CallableId, CallableParameterId, DeclarationId, ExpressionId, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId};
 use crate::source_index::interval::{RangeEntry, RangeIndex};
 
 pub mod builder;
@@ -44,6 +44,8 @@ pub enum SourceAttachmentError {
     MissingModule(ModuleId),
     AmbiguousBinding { callable: CallableId, binding: BindingId },
     MissingBinding { callable: CallableId, binding: BindingId },
+    MissingBindingOrigin { callable: CallableId, binding: BindingId },
+    InvalidBindingOrigin { callable: CallableId, binding: BindingId },
 }
 
 /// Deterministic performance and change statistics published by the source index.
@@ -107,30 +109,81 @@ pub struct CallableSourceAttachment {
 
 impl CallableSourceAttachment {
     /// Attaches checker products to unique compiler-owned declaration sites.
-    pub fn from_analysis(callable: CallableId, scopes: &SourceScopeIndex, analysis: &CallableAnalysis) -> Result<Self, Box<SourceAttachmentError>> {
-        let (attachment, incidents) = Self::from_analysis_with_incidents(callable, scopes, analysis);
+    pub fn from_analysis(
+        callable: CallableId,
+        source_callable: &CallableId,
+        scopes: &SourceScopeIndex,
+        analysis: &CallableAnalysis,
+    ) -> Result<Self, Box<SourceAttachmentError>> {
+        let (attachment, incidents) = Self::from_analysis_with_incidents(callable, source_callable, scopes, analysis);
         incidents.into_iter().next().map_or(Ok(attachment), |error| Err(Box::new(error)))
     }
 
     /// Builds all exact expression attachments while retaining binding failures
     /// as non-fatal incidents. A missing binding must not erase independently
     /// attachable call/expression products for the same callable.
-    pub fn from_analysis_with_incidents(callable: CallableId, scopes: &SourceScopeIndex, analysis: &CallableAnalysis) -> (Self, Vec<SourceAttachmentError>) {
+    pub fn from_analysis_with_incidents(
+        callable: CallableId,
+        source_callable: &CallableId,
+        scopes: &SourceScopeIndex,
+        analysis: &CallableAnalysis,
+    ) -> (Self, Vec<SourceAttachmentError>) {
+        Self::from_analysis_with_source_owner(callable, &SourceOwner::Callable(source_callable.clone()), scopes, analysis)
+    }
+
+    fn from_analysis_with_source_owner(
+        callable: CallableId,
+        source_owner: &SourceOwner,
+        scopes: &SourceScopeIndex,
+        analysis: &CallableAnalysis,
+    ) -> (Self, Vec<SourceAttachmentError>) {
         let mut formal_bindings = BTreeMap::new();
         let mut incidents = Vec::new();
         let mut current_bindings = scopes
             .bindings
             .values()
-            .filter(|binding| binding.declaration_site.owner == crate::identity::SourceOwner::Callable(callable.clone()))
+            .filter(|binding| &binding.declaration_site.owner == source_owner)
             .collect::<Vec<_>>();
         current_bindings.sort_by_key(|binding| binding.declaration_site.local);
-        let mut states = analysis.bindings.values().collect::<Vec<_>>();
+        let mut states = Vec::new();
+        for state in analysis.bindings.values() {
+            match analysis.binding_origins.get(&state.binding) {
+                Some(crate::checker::analysis::CallableBindingOrigin::BodyLocal) => states.push(state),
+                Some(crate::checker::analysis::CallableBindingOrigin::ModuleValue { .. }) if state.parameter.is_none() => {}
+                Some(crate::checker::analysis::CallableBindingOrigin::ModuleValue { .. }) => {
+                    incidents.push(SourceAttachmentError::InvalidBindingOrigin {
+                        callable: callable.clone(),
+                        binding: state.binding,
+                    });
+                }
+                None => incidents.push(SourceAttachmentError::MissingBindingOrigin {
+                    callable: callable.clone(),
+                    binding: state.binding,
+                }),
+            }
+        }
+        if let Some(binding) = analysis.binding_origins.keys().find(|binding| !analysis.bindings.contains_key(binding)) {
+            incidents.push(SourceAttachmentError::InvalidBindingOrigin {
+                callable: callable.clone(),
+                binding: *binding,
+            });
+        }
         states.sort_by_key(|state| state.binding);
-        let rebase_ranges = scopes
-            .callable_body_ranges
-            .get(&callable)
-            .is_some_and(|current| *current != analysis.body_range);
-        let current_bindings = (rebase_ranges && current_bindings.len() == states.len()).then_some(current_bindings);
+        let rebase_ranges = match source_owner {
+            SourceOwner::Callable(source_callable) => scopes
+                .callable_body_ranges
+                .get(source_callable)
+                .is_some_and(|current| *current != analysis.body_range),
+            SourceOwner::Module(_) => false,
+        };
+        // The historical range-rebase shortcut is valid only within a
+        // callable source shard. Module shards also contain imports, top-level
+        // declarations, and nested lexical scopes, so their site count/order
+        // cannot identify a checker binding.
+        let current_bindings = (matches!(source_owner, SourceOwner::Callable(_))
+            && rebase_ranges
+            && current_bindings.len() == states.len())
+        .then_some(current_bindings);
         for (offset, state) in states.into_iter().enumerate() {
             if let Some(parameter) = &state.parameter {
                 if let Some(site) = scopes
@@ -152,13 +205,39 @@ impl CallableSourceAttachment {
                 formal_bindings.insert(state.binding, binding.declaration_site.clone());
                 continue;
             }
+            if let SourceOwner::Module(_) = source_owner {
+                let candidates = scopes
+                    .bindings
+                    .values()
+                    .filter(|binding| {
+                        &binding.declaration_site.owner == source_owner
+                            && binding.declaration_range == state.range
+                            && binding.name.as_ref() == state.name
+                    })
+                    .map(|binding| binding.declaration_site.clone())
+                    .collect::<Vec<_>>();
+                match candidates.as_slice() {
+                    [site] => {
+                        formal_bindings.insert(state.binding, site.clone());
+                    }
+                    [] => incidents.push(SourceAttachmentError::MissingBinding {
+                        callable: callable.clone(),
+                        binding: state.binding,
+                    }),
+                    _ => incidents.push(SourceAttachmentError::AmbiguousBinding {
+                        callable: callable.clone(),
+                        binding: state.binding,
+                    }),
+                }
+                continue;
+            }
             let candidates = scopes
                 .bindings
                 .values()
                 .filter(|binding| {
                     binding.name.as_ref() == state.name
                         && binding.declaration_range == state.range
-                        && binding.declaration_site.owner == crate::identity::SourceOwner::Callable(callable.clone())
+                        && binding.declaration_site.owner == *source_owner
                 })
                 .map(|binding| binding.declaration_site.clone())
                 .collect::<Vec<_>>();
@@ -307,8 +386,16 @@ impl ModuleSourceIndex {
         let mut attachments = BTreeMap::new();
         let mut incidents = Vec::new();
         for analysis in analyses {
-            let (attachment, mut attachment_incidents) =
-                CallableSourceAttachment::from_analysis_with_incidents(analysis.callable.clone(), &structure, analysis);
+            let default_owner = SourceOwner::Callable(analysis.callable.clone());
+            let source_owner = context
+                .and_then(|context| context.body_source_owners.get(&analysis.callable))
+                .unwrap_or(&default_owner);
+            let (attachment, mut attachment_incidents) = CallableSourceAttachment::from_analysis_with_source_owner(
+                analysis.callable.clone(),
+                source_owner,
+                &structure,
+                analysis,
+            );
             attachments.insert(analysis.callable.clone(), Arc::new(attachment));
             incidents.append(&mut attachment_incidents);
         }
@@ -891,13 +978,35 @@ impl SourceSemanticIndex {
     }
 
     /// Attaches one formal callable product to its exact source sites.
-    pub fn attach_formal_analysis(&mut self, module: &ModuleId, analysis: &CallableAnalysis) -> Result<(), Box<SourceAttachmentError>> {
+    pub fn attach_formal_analysis(
+        &mut self,
+        module: &ModuleId,
+        analysis: &CallableAnalysis,
+        source_callable: &CallableId,
+    ) -> Result<(), Box<SourceAttachmentError>> {
+        self.attach_formal_analysis_with_source_owner(module, analysis, &SourceOwner::Callable(source_callable.clone()))
+    }
+
+    /// Attaches one formal callable product through an explicit source-owner
+    /// relation. Module-body analyses use this when their lexical declaration
+    /// sites live in the module namespace rather than a callable shard.
+    pub fn attach_formal_analysis_with_source_owner(
+        &mut self,
+        module: &ModuleId,
+        analysis: &CallableAnalysis,
+        source_owner: &SourceOwner,
+    ) -> Result<(), Box<SourceAttachmentError>> {
         let Some(module_index) = self.modules.get(module).cloned() else {
             let error = SourceAttachmentError::MissingModule(module.clone());
             self.replace_module_incidents(module.clone(), [error.clone()]);
             return Err(Box::new(error));
         };
-        let (attachment, incidents) = CallableSourceAttachment::from_analysis_with_incidents(analysis.callable.clone(), &module_index.structure, analysis);
+        let (attachment, incidents) = CallableSourceAttachment::from_analysis_with_source_owner(
+            analysis.callable.clone(),
+            source_owner,
+            &module_index.structure,
+            analysis,
+        );
         let mut attachments = module_index.attachments.clone();
         attachments.insert(analysis.callable.clone(), Arc::new(attachment));
         let updated_shard = Arc::new(ModuleSourceIndex::from_structure_and_attachments(
@@ -990,6 +1099,16 @@ impl SourceSemanticIndex {
     pub fn formal_attachment(&self, callable: &CallableId) -> Option<&CallableSourceAttachment> {
         let module = self.modules.get(callable.module())?;
         module.attachments.get(callable).map(AsRef::as_ref)
+    }
+
+    /// Reports whether the current source contains a declaration site for a
+    /// formal parameter identity. This distinguishes source parameters from
+    /// synthetic semantic bindings such as an implicit receiver.
+    pub fn has_parameter_source_site(&self, source_callable: &CallableId, parameter: &CallableParameterId) -> bool {
+        self.modules
+            .get(source_callable.module())
+            .and_then(|module| module.structure.callable_sources.get(source_callable))
+            .is_some_and(|source| source.parameter_sites.contains_key(parameter))
     }
 
     /// Returns the canonical source site attached to one formal expression.

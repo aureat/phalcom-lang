@@ -595,6 +595,9 @@ pub struct CheckingContext<'a> {
     /// Owner whose canonical instance constructor body is currently checked.
     /// Set only from a declaration signature carrying constructor semantics.
     pub(crate) current_constructor_owner: Option<DeclarationId>,
+    /// Stable identity of the enclosing checked static-definition body.
+    /// Static application ordinals are local to this owner, not to their target.
+    pub(crate) current_static_body_owner: Option<crate::static_definition::StaticBodyId>,
     pub internal_failure_policy: InternalFailurePolicy,
     pub control: CheckerControl,
     pub expected_return: Option<CallableReturnContract>,
@@ -648,6 +651,10 @@ pub struct CheckingContext<'a> {
     /// Import provenance follows the selected lexical identity, so shadowing
     /// does not observe a module product merely because an import was seeded.
     module_binding_dependencies: BTreeMap<BindingId, Vec<SemanticDependency>>,
+    /// Storage origins for module values copied into this callable's scope.
+    /// Other binding handles are body-local and are materialized as such when
+    /// the callable analysis is finalized.
+    seeded_module_value_origins: BTreeMap<BindingId, crate::checker::analysis::CallableBindingOrigin>,
     field_signatures: Option<&'a FieldSignatureTable>,
     field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
     pub(crate) constructor_initializations: Option<&'a crate::signature::ConstructorInitializationTable>,
@@ -735,12 +742,14 @@ impl<'a> CheckingContext<'a> {
             access_topology: None,
             phase: EvaluationPhase::Runtime,
             module_binding_dependencies: BTreeMap::new(),
+            seeded_module_value_origins: BTreeMap::new(),
             module_value_bindings: None,
             module_value_exports: None,
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
             current_constructor_owner: None,
+            current_static_body_owner: None,
             internal_failure_policy: InternalFailurePolicy::Contain,
             control: CheckerControl::default(),
             expected_return: None,
@@ -854,12 +863,14 @@ impl<'a> CheckingContext<'a> {
             access_topology: None,
             phase: EvaluationPhase::Runtime,
             module_binding_dependencies: BTreeMap::new(),
+            seeded_module_value_origins: BTreeMap::new(),
             module_value_bindings: None,
             module_value_exports: None,
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
             current_constructor_owner: None,
+            current_static_body_owner: None,
             internal_failure_policy: InternalFailurePolicy::Contain,
             control,
             expected_return: None,
@@ -952,12 +963,14 @@ impl<'a> CheckingContext<'a> {
             access_topology: self.access_topology,
             phase: self.phase,
             module_binding_dependencies: self.module_binding_dependencies.clone(),
+            seeded_module_value_origins: self.seeded_module_value_origins.clone(),
             module_value_bindings: self.module_value_bindings,
             module_value_exports: self.module_value_exports,
             current_class: self.current_class.clone(),
             current_side: self.current_side,
             current_callable: self.current_callable.clone(),
             current_constructor_owner: self.current_constructor_owner.clone(),
+            current_static_body_owner: self.current_static_body_owner.clone(),
             internal_failure_policy: self.internal_failure_policy,
             control: self.control.clone(),
             expected_return: self.expected_return.clone(),
@@ -1074,10 +1087,7 @@ impl<'a> CheckingContext<'a> {
                 if fact.symbol.module != self.current_module {
                     continue;
                 }
-                if let BindingDeclarationResult::Inserted(binding) = self.declare_checked_binding(name.to_owned(), &fact.state, fact.phase) {
-                    self.module_binding_dependencies
-                        .insert(binding, vec![SemanticDependency::ModuleStaticBindings(fact.symbol.module.clone())]);
-                }
+                self.declare_module_value_binding(name.to_owned(), &fact.state, fact.phase, fact.symbol.clone(), None);
             }
         }
         for (local_name, import_id) in &linked_module.bindings.imports {
@@ -1087,15 +1097,7 @@ impl<'a> CheckingContext<'a> {
             let Some(fact) = bindings.get(&symbol.module).and_then(|index| index.get(symbol)) else {
                 continue;
             };
-            if let BindingDeclarationResult::Inserted(binding) = self.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase) {
-                self.module_binding_dependencies.insert(
-                    binding,
-                    vec![
-                        SemanticDependency::LinkedName(self.current_module.clone(), local_name.to_string()),
-                        SemanticDependency::ModuleStaticBindings(symbol.module.clone()),
-                    ],
-                );
-            }
+            self.declare_module_value_binding(local_name.to_string(), &fact.state, fact.phase, symbol.clone(), Some(*import_id));
         }
     }
 
@@ -1173,6 +1175,7 @@ impl<'a> CheckingContext<'a> {
         probe.caller_package = self.caller_package.clone();
         probe.access_topology = self.access_topology;
         probe.module_binding_dependencies = self.module_binding_dependencies.clone();
+        probe.seeded_module_value_origins = self.seeded_module_value_origins.clone();
         probe.module_value_bindings = self.module_value_bindings;
         probe.module_value_exports = self.module_value_exports;
         probe.current_class = self.current_class.clone();
@@ -1608,18 +1611,15 @@ impl<'a> CheckingContext<'a> {
 
     pub(crate) fn record_checked_static_application(
         &mut self,
-        owner: DeclarationId,
         source_range: SourceRange,
         target: DeclarationId,
         signature: crate::static_definition::StaticDefinitionSignature,
         arguments: Box<[crate::static_definition::CheckedStaticApplicationArgument]>,
     ) -> Option<crate::static_definition::StaticApplicationId> {
         let expression = self.current_expression_id()?;
+        let body = self.current_static_body_owner.clone()?;
         let ordinal = u32::try_from(self.checked_static_applications.len()).ok()?;
-        let id = crate::static_definition::StaticApplicationId {
-            body: crate::static_definition::StaticBodyId(owner),
-            ordinal,
-        };
+        let id = crate::static_definition::StaticApplicationId { body, ordinal };
         self.checked_static_applications.push(crate::static_definition::CheckedStaticApplication {
             id: id.clone(),
             expression,
@@ -2346,6 +2346,40 @@ impl<'a> CheckingContext<'a> {
             },
         );
         BindingDeclarationResult::Inserted(binding_id)
+    }
+
+    /// Imports a checked module value under a fresh local binding handle and
+    /// retains its canonical storage owner. The source binding's range may be
+    /// owned by a different module; callers attach the local import site via
+    /// the module source index rather than treating it as a body-local token.
+    pub(crate) fn declare_module_value_binding(
+        &mut self,
+        name: String,
+        source: &crate::checker::analysis::BindingState,
+        phase: crate::module_bindings::ModuleBindingPhase,
+        symbol: phalcom_modules::linker::SymbolId,
+        import: Option<phalcom_modules::linker::ImportBindingId>,
+    ) -> BindingDeclarationResult {
+        let result = self.declare_checked_binding(name.clone(), source, phase);
+        if let BindingDeclarationResult::Inserted(binding) = &result {
+            self.seeded_module_value_origins.insert(
+                *binding,
+                crate::checker::analysis::CallableBindingOrigin::ModuleValue {
+                    symbol: symbol.clone(),
+                    import,
+                },
+            );
+            let mut dependencies = Vec::with_capacity(2);
+            if import.is_some() {
+                dependencies.push(crate::checker::analysis::SemanticDependency::LinkedName(
+                    self.current_module.clone(),
+                    name,
+                ));
+            }
+            dependencies.push(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
+            self.module_binding_dependencies.insert(*binding, dependencies);
+        }
+        result
     }
 
     pub fn bind_callable_parameter(&mut self, name: impl Into<String>, current: TypeKnowledge, range: SourceRange) -> BindingDeclarationResult {
@@ -4031,20 +4065,32 @@ impl<'a> CheckingContext<'a> {
             throws: self.throw_exit_flows,
             unreachable: false,
         };
+        let mut bindings = self.binding_history;
+        bindings.extend(self.flow.bindings);
+        let binding_origins = bindings
+            .keys()
+            .map(|binding| {
+                (
+                    *binding,
+                    self.seeded_module_value_origins
+                        .get(binding)
+                        .cloned()
+                        .unwrap_or(crate::checker::analysis::CallableBindingOrigin::BodyLocal),
+                )
+            })
+            .collect();
 
         crate::checker::analysis::CallableAnalysis {
             callable,
             body_range,
+            body_source_owner: None,
             expressions: self.expressions,
             for_iteration_lanes: std::sync::Arc::new(self.for_iteration_lanes),
             positional_expansions: std::sync::Arc::new(self.positional_expansions),
             known_invalid_positional_expansions: std::sync::Arc::new(self.known_invalid_positional_expansions),
             sequence_literals: std::sync::Arc::new(self.sequence_literals),
-            bindings: {
-                let mut bindings = self.binding_history;
-                bindings.extend(self.flow.bindings);
-                bindings
-            },
+            bindings,
+            binding_origins,
             associated_resolutions: std::sync::Arc::new(self.associated_resolutions),
             callable_reference_resolutions: std::sync::Arc::new(self.callable_reference_resolutions),
             family_applications: std::sync::Arc::new(self.family_applications),

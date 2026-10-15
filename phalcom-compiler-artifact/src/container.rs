@@ -3,16 +3,14 @@
 use crate::codec::{BinaryReader, BinaryWriter};
 use crate::digest::{ArtifactDigest, ArtifactHasher, DOMAIN_ARTIFACT, DOMAIN_SECTION};
 use crate::error::{ArtifactError, CodecError, ContainerError};
-use crate::header::{TeloscCapabilities, TeloscHeaderV1};
+use crate::header::{TeloscCapabilities, TeloscHeaderV2};
 use crate::limits::ValidationLimits;
-use crate::section::{
-    SectionDirectoryEntryV1, SectionFlags, SectionKind, SECTION_DIRECTORY_ENTRY_SIZE,
-};
-use std::collections::HashSet;
+use crate::section::{SECTION_DIRECTORY_ENTRY_SIZE, SectionDirectoryEntryV1, SectionFlags, SectionKind};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 
 /// Builder for constructing deterministic `.telosc` container artifacts.
 pub struct TeloscContainerBuilder {
-    header: TeloscHeaderV1,
+    header: TeloscHeaderV2,
     sections: Vec<PendingSection>,
 }
 
@@ -24,20 +22,11 @@ struct PendingSection {
 }
 
 impl TeloscContainerBuilder {
-    pub fn new(header: TeloscHeaderV1) -> Self {
-        Self {
-            header,
-            sections: Vec::new(),
-        }
+    pub fn new(header: TeloscHeaderV2) -> Self {
+        Self { header, sections: Vec::new() }
     }
 
-    pub fn add_section(
-        &mut self,
-        kind: SectionKind,
-        schema_version: u32,
-        flags: SectionFlags,
-        data: Vec<u8>,
-    ) {
+    pub fn add_section(&mut self, kind: SectionKind, schema_version: u32, flags: SectionFlags, data: Vec<u8>) {
         self.sections.push(PendingSection {
             kind,
             schema_version,
@@ -132,7 +121,7 @@ impl TeloscContainerBuilder {
 /// Zero-copy read-only view of a validated `.telosc` container.
 #[derive(Clone, Debug)]
 pub struct TeloscContainerView<'a> {
-    pub header: TeloscHeaderV1,
+    pub header: TeloscHeaderV2,
     pub directory: Vec<SectionDirectoryEntryV1>,
     raw_data: &'a [u8],
 }
@@ -140,6 +129,21 @@ pub struct TeloscContainerView<'a> {
 impl<'a> TeloscContainerView<'a> {
     /// Parses and strictly validates a container binary buffer against resource limits.
     pub fn parse(data: &'a [u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {
+        let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| ArtifactError::Allocation(AllocationError::Overflow))?;
+        let mut allocations = AllocationBudget::new(section_limit);
+        Self::parse_with_allocation_budget(data, limits, &mut allocations)
+    }
+
+    /// Parses a container while charging its owned directory to the load transaction.
+    pub fn parse_with_allocation_budget(data: &'a [u8], limits: &ValidationLimits, transaction: &mut AllocationBudget) -> Result<Self, ArtifactError> {
+        let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| ArtifactError::Allocation(AllocationError::Overflow))?;
+        let mut allocations = transaction.child(section_limit);
+        let view = Self::parse_inner(data, limits, &mut allocations)?;
+        transaction.commit_child(allocations)?;
+        Ok(view)
+    }
+
+    fn parse_inner(data: &'a [u8], limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<Self, ArtifactError> {
         if data.len() as u64 > limits.max_artifact_bytes {
             return Err(ArtifactError::LimitExceeded(format!(
                 "artifact size ({} bytes) exceeds limit of {} bytes",
@@ -149,17 +153,18 @@ impl<'a> TeloscContainerView<'a> {
         }
 
         let mut reader = BinaryReader::new(data);
-        let (header, artifact_digest_offset) = TeloscHeaderV1::decode(&mut reader, limits)?;
+        let (header, artifact_digest_offset) = TeloscHeaderV2::decode_with_allocation_budget(&mut reader, limits, allocations)?;
 
         let dir_entry_count = header.section_count as usize;
-        let dir_bytes_len = dir_entry_count * SECTION_DIRECTORY_ENTRY_SIZE;
+        let dir_bytes_len = dir_entry_count
+            .checked_mul(SECTION_DIRECTORY_ENTRY_SIZE)
+            .ok_or_else(|| ArtifactError::LimitExceeded("section directory size overflow".into()))?;
         if reader.remaining() < dir_bytes_len {
             return Err(CodecError::UnexpectedEof.into());
         }
 
         let dir_start_pos = reader.position();
-        let mut directory = Vec::with_capacity(dir_entry_count);
-        let mut seen_kinds = HashSet::new();
+        let mut directory = allocations.vector::<SectionDirectoryEntryV1>(dir_entry_count)?;
 
         for _ in 0..dir_entry_count {
             let kind_tag = reader.read_u32()?;
@@ -170,8 +175,17 @@ impl<'a> TeloscContainerView<'a> {
             if flags.contains(SectionFlags::COMPRESSED) {
                 return Err(ContainerError::UnsupportedSectionFlags(flags_bits).into());
             }
-            if kind.is_known() && schema_version != 1 {
-                return Err(ContainerError::UnsupportedSectionSchema { section: kind, schema: schema_version }.into());
+            let supported_schema = match kind {
+                SectionKind::SemanticWorld => Some(crate::semantic::world::SEMANTIC_WORLD_SCHEMA_V2),
+                SectionKind::Unknown(_) => None,
+                _ => Some(1),
+            };
+            if supported_schema.is_some_and(|supported| schema_version != supported) {
+                return Err(ContainerError::UnsupportedSectionSchema {
+                    section: kind,
+                    schema: schema_version,
+                }
+                .into());
             }
             let offset = reader.read_u64()?;
             let encoded_len = reader.read_u64()?;
@@ -179,16 +193,13 @@ impl<'a> TeloscContainerView<'a> {
             let digest = ArtifactDigest(reader.read_fixed::<32>()?);
 
             // Duplicate section detection
-            if !seen_kinds.insert(kind) {
+            if directory.iter().any(|entry| entry.kind == kind) {
                 return Err(ContainerError::DuplicateSection(kind).into());
             }
 
             // Unknown required section rejection
             if matches!(kind, SectionKind::Unknown(_)) && flags.contains(SectionFlags::REQUIRED) {
-                return Err(ContainerError::UnknownRequiredSection {
-                    tag: kind.tag(),
-                }
-                .into());
+                return Err(ContainerError::UnknownRequiredSection { tag: kind.tag() }.into());
             }
 
             // Section budget violation
@@ -202,13 +213,11 @@ impl<'a> TeloscContainerView<'a> {
             }
 
             // Offset + length overflow check
-            let end = offset
-                .checked_add(encoded_len)
-                .ok_or(ContainerError::OffsetOverflow {
-                    section: kind,
-                    offset,
-                    len: encoded_len,
-                })?;
+            let end = offset.checked_add(encoded_len).ok_or(ContainerError::OffsetOverflow {
+                section: kind,
+                offset,
+                len: encoded_len,
+            })?;
 
             if end > data.len() as u64 {
                 return Err(ContainerError::OutOfFileSection {
@@ -243,19 +252,18 @@ impl<'a> TeloscContainerView<'a> {
             }
         }
 
-        // Overlapping sections validation: sort entries by offset
-        let mut sorted_entries = directory.clone();
-        sorted_entries.sort_by_key(|e| e.offset);
-        for i in 0..sorted_entries.len().saturating_sub(1) {
-            let current = &sorted_entries[i];
-            let next = &sorted_entries[i + 1];
-            let current_end = current.offset + current.encoded_len;
-            if current_end > next.offset {
-                return Err(ContainerError::OverlappingSections {
-                    first: current.kind,
-                    second: next.kind,
+        // Section count is tightly bounded, so pairwise checks avoid an
+        // uncharged clone-and-sort scratch allocation.
+        for (index, left) in directory.iter().enumerate() {
+            for right in &directory[index + 1..] {
+                let (first, second) = if left.offset <= right.offset { (left, right) } else { (right, left) };
+                if first.offset + first.encoded_len > second.offset {
+                    return Err(ContainerError::OverlappingSections {
+                        first: first.kind,
+                        second: second.kind,
+                    }
+                    .into());
                 }
-                .into());
             }
         }
 
@@ -274,28 +282,21 @@ impl<'a> TeloscContainerView<'a> {
         }
 
         // Verify required sections are present
-        if !seen_kinds.contains(&SectionKind::ModuleWorld) {
+        if !directory.iter().any(|entry| entry.kind == SectionKind::ModuleWorld) {
             return Err(ContainerError::MissingRequiredSection(SectionKind::ModuleWorld).into());
         }
-        if !seen_kinds.contains(&SectionKind::SemanticWorld) {
+        if !directory.iter().any(|entry| entry.kind == SectionKind::SemanticWorld) {
             return Err(ContainerError::MissingRequiredSection(SectionKind::SemanticWorld).into());
         }
-        if header
-            .capabilities
-            .contains(TeloscCapabilities::CANONICAL_COMPILER_IMAGE_V1)
-            && !seen_kinds.contains(&SectionKind::QueryImage)
+        if header.capabilities.contains(TeloscCapabilities::CANONICAL_COMPILER_IMAGE_V1) && !directory.iter().any(|entry| entry.kind == SectionKind::QueryImage)
         {
             return Err(ContainerError::MissingRequiredSection(SectionKind::QueryImage).into());
         }
-        if header
-            .capabilities
-            .contains(TeloscCapabilities::RUNTIME_PUBLIC_METADATA)
-            && !seen_kinds.contains(&SectionKind::Metadata)
-        {
+        if header.capabilities.contains(TeloscCapabilities::RUNTIME_PUBLIC_METADATA) && !directory.iter().any(|entry| entry.kind == SectionKind::Metadata) {
             return Err(ContainerError::MissingRequiredSection(SectionKind::Metadata).into());
         }
 
-        if header.capabilities.contains(TeloscCapabilities::PORTABLE_EXECUTABLE) && !seen_kinds.contains(&SectionKind::Executable) {
+        if header.capabilities.contains(TeloscCapabilities::PORTABLE_EXECUTABLE) && !directory.iter().any(|entry| entry.kind == SectionKind::Executable) {
             return Err(ContainerError::MissingRequiredSection(SectionKind::Executable).into());
         }
 
@@ -328,7 +329,7 @@ impl<'a> TeloscContainerView<'a> {
         })
     }
 
-    pub fn header(&self) -> &TeloscHeaderV1 {
+    pub fn header(&self) -> &TeloscHeaderV2 {
         &self.header
     }
 
@@ -344,7 +345,6 @@ impl<'a> TeloscContainerView<'a> {
     }
 
     pub fn require_section(&self, kind: SectionKind) -> Result<&'a [u8], ContainerError> {
-        self.get_section(kind)
-            .ok_or(ContainerError::MissingRequiredSection(kind))
+        self.get_section(kind).ok_or(ContainerError::MissingRequiredSection(kind))
     }
 }

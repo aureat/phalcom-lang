@@ -30,9 +30,11 @@ fn test_expr_id(local: u32) -> ExpressionId {
 fn mock_callable(expressions: BTreeMap<ExpressionId, ExpressionAnalysis>) -> CallableAnalysis {
     CallableAnalysis {
         callable: test_callable_id(),
+        body_source_owner: None,
         body_range: RANGE,
         expressions,
         bindings: BTreeMap::new(),
+        binding_origins: BTreeMap::new(),
         for_iteration_lanes: Arc::new(BTreeMap::new()),
         positional_expansions: Arc::new(BTreeMap::new()),
         known_invalid_positional_expansions: Arc::new(BTreeMap::new()),
@@ -173,14 +175,14 @@ fn test_reflective_perform_produces_opaque_effects() {
 #[test]
 fn test_control_facts_from_flow_graph() {
     let mut graph = FlowGraph::new();
-    let entry = graph.add_node(FlowNodeKind::Entry, RANGE);
-    let loop_header = graph.add_node(FlowNodeKind::LoopHeader, RANGE);
-    let exit = graph.add_node(FlowNodeKind::Exit, RANGE);
+    let entry = graph.add_node(FlowNodeKind::Entry, RANGE).unwrap();
+    let loop_header = graph.add_node(FlowNodeKind::LoopHeader, RANGE).unwrap();
+    let exit = graph.add_node(FlowNodeKind::Exit, RANGE).unwrap();
 
-    graph.entry = Some(entry);
-    graph.exits.push(exit);
-    graph.add_edge(entry, loop_header, None);
-    graph.add_edge(loop_header, exit, None);
+    graph.try_set_entry(Some(entry)).unwrap();
+    graph.try_push_exit(exit).unwrap();
+    graph.add_edge(entry, loop_header, None).unwrap();
+    graph.add_edge(loop_header, exit, None).unwrap();
 
     let facts = ControlFacts::from_flow_graph(&graph);
     assert!(facts.may_return_normally);

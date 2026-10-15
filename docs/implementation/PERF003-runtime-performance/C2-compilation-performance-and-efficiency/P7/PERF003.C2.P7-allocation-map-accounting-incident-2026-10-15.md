@@ -2,6 +2,26 @@
 
 > **Disposition — 2026-10-15:** Architectural consultation **DECIDED** by [PERF003.C2.P7-allocation-materialization-architecture-ruling-2026-10-15.md](PERF003.C2.P7-allocation-materialization-architecture-ruling-2026-10-15.md). The approved approach is budget-aware, immutable ordered materialization plus bounded scratch, preserving exact cumulative allocator-requested-byte accounting and independent section limits. This resolves the decision request in §14, **not** the implementation or verification failure: R1/R7 and P7 remain **IN_PROGRESS / PARTIAL / UNVERIFIED**. Do not claim native-map allocations accounted before the representation and its tests are implemented.
 
+### Continuation correction — 2026-10-15
+
+Sections 5–9 below describe the incident's pre-correction baseline and are
+partially superseded by the current implementation. The container path now has
+`parse_with_allocation_budget`: package identity strings and its directory
+vector are charged, and duplicate/overlap validation uses bounded scans rather
+than uncharged hash-set/cloned-sort scratch. The core load transaction now uses
+the independent `max_total_allocation_bytes` cap. Module duplicate/index scratch
+uses budgeted vectors, and runtime DAG validation uses budgeted dense CSR
+scratch. The budget-aware sorted map/set builders are available for subsequent
+owner migration. Exact focused probes passed for the helper, container, and
+module DAG slices.
+
+Still open: most semantic/query output BTreeMaps, nested owner values and
+relocation/index allocations, formal-image construction, error paths, and the
+allocator-observed full Universe load. The original path sketches remain useful
+for unconverted owners but must not be read as saying container directory
+allocation is still uncharged. R1/R7 and P7 remain IN_PROGRESS / PARTIAL /
+UNVERIFIED.
+
 
 ## 1. Identity
 

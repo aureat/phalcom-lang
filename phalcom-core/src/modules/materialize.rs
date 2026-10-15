@@ -63,7 +63,28 @@ fn remap_runtime_indexed_conformance_slots(slots: &mut Box<[(u16, crate::typing:
 
 fn remap_call_environment_recipe(recipe: &mut Arc<crate::typing::RuntimeCallEnvironmentRecipe>, pool_id: crate::typing::MetadataPoolId) {
     let recipe = Arc::make_mut(recipe);
-    remap_runtime_bindings(&mut recipe.bindings, pool_id);
+    for (_, argument) in recipe.bindings.iter_mut() {
+        match argument {
+            crate::typing::RuntimeCallArgumentRecipe::Term(recipe) => *recipe = remap_runtime_type_recipe(*recipe, pool_id),
+            crate::typing::RuntimeCallArgumentRecipe::RecordRow(row) => {
+                for field in row.fields.iter_mut() {
+                    field.ty = remap_runtime_type_ref(field.ty, pool_id);
+                }
+                if let Some(remainder) = &mut row.remainder {
+                    match remainder {
+                        crate::typing::overlay::RuntimeAnonymousRecordRemainder::Unconstrained { key_type } => {
+                            *key_type = remap_runtime_type_ref(*key_type, pool_id);
+                        }
+                        crate::typing::overlay::RuntimeAnonymousRecordRemainder::Typed { key_type, value_type } => {
+                            *key_type = remap_runtime_type_ref(*key_type, pool_id);
+                            *value_type = remap_runtime_type_ref(*value_type, pool_id);
+                        }
+                    }
+                }
+            }
+            crate::typing::RuntimeCallArgumentRecipe::DynamicType => {}
+        }
+    }
     remap_runtime_conformance_slots(&mut recipe.conformance_slots, pool_id);
 }
 

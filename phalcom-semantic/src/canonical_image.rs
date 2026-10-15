@@ -126,6 +126,9 @@ pub enum CanonicalImageError {
     /// The committed snapshot lacks a required final publication family.
     #[error("canonical publication is incomplete: {0}")]
     IncompletePublication(String),
+    /// A portable artifact failed bounded structural or allocation validation.
+    #[error("canonical artifact validation: {0}")]
+    Artifact(#[from] phalcom_compiler_artifact::ArtifactError),
     /// A reader requested products from another semantic world.
     #[error("canonical query reader has a foreign semantic world")]
     ForeignSemanticWorld,

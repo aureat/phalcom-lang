@@ -786,9 +786,11 @@ impl SemanticSnapshot {
                 || !analysis.match_resolutions.is_empty()
                 || !analysis.pattern_site_resolutions.is_empty()
         });
+        let callable_analyses_are_complete = self.callable_analyses.values().all(|analysis| analysis.status.is_complete());
         self.sources.is_empty()
             && self.presentation_sources.is_empty()
             && !self.callable_analyses.is_empty()
+            && callable_analyses_are_complete
             && has_callable_body_facts
             && !self.callable_signatures.is_empty()
             && !self.callable_definitions.is_empty()

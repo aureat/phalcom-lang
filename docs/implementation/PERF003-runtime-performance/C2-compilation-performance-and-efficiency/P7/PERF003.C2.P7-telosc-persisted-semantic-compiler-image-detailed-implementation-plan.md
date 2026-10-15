@@ -12,6 +12,207 @@
 **Prepared:** 2026-10-13  
 **Primary objective:** persist the canonical Universe compiler authority as a deterministic, versioned, relocatable `universe.telosc` artifact that a fresh compiler process can load without parsing, linking, semantically analyzing, or metadata-exporting Universe source.
 
+## Adopted native-catalog compatibility amendment — 2026-10-15
+
+The Level 2 adviser decision adds a fixed `[u8; 16] native_catalog_fingerprint`
+to `CanonicalCompatibilityIdentity` and the container header. The header codec
+is V2 and rejects V1 explicitly; section schemas remain unchanged. The
+source-built compiler-image view captures the trusted catalog fingerprint, the
+writer copies it into the header, and the loader compares it against the
+current trusted catalog immediately after container parsing and before section
+materialization. Loaded portable identity retains and compares the field.
+Exact native key and transported symbolic payload checks remain required.
+`catalog_fingerprint()` must not allocate during load; its implementation
+streams the historical stable-key-ordered bytes without allocating a sorted
+vector or formatted row strings.
+
+Focused discriminators: V1 rejection; V2 matching-catalog round-trip; correctly
+rehashed foreign fingerprint rejection before materialization; exact native-row
+payload mismatch; portable compatibility comparison. The amendment changes no
+semantic owner, identity, or native metadata representation.
+
+## Adopted callable-analysis owner-graph amendment — 2026-10-15
+
+The Level 2 adviser decision confirms that the full compiler-required
+`CallableAnalysis` graph is mandatory. Execution summaries or signature-only
+reconstruction do not satisfy T7.B/T8. Persist every owned expression and
+binding product; iteration, expansion, sequence, associated, callable-reference,
+family-application, match, and pattern-site resolution; CFG nodes/edges; entry
+and exit flow; return validation; dependencies; constructor selection;
+diagnostics; and the owned explanation graph. Preserve every semantic
+judgment and reference. A complete top-level body may still contain unsuccessful
+expression judgments or source diagnostics; do not turn them into successful
+facts or require every expression to be Ready.
+
+Portable coordinates are deterministic artifact-local ordinals qualified by
+the stable callable owner, never source ranges or globally collected numeric
+IDs. Export enumerates each owner and records relocation maps; import validates
+owner-qualified definition/reference closure before publishing and explicitly
+relocates all references into fresh process-local handles. Recompute
+`callable_body_product_fingerprint` after relocation, then rebuild query
+products and fingerprints from relocated owners. Preserve causal-diagnostic
+sharing and exact statuses/reports. Canonical images reject nonempty internal
+incidents and incident-bearing failure states. They preserve genuine empty
+call-resolution/predicate optionals and reject nonempty handles until those
+families have an actual canonical owner.
+
+The compiler-required binding/site/target attachments used by lowering are
+part of this graph's required reader contract. Rebuild one source-independent
+formal reader from the exact body-owned binding/expression facts or persist an
+equivalent owner-held attachment. Do not recover lexical resolution from names
+or leave those binding maps empty. `source_index` remains omitted as a broad
+source/tooling index; its compiler-required subset must be served by the
+validated callable-analysis owner graph and reconstructed formal projection.
+
+Required callable-analysis discriminators cover source/import field parity
+modulo relocation; two-owner isolation with overlapping numeric IDs/ranges;
+relocation under different fresh-store numbering; diagnostics, causal sharing,
+explanations and blocked judgments; malformed cross-owner closure and
+unowned-handle rejection; deterministic wire output and measured allocation;
+and source-denied compilation through imported binding/target attachments.
+T7.B, T8, T9, T12, the field manifest, and the remaining execution evidence
+matrix are amended by this decision. No P7 acceptance gate is reduced.
+
+Because this changes the `SEMANTIC_WORLD` record layout, advance its payload
+schema from 1 to 2 and reject schema 1 explicitly. This is independent of the
+already-adopted container header V2 and does not imply backward decoding of
+incomplete callable-analysis records.
+
+## Adopted callable binding storage-origin amendment — 2026-10-15
+
+The Level 2 adviser decision requires explicit provenance for ambient module
+binding handles retained in each callable analysis. At the existing
+`CheckingContext::seed_linked_module_import_values` seam, preserve each
+`BindingState` and record an owner-held storage origin: `BodyLocal`, or
+`ModuleValue { symbol: SymbolId, import provenance }`. `SymbolId` is the
+canonical storage authority; the fresh body-local `BindingId` remains only the
+analysis handle. Parameters retain canonical parameter identity and the
+constructor body/declaration mapping already adopted above remains unchanged.
+Missing required origins fail closed.
+
+The compiler's source-independent projection distinguishes
+`BodyLocal { callable, binding }` from `ModuleValue { symbol }`. Source ranges
+locate executable sites but do not establish identity. Module declarations
+and authored import aliases enter lowering once through module-owned authority;
+copied ambient states never become callable-local declarations. Exact reads
+and writes retain their source occurrences and canonical global target.
+Product-planner candidates, active products, and conflict checks compare the
+qualified identity, so repeated module-symbol copies agree while equal numeric
+`BindingId`s from different callables remain distinct. No name/range heuristic
+or silent row omission is permitted.
+
+Extend T7.B/T8/T9/T12 and the field/evidence manifests to encode and relocate
+the origin with its callable owner. Required regressions cover ambient reuse,
+unused copies, local shadowing, exact source/import projection parity,
+cross-callable numeric-ID collisions, and malformed origin/conflict rejection.
+This amendment adds no binding identity and reduces no P7 acceptance gate.
+
+## Adopted `<main>` source-owner and attachment amendment — 2026-10-15
+
+The same Level 2 adviser selected option A for top-level lexical declarations
+whose checker facts belong to the synthetic module `<main>` analysis. Keep the
+analysis `CallableId` unchanged and explicitly register
+`CallableId → SourceOwner::Module(module)` at its producer. Generalize the
+body-to-source-owner relation: ordinary bodies map to
+`SourceOwner::Callable(source_callable)` and constructors retain the approved
+declaration-owner mapping. Include registered module-body analyses when
+constructing formal source attachments, keyed by the original analysis
+`CallableId`.
+
+A top-level lambda parameter such as `text` remains `BodyLocal` under its
+`(<main> CallableId, BindingId)` and attaches to the exact module-owned
+`SourceSiteId`. `SourceOwner::Module` denotes the source namespace; it does not
+change the binding's storage origin. Keep storage origin, source owner,
+lexical scope, body-fact identity, and declaration-site identity distinct.
+Correct `<main>`'s body range from the executable module statement/root extent,
+not `program.preamble.range`; it must cover module expressions and nested
+bodies, including empty-preamble modules. Transport and relocate binding,
+expression, and source-site references together through callable-analysis and
+compiler-facts artifacts. Do not emit a normal callable declaration/signature
+row for synthetic `<main>`.
+
+Do not select the relation later by a `<main>` selector-name test, merge
+formal-expression and module AST sites by matching ranges, or use count/order
+rebasing for module bodies. Exact declaration attachment resolves to the
+source index's `SourceSiteId`; ranges remain lookup locations. Required narrow
+discriminators: two top-level lambdas each have a `text` parameter, distinct
+exact module-owned sites, and reads resolving to their own parameter; ordinary
+method module-value reads remain `ModuleValue`; source/import owner parity; and
+successful lowering with empty and documentation-bearing preambles. The exact
+Universe artifact test observed before this amendment fails at the
+`universe:json` `<main>` `text` binding with
+`MissingFormalBindingAttachment`; no later loader or source-denied evidence
+follows.
+
+## Adopted explicit Dynamic call-environment amendment — 2026-10-15
+
+The focused `Box<Dynamic>.ping()` versus `Box<Int>.ping()` discriminator and
+Level 2 adviser decision confirm that the receiver environment is the
+canonical argument authority. The Dynamic case selects the same exact
+`Box.ping` callable as the Int control, and its owner parameter is bound as
+`StaticArgument::DynamicType`; the defect is the TypeId-only read in
+`finalize_owner_call_specialization`. Preserve concrete, Dynamic, and row
+categories distinctly through `CallSpecialization` (reuse `StaticArgument`
+where it fits), checked `GenericInstantiation`, generic conformance discharge,
+callable-analysis DTOs, compiler projections, and runtime call environments.
+Exactly one category may be present for a parameter. A genuinely absent
+required binding remains an error.
+
+The generic type materializer must distinguish a proper resulting term from a
+Dynamic boundary and from an absent/invalid binding. `List<T>` under
+`T := Dynamic` remains the proper applied term `List<Dynamic>`; bare Dynamic
+does not become a `TypeId`. A Dynamic argument supplies no static conformance,
+subtype, or equivalence proof. Obligations independent of Dynamic may still be
+discharged; no witness slot or runtime conformance check is synthesized from
+Dynamic. New Dynamic inference, automatic runtime witness acquisition, and
+unrelated native erasure behavior are out of scope and require separate
+consultation if they become necessary.
+
+Reuse the runtime's existing `RuntimeStaticArgument::{Term, RecordRow,
+DynamicType}` meaning. Runtime generic call recipes wrap the proper-type
+`RuntimeTypeRecipe` or carry Dynamic/row directly. Update call-root discovery,
+covering-body closure, generic-instantiation/conformance-slot projection,
+derived conditional environments, VM dispatch/call entry, bound/family call
+recipes, environment interning, and recipe pool remapping. Explicit Dynamic
+must remain distinct from a concrete type and from a missing entry. A request
+for a nominal class from Dynamic returns a typed Dynamic boundary/failure; do
+not use the runtime's existing missing-parameter `Special("Dynamic")`
+fallback, Object, or another nominal substitute.
+
+Persist the argument discriminant/payload in the existing semantic-world v2
+call-specialization owner; term and row payloads use the existing relocation,
+while Dynamic registers no type root. Validate category/kind agreement,
+duplicate/conflicting entries, and owner closure. The call-specialization
+argument must contribute to `callable_body_product_fingerprint`; update query
+fingerprint ABI ingredients where needed. Do not change the already-versioned
+container header again. Keep the exporter's canonical internal-incident guard.
+
+Focused acceptance must prove: `Box<Int>` and `Box<Dynamic>` select the same
+method and publish distinct exact arguments without incidents; cold/source-
+import parity; forwarded `T := Dynamic` and nested `List<T>` preservation;
+missing-required-binding rejection; no fabricated Dynamic conformance;
+runtime environment interning distinguishes concrete, Dynamic, and missing;
+fingerprint sensitivity to the call argument; and all four real Universe
+incident sites are incident-free before rerunning the exact P7 artifact gate.
+This is a bounded P7 prerequisite to R3/T7/T12, not a new checkpoint objective
+or language semantic. General row-environment execution remains outside this
+amendment; preserve existing supported row behavior and escalate any expansion.
+
+### Typed call-argument transport progress — 2026-10-15
+
+The wire slice now represents callable-analysis static call arguments as
+owner-local expression ordinals with relocated type-parameter references and
+tagged `Term`, `RecordRow`, or `DynamicType` payloads. Root registration skips
+proper-type roots for Dynamic; the semantic-world validator checks ordinal
+closure, unique parameters, selected-callable owner compatibility, and
+kind/category agreement. A budgeted importer helper relocates the argument
+tags. Focused semantic export/import-helper tests and the artifact codec tests
+pass. The helper is not yet connected to a complete `CallableAnalysis`
+reconstruction path, and nonempty conformance bindings are rejected because
+their proof owner payload is not implemented. The whole callable-analysis
+export guard and import rejection remain active; no source/import parity or
+P7 completion is claimed.
+
 ---
 
 # 0. Executive implementation decision
@@ -554,7 +755,7 @@ phalcom-semantic ─X→ phalcom-core
 
 ---
 
-# 6. `.telosc` container v1 specification to implement
+# 6. `.telosc` container schema v2 specification to implement
 
 P7 must freeze a sectioned container before semantic DTO volume is added.
 
@@ -577,7 +778,7 @@ Recommended fixed IDs are stable integers/4-byte tags defined explicitly in the 
 Implement an explicit wire header conceptually equivalent to:
 
 ```rust
-pub struct TeloscHeaderV1 {
+pub struct TeloscHeaderV2 {
     pub container_schema: u32,
     pub minimum_reader_schema: u32,
     pub package_identity: TeloscPackageIdentity,
@@ -589,6 +790,7 @@ pub struct TeloscHeaderV1 {
     pub query_fingerprint_abi: u32,
 
     pub native_surface_schema_version: u32,
+    pub native_catalog_fingerprint: [u8; 16],
     pub type_metadata_schema_version: u32,
 
     pub capabilities: TeloscCapabilities,
@@ -705,7 +907,7 @@ with a versioned digest algorithm. Preferred v1 choice:
 BLAKE3-256, domain-separated by container/section purpose
 ```
 
-If repository policy chooses another 256-bit digest before schema v1 freezes, record the decision in the format spec and tests. Do not silently change the digest algorithm after v1 artifacts exist.
+If repository policy chooses another 256-bit digest before schema v2 freezes, record the decision in the format spec and tests. Do not silently change the digest algorithm after v2 artifacts exist.
 
 ## 7.2 Required digest domains
 
@@ -760,6 +962,7 @@ pub struct CanonicalCompatibilityIdentity {
     pub module_semantic_abi: u32,
     pub semantic_artifact_abi: u32,
     pub native_surface_schema_version: u32,
+    pub native_catalog_fingerprint: [u8; 16],
     pub type_metadata_schema_version: u32,
 }
 ```
@@ -920,7 +1123,7 @@ There is no unclassified compiler-required `SemanticSnapshot`/canonical-image au
 
 ---
 
-# 11. P7.T1 — Introduce `phalcom-compiler-artifact` and container v1
+# 11. P7.T1 — Introduce `phalcom-compiler-artifact` and container v2
 
 ## Purpose
 
@@ -950,8 +1153,8 @@ Define:
 
 ```rust
 TELOSC_MAGIC
-TELOSC_CONTAINER_SCHEMA_V1
-TELOSC_MIN_READER_SCHEMA_V1
+TELOSC_CONTAINER_SCHEMA_V2
+TELOSC_MIN_READER_SCHEMA_V2
 ```
 
 Define stable `SectionKind` numeric values and required/optional flags.
@@ -1044,7 +1247,7 @@ Represent builtin Universe using the existing package/stable-project semantics. 
 
 ## T2.B — Portable compatibility object
 
-Add the cross-process compatibility structure and make source-built canonical-image construction derive it.
+Add the cross-process compatibility structure and make source-built canonical-image construction derive it. Include `native_catalog_fingerprint: [u8; 16]` and compare it in portable compatibility checks. Capture it from the trusted catalog when building the source-backed compiler-image view; loaded identity retains the value after the early reader check.
 
 Do not remove the in-process safety checks used by current readers; layer portable compatibility underneath/alongside them.
 
@@ -1560,6 +1763,21 @@ Arc/Rc → value/reference DTO, never pointer semantics
 HashMap → deterministic sorted sequence/map on wire
 ```
 
+For callable-analysis nested identities, qualify every ordinal by its stable
+callable owner: expression, binding, explanation, flow node/edge, diagnostic
+cause, and attachment references. Same-range expressions remain distinct.
+Reject a dangling or wrong-owner reference before publication. Reuse the shared
+type/signature/evidence codecs and relocation contexts; do not add another
+binding authority. The `CallableAnalysis` field disposition is exhaustive and
+tracks the live owner fields listed in the adopted owner-graph amendment.
+The body-to-source-owner relation is owner-held callable-analysis transport:
+ordinary bodies reference `SourceOwner::Callable`, module-body `<main>` is
+explicitly registered as `SourceOwner::Module`, and constructors retain their
+approved declaration-owner relationship. Keep attachment owner keys as the
+analysis `CallableId`; relocate exact binding, expression, and `SourceSiteId`
+references together. Synthetic `<main>` does not acquire a callable signature
+or declaration record.
+
 ## T7.C — Bulk-load ordering
 
 Define one explicit dependency order. Recommended broad order:
@@ -1664,6 +1882,14 @@ then scan whole table once per module/index family
 
 A single O(N) validation/index-build pass is acceptable; repeated O(M×N) reconstruction is not.
 
+The compiler-required formal attachment projection is part of this rebuild.
+Construct it from relocated callable owner facts plus the explicit
+body-to-source-owner relation. In particular, attach registered `<main>`
+lexical bindings to module-owned declaration sites while retaining their
+`BodyLocal { callable, binding }` identity. Do not infer ownership from the
+selector name, coalesce site identities because ranges match, or extend
+count/order rebasing from callable shards to module shards.
+
 ## T8.B — Trait requirement layouts
 
 Either:
@@ -1690,6 +1916,13 @@ artifact-loaded canonical image
 ```
 
 Assert equivalent structural counts and P6 gates.
+
+Reconstruct `FormalSemanticProjection` and the compiler's exact binding/site/
+target reader from the relocated callable-analysis owners. The reader must
+serve every lowering attachment currently obtained from `CallableSourceAttachment`
+and source-index target sets, without scanning names or requiring source-index
+occurrence data. Source-built and imported compilations must consume equivalent
+canonical binding IDs and source ranges.
 
 ## T8 acceptance
 
@@ -1778,6 +2011,11 @@ recompute current-process ProductFingerprint from loaded semantic object
     ↓
 rebuild DependencyEdge.observed_fingerprint from loaded dependency products
 ```
+
+In particular, never copy the source `callable_body_product_fingerprint` as a
+loaded result: its expression, binding and type coordinates are process-local.
+Recompute it only after callable-analysis relocation, then construct dependent
+query products and fingerprints from the same relocated owners.
 
 If any input fingerprint is persisted, header `query_fingerprint_abi` must match exactly before it is trusted.
 
@@ -1927,6 +2165,9 @@ portable compatibility identity
 15. atomically publish target file
 ```
 
+Copy the already captured source-view native catalog fingerprint into the V2
+header. Do not independently derive a second compatibility value in the writer.
+
 ## T11.C — Atomic output
 
 For filesystem utility path:
@@ -2011,6 +2252,8 @@ section digests / whole digest
     ↓
 compatibility checks
     ↓
+trusted native catalog fingerprint check before section materialization
+    ↓
 MODULE_WORLD decode/materialize
     ↓
 TypeStore decode/materialize + relocation
@@ -2036,6 +2279,9 @@ construct LoadedCanonicalCompilerImage
 
 Add a distinct constructor for trusted validated artifact components. Do not route loaded data through `build(provider)` or `SemanticWorkspaceSession::from_foundation_for_image`.
 
+The reconstructed portable identity preserves the V2 header fingerprint,
+already matched to the trusted current catalog before semantic materialization.
+
 Conceptually:
 
 ```rust
@@ -2047,6 +2293,11 @@ It must still enforce image publication completeness and reader-prefix invariant
 ## T12.D — Current-process provenance
 
 Allocate fresh process-local store/workspace/snapshot identities as needed. Bind the canonical query image to the freshly loaded TypeStore/StaticValueStore roots.
+The loaded compiler-facts projection must preserve and relocate the explicit
+`<main>` to module-source-owner relation, exact binding/site attachments, and
+the corrected executable body range. Imported binding/expression/site
+references must be validated against their relocated owners before compiler
+publication.
 
 ## T12.E — Error taxonomy
 
@@ -3040,7 +3291,7 @@ P7 is complete only when every applicable item is true.
 
 ## Container and identity
 
-- [ ] `.telosc` magic/header/directory v1 implemented.
+- [ ] `.telosc` magic/header/directory schema v2 implemented, with explicit V1 rejection.
 - [ ] Wire integer widths/endianness/string/enum encoding are explicit.
 - [ ] Required/optional section behavior is tested.
 - [ ] `ArtifactDigest` is distinct from semantic fingerprints.
@@ -3301,3 +3552,87 @@ compile user code only at the semantic/compiler-dependency layer
 P7 is finished when this pipeline is proven in a **fresh process with Universe source unavailable**, with P5 zero-copy gates and P6 local-complexity gates intact, deterministic artifact bytes, bounded fail-closed decoding, and no Universe source parsing/linking/semantic analysis/metadata export on the loaded path.
 
 P7 is **not** finished merely because an in-process round trip succeeds, and the overall PERF003.C2 program is **not** finished until P8 removes VM-side Universe compilation and P9 makes the artifact-first path operationally canonical.
+## Adopted budgeted flow-graph owner amendment — 2026-10-15
+
+After the Level 2 adviser confirmed the importer must reconstruct canonical
+`FlowGraph` while its public `BTreeMap` backing cannot be covered by the
+artifact allocation budget, use dual storage inside the existing graph owner.
+Source graphs retain mutable map storage; imported graphs hold shared frozen
+`BudgetedSortedMap` node/edge storage, entry, ordered exits, and adjacency
+vectors. Preserve `CallableAnalysis.flow_graph: Arc<FlowGraph>` and expose one
+allocation-free read API across both forms. Frozen mutation returns a typed
+error; there is no thawing or hidden BTree reconstruction. Clone of frozen
+storage shares an inner Arc, while source clone retains ordinary isolated
+mutation semantics.
+
+On import, validate graph closure and adjacency orientation, use charged
+scratch to count in/out degrees, reserve every adjacency vector exactly, and
+append edge IDs in ascending owner-local edge ordinal. Preserve the persisted
+exit sequence without sorting or normalization. Charge node/edge buffers,
+adjacency and exit buffers, relocation/count scratch, and publication wrappers;
+do not call `reachable_nodes()` in the charged path. A source adjacency ordering
+that conflicts with the exporter's established sorted-order invariant blocks
+the slice and requires consultation rather than normalization.
+
+Focused acceptance before removing callable-analysis fail-closed guards:
+source/frozen read equality and fingerprints; malformed graph rejection;
+frozen clone sharing and typed mutation rejection; source clone isolation; and
+independent allocator-measured success plus high-degree adjacency N/N-1 budget
+rollback. This ruling changes only the graph representation seam. Remaining
+callable-analysis owner fields and compiler projection, other P7 families,
+source-denied compilation, determinism, parity, and P5/P6 gates remain required.
+
+## Adopted denotation owner-transport amendment — 2026-10-15
+
+The existing GPT-6.1 Sol High Effort adviser reviewed the live
+SemanticDenotation owner model and returned PLAN NEEDS CLARIFICATION plus a
+bounded Level 2 amendment. Implementation may resume. This amendment applies
+to T7.B, T8, T9, T12, the CallableAnalysis field manifest, and R3 evidence. It
+does not change accepted language semantics or reduce P7 acceptance.
+
+Use a hybrid transport:
+
+| Denotation | Portable owner |
+|---|---|
+| TypeForm(TypeId) | ArtifactTypeId reference through the shared type graph and TypeRelocation |
+| Kind(KindId) | ArtifactKindId reference through the shared kind/type graph |
+| StaticDomain(StaticDomainId) | Artifact domain reference plus declaration-owner validation |
+| StaticTerm(TypeId) | ArtifactTypeId reference; it is not a StaticValueStore value |
+| StaticApplication(StaticApplicationId) | Reference to a validated checked-application row qualified by its actual checked-body owner; keep fail-closed until producer retention is fixed |
+| AssociatedValue Exact/Family | Inline context-owned captured payload with stable owner/member/target refs and relocated type refs |
+| BehavioralFamily | Inline context-owned captured payload with stable target refs, relocated type refs, behavior spec, and conditional selections |
+
+The inline capture payload preserves the selected members, optional targets,
+operation shapes, and conditional-selection meanings that the checker recorded.
+Import must not rerun lookup or dispatch, synthesize capability, or rebuild the
+capture from declaration tables. Reuse shared codecs for
+AssociatedMemberId, AssociatedFamilyId, InvocationTargetId, operation shapes,
+BehavioralFamilySpec, and ConditionalDispatchSelection. A body-owned
+denotation pool with artifact-local IDs is permissible only if deduplication is
+later needed; no global family-selection registry is introduced.
+
+StaticApplication is an explicit producer prerequisite. The live
+CheckingContext::finalize_with_normal_returns does not retain
+checked_static_applications in CallableAnalysis. In
+analyze_checked_static_application, record_checked_static_application receives
+the target in its body-owner slot, although the row identity is defined by its
+checked-body owner. Fix and test that owner relation before transporting
+applications. Do not resolve through the callee static definition or compare
+unqualified ordinals across bodies.
+
+Required construction order:
+
+1. Register denotation-owned type, kind, and domain roots before shared graph closure.
+2. Validate declaration, associated-member, constructor, and implementation authorities.
+3. Retain checked-body application rows and establish owner-qualified identity maps.
+4. Materialize callable and checked-body graphs through the shared relocation.
+5. Validate every reference and allocation charge before publishing the snapshot.
+
+Focused discriminators: both associated variants with optional targets; a
+captured member subset that differs from declaration authority; behavioral
+captures with and without conditional selections; roots reachable only through
+denotations; overlapping application ordinals under two body owners; missing
+and wrong-owner references reject before publication; and a restored capture
+works in a source-denied process without lookup. Keep the existing callable
+analysis export/import completeness guards until the complete owner graph,
+compiler projection, and these discriminators pass.

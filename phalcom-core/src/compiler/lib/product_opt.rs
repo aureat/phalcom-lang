@@ -6,7 +6,7 @@
 use crate::bytecode::Bytecode;
 use crate::compiler::lib::Compiler;
 use crate::compiler::lib::error::CompilerError;
-use crate::modules::semantic_lowering::{AssociatedLoweringSpec, DataConstructionLoweringSpec, LoweringSiteKind, ModuleLoweringSemantics};
+use crate::modules::semantic_lowering::{AssociatedLoweringSpec, DataConstructionLoweringSpec, LoweringBindingIdentity, LoweringSiteKind, ModuleLoweringSemantics};
 use phalcom_ast::ast::{Expr, MatchExpr, PackItem, Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_semantic::identity::{BindingId, DataConstructorId, VariantId};
@@ -186,8 +186,8 @@ pub struct ProductUseSummary {
 /// The complete product optimization plan for a single compiled body/function.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ProductFunctionPlan {
-    pub binding_decisions: BTreeMap<BindingId, ProductOptimizationDecision>,
-    pub binding_decisions_by_range: BTreeMap<SourceRange, (BindingId, ProductOptimizationDecision)>,
+    pub binding_decisions: BTreeMap<LoweringBindingIdentity, ProductOptimizationDecision>,
+    pub binding_decisions_by_range: BTreeMap<SourceRange, (LoweringBindingIdentity, ProductOptimizationDecision)>,
     pub ephemeral_projections: BTreeMap<SourceRange, (VirtualShapePlan, Box<[u32]>)>,
 }
 
@@ -195,7 +195,7 @@ pub(crate) struct ProductFunctionPlan {
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct ActiveVirtualProduct {
-    pub binding: Option<BindingId>,
+    pub binding: Option<LoweringBindingIdentity>,
     pub head_slot: u16,
     pub leaf_count: u16,
     pub shape: VirtualShapePlan,
@@ -245,6 +245,7 @@ pub(crate) enum UseContext<'a> {
 #[derive(Clone, Debug)]
 pub struct CandidateBinding {
     pub binding: BindingId,
+    pub identity: LoweringBindingIdentity,
     pub name: String,
     pub range: SourceRange,
     pub mutable: bool,
@@ -259,7 +260,7 @@ pub struct CandidateBinding {
 pub(crate) struct ProductPlanner<'a> {
     lowering: Option<&'a ModuleLoweringSemantics>,
     mode: ProductOptimizationMode,
-    candidates: BTreeMap<BindingId, CandidateBinding>,
+    candidates: BTreeMap<LoweringBindingIdentity, CandidateBinding>,
     module_body: bool,
     current_loop_depth: u16,
     nested_block_depth: usize,
@@ -279,8 +280,8 @@ impl<'a> ProductPlanner<'a> {
         }
     }
 
-    fn binding_for_range(&self, range: SourceRange) -> Option<BindingId> {
-        self.lowering?.bindings.get(&range).copied()
+    fn binding_for_range(&self, range: SourceRange) -> Option<LoweringBindingIdentity> {
+        self.lowering?.bindings.get(&range).cloned()
     }
 
     /// Recursively builds a `VirtualShapePlan` for a data or variant construction expression.
@@ -551,10 +552,10 @@ impl<'a> ProductPlanner<'a> {
     fn finish_plan(self) -> ProductFunctionPlan {
         let mut binding_decisions = BTreeMap::new();
         let mut binding_decisions_by_range = BTreeMap::new();
-        for (binding_id, candidate) in self.candidates {
+        for (identity, candidate) in self.candidates {
             let decision = decide_product_optimization(&candidate, self.mode);
-            binding_decisions_by_range.insert(candidate.range, (binding_id, decision.clone()));
-            binding_decisions.insert(binding_id, decision);
+            binding_decisions_by_range.insert(candidate.range, (identity.clone(), decision.clone()));
+            binding_decisions.insert(identity, decision);
         }
         ProductFunctionPlan {
             binding_decisions,
@@ -579,9 +580,10 @@ impl<'a> ProductPlanner<'a> {
                 };
 
                 if let Pattern::Name { name, .. } = &binding.pattern {
-                    if let Some(binding_id) = self.binding_for_range(binding.range) {
+                    if let Some(identity @ LoweringBindingIdentity::BodyLocal { binding: binding_id, .. }) = self.binding_for_range(binding.range) {
                         let mut candidate = CandidateBinding {
                             binding: binding_id,
+                            identity: identity.clone(),
                             name: name.clone(),
                             range: binding.range,
                             mutable,
@@ -600,7 +602,7 @@ impl<'a> ProductPlanner<'a> {
                         } else if shape.is_none() {
                             candidate.rejection_reason = Some(MaterializationReason::NoResolvedConstruction);
                         }
-                        self.candidates.insert(binding_id, candidate);
+                        self.candidates.insert(identity, candidate);
                     }
                 } else {
                     // Refutable / destructuring patterns are ineligible for P2 product optimization
@@ -708,8 +710,8 @@ impl<'a> ProductPlanner<'a> {
     pub fn visit_expression(&mut self, expr: &Expr, ctx: UseContext) {
         match expr {
             Expr::Var { .. } => {
-                if let Some(binding_id) = self.binding_for_range(expr.range()) {
-                    if let Some(candidate) = self.candidates.get_mut(&binding_id) {
+                if let Some(identity) = self.binding_for_range(expr.range()) {
+                    if let Some(candidate) = self.candidates.get_mut(&identity) {
                         if self.nested_block_depth > 0 {
                             candidate.summary.captured = true;
                         }

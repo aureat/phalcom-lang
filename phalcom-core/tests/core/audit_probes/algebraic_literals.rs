@@ -512,7 +512,7 @@ let exact = projected === expected
         recipe
             .bindings
             .iter()
-            .any(|(_, ty)| matches!(ty, phalcom_core::typing::RuntimeTypeRecipe::Template(_))),
+            .any(|(_, ty)| matches!(ty, phalcom_core::typing::RuntimeCallArgumentRecipe::Term(phalcom_core::typing::RuntimeTypeRecipe::Template(_)))),
         "nested call must receive an impl-relative template type argument",
     );
     let mut vm = VM::new();
@@ -614,7 +614,7 @@ let result = Box(7).wrap
         .find(|expression| source.get(expression.range.start..expression.range.end) == Some("Box(7).wrap"))
         .expect("exact covering impl call");
     let specialization = expression.call_specialization.as_ref().expect("canonical call specialization");
-    let [(parameter, ty)] = &specialization.bindings[..] else {
+    let [(parameter, phalcom_semantic::types::store::StaticArgument::Term(ty))] = &specialization.bindings[..] else {
         panic!("one declaration-owned binding expected: {:?}", specialization.bindings)
     };
     assert!(

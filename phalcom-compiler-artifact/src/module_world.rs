@@ -31,6 +31,7 @@ fn allocation_error(error: AllocationError) -> ArtifactError {
         AllocationError::Exhausted => "module payload allocation budget exceeded",
         AllocationError::Overflow => "module payload allocation layout overflow",
         AllocationError::Failed => "module payload allocation failed",
+        AllocationError::UnaccountedBoundary => "semantic artifact operation has an unaccounted allocation boundary",
     })
 }
 pub(crate) fn invalid(message: impl Into<String>) -> ArtifactError {

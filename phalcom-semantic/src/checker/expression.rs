@@ -1698,7 +1698,7 @@ fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation:
         }
     }
 
-    let application = ctx.record_checked_static_application(target.clone(), *range, target, signature.clone(), checked_arguments.into_boxed_slice())?;
+    let application = ctx.record_checked_static_application(*range, target, signature.clone(), checked_arguments.into_boxed_slice())?;
     let mut typed = match signature.result_domain {
         crate::static_domain::StaticValueDomain::Kind(_) => TypedExpression::unknown(UnknownReason::UncheckedExpression),
         crate::static_domain::StaticValueDomain::ValueType(result_type) => TypedExpression::assumed(result_type, EvidenceOrigin::CallableSignature, *range),

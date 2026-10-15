@@ -1818,7 +1818,13 @@ impl<'source> Parser<'source> {
                 let class_start = self.cur_start();
                 let class_name = self.expect_identifier(&["error class name"])?;
                 let class_range: SourceRange = (class_start..self.prev_end).into();
+                let param_start = self.cur_start();
                 let param = self.expect_identifier(&["handler parameter"])?;
+                let param = ClosureParameter {
+                    name: param,
+                    range: (param_start..self.prev_end).into(),
+                    annotation: None,
+                };
                 let handler = self.parse_named_param_block(param)?;
                 if needs_wrap {
                     acc = Self::wrap_expr_as_block(acc);
@@ -1836,10 +1842,16 @@ impl<'source> Parser<'source> {
                 needs_wrap = true;
             } else if is_catch {
                 self.advance(); // 'catch'
-                let e_start = self.cur_start();
+                let param_start = self.cur_start();
                 let param = self.expect_identifier(&["handler parameter"])?;
+                let param_end = self.prev_end;
+                let param = ClosureParameter {
+                    name: param,
+                    range: (param_start..param_end).into(),
+                    annotation: None,
+                };
                 let handler = self.parse_named_param_block(param)?;
-                let class_range: SourceRange = (e_start..e_start).into();
+                let class_range: SourceRange = (param_start..param_start).into();
                 if needs_wrap {
                     acc = Self::wrap_expr_as_block(acc);
                 }
@@ -1923,14 +1935,17 @@ impl<'source> Parser<'source> {
     /// # Errors
     ///
     /// Returns an error if the braces or the enclosed statements are malformed.
-    fn parse_named_param_block(&mut self, param: String) -> ParserResult<Expr> {
+    fn parse_named_param_block(&mut self, param: ClosureParameter) -> ParserResult<Expr> {
         let start = self.cur_start();
         self.expect(&Token::LBrace, &["\"{\""])?;
         let body = self.parse_block_statements()?;
         self.expect(&Token::RBrace, &["\"}\""])?;
         let range = (start..self.prev_end).into();
         Ok(Expr::Block(Box::new(BlockExpr {
-            params: ClosureParameters::fixed(vec![param]),
+            params: ClosureParameters {
+                fixed: vec![param],
+                positional_rest: None,
+            },
             body,
             expr_body: false,
             range,
@@ -10596,6 +10611,41 @@ mod tests {
     fn parse_error_exits_with_first_error() {
         let err = parse_source("let = )", 0).unwrap_err();
         assert_eq!(err.range, 4..5);
+    }
+
+    #[test]
+    fn try_handler_parameters_preserve_exact_identifier_ranges() {
+        let source = "try {} on Problem e {} catch e {}";
+        let Statement::Expr {
+            expr: Expr::MethodCall(catch_call),
+            ..
+        } = only_statement(source)
+        else {
+            panic!("expected desugared catch call");
+        };
+        let Expr::Block(catch_handler) = positional_pack_expr(&catch_call.args[1]) else {
+            panic!("expected catch handler block");
+        };
+        let catch_parameter = &catch_handler.params.fixed[0];
+
+        let Expr::Block(rewrapped) = &catch_call.object else {
+            panic!("expected nested on expression to be rewrapped");
+        };
+        let [Statement::Expr {
+            expr: Expr::MethodCall(on_call),
+            ..
+        }] = rewrapped.body.as_slice()
+        else {
+            panic!("expected the inner on call");
+        };
+        let Expr::Block(on_handler) = positional_pack_expr(&on_call.args[1]) else {
+            panic!("expected on handler block");
+        };
+        let on_parameter = &on_handler.params.fixed[0];
+
+        assert_ne!(on_parameter.range, catch_parameter.range);
+        assert_eq!(&source[on_parameter.range.start..on_parameter.range.end], "e");
+        assert_eq!(&source[catch_parameter.range.start..catch_parameter.range.end], "e");
     }
 
     #[test]

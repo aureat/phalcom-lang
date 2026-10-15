@@ -2,11 +2,18 @@
 
 use crate::digest::ArtifactDigest;
 use crate::section::SectionKind;
+use phalcom_type_meta::allocation::AllocationError;
 use thiserror::Error;
 
 /// Top-level error for artifact processing.
 #[derive(Debug, Error)]
 pub enum ArtifactError {
+    #[error("allocation failure: {0}")]
+    Allocation(#[from] AllocationError),
+
+    #[error("query image error: {0}")]
+    QueryImage(#[from] QueryImageError),
+
     #[error("metadata envelope: {0}")]
     MetadataEnvelope(#[from] crate::metadata::MetadataSectionError),
 
@@ -26,9 +33,29 @@ pub enum ArtifactError {
     Io(String),
 }
 
+/// Allocation-free validation failures for the query image dependency graph.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum QueryImageError {
+    #[error("unsupported or source-dependent query root")]
+    UnsupportedRoot,
+    #[error("duplicate query root key")]
+    DuplicateRoot,
+    #[error("query dependency index is out of bounds")]
+    InvalidDependencyIndex,
+    #[error("query dependency graph contains a cycle")]
+    DependencyCycle,
+    #[error("source-dependent query dependency evidence is not permitted")]
+    SourceDependentEvidence,
+    #[error("query root or dependency count exceeds its limit")]
+    CountLimitExceeded,
+}
+
 /// Errors related to container format, header, directory, and section layout.
 #[derive(Debug, Error)]
 pub enum ContainerError {
+    #[error("allocation failure while decoding container: {0}")]
+    Allocation(#[from] AllocationError),
+
     #[error("invalid magic bytes: {0:?}")]
     BadMagic([u8; 8]),
 
@@ -54,41 +81,22 @@ pub enum ContainerError {
     DuplicateSection(SectionKind),
 
     #[error("offset overflow for section {section}: offset {offset} + len {len}")]
-    OffsetOverflow {
-        section: SectionKind,
-        offset: u64,
-        len: u64,
-    },
+    OffsetOverflow { section: SectionKind, offset: u64, len: u64 },
 
     #[error("length overflow for section {section}: len {len}, total {total}")]
-    LengthOverflow {
-        section: SectionKind,
-        len: u64,
-        total: u64,
-    },
+    LengthOverflow { section: SectionKind, len: u64, total: u64 },
 
     #[error("section {section} extends beyond file bounds: end {end}, file length {file_len}")]
-    OutOfFileSection {
-        section: SectionKind,
-        end: u64,
-        file_len: u64,
-    },
+    OutOfFileSection { section: SectionKind, end: u64, file_len: u64 },
 
     #[error("overlapping sections: {first} and {second}")]
-    OverlappingSections {
-        first: SectionKind,
-        second: SectionKind,
-    },
+    OverlappingSections { first: SectionKind, second: SectionKind },
 
     #[error("unknown required section with tag: {tag}")]
     UnknownRequiredSection { tag: u32 },
 
     #[error("section {section} exceeds size budget: size {size}, budget {budget}")]
-    SectionBudgetViolation {
-        section: SectionKind,
-        size: u64,
-        budget: u64,
-    },
+    SectionBudgetViolation { section: SectionKind, size: u64, budget: u64 },
 
     #[error("section {section} digest mismatch: expected {expected}, actual {actual}")]
     SectionDigestMismatch {
@@ -98,10 +106,7 @@ pub enum ContainerError {
     },
 
     #[error("artifact digest mismatch: expected {expected}, actual {actual}")]
-    ArtifactDigestMismatch {
-        expected: ArtifactDigest,
-        actual: ArtifactDigest,
-    },
+    ArtifactDigestMismatch { expected: ArtifactDigest, actual: ArtifactDigest },
 }
 
 /// Errors during low-level binary reading and decoding.
@@ -117,17 +122,10 @@ pub enum CodecError {
     InvalidBool(u8),
 
     #[error("invalid variant tag for {type_name}: {tag}")]
-    InvalidTag {
-        type_name: &'static str,
-        tag: u32,
-    },
+    InvalidTag { type_name: &'static str, tag: u32 },
 
     #[error("count for {item} ({count}) exceeds validation limit ({limit})")]
-    LimitExceeded {
-        item: &'static str,
-        count: usize,
-        limit: usize,
-    },
+    LimitExceeded { item: &'static str, count: usize, limit: usize },
 
     #[error("corrupted binary payload: {0}")]
     CorruptedData(String),
@@ -143,14 +141,13 @@ pub enum ValidationError {
     IncompatibleModelVersion { found: u32, expected: u32 },
 
     #[error("incompatible ABI version for {kind}: found {found}, expected {expected}")]
-    IncompatibleAbi {
-        kind: &'static str,
-        found: u32,
-        expected: u32,
-    },
+    IncompatibleAbi { kind: &'static str, found: u32, expected: u32 },
 
     #[error("native surface schema mismatch: found {found}, expected {expected}")]
     NativeSurfaceSchemaMismatch { found: u32, expected: u32 },
+
+    #[error("native catalog fingerprint mismatch: found {found:?}, expected {expected:?}")]
+    NativeCatalogFingerprintMismatch { found: [u8; 16], expected: [u8; 16] },
 
     #[error("type metadata schema mismatch: found {found}, expected {expected}")]
     TypeMetadataSchemaMismatch { found: u32, expected: u32 },

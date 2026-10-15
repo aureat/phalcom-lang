@@ -4,7 +4,7 @@ use crate::advisory::ValueShape;
 use crate::advisory::{AdvisoryFact, AdvisoryTargetResolution};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::{AnalysisStatus, BindingConsistency, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex};
-use crate::identity::{CallableId, ExpressionId, FieldId, ModuleId, SourceSiteId};
+use crate::identity::{BindingId, CallableId, ExpressionId, FieldId, ModuleId, SourceSiteId};
 use crate::signature::CallableSemanticSignature;
 use crate::source_index::SourceSemanticIndex;
 use crate::source_index::interval::{RangeEntry, RangeIndex};
@@ -366,11 +366,19 @@ pub struct ModuleFormalProjection {
     by_fact: BTreeMap<FormalFactRef, FormalFactSite>,
     sites: Arc<[FormalFactSite]>,
     intervals: RangeIndex<usize>,
+    binding_attachments: BTreeMap<(CallableId, BindingId), SourceRange>,
 }
 
 impl ModuleFormalProjection {
     /// Creates a module formal projection from already-built formal fact sites.
     pub fn new(sites: Vec<FormalFactSite>) -> Self {
+        Self::new_with_binding_attachments(sites, BTreeMap::new())
+    }
+
+    fn new_with_binding_attachments(
+        sites: Vec<FormalFactSite>,
+        binding_attachments: BTreeMap<(CallableId, BindingId), SourceRange>,
+    ) -> Self {
         let mut by_fact = BTreeMap::new();
         for site in &sites {
             by_fact.insert(site.fact.clone(), site.clone());
@@ -386,6 +394,7 @@ impl ModuleFormalProjection {
             by_fact,
             sites: sites_arc,
             intervals,
+            binding_attachments,
         }
     }
 
@@ -403,6 +412,13 @@ impl ModuleFormalProjection {
     /// Returns all formal sites in this module shard.
     pub fn sites(&self) -> &[FormalFactSite] {
         &self.sites
+    }
+
+    /// Returns the exact compiler-owned declaration site for one binding.
+    /// A formal fact may exist without a source attachment (for example for
+    /// an implicit receiver), so its presentation range is not a substitute.
+    pub fn binding_attachment_range(&self, callable: &CallableId, binding: BindingId) -> Option<SourceRange> {
+        self.binding_attachments.get(&(callable.clone(), binding)).copied()
     }
 }
 
@@ -425,7 +441,18 @@ impl FormalSemanticProjection {
         analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
         source_index: Option<&SourceSemanticIndex>,
     ) -> ModuleFormalProjection {
+        Self::build_module_projection_with_binding_ranges(module, callable_ids, analyses, source_index, None)
+    }
+
+    fn build_module_projection_with_binding_ranges(
+        module: &ModuleId,
+        callable_ids: impl IntoIterator<Item = CallableId>,
+        analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
+        source_index: Option<&SourceSemanticIndex>,
+        binding_ranges: Option<&BTreeMap<CallableId, BTreeMap<BindingId, SourceRange>>>,
+    ) -> ModuleFormalProjection {
         let mut sites = Vec::new();
+        let mut binding_attachments = BTreeMap::new();
         let module_index = source_index.and_then(|index| index.module(module));
         for callable in callable_ids {
             let Some(analysis) = analyses.get(&callable) else {
@@ -459,11 +486,17 @@ impl FormalSemanticProjection {
                 });
             }
             for binding in analysis.bindings.values() {
+                let attached_range = binding_ranges
+                    .and_then(|callables| callables.get(&analysis.callable))
+                    .and_then(|bindings| bindings.get(&binding.binding))
+                    .copied()
+                    .or_else(|| source_index.and_then(|index| index.source_site_for_binding(&analysis.callable, binding.binding).map(|site| site.range)));
+                if let Some(range) = attached_range {
+                    binding_attachments.insert((analysis.callable.clone(), binding.binding), range);
+                }
                 sites.push(FormalFactSite {
                     module: module.clone(),
-                    range: source_index
-                        .and_then(|index| index.source_site_for_binding(&analysis.callable, binding.binding).map(|site| site.range))
-                        .unwrap_or(binding.range),
+                    range: attached_range.unwrap_or(binding.range),
                     fact: FormalFactRef::Binding {
                         callable: analysis.callable.clone(),
                         binding: binding.binding,
@@ -479,7 +512,7 @@ impl FormalSemanticProjection {
             }
         }
         sites.sort_by_key(|site| (site.module.clone(), site.range.start, site.range.len(), site.fact.clone()));
-        ModuleFormalProjection::new(sites)
+        ModuleFormalProjection::new_with_binding_attachments(sites, binding_attachments)
     }
 
     /// Builds projection from immutable callable products while taking source
@@ -487,6 +520,23 @@ impl FormalSemanticProjection {
     /// retain historical ranges; presentation must not publish those stale
     /// positions.
     pub fn from_callable_analyses_with_source_index(analyses: &HashMap<CallableId, Arc<CallableAnalysis>>, source_index: Option<&SourceSemanticIndex>) -> Self {
+        Self::from_callable_analyses_with_attachments(analyses, source_index, None)
+    }
+
+    /// Builds a source-free formal projection from owner-qualified portable
+    /// binding declaration ranges carried by a semantic artifact.
+    pub fn from_callable_analyses_with_binding_ranges(
+        analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
+        binding_ranges: &BTreeMap<CallableId, BTreeMap<BindingId, SourceRange>>,
+    ) -> Self {
+        Self::from_callable_analyses_with_attachments(analyses, None, Some(binding_ranges))
+    }
+
+    fn from_callable_analyses_with_attachments(
+        analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
+        source_index: Option<&SourceSemanticIndex>,
+        binding_ranges: Option<&BTreeMap<CallableId, BTreeMap<BindingId, SourceRange>>>,
+    ) -> Self {
         let mut callables_by_module: BTreeMap<ModuleId, Vec<CallableId>> = BTreeMap::new();
         for callable in analyses.keys() {
             callables_by_module.entry(callable.module().clone()).or_default().push(callable.clone());
@@ -499,7 +549,7 @@ impl FormalSemanticProjection {
         let mut modules = im::OrdMap::new();
         for (module, mut callable_ids) in callables_by_module {
             callable_ids.sort();
-            let projection = Self::build_module_projection(&module, callable_ids, analyses, source_index);
+            let projection = Self::build_module_projection_with_binding_ranges(&module, callable_ids, analyses, source_index, binding_ranges);
             modules.insert(module, Arc::new(projection));
         }
         Self { modules }
@@ -539,6 +589,11 @@ impl FormalSemanticProjection {
     pub fn get(&self, fact: &FormalFactRef) -> Option<&FormalFactSite> {
         let module = fact.module();
         self.modules.get(module)?.get(fact)
+    }
+
+    /// Returns an exact source-owned formal binding attachment by owner.
+    pub fn binding_attachment_range(&self, callable: &CallableId, binding: BindingId) -> Option<SourceRange> {
+        self.modules.get(callable.module())?.binding_attachment_range(callable, binding)
     }
 
     /// Returns most-specific formal site at a source position.

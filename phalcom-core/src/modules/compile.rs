@@ -24,6 +24,126 @@ type RuntimeTraitEnvironmentRootSpec = (
     String,
 );
 
+#[derive(Clone)]
+struct RuntimeCallRowRootSpec {
+    module: ModuleId,
+    range: SourceRange,
+    callable: phalcom_semantic::identity::CallableId,
+    parameter: phalcom_semantic::types::id::TypeParameterId,
+    row: phalcom_semantic::types::id::RecordRowId,
+    field_keys: Vec<String>,
+    remainder_keys: Option<(String, Option<String>)>,
+}
+
+fn close_covering_body_static_bindings(
+    snapshot: &phalcom_semantic::SemanticSnapshot,
+    callee: &phalcom_semantic::identity::CallableId,
+    bindings: impl IntoIterator<
+        Item = (
+            phalcom_semantic::types::id::TypeParameterId,
+            phalcom_semantic::types::store::StaticArgument,
+        ),
+    >,
+) -> Result<
+    BTreeMap<phalcom_semantic::types::id::TypeParameterId, phalcom_semantic::types::store::StaticArgument>,
+    ProgramCompileError,
+> {
+    let mut closed = BTreeMap::new();
+    for (parameter, argument) in bindings {
+        if closed.insert(parameter, argument).is_some_and(|previous| previous != argument) {
+            return Err(ProgramCompileError::GenericEvidenceLayout(format!(
+                "conflicting typed runtime call binding for {parameter:?} at {callee:?}"
+            )));
+        }
+    }
+    let Some(covering) = snapshot
+        .callable_definitions
+        .get(callee)
+        .and_then(|definition| definition.inherent_body_context.as_ref())
+        .and_then(|context| context.covering.as_ref())
+    else {
+        return Ok(closed);
+    };
+    for (&impl_parameter, &declaration_parameter) in &covering.impl_to_decl {
+        match (closed.get(&impl_parameter), closed.get(&declaration_parameter)) {
+            (Some(impl_argument), Some(declaration_argument)) if impl_argument != declaration_argument => {
+                return Err(ProgramCompileError::GenericEvidenceLayout(format!(
+                    "conflicting covering-impl typed call bindings for {impl_parameter:?} and {declaration_parameter:?} at {callee:?}"
+                )));
+            }
+            (Some(&argument), None) => {
+                closed.insert(declaration_parameter, argument);
+            }
+            (None, Some(&argument)) => {
+                closed.insert(impl_parameter, argument);
+            }
+            _ => {}
+        }
+    }
+    Ok(closed)
+}
+
+fn add_runtime_call_row_roots(
+    snapshot: &phalcom_semantic::SemanticSnapshot,
+    specs: &mut Vec<RuntimeCallRowRootSpec>,
+    roots: &mut Vec<(
+        ModuleId,
+        SourceRange,
+        phalcom_semantic::identity::CallableId,
+        phalcom_semantic::types::id::TypeParameterId,
+        phalcom_semantic::types::id::TypeId,
+        String,
+    )>,
+    module: &ModuleId,
+    range: SourceRange,
+    callable: &phalcom_semantic::identity::CallableId,
+    parameter: phalcom_semantic::types::id::TypeParameterId,
+    row_id: phalcom_semantic::types::id::RecordRowId,
+) -> Result<(), ProgramCompileError> {
+    let row = snapshot.store.record_row(row_id);
+    let prefix = format!("call-row-{}-{}-{}", range.start, range.end, parameter.index());
+    let field_keys = row
+        .fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let key = format!("{prefix}-field-{index}");
+            roots.push((module.clone(), range, callable.clone(), parameter, field.ty, key.clone()));
+            key
+        })
+        .collect::<Vec<_>>();
+    let (remainder_keys, unsupported_tail) = match row.tail {
+        phalcom_semantic::types::row::RecordRowTail::Closed => (None, false),
+        phalcom_semantic::types::row::RecordRowTail::Anonymous(remainder) => {
+            let key_type_key = format!("{prefix}-remainder-key");
+            roots.push((module.clone(), range, callable.clone(), parameter, remainder.key_type(), key_type_key.clone()));
+            let value_key = remainder.value_type().map(|value_type| {
+                let key = format!("{prefix}-remainder-value");
+                roots.push((module.clone(), range, callable.clone(), parameter, value_type, key.clone()));
+                key
+            });
+            (Some((key_type_key, value_key)), false)
+        }
+        phalcom_semantic::types::row::RecordRowTail::Parameter(_) => (None, false),
+        phalcom_semantic::types::row::RecordRowTail::Projection(_) => (None, true),
+    };
+    if unsupported_tail {
+        return Err(ProgramCompileError::GenericEvidenceLayout(format!(
+            "runtime call row argument {row_id:?} has an unreified projected tail at {callable:?}"
+        )));
+    }
+    specs.push(RuntimeCallRowRootSpec {
+        module: module.clone(),
+        range,
+        callable: callable.clone(),
+        parameter,
+        row: row_id,
+        field_keys,
+        remainder_keys,
+    });
+    Ok(())
+}
+
 /// A covering impl body uses impl-owned parameters while its public call
 /// specialization uses declaration-owned parameters. Keep both coordinates in
 /// the callee's executable environment without changing the semantic product.
@@ -834,6 +954,13 @@ impl ProgramCompiler {
             phalcom_semantic::types::id::TypeId,
             String,
         )>::new();
+        let mut runtime_call_dynamic_specs = Vec::<(
+            ModuleId,
+            SourceRange,
+            phalcom_semantic::identity::CallableId,
+            phalcom_semantic::types::id::TypeParameterId,
+        )>::new();
+        let mut runtime_call_row_specs = Vec::<RuntimeCallRowRootSpec>::new();
         let mut runtime_trait_root_specs = Vec::<RuntimeTraitEnvironmentRootSpec>::new();
         let mut runtime_trait_root_seen = BTreeSet::new();
         #[cfg(feature = "perf-observability")]
@@ -859,23 +986,45 @@ impl ProgramCompiler {
                         .or_else(|| capability.map(|capability| &capability.selection.callable))
                         .expect("a specialization or conditional capability was checked above");
                     if let Some(specialization) = specialization {
-                        for (parameter, ty) in
-                            close_covering_body_bindings(&analyzed.semantic, &specialization.callable, specialization.bindings.iter().copied())?
-                        {
-                            runtime_call_root_specs.push((
-                                id.clone(),
-                                expression.range,
-                                specialization.callable.clone(),
-                                parameter,
-                                ty,
-                                format!(
-                                    "call-environment-{}-{}-{}-{}",
-                                    expression.range.start,
-                                    expression.range.end,
-                                    specialization.callable.selector,
-                                    parameter.index()
-                                ),
-                            ));
+                        let closed_arguments = close_covering_body_static_bindings(
+                            &analyzed.semantic,
+                            &specialization.callable,
+                            specialization.bindings.iter().copied(),
+                        )?;
+                        for (parameter, argument) in closed_arguments {
+                            match argument {
+                                phalcom_semantic::types::store::StaticArgument::Term(ty) => {
+                                    runtime_call_root_specs.push((
+                                        id.clone(),
+                                        expression.range,
+                                        specialization.callable.clone(),
+                                        parameter,
+                                        ty,
+                                        format!(
+                                            "call-environment-{}-{}-{}-{}",
+                                            expression.range.start,
+                                            expression.range.end,
+                                            specialization.callable.selector,
+                                            parameter.index()
+                                        ),
+                                    ));
+                                }
+                                phalcom_semantic::types::store::StaticArgument::DynamicType => {
+                                    runtime_call_dynamic_specs.push((id.clone(), expression.range, specialization.callable.clone(), parameter));
+                                }
+                                phalcom_semantic::types::store::StaticArgument::RecordRow(row) => {
+                                    add_runtime_call_row_roots(
+                                        &analyzed.semantic,
+                                        &mut runtime_call_row_specs,
+                                        &mut runtime_call_root_specs,
+                                        id,
+                                        expression.range,
+                                        &specialization.callable,
+                                        parameter,
+                                        row,
+                                    )?;
+                                }
+                            }
                         }
                         for conformance in specialization.conformances.iter() {
                             if let phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence } = &conformance.source {
@@ -1108,11 +1257,42 @@ impl ProgramCompiler {
                 key.clone(),
             ));
         }
+        let stable_call_dynamic_specs = runtime_call_dynamic_specs
+            .iter()
+            .map(|(module, range, callable, parameter)| {
+                Ok((
+                    module.clone(),
+                    *range,
+                    callable.clone(),
+                    exporter.export_type_parameter(*parameter).map_err(ProgramCompileError::Metadata)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, ProgramCompileError>>()?;
+        let stable_call_row_specs = runtime_call_row_specs
+            .iter()
+            .map(|spec| {
+                let row = analyzed.semantic.store.record_row(spec.row);
+                let stable_tail = match row.tail {
+                    phalcom_semantic::types::row::RecordRowTail::Parameter(parameter) => {
+                        Some(exporter.export_type_parameter(parameter).map_err(ProgramCompileError::Metadata)?)
+                    }
+                    _ => None,
+                };
+                Ok((
+                    spec.clone(),
+                    exporter.export_type_parameter(spec.parameter).map_err(ProgramCompileError::Metadata)?,
+                    stable_tail,
+                ))
+            })
+            .collect::<Result<Vec<_>, ProgramCompileError>>()?;
         let mut metadata_roots = phalcom_semantic::metadata::MetadataRootSet::new();
         for (_, _, ty) in &runtime_root_refs {
             metadata_roots.insert_runtime_type(*ty);
         }
         for (_, _, callable, _, _, _) in &runtime_call_root_specs {
+            metadata_roots.insert_callable(callable.clone());
+        }
+        for (_, _, callable, _) in &runtime_call_dynamic_specs {
             metadata_roots.insert_callable(callable.clone());
         }
         for module in &analyzed.runtime_modules {
@@ -1203,8 +1383,9 @@ impl ProgramCompiler {
         let mut conditional_call_keys = BTreeSet::<(ModuleId, SourceRange, phalcom_semantic::identity::CallableId)>::new();
         let mut call_bindings = BTreeMap::<
             (ModuleId, SourceRange, phalcom_semantic::identity::CallableId),
-            Vec<(phalcom_type_meta::StableTypeParameterRef, RuntimeTypeRecipe)>,
+            Vec<(phalcom_type_meta::StableTypeParameterRef, crate::typing::RuntimeCallArgumentRecipe)>,
         >::new();
+        let mut call_row_components = BTreeMap::<(ModuleId, SourceRange, phalcom_semantic::identity::CallableId, String), RuntimeTypeRef>::new();
         let mut call_type_recipes = BTreeMap::<
             (
                 ModuleId,
@@ -1229,14 +1410,90 @@ impl ProgramCompiler {
                     node: root.form,
                 })
             };
-            call_type_recipes.insert((module.clone(), *range, callable.clone(), *parameter), (stable_parameter.clone(), recipe));
             if key.starts_with("call-environment-") {
+                call_type_recipes.insert((module.clone(), *range, callable.clone(), *parameter), (stable_parameter.clone(), recipe));
                 call_bindings
                     .entry((module.clone(), *range, callable.clone()))
                     .or_default()
-                    .push((stable_parameter.clone(), recipe));
+                    .push((stable_parameter.clone(), crate::typing::RuntimeCallArgumentRecipe::Term(recipe)));
+            } else if key.starts_with("call-derived-") {
+                call_type_recipes.insert((module.clone(), *range, callable.clone(), *parameter), (stable_parameter.clone(), recipe));
+            } else if key.starts_with("call-row-") {
+                call_row_components.insert(
+                    (module.clone(), *range, callable.clone(), key.clone()),
+                    RuntimeTypeRef::Base {
+                        pool: MetadataPoolId(0),
+                        node: root.form,
+                    },
+                );
             }
             let _ = stable_callable;
+        }
+        for (module, range, callable, stable_parameter) in &stable_call_dynamic_specs {
+            call_bindings
+                .entry((module.clone(), *range, callable.clone()))
+                .or_default()
+                .push((stable_parameter.clone(), crate::typing::RuntimeCallArgumentRecipe::DynamicType));
+        }
+        for (spec, stable_parameter, stable_tail) in &stable_call_row_specs {
+            let row = analyzed.semantic.store.record_row(spec.row);
+            let mut fields = Vec::with_capacity(row.fields.len());
+            for (field, key) in row.fields.iter().zip(spec.field_keys.iter()) {
+                let ty = call_row_components
+                    .get(&(spec.module.clone(), spec.range, spec.callable.clone(), key.clone()))
+                    .copied()
+                    .ok_or_else(|| ProgramCompileError::GenericEvidenceLayout(format!("missing runtime call row field root {key}")))?;
+                fields.push(crate::typing::overlay::RuntimeRecordField {
+                    key: field.key.clone(),
+                    ty,
+                });
+            }
+            let (tail, remainder) = match row.tail {
+                phalcom_semantic::types::row::RecordRowTail::Closed => (None, None),
+                phalcom_semantic::types::row::RecordRowTail::Parameter(parameter) => {
+                    let _ = parameter;
+                    (stable_tail.clone(), None)
+                }
+                phalcom_semantic::types::row::RecordRowTail::Anonymous(remainder) => {
+                    let (key, value) = spec.remainder_keys.as_ref().ok_or_else(|| {
+                        ProgramCompileError::GenericEvidenceLayout(format!("missing runtime call row remainder roots for {:?}", spec.row))
+                    })?;
+                    let key_type = call_row_components
+                        .get(&(spec.module.clone(), spec.range, spec.callable.clone(), key.clone()))
+                        .copied()
+                        .ok_or_else(|| ProgramCompileError::GenericEvidenceLayout(format!("missing runtime call row remainder root {key}")))?;
+                    let runtime_remainder = match remainder {
+                        phalcom_semantic::types::row::AnonymousRecordRemainder::Unconstrained { .. } => {
+                            crate::typing::overlay::RuntimeAnonymousRecordRemainder::Unconstrained { key_type }
+                        }
+                        phalcom_semantic::types::row::AnonymousRecordRemainder::Typed { .. } => {
+                            let value_key = value.as_ref().ok_or_else(|| {
+                                ProgramCompileError::GenericEvidenceLayout(format!("missing runtime call row remainder value root for {:?}", spec.row))
+                            })?;
+                            let value_type = call_row_components
+                                .get(&(spec.module.clone(), spec.range, spec.callable.clone(), value_key.clone()))
+                                .copied()
+                                .ok_or_else(|| ProgramCompileError::GenericEvidenceLayout(format!("missing runtime call row remainder root {value_key}")))?;
+                            crate::typing::overlay::RuntimeAnonymousRecordRemainder::Typed { key_type, value_type }
+                        }
+                    };
+                    (None, Some(runtime_remainder))
+                }
+                phalcom_semantic::types::row::RecordRowTail::Projection(_) => {
+                    return Err(ProgramCompileError::GenericEvidenceLayout(format!("runtime call row {:?} has a projected tail", spec.row)));
+                }
+            };
+            call_bindings
+                .entry((spec.module.clone(), spec.range, spec.callable.clone()))
+                .or_default()
+                .push((
+                    stable_parameter.clone(),
+                    crate::typing::RuntimeCallArgumentRecipe::RecordRow(crate::typing::overlay::RuntimeRecordRow {
+                        fields: fields.into_boxed_slice(),
+                        tail,
+                        remainder,
+                    }),
+                ));
         }
         crate::perf_counter!(telos_observability::PerfCounter::CompilerRuntimeTypeRecipes, call_type_recipes.len());
         #[cfg(feature = "perf-observability")]
@@ -1510,8 +1767,12 @@ impl ProgramCompiler {
                     let mut slots: Vec<Option<crate::typing::RuntimeConformanceSlotRecipe>> = vec![None; layout_len];
                     let mut callee_instantiation = phalcom_semantic::types::instantiation::GenericInstantiation::default();
                     if let Some(specialization) = specialization {
-                        for &(parameter, ty) in specialization.bindings.iter() {
-                            callee_instantiation.bind_type(parameter, ty);
+                        for &(parameter, argument) in specialization.bindings.iter() {
+                            match argument {
+                                phalcom_semantic::types::store::StaticArgument::Term(ty) => callee_instantiation.bind_type(parameter, ty),
+                                phalcom_semantic::types::store::StaticArgument::RecordRow(row) => callee_instantiation.bind_row(parameter, row),
+                                phalcom_semantic::types::store::StaticArgument::DynamicType => callee_instantiation.bind_dynamic(parameter),
+                            }
                         }
                     }
                     if let Some(capability) = capability {
@@ -2519,7 +2780,11 @@ mod tests {
             .find(|(range, recipe)| range.start >= is_none_offset && range.end <= is_none_end && recipe.callable.selector.as_ref() == "isNone")
             .expect("RangeIterator lowerOpt.isNone call recipe");
         assert!(
-            !recipe.bindings.is_empty() && recipe.bindings.iter().all(|(_, r)| matches!(r, RuntimeTypeRecipe::Closed(_))),
+            !recipe.bindings.is_empty()
+                && recipe
+                    .bindings
+                    .iter()
+                    .all(|(_, r)| matches!(r, crate::typing::RuntimeCallArgumentRecipe::Term(RuntimeTypeRecipe::Closed(_)))),
             "RangeIterator lowerOpt.isNone must close Option.T as Number at {range:?}, got {recipe:?}"
         );
     }

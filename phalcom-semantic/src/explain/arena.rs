@@ -53,6 +53,11 @@ impl ExplanationArena {
         self.nodes.get(&id)
     }
 
+    /// Iterates explanation nodes in stable local-id order.
+    pub fn iter(&self) -> impl Iterator<Item = (&ExplanationId, &ExplanationNode)> {
+        self.nodes.iter()
+    }
+
     pub fn len(&self) -> usize {
         self.nodes.len()
     }

@@ -33,6 +33,16 @@ impl Shape::Square {
         .requirements
         .get(&owner)
         .expect("enum requirement table entry");
+    for requirement in requirements.iter() {
+        assert!(case
+            .analysis
+            .snapshot
+            .callable_signatures
+            .get(&requirement.signature.callable)
+            .is_none());
+        assert_eq!(requirement.signature.owner, owner);
+        assert_eq!(requirement.signature.selector, requirement.id.selector);
+    }
     let req_selector = Selector::method("area", []).expect("area selector");
     assert!(requirements.iter().any(|requirement| requirement.id.selector == req_selector));
 

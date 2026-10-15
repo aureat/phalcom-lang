@@ -908,16 +908,16 @@ fn hash_flow_edge_kind(kind: FlowEdgeKind, hasher: &mut impl Hasher) {
 }
 
 fn hash_flow_graph_semantics(graph: &FlowGraph, hasher: &mut impl Hasher) {
-    graph.nodes.len().hash(hasher);
-    for (id, node) in &graph.nodes {
+    graph.node_count().hash(hasher);
+    for (id, node) in graph.node_entries() {
         id.hash(hasher);
         node.id.hash(hasher);
         hash_flow_node_kind(&node.kind, hasher);
         node.predecessors.hash(hasher);
         node.successors.hash(hasher);
     }
-    graph.edges.len().hash(hasher);
-    for (id, edge) in &graph.edges {
+    graph.edge_count().hash(hasher);
+    for (id, edge) in graph.edge_entries() {
         id.hash(hasher);
         edge.id.hash(hasher);
         edge.source.hash(hasher);
@@ -925,8 +925,8 @@ fn hash_flow_graph_semantics(graph: &FlowGraph, hasher: &mut impl Hasher) {
         hash_flow_edge_kind(edge.kind, hasher);
         edge.predicate.hash(hasher);
     }
-    graph.entry.hash(hasher);
-    graph.exits.hash(hasher);
+    graph.entry().hash(hasher);
+    graph.exits().hash(hasher);
 }
 
 fn hash_field_validity(validity: &crate::checker::flow::FieldContractValidity, hasher: &mut impl Hasher) {
@@ -1862,12 +1862,14 @@ pub fn source_resolution_input_fingerprint(interfaces: &BTreeMap<ModuleId, Arc<U
 pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
     analysis.callable.hash(&mut hasher);
+    analysis.body_source_owner.hash(&mut hasher);
 
     analysis.expressions.len().hash(&mut hasher);
     for (expression_id, expression) in &analysis.expressions {
         expression_id.hash(&mut hasher);
         hash_type_knowledge(&expression.knowledge, false, &mut hasher);
         expression.callable.hash(&mut hasher);
+        hash_call_specialization(expression.call_specialization.as_ref(), &mut hasher);
         expression.conditional_dispatch.hash(&mut hasher);
         hash_conditional_selected_call_capability(expression.conditional_capability.as_ref(), &mut hasher);
         hash_trait_dispatch_site(expression.trait_dispatch.as_ref(), &mut hasher);
@@ -1930,6 +1932,18 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         binding.initialization.hash(&mut hasher);
         binding.version.hash(&mut hasher);
     }
+    analysis.binding_origins.len().hash(&mut hasher);
+    for (binding, origin) in &analysis.binding_origins {
+        binding.hash(&mut hasher);
+        match origin {
+            crate::checker::analysis::CallableBindingOrigin::BodyLocal => 0u8.hash(&mut hasher),
+            crate::checker::analysis::CallableBindingOrigin::ModuleValue { symbol, import } => {
+                1u8.hash(&mut hasher);
+                symbol.hash(&mut hasher);
+                import.map(|id| id.0).hash(&mut hasher);
+            }
+        }
+    }
 
     hash_match_resolutions(&analysis.match_resolutions, &mut hasher);
     hash_pattern_site_resolutions(&analysis.pattern_site_resolutions, &mut hasher);
@@ -1969,6 +1983,47 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     // `dependency_fingerprint` is assigned from this fingerprint after
     // computation. Hashing it would make the product definition recursive.
     finish_product(hasher)
+}
+
+fn hash_call_specialization(
+    specialization: Option<&crate::checker::analysis::CallSpecialization>,
+    hasher: &mut impl Hasher,
+) {
+    let Some(specialization) = specialization else {
+        0u8.hash(hasher);
+        return;
+    };
+    1u8.hash(hasher);
+    specialization.callable.hash(hasher);
+    specialization.bindings.hash(hasher);
+    specialization.conformances.len().hash(hasher);
+    for binding in specialization.conformances.iter() {
+        binding.callee_conformance.hash(hasher);
+        match &binding.source {
+            crate::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
+                0u8.hash(hasher);
+                evidence.source_impl.hash(hasher);
+                evidence.fingerprint.raw().hash(hasher);
+            }
+            crate::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance } => {
+                1u8.hash(hasher);
+                caller_conformance.hash(hasher);
+            }
+            crate::checker::analysis::GenericCallConformanceSource::Derived { evidence } => {
+                2u8.hash(hasher);
+                if let Some(exact_source) = evidence.exact_source() {
+                    exact_source.source_impl.hash(hasher);
+                    exact_source.fingerprint.raw().hash(hasher);
+                } else {
+                    0u8.hash(hasher);
+                }
+            }
+            crate::checker::analysis::GenericCallConformanceSource::CompilerDerived { evidence } => {
+                3u8.hash(hasher);
+                evidence.kind.hash(hasher);
+            }
+        }
+    }
 }
 
 fn hash_trait_dispatch_site(site: Option<&crate::trait_dispatch::TraitDispatchSite>, hasher: &mut impl Hasher) {
@@ -3142,6 +3197,59 @@ mod tests {
     use crate::types::evidence::EvidenceStatus;
 
     #[test]
+    fn source_and_frozen_flow_graphs_have_equal_semantic_fingerprints() {
+        use crate::checker::flow::graph::{FlowEdgeKind, FlowNodeKind};
+        use crate::identity::{FlowNodeId, FlowEdgeId};
+        use phalcom_compiler_artifact::semantic::world::{
+            CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1, CallableFlowNodeV1,
+        };
+
+        let range = SourceRange { start: 4, end: 11 };
+        let mut source = FlowGraph::new();
+        let entry = source.add_node(FlowNodeKind::Entry, range).unwrap();
+        let exit = source.add_node(FlowNodeKind::Exit, range).unwrap();
+        source.try_set_entry(Some(entry)).unwrap();
+        source.try_push_exit(exit).unwrap();
+        source.add_edge_with_kind(entry, exit, FlowEdgeKind::Return, None).unwrap();
+
+        let wire = CallableFlowGraphV1 {
+            nodes: vec![
+                CallableFlowNodeV1 {
+                    kind: CallableFlowNodeKindV1::Entry,
+                    range: phalcom_compiler_artifact::module_world::SpanV1 { start: 4, end: 11 },
+                },
+                CallableFlowNodeV1 {
+                    kind: CallableFlowNodeKindV1::Exit,
+                    range: phalcom_compiler_artifact::module_world::SpanV1 { start: 4, end: 11 },
+                },
+            ],
+            edges: vec![CallableFlowEdgeV1 {
+                source: 0,
+                target: 1,
+                kind: CallableFlowEdgeKindV1::Return,
+            }],
+            entry: Some(0),
+            exits: vec![1],
+        };
+        let mut budget = phalcom_type_meta::allocation::AllocationBudget::new(1024 * 1024);
+        let frozen = crate::artifact::import::import_callable_flow_graph_with_allocation_budget(
+            &wire,
+            &phalcom_compiler_artifact::ValidationLimits::default(),
+            &mut budget,
+        )
+        .unwrap();
+
+        let fingerprint = |graph: &FlowGraph| {
+            let mut hasher = DefaultHasher::new();
+            hash_flow_graph_semantics(graph, &mut hasher);
+            hasher.finish()
+        };
+        assert_eq!(fingerprint(&source), fingerprint(&frozen));
+        assert_eq!(frozen.node(&FlowNodeId(0)).unwrap().id, FlowNodeId(0));
+        assert_eq!(frozen.edge(&FlowEdgeId(0)).unwrap().id, FlowEdgeId(0));
+    }
+
+    #[test]
     fn return_contract_validation_fingerprint_distinguishes_variants() {
         let variants = [
             ReturnContractValidation::NotApplicable,
@@ -3159,6 +3267,38 @@ mod tests {
             let h = hasher.finish();
             assert!(hashes.insert(h), "hash collision for {variant:?}");
         }
+    }
+
+    #[test]
+    fn call_specialization_fingerprint_distinguishes_dynamic_from_concrete_term() {
+        use crate::checker::analysis::CallSpecialization;
+        use crate::identity::{CallableId, DeclarationId, DispatchSide, ModuleId};
+        use crate::types::id::{TypeId, TypeParameterId};
+        use crate::types::store::StaticArgument;
+        use phalcom_common::selector::Selector;
+
+        let callable = CallableId::method(
+            DeclarationId::new(ModuleId::universe_root(), "FingerprintOwner".into()),
+            Selector::getter("read").unwrap(),
+            DispatchSide::Instance,
+        );
+        let concrete = CallSpecialization {
+            callable: callable.clone(),
+            bindings: Box::new([(TypeParameterId(0), StaticArgument::Term(TypeId(7)))]),
+            conformances: Box::new([]),
+        };
+        let dynamic = CallSpecialization {
+            callable,
+            bindings: Box::new([(TypeParameterId(0), StaticArgument::DynamicType)]),
+            conformances: Box::new([]),
+        };
+        let fingerprint = |specialization: &CallSpecialization| {
+            let mut hasher = DefaultHasher::new();
+            hash_call_specialization(Some(specialization), &mut hasher);
+            hasher.finish()
+        };
+
+        assert_ne!(fingerprint(&concrete), fingerprint(&dynamic));
     }
 
     #[test]

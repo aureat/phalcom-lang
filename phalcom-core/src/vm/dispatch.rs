@@ -1500,10 +1500,15 @@ impl VM {
         receiver: Value,
         spec: &crate::modules::semantic_lowering::TraitInvocationSpec,
     ) -> PhResult<(crate::typing::RuntimeConformanceEnvironmentId, ObjRef, crate::typing::RuntimeTypeEnvironmentId)> {
-        let mut bindings = spec.type_bindings.iter().cloned().collect::<std::collections::BTreeMap<_, _>>();
+        let mut bindings = spec
+            .type_bindings
+            .iter()
+            .cloned()
+            .map(|(parameter, recipe)| (parameter, crate::typing::RuntimeCallArgumentRecipe::Term(recipe)))
+            .collect::<std::collections::BTreeMap<_, _>>();
         if let Some(recipe) = &spec.call_environment_recipe {
             for (parameter, ty) in recipe.bindings.iter().cloned() {
-                if bindings.insert(parameter, ty).is_some_and(|previous| previous != ty) {
+                if bindings.insert(parameter, ty.clone()).is_some_and(|previous| previous != ty) {
                     return Err(RuntimeError::Internal("trait owner and method type bindings disagree".into()).into());
                 }
             }
@@ -1881,7 +1886,7 @@ impl VM {
 
     fn materialize_type_bindings(
         &mut self,
-        bindings: &[(phalcom_type_meta::StableTypeParameterRef, crate::typing::RuntimeTypeRecipe)],
+        bindings: &[(phalcom_type_meta::StableTypeParameterRef, crate::typing::RuntimeCallArgumentRecipe)],
     ) -> Result<crate::typing::RuntimeTypeEnvironmentId, RuntimeError> {
         let parent_id = self
             .frames
@@ -1894,15 +1899,36 @@ impl VM {
             .cloned()
             .ok_or_else(|| RuntimeError::Internal(format!("missing caller runtime type environment {}", parent_id.0)))?;
         let mut materialized = Vec::with_capacity(bindings.len());
-        for (parameter, type_recipe) in bindings.iter().cloned() {
-            let ty =
-                crate::typing::instantiate_type_recipe(type_recipe, &parent, &mut self.runtime_typing_context, &self.typing_registry).ok_or_else(|| {
-                    RuntimeError::Internal(format!(
-                        "generic call-entry type recipe could not be instantiated for parameter {parameter:?}, recipe {type_recipe:?}, against parent {:?}",
-                        parent.bindings
-                    ))
-                })?;
-            materialized.push((parameter, ty));
+        for (parameter, argument_recipe) in bindings.iter().cloned() {
+            let argument = match argument_recipe {
+                crate::typing::RuntimeCallArgumentRecipe::Term(type_recipe) => {
+                    let ty = crate::typing::instantiate_type_recipe(
+                        type_recipe,
+                        &parent,
+                        &mut self.runtime_typing_context,
+                        &self.typing_registry,
+                    )
+                    .ok_or_else(|| {
+                        RuntimeError::Internal(format!(
+                            "generic call-entry type recipe could not be instantiated for parameter {parameter:?}, recipe {type_recipe:?}, against parent {:?}",
+                            parent.bindings
+                        ))
+                    })?;
+                    crate::typing::overlay::RuntimeStaticArgument::Term(ty)
+                }
+                crate::typing::RuntimeCallArgumentRecipe::RecordRow(row) => {
+                    let row = crate::typing::environment::instantiate_runtime_record_row(
+                        &row,
+                        &parent,
+                        &mut self.runtime_typing_context,
+                        &self.typing_registry,
+                    )
+                    .ok_or_else(|| RuntimeError::Internal(format!("generic call-entry row recipe could not be instantiated for {parameter:?}")))?;
+                    crate::typing::overlay::RuntimeStaticArgument::RecordRow(row)
+                }
+                crate::typing::RuntimeCallArgumentRecipe::DynamicType => crate::typing::overlay::RuntimeStaticArgument::DynamicType,
+            };
+            materialized.push((parameter, argument));
         }
         Ok(self.runtime_type_environments.intern(crate::typing::RuntimeTypeEnvironment::new(materialized)))
     }
@@ -2016,7 +2042,7 @@ impl VM {
                     for (parameter, type_recipe) in type_bindings.iter().cloned() {
                         let ty = crate::typing::instantiate_type_recipe(type_recipe, &parent, &mut self.runtime_typing_context, &self.typing_registry)
                             .ok_or_else(|| RuntimeError::Internal("derived conditional impl type recipe could not be instantiated".into()))?;
-                        bindings.push((parameter, ty));
+                        bindings.push((parameter, crate::typing::overlay::RuntimeStaticArgument::Term(ty)));
                     }
                     let type_env_id = self.runtime_type_environments.intern(crate::typing::RuntimeTypeEnvironment::new(bindings));
 
@@ -3605,11 +3631,20 @@ impl VM {
                         .last()
                         .map(|frame| frame.type_environment)
                         .unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY);
-                    let runtime_type = self
+                    let argument = self
                         .runtime_type_environments
                         .get(environment_id)
-                        .and_then(|environment| environment.get(&parameter))
+                        .and_then(|environment| environment.get_argument(&parameter))
                         .ok_or_else(|| RuntimeError::Internal(format!("no active runtime type binding for {parameter:?}")))?;
+                    let runtime_type = match argument {
+                        crate::typing::overlay::RuntimeStaticArgument::Term(runtime_type) => *runtime_type,
+                        crate::typing::overlay::RuntimeStaticArgument::DynamicType => {
+                            return Err(RuntimeError::Internal(format!("explicit Dynamic binding for {parameter:?} has no nominal class boundary")).into());
+                        }
+                        crate::typing::overlay::RuntimeStaticArgument::RecordRow(_) => {
+                            return Err(RuntimeError::Internal(format!("record-row binding for {parameter:?} has no nominal class boundary")).into());
+                        }
+                    };
                     let class = crate::typing::inspect::nominal_origin_class(&self.runtime_typing_context, &self.typing_registry, runtime_type)
                         .ok_or_else(|| RuntimeError::Internal(format!("runtime type binding for {parameter:?} has no nominal class object")))?;
                     self.stack.push(crate::value::Value::obj(class));

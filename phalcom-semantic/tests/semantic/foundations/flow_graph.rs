@@ -63,18 +63,18 @@ fn setup_test_env() -> (TypeStore, MapTypeHierarchy, SimpleTypeResolver, Declara
 fn test_flow_graph_construction() {
     let mut graph = FlowGraph::new();
     let r0 = SourceRange { start: 0, end: 10 };
-    let n1 = graph.add_node(FlowNodeKind::Entry, r0);
-    let n2 = graph.add_node(FlowNodeKind::BranchCondition, r0);
-    let n3 = graph.add_node(FlowNodeKind::Exit, r0);
+    let n1 = graph.add_node(FlowNodeKind::Entry, r0).unwrap();
+    let n2 = graph.add_node(FlowNodeKind::BranchCondition, r0).unwrap();
+    let n3 = graph.add_node(FlowNodeKind::Exit, r0).unwrap();
 
-    let e1 = graph.add_edge(n1, n2, None);
-    let e2 = graph.add_edge(n2, n3, None);
+    let e1 = graph.add_edge(n1, n2, None).unwrap();
+    let e2 = graph.add_edge(n2, n3, None).unwrap();
 
-    assert_eq!(graph.nodes.len(), 3);
-    assert_eq!(graph.edges.len(), 2);
-    assert_eq!(graph.nodes.get(&n1).unwrap().successors, vec![e1]);
-    assert_eq!(graph.nodes.get(&n2).unwrap().predecessors, vec![e1]);
-    assert_eq!(graph.nodes.get(&n2).unwrap().successors, vec![e2]);
+    assert_eq!(graph.node_count(), 3);
+    assert_eq!(graph.edge_count(), 2);
+    assert_eq!(graph.node(&n1).unwrap().successors, vec![e1]);
+    assert_eq!(graph.node(&n2).unwrap().predecessors, vec![e1]);
+    assert_eq!(graph.node(&n2).unwrap().successors, vec![e2]);
 }
 
 #[test]
@@ -108,17 +108,17 @@ class CfgSubject {
     };
 
     let cfg = FlowGraph::from_statements(member_body);
-    assert!(cfg.entry.is_some(), "CFG must have an entry node");
-    assert!(!cfg.exits.is_empty(), "CFG must record exit nodes");
-    assert!(!cfg.nodes.is_empty(), "CFG must have statement/branch nodes");
+    assert!(cfg.entry().is_some(), "CFG must have an entry node");
+    assert!(!cfg.exits().is_empty(), "CFG must record exit nodes");
+    assert!(cfg.node_count() > 0, "CFG must have statement/branch nodes");
 
     let reachable = cfg.reachable_nodes();
-    assert!(reachable.contains(&cfg.entry.unwrap()));
+    assert!(reachable.contains(&cfg.entry().unwrap()));
 
-    let has_loop = cfg.nodes.values().any(|n| matches!(n.kind, FlowNodeKind::LoopHeader));
+    let has_loop = cfg.nodes().any(|n| matches!(n.kind, FlowNodeKind::LoopHeader));
     assert!(has_loop, "CFG for loop construct must contain a LoopHeader node");
 
-    let has_back_edge = cfg.edges.values().any(|e| matches!(e.kind, FlowEdgeKind::BackEdge));
+    let has_back_edge = cfg.edges().any(|e| matches!(e.kind, FlowEdgeKind::BackEdge));
     assert!(has_back_edge, "CFG for loop construct must contain a BackEdge");
 }
 
@@ -152,20 +152,17 @@ class CfgWhile {
 
     let cfg = FlowGraph::from_statements(member_body);
     let header = cfg
-        .nodes
-        .values()
+        .nodes()
         .find(|node| matches!(node.kind, FlowNodeKind::LoopHeader))
         .expect("while loop header");
     let condition = cfg
-        .nodes
-        .values()
+        .nodes()
         .find(|node| node.kind == FlowNodeKind::BranchCondition && node.range == while_expr.condition.range())
         .expect("condition branch uses the source condition range");
     assert_eq!(header.range, while_expr.range);
-    assert!(cfg.edges.values().any(|edge| edge.kind == FlowEdgeKind::BackEdge && edge.target == header.id));
+    assert!(cfg.edges().any(|edge| edge.kind == FlowEdgeKind::BackEdge && edge.target == header.id));
     assert!(
-        cfg.edges
-            .values()
+        cfg.edges()
             .any(|edge| edge.kind == FlowEdgeKind::FalseBranch && edge.source == condition.id)
     );
 }
