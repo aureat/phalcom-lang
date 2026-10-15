@@ -737,9 +737,9 @@ fn specialize_helper(
     values: &mut StaticValueStore,
     budget: &mut QueryBudget,
     cancellation: &CancellationToken,
-    types: &mut TypeStore,
-    residuals: &mut StaticResidualStore,
+    stores: (&mut TypeStore, &mut StaticResidualStore),
 ) -> StaticEvalOutcome {
+    let (types, residuals) = stores;
     let mut evaluator = StaticEvaluator::new(body, values, budget, cancellation, &[])
         .with_static_definitions(fixture.analysis.snapshot.static_definitions())
         .with_semantic_tables_mut(types, &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
@@ -811,8 +811,7 @@ fn open_value_condition_defers_to_the_enclosing_application() {
             &mut values,
             &mut QueryBudget::default(),
             &CancellationToken::new(),
-            Arc::make_mut(&mut types),
-            &mut residuals,
+            (Arc::make_mut(&mut types), &mut residuals),
         );
         let StaticEvalOutcome::Reduced(actual) = specialized else {
             panic!("open conditional must specialize to the selected branch: {specialized:?}");
@@ -869,8 +868,7 @@ fn open_value_condition_defers_to_the_enclosing_application() {
         &mut values,
         &mut QueryBudget::default(),
         &CancellationToken::new(),
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(selected) = selected else {
         panic!("the recursive untaken branch must remain unobserved: {selected:?}");
@@ -927,8 +925,7 @@ fn open_value_condition_defers_to_the_enclosing_application() {
             &mut values,
             &mut QueryBudget::default(),
             &CancellationToken::new(),
-            Arc::make_mut(&mut types),
-            &mut residuals,
+            (Arc::make_mut(&mut types), &mut residuals),
         );
         let StaticEvalOutcome::Reduced(actual) = specialized else {
             panic!("exactly one branch must update the local: {specialized:?}");
@@ -1010,8 +1007,7 @@ fn open_match_scrutinee_defers_without_losing_arm_order() {
             &mut values,
             &mut QueryBudget::default(),
             &CancellationToken::new(),
-            Arc::make_mut(&mut types),
-            &mut residuals,
+            (Arc::make_mut(&mut types), &mut residuals),
         );
         let StaticEvalOutcome::Reduced(specialized_result) = specialized else {
             panic!("specialized match must select its first matching arm: {specialized:?}");
@@ -1084,8 +1080,7 @@ fn open_match_scrutinee_defers_without_losing_arm_order() {
         &mut values,
         &mut QueryBudget::default(),
         &CancellationToken::new(),
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(specialized_result) = specialized else {
         panic!("specializing the canonical variant match must select Some: {specialized:?}");
@@ -1178,8 +1173,7 @@ fn iterative_static_type_pack_algorithm_uses_checked_mode_and_finite_arguments()
         &mut values,
         &mut QueryBudget::default(),
         &CancellationToken::new(),
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(actual) = specialized else {
         panic!("specializing the finite TypePack must match cold evaluation: {specialized:?}");
@@ -1283,8 +1277,7 @@ fn partially_known_tuple_construction_specializes_to_the_cold_value() {
             &mut values,
             &mut QueryBudget::default(),
             &CancellationToken::new(),
-            Arc::make_mut(&mut types),
-            &mut residuals,
+            (Arc::make_mut(&mut types), &mut residuals),
         ),
         StaticEvalOutcome::Symbolic(tuple),
         "specializing without new facts must reuse the canonical tuple"
@@ -1316,8 +1309,7 @@ fn partially_known_tuple_construction_specializes_to_the_cold_value() {
         &mut values,
         &mut QueryBudget::default(),
         &CancellationToken::new(),
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(actual) = specialized else {
         panic!("specialized tuple must reduce: {specialized:?}");
@@ -1379,8 +1371,7 @@ fn partially_known_record_preserves_canonical_keys_and_specializes() {
             &mut values,
             &mut QueryBudget::default(),
             &CancellationToken::new(),
-            Arc::make_mut(&mut types),
-            &mut residuals,
+            (Arc::make_mut(&mut types), &mut residuals),
         ),
         StaticEvalOutcome::Symbolic(record),
         "no-new-facts specialization must preserve the Record's canonical identity"
@@ -1412,8 +1403,7 @@ fn partially_known_record_preserves_canonical_keys_and_specializes() {
         &mut values,
         &mut QueryBudget::default(),
         &CancellationToken::new(),
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(actual) = specialized else {
         panic!("specialized Record must reduce: {specialized:?}");
@@ -1474,8 +1464,7 @@ fn partially_known_variant_preserves_constructor_and_specializes() {
             &mut values,
             &mut QueryBudget::default(),
             &CancellationToken::new(),
-            Arc::make_mut(&mut types),
-            &mut residuals,
+            (Arc::make_mut(&mut types), &mut residuals),
         ),
         StaticEvalOutcome::Symbolic(variant),
         "no-new-facts specialization must retain canonical Variant identity"
@@ -1507,8 +1496,7 @@ fn partially_known_variant_preserves_constructor_and_specializes() {
         &mut values,
         &mut QueryBudget::default(),
         &CancellationToken::new(),
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(actual) = specialized else {
         panic!("specialized Variant must reduce: {specialized:?}");
@@ -1571,8 +1559,7 @@ fn partially_known_data_preserves_components_and_specializes() {
             &mut values,
             &mut QueryBudget::default(),
             &CancellationToken::new(),
-            Arc::make_mut(&mut types),
-            &mut residuals,
+            (Arc::make_mut(&mut types), &mut residuals),
         ),
         StaticEvalOutcome::Symbolic(data),
         "no-new-facts specialization must retain canonical Data identity"
@@ -1603,8 +1590,7 @@ fn partially_known_data_preserves_components_and_specializes() {
         &mut values,
         &mut QueryBudget::default(),
         &CancellationToken::new(),
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(actual) = specialized else {
         panic!("specialized Data must reduce: {specialized:?}");
@@ -1683,8 +1669,7 @@ fn partially_known_pack_preserves_ordered_lanes_and_specializes() {
             &mut values,
             &mut QueryBudget::default(),
             &CancellationToken::new(),
-            Arc::make_mut(&mut types),
-            &mut residuals,
+            (Arc::make_mut(&mut types), &mut residuals),
         ),
         StaticEvalOutcome::Symbolic(pack),
         "no-new-facts specialization must preserve the Pack's canonical identity"
@@ -1699,8 +1684,7 @@ fn partially_known_pack_preserves_ordered_lanes_and_specializes() {
         &mut values,
         &mut QueryBudget::default(),
         &CancellationToken::new(),
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(actual) = specialized else {
         panic!("specialized Pack must reduce: {specialized:?}");
@@ -1790,8 +1774,7 @@ fn checked_pack_construction_preserves_both_lanes_from_source() {
             &mut values,
             &mut QueryBudget::default(),
             &CancellationToken::new(),
-            Arc::make_mut(&mut types),
-            &mut residuals,
+            (Arc::make_mut(&mut types), &mut residuals),
         ),
         StaticEvalOutcome::Symbolic(pack),
         "the checked source Pack must retain its identity without new facts"
@@ -1823,8 +1806,7 @@ fn checked_pack_construction_preserves_both_lanes_from_source() {
         &mut values,
         &mut QueryBudget::default(),
         &CancellationToken::new(),
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(actual) = specialized else {
         panic!("specialized Pack must reduce: {specialized:?}");
@@ -1992,8 +1974,7 @@ fn source_pack_spread_uses_checked_constructor_lanes() {
         &mut values,
         &mut QueryBudget::default(),
         &CancellationToken::new(),
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(actual) = specialized else {
         panic!("specialized CombinedPack must reduce: {specialized:?}");
@@ -2182,8 +2163,7 @@ fn iterative_source_pack_count_specializes_open_value_to_cold_result() {
         &mut values,
         &mut QueryBudget::default(),
         &CancellationToken::new(),
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(actual) = specialized else {
         panic!("specialized Pack counter must reduce: {specialized:?}");
@@ -2235,8 +2215,7 @@ fn direct_residual_escape_and_parity() {
         &mut values,
         &mut budget,
         &cancellation,
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(val_true) = spec_true else {
         panic!("specializing with T = Int should reduce, got {spec_true:?}");
@@ -2261,8 +2240,7 @@ fn direct_residual_escape_and_parity() {
         &mut values,
         &mut budget,
         &cancellation,
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(val_false) = spec_false else {
         panic!("specializing with T = String should reduce, got {spec_false:?}");
@@ -2290,8 +2268,7 @@ fn direct_residual_escape_and_parity() {
         &mut values,
         &mut budget,
         &cancellation,
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     assert_eq!(
         no_facts,
@@ -2389,8 +2366,7 @@ fn direct_residual_escape_and_parity() {
         &mut values,
         &mut budget,
         &cancellation,
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(spec_member_val) = spec_member else {
         panic!("specializing escaped member projection must reduce, got {spec_member:?}");
@@ -2410,8 +2386,7 @@ fn direct_residual_escape_and_parity() {
         &mut values,
         &mut budget,
         &cancellation,
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     assert_eq!(spec_again, StaticEvalOutcome::Reduced(spec_member_val), "specialization must be idempotent");
 
@@ -2458,8 +2433,7 @@ fn direct_residual_escape_and_parity() {
         &mut values,
         &mut budget,
         &cancellation,
-        Arc::make_mut(&mut types),
-        &mut residuals,
+        (Arc::make_mut(&mut types), &mut residuals),
     );
     let StaticEvalOutcome::Reduced(spec_apply_val) = spec_apply else {
         panic!("specializing Apply residual with concrete value must reduce, got {spec_apply:?}");
