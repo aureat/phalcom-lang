@@ -1825,7 +1825,10 @@ fn checked_pack_construction_preserves_both_lanes_from_source() {
 
     let mut fresh_residuals = StaticResidualStore::new();
     let fresh_unknown = fresh_residuals.parameter(formal, &mut QueryBudget::default()).unwrap();
-    let mut exhausted = QueryBudget { max_residual_nodes: 0, ..Default::default() };
+    let mut exhausted = QueryBudget {
+        max_residual_nodes: 0,
+        ..Default::default()
+    };
     let stopped = StaticEvaluator::new(
         body,
         &mut values,
