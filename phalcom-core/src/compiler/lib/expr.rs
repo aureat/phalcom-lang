@@ -498,7 +498,7 @@ impl<'vm> Compiler<'vm> {
             unreachable!("real embedding was handled above")
         };
 
-        match (coefficient, &source) {
+        match (coefficient.as_ref(), &source) {
             (RealizationCoefficientSource::One { .. }, Expr::Imaginary { .. })
             | (RealizationCoefficientSource::IntegerLiteral { .. } | RealizationCoefficientSource::FloatLiteral { .. }, Expr::Imaginary { .. }) => {
                 if !matches!(coefficient, RealizationCoefficientSource::One { .. }) {
