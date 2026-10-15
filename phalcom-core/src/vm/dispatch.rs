@@ -1728,8 +1728,7 @@ impl VM {
             arity,
             layout.clone(),
             source_range,
-            type_environment,
-            call_environment,
+            (type_environment, call_environment),
         )? {
             return Ok(());
         }
