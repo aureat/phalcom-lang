@@ -951,9 +951,12 @@ impl<'a> StaticEvaluator<'a> {
                     CanonicalStaticProofFact::Equal(left, right) => {
                         let left = self.resolve_type_term(*left, &types);
                         let right = self.resolve_type_term(*right, &types);
-                        if self.is_open_type_term(left, &types) || self.is_open_type_term(right, &types) {
-                            retained.push(fact.clone());
-                        } else if self.prove_closed_equivalence(left, right, &mut types)? {
+                        // Open equalities are retained symbolically. Closed equalities
+                        // must still be proved before joining the trusted context.
+                        if self.is_open_type_term(left, &types)
+                            || self.is_open_type_term(right, &types)
+                            || self.prove_closed_equivalence(left, right, &mut types)?
+                        {
                             retained.push(fact.clone());
                         }
                     }
