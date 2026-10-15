@@ -38,13 +38,10 @@ impl SemanticPublicationHandle {
             return false;
         };
         let canonical = phalcom_modules::source::canonicalize_path(path);
-        let module = snapshot
-            .module_for_display_path(&canonical)
-            .cloned()
-            .or_else(|| {
-                let source = phalcom_modules::SourceId(canonical.to_string_lossy().into());
-                snapshot.module_for_source(&source).cloned()
-            });
+        let module = snapshot.module_for_display_path(&canonical).cloned().or_else(|| {
+            let source = phalcom_modules::SourceId(canonical.to_string_lossy().into());
+            snapshot.module_for_source(&source).cloned()
+        });
         let Some(module) = module else {
             return false;
         };
