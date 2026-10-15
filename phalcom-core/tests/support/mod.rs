@@ -263,7 +263,7 @@ fn run_corpus_case(path: &Path, compilation_session: &mut ProgramCompilationSess
         Ok(()) => CorpusOutcome::Success,
         Err(PhError::Compile(error)) => CorpusOutcome::BytecodeCompileFailure(error),
         Err(PhError::Parse(error)) => CorpusOutcome::BytecodeParseFailure(error),
-        Err(PhError::ProgramCompile(error)) => CorpusOutcome::ProgramCompileFailure(error),
+        Err(PhError::ProgramCompile(error)) => CorpusOutcome::ProgramCompileFailure(*error),
         Err(PhError::Io(error)) => CorpusOutcome::IoFailure(error),
         Err(error) => CorpusOutcome::RuntimeFailure(error),
     };
