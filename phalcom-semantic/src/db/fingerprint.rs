@@ -1897,28 +1897,10 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         hash_causal_invalidity(expression.causal_invalidity, &mut hasher);
         expression.binding_read_safety.hash(&mut hasher);
         expression.binding_read.hash(&mut hasher);
+        expression.binding_write.hash(&mut hasher);
     }
 
-    let expansion_field_count = analysis
-        .associated_resolutions
-        .values()
-        .filter(|resolution| {
-            matches!(
-                &resolution.kind,
-                crate::checker::associated::AssociatedResolutionKind::DataExpansionField { .. }
-            )
-        })
-        .count();
-    expansion_field_count.hash(&mut hasher);
-    for (expression_id, resolution) in analysis.associated_resolutions.iter() {
-        if let crate::checker::associated::AssociatedResolutionKind::DataExpansionField { logical_index, value_type } = &resolution.kind {
-            expression_id.hash(&mut hasher);
-            resolution.owner_form.hash(&mut hasher);
-            resolution.lookup_owner.hash(&mut hasher);
-            logical_index.hash(&mut hasher);
-            value_type.hash(&mut hasher);
-        }
-    }
+    hash_associated_resolutions(&analysis.associated_resolutions, &mut hasher);
 
     analysis.bindings.len().hash(&mut hasher);
     for (binding_id, binding) in &analysis.bindings {
@@ -1951,22 +1933,8 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     hash_positional_expansions(&analysis.positional_expansions, &mut hasher);
     hash_known_invalid_positional_expansions(&analysis.known_invalid_positional_expansions, &mut hasher);
     hash_sequence_literals(&analysis.sequence_literals, &mut hasher);
-    analysis.callable_reference_resolutions.len().hash(&mut hasher);
-    for (expression, resolution) in analysis.callable_reference_resolutions.iter() {
-        expression.hash(&mut hasher);
-        match &resolution.kind {
-            crate::checker::associated::CallableReferenceResolutionKind::BoundFamily { members, .. } => {
-                0u8.hash(&mut hasher);
-                members.len().hash(&mut hasher);
-                for member in members.iter() {
-                    member.operation.hash(&mut hasher);
-                    member.target.hash(&mut hasher);
-                    hash_conditional_selected_call_capability(member.conditional_capability.as_ref(), &mut hasher);
-                }
-            }
-            crate::checker::associated::CallableReferenceResolutionKind::Associated(_) => 1u8.hash(&mut hasher),
-        }
-    }
+    hash_callable_reference_resolutions(&analysis.callable_reference_resolutions, &mut hasher);
+    hash_family_application_resolutions(&analysis.family_applications, &mut hasher);
     hash_flow_graph_semantics(&analysis.flow_graph, &mut hasher);
     hash_flow_summary(&analysis.entry_flow, &mut hasher);
     hash_exit_facts(&analysis.exits, &mut hasher);
@@ -1985,10 +1953,173 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     finish_product(hasher)
 }
 
-fn hash_call_specialization(
-    specialization: Option<&crate::checker::analysis::CallSpecialization>,
-    hasher: &mut impl Hasher,
-) {
+fn hash_associated_resolutions(resolutions: &crate::checker::associated::AssociatedResolutionIndex, hasher: &mut impl Hasher) {
+    resolutions.len().hash(hasher);
+    for (expression, resolution) in resolutions.iter() {
+        expression.hash(hasher);
+        hash_associated_resolution(resolution, hasher);
+    }
+}
+
+fn hash_associated_resolution(resolution: &crate::checker::associated::AssociatedResolution, hasher: &mut impl Hasher) {
+    use crate::checker::associated::AssociatedResolutionKind;
+
+    resolution.owner_form.hash(hasher);
+    resolution.lookup_owner.hash(hasher);
+    resolution.family.hash(hasher);
+    match &resolution.kind {
+        AssociatedResolutionKind::ExactValue { member, value_type } => {
+            0u8.hash(hasher);
+            member.hash(hasher);
+            value_type.hash(hasher);
+        }
+        AssociatedResolutionKind::DataExpansionField { logical_index, value_type } => {
+            1u8.hash(hasher);
+            logical_index.hash(hasher);
+            value_type.hash(hasher);
+        }
+        AssociatedResolutionKind::ExactCallable { member, target, callable_type } => {
+            2u8.hash(hasher);
+            member.hash(hasher);
+            target.hash(hasher);
+            callable_type.hash(hasher);
+        }
+        AssociatedResolutionKind::Family { family_type, members } => {
+            3u8.hash(hasher);
+            family_type.hash(hasher);
+            members.len().hash(hasher);
+            for member in members.iter() {
+                hash_specialized_associated_member(member, hasher);
+            }
+        }
+        AssociatedResolutionKind::StaticInvoke {
+            member,
+            target,
+            result_type,
+            argument_mapping,
+        } => {
+            4u8.hash(hasher);
+            member.hash(hasher);
+            target.hash(hasher);
+            result_type.hash(hasher);
+            argument_mapping.hash(hasher);
+        }
+        AssociatedResolutionKind::StaticDomain { member, domain } => {
+            5u8.hash(hasher);
+            member.hash(hasher);
+            domain.hash(hasher);
+        }
+        AssociatedResolutionKind::StaticTerm { domain, case, term } => {
+            6u8.hash(hasher);
+            domain.hash(hasher);
+            case.hash(hasher);
+            term.hash(hasher);
+        }
+        AssociatedResolutionKind::DynamicInvoke { candidates, result_type } => {
+            7u8.hash(hasher);
+            candidates.len().hash(hasher);
+            for candidate in candidates.iter() {
+                hash_specialized_associated_member(candidate, hasher);
+            }
+            result_type.hash(hasher);
+        }
+    }
+}
+
+fn hash_specialized_associated_member(member: &crate::checker::associated::SpecializedAssociatedMember, hasher: &mut impl Hasher) {
+    member.member.hash(hasher);
+    member.operation.hash(hasher);
+    member.value_type.hash(hasher);
+    member.target.hash(hasher);
+}
+
+fn hash_family_application_resolutions(resolutions: &crate::checker::associated::FamilyApplicationResolutionIndex, hasher: &mut impl Hasher) {
+    resolutions.len().hash(hasher);
+    for (expression, resolution) in resolutions.iter() {
+        expression.hash(hasher);
+        hash_family_application_resolution(resolution, hasher);
+    }
+}
+
+fn hash_family_application_resolution(resolution: &crate::checker::associated::FamilyApplicationResolution, hasher: &mut impl Hasher) {
+    use crate::checker::associated::FamilyApplicationKind;
+
+    resolution.family_type.hash(hasher);
+    match resolution.kind {
+        FamilyApplicationKind::Associated => 0u8.hash(hasher),
+        FamilyApplicationKind::Behavioral => 1u8.hash(hasher),
+    }
+    hash_family_application_selection(&resolution.selection, hasher);
+}
+
+fn hash_family_application_selection(selection: &crate::checker::associated::FamilyApplicationSelection, hasher: &mut impl Hasher) {
+    use crate::checker::associated::FamilyApplicationSelection;
+
+    match selection {
+        FamilyApplicationSelection::Static {
+            operation,
+            target,
+            callable_type,
+            result_type,
+        } => {
+            0u8.hash(hasher);
+            operation.hash(hasher);
+            target.hash(hasher);
+            callable_type.hash(hasher);
+            result_type.hash(hasher);
+        }
+        FamilyApplicationSelection::Dynamic { candidates, result_type } => {
+            1u8.hash(hasher);
+            candidates.len().hash(hasher);
+            for candidate in candidates.iter() {
+                candidate.operation.hash(hasher);
+                candidate.target.hash(hasher);
+                candidate.callable_type.hash(hasher);
+            }
+            result_type.hash(hasher);
+        }
+    }
+}
+
+fn hash_callable_reference_resolutions(resolutions: &crate::checker::associated::CallableReferenceResolutionIndex, hasher: &mut impl Hasher) {
+    resolutions.len().hash(hasher);
+    for (expression, resolution) in resolutions.iter() {
+        expression.hash(hasher);
+        hash_callable_reference_resolution(resolution, hasher);
+    }
+}
+
+fn hash_callable_reference_resolution(resolution: &crate::checker::associated::CallableReferenceResolution, hasher: &mut impl Hasher) {
+    use crate::checker::associated::CallableReferenceResolutionKind;
+
+    match &resolution.kind {
+        CallableReferenceResolutionKind::BoundFamily { family_type, spec, members } => {
+            0u8.hash(hasher);
+            family_type.hash(hasher);
+            spec.hash(hasher);
+            members.len().hash(hasher);
+            for member in members.iter() {
+                hash_bound_behavioral_member(member, hasher);
+            }
+        }
+        CallableReferenceResolutionKind::Associated(associated) => {
+            1u8.hash(hasher);
+            hash_associated_resolution(associated, hasher);
+        }
+    }
+}
+
+fn hash_bound_behavioral_member(member: &crate::checker::associated::BoundBehavioralMember, hasher: &mut impl Hasher) {
+    member.operation.hash(hasher);
+    member.member_kind.hash(hasher);
+    member.target.hash(hasher);
+    member.callable_type.hash(hasher);
+    member.conditional.hash(hasher);
+    hash_conditional_selected_call_capability(member.conditional_capability.as_ref(), hasher);
+    hash_optional_trait_dispatch_selection(member.trait_dispatch.as_ref(), hasher);
+}
+
+fn hash_call_specialization(specialization: Option<&crate::checker::analysis::CallSpecialization>, hasher: &mut impl Hasher) {
     let Some(specialization) = specialization else {
         0u8.hash(hasher);
         return;
@@ -2035,23 +2166,37 @@ fn hash_trait_dispatch_site(site: Option<&crate::trait_dispatch::TraitDispatchSi
         }
         Some(crate::trait_dispatch::TraitDispatchSite::Evidenced(selection)) => {
             2u8.hash(hasher);
-            selection.source_impl.hash(hasher);
-            selection.exact_target.hash(hasher);
-            selection.exact_trait_ref.hash(hasher);
-            selection.requirement.hash(hasher);
-            selection.evidence_fingerprint.raw().hash(hasher);
-            hash_requirement_selection(&selection.selection, hasher);
-            selection.requirement_targets.len().hash(hasher);
-            for (requirement, target) in &selection.requirement_targets {
-                requirement.hash(hasher);
-                hash_requirement_selection(target, hasher);
-            }
+            hash_trait_dispatch_selection(selection, hasher);
         }
         Some(crate::trait_dispatch::TraitDispatchSite::Assumed(selection)) => {
             3u8.hash(hasher);
             selection.conformance.hash(hasher);
             selection.requirement.hash(hasher);
         }
+    }
+}
+
+fn hash_optional_trait_dispatch_selection(selection: Option<&crate::trait_dispatch::TraitDispatchSelection>, hasher: &mut impl Hasher) {
+    match selection {
+        None => 0u8.hash(hasher),
+        Some(selection) => {
+            1u8.hash(hasher);
+            hash_trait_dispatch_selection(selection, hasher);
+        }
+    }
+}
+
+fn hash_trait_dispatch_selection(selection: &crate::trait_dispatch::TraitDispatchSelection, hasher: &mut impl Hasher) {
+    selection.source_impl.hash(hasher);
+    selection.exact_target.hash(hasher);
+    selection.exact_trait_ref.hash(hasher);
+    selection.requirement.hash(hasher);
+    selection.evidence_fingerprint.raw().hash(hasher);
+    hash_requirement_selection(&selection.selection, hasher);
+    selection.requirement_targets.len().hash(hasher);
+    for (requirement, target) in &selection.requirement_targets {
+        requirement.hash(hasher);
+        hash_requirement_selection(target, hasher);
     }
 }
 
@@ -3199,7 +3344,7 @@ mod tests {
     #[test]
     fn source_and_frozen_flow_graphs_have_equal_semantic_fingerprints() {
         use crate::checker::flow::graph::{FlowEdgeKind, FlowNodeKind};
-        use crate::identity::{FlowNodeId, FlowEdgeId};
+        use crate::identity::{FlowEdgeId, FlowNodeId};
         use phalcom_compiler_artifact::semantic::world::{
             CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1, CallableFlowNodeV1,
         };

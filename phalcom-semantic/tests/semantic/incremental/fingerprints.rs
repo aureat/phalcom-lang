@@ -1,14 +1,19 @@
 use phalcom_ast::parse;
 use phalcom_common::modifier::ImplementationKind;
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::Selector;
+use phalcom_common::selector::{Selector, SelectorBase};
 use phalcom_modules::{
     InterfaceBuilder, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId, UnlinkedModuleInterface,
 };
 use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
+use phalcom_semantic::AssociatedMemberId;
 use phalcom_semantic::checker::BindingConsistency;
 use phalcom_semantic::checker::analysis::{
     AnalysisStatus, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowBindingSummary, FlowStateSummary,
+};
+use phalcom_semantic::checker::associated::{
+    AssociatedResolution, AssociatedResolutionKind, BehavioralFamilySpec, BoundBehavioralMember, CallableReferenceResolution, CallableReferenceResolutionKind,
+    FamilyApplicationCandidate, FamilyApplicationKind, FamilyApplicationResolution, FamilyApplicationSelection,
 };
 use phalcom_semantic::checker::flow::graph::{FlowGraph, FlowNodeKind};
 use phalcom_semantic::checker::incident::{InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
@@ -24,12 +29,16 @@ use phalcom_semantic::declarations::{DeclarationTypeInfo, GenericSupertypeTempla
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use phalcom_semantic::dispatch::{CallableSemanticKind, CallableSignature, DispatchSide};
 use phalcom_semantic::explain::{ExplanationArena, ExplanationStep};
-use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DiagnosticCauseId, ExpressionId, InternalSemanticIncidentId, LocalExpressionId};
+use phalcom_semantic::identity::{
+    AssociatedFamilyId, BindingId, BodyId, CallableId, DeclarationId, DiagnosticCauseId, ExpressionId, InternalSemanticIncidentId, InvocationTargetId,
+    LocalExpressionId,
+};
 use phalcom_semantic::signature::CallableSemanticSignature;
 use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::surface::DeclarationSurface;
 use phalcom_semantic::types::denotation::SemanticDenotation;
 use phalcom_semantic::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge};
+use phalcom_semantic::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
 use phalcom_semantic::types::id::{KindId, TypeId, TypeParameterId};
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterOwner, TypeTerm};
 use std::collections::BTreeMap;
@@ -140,6 +149,89 @@ fn callable_analysis() -> CallableAnalysis {
         dependency_fingerprint: ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     }
+}
+
+fn fingerprint_test_expression() -> ExpressionId {
+    ExpressionId::new(BodyId(1), LocalExpressionId(1))
+}
+
+fn fingerprint_test_target(name: &str) -> InvocationTargetId {
+    let callable = CallableId::new(declaration(name), Selector::getter("call").expect("selector"), DispatchSide::Instance);
+    InvocationTargetId::Behavioral(callable)
+}
+
+fn fingerprint_test_member() -> AssociatedMemberId {
+    AssociatedMemberId::DataConstructor(phalcom_semantic::identity::DataConstructorId::new(declaration("Member")))
+}
+
+fn fingerprint_test_associated_resolution(kind: AssociatedResolutionKind) -> AssociatedResolution {
+    AssociatedResolution {
+        owner_form: TypeId(1),
+        lookup_owner: declaration("Owner"),
+        family: None,
+        kind,
+    }
+}
+
+fn fingerprint_test_exact_callable(target: InvocationTargetId) -> AssociatedResolution {
+    fingerprint_test_associated_resolution(AssociatedResolutionKind::ExactCallable {
+        member: fingerprint_test_member(),
+        target,
+        callable_type: TypeId(2),
+    })
+}
+
+fn fingerprint_test_static_family_application(target: InvocationTargetId) -> FamilyApplicationResolution {
+    FamilyApplicationResolution {
+        family_type: TypeId(1),
+        kind: FamilyApplicationKind::Associated,
+        selection: FamilyApplicationSelection::Static {
+            operation: FamilyOperationShape::getter(),
+            target: Some(target),
+            callable_type: TypeId(2),
+            result_type: TypeId(3),
+        },
+    }
+}
+
+fn fingerprint_test_dynamic_family_application(target: InvocationTargetId) -> FamilyApplicationResolution {
+    FamilyApplicationResolution {
+        family_type: TypeId(1),
+        kind: FamilyApplicationKind::Associated,
+        selection: FamilyApplicationSelection::Dynamic {
+            candidates: vec![FamilyApplicationCandidate {
+                operation: FamilyOperationShape::getter(),
+                target: Some(target),
+                callable_type: TypeId(2),
+            }]
+            .into_boxed_slice(),
+            result_type: Some(TypeId(3)),
+        },
+    }
+}
+
+fn fingerprint_test_bound_family(family_type: TypeId, spec: BehavioralFamilySpec, callable_type: TypeId) -> CallableAnalysis {
+    let mut analysis = callable_analysis();
+    let member = BoundBehavioralMember {
+        operation: FamilyOperationShape::getter(),
+        member_kind: FamilyMemberTypeKind::Callable,
+        target: fingerprint_test_target("BoundMember"),
+        callable_type,
+        conditional: None,
+        conditional_capability: None,
+        trait_dispatch: None,
+    };
+    Arc::make_mut(&mut analysis.callable_reference_resolutions).insert(
+        fingerprint_test_expression(),
+        CallableReferenceResolution {
+            kind: CallableReferenceResolutionKind::BoundFamily {
+                family_type,
+                spec,
+                members: vec![member].into_boxed_slice(),
+            },
+        },
+    );
+    analysis
 }
 
 #[test]
@@ -614,6 +706,221 @@ fn callable_body_product_includes_resolved_callable_identity() {
     let mut right = left.clone();
     right.expressions.get_mut(&expression_id).expect("expression").callable = Some(semantic_signature().callable);
     assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_binding_write_target() {
+    let expression_id = fingerprint_test_expression();
+    let mut left = callable_analysis();
+    left.expressions.insert(
+        expression_id,
+        ExpressionAnalysis::ready(
+            expression_id,
+            SourceRange::default(),
+            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+        ),
+    );
+    left.expressions.get_mut(&expression_id).expect("expression").binding_write = Some(BindingId(1));
+
+    let mut right = left.clone();
+    right.expressions.get_mut(&expression_id).expect("expression").binding_write = Some(BindingId(2));
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_family_application_target() {
+    let expression_id = fingerprint_test_expression();
+    let mut left = callable_analysis();
+    Arc::make_mut(&mut left.family_applications).insert(expression_id, fingerprint_test_static_family_application(fingerprint_test_target("TargetA")));
+
+    let mut right = left.clone();
+    let application = Arc::make_mut(&mut right.family_applications)
+        .get_mut(&expression_id)
+        .expect("family application");
+    let FamilyApplicationSelection::Static { target, .. } = &mut application.selection else {
+        panic!("fixture is static");
+    };
+    *target = Some(fingerprint_test_target("TargetB"));
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_family_application_kind() {
+    let expression_id = fingerprint_test_expression();
+    let mut left = callable_analysis();
+    Arc::make_mut(&mut left.family_applications).insert(expression_id, fingerprint_test_static_family_application(fingerprint_test_target("Target")));
+
+    let mut right = left.clone();
+    Arc::make_mut(&mut right.family_applications)
+        .get_mut(&expression_id)
+        .expect("family application")
+        .kind = FamilyApplicationKind::Behavioral;
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_dynamic_family_application_candidate() {
+    let expression_id = fingerprint_test_expression();
+    let mut left = callable_analysis();
+    Arc::make_mut(&mut left.family_applications).insert(expression_id, fingerprint_test_dynamic_family_application(fingerprint_test_target("TargetA")));
+
+    let mut right = left.clone();
+    let application = Arc::make_mut(&mut right.family_applications)
+        .get_mut(&expression_id)
+        .expect("family application");
+    let FamilyApplicationSelection::Dynamic { candidates, .. } = &mut application.selection else {
+        panic!("fixture is dynamic");
+    };
+    candidates[0].target = Some(fingerprint_test_target("TargetB"));
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_associated_resolution_variant() {
+    let expression_id = fingerprint_test_expression();
+    let mut left = callable_analysis();
+    Arc::make_mut(&mut left.associated_resolutions).insert(
+        expression_id,
+        fingerprint_test_associated_resolution(AssociatedResolutionKind::ExactValue {
+            member: fingerprint_test_member(),
+            value_type: TypeId(2),
+        }),
+    );
+
+    let mut right = left.clone();
+    Arc::make_mut(&mut right.associated_resolutions).insert(expression_id, fingerprint_test_exact_callable(fingerprint_test_target("Target")));
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_associated_resolution_payload() {
+    let expression_id = fingerprint_test_expression();
+    let mut left = callable_analysis();
+    Arc::make_mut(&mut left.associated_resolutions).insert(expression_id, fingerprint_test_exact_callable(fingerprint_test_target("TargetA")));
+
+    let mut right = left.clone();
+    let resolution = Arc::make_mut(&mut right.associated_resolutions)
+        .get_mut(&expression_id)
+        .expect("associated resolution");
+    let AssociatedResolutionKind::ExactCallable { target, .. } = &mut resolution.kind else {
+        panic!("fixture is an exact callable");
+    };
+    *target = fingerprint_test_target("TargetB");
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_associated_resolution_family_owner() {
+    let expression_id = fingerprint_test_expression();
+    let mut left = callable_analysis();
+    Arc::make_mut(&mut left.associated_resolutions).insert(
+        expression_id,
+        fingerprint_test_associated_resolution(AssociatedResolutionKind::ExactValue {
+            member: fingerprint_test_member(),
+            value_type: TypeId(2),
+        }),
+    );
+
+    let mut right = left.clone();
+    Arc::make_mut(&mut right.associated_resolutions)
+        .get_mut(&expression_id)
+        .expect("associated resolution")
+        .family = Some(AssociatedFamilyId::new(declaration("Owner"), SelectorBase::Named("members".into())));
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_bound_family_type() {
+    let spec = BehavioralFamilySpec::Exact(Selector::getter("value").expect("selector"));
+    let left = fingerprint_test_bound_family(TypeId(1), spec.clone(), TypeId(3));
+    let right = fingerprint_test_bound_family(TypeId(2), spec, TypeId(3));
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_bound_family_selector() {
+    let left = fingerprint_test_bound_family(TypeId(1), BehavioralFamilySpec::Exact(Selector::getter("value").expect("selector")), TypeId(3));
+    let right = fingerprint_test_bound_family(TypeId(1), BehavioralFamilySpec::Exact(Selector::getter("other").expect("selector")), TypeId(3));
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_bound_family_member_type() {
+    let spec = BehavioralFamilySpec::Exact(Selector::getter("value").expect("selector"));
+    let left = fingerprint_test_bound_family(TypeId(1), spec.clone(), TypeId(3));
+    let right = fingerprint_test_bound_family(TypeId(1), spec, TypeId(4));
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_nested_associated_resolution() {
+    let expression_id = fingerprint_test_expression();
+    let mut left = callable_analysis();
+    Arc::make_mut(&mut left.callable_reference_resolutions).insert(
+        expression_id,
+        CallableReferenceResolution {
+            kind: CallableReferenceResolutionKind::Associated(Box::new(fingerprint_test_exact_callable(fingerprint_test_target("TargetA")))),
+        },
+    );
+
+    let mut right = left.clone();
+    let resolution = Arc::make_mut(&mut right.callable_reference_resolutions)
+        .get_mut(&expression_id)
+        .expect("callable reference");
+    let CallableReferenceResolutionKind::Associated(associated) = &mut resolution.kind else {
+        panic!("fixture is associated");
+    };
+    let AssociatedResolutionKind::ExactCallable { target, .. } = &mut associated.kind else {
+        panic!("nested fixture is an exact callable");
+    };
+    *target = fingerprint_test_target("TargetB");
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_uses_associated_resolution_hash_for_both_owners() {
+    let expression_id = fingerprint_test_expression();
+    let left_resolution = fingerprint_test_exact_callable(fingerprint_test_target("TargetA"));
+    let right_resolution = fingerprint_test_exact_callable(fingerprint_test_target("TargetB"));
+
+    let mut top_level_left = callable_analysis();
+    Arc::make_mut(&mut top_level_left.associated_resolutions).insert(expression_id, left_resolution.clone());
+    let mut top_level_right = callable_analysis();
+    Arc::make_mut(&mut top_level_right.associated_resolutions).insert(expression_id, right_resolution.clone());
+    assert_ne!(
+        callable_body_product_fingerprint(&top_level_left),
+        callable_body_product_fingerprint(&top_level_right)
+    );
+
+    let mut nested_left = callable_analysis();
+    Arc::make_mut(&mut nested_left.callable_reference_resolutions).insert(
+        expression_id,
+        CallableReferenceResolution {
+            kind: CallableReferenceResolutionKind::Associated(Box::new(left_resolution)),
+        },
+    );
+    let mut nested_right = callable_analysis();
+    Arc::make_mut(&mut nested_right.callable_reference_resolutions).insert(
+        expression_id,
+        CallableReferenceResolution {
+            kind: CallableReferenceResolutionKind::Associated(Box::new(right_resolution)),
+        },
+    );
+    assert_ne!(
+        callable_body_product_fingerprint(&nested_left),
+        callable_body_product_fingerprint(&nested_right)
+    );
 }
 
 #[test]
