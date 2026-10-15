@@ -480,7 +480,7 @@ pub enum ContextualRealizationOperationLowering {
         coefficient: phalcom_semantic::checker::analysis::RealizationCoefficientSource,
         evaluation: phalcom_semantic::checker::analysis::RealizationEvaluationPlan,
         coefficient_receiver: Option<ContextualClassReceiver>,
-        coefficient_one: Option<ForIterationRequirementSpec>,
+        coefficient_one: Option<Box<ForIterationRequirementSpec>>,
     },
     RealEmbedding {
         value: ExpressionId,
@@ -3358,7 +3358,7 @@ fn project_contextual_realization(
                 coefficient: coefficient.clone(),
                 evaluation: evaluation.clone(),
                 coefficient_receiver,
-                coefficient_one,
+                coefficient_one: coefficient_one.map(Box::new),
             }
         }
         ContextualRealizationOperation::RealEmbedding { value, scalar_type } => ContextualRealizationOperationLowering::RealEmbedding {
