@@ -6739,8 +6739,7 @@ impl SemanticWorkspaceSession {
                                     // signature from that source and its checked prerequisites;
                                     // never synthesize a signature from the body or reuse an
                                     // unchecked last-known-good projection.
-                                    let record_key_projections =
-                                        inherent_callable_record_key_projections.get(&(impl_id.clone(), member_index));
+                                    let record_key_projections = inherent_callable_record_key_projections.get(&(impl_id.clone(), member_index));
                                     let signature = match query_callable_signature_with_inputs(
                                         &mut self.db,
                                         callable_id.clone(),
