@@ -9,7 +9,7 @@ System.print(rng.nextFloat < 1.0)
 System.print(rng.nextInt(below: 1))
 System.print(rng.nextInt(below: 10) >= 0)
 System.print(rng.bytes(3).size)
-let values = [1, 2, 3, 4]
+let values: List<Int> = [1, 2, 3, 4]
 rng.shuffle(values)
 System.print(values.size)
 System.print(rng.choose(values).isSome)
@@ -100,7 +100,7 @@ Check.ok(zero.count == 0)
 Check.argument(|| { zero.nextInt(below: 0) })
 Check.argument(|| { zero.nextInt(below: -1) })
 Check.argument(|| { zero.nextInt(from: 2, below: 2) })
-let bounds = [2, 3, 7, 8, 9, (1 << 32) - 1, 1 << 32, (1 << 32) + 1, (1 << 64) - 1, 1 << 64, (1 << 64) + 1, 10 ** 100, 10 ** 1000]
+let bounds: List<Int> = [2, 3, 7, 8, 9, (1 << 32) - 1, 1 << 32, (1 << 32) + 1, (1 << 64) - 1, 1 << 64, (1 << 64) + 1, 10 ** 100, 10 ** 1000]
 let mut index = 0
 while index < bounds.size {
   let bound = bounds.at(index)
@@ -117,7 +117,7 @@ let twoWords = Sequence.new([0xffffffffffffffff, 17])
 Check.ok(twoWords.nextInt(below: 1 << 65) == (1 << 64) + 17)
 Check.ok(twoWords.count == 2)
 
-let counts = [0, 1, 7, 8, 9, 15, 16, 17]
+let counts: List<Int> = [0, 1, 7, 8, 9, 15, 16, 17]
 index = 0
 while index < counts.size {
   let generator = Sequence.new([0x0123456789abcdef])
@@ -152,10 +152,10 @@ let users = List<User>.new()
 users.append(user)
 let picked: Option<User> = zero.choose(users)
 Check.ok(picked.unwrapOr(User.new()) === user)
-let cards = [0, 1, 2, 3, 4]
+let cards: List<Int> = [0, 1, 2, 3, 4]
 Xoshiro256PlusPlus.seed(42).shuffle(cards)
 Check.ok(cards.at(0) == 2 and cards.at(1) == 4 and cards.at(2) == 3 and cards.at(3) == 0 and cards.at(4) == 1)
-let duplicates = [1, 1, 2, 2, 2]
+let duplicates: List<Int> = [1, 1, 2, 2, 2]
 zero.shuffle(duplicates)
 Check.ok(duplicates.size == 5)
 let mut sum = 0
