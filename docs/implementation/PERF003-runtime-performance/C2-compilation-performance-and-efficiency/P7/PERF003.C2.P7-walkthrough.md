@@ -1,5 +1,46 @@
 # PERF003.C2.P7 walkthrough and corrections
 
+## Owner, type-root, and allocation continuation — 2026-10-15
+
+**P7 status remains IN_PROGRESS / PARTIAL / UNVERIFIED; P8 remains blocked.**
+The user resolved the checked-static-application owner question in favor of
+`CheckedStaticBody`. The implementation retains no duplicate rows in
+`CallableAnalysis`; root registration verifies the row's body identity and
+registers its signature domains, generic parameters, and kinded argument types
+after the operational-template root ordinals. The existing denotation and
+callable-analysis fail-closed guards remain.
+
+The current root slice adds match/pattern, trait-dispatch, contextual
+realization, explanation, diagnostic-guidance, semantic-dependency, and
+generic-evidence roots to the previously covered expression/binding/flow,
+sequence/expansion, resolution, and iteration products. Hash-backed
+substitutions and environments use `TypeParameterId` order. Exact, assumed,
+derived, and compiler-derived generic evidence are directly covered.
+
+The pinned nightly has no fallible `Arc<[T]>` slice constructor. Imported enum
+requirements now use already-budgeted vectors behind fallible `Arc<Vec<T>>`
+owners and the same slice read interface as source-built `Arc<[T]>` rows. This
+keeps each loaded row allocation budget-visible; it does not establish full
+semantic import allocation equality.
+
+Focused evidence already acquired in this continuation:
+
+- `callable_analysis` library filter: 19 passed.
+- checked-static-application root/owner discriminator: 1 passed.
+- enum requirement source-order/status round-trip with exact-fit and N-1
+  allocation checks: 1 passed.
+- targeted formatting and `git diff --check`: passed before this documentation
+  update; final documentation hygiene is still pending.
+
+The owner choice is settled, but source-free transport is not. Native checked
+rows contain snapshot-local expression IDs/ranges; the current operational
+wire contains target and arguments without the checked row reference. A
+bounded architecture comparison favors portable checked rows inside the
+`CheckedStaticBody` owner with explicit operand links, avoiding fabricated
+expression IDs. Keep all fail-closed guards until that row and reference are
+transported and cross-validated. No full artifact build, source-denied
+compilation, determinism gate, or P5/P6 acceptance gate is claimed.
+
 ## Current correction — 2026-10-15
 
 **P7 status: IN_PROGRESS / PARTIAL / UNVERIFIED. P8 takeover is blocked.**

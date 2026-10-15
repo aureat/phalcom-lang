@@ -7,7 +7,7 @@ use crate::data_semantics::{
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::declarations::{DeclarationTypeBinding, DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticSourceSpan;
-use crate::enum_requirements::{CaseRequirementResult, CaseRequirementStatus, EnumRequirement, EnumRequirementId, EnumRequirementTable};
+use crate::enum_requirements::{CaseRequirementResult, CaseRequirementStatus, EnumRequirement, EnumRequirementId, EnumRequirementRows, EnumRequirementTable};
 use crate::enum_semantics::{
     AlgebraicCasePayloadKind, EnumInfo, EnumSemanticTable, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo,
     VariantShape, VariantVisibility,
@@ -1138,11 +1138,11 @@ fn import_enum_requirements(
     store: &TypeStore,
     allocations: &mut AllocationBudget,
 ) -> Result<EnumRequirementTable, ArtifactError> {
-    let mut requirements_by_owner = allocations
-        .sorted_map_builder::<DeclarationId, Arc<[EnumRequirement]>>(records.len())
+    let mut requirement_rows = allocations
+        .vector::<(DeclarationId, EnumRequirementRows<EnumRequirement>)>(records.len())
         .map_err(allocation_error)?;
-    let mut statuses_by_owner = allocations
-        .sorted_map_builder::<DeclarationId, Arc<[CaseRequirementResult]>>(records.len())
+    let mut status_rows = allocations
+        .vector::<(DeclarationId, EnumRequirementRows<CaseRequirementResult>)>(records.len())
         .map_err(allocation_error)?;
     for owner_record in records {
         let owner = from_stable_declaration(&owner_record.owner).map_err(referential)?;
@@ -1262,19 +1262,33 @@ fn import_enum_requirements(
             }
         }
 
-        let requirement_values = allocations.arc_slice_from_vec(requirement_values).map_err(allocation_error)?;
-        let statuses = allocations.arc_slice_from_vec(statuses).map_err(allocation_error)?;
-        requirements_by_owner
-            .push(owner.clone(), requirement_values)
-            .map_err(allocation_error)?;
-        statuses_by_owner.push(owner, statuses).map_err(allocation_error)?;
+        let requirement_values = EnumRequirementRows::from_budgeted(allocations.arc(requirement_values).map_err(allocation_error)?);
+        let statuses = EnumRequirementRows::from_budgeted(allocations.arc(statuses).map_err(allocation_error)?);
+        requirement_rows.push((owner.clone(), requirement_values));
+        status_rows.push((owner, statuses));
     }
-    let requirements = allocations
-        .arc(requirements_by_owner.finish().map_err(|_| referential("duplicate enum requirement owner row"))?)
-        .map_err(allocation_error)?;
-    let case_statuses = allocations
-        .arc(statuses_by_owner.finish().map_err(|_| referential("duplicate enum requirement owner row"))?)
-        .map_err(allocation_error)?;
+
+    let requirements_by_owner = {
+        let mut builder = allocations
+            .sorted_map_builder::<DeclarationId, EnumRequirementRows<EnumRequirement>>(records.len())
+            .map_err(allocation_error)?;
+        for (owner, requirements) in requirement_rows {
+            builder.push(owner, requirements).map_err(allocation_error)?;
+        }
+        builder.finish().map_err(|_| referential("duplicate enum requirement owner row"))?
+    };
+    let requirements = allocations.arc(requirements_by_owner).map_err(allocation_error)?;
+
+    let case_statuses_by_owner = {
+        let mut builder = allocations
+            .sorted_map_builder::<DeclarationId, EnumRequirementRows<CaseRequirementResult>>(records.len())
+            .map_err(allocation_error)?;
+        for (owner, statuses) in status_rows {
+            builder.push(owner, statuses).map_err(allocation_error)?;
+        }
+        builder.finish().map_err(|_| referential("duplicate enum requirement owner row"))?
+    };
+    let case_statuses = allocations.arc(case_statuses_by_owner).map_err(allocation_error)?;
     EnumRequirementTable::from_frozen(requirements, case_statuses, allocations).map_err(allocation_error)
 }
 
@@ -2975,6 +2989,20 @@ mod tests {
         let (restored_store, relocation) = TypeStore::import_type_graph(&type_graph, &ValidationLimits::default()).unwrap();
         let mut allocation_budget = AllocationBudget::new(usize::MAX);
         let restored = import_enum_requirements(&portable, &enum_semantics, &relocation, &restored_store, &mut allocation_budget).unwrap();
+        let required = allocation_budget.requested();
+        assert!(required > 0);
+
+        let mut exact_budget = AllocationBudget::new(required);
+        import_enum_requirements(&portable, &enum_semantics, &relocation, &restored_store, &mut exact_budget).unwrap();
+        assert_eq!(
+            exact_budget.requested(),
+            required,
+            "budgeted vector rows and Arc owners fit at the measured boundary"
+        );
+
+        let mut short_budget = AllocationBudget::new(required - 1);
+        let error = import_enum_requirements(&portable, &enum_semantics, &relocation, &restored_store, &mut short_budget).unwrap_err();
+        assert!(matches!(error, ArtifactError::Allocation(AllocationError::Exhausted)));
 
         let mut restored_types = TypeExportContext::new(&restored_store);
         for requirement in restored.requirements.get(&owner).unwrap().iter() {
@@ -2984,7 +3012,7 @@ mod tests {
         let restored_portable = crate::artifact::export::export_enum_requirements(&restored, &enum_semantics, &restored_types).unwrap();
         assert_eq!(restored_portable, portable, "every owner-held callable signature field survives relocation");
         assert_eq!(restored.case_statuses.get(&owner).unwrap().as_ref(), case_statuses.as_ref());
-        assert!(allocation_budget.requested() > 0);
+        assert_eq!(allocation_budget.requested(), required);
     }
 
     #[test]

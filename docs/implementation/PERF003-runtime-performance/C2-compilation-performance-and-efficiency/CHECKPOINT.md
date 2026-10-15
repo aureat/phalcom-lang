@@ -61,8 +61,12 @@ type/kind/domain graph; context-owned AssociatedValue and BehavioralFamily
 captures travel inline with stable owner/member/target references and relocated
 type refs. Import must preserve the captured selection and never rerun lookup
 or dispatch. StaticApplication remains fail-closed until the producer retains
-the checked row under the actual checked-body owner. This is a Level 2 T7.B
-clarification; P7 acceptance is unchanged.
+the checked row under the actual checked-body owner. The user resolved the
+owner discrepancy in favor of `CheckedStaticBody`; live producer code already
+retains rows there under `StaticBodyId + ordinal`. No duplicate row belongs in
+`CallableAnalysis`. StaticApplication remains fail-closed until its checked-body
+row and operational reference are transported and validated. This is a bounded
+T7.B follow-up; P7 acceptance is unchanged.
 
 The implementation slice now registers every supported denotation graph root,
 round-trips associated exact/family and behavioral-family captures through
@@ -75,26 +79,36 @@ semantic-world tests pass. This does not retain checked application rows in
 `CallableAnalysis` or remove the callable-analysis fail-closed guard.
 
 The latest continuation extends callable-analysis graph-root registration to
-expression and binding knowledge/contracts, entry/exit/throw flow facts,
-sequence and positional-expansion products, associated/callable-reference/
-family resolutions, and for/positional iteration requirements including their
-signatures and generic conformance evidence. The focused
-`cargo test -p phalcom-semantic --lib callable_analysis -- --test-threads=1`
-gate passes 15 tests; targeted rustfmt and `git diff --check` also pass. This
-closes only those TypeExportContext roots: match/pattern, trait-dispatch,
-contextual-realization, explanation, and other callable products still need
-root census, and no callable-analysis wire/materialization path was added. The
-iteration regression covers compiler-derived conformance evidence; exact,
-assumed, and derived evidence root branches still need direct discriminators.
+expression/binding knowledge and contracts, entry/exit/throw flow facts,
+sequence/expansion products, associated/callable-reference/family resolutions,
+match/pattern products, trait dispatch, contextual realization, explanations,
+diagnostic guidance, semantic dependencies, and for/positional iteration
+requirements. Direct roots cover exact, assumed, derived, and compiler-derived
+generic evidence. Checked static-application rows also root their signature
+domains, generic parameters, and kinded arguments under the selected
+`StaticBodyId` owner. The focused callable-analysis root filter passes 19
+tests, and the checked-body owner root test passes 1/1. No callable-analysis
+wire/materialization path was added.
 
-StaticApplication transport remains fail-closed. A live-source review found a
-VERIFY-FIRST discrepancy in the adopted owner wording: `analyze_static_body_inner`
-sets the `StaticBodyId`, then moves the checked rows into `CheckedStaticBody`;
-ordinary `CallableAnalysis::finalize_with_normal_returns` is a separate path.
-Operational lowering consumes checked-body rows but the operational wire form
-currently retains target/arguments rather than the owner-qualified row and full
-signature. Do not duplicate those rows into CallableAnalysis or alter their
-owner without reconciling this with the accepted T7.B decision.
+The pinned nightly does not provide a fallible `Arc<[T]>` slice constructor.
+Loaded enum-requirement rows now retain their already-budgeted vectors behind
+fallible `Arc<Vec<T>>` owners; source-built rows retain `Arc<[T]>` behind the
+same slice-reading wrapper. The enum import round-trip passes exact-fit and
+one-byte-short allocation checks. This is a physical backing adaptation at
+that loaded owner boundary and does not close whole-load allocation coverage.
+
+StaticApplication transport remains fail-closed. The user's owner decision is
+to keep `CheckedStaticBody` as the sole row owner. `analyze_static_body_inner`
+sets the `StaticBodyId` and moves checked rows into that body; ordinary
+`CallableAnalysis` finalization is separate. Type-root registration now walks
+the checked-body rows and allocates their root ordinals after operational
+template roots. Each live row also contains source-local expression identities,
+while `OperationalOpV1::StaticApplication` carries target/arguments without the
+checked row's owner/ordinal or full signature. The DTO/model seam therefore
+still needs a source-independent representation that preserves the row under
+`CheckedStaticBody` without fabricating expression IDs. Preserve the
+fail-closed guard until the row and operational reference are transported and
+cross-validated.
 
 The explicit Dynamic call-environment prerequisite now transports tagged
 Term/RecordRow/Dynamic arguments through semantic call specialization,
@@ -128,10 +142,11 @@ next_plan: PERF003.C2.P7
 next_action: >
   Continue full CallableAnalysis wire/export/import/materialization and compiler
   binding/site/target projection. Extend the still-partial callable type-root
-  census before closing the shared graph. Before changing StaticApplication,
-  reconcile the plan's CallableAnalysis retention wording with the live
-  CheckedStaticBody owner and operational-template projection; keep it
-  fail-closed until that owner decision and wire validation are complete. Close
+  census before closing the shared graph. Keep checked StaticApplication rows
+  owned by CheckedStaticBody; design a portable owner-held row and operational
+  operand reference without fabricating source ExpressionIds, then cross-validate
+  them before transport. Keep it fail-closed until that seam and its validation
+  are complete. Close
   remaining primary/witness/query owners and allocation accounting, then run
   named P7 parity, source-denied, determinism, and P5/P6 gates. Keep P7
   IN_PROGRESS / PARTIAL / UNVERIFIED and P8 blocked until all required rows and
@@ -406,6 +421,16 @@ not change iteration analysis and the three graph-construction tests passed.
 
 ## 6. Consultations and amendments
 
+- P7 StaticApplication owner/transport continuation (2026-10-15): the user
+  confirmed `CheckedStaticBody` as the sole owner; no copy into
+  `CallableAnalysis` is authorized. Live code already retains rows under
+  `StaticBodyId + ordinal`. A bounded architecture comparison found two routes:
+  restore source expression records with relocation, or add portable
+  owner-held row/operand references. It recommends the portable form when
+  source expression products are not restored. This comparison is guidance,
+  not a new Level 2 architecture ruling; preserve fail-closed guards until the
+  checked row and operational operand mapping are cross-validated.
+
 - P4 prerequisite resumption (2026-10-13): user authorized resuming the
   previously stopped P4 PR-B/schema and canonical RuntimePublic metadata work
   required by P5.G1. The user specifically approved decode-time graph
@@ -502,7 +527,8 @@ notes below are historical evidence, not current routing.
 The current user authorizes rigorous testing, superseding compiler-only checks.
 P7/P8 full-image acceptance and source-free proofs remain unexecuted because
 required implementation is incomplete; do not promote inherited P6 evidence.
-Preserve the dirty implementation patch and documentation moves. No commit/push is requested.
+The user requested scoped commit/push delivery and a clean perf worktree after
+this continuation; do not stage unrelated work.
 
 ### Focused successor evidence (2026-10-13)
 

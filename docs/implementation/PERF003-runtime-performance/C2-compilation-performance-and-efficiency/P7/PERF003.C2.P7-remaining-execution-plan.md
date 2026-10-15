@@ -11,6 +11,37 @@ query parity remain open. Export/import still reject nonempty callable-analysis
 payloads. P7 closure still requires every remaining correction and acceptance
 gate; do not proceed to Wave 5 or P8 before those are complete.
 
+### Current continuation — owner/root/allocation slice — 2026-10-15
+
+This continuation supersedes earlier R2/R3 matrix wording below for the
+CallableAnalysis root and StaticApplication owner state. The focused root slice
+now covers expression/binding knowledge and contracts, flow summaries/exits,
+sequence and expansion facts, associated/family resolutions, match/pattern
+facts, trait dispatch, contextual realization, explanations, diagnostic
+guidance, semantic dependencies, and for/positional iteration. It registers
+exact, assumed, derived, and compiler-derived generic evidence in stable
+TypeParameterId order. Checked static-application rows are rooted under their
+actual `CheckedStaticBody` owner after operational-template root ordinals.
+
+The focused `callable_analysis` filter passes 19 tests; the checked-body owner
+root regression passes 1; the enum-requirement round-trip with exact-fit and
+N-1 allocation boundaries passes 1. Loaded enum-requirement rows now use the
+approved budgeted `Arc<Vec<T>>` wrapper because the pinned nightly lacks a
+fallible `Arc<[T]>` slice constructor. This does not prove complete root
+census, callable DTO/materializer parity, whole-load allocation equality,
+source-denied compilation, determinism, or P5/P6 acceptance.
+
+The user resolved the application-row owner: keep `CheckedStaticBody` as the
+sole owner; do not duplicate rows in `CallableAnalysis`. StaticApplication
+transport remains fail-closed. Current native rows contain source-local
+expression identities and ranges; current operational DTOs contain target and
+arguments but no row reference, and no portable checked-row DTO exists. The
+next representation must retain the owner-qualified row and cross-validate the
+operational argument mapping without fabricating expression IDs. A bounded
+architecture comparison recommends portable owner-held rows when source
+expression products are not restored. Keep the export/import guards until that
+model and its discriminator are implemented.
+
 ### P7 denotation owner-transport amendment — 2026-10-15
 
 The existing GPT-6.1 Sol High Effort adviser returned PLAN NEEDS
@@ -27,12 +58,16 @@ declaration authority. Reuse shared codecs for associated member/family,
 invocation target, operation shape, behavioral spec, and conditional selection.
 Do not add a global family-selection registry.
 
-Keep StaticApplication fail-closed until the checked application row is
-retained under its actual checked-body owner. Live source shows
-CheckingContext::finalize_with_normal_returns omits
-checked_static_applications from CallableAnalysis, and
-analyze_checked_static_application passes the target in the row body-owner
-slot. Never resolve an application through the callee static definition.
+The user resolved the owner choice: `CheckedStaticBody` remains the sole owner
+of checked application rows. Live code already assigns each row its enclosing
+`StaticBodyId + ordinal` and publishes it in `CheckedStaticBody`; do not copy
+these rows into `CallableAnalysis` or resolve them through the callee static
+definition. StaticApplication remains fail-closed until the source-free
+artifact preserves that checked-body row and its owner-qualified operational
+reference. The native row contains source-local expression identities, while
+the current operational DTO contains only target and arguments, so the
+transport representation must preserve checker authority without inventing
+expression IDs.
 
 Dependency order: register denotation type/kind/domain roots before closing the
 shared graph; validate declaration/member/constructor/impl owners; retain and
@@ -247,8 +282,8 @@ The initial audit baseline was the clean remote-synchronized tree at `c64dfc233d
 | ID / task | Canonical owner and invariant | Current implementation | Missing behavior and correction | Discriminator / command | Observed result and uncertainty |
 |---|---|---|---|---|---|
 | R1 / T10, T12 | `phalcom-type-meta/src/allocation.rs`; metadata codec/validator; every owned allocation is charged before requesting its layout. | `AllocationBudget` exposes explicit `Vec`, string, `Box`, `Arc`, and boxed-string helpers plus budget-aware ordered-map/set builders. Query/module/container scratch uses charged vectors; package identity strings and the directory buffer share the core transaction. | Semantic/query output owner maps, validator-owned nested values/scratch, and some materialized/error allocations remain outside the ledger. Extend sorted-vector/fallible materialization through every required native owner and verify requests independently. | Counting-allocator exact `N`/`N-1` tests over metadata, maps, nested values, errors, and full Universe load; `cargo test -p phalcom-type-meta -p phalcom-compiler-artifact`. | PASS: query-closure 512-root exact request/rollback probe; `allocation_budgeted_map` 1/1; container allocation 1/1; container codec 12/12; module DAG scratch 1/1. Full-load/native-owner requested-byte equality remains unproven. Latest semantic importer evidence: callable-signature type evidence exact-fit/N-1 rollback test PASS 1/1; artifact allocation zero-byte typed-error probe PASS 1/1. Whole-load requested-byte equality remains unproven. |
-| R2 / T0, T5–T7, T11 | Semantic owner projection owns canonical roots; equivalent semantic inputs emit identical complete bytes independent of allocation/root history. | Core builder uses rooted `TypeExportContext::new`, `register_semantic_world_roots`, and static export context rather than `new_full`. Callable-analysis roots now cover expression/binding knowledge and contracts, flow summaries/exits, sequence/expansion products, associated/callable-reference/family resolutions, and for/positional iteration products. | Root registration still omits match/pattern, trait-dispatch, contextual-realization, explanation, and other owner references; cross-process/fresh-store determinism and unreachable-history pruning remain unverified. Complete one ordered root census before closure and compare independent artifacts. | Two fresh stores/processes, opposite insertion order, unreachable nodes, and different physical roots; complete artifact digest comparison. | Focused callable-analysis root filter: 15 passed. Complete artifact digest discriminator remains `NOT RUN`; canonical artifact construction still stops at the callable-analysis coverage guard. |
-| R3 / T7.B, T8 | `phalcom-semantic/src/artifact/{export,import}.rs`, `snapshot.rs`, and each owning table; all P5 `RequiredSemantic` authority survives with source-built field parity. | Enum requirement records carry the full owner-held signature, roots, source order/statuses, and direct type relocation. Callable analysis additionally carries owner-local expression count, typed call-static-argument rows, source attachments, storage origins, status, unreachable-exit state, constructor-super target/range, and a budgeted frozen `FlowGraph` importer with exact adjacency reservations. The semantic reader API preserves source/frozen graph traversal and fingerprint semantics. | Callable expressions/bindings, flow summaries/exits, dispatch and resolution products, dependencies/fingerprints, diagnostics/explanations, compiler binding/site/target reader, and reconstruction into the owner snapshot remain absent. Nonempty conformance bindings and every nonempty callable-analysis payload remain fail-closed. Preserve exact judgments; reject unowned call/predicate handles and internal incidents. | Full source-built/import field parity modulo relocation, two-owner isolation, changed store numbering, malformed closure, exact compiler attachments, deterministic allocation-capped image, and source-denied consumer compilation. Flow slice discriminators: allocator-observed high-degree adjacency exact fit/N-1 rollback, malformed endpoint, source/frozen parity/fingerprint, frozen clone sharing/mutation rejection. | New flow slice: allocator probe 1/1, frozen storage 1/1, fingerprint parity 1/1, source CFG construction filter 3/3. A broader flow-graph filter selected 14 tests and failed one unrelated iteration typing assertion (13 passed); no full callable-analysis parity exists. Exact Universe image test still stops at callable-analysis export coverage. Level 2 denotation amendment recorded; implementation and focused transport tests NOT RUN. StaticApplication remains owner-blocked and fail-closed. |
+| R2 / T0, T5–T7, T11 | Semantic owner projection owns canonical roots; equivalent semantic inputs emit identical complete bytes independent of allocation/root history. | Core builder uses rooted `TypeExportContext::new`, `register_semantic_world_roots`, and static export context rather than `new_full`. Callable-analysis roots now cover expression/binding knowledge and contracts, flow summaries/exits, sequence/expansion products, associated/callable-reference/family resolutions, match/pattern facts, trait dispatch, contextual realization, explanations, diagnostic guidance, dependencies, and for/positional iteration products. Checked static-body rows also register their signature and argument roots. | A complete manifest-to-root census, cross-process/fresh-store determinism, and unreachable-history pruning remain unverified. Complete the ordered root census before closure and compare independent artifacts. | Two fresh stores/processes, opposite insertion order, unreachable nodes, and different physical roots; complete artifact digest comparison. | Focused callable-analysis root filter: 19 passed; checked-body root identity: 1 passed. Complete artifact digest discriminator remains `NOT RUN`; canonical artifact construction still stops at the callable-analysis coverage guard. |
+| R3 / T7.B, T8 | `phalcom-semantic/src/artifact/{export,import}.rs`, `snapshot.rs`, and each owning table; all P5 `RequiredSemantic` authority survives with source-built field parity. | Enum requirement records carry the full owner-held signature, roots, source order/statuses, direct type relocation, and budgeted loaded-row backing. Callable analysis additionally carries owner-local expression count, typed call-static-argument rows, source attachments, storage origins, status, unreachable-exit state, constructor-super target/range, and a budgeted frozen `FlowGraph` importer with exact adjacency reservations. The semantic reader API preserves source/frozen graph traversal and fingerprint semantics. Type-root coverage includes the current expression/binding/flow/resolution products. | Full callable expressions/bindings, flow summaries/exits, dispatch and resolution transport, dependencies/fingerprints, diagnostics/explanations, compiler binding/site/target reader, and reconstruction into owner snapshots remain absent. Nonempty conformance bindings and every nonempty callable-analysis payload remain fail-closed. Preserve exact judgments; reject unowned call/predicate handles and internal incidents. | Full source-built/import field parity modulo relocation, two-owner isolation, changed store numbering, malformed closure, exact compiler attachments, deterministic allocation-capped image, and source-denied consumer compilation. Flow slice discriminators: allocator-observed high-degree adjacency exact fit/N-1 rollback, malformed endpoint, source/frozen parity/fingerprint, frozen clone sharing/mutation rejection. | New flow slice: allocator probe 1/1, frozen storage 1/1, fingerprint parity 1/1, source CFG construction filter 3/3. Root slice: callable-analysis filter 19/19, checked-body owner root 1/1. A broader flow-graph filter selected 14 tests and failed one unrelated iteration typing assertion (13 passed); no full callable-analysis parity exists. Exact Universe image test still stops at callable-analysis export coverage. StaticApplication remains fail-closed pending portable checked-body row and operational operand-reference validation. |
 | R4 / T7.B, T8 | `phalcom-semantic` conformance/witness owners; preserve actual target, provenance, generic application, selections/views, associated plans, invalidity, and completeness evidence. | Conformance-head target/source/generic/authorization fields and partial witness selection DTOs are present. | Witness `requirement_views`, conditional inherent applicability, exact failure/budget payloads, `invalid_explicit_members`, and associated-plan failures are dropped or replaced; layout fingerprint is not a proof of selected-witness parity. Persist and validate full owner facts; never synthesize Complete/default evidence. | Generic/conditional conformance, trait default, associated-type and invalid/incomplete witness source-built/load parity. | `NOT RUN`; export guard and missing witness DTO fields block a legitimate artifact. |
 | R5 / T9 | `phalcom-semantic/src/artifact/query.rs`, `canonical_image.rs`, `db/*`; eligible roots and dependency evidence reconstruct exactly once with correct fingerprints and no silent loss. | Typed portable owner decoding and required-product errors are present for several supported query kinds; query DTO decode has a shared-budget path. Query closure now uses budgeted vectors, in-place unstable sort, typed duplicate/cycle/index errors, and iterative O(V+E) DFS; export and load call this path. | Module-static query adapters and evidence consumption remain incomplete; full product/root/edge/fingerprint census and native output-map charges are not proven. Complete every advertised adapter/evidence path and budget output-map materialization. | Missing/wrong-kind/duplicate owner, unknown kind, absent/self/cyclic edge, large DAG, supported-kind census, fingerprint parity; `cargo test -p phalcom-semantic --test semantic artifact`. | PASS for the focused closure discriminator: 512-node DAG, exact measured scratch debit, duplicate root, self/missing edge, multi-node cycle, dependency-evidence-only root, whole-budget and section-budget exhaustion. Full reconstruction/fingerprint parity remains unverified. |
 | R6 / T2, T10–T12 | `canonical_artifact.rs`, header/container/metadata owners; reader-owned ABIs/capabilities and independently derived provenance agree across sections. | Reader compares package identity, semantic/stable/module/artifact/query/native/metadata ABIs and capability set; section digests are recomputed; builder computes source digest from canonical source provenance. | Source digest on load is only checked nonzero because source is not carried; complete source/package/provenance relationship and cross-section semantic owner agreement are not independently established by the loaded-image test. Add correctly rehashed incompatibility and provenance parity coverage. | Mutate/re-hash ABI, capability, package and provenance independently; verify precise typed errors. | Foreign native-catalog fingerprint rejection before section materialization passed with correctly rehashed V2 bytes. Other incompatible-header mutations remain unverified because the full builder stops at callable-analysis export coverage. |
@@ -293,35 +328,40 @@ parity, compiler projection, source-denied loading, or P7 acceptance.
 registers the canonical graph roots carried by expression/binding TypeKnowledge,
 binding contracts, entry/return/throw flow summaries, sequence literals,
 known-invalid positional expansions, associated resolutions, callable
-references, family applications, and for/positional iteration requirements.
-Iteration requirements retain signature and generic-conformance roots;
-hash-map substitutions/environments are normalized by TypeParameterId before
-root registration. StaticApplication remains fail-closed.
+references, family applications, match/pattern products, trait dispatch,
+contextual realization, explanations, diagnostic guidance, semantic
+dependencies, and for/positional iteration requirements. Iteration requirements
+retain signature and exact/assumed/derived/compiler-derived generic-conformance
+roots; hash-map substitutions/environments are normalized by TypeParameterId
+before root registration. Checked static-application roots are registered under
+the `CheckedStaticBody` owner. StaticApplication denotation and operational
+wire/materialization remain fail-closed.
 
 Focused evidence:
 
 ```text
-CARGO_INCREMENTAL=0 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib callable_analysis -- --test-threads=1  PASS (15 selected)
+CARGO_INCREMENTAL=0 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib callable_analysis -- --test-threads=1  PASS (19 selected)
+CARGO_INCREMENTAL=0 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib checked_static_application_roots_follow_checked_body_identity -- --test-threads=1 PASS (1 selected)
+CARGO_INCREMENTAL=0 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib enum_requirements_round_trip_source_order_and_all_case_statuses -- --test-threads=1 PASS (1 selected, exact-fit/N-1)
 rustfmt --check phalcom-semantic/src/artifact/roots.rs phalcom-semantic/src/artifact/import.rs                 PASS
 git diff --check                                                                                               PASS
 ```
 
 The tests prove the listed supported TypeIds are retrievable after graph
 closure, including roots reached only through expression/binding/flow and
-resolution products. They do not prove root completeness for the remaining
-manifest fields, wire export/import, fresh-store parity, or compiler reader
-reconstruction. The iteration test exercises compiler-derived conformance
-evidence; exact, assumed, and derived evidence paths still need direct root
-discriminators. The callable-analysis export/import completeness guards are
-unchanged.
+resolution products. They do not prove full manifest root completeness, wire
+export/import, fresh-store parity, or compiler-reader reconstruction. The
+callable-analysis export/import completeness guards are unchanged. The user
+resolved the owner question in favor of `CheckedStaticBody`; source-free row
+transport remains open because the native row embeds source-local expression
+identities and the current checked-definition DTO has no owner-qualified row
+and operational reference.
 
-VERIFY-FIRST for the next StaticApplication slice: live `analyze_static_body_inner`
-sets `current_static_body_owner` and moves checked application rows into the
-owning `CheckedStaticBody`; ordinary callable finalization does not consume that
-path. `OperationalTemplate` lowering retains target/arguments but drops the
-`StaticApplicationId` and full signature from its wire node. Reconcile this
-live owner boundary with the adopted T7.B text before adding another owner or
-removing a fail-closed guard.
+Do not duplicate checked application rows into `CallableAnalysis`. The next
+slice should add the portable row/reference seam to the `CheckedStaticBody`
+owner and cross-validate row identity, target, signature, and operand mapping;
+do not invent source `ExpressionId`s. Retain fail-closed export/import guards
+until that seam and its discriminator pass.
 
 ### P5 `RequiredSemantic` family census
 

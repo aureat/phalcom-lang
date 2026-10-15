@@ -3636,3 +3636,22 @@ and wrong-owner references reject before publication; and a restored capture
 works in a source-denied process without lookup. Keep the existing callable
 analysis export/import completeness guards until the complete owner graph,
 compiler projection, and these discriminators pass.
+
+## StaticApplication owner clarification — 2026-10-15
+
+The user resolved the owner choice: `CheckedStaticBody` is the sole owner of
+checked static-application rows. Live source already assigns the enclosing
+`StaticBodyId + ordinal` and stores the checked rows on that body. The older
+producer-prerequisite wording above is superseded: do not duplicate rows into
+`CallableAnalysis` or treat regular callable finalization as their owner.
+
+Root registration now walks the checked-body rows and includes their signature
+domains, generic parameters, and kinded argument types. The remaining gap is
+source-free transport. A native row contains source-local expression IDs and
+ranges, while the current operational DTO has target and arguments but no
+owner-qualified checked-row reference. A bounded architecture comparison
+recommends a portable row form nested under the checked-body owner, with
+explicit portable links to operation operands; it avoids reconstructing or
+fabricating source expression IDs. Preserve fail-closed denotation and
+CallableAnalysis guards until row existence, target/signature equality, and
+operand mapping are cross-validated by focused discriminators.

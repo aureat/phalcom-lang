@@ -160,35 +160,6 @@ impl AllocationBudget {
         }
     }
 
-    /// Moves a vector into a newly allocated immutable `Arc<[T]>`, charging
-    /// the slice allocation before requesting it.
-    pub fn arc_slice_from_vec<T>(&mut self, values: Vec<T>) -> Result<std::sync::Arc<[T]>, AllocationError> {
-        use std::sync::atomic::AtomicUsize;
-
-        let len = values.len();
-        let layout = Layout::new::<[AtomicUsize; 2]>()
-            .extend(Layout::array::<T>(len).map_err(|_| AllocationError::Overflow)?)
-            .map_err(|_| AllocationError::Overflow)?
-            .0
-            .pad_to_align();
-        let before = (self.remaining, self.requested);
-        self.reserve_layout(layout)?;
-        let mut slice = match std::sync::Arc::<[T]>::try_new_uninit_slice(len) {
-            Ok(slice) => slice,
-            Err(_) => {
-                self.restore(before);
-                return Err(AllocationError::Failed);
-            }
-        };
-        let slots = std::sync::Arc::get_mut(&mut slice).expect("newly allocated Arc slice is uniquely owned");
-        for (slot, value) in slots.iter_mut().zip(values) {
-            slot.write(value);
-        }
-        // SAFETY: the Arc slice has exactly `len` slots and the loop above
-        // writes one value into every slot before converting it to `[T]`.
-        Ok(unsafe { slice.assume_init() })
-    }
-
     /// Starts a sorted map whose pair buffer is charged before allocation.
     /// Additional pushes charge each replacement buffer before it is requested.
     pub fn sorted_map_builder<K, V>(&mut self, expected: usize) -> Result<BudgetedSortedMapBuilder<'_, K, V>, AllocationError> {

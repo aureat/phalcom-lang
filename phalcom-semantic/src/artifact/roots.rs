@@ -6,8 +6,8 @@ use crate::snapshot::SemanticSnapshot;
 use crate::static_value::StaticExportContext;
 use crate::types::parameter::{GenericConstraint, GenericSignature, TypeTerm};
 use crate::types::store::artifact::TypeExportContext;
-use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::semantic::type_store::{CanonicalRootFamilyTag as Family, CanonicalTypeRootKey, StableOwnerRef};
+use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 
 struct Roots<'a> {
     types: &'a mut TypeExportContext,
@@ -44,22 +44,35 @@ pub(super) fn register_callable_analysis_roots(
         if let Some(denotation) = &expression.denotation {
             roots.denotation(denotation)?;
         }
-        let Some(specialization) = &expression.call_specialization else {
-            continue;
-        };
-        for (parameter, argument) in specialization.bindings.iter() {
-            let key = roots.key()?;
-            let lineage = roots.types.expected_lineage();
-            roots.types.register_parameter_root(lineage, key, *parameter)?;
-            match argument {
-                crate::types::store::StaticArgument::Term(term) => roots.ty(*term)?,
-                crate::types::store::StaticArgument::RecordRow(row) => {
-                    let key = roots.key()?;
-                    let lineage = roots.types.expected_lineage();
-                    roots.types.register_row_root(lineage, key, *row)?;
+        if let Some(specialization) = &expression.call_specialization {
+            for (parameter, argument) in specialization.bindings.iter() {
+                let key = roots.key()?;
+                let lineage = roots.types.expected_lineage();
+                roots.types.register_parameter_root(lineage, key, *parameter)?;
+                match argument {
+                    crate::types::store::StaticArgument::Term(term) => roots.ty(*term)?,
+                    crate::types::store::StaticArgument::RecordRow(row) => {
+                        let key = roots.key()?;
+                        let lineage = roots.types.expected_lineage();
+                        roots.types.register_row_root(lineage, key, *row)?;
+                    }
+                    crate::types::store::StaticArgument::DynamicType => {}
                 }
-                crate::types::store::StaticArgument::DynamicType => {}
             }
+        }
+        if let Some(capability) = &expression.conditional_capability {
+            roots.inherent_impl_specialization(&capability.applicability)?;
+        }
+        if let Some(site) = &expression.trait_dispatch {
+            roots.trait_dispatch_site(site)?;
+        }
+        if let Some(candidates) = &expression.trait_dispatch_candidates {
+            for candidate in candidates.iter() {
+                roots.trait_dispatch_candidate(candidate)?;
+            }
+        }
+        if let Some(realization) = &expression.contextual_realization {
+            roots.contextual_realization(realization)?;
         }
     }
     for binding in analysis.bindings.values() {
@@ -113,17 +126,44 @@ pub(super) fn register_callable_analysis_roots(
     for resolution in analysis.family_applications.values() {
         roots.family_application_resolution(resolution)?;
     }
+    for resolution in analysis.match_resolutions.values() {
+        roots.match_resolution(resolution)?;
+    }
+    for resolution in analysis.pattern_site_resolutions.values() {
+        roots.pattern_site_resolution(resolution)?;
+    }
+    for diagnostic in analysis.diagnostics.iter() {
+        for guidance in &diagnostic.guidance {
+            roots.diagnostic_guidance(guidance)?;
+        }
+    }
+    for dependency in analysis.semantic_dependencies.iter() {
+        if let crate::checker::analysis::SemanticDependency::GenericConformance(key) = dependency {
+            roots.generic_conformance_key(key)?;
+        }
+    }
+    for (_, node) in analysis.explanations.iter() {
+        roots.explanation_step(&node.step)?;
+        if let crate::explain::node::DerivationRule::GenericInstantiation { type_args } = &node.rule {
+            for &ty in type_args {
+                roots.ty(ty)?;
+            }
+        }
+        for evidence in &node.evidence {
+            if let crate::explain::node::EvidenceRef::TypeId(ty) = evidence {
+                roots.ty(*ty)?;
+            }
+        }
+    }
     Ok(())
 }
 
 impl<'a> Roots<'a> {
     fn new(types: &'a mut TypeExportContext, owner: StableOwnerRef, family: Family) -> Self {
-        Self {
-            types,
-            owner,
-            family,
-            ordinal: 100,
-        }
+        Self::new_with_ordinal(types, owner, family, 100)
+    }
+    fn new_with_ordinal(types: &'a mut TypeExportContext, owner: StableOwnerRef, family: Family, ordinal: u32) -> Self {
+        Self { types, owner, family, ordinal }
     }
     fn key(&mut self) -> Result<CanonicalTypeRootKey, ArtifactError> {
         let ordinal = self.ordinal;
@@ -244,6 +284,431 @@ impl<'a> Roots<'a> {
         self.ty(lane.iterator_type)?;
         self.for_iteration_requirement(&lane.iterator)?;
         self.for_iteration_requirement(&lane.next)
+    }
+    fn checked_static_application(
+        &mut self,
+        owner: &crate::static_definition::StaticBodyId,
+        application: &crate::static_definition::CheckedStaticApplication,
+    ) -> Result<(), ArtifactError> {
+        if &application.id.body != owner {
+            return Err(ValidationError::ReferentialIntegrity("checked static-application row belongs to a different body".into()).into());
+        }
+        self.static_definition_signature(&application.signature)?;
+        for argument in application.arguments.iter() {
+            if let crate::static_definition::CheckedStaticApplicationArgument::Kinded { term, .. } = argument {
+                self.ty(*term)?;
+            }
+        }
+        Ok(())
+    }
+    fn static_definition_signature(&mut self, signature: &crate::static_definition::StaticDefinitionSignature) -> Result<(), ArtifactError> {
+        for parameter in signature.parameters.iter() {
+            if let Some(parameter) = parameter.type_parameter_id {
+                self.parameter(parameter)?;
+            }
+            self.static_value_domain(parameter.domain)?;
+        }
+        self.static_value_domain(signature.result_domain)?;
+        self.generic(&signature.generic_signature)
+    }
+    fn static_value_domain(&mut self, domain: crate::static_domain::StaticValueDomain) -> Result<(), ArtifactError> {
+        match domain {
+            crate::static_domain::StaticValueDomain::Kind(kind) => self.kind(kind),
+            crate::static_domain::StaticValueDomain::ValueType(ty) => self.ty(ty),
+        }
+    }
+    fn trait_dispatch_site(&mut self, site: &crate::trait_dispatch::TraitDispatchSite) -> Result<(), ArtifactError> {
+        use crate::trait_dispatch::TraitDispatchSite;
+        match site {
+            TraitDispatchSite::AbstractRequirement { .. } => Ok(()),
+            TraitDispatchSite::Evidenced(selection) => self.trait_dispatch_selection(selection),
+            TraitDispatchSite::Assumed(selection) => {
+                self.generic_conformance_key(&selection.conformance)?;
+                self.callable_signature(&selection.signature)
+            }
+        }
+    }
+    fn trait_dispatch_selection(&mut self, selection: &crate::trait_dispatch::TraitDispatchSelection) -> Result<(), ArtifactError> {
+        self.ty(selection.exact_target)?;
+        self.trait_ref(&selection.exact_trait_ref)?;
+        self.generic_conformance_evidence(&selection.evidence)?;
+        self.callable_signature(&selection.signature)?;
+        self.requirement_selection(&selection.selection)?;
+        for target in selection.requirement_targets.values() {
+            self.requirement_selection(target)?;
+        }
+        Ok(())
+    }
+    fn trait_dispatch_candidate(&mut self, candidate: &crate::trait_dispatch::TraitEvidencedMemberCandidate) -> Result<(), ArtifactError> {
+        self.ty(candidate.exact_target)?;
+        self.trait_ref(&candidate.exact_trait_ref)?;
+        self.generic_conformance_evidence(&candidate.evidence)?;
+        self.callable_signature(&candidate.signature)?;
+        self.requirement_selection(&candidate.selection)?;
+        for target in candidate.requirement_targets.values() {
+            self.requirement_selection(target)?;
+        }
+        Ok(())
+    }
+    fn contextual_realization(&mut self, realization: &crate::checker::analysis::ContextualRealization) -> Result<(), ArtifactError> {
+        use crate::checker::analysis::{ContextualRealizationOperation, RealizationCoefficientSource};
+        self.ty(realization.source_type)?;
+        self.ty(realization.target_type)?;
+        match &realization.operation {
+            ContextualRealizationOperation::Basis { basis_type, coefficient, .. } => {
+                self.ty(*basis_type)?;
+                match coefficient {
+                    RealizationCoefficientSource::One { scalar_type, one } => {
+                        self.ty(*scalar_type)?;
+                        self.realization_capability(one)?;
+                    }
+                    RealizationCoefficientSource::Expression { scalar_type, .. } => self.ty(*scalar_type)?,
+                    RealizationCoefficientSource::IntegerLiteral { .. } | RealizationCoefficientSource::FloatLiteral { .. } => {}
+                }
+            }
+            ContextualRealizationOperation::RealEmbedding { scalar_type, .. } => self.ty(*scalar_type)?,
+        }
+        self.realization_capability(&realization.realization)
+    }
+    fn realization_capability(&mut self, selection: &crate::checker::analysis::RealizationCapabilitySelection) -> Result<(), ArtifactError> {
+        match selection {
+            crate::checker::analysis::RealizationCapabilitySelection::Evidenced(selection) => self.trait_dispatch_selection(selection),
+            crate::checker::analysis::RealizationCapabilitySelection::Assumed(selection) => {
+                self.generic_conformance_key(&selection.conformance)?;
+                self.callable_signature(&selection.signature)
+            }
+        }
+    }
+    fn match_resolution(&mut self, resolution: &crate::match_semantics::MatchResolution) -> Result<(), ArtifactError> {
+        self.knowledge(&resolution.scrutinee)?;
+        self.pattern_space(&resolution.initial_space)?;
+        for arm in resolution.arms.iter() {
+            self.pattern_resolution(&arm.pattern)?;
+            self.pattern_space(&arm.reachable_space)?;
+            self.pattern_space(&arm.residual_after)?;
+            for binding in arm.bindings.iter() {
+                self.pattern_binding(binding)?;
+            }
+            self.branch_proof(&arm.proof)?;
+            self.knowledge(&arm.branch_result)?;
+        }
+        self.knowledge(&resolution.result)?;
+        self.exhaustiveness(&resolution.exhaustiveness)
+    }
+    fn pattern_site_resolution(&mut self, resolution: &crate::match_semantics::PatternSiteResolution) -> Result<(), ArtifactError> {
+        self.knowledge(&resolution.subject)?;
+        self.pattern_resolution(&resolution.pattern)?;
+        for binding in resolution.bindings.iter() {
+            self.pattern_binding(binding)?;
+        }
+        Ok(())
+    }
+    fn pattern_resolution(&mut self, pattern: &crate::match_semantics::PatternResolution) -> Result<(), ArtifactError> {
+        use crate::match_semantics::PatternResolution;
+        match pattern {
+            PatternResolution::Wildcard | PatternResolution::Char(_) => Ok(()),
+            PatternResolution::Binding { knowledge, .. } => self.knowledge(knowledge),
+            PatternResolution::Variant(variant) => {
+                for candidate in variant.candidates.iter() {
+                    self.ty(candidate.exact_case)?;
+                    self.branch_proof(&candidate.proof)?;
+                    if let Some(instantiation) = &candidate.case_instantiation {
+                        self.case_instantiation(instantiation)?;
+                    }
+                    for field in candidate.fields.iter() {
+                        self.knowledge(&field.field_type)?;
+                        if let Some(local_type) = &field.local_type {
+                            self.local_type(local_type)?;
+                        }
+                        self.pattern_resolution(&field.child)?;
+                    }
+                }
+                Ok(())
+            }
+            PatternResolution::Or(or_pattern) => {
+                for alternative in or_pattern.alternatives.iter() {
+                    self.pattern_resolution(alternative)?;
+                }
+                Ok(())
+            }
+            PatternResolution::Tuple(items) => {
+                for item in items.iter() {
+                    self.pattern_resolution(item)?;
+                }
+                Ok(())
+            }
+            PatternResolution::List(list) => {
+                for item in list.prefix.iter() {
+                    self.pattern_resolution(item)?;
+                }
+                if let Some(rest) = &list.rest {
+                    self.pattern_resolution(rest)?;
+                }
+                Ok(())
+            }
+            PatternResolution::Record(fields) => {
+                for field in fields.iter() {
+                    self.pattern_resolution(&field.child)?;
+                }
+                Ok(())
+            }
+            PatternResolution::Map(entries) => {
+                for entry in entries.iter() {
+                    self.pattern_resolution(&entry.child)?;
+                }
+                Ok(())
+            }
+        }
+    }
+    fn pattern_binding(&mut self, binding: &crate::match_semantics::PatternBindingResolution) -> Result<(), ArtifactError> {
+        self.knowledge(&binding.knowledge)?;
+        if let Some(local_type) = &binding.local_type {
+            self.local_type(local_type)?;
+        }
+        Ok(())
+    }
+    fn branch_proof(&mut self, proof: &crate::match_semantics::BranchProofEnvironment) -> Result<(), ArtifactError> {
+        for (&parameter, &ty) in &proof.bindings {
+            self.parameter(parameter)?;
+            self.ty(ty)?;
+        }
+        for constraint in proof.equalities.iter() {
+            self.type_constraint(constraint)?;
+        }
+        for (&parameter, local_type) in &proof.local_bindings {
+            self.parameter(parameter)?;
+            self.local_type(local_type)?;
+        }
+        for constraint in proof.local_equalities.iter() {
+            self.local_constraint(constraint)?;
+        }
+        Ok(())
+    }
+    fn case_instantiation(&mut self, instantiation: &crate::types::CaseInstantiation) -> Result<(), ArtifactError> {
+        for &parameter in instantiation.local_rigids.keys() {
+            self.parameter(parameter)?;
+        }
+        for payload in instantiation.payload_types.iter() {
+            self.local_type(payload)?;
+        }
+        self.local_type(&instantiation.result_type)?;
+        for constraint in instantiation.constraints.iter() {
+            self.local_constraint(constraint)?;
+        }
+        Ok(())
+    }
+    fn local_constraint(&mut self, constraint: &crate::types::rigid::LocalConstraint) -> Result<(), ArtifactError> {
+        use crate::types::rigid::LocalConstraint;
+        match constraint {
+            LocalConstraint::Subtype { lower, upper } => {
+                self.local_type(lower)?;
+                self.local_type(upper)
+            }
+            LocalConstraint::Equivalent { left, right } => {
+                self.local_type(left)?;
+                self.local_type(right)
+            }
+        }
+    }
+    fn type_constraint(&mut self, constraint: &crate::types::constraint::TypeConstraint) -> Result<(), ArtifactError> {
+        use crate::types::constraint::TypeConstraint;
+        match constraint {
+            TypeConstraint::Equal(left, right) | TypeConstraint::Subtype(left, right) => {
+                self.ty(*left)?;
+                self.ty(*right)
+            }
+            TypeConstraint::HasMember(ty, _) => self.ty(*ty),
+        }
+    }
+    fn local_type(&mut self, local_type: &crate::types::rigid::LocalType) -> Result<(), ArtifactError> {
+        use crate::types::rigid::LocalType;
+        match local_type {
+            LocalType::Canonical(ty) => self.ty(*ty),
+            LocalType::Rigid(_) => Ok(()),
+            LocalType::Applied { origin, arguments } => {
+                self.local_type(origin)?;
+                for argument in arguments.iter() {
+                    self.local_type(argument)?;
+                }
+                Ok(())
+            }
+            LocalType::ExactCase { enum_type, .. } => self.local_type(enum_type),
+            LocalType::Union(members) => {
+                for member in members.iter() {
+                    self.local_type(member)?;
+                }
+                Ok(())
+            }
+            LocalType::Tuple(elements) => {
+                for element in elements.iter() {
+                    self.local_type(&element.ty)?;
+                }
+                Ok(())
+            }
+            LocalType::Record(fields) => {
+                for field in fields.iter() {
+                    self.local_type(&field.ty)?;
+                }
+                Ok(())
+            }
+            LocalType::Callable { parameters, return_type } => {
+                for parameter in parameters.iter() {
+                    self.local_type(&parameter.ty)?;
+                }
+                self.local_type(return_type)
+            }
+        }
+    }
+    fn pattern_space(&mut self, space: &crate::match_semantics::PatternSpaceSummary) -> Result<(), ArtifactError> {
+        use crate::match_semantics::PatternSpaceSummary;
+        match space {
+            PatternSpaceSummary::Opaque(ty) => self.ty(*ty),
+            PatternSpaceSummary::Union(spaces) => {
+                for space in spaces.iter() {
+                    self.pattern_space(space)?;
+                }
+                Ok(())
+            }
+            PatternSpaceSummary::Variant { exact_case, fields, .. } => {
+                self.ty(*exact_case)?;
+                for field in fields.iter() {
+                    self.pattern_space(field)?;
+                }
+                Ok(())
+            }
+            PatternSpaceSummary::Tuple(items) => {
+                for item in items.iter() {
+                    self.pattern_space(item)?;
+                }
+                Ok(())
+            }
+            PatternSpaceSummary::Empty | PatternSpaceSummary::Char(_) | PatternSpaceSummary::Blocked(_) | PatternSpaceSummary::List => Ok(()),
+        }
+    }
+    fn exhaustiveness(&mut self, result: &crate::match_semantics::ExhaustivenessResult) -> Result<(), ArtifactError> {
+        if let crate::match_semantics::ExhaustivenessResult::Missing(witnesses) = result {
+            for witness in witnesses.iter() {
+                self.coverage_witness(witness)?;
+            }
+        }
+        Ok(())
+    }
+    fn coverage_witness(&mut self, witness: &crate::match_semantics::CoverageWitness) -> Result<(), ArtifactError> {
+        use crate::match_semantics::CoverageWitness;
+        match witness {
+            CoverageWitness::Opaque(ty) => self.ty(*ty),
+            CoverageWitness::Variant { exact_case, fields, .. } => {
+                self.ty(*exact_case)?;
+                for field in fields.iter() {
+                    self.coverage_witness(field)?;
+                }
+                Ok(())
+            }
+            CoverageWitness::Tuple(items) => {
+                for item in items.iter() {
+                    self.coverage_witness(item)?;
+                }
+                Ok(())
+            }
+            CoverageWitness::Char(_) | CoverageWitness::List(_) | CoverageWitness::Wildcard => Ok(()),
+        }
+    }
+    fn explanation_step(&mut self, step: &crate::explain::node::ExplanationStep) -> Result<(), ArtifactError> {
+        use crate::explain::node::{ExplanationStep, GenericConstraintRelation};
+        match step {
+            ExplanationStep::Literal { ty, .. } | ExplanationStep::Declared { ty, .. } | ExplanationStep::CallableReturn { ty, .. } => self.ty(*ty),
+            ExplanationStep::GenericSolution { parameter, ty, .. } => {
+                self.parameter(*parameter)?;
+                self.ty(*ty)
+            }
+            ExplanationStep::ExpressionResult { knowledge, .. }
+            | ExplanationStep::BindingRead { knowledge, .. }
+            | ExplanationStep::ProductComponent { result: knowledge, .. } => self.knowledge(knowledge),
+            ExplanationStep::BindingContract { actual, contract, .. } => {
+                self.knowledge(actual)?;
+                self.ty(*contract)
+            }
+            ExplanationStep::TypeRequirement { expected, .. } => self.ty(*expected),
+            ExplanationStep::TypeRelation { actual, expected, .. } => {
+                self.knowledge(actual)?;
+                self.ty(*expected)
+            }
+            ExplanationStep::CallableSelection { receiver, .. } | ExplanationStep::UnionArm { receiver, .. } => self.ty(*receiver),
+            ExplanationStep::SelfTypeSpecialization { self_ty, receiver, resolved } => {
+                self.ty(*self_ty)?;
+                self.ty(*receiver)?;
+                self.ty(*resolved)
+            }
+            ExplanationStep::ArgumentCheck { actual, expected, .. } => {
+                self.knowledge(actual)?;
+                self.ty(*expected)
+            }
+            ExplanationStep::MethodCall { return_ty, .. } | ExplanationStep::UnresolvedCall { return_ty, .. } => self.ty(*return_ty),
+            ExplanationStep::GenericConstraint { parameter, relation, .. } => {
+                self.parameter(*parameter)?;
+                match relation {
+                    GenericConstraintRelation::Equal(ty)
+                    | GenericConstraintRelation::SubtypeOf(ty)
+                    | GenericConstraintRelation::SupertypeOf(ty)
+                    | GenericConstraintRelation::AssignableTo(ty) => self.ty(*ty),
+                }
+            }
+            ExplanationStep::GenericConflict { parameter, .. } => parameter.map_or(Ok(()), |parameter| self.parameter(parameter)),
+            ExplanationStep::CollectionSynthesis { element_types, result, .. } => {
+                for &ty in element_types.iter() {
+                    self.ty(ty)?;
+                }
+                self.ty(*result)
+            }
+            ExplanationStep::FlowRefinement { prior, refined, .. } => {
+                self.knowledge(prior)?;
+                self.knowledge(refined)
+            }
+            ExplanationStep::BranchJoin { branches, joined, .. } => {
+                for knowledge in branches.iter() {
+                    self.knowledge(knowledge)?;
+                }
+                self.knowledge(joined)
+            }
+            ExplanationStep::LoopJoin { inputs, joined } => {
+                for knowledge in inputs.iter() {
+                    self.knowledge(knowledge)?;
+                }
+                self.knowledge(joined)
+            }
+            ExplanationStep::IterationElement { iterable, element, .. } => {
+                self.knowledge(iterable)?;
+                self.knowledge(element)
+            }
+            ExplanationStep::ReturnCheck { actual, expected } => {
+                self.knowledge(actual)?;
+                expected.map_or(Ok(()), |ty| self.ty(ty))
+            }
+            ExplanationStep::CallableReturnSummary { returns, result, .. } => {
+                for knowledge in returns.iter() {
+                    self.knowledge(knowledge)?;
+                }
+                self.knowledge(result)
+            }
+            ExplanationStep::Subtyping { actual, expected, .. } => {
+                self.ty(*actual)?;
+                self.ty(*expected)
+            }
+            ExplanationStep::CallShape { .. }
+            | ExplanationStep::CallableKind { .. }
+            | ExplanationStep::UnknownBoundary { .. }
+            | ExplanationStep::DynamicBoundary { .. }
+            | ExplanationStep::InternalBlocked { .. } => Ok(()),
+        }
+    }
+    fn diagnostic_guidance(&mut self, guidance: &crate::diagnostic::DiagnosticGuidance) -> Result<(), ArtifactError> {
+        use crate::diagnostic::DiagnosticGuidance;
+        match guidance {
+            DiagnosticGuidance::ChangeAnnotation { ty, .. } | DiagnosticGuidance::SupplyAssignableValue { expected: ty } => self.ty(*ty),
+            DiagnosticGuidance::EstablishTypeEvidence { expected, .. } => expected.map_or(Ok(()), |ty| self.ty(ty)),
+            DiagnosticGuidance::ResolveGenericParameter { parameter } => self.parameter(*parameter),
+            DiagnosticGuidance::UseCallableShape { .. } => Ok(()),
+        }
     }
     fn positional_expansion(&mut self, expansion: &crate::checker::analysis::PositionalExpansionIterationResolution) -> Result<(), ArtifactError> {
         self.ty(expansion.source_type)?;
@@ -738,8 +1203,14 @@ pub fn register_semantic_world_roots(
     }
     for (_, product) in snapshot.static_definitions.iter() {
         if let Some(body) = &product.checked_body {
+            let owner = StableOwnerRef::Declaration(to_stable_declaration(&body.owner.0));
+            let mut next_ordinal = 0;
             if let crate::static_definition::StaticDefinitionBodyRepr::Operational(template) = &body.root {
-                super::operational::register_operational_template_roots(template, statics, types)?;
+                next_ordinal = super::operational::register_operational_template_roots(template, statics, types)?;
+            }
+            let mut roots = Roots::new_with_ordinal(types, owner, Family::StaticDefAndBinding, next_ordinal);
+            for application in body.static_applications.iter() {
+                roots.checked_static_application(&body.owner, application)?;
             }
         }
     }
@@ -748,11 +1219,11 @@ pub fn register_semantic_world_roots(
 
 #[cfg(test)]
 mod tests {
-    use super::register_callable_analysis_roots;
+    use super::{Family, Roots, StableOwnerRef, register_callable_analysis_roots, to_stable_declaration};
     use crate::checker::analysis::{BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowStateSummary};
-    use crate::identity::{BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, FieldId, LocalExpressionId, ModuleId};
+    use crate::identity::{BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, FieldId, ImplLocalId, LocalExpressionId, ModuleId};
     use crate::types::denotation::SemanticDenotation;
-    use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
+    use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
     use crate::types::store::TypeStore;
     use crate::types::store::artifact::TypeExportContext;
     use phalcom_common::range::SourceRange;
@@ -1245,6 +1716,565 @@ mod tests {
             trait_argument,
         ] {
             assert!(types.ty(ty).is_ok(), "callable iteration source, requirement, and result types must be rooted");
+        }
+    }
+
+    #[test]
+    fn callable_analysis_generic_conformance_evidence_roots_each_variant() {
+        use crate::derived_conformance::DerivedConformanceRule;
+        use crate::generic_evidence::{
+            AssumedConformanceEvidence, DerivedConformanceEvidence, DerivedConformanceOrigin, GenericConformanceEvidence, GenericConformanceKey,
+        };
+        use crate::impls::{ConformanceAssociatedTypePlan, ConformanceEvidence};
+        use crate::types::environment::TypeEnvironment;
+        use crate::types::id::KindId;
+        use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
+        use std::collections::BTreeMap;
+
+        let owner = DeclarationId::new(ModuleId::universe_root(), "GenericEvidenceRootOwner".into());
+        let module = owner.module.clone();
+        let mut store = TypeStore::new();
+        let exact_target = store.nominal_type(DeclarationId::new(module.clone(), "ExactEvidenceTargetRoot".into()));
+        let exact_trait_argument = store.nominal_type(DeclarationId::new(module.clone(), "ExactEvidenceTraitArgumentRoot".into()));
+        let assumed_subject = store.nominal_type(DeclarationId::new(module.clone(), "AssumedEvidenceSubjectRoot".into()));
+        let assumed_trait_argument = store.nominal_type(DeclarationId::new(module.clone(), "AssumedEvidenceTraitArgumentRoot".into()));
+        let derived_subject = store.nominal_type(DeclarationId::new(module.clone(), "DerivedEvidenceSubjectRoot".into()));
+        let derived_target_template = store.nominal_type(DeclarationId::new(module.clone(), "DerivedEvidenceTargetTemplateRoot".into()));
+        let derived_rule_argument = store.nominal_type(DeclarationId::new(module.clone(), "DerivedEvidenceRuleArgumentRoot".into()));
+        let derived_exact_trait_argument = store.nominal_type(DeclarationId::new(module.clone(), "DerivedEvidenceExactTraitArgumentRoot".into()));
+        let exact_impl = crate::identity::ImplId::new(module.clone(), ImplLocalId(1));
+        let exact = Arc::new(ConformanceEvidence {
+            source_impl: exact_impl,
+            exact_target,
+            exact_trait_ref: crate::traits::TraitRef::new(
+                DeclarationId::new(module.clone(), "ExactEvidenceTraitRoot".into()),
+                vec![exact_trait_argument].into_boxed_slice(),
+            ),
+            impl_environment: TypeEnvironment::new(),
+            requirement_views: BTreeMap::new(),
+            requirements: BTreeMap::new(),
+            associated_types: BTreeMap::new(),
+            trait_header_contract: Box::new([]),
+            trait_header_conformance_proofs: Some(BTreeMap::new()),
+            fingerprint: crate::db::ProductFingerprint::default(),
+        });
+        let assumed = crate::generic_evidence::GenericConformanceEvidence::Assumed(AssumedConformanceEvidence {
+            key: GenericConformanceKey::new(
+                TypeTerm::Canonical(assumed_subject),
+                crate::traits::TraitRef::new(
+                    DeclarationId::new(module.clone(), "AssumedEvidenceTraitRoot".into()),
+                    vec![assumed_trait_argument].into_boxed_slice(),
+                ),
+            ),
+            owner: TypeParameterOwner::Declaration(DeclarationId::new(module.clone(), "AssumedEvidenceOwner".into())),
+        });
+        let derived_impl = crate::identity::ImplId::new(module.clone(), ImplLocalId(2));
+        let parameter_owner = TypeParameterOwner::Impl(derived_impl.clone());
+        let parameter = store.intern_type_parameter(TypeParameterData::new(parameter_owner.clone(), 0, "T", KindId::TYPE));
+        let rule_trait = crate::traits::TraitRef::new(
+            DeclarationId::new(module.clone(), "DerivedEvidenceRuleTraitRoot".into()),
+            vec![derived_rule_argument].into_boxed_slice(),
+        );
+        let exact_trait = crate::traits::TraitRef::new(
+            DeclarationId::new(module.clone(), "DerivedEvidenceExactTraitRoot".into()),
+            vec![derived_exact_trait_argument].into_boxed_slice(),
+        );
+        let rule = Arc::new(DerivedConformanceRule::new(
+            derived_impl.clone(),
+            module.clone(),
+            parameter,
+            derived_target_template,
+            rule_trait,
+            GenericSignature::new(parameter_owner, vec![parameter].into_boxed_slice()),
+            ConformanceAssociatedTypePlan::empty(derived_impl),
+            BTreeMap::new(),
+            BTreeMap::new(),
+            crate::diagnostic::SemanticSourceSpan::new(module, SourceRange { start: 7, end: 9 }),
+        ));
+        let derived = GenericConformanceEvidence::Derived(Arc::new(DerivedConformanceEvidence {
+            origin: DerivedConformanceOrigin::GuardedRule {
+                rule,
+                exact_subject: derived_subject,
+                exact_trait_ref: exact_trait,
+            },
+            impl_bindings: Default::default(),
+            nested: Box::new([]),
+        }));
+
+        let mut types = TypeExportContext::new(&store);
+        let mut roots = Roots::new(&mut types, StableOwnerRef::Declaration(to_stable_declaration(&owner)), Family::CallableAnalysis);
+        roots.generic_conformance_evidence(&GenericConformanceEvidence::Exact(exact)).unwrap();
+        roots.generic_conformance_evidence(&assumed).unwrap();
+        roots.generic_conformance_evidence(&derived).unwrap();
+        drop(roots);
+        types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
+
+        for ty in [
+            exact_target,
+            exact_trait_argument,
+            assumed_subject,
+            assumed_trait_argument,
+            derived_subject,
+            derived_target_template,
+            derived_rule_argument,
+            derived_exact_trait_argument,
+        ] {
+            assert!(types.ty(ty).is_ok(), "generic evidence must root nested type {ty:?}");
+        }
+        assert!(types.parameter(parameter).is_ok(), "derived evidence must root its rule parameter");
+    }
+
+    #[test]
+    fn checked_static_application_roots_follow_checked_body_identity() {
+        use crate::static_definition::{CheckedStaticApplication, CheckedStaticApplicationArgument, StaticBodyId, StaticDefinitionSignature, StaticParameter};
+        use crate::static_domain::StaticValueDomain;
+        use crate::types::parameter::GenericParameterMode;
+
+        let body_owner = DeclarationId::new(ModuleId::universe_root(), "StaticApplicationBodyRootOwner".into());
+        let target = DeclarationId::new(ModuleId::universe_root(), "StaticApplicationTargetRoot".into());
+        let mut store = TypeStore::new();
+        let parameter_value_type = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "StaticApplicationParameterRoot".into()));
+        let kinded_argument = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "StaticApplicationKindedArgumentRoot".into()));
+        let result_type = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "StaticApplicationResultRoot".into()));
+        let type_parameter_owner = crate::types::parameter::TypeParameterOwner::Declaration(target.clone());
+        let type_parameter = store.intern_type_parameter(crate::types::parameter::TypeParameterData::new(
+            type_parameter_owner.clone(),
+            0,
+            "T",
+            crate::types::id::KindId::TYPE,
+        ));
+        let signature = StaticDefinitionSignature {
+            parameters: vec![
+                StaticParameter {
+                    name: "value".into(),
+                    domain: StaticValueDomain::ValueType(parameter_value_type),
+                    mode: GenericParameterMode::Single,
+                    index: 0,
+                    type_parameter_id: None,
+                    range: SourceRange { start: 1, end: 2 },
+                },
+                StaticParameter {
+                    name: "T".into(),
+                    domain: StaticValueDomain::Kind(store.kind_of(kinded_argument)),
+                    mode: GenericParameterMode::Single,
+                    index: 1,
+                    type_parameter_id: Some(type_parameter),
+                    range: SourceRange { start: 3, end: 4 },
+                },
+            ]
+            .into_boxed_slice(),
+            result_domain: StaticValueDomain::ValueType(result_type),
+            generic_signature: Some(crate::types::parameter::GenericSignature::new(
+                type_parameter_owner,
+                vec![type_parameter].into_boxed_slice(),
+            )),
+            where_clause: None,
+        };
+        let body = StaticBodyId(body_owner.clone());
+        let application = CheckedStaticApplication {
+            id: crate::static_definition::StaticApplicationId {
+                body: body.clone(),
+                ordinal: 0,
+            },
+            expression: ExpressionId::new(BodyId(24), LocalExpressionId(3)),
+            source_range: SourceRange { start: 5, end: 10 },
+            target,
+            signature,
+            arguments: vec![
+                CheckedStaticApplicationArgument::Value {
+                    parameter_index: 0,
+                    expression: ExpressionId::new(BodyId(24), LocalExpressionId(2)),
+                },
+                CheckedStaticApplicationArgument::Kinded {
+                    parameter_index: 1,
+                    term: kinded_argument,
+                },
+            ]
+            .into_boxed_slice(),
+        };
+
+        let mut types = TypeExportContext::new(&store);
+        let mut roots = Roots::new(
+            &mut types,
+            StableOwnerRef::Declaration(to_stable_declaration(&body_owner)),
+            Family::StaticDefAndBinding,
+        );
+        let wrong_body = StaticBodyId(DeclarationId::new(ModuleId::universe_root(), "DifferentStaticBodyOwner".into()));
+        assert!(roots.checked_static_application(&wrong_body, &application).is_err());
+        roots.checked_static_application(&body, &application).unwrap();
+        drop(roots);
+        types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
+
+        for ty in [parameter_value_type, kinded_argument, result_type] {
+            assert!(types.ty(ty).is_ok(), "checked-body application signature must root type {ty:?}");
+        }
+        assert!(
+            types.kind(store.kind_of(kinded_argument)).is_ok(),
+            "checked-body application parameter domain must root its kind"
+        );
+        assert!(
+            types.parameter(type_parameter).is_ok(),
+            "checked-body application signature must root its kinded parameter"
+        );
+    }
+
+    #[test]
+    fn callable_analysis_match_and_pattern_products_register_recursive_type_roots() {
+        use crate::match_semantics::{
+            BranchProofEnvironment, CoverageWitness, ExhaustivenessResult, MatchArmResolution, MatchResolution, PatternBindingResolution, PatternResolution,
+            PatternSiteKind, PatternSiteResolution, PatternSpaceSummary, PatternUsefulness, ResolvedFieldPattern, ResolvedVariantCandidate,
+            ResolvedVariantPattern, VariantSelectorConstraint,
+        };
+        use crate::types::CaseInstantiation;
+        use crate::types::id::RigidScopeId;
+        use crate::types::rigid::LocalType;
+
+        let owner = DeclarationId::new(ModuleId::universe_root(), "PatternRootOwner".into());
+        let callable = CallableId::method(owner.clone(), Selector::getter("factory").unwrap(), DispatchSide::Class);
+        let declaration = |name: &str| DeclarationId::new(ModuleId::universe_root(), name.into());
+        let mut store = TypeStore::new();
+        let scrutinee = store.nominal_type(declaration("PatternScrutineeRoot"));
+        let initial = store.nominal_type(declaration("PatternInitialSpaceRoot"));
+        let reachable = store.nominal_type(declaration("PatternReachableSpaceRoot"));
+        let residual = store.nominal_type(declaration("PatternResidualSpaceRoot"));
+        let result = store.nominal_type(declaration("PatternMatchResultRoot"));
+        let branch = store.nominal_type(declaration("PatternBranchResultRoot"));
+        let exact_case = store.nominal_type(declaration("PatternExactCaseRoot"));
+        let payload = store.nominal_type(declaration("PatternPayloadLocalRoot"));
+        let instantiated_result = store.nominal_type(declaration("PatternInstantiationResultRoot"));
+        let field_type = store.nominal_type(declaration("PatternFieldKnowledgeRoot"));
+        let field_local = store.nominal_type(declaration("PatternFieldLocalRoot"));
+        let witness = store.nominal_type(declaration("PatternCoverageWitnessRoot"));
+        let subject = store.nominal_type(declaration("PatternSiteSubjectRoot"));
+        let binding_knowledge = store.nominal_type(declaration("PatternBindingKnowledgeRoot"));
+        let binding_local = store.nominal_type(declaration("PatternBindingLocalRoot"));
+        let variant = crate::identity::VariantId::new(owner.clone(), Selector::getter("Ready").unwrap());
+        let field = crate::identity::VariantFieldId::new(variant.clone(), 0);
+        let match_expression = ExpressionId::new(BodyId(18), LocalExpressionId(1));
+
+        let pattern = PatternResolution::Variant(ResolvedVariantPattern {
+            owner: Some(owner),
+            family: None,
+            owner_candidates: Box::new([]),
+            selector: VariantSelectorConstraint::WholeFamily,
+            candidates: vec![ResolvedVariantCandidate {
+                variant: variant.clone(),
+                exact_case,
+                fields: vec![ResolvedFieldPattern {
+                    field,
+                    field_type: TypeKnowledge::established(field_type, EvidenceOrigin::PatternDecomposition),
+                    local_type: Some(LocalType::Canonical(field_local)),
+                    child: Box::new(PatternResolution::Wildcard),
+                }]
+                .into_boxed_slice(),
+                proof: BranchProofEnvironment::default(),
+                case_instantiation: Some(CaseInstantiation {
+                    variant: variant.clone(),
+                    scope: RigidScopeId::from_index(0),
+                    local_rigids: Default::default(),
+                    payload_types: vec![LocalType::Canonical(payload)].into_boxed_slice(),
+                    result_type: LocalType::Canonical(instantiated_result),
+                    constraints: Box::new([]),
+                }),
+            }]
+            .into_boxed_slice(),
+            blocked: None,
+        });
+        let mut analysis = callable_analysis(callable);
+        analysis.match_resolutions = Arc::new(
+            [(
+                match_expression,
+                MatchResolution {
+                    expression: match_expression,
+                    scrutinee: TypeKnowledge::established(scrutinee, EvidenceOrigin::PatternDecomposition),
+                    initial_space: PatternSpaceSummary::Union(
+                        vec![
+                            PatternSpaceSummary::Opaque(initial),
+                            PatternSpaceSummary::Variant {
+                                variant: variant.clone(),
+                                exact_case: reachable,
+                                fields: vec![PatternSpaceSummary::Opaque(residual)].into_boxed_slice(),
+                            },
+                        ]
+                        .into_boxed_slice(),
+                    ),
+                    arms: vec![MatchArmResolution {
+                        arm_index: 0,
+                        pattern,
+                        reachable_space: PatternSpaceSummary::Opaque(reachable),
+                        residual_after: PatternSpaceSummary::Opaque(residual),
+                        bindings: Box::new([]),
+                        proof: BranchProofEnvironment::default(),
+                        usefulness: PatternUsefulness::Useful,
+                        branch_result: TypeKnowledge::established(branch, EvidenceOrigin::PatternDecomposition),
+                    }]
+                    .into_boxed_slice(),
+                    result: TypeKnowledge::established(result, EvidenceOrigin::PatternDecomposition),
+                    exhaustiveness: ExhaustivenessResult::Missing(vec![CoverageWitness::Opaque(witness)].into_boxed_slice()),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        analysis.pattern_site_resolutions = Arc::new(
+            [(
+                crate::match_semantics::PatternSiteKey::new(PatternSiteKind::IfLet, SourceRange { start: 10, end: 14 }),
+                PatternSiteResolution {
+                    kind: PatternSiteKind::IfLet,
+                    range: SourceRange { start: 10, end: 14 },
+                    subject: TypeKnowledge::established(subject, EvidenceOrigin::PatternDecomposition),
+                    pattern: PatternResolution::Binding {
+                        binding: BindingId(31),
+                        name: "bound".into(),
+                        knowledge: TypeKnowledge::established(binding_knowledge, EvidenceOrigin::PatternDecomposition),
+                    },
+                    bindings: vec![PatternBindingResolution {
+                        binding: BindingId(31),
+                        name: "bound".into(),
+                        knowledge: TypeKnowledge::established(binding_knowledge, EvidenceOrigin::PatternDecomposition),
+                        local_type: Some(LocalType::Canonical(binding_local)),
+                        source: SourceRange { start: 11, end: 12 },
+                    }]
+                    .into_boxed_slice(),
+                    usefulness: PatternUsefulness::Useful,
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+
+        let mut types = TypeExportContext::new(&store);
+        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
+
+        for ty in [
+            scrutinee,
+            initial,
+            reachable,
+            residual,
+            result,
+            branch,
+            exact_case,
+            payload,
+            instantiated_result,
+            field_type,
+            field_local,
+            witness,
+            subject,
+            binding_knowledge,
+            binding_local,
+        ] {
+            assert!(types.ty(ty).is_ok(), "match and pattern products must root every nested canonical type: {ty:?}");
+        }
+    }
+
+    #[test]
+    fn callable_analysis_dispatch_and_contextual_realization_register_type_roots() {
+        use crate::checker::analysis::{
+            AlgebraicBasisAxis, ContextualRealization, ContextualRealizationOperation, ExpressionAnalysis, RealizationCapabilitySelection,
+            RealizationCoefficientSource, RealizationEvaluationPlan,
+        };
+        use crate::generic_evidence::{CompilerDerivedConformanceEvidence, CompilerDerivedConformanceKind, GenericConformanceEvidence, GenericConformanceKey};
+        use crate::trait_dispatch::{AssumedTraitDispatchSelection, TraitDispatchConvergenceKey, TraitDispatchSelection, TraitDispatchSite};
+        use crate::types::parameter::TypeTerm;
+
+        let owner = DeclarationId::new(ModuleId::universe_root(), "DispatchRootOwner".into());
+        let callable = CallableId::method(owner.clone(), Selector::getter("factory").unwrap(), DispatchSide::Class);
+        let declaration = |name: &str| DeclarationId::new(ModuleId::universe_root(), name.into());
+        let mut store = TypeStore::new();
+        let exact_target = store.nominal_type(declaration("DispatchExactTargetRoot"));
+        let trait_argument = store.nominal_type(declaration("DispatchTraitArgumentRoot"));
+        let conformance_subject = store.nominal_type(declaration("DispatchConformanceSubjectRoot"));
+        let selected_signature_result = store.nominal_type(declaration("DispatchSelectedSignatureRoot"));
+        let assumed_subject = store.nominal_type(declaration("DispatchAssumedSubjectRoot"));
+        let assumed_trait_argument = store.nominal_type(declaration("DispatchAssumedTraitArgumentRoot"));
+        let assumed_signature_result = store.nominal_type(declaration("DispatchAssumedSignatureRoot"));
+        let source_type = store.nominal_type(declaration("RealizationSourceRoot"));
+        let target_type = store.nominal_type(declaration("RealizationTargetRoot"));
+        let basis_type = store.nominal_type(declaration("RealizationBasisRoot"));
+        let scalar_type = store.nominal_type(declaration("RealizationScalarRoot"));
+        let conditional_receiver = store.nominal_type(declaration("ConditionalCapabilityReceiverRoot"));
+        let conditional_owner_view = store.nominal_type(declaration("ConditionalCapabilityOwnerViewRoot"));
+        let trait_owner = declaration("RealizationTraitRoot");
+        let trait_ref = crate::traits::TraitRef::new(trait_owner.clone(), vec![trait_argument].into_boxed_slice());
+        let assumed_trait_ref = crate::traits::TraitRef::new(trait_owner.clone(), vec![assumed_trait_argument].into_boxed_slice());
+        let requirement = crate::traits::TraitRequirementId {
+            owner: trait_owner.clone(),
+            selector: Selector::method("realize", []).unwrap(),
+            side: DispatchSide::Class,
+        };
+        let selected_callable = CallableId::method(owner.clone(), requirement.selector.clone(), DispatchSide::Class);
+        let impl_id = crate::identity::ImplId::new(owner.module.clone(), crate::identity::ImplLocalId(1));
+        let conformance = GenericConformanceKey::new(TypeTerm::Canonical(conformance_subject), trait_ref.clone());
+        let evidence = GenericConformanceEvidence::CompilerDerived(Arc::new(CompilerDerivedConformanceEvidence {
+            key: conformance.clone(),
+            kind: CompilerDerivedConformanceKind::OrderedProduct,
+            classification: crate::structural::StructuralClassification::OrderedProduct(crate::structural::OrderedProductForm::Tuple),
+        }));
+        let selection = TraitDispatchSelection {
+            source_impl: impl_id.clone(),
+            exact_target,
+            exact_trait_ref: trait_ref.clone(),
+            requirement: requirement.clone(),
+            callable: Some(selected_callable.clone()),
+            signature: callable_signature(selected_callable.clone(), &owner, selected_signature_result),
+            evidence_fingerprint: crate::db::ProductFingerprint::new(17),
+            evidence: evidence.clone(),
+            selection: crate::impls::RequirementSelectionTemplate::ConformanceCallable {
+                callable: selected_callable.clone(),
+            },
+            requirement_targets: Default::default(),
+        };
+        let candidate = crate::trait_dispatch::TraitEvidencedMemberCandidate {
+            exact_target,
+            exact_trait_ref: trait_ref,
+            requirement: requirement.clone(),
+            source_impl: impl_id.clone(),
+            evidence,
+            evidence_fingerprint: crate::db::ProductFingerprint::new(18),
+            selection: crate::impls::RequirementSelectionTemplate::ConformanceCallable {
+                callable: selected_callable.clone(),
+            },
+            signature: callable_signature(selected_callable.clone(), &owner, selected_signature_result),
+            requirement_targets: Default::default(),
+            convergence: TraitDispatchConvergenceKey::Inherent(selected_callable.clone()),
+        };
+        let assumed = AssumedTraitDispatchSelection {
+            conformance: GenericConformanceKey::new(TypeTerm::Canonical(assumed_subject), assumed_trait_ref),
+            requirement,
+            signature: callable_signature(selected_callable.clone(), &owner, assumed_signature_result),
+        };
+        let expression_id = ExpressionId::new(BodyId(20), LocalExpressionId(3));
+        let mut expression = ExpressionAnalysis::ready(
+            expression_id,
+            SourceRange { start: 3, end: 5 },
+            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+        );
+        expression.trait_dispatch = Some(TraitDispatchSite::Evidenced(selection.clone()));
+        expression.trait_dispatch_candidates = Some(vec![candidate].into_boxed_slice());
+        expression.contextual_realization = Some(Arc::new(ContextualRealization {
+            source_expression: expression_id,
+            source_range: SourceRange { start: 3, end: 5 },
+            source_type,
+            target_type,
+            operation: ContextualRealizationOperation::Basis {
+                basis_type,
+                axis: AlgebraicBasisAxis::I,
+                coefficient: RealizationCoefficientSource::One {
+                    scalar_type,
+                    one: RealizationCapabilitySelection::Evidenced(selection),
+                },
+                evaluation: RealizationEvaluationPlan::LiteralCoefficientThenAxis,
+            },
+            realization: RealizationCapabilitySelection::Assumed(assumed),
+        }));
+        expression.conditional_capability = Some(crate::dispatch::ConditionalSelectedCallCapability {
+            selection: crate::dispatch::ConditionalDispatchSelection {
+                impl_id: impl_id.clone(),
+                callable: selected_callable,
+                declaring_owner: owner.clone(),
+                side: DispatchSide::Class,
+            },
+            applicability: crate::impls::InherentImplSpecialization {
+                impl_id,
+                receiver: conditional_receiver,
+                owner_view: conditional_owner_view,
+                bindings: Default::default(),
+                environment: Default::default(),
+                conformance_provenance: None,
+            },
+        });
+
+        let mut analysis = callable_analysis(callable);
+        analysis.expressions.insert(expression_id, expression);
+        let mut types = TypeExportContext::new(&store);
+        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
+
+        for ty in [
+            exact_target,
+            trait_argument,
+            conformance_subject,
+            selected_signature_result,
+            assumed_subject,
+            assumed_trait_argument,
+            assumed_signature_result,
+            source_type,
+            target_type,
+            basis_type,
+            scalar_type,
+            conditional_receiver,
+            conditional_owner_view,
+        ] {
+            assert!(types.ty(ty).is_ok(), "dispatch and realization products must root nested type {ty:?}");
+        }
+    }
+
+    #[test]
+    fn callable_analysis_explanations_diagnostics_and_dependencies_register_type_roots() {
+        use crate::diagnostic::{DiagnosticCode, DiagnosticGuidance, SemanticDiagnostic};
+        use crate::explain::node::{DerivationRule, EvidenceRef, ExplanationStep};
+        use crate::types::parameter::TypeTerm;
+
+        let owner = DeclarationId::new(ModuleId::universe_root(), "ExplanationRootOwner".into());
+        let callable = CallableId::method(owner.clone(), Selector::getter("factory").unwrap(), DispatchSide::Class);
+        let declaration = |name: &str| DeclarationId::new(ModuleId::universe_root(), name.into());
+        let mut store = TypeStore::new();
+        let dependency_subject = store.nominal_type(declaration("DependencySubjectRoot"));
+        let dependency_trait_argument = store.nominal_type(declaration("DependencyTraitArgumentRoot"));
+        let explanation_actual = store.nominal_type(declaration("ExplanationActualRoot"));
+        let explanation_expected = store.nominal_type(declaration("ExplanationExpectedRoot"));
+        let explanation_rule_type = store.nominal_type(declaration("ExplanationRuleTypeRoot"));
+        let explanation_evidence_type = store.nominal_type(declaration("ExplanationEvidenceTypeRoot"));
+        let diagnostic_guidance_type = store.nominal_type(declaration("DiagnosticGuidanceTypeRoot"));
+        let key = crate::generic_evidence::GenericConformanceKey::new(
+            TypeTerm::Canonical(dependency_subject),
+            crate::traits::TraitRef::new(declaration("DependencyTraitRoot"), vec![dependency_trait_argument].into_boxed_slice()),
+        );
+        let mut arena = crate::explain::ExplanationArena::new();
+        arena.alloc_full(
+            ExplanationStep::Subtyping {
+                actual: explanation_actual,
+                expected: explanation_expected,
+                proven: false,
+            },
+            DerivationRule::GenericInstantiation {
+                type_args: vec![explanation_rule_type],
+            },
+            EvidenceStatus::Established,
+            EvidenceOrigin::Flow,
+            vec![EvidenceRef::TypeId(explanation_evidence_type)],
+            Vec::new(),
+        );
+        let mut diagnostic = SemanticDiagnostic::error_in(
+            owner.module.clone(),
+            DiagnosticCode::ApplicationTooManyArguments,
+            "test diagnostic",
+            SourceRange { start: 1, end: 2 },
+        );
+        diagnostic.guidance.push(DiagnosticGuidance::ChangeAnnotation {
+            range: SourceRange { start: 1, end: 2 },
+            ty: diagnostic_guidance_type,
+        });
+        let mut analysis = callable_analysis(callable);
+        analysis.explanations = Arc::new(arena);
+        analysis.diagnostics = Arc::from([diagnostic]);
+        analysis.semantic_dependencies = Arc::from([crate::checker::analysis::SemanticDependency::GenericConformance(key)]);
+
+        let mut types = TypeExportContext::new(&store);
+        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
+
+        for ty in [
+            dependency_subject,
+            dependency_trait_argument,
+            explanation_actual,
+            explanation_expected,
+            explanation_rule_type,
+            explanation_evidence_type,
+            diagnostic_guidance_type,
+        ] {
+            assert!(types.ty(ty).is_ok(), "explanations, diagnostics, and dependencies must root type {ty:?}");
         }
     }
 

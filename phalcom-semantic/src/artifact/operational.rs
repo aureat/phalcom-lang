@@ -415,7 +415,7 @@ pub fn register_operational_template_roots(
     template: &OperationalTemplate,
     static_context: &mut StaticExportContext,
     type_context: &mut TypeExportContext,
-) -> Result<(), ArtifactError> {
+) -> Result<u32, ArtifactError> {
     fn walk(
         node: &OperationalNode,
         static_context: &mut StaticExportContext,
@@ -493,7 +493,9 @@ pub fn register_operational_template_roots(
         Ok(())
     }
     let owner = phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Declaration(to_stable_declaration(&template.owner));
-    walk(&template.root, static_context, type_context, &owner, &mut 0)
+    let mut ordinal = 0;
+    walk(&template.root, static_context, type_context, &owner, &mut ordinal)?;
+    Ok(ordinal)
 }
 
 fn export_binary_op(op: StaticBinaryOp) -> StaticBinaryOpV1 {

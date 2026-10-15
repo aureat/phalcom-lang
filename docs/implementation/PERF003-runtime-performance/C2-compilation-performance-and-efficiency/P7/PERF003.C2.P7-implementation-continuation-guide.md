@@ -1,6 +1,21 @@
-## Current entry point — correction work checkpointed 2026-10-14
+## Current entry point — resumed 2026-10-15
 
-Stop requested by user to preserve progress. Full Wave 4 remains PARTIAL / UNVERIFIED. Read the [current handoff](PERF003.C2.P7-handoff.md) carefully before any further implementation; it supersedes historical routes/claims below. Latest library checks and 28 type-meta tests pass; artifact metadata has one unresolved fixed-cutoff assertion failure. R1/R7 native allocation coverage, R3/R4 primary semantics, R5 typed queries and full parity/source-denied/determinism proof remain open. No new subagents; reuse the existing adviser only for mandatory consultation. No commit/push.
+The user resumed implementation and requested commit/push delivery with a clean
+perf worktree. Start from the current handoff and checkpoint, not the historical
+resume routes below. `CheckedStaticBody` is confirmed as the sole owner of
+checked static-application rows. The current continuation adds CallableAnalysis
+type-root coverage, checked-body application roots, and a budgeted
+`EnumRequirementRows` backing. Focused evidence: 19 callable-analysis root
+tests, one checked-body root test, and one enum round-trip allocation-boundary
+test pass. P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED; the transport and
+complete callable owner graph remain open.
+
+The next representation boundary is not yet implemented: source-free checked
+applications need portable owner-held rows and operational operand links, since
+live rows contain snapshot-local expression IDs/ranges and the current wire
+contains target/arguments only. A bounded architecture comparison recommends
+portable owner-held rows; keep guards until cross-validation and focused
+evidence exist. A scoped commit and push are required after final diff review.
 
 # PERF003.C2.P7 implementation continuation guide
 

@@ -6,6 +6,7 @@ use crate::signature::CallableSemanticSignature;
 use phalcom_common::selector::Selector;
 use phalcom_type_meta::allocation::BudgetedSortedMap;
 use std::collections::{BTreeMap, HashMap};
+use std::ops::Deref;
 use std::sync::Arc;
 
 /// Unique identifier for a closed-enum method requirement.
@@ -44,6 +45,44 @@ pub struct CaseRequirementResult {
     pub variant: VariantId,
     pub requirement: EnumRequirementId,
     pub status: CaseRequirementStatus,
+}
+
+/// Shared immutable enum rows with a common slice read interface.
+///
+/// Source-built snapshots retain their ordinary `Arc<[T]>` backing. Artifact
+/// loads retain a budgeted `Arc<Vec<T>>`, since the pinned standard library
+/// does not expose a fallible `Arc<[T]>` slice constructor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EnumRequirementRows<T> {
+    Shared(Arc<[T]>),
+    Budgeted(Arc<Vec<T>>),
+}
+
+impl<T> EnumRequirementRows<T> {
+    pub fn from_shared(rows: Arc<[T]>) -> Self {
+        Self::Shared(rows)
+    }
+
+    pub fn from_budgeted(rows: Arc<Vec<T>>) -> Self {
+        Self::Budgeted(rows)
+    }
+}
+
+impl<T> AsRef<[T]> for EnumRequirementRows<T> {
+    fn as_ref(&self) -> &[T] {
+        self
+    }
+}
+
+impl<T> Deref for EnumRequirementRows<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Shared(rows) => rows,
+            Self::Budgeted(rows) => rows,
+        }
+    }
 }
 
 /// Source-built or frozen canonical owner map for enum requirement products.
@@ -95,10 +134,17 @@ impl<V> EnumRequirementOwnerMap<V> {
         self.get(owner).is_some()
     }
 
+    pub fn len(&self) -> usize {
+        self.local.len()
+            + self
+                .frozen
+                .as_ref()
+                .map_or_else(|| self.parent.as_ref().map_or(0, |parent| parent.len()), |frozen| frozen.len())
+    }
+
     pub fn insert(&mut self, owner: DeclarationId, value: V) -> Option<V> {
         assert!(
-            !self.parent.as_ref().is_some_and(|parent| parent.contains_key(&owner))
-                && !self.frozen.as_ref().is_some_and(|frozen| frozen.contains_key(&owner)),
+            !self.parent.as_ref().is_some_and(|parent| parent.contains_key(&owner)) && !self.frozen.as_ref().is_some_and(|frozen| frozen.contains_key(&owner)),
             "cannot overwrite a canonical enum-requirement owner"
         );
         self.local.insert(owner, value)
@@ -119,17 +165,15 @@ impl<V> EnumRequirementOwnerMap<V> {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.local.is_empty()
-            && self.frozen.as_ref().is_none_or(|frozen| frozen.is_empty())
-            && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
+        self.local.is_empty() && self.frozen.as_ref().is_none_or(|frozen| frozen.is_empty()) && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
     }
 }
 
 /// Snapshot-level table of closed-enum requirements and case statuses.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct EnumRequirementTable {
-    pub requirements: Arc<EnumRequirementOwnerMap<Arc<[EnumRequirement]>>>,
-    pub case_statuses: Arc<EnumRequirementOwnerMap<Arc<[CaseRequirementResult]>>>,
+    pub requirements: Arc<EnumRequirementOwnerMap<EnumRequirementRows<EnumRequirement>>>,
+    pub case_statuses: Arc<EnumRequirementOwnerMap<EnumRequirementRows<CaseRequirementResult>>>,
 }
 
 impl EnumRequirementTable {
@@ -142,8 +186,8 @@ impl EnumRequirementTable {
     }
 
     pub fn from_frozen(
-        requirements: Arc<BudgetedSortedMap<DeclarationId, Arc<[EnumRequirement]>>>,
-        case_statuses: Arc<BudgetedSortedMap<DeclarationId, Arc<[CaseRequirementResult]>>>,
+        requirements: Arc<BudgetedSortedMap<DeclarationId, EnumRequirementRows<EnumRequirement>>>,
+        case_statuses: Arc<BudgetedSortedMap<DeclarationId, EnumRequirementRows<CaseRequirementResult>>>,
         allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
     ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
         Ok(Self {
@@ -157,8 +201,8 @@ impl EnumRequirementTable {
     }
 
     pub fn insert(&mut self, owner: DeclarationId, requirements: Arc<[EnumRequirement]>, statuses: Arc<[CaseRequirementResult]>) {
-        Arc::make_mut(&mut self.requirements).insert(owner.clone(), requirements);
-        Arc::make_mut(&mut self.case_statuses).insert(owner, statuses);
+        Arc::make_mut(&mut self.requirements).insert(owner.clone(), EnumRequirementRows::from_shared(requirements));
+        Arc::make_mut(&mut self.case_statuses).insert(owner, EnumRequirementRows::from_shared(statuses));
     }
 
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {

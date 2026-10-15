@@ -5,65 +5,69 @@
 **Status: IN_PROGRESS. Completion: PARTIAL. Verification: UNVERIFIED.**
 **Active plan: PERF003.C2.P7. P8 takeover is blocked.**
 
-Worktree: `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization`; branch `perf/universe-characterization`; HEAD remains `c64dfc23`; changes are uncommitted and unstaged. P7 remains open. The latest continuations added budget-aware sorted map/set builders, charged container identity/directory allocations, a distinct whole-load allocation cap, budgeted module validation scratch, a budgeted frozen flow-graph importer, and broader CallableAnalysis type-root registration. The focused callable-analysis root filter passes 15 tests. The full callable-analysis wire/import/materialization and compiler reader, other required owner families, R1/R2/R4–R11 closure, source-denied compilation, and P5/P6 acceptance remain incomplete.
+Worktree: `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization`; branch `perf/universe-characterization`; continuation began at `2939e9d41640dc1eca3fbbc9b8e20529ab05ef6a`. This continuation adds broader CallableAnalysis type-root registration, checked-body static-application roots, and budgeted enum-requirement row backing. The focused callable-analysis root filter passes 19 tests; checked-body root and enum allocation-boundary tests each pass 1. P7 remains open. Full callable-analysis wire/import/materialization and compiler reader, other required owner families, R1/R2/R4–R11 closure, source-denied compilation, determinism, and P5/P6 acceptance remain incomplete.
 
 ## Fresh takeover handoff — 2026-10-15
 
 **P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED. P8 takeover is blocked.**
-The canonical checkpoint and active plans now record the latest R1 work and
-the Level 2 denotation-transport amendment. Continue in this same dirty
-worktree; preserve every inherited modified, deleted, and untracked file.
-Nothing is staged. Do not reset, clean, broadly format, or blanket-stage.
+The canonical checkpoint and active plans record the latest R1 work and the
+Level 2 denotation-transport amendment. The user requested commit/push delivery
+for this worktree; stage only the scoped P7 code and records, preserving all
+other work.
 
 ### Latest continuation — CallableAnalysis type-root closure — 2026-10-15
 
 `phalcom-semantic/src/artifact/roots.rs::register_callable_analysis_roots` now
-registers type graph roots for expression knowledge and denotations; binding
-contracts/current knowledge and denotations; entry, normal-return and throw
-flow facts; sequence literals; known-invalid positional expansions; associated
-resolutions; bound callable references; family applications; and for/positional
-iteration products. Iteration requirements include their callable signatures
-and generic evidence. Hash-backed environments/substitutions are ordered by
-`TypeParameterId` before root registration.
+registers type graph roots for expression and binding knowledge/contracts,
+flow summaries/exits, sequence/expansion products, associated and family
+resolutions, match/pattern facts, trait dispatch, contextual realization,
+explanations, diagnostic guidance, semantic dependencies, and for/positional
+iteration products. Generic evidence roots cover exact, assumed, derived, and
+compiler-derived cases. Hash-backed environments/substitutions are ordered by
+`TypeParameterId` before root registration. Checked static-application rows
+also register signature domains, generic parameters, and kinded argument types
+under their `CheckedStaticBody` owner, after operational-template root ordinals.
 
 The focused tests started from absent-root failures and now prove that the
 supported TypeIds resolve after `TypeExportContext::close_graph`:
 
 ```sh
 CARGO_INCREMENTAL=0 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib callable_analysis -- --test-threads=1
-# PASS: 15 selected.
+# PASS: 19 selected.
+CARGO_INCREMENTAL=0 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib checked_static_application_roots_follow_checked_body_identity -- --test-threads=1
+# PASS: 1 selected.
+CARGO_INCREMENTAL=0 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib enum_requirements_round_trip_source_order_and_all_case_statuses -- --test-threads=1
+# PASS: 1 selected; exact-fit and N-1 budget behavior.
 rustfmt --check phalcom-semantic/src/artifact/roots.rs phalcom-semantic/src/artifact/import.rs
 # PASS.
 git diff --check
 # PASS.
 ```
 
-This is only root-closure work. Match/pattern, trait-dispatch, contextual
-realization, explanations, and other root-bearing products remain uncovered.
-The iteration regression exercises compiler-derived evidence; add direct tests
-for exact, assumed, and derived generic evidence before treating those branches
-as root-closure verified.
+This is only root-closure and owner-backing work. It does not establish a full
+manifest-to-root census, wire export/import, fresh-store parity, or compiler
+reader reconstruction. Exact, assumed, and derived generic-evidence branches
+have direct root discriminators in the current test filter.
 No expression/binding/flow/diagnostic DTOs were added; no full callable-analysis
 materializer or compiler reader was connected. Export and import fail-closed
 guards remain active. No full suite, artifact image build, source-denied process,
 determinism gate, or P5/P6 acceptance gate was run in this continuation.
 
-#### VERIFY-FIRST owner discrepancy before StaticApplication transport
+#### StaticApplication owner resolved; source-free row transport remains open
 
-The prior T7.B amendment/handoff says `CheckingContext::finalize_with_normal_returns`
-does not retain checked applications in `CallableAnalysis`. Live source shows
-the static-definition producer sets `current_static_body_owner` to
-`StaticBodyId`, records rows in `CheckingContext`, then moves them into
-`CheckedStaticBody.static_applications` in `checker/static_body.rs`; the regular
-callable finalizer is a separate path. `OperationalTemplate::from_checked_body`
-consumes those rows, but the current `OperationalOpV1::StaticApplication`
-stores only stable target plus arguments, not the application owner/ordinal or
-full checked signature. `SemanticDenotationV1::StaticApplication` remains
-fail-closed in callable-analysis export/import. Do not duplicate rows into
-`CallableAnalysis` or remove the guard until this live owner boundary is
-reconciled with the adopted T7.B decision. Request the existing Level 2 adviser
-decision if the next implementation step requires choosing a different owner or
-wire contract.
+The user resolved the owner decision: keep `CheckedStaticBody` as the sole
+owner. Live source sets the enclosing `StaticBodyId`, assigns body-local
+ordinals, and moves checked rows into `CheckedStaticBody.static_applications`;
+regular `CallableAnalysis` finalization is a separate path. Do not duplicate the
+rows into `CallableAnalysis`. The current row contains source-local expression
+IDs and ranges, while `OperationalOpV1::StaticApplication` carries target plus
+arguments and no checked-row reference. `SemanticDenotationV1::StaticApplication`
+already carries body plus ordinal but remains fail-closed in export/import.
+The next wire/model seam must preserve owner-qualified checked facts without
+inventing expression IDs and must cross-validate the operation against the row.
+The architectural comparison recommends a portable owner-held row form when
+source expression products are not being restored; the fail-closed guard stays
+until that representation and its discriminator exist.
 
 ### Latest continuation — denotation transport and checked-body owner — 2026-10-15
 
@@ -139,6 +143,13 @@ integration command has no reviewed result recorded here and is not evidence.
 
 ### Adopted denotation transport decision
 
+The StaticApplication portion of the older amendment below is superseded by
+the 2026-10-15 owner resolution recorded above. Keep rows in `CheckedStaticBody`;
+do not move them to `CallableAnalysis`. The source-producer owner correction
+and checked-body type-root registration are implemented. Portable row transport
+and its operational reference validation remain open, and the existing guards
+stay active.
+
 The same existing GPT-6.1 Sol High Effort adviser returned: PLAN NEEDS
 CLARIFICATION plus a bounded Level 2 owner-transport amendment;
 IMPLEMENTER MAY RESUME. The live SemanticDenotation model in
@@ -158,19 +169,19 @@ references and context-owned captures. Use a hybrid wire model:
 - Reuse shared codecs for AssociatedMemberId, AssociatedFamilyId,
   InvocationTargetId, FamilyOperationShape, BehavioralFamilySpec, and
   ConditionalDispatchSelection. Do not add a global family-selection registry.
-- StaticApplication remains fail-closed. Before transporting it, retain the
-  checked application row in CallableAnalysis and qualify its ordinal by the
-  actual checked-body owner. Live source shows two producer gaps:
-  CheckingContext::finalize_with_normal_returns does not retain
-  checked_static_applications, and analyze_checked_static_application calls
-  record_checked_static_application with the target in its body-owner slot.
-  Never resolve an application through the callee static definition.
+- StaticApplication remains fail-closed. Preserve the checked application row
+  under its actual `CheckedStaticBody` owner and qualify its ordinal by that
+  body. The former alleged producer gaps were disproved by live-source review:
+  `analyze_static_body_inner` already moves checked rows into the body, and the
+  checked row's ID is body-qualified. The remaining gap is source-free transport:
+  its expression IDs/ranges are local, and the operational DTO lacks the row
+  reference. Never resolve an application through the callee static definition.
 
 Load dependency order: register denotation type/kind/domain roots before graph
-closure; validate declaration/member/constructor/impl authorities; retain and
-validate checked-body application rows with owner-qualified identities; then
-materialize callable and checked-body graphs with relocation; validate the full
-world before snapshot publication.
+closure; validate declaration/member/constructor/impl authorities; transport and
+validate checked-body application rows with owner-qualified identities and
+operational operand links; then materialize callable and checked-body graphs
+with relocation; validate the full world before snapshot publication.
 
 Required discriminators include both associated denotation variants with and
 without targets, a captured subset that differs from the declaration surface,
@@ -205,7 +216,9 @@ and import completeness guards until all fields and compiler attachments pass.
    acceptance gates. Update checkpoint state truthfully; only close P7 when
    every required row and gate has passing evidence.
 
-No commit or push was requested. Reuse the one existing adviser only if a new
+At the time this historical route was written, no commit or push was requested.
+The resumed 2026-10-15 continuation supersedes that delivery instruction and
+requests a scoped commit and push. Reuse the existing adviser only if a new
 mandatory architectural trigger arises; do not spawn a second adviser.
 
 ### Latest continuation — budgeted frozen flow-graph backing — 2026-10-15
