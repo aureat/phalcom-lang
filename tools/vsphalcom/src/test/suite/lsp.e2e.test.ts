@@ -15,7 +15,7 @@ function lspBinary(): string {
     return path.join(
         repositoryRoot(),
         'target',
-        'debug',
+        'release',
         executable
     );
 }
@@ -105,7 +105,7 @@ suite('Phalcom LSP extension E2E', function () {
 
         assert.ok(
             fs.existsSync(server),
-            `phalcom-lsp was not built at ${server}; run cargo build -p phalcom-lsp first`
+            `phalcom-lsp was not built at ${server}; run cargo build --release -p phalcom-lsp first`
         );
 
         // Configure before opening any .ph document so extension activation
