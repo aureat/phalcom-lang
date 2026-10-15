@@ -3655,3 +3655,29 @@ explicit portable links to operation operands; it avoids reconstructing or
 fabricating source expression IDs. Preserve fail-closed denotation and
 CallableAnalysis guards until row existence, target/signature equality, and
 operand mapping are cross-validated by focused discriminators.
+
+### Portable checked-body transport contract — 2026-10-15
+
+The follow-up architecture consultation resolves the wire seam as an
+owner-nested checked-body record containing its operational template and
+checked-application rows. Each operational application refers to its
+body-local ordinal and carries ordered operand entries with checked-argument
+index, parameter index, argument kind, and operation. Checked rows preserve
+stable target, complete checked static signature/domain facts, and source range
+as provenance. A kinded term refers through the shared type graph; a nested
+kinded expression refers to the exact child application ordinal; a value
+expression maps by checked operand index. No source `ExpressionId` crosses the
+wire or is fabricated during import. Import returns a source-independent
+checked-body owner product and does not reconstruct source-only checker tables.
+
+Validation requires unique body owners, contiguous unique row ordinals,
+owner-qualified op references, target agreement, signature and parameter
+shape agreement, operand order/kind/index agreement, exact kinded-term and
+nested-child references, and denotation-to-row resolution before publication.
+The target's canonical static signature is not yet persisted; until it is,
+the transport preserves the checked row's captured signature without claiming
+that import repeated the target lookup. The semantic-world schema must be
+versioned because this changes its nested checked-definition wire shape. The
+current world allocation-accounting boundary remains fail-closed; do not remove
+the semantic import or denotation guards until the imported owner product is
+charged, cross-validated, and consumed.

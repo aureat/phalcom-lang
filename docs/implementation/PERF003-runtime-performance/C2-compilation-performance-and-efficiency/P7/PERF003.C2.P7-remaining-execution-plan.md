@@ -36,11 +36,21 @@ sole owner; do not duplicate rows in `CallableAnalysis`. StaticApplication
 transport remains fail-closed. Current native rows contain source-local
 expression identities and ranges; current operational DTOs contain target and
 arguments but no row reference, and no portable checked-row DTO exists. The
-next representation must retain the owner-qualified row and cross-validate the
-operational argument mapping without fabricating expression IDs. A bounded
-architecture comparison recommends portable owner-held rows when source
-expression products are not restored. Keep the export/import guards until that
-model and its discriminator are implemented.
+adviser resolved the bounded transport shape: nest portable checked rows beside
+the template under its stable body owner; add body-local application ordinals
+to application ops and encode each operand's checked-row index, parameter
+index, kind, and operation. Preserve the checked signature/domain facts and
+source range as provenance, map kinded terms through relocated type refs, map
+nested kinded expressions to child application ordinals, and represent value
+expressions by operand position. Do not persist or fabricate source expression
+IDs. Import to an owner-scoped portable checked-body product rather than
+constructing source `CheckedStaticApplication` values. Validate unique,
+contiguous row ordinals, owner-qualified op references, target and signature
+agreement, argument order/kind/index mapping, nested-child identity, and
+denotation references. The target definition signature is not yet persisted;
+the transported checked signature remains captured authority until that owner
+exists. Preserve fail-closed denotation and CallableAnalysis guards until the
+import owner and focused cross-reference discriminators are complete.
 
 ### P7 denotation owner-transport amendment — 2026-10-15
 

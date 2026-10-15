@@ -127,6 +127,35 @@ the current Universe bootstrap error in `universe:reflection.structural`
 retained as a failing test. These results are focused evidence only; P7 remains
 IN_PROGRESS / PARTIAL / UNVERIFIED.
 
+PATCH0 (`PERF003.C2.P7.PATCH0`) completed from
+`21a54705c33dae95ee9c77d86789b4911635e6b0`: callable body fingerprints now
+include binding writes, all associated-resolution variants, static and dynamic
+family applications, complete callable-reference family/member semantics, and
+nested associated payloads. Its narrow fingerprint module filter passed 23/23
+(including the existing range, diagnostic, explanation, and flow invariance
+cases); the exact callable-analysis library filter passed 19/19. The regular
+semantic integration target is currently blocked at compile time by the inherited stale
+`local_len()` call in `tests/semantic/integration/canonical_image.rs:203` after
+the enum-requirement owner became a frozen-vector wrapper. To keep PATCH0 scoped,
+the fingerprint module was compiled through a temporary target/harness with its
+normal incremental support module; the temporary files and Cargo entry were
+removed after the 23/23 run.
+
+The PATCH0 implementation is committed as
+`8284893769d121dc2fe33ed0c866a402ff48bd35`.
+
+The artifact callable-analysis baseline remains 4/9 passing with the same five
+inherited failures: `associated_family_capture_round_trips_subset_and_optional_targets`,
+`callable_analysis_status_is_preserved_by_semantic_world_codec`,
+`callable_flow_graph_round_trips_owner_local_nodes_edges_and_entry_exit`, and
+`explicit_dynamic_call_argument_round_trips_without_a_type_node` fail with
+`Allocation(UnaccountedBoundary)`; `behavioral_family_capture_round_trips_conditional_and_unconditional_targets`
+fails conditional-dispatch implementation-member-authority validation. No
+artifact or allocation code changed. PATCH0 is COMPLETE / IMPLEMENTED /
+FOCUSED_TESTED, and PATCH1's `PATCH0_callable_fingerprint` prerequisite is
+SATISFIED; PATCH1 remains otherwise unstarted. P7 remains IN_PROGRESS / PARTIAL /
+UNVERIFIED and P8 remains blocked.
+
 ## 0. Checkpoint state
 
 ```yaml
@@ -424,12 +453,19 @@ not change iteration analysis and the three graph-construction tests passed.
 - P7 StaticApplication owner/transport continuation (2026-10-15): the user
   confirmed `CheckedStaticBody` as the sole owner; no copy into
   `CallableAnalysis` is authorized. Live code already retains rows under
-  `StaticBodyId + ordinal`. A bounded architecture comparison found two routes:
-  restore source expression records with relocation, or add portable
-  owner-held row/operand references. It recommends the portable form when
-  source expression products are not restored. This comparison is guidance,
-  not a new Level 2 architecture ruling; preserve fail-closed guards until the
-  checked row and operational operand mapping are cross-validated.
+  `StaticBodyId + ordinal`. The consulted adviser recommended an owner-nested
+  portable checked-body record containing the operational template and rows,
+  with op application ordinals and explicit per-operand index/parameter/kind
+  metadata. Kinded terms use relocated type refs; nested kinded applications
+  use child ordinals; value operands use checked row positions. The imported
+  owner product carries no source `ExpressionId`. Preserve the source range as
+  provenance, the exact checked signature/domain facts, and validate target,
+  signature shape, ordinal uniqueness, argument mapping, nested-child identity,
+  and denotation lookup before publication. Since canonical static-definition
+  target authority is not yet persisted, treat the checked row signature as
+  captured authority and do not claim a fresh target-signature lookup. Retain
+  denotation/export/import fail-closed guards until the required consumer and
+  focused discriminators exist.
 
 - P4 prerequisite resumption (2026-10-13): user authorized resuming the
   previously stopped P4 PR-B/schema and canonical RuntimePublic metadata work
