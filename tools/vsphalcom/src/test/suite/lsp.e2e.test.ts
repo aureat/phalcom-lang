@@ -84,6 +84,13 @@ suite('Phalcom LSP extension E2E', function () {
                 vscode.ConfigurationTarget.Global
             );
 
+        // An open .ph editor alone is not evidence that the language client
+        // has completed its asynchronous extension activation.
+        const extension = vscode.extensions.getExtension('Phalcom.vsphalcom');
+        assert.ok(extension, 'Phalcom VS Code extension is not installed');
+        await extension.activate();
+        await vscode.commands.executeCommand('phalcom.restartLanguageServer');
+
         tempDir = fs.mkdtempSync(
             path.join(os.tmpdir(), 'vsphalcom-e2e-')
         );
