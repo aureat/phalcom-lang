@@ -1310,15 +1310,7 @@ impl ProgramAnalyzer {
                 }
                 let linker = ModuleLinker::new(universe.clone(), interfaces);
                 let runtime_modules = BTreeSet::from([entry_id.clone()]);
-                let (linked, semantic) = link_analyze_finalize(
-                    &linker,
-                    entry_id.clone(),
-                    &resolved,
-                    &sources,
-                    &runtime_modules,
-                    0,
-                    semantic_session,
-                )?;
+                let (linked, semantic) = link_analyze_finalize(&linker, entry_id.clone(), &resolved, &sources, &runtime_modules, 0, semantic_session)?;
 
                 Ok(AnalyzedProgram {
                     project_universe: universe,
