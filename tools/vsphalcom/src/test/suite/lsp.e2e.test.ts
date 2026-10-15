@@ -21,6 +21,43 @@ function lspBinary(): string {
     );
 }
 
+interface AnalysisPublicationStatus {
+    phase?: string;
+    complete?: boolean;
+    generation?: number;
+    analyzedFiles?: number;
+    message?: string;
+}
+
+async function analysisStatus(): Promise<AnalysisPublicationStatus | undefined> {
+    return vscode.commands.executeCommand<AnalysisPublicationStatus>('phalcom.inspectAnalysisStatus');
+}
+
+/**
+ * The first source update starts a cold compiler-owned Universe session in the
+ * debug language server. Wait for publication explicitly: a live LSP client
+ * and syntax-word completions do not imply a canonical semantic snapshot.
+ * This is a correctness gate, not an assertion on compiler startup latency.
+ */
+async function awaitSemanticPublication(previousGeneration: number, document: vscode.TextDocument): Promise<number> {
+    const deadline = Date.now() + 180_000;
+    let last: AnalysisPublicationStatus | undefined;
+    while (Date.now() < deadline) {
+        last = await analysisStatus();
+        if (last?.phase === 'error') {
+            assert.fail(`Phalcom analysis failed: ${JSON.stringify(last)}`);
+        }
+        if (last?.phase === 'ready' && last.complete && last.generation !== undefined
+            && last.generation > previousGeneration && (last.analyzedFiles ?? 0) > 0) {
+            return last.generation;
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    assert.fail(
+        `Canonical semantic publication never completed for ${document.uri}: ${JSON.stringify({ status: last, diagnostics: vscode.languages.getDiagnostics(document.uri).map(diagnostic => diagnostic.message) })}`
+    );
+}
+
 async function completionLabels(
     document: vscode.TextDocument,
     receiverNeedle: string,
@@ -61,7 +98,7 @@ async function completionLabels(
 suite('Phalcom LSP extension E2E', function () {
     // Completion probes deliberately poll for semantic publication; Mocha's
     // default two-second limit expires before this contract can be observed.
-    this.timeout(90_000);
+    this.timeout(240_000);
     let tempDir: string;
 
     suiteSetup(async () => {
@@ -131,9 +168,11 @@ suite('Phalcom LSP extension E2E', function () {
             const file = path.join(tempDir, 'completion.ph');
             fs.writeFileSync(file, source);
 
+            const previousGeneration = (await analysisStatus())?.generation ?? -1;
             const document =
                 await vscode.workspace.openTextDocument(file);
             await vscode.window.showTextDocument(document);
+            await awaitSemanticPublication(previousGeneration, document);
 
             const labels =
                 await completionLabels(
@@ -169,10 +208,12 @@ suite('Phalcom LSP extension E2E', function () {
                 ].join('\n')
             );
 
+            const previousGeneration = (await analysisStatus())?.generation ?? -1;
             const document =
                 await vscode.workspace.openTextDocument(file);
             const editor =
                 await vscode.window.showTextDocument(document);
+            await awaitSemanticPublication(previousGeneration, document);
 
             let labels =
                 await completionLabels(
@@ -201,10 +242,12 @@ suite('Phalcom LSP extension E2E', function () {
                 )
             );
 
+            const beforeEditGeneration = (await analysisStatus())?.generation ?? -1;
             const applied = await editor.edit(edit => {
                 edit.replace(fullRange, replacement);
             });
             assert.ok(applied, 'VS Code rejected live-edit replacement');
+            await awaitSemanticPublication(beforeEditGeneration, document);
 
             labels =
                 await completionLabels(
