@@ -477,7 +477,7 @@ pub struct ContextualRealizationLoweringSpec {
 pub enum ContextualRealizationOperationLowering {
     Basis {
         basis_construction: Arc<DataConstructionLoweringSpec>,
-        coefficient: phalcom_semantic::checker::analysis::RealizationCoefficientSource,
+        coefficient: Box<phalcom_semantic::checker::analysis::RealizationCoefficientSource>,
         evaluation: phalcom_semantic::checker::analysis::RealizationEvaluationPlan,
         coefficient_receiver: Option<ContextualClassReceiver>,
         coefficient_one: Option<Box<ForIterationRequirementSpec>>,
@@ -3355,7 +3355,7 @@ fn project_contextual_realization(
             };
             ContextualRealizationOperationLowering::Basis {
                 basis_construction,
-                coefficient: coefficient.clone(),
+                coefficient: Box::new(coefficient.clone()),
                 evaluation: evaluation.clone(),
                 coefficient_receiver,
                 coefficient_one: coefficient_one.map(Box::new),
