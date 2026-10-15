@@ -425,7 +425,7 @@ pub type SemanticWorkspaceUpdate = SemanticWorkspacePublication;
 pub enum SemanticUpdateFailure {
     Cancelled,
     BudgetExceeded(BudgetReport),
-    Blocked(BlockReason),
+    Blocked(Box<BlockReason>),
     Failed(String),
 }
 
@@ -434,7 +434,7 @@ impl From<QueryOutcome<()>> for SemanticUpdateFailure {
         match outcome {
             QueryOutcome::Cancelled => Self::Cancelled,
             QueryOutcome::BudgetExceeded(report) => Self::BudgetExceeded(report),
-            QueryOutcome::Blocked(reason) => Self::Blocked(reason),
+            QueryOutcome::Blocked(reason) => Self::Blocked(Box::new(reason)),
             QueryOutcome::Failed(failure) => Self::Failed(failure),
             QueryOutcome::Ready(()) => Self::Failed("unexpected ready outcome in semantic error path".to_string()),
         }
