@@ -1,5 +1,8 @@
 # IMPLEMENTATION INCIDENT
 
+> **Disposition — 2026-10-15:** Architectural consultation **DECIDED** by [PERF003.C2.P7-allocation-materialization-architecture-ruling-2026-10-15.md](PERF003.C2.P7-allocation-materialization-architecture-ruling-2026-10-15.md). The approved approach is budget-aware, immutable ordered materialization plus bounded scratch, preserving exact cumulative allocator-requested-byte accounting and independent section limits. This resolves the decision request in §14, **not** the implementation or verification failure: R1/R7 and P7 remain **IN_PROGRESS / PARTIAL / UNVERIFIED**. Do not claim native-map allocations accounted before the representation and its tests are implemented.
+
+
 ## 1. Identity
 
 - Program: `PERF003`
