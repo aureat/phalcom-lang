@@ -4253,7 +4253,12 @@ impl SemanticWorkspaceSession {
                     let Some(callable_id) = crate::checker::declaration_signature::callable_id_for_member(&decl_id, member) else {
                         continue;
                     };
-                    if previous_snapshot.is_some() && !callable_signature_work.contains(&callable_id) {
+                    // A previous snapshot does not prove that this callable already
+                    // had a signature: newly imported or newly accepted owners
+                    // can enter the structural set during an incremental update.
+                    // Skip only when the current canonical projection actually
+                    // retains the signature; otherwise publish from source.
+                    if previous_snapshot.is_some() && !callable_signature_work.contains(&callable_id) && callable_signatures.get(&callable_id).is_some() {
                         continue;
                     }
                     let annotations = callable_type_annotations(member);
@@ -5641,7 +5646,10 @@ impl SemanticWorkspaceSession {
                         callable_definitions.insert(definition.callable.clone(), definition.clone());
                         let _ = query_callable_definition(&mut self.db, Arc::new(definition.clone()));
                         let callable_id = definition.callable.clone();
-                        if previous_snapshot.is_some() && !callable_signature_work.contains(&callable_id) {
+                        // Freshly accepted inherent definitions must publish their
+                        // signatures even when this module has an older snapshot.
+                        // Worklist absence alone is not proof of a retained product.
+                        if previous_snapshot.is_some() && !callable_signature_work.contains(&callable_id) && callable_signatures.get(&callable_id).is_some() {
                             continue;
                         }
                         let (impl_id, source_member_index) = match &definition.origin {
