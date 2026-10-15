@@ -1467,10 +1467,17 @@ impl LanguageServer for Backend {
     }
 
     /// Refreshes closed-file contributions for watched `.ph` changes.
+    ///
+    /// An open document's live buffer is authoritative. Filesystem watcher
+    /// traffic for that URI must not supersede, cancel, or remove its pending
+    /// semantic publication; close handling explicitly refreshes disk state.
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         let mut removals = Vec::new();
         let mut refreshes = Vec::new();
         for change in params.changes {
+            if self.documents.snapshot(&change.uri).is_some() {
+                continue;
+            }
             if change.typ == FileChangeType::DELETED {
                 self.closed_sources.write().expect("closed source cache lock poisoned").remove(&change.uri);
                 removals.push(change.uri.clone());
