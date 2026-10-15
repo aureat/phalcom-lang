@@ -265,6 +265,8 @@ export function activate(context: ExtensionContext) {
     context.subscriptions.push(commands.registerCommand("phalcom.showAnalysisStatus", async () => {
         await statusBarController?.showStatusPopover()
     }))
+    // Read-only analysis observability for external editor tests and tooling.
+    context.subscriptions.push(commands.registerCommand("phalcom.inspectAnalysisStatus", () => statusBarController?.getLastStatus()))
     context.subscriptions.push(workspace.onDidChangeConfiguration(async event => {
         if (event.affectsConfiguration("phalcom.lsp.enabled") || event.affectsConfiguration("phalcom.lsp.serverPath")) {
             await restartLspClient(context)
