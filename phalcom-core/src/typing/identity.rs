@@ -31,7 +31,7 @@ struct Comparison<'a> {
 
 #[derive(PartialEq, Eq)]
 enum Shape {
-    Metadata(TypeNode),
+    Metadata(Box<TypeNode>),
     RuntimeNominal(crate::heap::ClassId),
     RuntimeSpecial(Box<str>),
     RuntimeSelf(Option<crate::heap::ClassId>),
@@ -83,7 +83,9 @@ impl Comparison<'_> {
             }
             let Some(left) = self.project(left_type) else { return false };
             let Some(right) = self.project(right_type) else { return false };
-            if matches!(left.shape, Shape::Metadata(TypeNode::Union(_))) || matches!(right.shape, Shape::Metadata(TypeNode::Union(_))) {
+            if matches!(&left.shape, Shape::Metadata(form) if matches!(form.as_ref(), TypeNode::Union(_)))
+                || matches!(&right.shape, Shape::Metadata(form) if matches!(form.as_ref(), TypeNode::Union(_)))
+            {
                 let Some(left) = self.union_members(left_type) else { return false };
                 let Some(right) = self.union_members(right_type) else { return false };
                 if left.len() != right.len() || !left.iter().all(|&left| right.iter().any(|&right| self.types(left, right))) {
@@ -120,8 +122,11 @@ impl Comparison<'_> {
             }
             let node = self.project(ty)?;
             match node.shape {
-                Shape::Metadata(TypeNode::Union(_)) => pending.extend(node.children),
-                Shape::Metadata(TypeNode::Never) => {}
+                Shape::Metadata(form) => match form.as_ref() {
+                    TypeNode::Union(_) => pending.extend(node.children),
+                    TypeNode::Never => {}
+                    _ => members.push(ty),
+                },
                 _ => members.push(ty),
             }
         }
@@ -270,7 +275,7 @@ impl Comparison<'_> {
         // `form` preserves every non-edge field (including stable declaration,
         // parameter/requirement identity, labels, presence, and static values).
         Some(Projection {
-            shape: Shape::Metadata(form),
+            shape: Shape::Metadata(Box::new(form)),
             children,
             kinds,
             scoped,
@@ -440,8 +445,7 @@ fn map_type_children(form: &mut TypeNode, mut map: impl FnMut(&mut TypeNodeId)) 
                     map(key_type);
                     map(value_type);
                 }
-                phalcom_type_meta::type_node::GeneralRecordTailRef::Closed
-                | phalcom_type_meta::type_node::GeneralRecordTailRef::Parameter(_) => {}
+                phalcom_type_meta::type_node::GeneralRecordTailRef::Closed | phalcom_type_meta::type_node::GeneralRecordTailRef::Parameter(_) => {}
             }
         }
         TypeNode::Callable(callable) => {
@@ -544,8 +548,7 @@ fn map_static_arguments(arguments: &mut [StaticArgumentRef], map: &mut impl FnMu
                         map(key_type);
                         map(value_type);
                     }
-                    phalcom_type_meta::type_node::GeneralRecordTailRef::Closed
-                    | phalcom_type_meta::type_node::GeneralRecordTailRef::Parameter(_) => {}
+                    phalcom_type_meta::type_node::GeneralRecordTailRef::Closed | phalcom_type_meta::type_node::GeneralRecordTailRef::Parameter(_) => {}
                 }
             }
             StaticArgumentRef::DynamicType => {}

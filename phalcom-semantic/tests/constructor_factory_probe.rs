@@ -314,7 +314,9 @@ dog.speak()
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let snapshot = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed").snapshot;
+    let snapshot = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program))
+        .expect("semantic test analysis should succeed")
+        .snapshot;
 
     let animal = DeclarationId::new(module.clone(), "Animal".into());
     let speak = CallableId::new(animal, Selector::method("speak", Vec::new()).unwrap(), DispatchSide::Instance);
@@ -339,7 +341,9 @@ class Service {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let snapshot = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed").snapshot;
+    let snapshot = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program))
+        .expect("semantic test analysis should succeed")
+        .snapshot;
     let service = DeclarationId::new(module.clone(), "Service".into());
     let compute = CallableId::new(
         service,
@@ -448,7 +452,8 @@ fn native_callable_presentation_is_compiler_owned() {
         ModuleId::universe_root(),
         Arc::from("class Probe {}\n"),
         Arc::new(phalcom_ast::parse("class Probe {}\n", 0).program),
-    ).expect("semantic test analysis should succeed")
+    )
+    .expect("semantic test analysis should succeed")
     .snapshot;
     let callable = CallableId::new(
         phalcom_semantic::core_surface::universe_declaration(UniverseKey::Bool),

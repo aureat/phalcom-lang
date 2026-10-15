@@ -34,10 +34,7 @@ pub struct StaticCycle {
 
 impl StaticCycle {
     pub fn new(applications: Box<[StaticCycleFrame]>, cycle_start: u32) -> Self {
-        Self {
-            applications,
-            cycle_start,
-        }
+        Self { applications, cycle_start }
     }
 
     pub fn empty() -> Self {
@@ -103,7 +100,12 @@ impl StaticTrustedBranchContext {
         constraints: impl IntoIterator<Item = CanonicalStaticProofFact>,
     ) -> Self {
         use std::collections::{BTreeMap, BTreeSet};
-        let type_bindings = type_bindings.into_iter().collect::<BTreeMap<_, _>>().into_iter().collect::<Vec<_>>().into_boxed_slice();
+        let type_bindings = type_bindings
+            .into_iter()
+            .collect::<BTreeMap<_, _>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
         let constraints = constraints
             .into_iter()
             .map(|fact| match fact {
@@ -129,10 +131,7 @@ impl StaticTrustedBranchContext {
         self.type_bindings.is_empty() && self.constraints.is_empty()
     }
 
-    pub(crate) fn overlay_branch_proofs<'a>(
-        &self,
-        environments: impl IntoIterator<Item = &'a crate::match_semantics::BranchProofEnvironment>,
-    ) -> Self {
+    pub(crate) fn overlay_branch_proofs<'a>(&self, environments: impl IntoIterator<Item = &'a crate::match_semantics::BranchProofEnvironment>) -> Self {
         use std::collections::{BTreeMap, BTreeSet};
 
         let mut types: BTreeMap<_, _> = self.type_bindings.iter().copied().collect();
@@ -409,9 +408,7 @@ impl StaticSpecializationEnvironmentKey {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.argument_bindings.is_empty()
-            && self.type_bindings.is_empty()
-            && self.constraints.is_empty()
+        self.argument_bindings.is_empty() && self.type_bindings.is_empty() && self.constraints.is_empty()
     }
 
     /// Strict merge of two environments at the same composition layer.
@@ -482,11 +479,7 @@ impl StaticSpecializationEnvironmentKey {
                 }
             }
         }
-        Self::normalized(
-            self.argument_bindings.iter().cloned(),
-            bindings,
-            constraints,
-        )
+        Self::normalized(self.argument_bindings.iter().cloned(), bindings, constraints)
     }
 
     /// Projects caller-supplied branch propositions into a normalized key.
@@ -534,15 +527,13 @@ impl StaticSpecializationEnvironmentKey {
         budget: &mut crate::types::outcome::QueryBudget,
         cancellation: &crate::db::CancellationToken,
     ) -> Result<Self, StaticSpecializationEnvironmentError> {
-        use std::collections::{BTreeMap, BTreeSet, HashMap};
         use crate::types::substitution::TypeSubstitution;
+        use std::collections::{BTreeMap, BTreeSet, HashMap};
 
         if cancellation.is_cancelled() {
             return Err(StaticSpecializationEnvironmentError::Cancelled);
         }
-        budget
-            .charge_step()
-            .map_err(StaticSpecializationEnvironmentError::BudgetExceeded)?;
+        budget.charge_step().map_err(StaticSpecializationEnvironmentError::BudgetExceeded)?;
 
         // 1. Gather all type bindings from supplied and captured to build substitution closure
         let mut raw_subst_map: HashMap<TypeParameterId, TypeId> = HashMap::new();
@@ -553,18 +544,14 @@ impl StaticSpecializationEnvironmentKey {
         // Compute the transitive closure. The pass bound is derived from the
         // number of bindings; recursive type growth fails closed instead of
         // publishing a partially closed substitution.
-        let resolved_subst_map = close_substitution_map(
-            raw_subst_map,
-            types,
-            Some(budget),
-            Some(cancellation),
-        )?;
+        let resolved_subst_map = close_substitution_map(raw_subst_map, types, Some(budget), Some(cancellation))?;
         let subst = TypeSubstitution::from_bindings(resolved_subst_map);
 
         // 2. Substitute through type bindings and check conflicts
         let mut final_types = BTreeMap::new();
         for (param, ty) in &self.type_bindings {
-            let substituted = subst.try_apply(types, *ty)
+            let substituted = subst
+                .try_apply(types, *ty)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
             if let Some(&existing) = final_types.get(param) {
                 if existing != substituted {
@@ -575,7 +562,8 @@ impl StaticSpecializationEnvironmentKey {
             }
         }
         for (param, ty) in &supplied.type_bindings {
-            let substituted = subst.try_apply(types, *ty)
+            let substituted = subst
+                .try_apply(types, *ty)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
             if let Some(&existing) = final_types.get(param) {
                 if existing != substituted {
@@ -591,7 +579,8 @@ impl StaticSpecializationEnvironmentKey {
         for (param, arg) in &self.argument_bindings {
             let substituted_arg = match arg {
                 StaticSpecializationArgument::Kinded(k) => {
-                    let substituted = subst.try_apply(types, *k)
+                    let substituted = subst
+                        .try_apply(types, *k)
                         .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                     StaticSpecializationArgument::Kinded(substituted)
                 }
@@ -602,7 +591,8 @@ impl StaticSpecializationEnvironmentKey {
         for (param, arg) in &supplied.argument_bindings {
             let substituted_arg = match arg {
                 StaticSpecializationArgument::Kinded(k) => {
-                    let substituted = subst.try_apply(types, *k)
+                    let substituted = subst
+                        .try_apply(types, *k)
                         .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                     StaticSpecializationArgument::Kinded(substituted)
                 }
@@ -622,19 +612,26 @@ impl StaticSpecializationEnvironmentKey {
         for fact in self.constraints.iter().chain(supplied.constraints.iter()) {
             match fact {
                 CanonicalStaticProofFact::Equal(t1, t2) => {
-                    let sub_t1 = subst.try_apply(types, *t1)
+                    let sub_t1 = subst
+                        .try_apply(types, *t1)
                         .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
-                    let sub_t2 = subst.try_apply(types, *t2)
+                    let sub_t2 = subst
+                        .try_apply(types, *t2)
                         .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                     let (min, max) = if sub_t1 <= sub_t2 { (sub_t1, sub_t2) } else { (sub_t2, sub_t1) };
                     final_constraints.insert(CanonicalStaticProofFact::Equal(min, max));
                 }
                 CanonicalStaticProofFact::Subtype { lower, upper } => {
-                    let sub_lower = subst.try_apply(types, *lower)
+                    let sub_lower = subst
+                        .try_apply(types, *lower)
                         .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
-                    let sub_upper = subst.try_apply(types, *upper)
+                    let sub_upper = subst
+                        .try_apply(types, *upper)
                         .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
-                    final_constraints.insert(CanonicalStaticProofFact::Subtype { lower: sub_lower, upper: sub_upper });
+                    final_constraints.insert(CanonicalStaticProofFact::Subtype {
+                        lower: sub_lower,
+                        upper: sub_upper,
+                    });
                 }
                 CanonicalStaticProofFact::Conforms { key } => {
                     final_constraints.insert(CanonicalStaticProofFact::Conforms { key: key.clone() });
@@ -654,8 +651,8 @@ impl StaticSpecializationEnvironmentKey {
         &self,
         types: &mut crate::types::store::TypeStore,
     ) -> Result<crate::types::substitution::TypeSubstitution, StaticSpecializationEnvironmentError> {
-        use std::collections::HashMap;
         use crate::types::substitution::TypeSubstitution;
+        use std::collections::HashMap;
 
         let mut raw_subst_map: HashMap<TypeParameterId, TypeId> = HashMap::new();
         for (param, ty) in self.type_bindings.iter() {
@@ -681,9 +678,7 @@ fn close_substitution_map(
             return Err(StaticSpecializationEnvironmentError::Cancelled);
         }
         if let Some(budget) = budget.as_deref_mut() {
-            budget
-                .charge_step()
-                .map_err(StaticSpecializationEnvironmentError::BudgetExceeded)?;
+            budget.charge_step().map_err(StaticSpecializationEnvironmentError::BudgetExceeded)?;
         }
 
         let current_subst = TypeSubstitution::from_bindings(resolved_subst_map.clone());
@@ -797,16 +792,8 @@ mod tests {
         let val2 = values.intern_int(42);
         assert_eq!(val1, val2);
 
-        let key1 = StaticApplicationKey::new(
-            decl.clone(),
-            [StaticArgumentIdentity::Value(val1)],
-            StaticApplicationEnvironmentKey::default(),
-        );
-        let key2 = StaticApplicationKey::new(
-            decl.clone(),
-            [StaticArgumentIdentity::Value(val2)],
-            StaticApplicationEnvironmentKey::default(),
-        );
+        let key1 = StaticApplicationKey::new(decl.clone(), [StaticArgumentIdentity::Value(val1)], StaticApplicationEnvironmentKey::default());
+        let key2 = StaticApplicationKey::new(decl.clone(), [StaticArgumentIdentity::Value(val2)], StaticApplicationEnvironmentKey::default());
         assert_eq!(key1, key2, "same definition and value argument produce equal keys");
 
         let val_diff = values.intern_int(99);
@@ -823,11 +810,15 @@ mod tests {
         let t1 = TypeId(10);
         let t2 = TypeId(20);
 
-        let mut env_a = BranchProofEnvironment::default();
-        env_a.equalities = Box::new([TypeConstraint::Equal(t1, t2)]);
+        let env_a = BranchProofEnvironment {
+            equalities: Box::new([TypeConstraint::Equal(t1, t2)]),
+            ..Default::default()
+        };
 
-        let mut env_b = BranchProofEnvironment::default();
-        env_b.equalities = Box::new([TypeConstraint::Equal(t2, t1)]);
+        let env_b = BranchProofEnvironment {
+            equalities: Box::new([TypeConstraint::Equal(t2, t1)]),
+            ..Default::default()
+        };
 
         let key_a = StaticSpecializationEnvironmentKey::from_branch_proofs([&env_a]).unwrap();
         let key_b = StaticSpecializationEnvironmentKey::from_branch_proofs([&env_b]).unwrap();

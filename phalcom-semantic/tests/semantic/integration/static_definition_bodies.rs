@@ -1234,7 +1234,10 @@ fn provider_const_value_change_invalidates_importing_constant() {
     let second = session.update(second_input).expect("second update should succeed").snapshot;
     let second_prod = second.static_constant(&const_id).cloned().expect("second ConsumerValue");
     assert!(second_prod.is_successful());
-    assert!(!Arc::ptr_eq(&first_prod, &second_prod), "ConsumerValue must be invalidated when provider base value changes");
+    assert!(
+        !Arc::ptr_eq(&first_prod, &second_prod),
+        "ConsumerValue must be invalidated when provider base value changes"
+    );
     let val2 = second.static_values().get(second_prod.value().unwrap()).unwrap();
     assert_eq!(val2, &StaticValueData::Int(StaticInt::Small(21)));
 
@@ -1245,7 +1248,11 @@ fn provider_const_value_change_invalidates_importing_constant() {
     assert!(third_prod.is_successful());
     let val3 = third.static_values().get(third_prod.value().unwrap()).unwrap();
     assert_eq!(val3, &StaticValueData::Int(StaticInt::Small(21)));
-    assert_eq!(second_prod.value().unwrap(), third_prod.value().unwrap(), "same canonical value retains value identity");
+    assert_eq!(
+        second_prod.value().unwrap(),
+        third_prod.value().unwrap(),
+        "same canonical value retains value identity"
+    );
 }
 
 #[test]
@@ -1308,7 +1315,10 @@ fn static_for_requires_its_checked_iteration_mode() {
         .values_mut()
         .next()
         .expect("checked iteration lane");
-    assert!(matches!(lane.mode, phalcom_semantic::checker::static_iteration::StaticIterationMode::OrderedProductValues { .. }));
+    assert!(matches!(
+        lane.mode,
+        phalcom_semantic::checker::static_iteration::StaticIterationMode::OrderedProductValues { .. }
+    ));
     lane.mode = phalcom_semantic::checker::static_iteration::StaticIterationMode::UnorderedProductFields;
 
     let mut values = StaticValueStore::new();
@@ -1320,7 +1330,10 @@ fn static_for_requires_its_checked_iteration_mode() {
         )
         .evaluate();
     assert!(
-        matches!(outcome, StaticEvalOutcome::Invalid(phalcom_semantic::static_eval::StaticEvalError::UnsupportedExpression)),
+        matches!(
+            outcome,
+            StaticEvalOutcome::Invalid(phalcom_semantic::static_eval::StaticEvalError::UnsupportedExpression)
+        ),
         "evaluator must reject a value incompatible with the checked lane mode: {outcome:?}"
     );
 }
@@ -1340,9 +1353,16 @@ fn static_for_visits_fixed_record_fields_without_enumerating_an_open_tail() {
         .static_definition(&fixture.decl("main", "FixedCount"))
         .and_then(|definition| definition.checked_body.as_ref())
         .expect("checked static for body");
-    assert!(checked.diagnostics.is_empty(), "static fixed-field iteration should check: {:?}", checked.diagnostics);
     assert!(
-        checked.static_iteration_lanes.values().any(|lane| matches!(lane.mode, phalcom_semantic::checker::static_iteration::StaticIterationMode::UnorderedProductFields)),
+        checked.diagnostics.is_empty(),
+        "static fixed-field iteration should check: {:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.static_iteration_lanes.values().any(|lane| matches!(
+            lane.mode,
+            phalcom_semantic::checker::static_iteration::StaticIterationMode::UnorderedProductFields
+        )),
         "checked static iteration must retain unordered fixed-field authority: {:?}",
         checked.static_iteration_lanes
     );
@@ -1357,7 +1377,10 @@ fn static_for_visits_fixed_record_fields_without_enumerating_an_open_tail() {
     let StaticEvalOutcome::Reduced(value) = outcome else {
         panic!("fixed fields must remain iterable despite the anonymous tail: {outcome:?}");
     };
-    assert_eq!(values.get(value).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(2)));
+    assert_eq!(
+        values.get(value).unwrap(),
+        &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(2))
+    );
 }
 
 #[test]
@@ -1536,7 +1559,7 @@ type ConformsMarkerFalse: Bool = Conforms<String, MarkerTrait>
     assert_eq!(evaluate_int("ForEmpty"), 0);
 
     // Proof predicate tests
-    assert_eq!(evaluate_bool("EquivTrue"), true);
+    assert!(evaluate_bool("EquivTrue"));
     let equiv_false = fixture
         .analysis
         .snapshot
@@ -1558,8 +1581,8 @@ type ConformsMarkerFalse: Bool = Conforms<String, MarkerTrait>
         matches!(equiv_false_outcome, StaticEvalOutcome::Symbolic(_)),
         "failure to prove type equivalence must remain symbolic, got {equiv_false_outcome:?}"
     );
-    assert_eq!(evaluate_bool("SubtypeTrue"), true);
-    assert_eq!(evaluate_bool("SubtypeFalse"), false);
-    assert_eq!(evaluate_bool("ConformsMarkerTrue"), true);
-    assert_eq!(evaluate_bool("ConformsMarkerFalse"), false);
+    assert!(evaluate_bool("SubtypeTrue"));
+    assert!(!evaluate_bool("SubtypeFalse"));
+    assert!(evaluate_bool("ConformsMarkerTrue"));
+    assert!(!evaluate_bool("ConformsMarkerFalse"));
 }

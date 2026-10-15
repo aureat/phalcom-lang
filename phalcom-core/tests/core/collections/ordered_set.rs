@@ -46,7 +46,10 @@ let passed = sizeTwo and containsFirst and containsSecond and containsDuplicate 
     let (vm, module) = vm_support::run_inline(source).expect("OrderedSet collision source compiles and runs");
     let passed_symbol = vm.interner.find("passed").expect("result is interned");
     let passed = vm.heap.module(module).get(passed_symbol).expect("source publishes its result");
-    assert!(as_bool(passed), "OrderedSet preserves distinct colliding elements and deduplicates identical elements");
+    assert!(
+        as_bool(passed),
+        "OrderedSet preserves distinct colliding elements and deduplicates identical elements"
+    );
 }
 
 #[test]

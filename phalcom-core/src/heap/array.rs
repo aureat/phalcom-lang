@@ -19,10 +19,7 @@ pub struct ArrayObject {
 impl ArrayObject {
     /// Builds an array from an existing boxed slice.
     pub fn new(elements: Box<[Value]>) -> Self {
-        Self {
-            elements,
-            frozen: false,
-        }
+        Self { elements, frozen: false }
     }
 
     /// Builds an array from an owned `Vec<Value>`.
@@ -94,9 +91,7 @@ pub struct ArrayLiteralBuilderObject {
 
 impl ArrayLiteralBuilderObject {
     pub fn new() -> Self {
-        Self {
-            elements: Vec::new(),
-        }
+        Self { elements: Vec::new() }
     }
 
     pub fn push(&mut self, value: Value) {

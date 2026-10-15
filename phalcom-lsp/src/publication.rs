@@ -37,10 +37,15 @@ impl SemanticPublicationHandle {
         let Some(snapshot) = self.publication.load() else {
             return false;
         };
-        let Some(module) = snapshot.module_for_display_path(path) else {
+        let canonical = phalcom_modules::source::canonicalize_path(path);
+        let module = snapshot.module_for_display_path(&canonical).cloned().or_else(|| {
+            let source = phalcom_modules::SourceId(canonical.to_string_lossy().into());
+            snapshot.module_for_source(&source).cloned()
+        });
+        let Some(module) = module else {
             return false;
         };
-        snapshot.sources.get(module).is_some_and(|source| source.text.as_ref() == text)
+        snapshot.sources.get(&module).is_some_and(|source| source.text.as_ref() == text)
     }
 
     /// Returns the immutable canonical snapshot currently visible to LSP

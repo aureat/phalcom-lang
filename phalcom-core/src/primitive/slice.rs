@@ -32,7 +32,7 @@ pub(crate) fn make_slice(vm: &mut VM, owner: &Value, args: &[Value]) -> PhResult
     })?;
     let start = normalized_bound(&args[0])?;
     let end = normalized_bound(&args[1])?;
-    let len = end.checked_sub(start).ok_or_else(|| RuntimeError::Type {
+    let len = end.checked_sub(start).ok_or(RuntimeError::Type {
         expected: "ordered normalized slice bounds",
         found: "a reversed range",
     })?;

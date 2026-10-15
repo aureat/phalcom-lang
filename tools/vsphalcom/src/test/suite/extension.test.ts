@@ -87,4 +87,75 @@ suite('Phalcom extension', () => {
         assert.strictEqual(current, finalClient)
         assert.strictEqual((current === finalClient ? replacement : undefined)?.disposeCalls, 1)
     })
+
+    test('waits for asynchronous language-client startup before restarting', async () => {
+        let finishStart: (() => void) | undefined
+        let isStarting = false
+        let stopCalls = 0
+        let disposeCalls = 0
+        const initial: LspClientLifecycleHandle = {
+            start: () => {
+                isStarting = true
+                return new Promise<void>(resolve => {
+                    finishStart = () => {
+                        isStarting = false
+                        resolve()
+                    }
+                })
+            },
+            stop: async () => {
+                assert.strictEqual(isStarting, false, 'stop must not race an in-flight start')
+                stopCalls += 1
+            },
+            dispose: () => { disposeCalls += 1 }
+        }
+        const replacement = fakeClient(async () => undefined)
+        let current: LspClientLifecycleHandle | undefined
+        let starts = 0
+        const lifecycle = createLspClientLifecycle({
+            getClient: () => current,
+            setClient: client => { current = client },
+            isEnabled: () => true,
+            start: () => starts++ === 0 ? initial : replacement,
+            log: () => undefined
+        })
+        const firstStart = lifecycle.startIfEnabled()
+        await Promise.resolve()
+        await Promise.resolve()
+        assert.ok(finishStart, 'startup must have begun')
+        const restart = lifecycle.restart()
+        assert.strictEqual(stopCalls, 0, 'restart must queue behind pending startup')
+        finishStart()
+        await Promise.all([firstStart, restart])
+        assert.strictEqual(stopCalls, 1)
+        assert.strictEqual(disposeCalls, 1)
+        assert.strictEqual(current, replacement)
+    })
+
+    test('failed asynchronous startup disposes only its client and remains retryable', async () => {
+        let disposeCalls = 0
+        const failed: LspClientLifecycleHandle = {
+            start: async () => { throw new Error('startup rejected') },
+            stop: async () => undefined,
+            dispose: () => { disposeCalls += 1 }
+        }
+        const replacement = fakeClient(async () => undefined)
+        let current: LspClientLifecycleHandle | undefined
+        let attempts = 0
+        const logs: string[] = []
+        const lifecycle = createLspClientLifecycle({
+            getClient: () => current,
+            setClient: client => { current = client },
+            isEnabled: () => true,
+            start: () => attempts++ === 0 ? failed : replacement,
+            log: message => logs.push(message)
+        })
+        await assert.rejects(lifecycle.startIfEnabled(), /startup rejected/)
+        assert.strictEqual(current, undefined)
+        assert.strictEqual(disposeCalls, 1)
+        await lifecycle.startIfEnabled()
+        assert.strictEqual(current, replacement)
+        assert.strictEqual(replacement.disposeCalls, 0)
+        assert.ok(logs.some(message => message.includes('startup rejected')))
+    })
 })

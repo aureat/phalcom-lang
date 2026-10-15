@@ -30,6 +30,7 @@ Program {
                             visibility_range: None,
                             implementation: Phalcom,
                             implementation_range: None,
+                            is_primitive: false,
                             return_annotation: None,
                             where_clause: None,
                             body: Block(
@@ -84,6 +85,7 @@ Program {
                 invariants: [],
                 implementation: Phalcom,
                 implementation_range: None,
+                is_primitive: false,
                 range: CopyRange {
                     start: 0,
                     end: 48,

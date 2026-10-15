@@ -72,7 +72,11 @@ fn input(module: ModuleId, source: &str, generation: u64) -> phalcom_semantic::w
     ]));
     let algebra_source = include_str!("../../../../phalcom-core/core/universe/src/numbers/algebra.ph");
     let algebra_parsed = phalcom_ast::parse(algebra_source, 0);
-    assert!(algebra_parsed.errors.is_empty(), "canonical algebra module parse errors: {:#?}", algebra_parsed.errors);
+    assert!(
+        algebra_parsed.errors.is_empty(),
+        "canonical algebra module parse errors: {:#?}",
+        algebra_parsed.errors
+    );
     let algebra_program = Arc::new(algebra_parsed.program);
     let algebra_globals = phalcom_modules::interface::InterfaceBuilder::build(algebra.clone(), ModuleKind::Module, &algebra_program)
         .expect("canonical algebra interface")
@@ -127,10 +131,12 @@ fn input(module: ModuleId, source: &str, generation: u64) -> phalcom_semantic::w
         },
         linked_reads: ["BasisRealizable", "Basis", "I"]
             .into_iter()
-            .map(|name| LinkedReadSpec::Binding(SymbolId {
-                module: algebra.clone(),
-                name: name.into(),
-            }))
+            .map(|name| {
+                LinkedReadSpec::Binding(SymbolId {
+                    module: algebra.clone(),
+                    name: name.into(),
+                })
+            })
             .collect(),
         runtime_dependencies: vec![algebra.clone()],
     };
@@ -155,16 +161,13 @@ fn input(module: ModuleId, source: &str, generation: u64) -> phalcom_semantic::w
         Arc::from(algebra_source),
         algebra_program,
     ));
-    phalcom_semantic::workspace::SemanticWorkspaceInput::new(
-        linked,
-        [(algebra, algebra_unit), (module, parsed_unit)].into_iter().collect(),
-        generation,
-    )
+    phalcom_semantic::workspace::SemanticWorkspaceInput::new(linked, [(algebra, algebra_unit), (module, parsed_unit)].into_iter().collect(), generation)
 }
 
 fn update(session: &mut SemanticWorkspaceSession, module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceUpdate {
-    session.update_with_budget_and_cancel(input(module, source, generation), QueryBudget::default(), &CancellationToken::new()).unwrap_or_else(
-        |error| {
+    session
+        .update_with_budget_and_cancel(input(module, source, generation), QueryBudget::default(), &CancellationToken::new())
+        .unwrap_or_else(|error| {
             let blocked = session
                 .db()
                 .query_keys()
@@ -177,8 +180,7 @@ fn update(session: &mut SemanticWorkspaceSession, module: ModuleId, source: &str
                 })
                 .collect::<Vec<_>>();
             panic!("semantic update failed at generation {generation}: {error:?}; blocked queries={blocked:#?}\n{source}")
-        },
-    )
+        })
 }
 
 fn build_callable(module: &ModuleId) -> CallableId {
@@ -190,10 +192,7 @@ fn build_callable(module: &ModuleId) -> CallableId {
 }
 
 fn build_analysis<'a>(snapshot: &'a SemanticSnapshot, module: &ModuleId) -> &'a Arc<phalcom_semantic::checker::CallableAnalysis> {
-    snapshot
-        .callable_analyses
-        .get(&build_callable(module))
-        .expect("Probe.build analysis")
+    snapshot.callable_analyses.get(&build_callable(module)).expect("Probe.build analysis")
 }
 
 fn realization<'a>(snapshot: &'a SemanticSnapshot, module: &ModuleId, source: &str) -> Option<&'a ContextualRealization> {
@@ -251,7 +250,10 @@ fn remove_conformance_invalidates_positive_dispatch_bucket() {
     let mut session = SemanticWorkspaceSession::new();
 
     let first = update(&mut session, module.clone(), &source_with, 1);
-    assert!(realization(&first.snapshot, &module, &source_with).is_some(), "initial conformance must enable realization");
+    assert!(
+        realization(&first.snapshot, &module, &source_with).is_some(),
+        "initial conformance must enable realization"
+    );
 
     let updated = update(&mut session, module.clone(), &source_without, 2);
     assert!(
@@ -282,9 +284,7 @@ fn unrelated_conformance_keeps_realization_consumer_reusable() {
     let updated = update(&mut session, module.clone(), &source_after, 2);
     updated.snapshot.callable_analyses.get(&callable).expect("updated consumer analysis");
     assert!(
-        !updated
-            .recomputed
-            .contains(&phalcom_semantic::db::QueryKey::CallableBody(callable.clone())),
+        !updated.recomputed.contains(&phalcom_semantic::db::QueryKey::CallableBody(callable.clone())),
         "a conformance in another target-family bucket must not re-execute this consumer; recomputed={:?}",
         updated.recomputed
     );

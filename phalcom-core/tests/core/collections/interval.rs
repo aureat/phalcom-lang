@@ -129,7 +129,10 @@ let passed = isIncluded and isExcluded
     let (vm, module) = vm_support::run_inline(source).expect("T0-P5: Bound and Interval data compile and execute");
     let passed_symbol = vm.interner.find("passed").expect("result is interned");
     let passed = vm.heap.module(module).get(passed_symbol).expect("source publishes its result");
-    assert!(as_bool(passed), "T0-P5: ordinary sum and product data work with pattern matching and field access");
+    assert!(
+        as_bool(passed),
+        "T0-P5: ordinary sum and product data work with pattern matching and field access"
+    );
 }
 
 #[test]
@@ -230,4 +233,3 @@ let passed = tUnbounded and tIncluded and tExcluded
     let passed = vm.heap.module(module).get(passed_symbol).expect("source publishes its result");
     assert!(as_bool(passed), "CV-01: Bound variants and accessors satisfy specification");
 }
-

@@ -498,11 +498,11 @@ impl<'vm> Compiler<'vm> {
             unreachable!("real embedding was handled above")
         };
 
-        match (coefficient, &source) {
+        match (coefficient.as_ref(), &source) {
             (RealizationCoefficientSource::One { .. }, Expr::Imaginary { .. })
             | (RealizationCoefficientSource::IntegerLiteral { .. } | RealizationCoefficientSource::FloatLiteral { .. }, Expr::Imaginary { .. }) => {
-                if !matches!(coefficient, RealizationCoefficientSource::One { .. }) {
-                    match coefficient {
+                if !matches!(coefficient.as_ref(), RealizationCoefficientSource::One { .. }) {
+                    match coefficient.as_ref() {
                         RealizationCoefficientSource::IntegerLiteral { digits, radix } => {
                             let value = if *radix == 10 {
                                 digits.parse::<i64>().ok().map(Value::int).or_else(|| {
@@ -546,7 +546,7 @@ impl<'vm> Compiler<'vm> {
                     .ok_or_else(|| CompilerError::Message("contextual realization is missing its scalar class receiver".into()))?;
                 self.emit_contextual_class_receiver(scalar_receiver, range)?;
                 let one = coefficient_one
-                    .as_ref()
+                    .as_deref()
                     .ok_or_else(|| CompilerError::Message("contextual realization is missing its selected `One` capability".into()))?
                     .clone();
                 self.emit_contextual_capability_invocation(one, 0, range)?;
@@ -594,7 +594,7 @@ impl<'vm> Compiler<'vm> {
         }
 
         if !matches!(
-            (coefficient, evaluation),
+            (coefficient.as_ref(), evaluation),
             (
                 RealizationCoefficientSource::One { .. },
                 RealizationEvaluationPlan::MultiplicativeIdentityThenSourceBasis
@@ -1886,7 +1886,10 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::Var { value, range } => {
                 if self.lowering().is_some_and(|lowering| {
-                    lowering.associated.keys().any(|site| site.range == range && site.kind == LoweringSiteKind::AssociatedLookup)
+                    lowering
+                        .associated
+                        .keys()
+                        .any(|site| site.range == range && site.kind == LoweringSiteKind::AssociatedLookup)
                 }) {
                     return self.compile_associated_lookup_at(range);
                 }

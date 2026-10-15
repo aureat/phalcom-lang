@@ -43,10 +43,9 @@ use phalcom_type_meta::scoped_type::{
     ScopedTypeNodeEntry, ScopedTypeNodeId, TypeLambdaRef,
 };
 use phalcom_type_meta::type_node::{
-    AnonymousRecordRemainderRef, AnonymousRecordTypeRef, AnonymousTupleRemainderRef, CallableParamRef, CallableTypeRef, OpenRecordTypeRef, OpenTupleTypeRef,
-    FieldKeyRef, GeneralRecordFieldRef, GeneralRecordTailRef, GeneralRecordTypeRef, PackTypeRef, RecordFieldRef, RecordRowRef, SelfRoleRef,
-    SelfTypeRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, StructuralMemberPresenceRef, TupleElementRef, TypeNode, TypeNodeEntry,
-    TypeNodeId,
+    AnonymousRecordRemainderRef, AnonymousRecordTypeRef, AnonymousTupleRemainderRef, CallableParamRef, CallableTypeRef, FieldKeyRef, GeneralRecordFieldRef,
+    GeneralRecordTailRef, GeneralRecordTypeRef, OpenRecordTypeRef, OpenTupleTypeRef, PackTypeRef, RecordFieldRef, RecordRowRef, SelfRoleRef, SelfTypeRef,
+    StaticArgumentRef, StaticConstructorRef, StaticDataRef, StructuralMemberPresenceRef, TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -165,62 +164,6 @@ fn write_stable_callable_fingerprint(builder: &mut FingerprintBuilder, callable:
         phalcom_type_meta::identity::StableDispatchSide::Class => 2,
     });
     builder.write_str(&callable.selector);
-}
-
-#[cfg(test)]
-mod callable_owner_fingerprint_tests {
-    use super::*;
-    use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableDispatchSide, StableImplRef, StableVariantRef};
-
-    #[test]
-    fn callable_parameter_owner_fingerprints_do_not_collapse_owner_kinds() {
-        let module = StableModuleRef {
-            project: StableProjectRef::Builtin {
-                namespace: "universe".into(),
-                version: "0.1.0".into(),
-            },
-            path: Box::new([]),
-        };
-        let declaration = StableDeclarationRef {
-            module: module.clone(),
-            path: Box::new(["X".into()]),
-        };
-        let owners = [
-            StableCallableOwnerRef::Declaration(declaration.clone()),
-            StableCallableOwnerRef::Variant(StableVariantRef {
-                owner: declaration.clone(),
-                selector: "A()".into(),
-            }),
-            StableCallableOwnerRef::Variant(StableVariantRef {
-                owner: declaration,
-                selector: "B()".into(),
-            }),
-            StableCallableOwnerRef::Conformance(StableImplRef {
-                module: module.clone(),
-                local_id: 1,
-            }),
-            StableCallableOwnerRef::Conformance(StableImplRef { module, local_id: 2 }),
-        ];
-        let store = TypeStore::new();
-        let exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
-        let fingerprints: Vec<_> = owners
-            .into_iter()
-            .map(|owner| {
-                let parameter = StableTypeParameterRef {
-                    owner: StableTypeParameterOwnerRef::Callable(StableCallableRef {
-                        owner,
-                        side: StableDispatchSide::Instance,
-                        selector: "foo()".into(),
-                    }),
-                    index: 0,
-                };
-                let mut builder = FingerprintBuilder::new();
-                exporter.write_stable_parameter_fingerprint(&mut builder, &parameter);
-                builder.finish()
-            })
-            .collect();
-        assert_eq!(fingerprints.iter().collect::<std::collections::HashSet<_>>().len(), fingerprints.len());
-    }
 }
 
 /// Exporter context driving hash-consing and topological node indexing.
@@ -706,9 +649,7 @@ impl<'a> MetadataExporter<'a> {
                     crate::types::row::RecordRowTail::Parameter(parameter) => (Some(self.export_type_parameter(parameter)?), None),
                     crate::types::row::RecordRowTail::Anonymous(rem) => {
                         let rem_ref = match rem {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained { .. } => {
-                                AnonymousRecordRemainderRef::Unconstrained
-                            }
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained { .. } => AnonymousRecordRemainderRef::Unconstrained,
                             crate::types::row::AnonymousRecordRemainder::Typed { value_type, .. } => {
                                 let id = self.export_type_form(value_type)?;
                                 AnonymousRecordRemainderRef::Typed(id)
@@ -799,10 +740,22 @@ impl<'a> MetadataExporter<'a> {
         builder.write_u32(record.fields.len() as u32);
         for field in record.fields.iter() {
             match &field.key {
-                FieldKeyRef::Symbol(text) => { builder.write_u8(0); builder.write_str(text); }
-                FieldKeyRef::String(text) => { builder.write_u8(1); builder.write_str(text); }
-                FieldKeyRef::Int(value) => { builder.write_u8(2); builder.write_str(&value.to_string()); }
-                FieldKeyRef::Bool(value) => { builder.write_u8(3); builder.write_u8(u8::from(*value)); }
+                FieldKeyRef::Symbol(text) => {
+                    builder.write_u8(0);
+                    builder.write_str(text);
+                }
+                FieldKeyRef::String(text) => {
+                    builder.write_u8(1);
+                    builder.write_str(text);
+                }
+                FieldKeyRef::Int(value) => {
+                    builder.write_u8(2);
+                    builder.write_str(&value.to_string());
+                }
+                FieldKeyRef::Bool(value) => {
+                    builder.write_u8(3);
+                    builder.write_u8(u8::from(*value));
+                }
             }
             builder.write_u8(match field.presence {
                 StructuralMemberPresenceRef::Required => 0,
@@ -850,7 +803,9 @@ impl<'a> MetadataExporter<'a> {
             crate::types::row::RecordRowTail::Closed => GeneralRecordTailRef::Closed,
             crate::types::row::RecordRowTail::Parameter(parameter) => GeneralRecordTailRef::Parameter(self.export_type_parameter(parameter)?),
             crate::types::row::RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type }) => {
-                GeneralRecordTailRef::AnonymousUnconstrained { key_type: self.export_type_form(key_type)? }
+                GeneralRecordTailRef::AnonymousUnconstrained {
+                    key_type: self.export_type_form(key_type)?,
+                }
             }
             crate::types::row::RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type }) => {
                 GeneralRecordTailRef::AnonymousTyped {
@@ -860,7 +815,10 @@ impl<'a> MetadataExporter<'a> {
             }
             crate::types::row::RecordRowTail::Projection(_) => return Err(MetadataExportError::NonExportableRecordRowProjection(row_id)),
         };
-        Ok(GeneralRecordTypeRef { fields: fields.into_boxed_slice(), tail })
+        Ok(GeneralRecordTypeRef {
+            fields: fields.into_boxed_slice(),
+            tail,
+        })
     }
 
     fn write_static_domain_fingerprint(&self, builder: &mut FingerprintBuilder, domain: &StaticDomainRef) {
@@ -1132,9 +1090,7 @@ impl<'a> MetadataExporter<'a> {
                     }
                     crate::types::type_lambda::ScopedRecordTail::Anonymous(remainder) => {
                         let rem = match remainder {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained { .. } => {
-                                ScopedAnonymousRecordRemainderRef::Unconstrained
-                            }
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained { .. } => ScopedAnonymousRecordRemainderRef::Unconstrained,
                             crate::types::row::AnonymousRecordRemainder::Typed { value_type, .. } => {
                                 let node_id = self.export_scoped_type_with_binders(value_type, binder_kinds)?;
                                 ScopedAnonymousRecordRemainderRef::Typed(node_id)
@@ -1176,9 +1132,7 @@ impl<'a> MetadataExporter<'a> {
                     }
                     crate::types::type_lambda::ScopedRecordRowTail::Anonymous(remainder) => {
                         let rem = match remainder {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained { .. } => {
-                                ScopedAnonymousRecordRemainderRef::Unconstrained
-                            }
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained { .. } => ScopedAnonymousRecordRemainderRef::Unconstrained,
                             crate::types::row::AnonymousRecordRemainder::Typed { value_type, .. } => {
                                 let node_id = self.export_scoped_type_with_binders(value_type, binder_kinds)?;
                                 ScopedAnonymousRecordRemainderRef::Typed(node_id)
@@ -1739,41 +1693,39 @@ impl<'a> MetadataExporter<'a> {
                 if self.query_fingerprints {
                     TypeNode::GeneralRecord(self.export_general_record(row_id)?)
                 } else {
-                let mut field_refs = Vec::new();
-                for f in row.fields.iter() {
-                    let ty_id = self.export_type_form(f.ty)?;
-                    let presence = match f.presence {
-                        StructuralMemberPresence::Required => StructuralMemberPresenceRef::Required,
-                        StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
-                    };
-                    field_refs.push(RecordFieldRef {
-                        key: to_field_key_ref(&f.key),
-                        ty: ty_id,
-                        presence,
-                    });
-                }
-                match row.tail {
-                    crate::types::row::RecordRowTail::Closed => TypeNode::Record(field_refs.into_boxed_slice()),
-                    crate::types::row::RecordRowTail::Parameter(parameter) => TypeNode::OpenRecord(OpenRecordTypeRef {
-                        fields: field_refs.into_boxed_slice(),
-                        tail: self.export_type_parameter(parameter)?,
-                    }),
-                    crate::types::row::RecordRowTail::Anonymous(remainder) => {
-                        let rem_ref = match remainder {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained { .. } => {
-                                AnonymousRecordRemainderRef::Unconstrained
-                            }
-                            crate::types::row::AnonymousRecordRemainder::Typed { value_type, .. } => {
-                                AnonymousRecordRemainderRef::Typed(self.export_type_form(value_type)?)
-                            }
+                    let mut field_refs = Vec::new();
+                    for f in row.fields.iter() {
+                        let ty_id = self.export_type_form(f.ty)?;
+                        let presence = match f.presence {
+                            StructuralMemberPresence::Required => StructuralMemberPresenceRef::Required,
+                            StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
                         };
-                        TypeNode::AnonymousRecord(AnonymousRecordTypeRef {
-                            fields: field_refs.into_boxed_slice(),
-                            remainder: rem_ref,
-                        })
+                        field_refs.push(RecordFieldRef {
+                            key: to_field_key_ref(&f.key),
+                            ty: ty_id,
+                            presence,
+                        });
                     }
-                    crate::types::row::RecordRowTail::Projection(_) => return Err(MetadataExportError::NonExportableForm(ty)),
-                }
+                    match row.tail {
+                        crate::types::row::RecordRowTail::Closed => TypeNode::Record(field_refs.into_boxed_slice()),
+                        crate::types::row::RecordRowTail::Parameter(parameter) => TypeNode::OpenRecord(OpenRecordTypeRef {
+                            fields: field_refs.into_boxed_slice(),
+                            tail: self.export_type_parameter(parameter)?,
+                        }),
+                        crate::types::row::RecordRowTail::Anonymous(remainder) => {
+                            let rem_ref = match remainder {
+                                crate::types::row::AnonymousRecordRemainder::Unconstrained { .. } => AnonymousRecordRemainderRef::Unconstrained,
+                                crate::types::row::AnonymousRecordRemainder::Typed { value_type, .. } => {
+                                    AnonymousRecordRemainderRef::Typed(self.export_type_form(value_type)?)
+                                }
+                            };
+                            TypeNode::AnonymousRecord(AnonymousRecordTypeRef {
+                                fields: field_refs.into_boxed_slice(),
+                                remainder: rem_ref,
+                            })
+                        }
+                        crate::types::row::RecordRowTail::Projection(_) => return Err(MetadataExportError::NonExportableForm(ty)),
+                    }
                 }
             }
             TypeData::Callable(ref call) => {
@@ -2819,7 +2771,9 @@ impl<'a> MetadataExporter<'a> {
                 };
                 let val_fp = value_exporter.entries()[val_node_id.0 as usize].structural_fingerprint;
                 let stable_id = to_stable_static_constant_with_context(&product.id, &context);
-                let domain = if let Some(checked) = &product.checked && let Some(ty) = checked.result_type {
+                let domain = if let Some(checked) = &product.checked
+                    && let Some(ty) = checked.result_type
+                {
                     let type_node = self.export_type_form(ty)?;
                     phalcom_type_meta::static_value::StaticValueDomainRef::ValueType(type_node)
                 } else {
@@ -2885,5 +2839,61 @@ impl<'a> MetadataExporter<'a> {
             static_definitions: Box::new([]),
             extensions: Box::new([]),
         })
+    }
+}
+
+#[cfg(test)]
+mod callable_owner_fingerprint_tests {
+    use super::*;
+    use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableDispatchSide, StableImplRef, StableVariantRef};
+
+    #[test]
+    fn callable_parameter_owner_fingerprints_do_not_collapse_owner_kinds() {
+        let module = StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: Box::new([]),
+        };
+        let declaration = StableDeclarationRef {
+            module: module.clone(),
+            path: Box::new(["X".into()]),
+        };
+        let owners = [
+            StableCallableOwnerRef::Declaration(declaration.clone()),
+            StableCallableOwnerRef::Variant(StableVariantRef {
+                owner: declaration.clone(),
+                selector: "A()".into(),
+            }),
+            StableCallableOwnerRef::Variant(StableVariantRef {
+                owner: declaration,
+                selector: "B()".into(),
+            }),
+            StableCallableOwnerRef::Conformance(StableImplRef {
+                module: module.clone(),
+                local_id: 1,
+            }),
+            StableCallableOwnerRef::Conformance(StableImplRef { module, local_id: 2 }),
+        ];
+        let store = TypeStore::new();
+        let exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+        let fingerprints: Vec<_> = owners
+            .into_iter()
+            .map(|owner| {
+                let parameter = StableTypeParameterRef {
+                    owner: StableTypeParameterOwnerRef::Callable(StableCallableRef {
+                        owner,
+                        side: StableDispatchSide::Instance,
+                        selector: "foo()".into(),
+                    }),
+                    index: 0,
+                };
+                let mut builder = FingerprintBuilder::new();
+                exporter.write_stable_parameter_fingerprint(&mut builder, &parameter);
+                builder.finish()
+            })
+            .collect();
+        assert_eq!(fingerprints.iter().collect::<std::collections::HashSet<_>>().len(), fingerprints.len());
     }
 }

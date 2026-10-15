@@ -6263,19 +6263,10 @@ mod coordinated_row_completion_tests {
                 row(vec![("payload", string)], RecordRowTermTail::Closed),
             )],
         );
-        assert_eq!(
-            rejected.term_for_expected(&InferenceTerm::Var(variable)),
-            InferenceTerm::Canonical(string)
-        );
-        assert_eq!(
-            live.term_for_expected(&InferenceTerm::Var(variable)),
-            InferenceTerm::Var(variable)
-        );
+        assert_eq!(rejected.term_for_expected(&InferenceTerm::Var(variable)), InferenceTerm::Canonical(string));
+        assert_eq!(live.term_for_expected(&InferenceTerm::Var(variable)), InferenceTerm::Var(variable));
         assert!(!std::rc::Rc::ptr_eq(&live.rows, &rejected.rows));
-        assert!(std::rc::Rc::ptr_eq(
-            &rejected.types.row_solver.upgrade().unwrap(),
-            &rejected.rows
-        ));
+        assert!(std::rc::Rc::ptr_eq(&rejected.types.row_solver.upgrade().unwrap(), &rejected.rows));
         live.bind(variable, int, &store).unwrap();
         solve_shape_equations(
             &mut live,
@@ -6284,14 +6275,8 @@ mod coordinated_row_completion_tests {
                 row(vec![("payload", int)], RecordRowTermTail::Closed),
             )],
         );
-        assert_eq!(
-            live.term_for_expected(&InferenceTerm::Var(variable)),
-            InferenceTerm::Canonical(int)
-        );
-        assert_ne!(
-            solved_row_for(&live, frame, row_variable),
-            solved_row_for(&rejected, frame, row_variable)
-        );
+        assert_eq!(live.term_for_expected(&InferenceTerm::Var(variable)), InferenceTerm::Canonical(int));
+        assert_ne!(solved_row_for(&live, frame, row_variable), solved_row_for(&rejected, frame, row_variable));
     }
 
     fn symbol(name: &str) -> FieldKey {

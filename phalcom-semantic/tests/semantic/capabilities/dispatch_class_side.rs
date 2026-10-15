@@ -360,7 +360,11 @@ impl InstanceOnly for ClassWitness {
         .all_diagnostics()
         .filter(|diagnostic| diagnostic.code == DiagnosticCode::ImplConformanceIncomplete)
         .collect::<Vec<_>>();
-    assert_eq!(incomplete.len(), 1, "a class witness must leave the instance conformance incomplete: {incomplete:#?}");
+    assert_eq!(
+        incomplete.len(),
+        1,
+        "a class witness must leave the instance conformance incomplete: {incomplete:#?}"
+    );
     assert!(
         incomplete[0]
             .labels

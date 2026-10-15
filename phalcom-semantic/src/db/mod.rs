@@ -187,7 +187,11 @@ impl SemanticDb {
     }
 
     fn remember_last_known_good(&mut self, key: &QueryKey) {
-        if self.transaction.as_ref().is_none_or(|transaction| transaction.last_known_good.contains_key(key)) {
+        if self
+            .transaction
+            .as_ref()
+            .is_none_or(|transaction| transaction.last_known_good.contains_key(key))
+        {
             return;
         }
         let old = self.last_known_good.get(key).cloned();
@@ -614,10 +618,7 @@ impl SemanticDb {
     }
 }
 
-fn restore_query_products(
-    current: &mut BTreeMap<QueryKey, Arc<SemanticProduct>>,
-    undo: BTreeMap<QueryKey, Option<Arc<SemanticProduct>>>,
-) {
+fn restore_query_products(current: &mut BTreeMap<QueryKey, Arc<SemanticProduct>>, undo: BTreeMap<QueryKey, Option<Arc<SemanticProduct>>>) {
     for (key, old) in undo {
         match old {
             Some(product) => {

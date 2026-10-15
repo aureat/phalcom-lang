@@ -334,8 +334,8 @@ class Cart {
   total(_ item) { self.callCallback(|it| { it.missingSelector }, item) }
   callCallback(_ callback, _ item) { callback.call(item) }
 }
-const cart = Cart.new()
-const result = cart.total(1)
+let cart = Cart.new()
+let result = cart.total(1)
 ";
         let closure = vm.compile_closure(module, source).expect("compiles");
         let result = vm.run_in_module(module, closure);

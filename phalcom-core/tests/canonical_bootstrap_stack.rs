@@ -25,8 +25,8 @@ fn dependency_free_project_compiles_then_bootstraps_and_runs() {
         .name("minimal-project-canonical-bootstrap".into())
         .stack_size(8 * 1024 * 1024)
         .spawn(move || {
-            let program = ProgramCompiler::compile_entry_selection(EntrySelection::Project(project.path().to_path_buf()))
-                .expect("dependency-free project compiles");
+            let program =
+                ProgramCompiler::compile_entry_selection(EntrySelection::Project(project.path().to_path_buf())).expect("dependency-free project compiles");
             let mut vm = VM::new();
             vm.run_compiled(&program).expect("minimal project runs");
         })
@@ -34,5 +34,3 @@ fn dependency_free_project_compiles_then_bootstraps_and_runs() {
         .join()
         .expect("compile followed by VM bootstrap must not overflow the stack");
 }
-
-

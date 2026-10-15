@@ -85,9 +85,8 @@ fn match_pat_02_nested_adt_resolution_is_recursive() {
 
 #[test]
 fn match_pat_03_tuple_pattern_is_published_as_recursive_product() {
-    let case = analyze_adt(
-        "data Color { Red Green }\nclass Test { run(_ value: (Color, Color)) { match value { (Color::Red, Color::Green) => 1 _ => 0 } } }\n",
-    );
+    let case =
+        analyze_adt("data Color { Red Green }\nclass Test { run(_ value: (Color, Color)) { match value { (Color::Red, Color::Green) => 1 _ => 0 } } }\n");
     let handle = case.only_match();
     assert!(matches!(
         handle.arm(0).resolution().pattern,
@@ -97,9 +96,8 @@ fn match_pat_03_tuple_pattern_is_published_as_recursive_product() {
 
 #[test]
 fn match_pat_04_adt_payload_tuple_keeps_child_pattern() {
-    let case = analyze_adt(
-        "data Pair { Pair(_ values: (Int, String)) }\nclass Test { run(_ value: Pair) { match value { Pair::Pair((x, y)) => x _ => 0 } } }\n",
-    );
+    let case =
+        analyze_adt("data Pair { Pair(_ values: (Int, String)) }\nclass Test { run(_ value: Pair) { match value { Pair::Pair((x, y)) => x _ => 0 } } }\n");
     let handle = case.only_match();
     assert_eq!(handle.arm(0).resolution().bindings.len(), 2);
 }

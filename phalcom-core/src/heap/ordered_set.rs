@@ -26,6 +26,10 @@ impl OrderedSetObject {
         self.entries.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     pub fn bucket(&self, hash: i64) -> &[usize] {
         self.index.get(&hash).map_or(&[], Vec::as_slice)
     }

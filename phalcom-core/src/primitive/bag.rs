@@ -32,8 +32,7 @@ pub fn bag_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 #[phalcom_native_macros::primitive(Bag, "rawDistinctCount", visibility = internal)]
 pub fn bag_raw_distinct_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_bag(vm, receiver)?;
-    let count = i64::try_from(vm.heap.bag(id).distinct_count())
-        .map_err(|_| RuntimeError::NumericLimit("Bag distinct count exceeds Int range".to_string()))?;
+    let count = i64::try_from(vm.heap.bag(id).distinct_count()).map_err(|_| RuntimeError::NumericLimit("Bag distinct count exceeds Int range".to_string()))?;
     Ok(Value::int(count))
 }
 
@@ -77,11 +76,7 @@ pub fn bag_raw_adding(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
     plan.payload = normalize_bigint(new_count, &mut vm.heap);
 
     let (new_root, _) = persistent_hash::commit_insert(&mut vm.heap, plan);
-    let new_distinct = if existing_count.is_zero() {
-        distinct_count + 1
-    } else {
-        distinct_count
-    };
+    let new_distinct = if existing_count.is_zero() { distinct_count + 1 } else { distinct_count };
     let new_total = total_count + count;
     let new_bag = vm.heap.alloc_bag_with(Some(new_root), new_total, new_distinct);
     Ok(Value::obj(new_bag))

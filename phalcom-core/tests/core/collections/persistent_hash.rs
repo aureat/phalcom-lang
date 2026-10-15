@@ -4,9 +4,7 @@
 //! allocation, callback safety, error recovery, re-entrant reading, and forced GC.
 
 use phalcom_core::heap::persistent_hash::PersistentHashNode;
-use phalcom_core::primitive::persistent_hash::{
-    collect_entries, collect_keys, count_entries, insert, lookup, prepare_insert, remove,
-};
+use phalcom_core::primitive::persistent_hash::{collect_entries, collect_keys, count_entries, insert, lookup, prepare_insert, remove};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use std::collections::HashMap;

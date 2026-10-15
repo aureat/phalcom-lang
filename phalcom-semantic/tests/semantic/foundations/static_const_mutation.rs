@@ -15,17 +15,24 @@ fn module(name: &str) -> ModuleId {
 #[test]
 fn direct_static_array_subscript_and_named_replacement_are_diagnosed() {
     let main = module("main");
-    let update = SemanticWorkspaceSession::new().update(single_module_input(
-        main.clone(),
-        "const values: Array<Int> = <Int>[1, 2]\nvalues[0] = 3\nvalues.at(1, put: 4)\n",
-        1,
-    )).expect("semantic test update should succeed");
+    let update = SemanticWorkspaceSession::new()
+        .update(single_module_input(
+            main.clone(),
+            "const values: Array<Int> = <Int>[1, 2]\nvalues[0] = 3\nvalues.at(1, put: 4)\n",
+            1,
+        ))
+        .expect("semantic test update should succeed");
     let diagnostics = update.snapshot.diagnostics.get(&main).map(|items| items.as_ref()).unwrap_or_default();
     let mutations = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.code == DiagnosticCode::StaticObjectMutation)
         .collect::<Vec<_>>();
-    assert_eq!(mutations.len(), 2, "both direct mutation forms must identify const-object mutation: {:?}", update.snapshot.diagnostics);
+    assert_eq!(
+        mutations.len(),
+        2,
+        "both direct mutation forms must identify const-object mutation: {:?}",
+        update.snapshot.diagnostics
+    );
     assert!(mutations.iter().all(|diagnostic| !diagnostic.message.contains("let mut")));
 }
 
@@ -61,16 +68,21 @@ fn imported_static_array_binding_keeps_mutation_provenance() {
 #[test]
 fn ordinary_array_bindings_remain_mutable_without_const_object_diagnostics() {
     let main = module("main");
-    let update = SemanticWorkspaceSession::new().update(single_module_input(
-        main.clone(),
-        "let values: Array<Int> = <Int>[1, 2]\nvalues[0] = 3\nvalues.at(1, put: 4)\nlet mut changing: Array<Int> = <Int>[5]\nchanging[0] = 6\n",
-        1,
-    )).expect("semantic test update should succeed");
+    let update = SemanticWorkspaceSession::new()
+        .update(single_module_input(
+            main.clone(),
+            "let values: Array<Int> = <Int>[1, 2]\nvalues[0] = 3\nvalues.at(1, put: 4)\nlet mut changing: Array<Int> = <Int>[5]\nchanging[0] = 6\n",
+            1,
+        ))
+        .expect("semantic test update should succeed");
     let diagnostics = update.snapshot.diagnostics.get(&main).map(|items| items.as_ref()).unwrap_or_default();
     assert!(
         diagnostics.iter().all(|diagnostic| diagnostic.code != DiagnosticCode::StaticObjectMutation),
         "ordinary Array bindings must not be mistaken for static constants: {:?}",
         diagnostics
     );
-    assert!(!update.snapshot.has_errors(), "ordinary Array bindings retain element replacement: {diagnostics:?}");
+    assert!(
+        !update.snapshot.has_errors(),
+        "ordinary Array bindings retain element replacement: {diagnostics:?}"
+    );
 }

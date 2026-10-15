@@ -1310,15 +1310,7 @@ impl ProgramAnalyzer {
                 }
                 let linker = ModuleLinker::new(universe.clone(), interfaces);
                 let runtime_modules = BTreeSet::from([entry_id.clone()]);
-                let (linked, semantic) = link_analyze_finalize(
-                    &linker,
-                    entry_id.clone(),
-                    &resolved,
-                    &sources,
-                    &runtime_modules,
-                    0,
-                    semantic_session.as_deref_mut(),
-                )?;
+                let (linked, semantic) = link_analyze_finalize(&linker, entry_id.clone(), &resolved, &sources, &runtime_modules, 0, semantic_session)?;
 
                 Ok(AnalyzedProgram {
                     project_universe: universe,
@@ -2723,9 +2715,14 @@ mod tests {
             .iter()
             .find(|(range, recipe)| range.start >= is_none_offset && range.end <= is_none_end && recipe.callable.selector.as_ref() == "isNone")
             .expect("RangeIterator lowerOpt.isNone call recipe");
+        // Both the nominal Option parameter and its accepted implementation
+        // parameter now carry the same closed type at the call edge.
         assert!(
-            matches!(recipe.bindings.as_ref(), [(_, RuntimeTypeRecipe::Closed(_))]),
-            "RangeIterator lowerOpt.isNone must close Option.T as Number at {range:?}, got {recipe:?}"
+            matches!(
+                recipe.bindings.as_ref(),
+                [(_, RuntimeTypeRecipe::Closed(left)), (_, RuntimeTypeRecipe::Closed(right))] if left == right
+            ),
+            "RangeIterator lowerOpt.isNone must close nominal and implementation parameters consistently at {range:?}, got {recipe:?}"
         );
     }
 
@@ -2851,7 +2848,9 @@ mod tests {
                         module: owner.clone(),
                         name: "Scalar".into(),
                     },
-                    product: RuntimeRequirementProduct::RuntimeObject,
+                    // A cross-module declaration binding is materialized by
+                    // source initialization, not guaranteed at the native floor.
+                    product: RuntimeRequirementProduct::SourceInitializedValue,
                     timing: RuntimeRequirementTiming::DuringModuleInitializer,
                 },
             }

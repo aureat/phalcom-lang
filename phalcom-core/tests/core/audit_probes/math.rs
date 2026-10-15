@@ -87,7 +87,9 @@ fn assert_float_cases(cases: &[(String, f64)]) {
     }
 }
 
-const UNARY_BACKENDS: [(&str, fn(f64) -> f64); 21] = [
+type UnaryBackend = (&'static str, fn(f64) -> f64);
+
+const UNARY_BACKENDS: [UnaryBackend; 21] = [
     ("sqrt", f64::sqrt),
     ("cbrt", f64::cbrt),
     ("exp", f64::exp),
@@ -528,7 +530,8 @@ fn integer_math_keeps_existing_limits_and_divides_before_multiplying() {
         .send_dynamic(gcd, call, &[negative, Value::int(3)])
         .expect_err("gcd normalization uses ordinary checked negation");
     assert_numeric_limit(&mut vm, &error);
-    for (declarations, expression, limit) in [("", "math.isqrt(81)", 4)] {
+    {
+        let (declarations, expression, limit) = ("", "math.isqrt(81)", 4);
         let (_temp, program) = compile_package(&format!("import universe.math as math\n{declarations}let result = {expression}\n"));
         let mut vm = VM::new();
         vm.numeric_policy.max_integer_bits = Some(limit);
@@ -1021,7 +1024,8 @@ let mean = stats.mean(values.iterator)
     assert_eq!(owner.path.last().map(AsRef::as_ref), Some("Descriptive"));
 
     let mut vm = VM::new();
-    vm.run_compiled(&program).expect("public Family call executes with its selected generic evidence");
+    vm.run_compiled(&program)
+        .expect("public Family call executes with its selected generic evidence");
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
     assert_eq!(read_global(&vm, module, "mean").as_float(), Some(2.0));
 
@@ -1035,7 +1039,9 @@ let mean = stats.mean(values.iterator)
     };
     mismatched.modules.get_mut(&mismatched.entry).expect("entry module").lowering = std::sync::Arc::new(lowering);
     let mut mismatched_vm = VM::new();
-    let failure = mismatched_vm.run_compiled(&mismatched).expect_err("same-selector but wrong callable identity must fail closed");
+    let failure = mismatched_vm
+        .run_compiled(&mismatched)
+        .expect_err("same-selector but wrong callable identity must fail closed");
     assert!(
         format!("{}", runtime_error(&failure)).contains("canonical callable identity mismatch"),
         "unexpected failure: {failure}"

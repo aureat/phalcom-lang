@@ -91,23 +91,13 @@ fn query_identity_keeps_unrelated_source_revisions_out_of_type_fingerprints() {
     let project = projects.load_synthetic_root("sample", root.path(), "main").unwrap();
     let declaration = DeclarationId::new(ModuleId::resolved(project, ModulePath::root()), "R".into());
 
-    let before_artifact = phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(
-        &declaration,
-        &StableIdentityContext::new(&projects),
-    );
-    let before_query = phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(
-        &declaration,
-        &StableIdentityContext::for_query(&projects),
-    );
+    let before_artifact = phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(&declaration, &StableIdentityContext::new(&projects));
+    let before_query =
+        phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(&declaration, &StableIdentityContext::for_query(&projects));
     std::fs::write(root.path().join("main.ph"), "type R = Int\n// unrelated edit\n").unwrap();
-    let after_artifact = phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(
-        &declaration,
-        &StableIdentityContext::new(&projects),
-    );
-    let after_query = phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(
-        &declaration,
-        &StableIdentityContext::for_query(&projects),
-    );
+    let after_artifact = phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(&declaration, &StableIdentityContext::new(&projects));
+    let after_query =
+        phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(&declaration, &StableIdentityContext::for_query(&projects));
     assert_ne!(before_artifact, after_artifact);
     assert_eq!(before_query, after_query);
 }
@@ -167,8 +157,12 @@ fn query_type_projection_distinguishes_all_canonical_record_keys() {
 
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic).for_query_fingerprints();
     let expected = exporter.type_fingerprint(record).expect("generalized Record query fingerprint");
-    let only_symbol = store.record_row_type_checked(vec![RecordRowField::required(FieldKey::symbol("same"), int)], RecordRowTail::Closed).unwrap();
-    let only_string = store.record_row_type_checked(vec![RecordRowField::required(FieldKey::string("same"), int)], RecordRowTail::Closed).unwrap();
+    let only_symbol = store
+        .record_row_type_checked(vec![RecordRowField::required(FieldKey::symbol("same"), int)], RecordRowTail::Closed)
+        .unwrap();
+    let only_string = store
+        .record_row_type_checked(vec![RecordRowField::required(FieldKey::string("same"), int)], RecordRowTail::Closed)
+        .unwrap();
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic).for_query_fingerprints();
     assert_ne!(exporter.type_fingerprint(only_symbol).unwrap(), exporter.type_fingerprint(only_string).unwrap());
     assert_ne!(expected, exporter.type_fingerprint(only_symbol).unwrap());
@@ -197,16 +191,16 @@ fn query_type_projection_preserves_generalized_record_row_arguments() {
     let mut store = TypeStore::new();
     let value_type = store.nominal_type(dummy_decl("Int"));
     let row = store
-        .record_row_checked(
-            vec![RecordRowField::required(FieldKey::int(42.into()), value_type)],
-            RecordRowTail::Closed,
-        )
+        .record_row_checked(vec![RecordRowField::required(FieldKey::int(42.into()), value_type)], RecordRowTail::Closed)
         .unwrap();
     let kind = store.arrow_kind(Box::new([KindId::RECORD_ROW]), KindId::TYPE);
     let form = store.nominal_form(dummy_decl("RowBox"), kind);
     let applied = store.apply_static_form(form, &[StaticArgument::RecordRow(row)]).unwrap();
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic).for_query_fingerprints();
-    assert!(exporter.type_fingerprint(applied).is_ok(), "query identity must include the RecordRow argument's FieldKey");
+    assert!(
+        exporter.type_fingerprint(applied).is_ok(),
+        "query identity must include the RecordRow argument's FieldKey"
+    );
 }
 
 #[test]

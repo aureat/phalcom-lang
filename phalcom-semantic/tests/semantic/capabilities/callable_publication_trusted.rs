@@ -62,7 +62,9 @@ class Demo {
         let module = module_id();
         let source: Arc<str> = Arc::from(case.source);
         let program = Arc::new(phalcom_ast::parse(&source, 0).program);
-        let snapshot = analyze_single_module(module, source.clone(), program).expect("semantic test analysis should succeed").snapshot;
+        let snapshot = analyze_single_module(module, source.clone(), program)
+            .expect("semantic test analysis should succeed")
+            .snapshot;
         let analysis = demo_run(&snapshot.callable_analyses);
         let call = analysis
             .expressions
@@ -95,7 +97,9 @@ class Demo {
 "#,
     );
     let program = Arc::new(phalcom_ast::parse(&source, 0).program);
-    let snapshot = analyze_single_module(module, source.clone(), program).expect("semantic test analysis should succeed").snapshot;
+    let snapshot = analyze_single_module(module, source.clone(), program)
+        .expect("semantic test analysis should succeed")
+        .snapshot;
     let analysis = demo_run(&snapshot.callable_analyses);
     let call = analysis
         .expressions

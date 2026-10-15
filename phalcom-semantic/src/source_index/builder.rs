@@ -516,8 +516,7 @@ impl TypeReferenceTargetCollector<'_> {
                                 self.annotation(constraint, bound);
                             }
                         }
-                        phalcom_ast::ast::GenericArgumentSyntax::Value(_)
-                        | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                     }
                 }
             }
@@ -645,8 +644,7 @@ impl TypeReferenceTargetCollector<'_> {
                                 self.annotation(constraint, bound);
                             }
                         }
-                        phalcom_ast::ast::GenericArgumentSyntax::Value(_)
-                        | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                     }
                 }
             }
@@ -809,8 +807,7 @@ impl SourceScopeBuilder<'_> {
                                 self.visit_annotation_projection_targets(constraint);
                             }
                         }
-                        phalcom_ast::ast::GenericArgumentSyntax::Value(_)
-                        | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                     }
                 }
             }
@@ -1925,7 +1922,13 @@ impl SourceScopeBuilder<'_> {
             Expr::WhileLet(while_let) => {
                 let loop_scope = self.new_scope(scope, while_let.range);
                 self.visit_expr(loop_scope, &while_let.value);
-                self.declare_pattern_with_annotation(loop_scope, &while_let.pattern, SourceBindingKind::Destructure, false, while_let.annotation.is_some());
+                self.declare_pattern_with_annotation(
+                    loop_scope,
+                    &while_let.pattern,
+                    SourceBindingKind::Destructure,
+                    false,
+                    while_let.annotation.is_some(),
+                );
                 self.visit_statements(loop_scope, &while_let.body, false);
             }
             Expr::Membership(membership) => {

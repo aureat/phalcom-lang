@@ -53,7 +53,7 @@ pub enum PhError {
     ModuleInitialization(#[from] Box<ModuleInitializationError>),
 
     #[error(transparent)]
-    ProgramCompile(#[from] ProgramCompileError),
+    ProgramCompile(#[from] Box<ProgramCompileError>),
 
     #[error("{0}")]
     StringError(String),
@@ -102,6 +102,13 @@ impl PhError {
             Self::NativeOrigin { source, class, selector } => (*source, Some(NativeFrameIdentity { class, selector })),
             other => (other, None),
         }
+    }
+}
+
+// Preserve implicit ? conversion while keeping the common PhError value compact.
+impl From<ProgramCompileError> for PhError {
+    fn from(error: ProgramCompileError) -> Self {
+        Self::ProgramCompile(Box::new(error))
     }
 }
 

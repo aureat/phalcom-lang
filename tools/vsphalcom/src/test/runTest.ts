@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -13,16 +14,25 @@ async function main() {
 		// Passed to --extensionTestsPath
 		const extensionTestsPath = path.resolve(__dirname, './suite/index');
 
-		// Download VS Code, unzip it and run the integration test
+		// Exercise the real workspace module/semantic pipeline rather than
+		// an unrelated loose-file path. The direct LSP harness also provides
+		// a workspace root and a package manifest to the server.
+		const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vsphalcom-e2e-'));
+		fs.writeFileSync(path.join(projectDir, 'package.ph'), '');
+
 		// macOS limits the IPC socket path to 103 characters. Worktrees can be
 		// nested deeply enough that the runner's default user-data directory
 		// exceeds that limit before any extension test starts.
 		const userDataDir = path.join(os.tmpdir(), 'phalcom-vscode-test');
-		await runTests({
-			extensionDevelopmentPath,
-			extensionTestsPath,
-			launchArgs: [`--user-data-dir=${userDataDir}`],
-		});
+		try {
+			await runTests({
+				extensionDevelopmentPath,
+				extensionTestsPath,
+				launchArgs: [projectDir, `--user-data-dir=${userDataDir}`],
+			});
+		} finally {
+			fs.rmSync(projectDir, { recursive: true, force: true });
+		}
 	} catch (err) {
 		console.error('Failed to run tests', err);
 		process.exit(1);

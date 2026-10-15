@@ -19,6 +19,7 @@ async fn main() {
 
     let (service, socket) = LspService::build(Backend::new)
         .custom_method("phalcom/sourceText", Backend::source_text)
+        .custom_method("phalcom/exactSourcePublished", Backend::exact_source_published)
         .finish();
     Server::new(stdin, stdout, socket).serve(service).await;
 }

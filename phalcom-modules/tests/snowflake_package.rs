@@ -11,7 +11,7 @@ use std::sync::Arc;
 fn snowflake_package_sources_and_conformance_fixtures_parse_and_export() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../packages/snowflake");
     let mut universe = ProjectUniverse::new();
-    let project_id = universe.load_root(&root.join("project.toml")).expect("Snowflake manifest loads");
+    let project_id = universe.load_root(root.join("project.toml")).expect("Snowflake manifest loads");
     let project = universe.get_project(project_id).expect("Snowflake project exists");
     assert_eq!(project.manifest.as_ref().unwrap().namespace.as_str(), "snowflake");
     let unit = FilesystemSourceProvider::new()

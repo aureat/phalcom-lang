@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -16,8 +15,57 @@ function lspBinary(): string {
     return path.join(
         repositoryRoot(),
         'target',
-        'debug',
+        'release',
         executable
+    );
+}
+
+interface AnalysisPublicationStatus {
+    phase?: string;
+    complete?: boolean;
+    generation?: number;
+    analyzedFiles?: number;
+    message?: string;
+}
+
+async function analysisStatus(): Promise<AnalysisPublicationStatus | undefined> {
+    return vscode.commands.executeCommand<AnalysisPublicationStatus>('phalcom.inspectAnalysisStatus');
+}
+
+/**
+ * The first source update starts a cold compiler-owned Universe session in the
+ * debug language server. Wait for publication explicitly: a live LSP client
+ * and syntax-word completions do not imply a canonical semantic snapshot.
+ * This is a correctness gate, not an assertion on compiler startup latency.
+ */
+async function exactSourcePublished(document: vscode.TextDocument): Promise<boolean> {
+    return (await vscode.commands.executeCommand<boolean>(
+        'phalcom.inspectExactSourcePublication',
+        document.uri,
+        document.getText()
+    )) ?? false;
+}
+
+async function awaitSemanticPublication(previousGeneration: number, document: vscode.TextDocument): Promise<number> {
+    const deadline = Date.now() + 180_000;
+    let last: AnalysisPublicationStatus | undefined;
+    let exact = false;
+    while (Date.now() < deadline) {
+        last = await analysisStatus();
+        if (last?.phase === 'error') {
+            assert.fail(`Phalcom analysis failed: ${JSON.stringify(last)}`);
+        }
+        if (last?.phase === 'ready' && last.complete && last.generation !== undefined
+            && last.generation > previousGeneration && (last.analyzedFiles ?? 0) > 0) {
+            exact = await exactSourcePublished(document);
+            if (exact) {
+                return last.generation;
+            }
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    assert.fail(
+        `Canonical semantic publication never contained the exact source for ${document.uri}: ${JSON.stringify({ status: last, exactSourcePublished: exact, diagnostics: vscode.languages.getDiagnostics(document.uri).map(diagnostic => diagnostic.message) })}`
     );
 }
 
@@ -33,7 +81,7 @@ async function completionLabels(
     const position = document.positionAt(offset + receiverNeedle.length);
 
     let lastLabels: string[] = [];
-    for (let attempt = 0; attempt < 50; attempt++) {
+    for (let attempt = 0; attempt < 250; attempt++) {
         const list = await vscode.commands.executeCommand<vscode.CompletionList>(
             'vscode.executeCompletionItemProvider',
             document.uri,
@@ -49,10 +97,19 @@ async function completionLabels(
         await new Promise(resolve => setTimeout(resolve, 100));
     }
 
+    if (predicate && !predicate(lastLabels)) {
+        const status = await vscode.commands.executeCommand('phalcom.inspectAnalysisStatus');
+        console.error(
+            `Phalcom completion remained unresolved: ${JSON.stringify({ needle: receiverNeedle, labels: lastLabels, status, diagnostics: vscode.languages.getDiagnostics(document.uri).map(diagnostic => diagnostic.message) })}`
+        );
+    }
     return lastLabels;
 }
 
-suite('Phalcom LSP extension E2E', () => {
+suite('Phalcom LSP extension E2E', function () {
+    // Completion probes deliberately poll for semantic publication; Mocha's
+    // default two-second limit expires before this contract can be observed.
+    this.timeout(240_000);
     let tempDir: string;
 
     suiteSetup(async () => {
@@ -60,7 +117,7 @@ suite('Phalcom LSP extension E2E', () => {
 
         assert.ok(
             fs.existsSync(server),
-            `phalcom-lsp was not built at ${server}; run cargo build -p phalcom-lsp first`
+            `phalcom-lsp was not built at ${server}; run cargo build --release -p phalcom-lsp first`
         );
 
         // Configure before opening any .ph document so extension activation
@@ -81,18 +138,19 @@ suite('Phalcom LSP extension E2E', () => {
                 vscode.ConfigurationTarget.Global
             );
 
-        tempDir = fs.mkdtempSync(
-            path.join(os.tmpdir(), 'vsphalcom-e2e-')
-        );
-    });
+        // An open .ph editor alone is not evidence that the language client
+        // has completed its asynchronous extension activation.
+        const extension = vscode.extensions.getExtension('Phalcom.vsphalcom');
+        assert.ok(extension, 'Phalcom VS Code extension is not installed');
+        await extension.activate();
+        await vscode.commands.executeCommand('phalcom.restartLanguageServer');
 
-    suiteTeardown(() => {
-        if (tempDir) {
-            fs.rmSync(tempDir, {
-                recursive: true,
-                force: true
-            });
-        }
+        // The runner opened a project workspace before LSP initialization.
+        // Match the direct LSP harness's canonical project-ownership model.
+        const folders = vscode.workspace.workspaceFolders;
+        assert.ok(folders && folders.length === 1, 'E2E runner must open one project workspace');
+        tempDir = folders[0].uri.fsPath;
+        assert.ok(fs.existsSync(path.join(tempDir, 'package.ph')), 'project workspace must contain package.ph');
     });
 
     test(
@@ -107,7 +165,7 @@ suite('Phalcom LSP extension E2E', () => {
                 '  bark() {}',
                 '}',
                 '',
-                'const dog = Dog.new()',
+                'let dog = Dog.new()',
                 'dog.bark()',
                 ''
             ].join('\n');
@@ -115,9 +173,11 @@ suite('Phalcom LSP extension E2E', () => {
             const file = path.join(tempDir, 'completion.ph');
             fs.writeFileSync(file, source);
 
+            const previousGeneration = (await analysisStatus())?.generation ?? -1;
             const document =
                 await vscode.workspace.openTextDocument(file);
             await vscode.window.showTextDocument(document);
+            await awaitSemanticPublication(previousGeneration, document);
 
             const labels =
                 await completionLabels(
@@ -147,16 +207,18 @@ suite('Phalcom LSP extension E2E', () => {
                     'class Cat {',
                     '  meow() {}',
                     '}',
-                    'const value = Cat.new()',
+                    'let value = Cat.new()',
                     'value.meow()',
                     ''
                 ].join('\n')
             );
 
+            const previousGeneration = (await analysisStatus())?.generation ?? -1;
             const document =
                 await vscode.workspace.openTextDocument(file);
             const editor =
                 await vscode.window.showTextDocument(document);
+            await awaitSemanticPublication(previousGeneration, document);
 
             let labels =
                 await completionLabels(
@@ -173,7 +235,7 @@ suite('Phalcom LSP extension E2E', () => {
                 'class Dog {',
                 '  bark() {}',
                 '}',
-                'const value = Dog.new()',
+                'let value = Dog.new()',
                 'value.bark()',
                 ''
             ].join('\n');
@@ -185,10 +247,12 @@ suite('Phalcom LSP extension E2E', () => {
                 )
             );
 
+            const beforeEditGeneration = (await analysisStatus())?.generation ?? -1;
             const applied = await editor.edit(edit => {
                 edit.replace(fullRange, replacement);
             });
             assert.ok(applied, 'VS Code rejected live-edit replacement');
+            await awaitSemanticPublication(beforeEditGeneration, document);
 
             labels =
                 await completionLabels(

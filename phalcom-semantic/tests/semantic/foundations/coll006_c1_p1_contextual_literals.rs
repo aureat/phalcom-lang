@@ -16,11 +16,7 @@ class Container {
     );
     f.assert_no_error_diagnostics();
     let callable = f.callable("Container", "test", phalcom_semantic::DispatchSide::Class);
-    let binding = callable
-        .bindings
-        .values()
-        .find(|b| b.name == "xs")
-        .expect("binding for xs");
+    let binding = callable.bindings.values().find(|b| b.name == "xs").expect("binding for xs");
     let binding_ty = binding.current.ty().expect("known binding type");
 
     let list_decl = f.decl("List");
@@ -34,10 +30,7 @@ class Container {
     assert_eq!(resolution.family, SequenceLiteralFamily::List);
     assert_eq!(resolution.result_type, binding_ty);
     assert_eq!(resolution.element_type, f.ty("Int"));
-    assert_eq!(
-        resolution.construction,
-        SequenceConstructionPlan::Fixed { element_count: 3 }
-    );
+    assert_eq!(resolution.construction, SequenceConstructionPlan::Fixed { element_count: 3 });
 }
 
 #[test]

@@ -6,9 +6,10 @@ use tower_lsp::lsp_types::Url;
 /// Converts a file URI to the canonical source location used by module APIs.
 pub(crate) fn source_location_for_uri(uri: &Url) -> Option<SourceLocation> {
     let path = uri.to_file_path().ok()?;
+    let canonical = phalcom_modules::source::canonicalize_path(&path);
     Some(SourceLocation {
-        source_id: SourceId(path.to_string_lossy().into()),
-        display_path: path,
+        source_id: SourceId(canonical.to_string_lossy().into()),
+        display_path: canonical,
     })
 }
 

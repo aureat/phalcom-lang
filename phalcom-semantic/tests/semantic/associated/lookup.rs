@@ -592,18 +592,11 @@ class Probe {
     case.assert_no_diagnostics();
     let probe = DeclarationId::new(case.module.clone(), "Probe".into());
     for name in ["forward", "reverse", "distinct", "gadt"] {
-        let body = &case.analysis.snapshot.callable_analyses[&CallableId::new(
-            probe.clone(),
-            Selector::method(name, []).unwrap(),
-            DispatchSide::Class,
-        )];
+        let body = &case.analysis.snapshot.callable_analyses[&CallableId::new(probe.clone(), Selector::method(name, []).unwrap(), DispatchSide::Class)];
         assert_eq!(
             body.associated_resolutions
                 .values()
-                .filter(|resolution| matches!(
-                    resolution.kind,
-                    AssociatedResolutionKind::StaticInvoke { .. }
-                ))
+                .filter(|resolution| matches!(resolution.kind, AssociatedResolutionKind::StaticInvoke { .. }))
                 .count(),
             1,
             "only the selected constructor may publish: {name}"
@@ -622,13 +615,7 @@ class Probe {
 }
 "#,
     );
-    let diagnostics = case
-        .analysis
-        .snapshot
-        .diagnostics
-        .values()
-        .flat_map(|items| items.iter())
-        .collect::<Vec<_>>();
+    let diagnostics = case.analysis.snapshot.diagnostics.values().flat_map(|items| items.iter()).collect::<Vec<_>>();
     assert_eq!(
         diagnostics
             .iter()
@@ -678,13 +665,7 @@ class Probe {
 }
 "#,
     );
-    let diagnostics = case
-        .analysis
-        .snapshot
-        .diagnostics
-        .values()
-        .flat_map(|items| items.iter())
-        .collect::<Vec<_>>();
+    let diagnostics = case.analysis.snapshot.diagnostics.values().flat_map(|items| items.iter()).collect::<Vec<_>>();
     assert_eq!(
         diagnostics
             .iter()
@@ -717,26 +698,12 @@ class Probe {
         DispatchSide::Class,
     );
     let body = &case.analysis.snapshot.callable_analyses[&callable];
-    let item = body
-        .bindings
-        .values()
-        .find(|binding| binding.name == "item")
-        .unwrap();
-    assert_eq!(
-        case.analysis
-            .snapshot
-            .store
-            .format_type(item.current.ty().unwrap()),
-        "Int"
-    );
+    let item = body.bindings.values().find(|binding| binding.name == "item").unwrap();
+    assert_eq!(case.analysis.snapshot.store.format_type(item.current.ty().unwrap()), "Int");
     let construction = body
         .expressions
         .values()
-        .find(|expression| {
-            case.source
-                .get(expression.range.start..expression.range.end)
-                == Some("some(1)")
-        })
+        .find(|expression| case.source.get(expression.range.start..expression.range.end) == Some("some(1)"))
         .unwrap();
     assert!(matches!(
         body.associated_resolutions[&construction.id].kind,
@@ -753,17 +720,9 @@ data Boolean { make(_ value: Bool) }
 class Probe { @class run() -> Text | Boolean { make(1) } }
 "#,
     );
-    let diagnostics = case
-        .analysis
-        .snapshot
-        .diagnostics
-        .values()
-        .flat_map(|items| items.iter())
-        .collect::<Vec<_>>();
+    let diagnostics = case.analysis.snapshot.diagnostics.values().flat_map(|items| items.iter()).collect::<Vec<_>>();
     assert!(
-        diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code == DiagnosticCode::ArgumentMismatch),
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ArgumentMismatch),
         "{diagnostics:?}"
     );
     assert!(
@@ -1060,16 +1019,13 @@ class Holder<T> {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "generic contextual fixture must parse: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program))
-        .expect("semantic generic contextual fixture publishes");
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic generic contextual fixture publishes");
     let diagnostics = analysis.snapshot.diagnostics_for(&module).unwrap_or_default();
     assert!(
         !diagnostics.iter().any(|d| {
             matches!(
                 d.code,
-                DiagnosticCode::GenericInferenceConflict
-                    | DiagnosticCode::AssociatedGenericOwnerConflict
-                    | DiagnosticCode::ArgumentMismatch
+                DiagnosticCode::GenericInferenceConflict | DiagnosticCode::AssociatedGenericOwnerConflict | DiagnosticCode::ArgumentMismatch
             )
         }),
         "contextual construction within a generic owner must preserve T: {diagnostics:#?}"

@@ -296,9 +296,10 @@ fn vector_symbolic_identity_spread_rejects_different_binders_and_arithmetic() {
 #[test]
 fn vector_rejects_negative_concrete_extent_at_type_formation() {
     for annotation in ["Vector<Int, -1>", "Vector<_, -1>"] {
-        let fixture = Fixture::new_allowing_internal_incidents(&format!(
-            "class Container {{ @class test() {{ let value: {annotation} = [1] }} }}\n"
-        ));
-        assert!(fixture.analysis.snapshot.has_errors(), "negative concrete extent must be rejected: {annotation}");
+        let fixture = Fixture::new_allowing_internal_incidents(&format!("class Container {{ @class test() {{ let value: {annotation} = [1] }} }}\n"));
+        assert!(
+            fixture.analysis.snapshot.has_errors(),
+            "negative concrete extent must be rejected: {annotation}"
+        );
     }
 }

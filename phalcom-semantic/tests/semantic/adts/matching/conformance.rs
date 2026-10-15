@@ -139,9 +139,7 @@ class Test {
 
 #[test]
 fn review_x_01_malformed_pattern_cannot_prove_false_exhaustiveness() {
-    let case = super::super::support::analyze_adt(
-        "data Choice { A B }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n",
-    );
+    let case = super::super::support::analyze_adt("data Choice { A B }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n");
     assert!(
         !case
             .only_match()
@@ -172,8 +170,7 @@ fn review_x_03_gadt_theorem_remains_present_in_semantic_match_product() {
 
 #[test]
 fn review_x_04_witness_structure_is_separate_from_presentation() {
-    let case =
-        super::super::support::analyze_adt("data Choice { A B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n");
+    let case = super::super::support::analyze_adt("data Choice { A B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n");
     let diagnostic = case.diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::MatchNonExhaustive);
     assert!(matches!(
         case.only_match().resolution().exhaustiveness,

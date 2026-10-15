@@ -250,7 +250,9 @@ fn unchanged_advisory_shards_and_callable_summaries_are_reused() {
 #[test]
 fn advisory_disagreement_is_unknown_for_all_non_ready_formal_states() {
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(input(module_id(), "let value = 1\n", 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(input(module_id(), "let value = 1\n", 1))
+        .expect("semantic test update should succeed");
     let int = update
         .snapshot
         .declarations

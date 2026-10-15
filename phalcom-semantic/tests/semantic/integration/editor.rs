@@ -46,7 +46,8 @@ fn editor_facade_returns_canonical_members_and_targets() {
 fn editor_facade_fails_closed_for_unknown_receiver() {
     let source = "class Box {}\n";
     let parsed = parse(source, 0);
-    let analysis = analyze_single_module(ModuleId::universe_root(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
+    let analysis =
+        analyze_single_module(ModuleId::universe_root(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let snapshot = analysis.snapshot;
     let receiver = ResolvedReceiver { alternatives: Arc::from([]) };
     assert!(snapshot.editor().members_for_receiver(&receiver, &AccessContext::new(None, None),).is_empty());
