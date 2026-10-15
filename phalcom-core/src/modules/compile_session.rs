@@ -194,10 +194,7 @@ mod tests {
         std::fs::write(path, source).unwrap();
     }
 
-    fn declared_type_shape(
-        fact: &phalcom_semantic::DeclaredTypeFact,
-        presenter: &phalcom_semantic::TypePresenter<'_>,
-    ) -> String {
+    fn declared_type_shape(fact: &phalcom_semantic::DeclaredTypeFact, presenter: &phalcom_semantic::TypePresenter<'_>) -> String {
         use phalcom_semantic::{DeclaredTypeState, types::TypeTerm};
 
         let state = match &fact.state {
@@ -212,10 +209,7 @@ mod tests {
         format!("{:?}:{state}", fact.basis)
     }
 
-    fn signature_shape(
-        module: &crate::modules::compile::CompiledModule,
-        store: &phalcom_semantic::TypeStore,
-    ) -> Vec<String> {
+    fn signature_shape(module: &crate::modules::compile::CompiledModule, store: &phalcom_semantic::TypeStore) -> Vec<String> {
         let presenter = phalcom_semantic::TypePresenter::new(store);
         let mut shape = module
             .lowering
