@@ -6721,18 +6721,50 @@ impl SemanticWorkspaceSession {
                                 let accepted_definition = self
                                     .db
                                     .product(&QueryKey::CallableDefinition(callable_id.clone()))
-                                    .and_then(|product| product.as_callable_definition());
-                                if !accepted_definition.is_some_and(|definition| {
+                                    .and_then(|product| product.as_callable_definition())
+                                    .cloned();
+                                if !accepted_definition.as_ref().is_some_and(|definition| {
                                     definition.source_member_index == member_index
                                         && definition.origin == crate::impls::CallableDefinitionOrigin::InherentImpl(impl_id.clone())
                                 }) {
                                     continue;
                                 }
-                                let body_context = accepted_definition.and_then(|definition| definition.inherent_body_context.clone());
-                                let canonical_signature = callable_signatures
-                                    .get(&callable_id)
-                                    .expect("accepted inherent callable must have a canonical signature")
-                                    .clone();
+                                let body_context = accepted_definition.as_ref().and_then(|definition| definition.inherent_body_context.clone());
+                                let canonical_signature = if let Some(signature) = callable_signatures.get(&callable_id).cloned() {
+                                    signature
+                                } else {
+                                    // An accepted current source definition may enter body work
+                                    // without an earlier signature-worklist seed after an
+                                    // incremental module replacement. Requery the canonical
+                                    // signature from that source and its checked prerequisites;
+                                    // never synthesize a signature from the body or reuse an
+                                    // unchecked last-known-good projection.
+                                    let record_key_projections =
+                                        inherent_callable_record_key_projections.get(&(impl_id.clone(), member_index));
+                                    let signature = match query_callable_signature_with_inputs(
+                                        &mut self.db,
+                                        callable_id.clone(),
+                                        parsed_unit.clone(),
+                                        SignatureQueryInputs {
+                                            store: Arc::make_mut(&mut self.store),
+                                            hierarchy: &hierarchy,
+                                            resolver: &scoped_resolver,
+                                            record_key_projections,
+                                            declarations: &declarations,
+                                            linked: Some(input.linked.as_ref()),
+                                            type_aliases: Some(&type_aliases),
+                                            import_products: Some(&input.import_products),
+                                        },
+                                    ) {
+                                        QueryOutcome::Ready(signature) => (*signature).clone(),
+                                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                                    };
+                                    callable_signatures.insert(signature.clone());
+                                    signature
+                                };
                                 let body_signature = body_context
                                     .as_ref()
                                     .map(|context| {
