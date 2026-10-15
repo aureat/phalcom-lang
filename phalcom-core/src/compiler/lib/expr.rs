@@ -546,7 +546,7 @@ impl<'vm> Compiler<'vm> {
                     .ok_or_else(|| CompilerError::Message("contextual realization is missing its scalar class receiver".into()))?;
                 self.emit_contextual_class_receiver(scalar_receiver, range)?;
                 let one = coefficient_one
-                    .as_ref()
+                    .as_deref()
                     .ok_or_else(|| CompilerError::Message("contextual realization is missing its selected `One` capability".into()))?
                     .clone();
                 self.emit_contextual_capability_invocation(one, 0, range)?;
