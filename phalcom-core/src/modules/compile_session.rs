@@ -194,19 +194,55 @@ mod tests {
         std::fs::write(path, source).unwrap();
     }
 
-    fn signature_shape(module: &crate::modules::compile::CompiledModule) -> Vec<(String, String, String, usize, String)> {
+    fn declared_type_shape(
+        fact: &phalcom_semantic::DeclaredTypeFact,
+        presenter: &phalcom_semantic::TypePresenter<'_>,
+    ) -> String {
+        use phalcom_semantic::{DeclaredTypeState, types::TypeTerm};
+
+        let state = match &fact.state {
+            DeclaredTypeState::Known(TypeTerm::Canonical(ty)) => {
+                format!("Known({})", presenter.present_type(*ty))
+            }
+            DeclaredTypeState::Known(TypeTerm::SelfType(_)) => "Known(SelfType)".to_owned(),
+            DeclaredTypeState::Known(TypeTerm::Infer(_)) => "Known(Infer)".to_owned(),
+            DeclaredTypeState::Dynamic(reason) => format!("Dynamic({reason:?})"),
+            DeclaredTypeState::Unknown(reason) => format!("Unknown({reason:?})"),
+        };
+        format!("{:?}:{state}", fact.basis)
+    }
+
+    fn signature_shape(
+        module: &crate::modules::compile::CompiledModule,
+        store: &phalcom_semantic::TypeStore,
+    ) -> Vec<String> {
+        let presenter = phalcom_semantic::TypePresenter::new(store);
         let mut shape = module
             .lowering
             .callable_signatures
             .iter()
             .filter(|(_, signature)| signature.owner.module == module.id)
             .map(|(_, signature)| {
-                (
-                    signature.owner.name.to_string(),
+                let parameters = signature
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        format!(
+                            "{}:{:?}:{:?}:{}",
+                            parameter.local_name,
+                            parameter.external_label,
+                            parameter.rest,
+                            declared_type_shape(&parameter.declared_type, &presenter)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!(
+                    "{}|{}|{:?}|[{parameters}]|{}",
+                    signature.owner.name,
                     signature.selector.encode(),
-                    format!("{:?}", signature.side),
-                    signature.parameters.len(),
-                    format!("{:?}", signature.declared_return),
+                    signature.side,
+                    declared_type_shape(&signature.declared_return, &presenter)
                 )
             })
             .collect::<Vec<_>>();
@@ -282,12 +318,20 @@ mod tests {
         ] {
             let program = session.compile_fixture(path, source).unwrap();
             assert_eq!(program.modules[&program.entry].source_text.as_deref(), Some(source));
-            let cold = ProgramCompilationSession::standalone().unwrap().compile_fixture(path, source).unwrap();
+            let warm_store = &session.semantic_session.last_snapshot().unwrap().store;
+
+            let mut cold_session = ProgramCompilationSession::standalone().unwrap();
+            let cold = cold_session.compile_fixture(path, source).unwrap();
+            let cold_store = &cold_session.semantic_session.last_snapshot().unwrap().store;
+
             assert_eq!(
                 program.modules[&program.entry].lowering.associated.len(),
                 cold.modules[&cold.entry].lowering.associated.len()
             );
-            assert_eq!(signature_shape(&program.modules[&program.entry]), signature_shape(&cold.modules[&cold.entry]));
+            assert_eq!(
+                signature_shape(&program.modules[&program.entry], warm_store),
+                signature_shape(&cold.modules[&cold.entry], cold_store)
+            );
         }
     }
 
@@ -367,13 +411,17 @@ mod tests {
         let source_c = "import universe.reflection.selector\nclass FixtureShape { value { 42 } }\n";
         write_fixture(&path, source_c);
         let last = session.compile_fixture(&path, source_c).unwrap();
-        let cold = ProgramCompiler::compile_entry_selection(EntrySelection::Module(path.clone())).unwrap();
+        let warm_store = &session.semantic_session.last_snapshot().unwrap().store;
+
+        let mut cold_session = ProgramCompilationSession::standalone().unwrap();
+        let cold = cold_session.compile_fixture(&path, source_c).unwrap();
+        let cold_store = &cold_session.semantic_session.last_snapshot().unwrap().store;
 
         assert_eq!(first.modules[&module_id].plan.declarations, last.modules[&module_id].plan.declarations);
         assert_eq!(first_module.lowering.callable_signatures, last.modules[&module_id].lowering.callable_signatures);
         assert_eq!(
-            signature_shape(&last.modules[&module_id]),
-            signature_shape(&cold.modules[&cold.entry]),
+            signature_shape(&last.modules[&module_id], warm_store),
+            signature_shape(&cold.modules[&cold.entry], cold_store),
             "reused and cold compilation preserve callable declaration signatures"
         );
         assert_eq!(
