@@ -548,3 +548,33 @@ pub fn float_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
 pub fn float_class_new_default(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     float_class_new(vm, receiver, &[])
 }
+
+#[cfg(test)]
+mod adjacent_float_tests {
+    use super::{next_down_f64, next_up_f64};
+
+    #[test]
+    fn adjacent_values_preserve_zeros_subnormals_and_infinity_boundaries() {
+        let smallest = f64::from_bits(1);
+        let negative_smallest = f64::from_bits((1u64 << 63) | 1);
+        assert_eq!(next_up_f64(0.0).to_bits(), smallest.to_bits());
+        assert_eq!(next_up_f64(-0.0).to_bits(), smallest.to_bits());
+        assert_eq!(next_down_f64(0.0).to_bits(), negative_smallest.to_bits());
+        assert_eq!(next_down_f64(-0.0).to_bits(), negative_smallest.to_bits());
+        assert_eq!(next_down_f64(smallest).to_bits(), 0.0f64.to_bits());
+        assert_eq!(next_up_f64(negative_smallest).to_bits(), (-0.0f64).to_bits());
+        assert_eq!(next_up_f64(f64::MAX), f64::INFINITY);
+        assert_eq!(next_down_f64(f64::MIN), f64::NEG_INFINITY);
+        assert_eq!(next_down_f64(f64::INFINITY), f64::MAX);
+        assert_eq!(next_up_f64(f64::NEG_INFINITY), f64::MIN);
+    }
+
+    #[test]
+    fn adjacent_values_preserve_nan_payloads_and_terminal_infinities() {
+        let nan = f64::from_bits(0x7ff8_0000_0000_0021);
+        assert_eq!(next_up_f64(nan).to_bits(), nan.to_bits());
+        assert_eq!(next_down_f64(nan).to_bits(), nan.to_bits());
+        assert_eq!(next_up_f64(f64::INFINITY), f64::INFINITY);
+        assert_eq!(next_down_f64(f64::NEG_INFINITY), f64::NEG_INFINITY);
+    }
+}
