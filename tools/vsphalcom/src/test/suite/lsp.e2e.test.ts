@@ -39,11 +39,11 @@ async function analysisStatus(): Promise<AnalysisPublicationStatus | undefined> 
  * This is a correctness gate, not an assertion on compiler startup latency.
  */
 async function exactSourcePublished(document: vscode.TextDocument): Promise<boolean> {
-    return vscode.commands.executeCommand<boolean>(
+    return (await vscode.commands.executeCommand<boolean>(
         'phalcom.inspectExactSourcePublication',
         document.uri,
         document.getText()
-    ) ?? false;
+    )) ?? false;
 }
 
 async function awaitSemanticPublication(previousGeneration: number, document: vscode.TextDocument): Promise<number> {
