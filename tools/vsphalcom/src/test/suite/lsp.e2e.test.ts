@@ -38,9 +38,18 @@ async function analysisStatus(): Promise<AnalysisPublicationStatus | undefined> 
  * and syntax-word completions do not imply a canonical semantic snapshot.
  * This is a correctness gate, not an assertion on compiler startup latency.
  */
+async function exactSourcePublished(document: vscode.TextDocument): Promise<boolean> {
+    return vscode.commands.executeCommand<boolean>(
+        'phalcom.inspectExactSourcePublication',
+        document.uri,
+        document.getText()
+    ) ?? false;
+}
+
 async function awaitSemanticPublication(previousGeneration: number, document: vscode.TextDocument): Promise<number> {
     const deadline = Date.now() + 180_000;
     let last: AnalysisPublicationStatus | undefined;
+    let exact = false;
     while (Date.now() < deadline) {
         last = await analysisStatus();
         if (last?.phase === 'error') {
@@ -48,12 +57,15 @@ async function awaitSemanticPublication(previousGeneration: number, document: vs
         }
         if (last?.phase === 'ready' && last.complete && last.generation !== undefined
             && last.generation > previousGeneration && (last.analyzedFiles ?? 0) > 0) {
-            return last.generation;
+            exact = await exactSourcePublished(document);
+            if (exact) {
+                return last.generation;
+            }
         }
         await new Promise(resolve => setTimeout(resolve, 250));
     }
     assert.fail(
-        `Canonical semantic publication never completed for ${document.uri}: ${JSON.stringify({ status: last, diagnostics: vscode.languages.getDiagnostics(document.uri).map(diagnostic => diagnostic.message) })}`
+        `Canonical semantic publication never contained the exact source for ${document.uri}: ${JSON.stringify({ status: last, exactSourcePublished: exact, diagnostics: vscode.languages.getDiagnostics(document.uri).map(diagnostic => diagnostic.message) })}`
     );
 }
 
