@@ -574,7 +574,7 @@ class Probe<T, S> {
         None,
         Some(&mut store),
         Some(phalcom_semantic::generic_evidence::StructuralConformanceContext {
-            classifier: classifier,
+            classifier,
             ids: &structural_ids,
         }),
     );
