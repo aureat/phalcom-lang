@@ -110,7 +110,7 @@ suite('Phalcom LSP extension E2E', function () {
                 '  bark() {}',
                 '}',
                 '',
-                'const dog = Dog.new()',
+                'let dog = Dog.new()',
                 'dog.bark()',
                 ''
             ].join('\n');
@@ -150,7 +150,7 @@ suite('Phalcom LSP extension E2E', function () {
                     'class Cat {',
                     '  meow() {}',
                     '}',
-                    'const value = Cat.new()',
+                    'let value = Cat.new()',
                     'value.meow()',
                     ''
                 ].join('\n')
@@ -176,7 +176,7 @@ suite('Phalcom LSP extension E2E', function () {
                 'class Dog {',
                 '  bark() {}',
                 '}',
-                'const value = Dog.new()',
+                'let value = Dog.new()',
                 'value.bark()',
                 ''
             ].join('\n');
