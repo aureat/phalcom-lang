@@ -1654,9 +1654,9 @@ impl VM {
         arity: usize,
         layout: InvocationLayout,
         source_range: SourceRange,
-        type_environment: crate::typing::RuntimeTypeEnvironmentId,
-        call_environment: Option<&crate::typing::RuntimeCallEnvironmentRecipe>,
+        environments: (crate::typing::RuntimeTypeEnvironmentId, Option<&crate::typing::RuntimeCallEnvironmentRecipe>),
     ) -> PhResult<Option<()>> {
+        let (type_environment, call_environment) = environments;
         let receiver = self.stack[receiver_idx];
         let Some(obj_id) = receiver.as_obj() else {
             return Ok(None);
