@@ -824,7 +824,6 @@ impl VM {
     pub(crate) fn validate_captured_method_shape(&mut self, method: ObjRef, layout: &InvocationLayout) -> PhResult<Symbol> {
         let method_selector = self.heap.method(method).signature.selector;
         let method_signature = self.heap.method(method).signature.clone();
-        layout.validate_for_signature(&method_signature)?;
         let selector_text = self.resolve_symbol(method_selector).to_owned();
         let (base, expected_slots, _) = decode_selector(&selector_text);
         let signature_kind = self.heap.method(method).signature.kind;
@@ -861,6 +860,8 @@ impl VM {
         };
         let rest_layout = self.heap.method(method).signature.rest.clone();
         if rest_layout.is_some() {
+            // Rest-family matching has its own fixed-prefix validation.
+            layout.validate_for_signature(&method_signature)?;
             let mut slots = Vec::with_capacity(layout.structural_positionals() + layout.labeled_count());
             slots.extend(std::iter::repeat_n(None, layout.structural_positionals()));
             slots.extend(layout.labels().iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
@@ -888,6 +889,10 @@ impl VM {
             }
             .into());
         }
+        // An ordinary argument lane mismatch is a user-visible arity error,
+        // not an internal signature corruption. Validate the fixed signature
+        // only after determining that the caller's lanes match its selector.
+        layout.validate_for_signature(&method_signature)?;
         Ok(method_selector)
     }
 
