@@ -267,6 +267,18 @@ export function activate(context: ExtensionContext) {
     }))
     // Read-only analysis observability for external editor tests and tooling.
     context.subscriptions.push(commands.registerCommand("phalcom.inspectAnalysisStatus", () => statusBarController?.getLastStatus()))
+    context.subscriptions.push(commands.registerCommand(
+        "phalcom.inspectExactSourcePublication",
+        async (uri: Uri, text: string): Promise<boolean> => {
+            if (!lspClient) {
+                return false
+            }
+            return lspClient.sendRequest<boolean>("phalcom/exactSourcePublished", {
+                uri: uri.toString(),
+                text
+            })
+        }
+    ))
     context.subscriptions.push(workspace.onDidChangeConfiguration(async event => {
         if (event.affectsConfiguration("phalcom.lsp.enabled") || event.affectsConfiguration("phalcom.lsp.serverPath")) {
             await restartLspClient(context)
