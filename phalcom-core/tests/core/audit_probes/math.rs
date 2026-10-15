@@ -87,7 +87,9 @@ fn assert_float_cases(cases: &[(String, f64)]) {
     }
 }
 
-const UNARY_BACKENDS: [(&str, fn(f64) -> f64); 21] = [
+type UnaryBackend = (&'static str, fn(f64) -> f64);
+
+const UNARY_BACKENDS: [UnaryBackend; 21] = [
     ("sqrt", f64::sqrt),
     ("cbrt", f64::cbrt),
     ("exp", f64::exp),
