@@ -501,8 +501,8 @@ impl<'vm> Compiler<'vm> {
         match (coefficient.as_ref(), &source) {
             (RealizationCoefficientSource::One { .. }, Expr::Imaginary { .. })
             | (RealizationCoefficientSource::IntegerLiteral { .. } | RealizationCoefficientSource::FloatLiteral { .. }, Expr::Imaginary { .. }) => {
-                if !matches!(coefficient, RealizationCoefficientSource::One { .. }) {
-                    match coefficient {
+                if !matches!(coefficient.as_ref(), RealizationCoefficientSource::One { .. }) {
+                    match coefficient.as_ref() {
                         RealizationCoefficientSource::IntegerLiteral { digits, radix } => {
                             let value = if *radix == 10 {
                                 digits.parse::<i64>().ok().map(Value::int).or_else(|| {
@@ -594,7 +594,7 @@ impl<'vm> Compiler<'vm> {
         }
 
         if !matches!(
-            (coefficient, evaluation),
+            (coefficient.as_ref(), evaluation),
             (
                 RealizationCoefficientSource::One { .. },
                 RealizationEvaluationPlan::MultiplicativeIdentityThenSourceBasis
