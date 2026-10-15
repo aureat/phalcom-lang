@@ -810,11 +810,15 @@ mod tests {
         let t1 = TypeId(10);
         let t2 = TypeId(20);
 
-        let mut env_a = BranchProofEnvironment::default();
-        env_a.equalities = Box::new([TypeConstraint::Equal(t1, t2)]);
+        let env_a = BranchProofEnvironment {
+            equalities: Box::new([TypeConstraint::Equal(t1, t2)]),
+            ..Default::default()
+        };
 
-        let mut env_b = BranchProofEnvironment::default();
-        env_b.equalities = Box::new([TypeConstraint::Equal(t2, t1)]);
+        let env_b = BranchProofEnvironment {
+            equalities: Box::new([TypeConstraint::Equal(t2, t1)]),
+            ..Default::default()
+        };
 
         let key_a = StaticSpecializationEnvironmentKey::from_branch_proofs([&env_a]).unwrap();
         let key_b = StaticSpecializationEnvironmentKey::from_branch_proofs([&env_b]).unwrap();
