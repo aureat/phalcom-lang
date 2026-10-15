@@ -223,7 +223,7 @@ fn operational_query_failures_keep_distinct_public_error_categories() {
     );
     assert_eq!(
         SemanticUpdateFailure::from(QueryOutcome::Blocked(BlockReason::RecursiveFixpoint)),
-        SemanticUpdateFailure::Blocked(BlockReason::RecursiveFixpoint),
+        SemanticUpdateFailure::Blocked(Box::new(BlockReason::RecursiveFixpoint)),
     );
     assert_eq!(
         SemanticUpdateFailure::from(QueryOutcome::Failed("fixture failure".into())),
