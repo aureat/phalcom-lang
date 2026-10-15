@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -134,18 +133,12 @@ suite('Phalcom LSP extension E2E', function () {
         await extension.activate();
         await vscode.commands.executeCommand('phalcom.restartLanguageServer');
 
-        tempDir = fs.mkdtempSync(
-            path.join(os.tmpdir(), 'vsphalcom-e2e-')
-        );
-    });
-
-    suiteTeardown(() => {
-        if (tempDir) {
-            fs.rmSync(tempDir, {
-                recursive: true,
-                force: true
-            });
-        }
+        // The runner opened a project workspace before LSP initialization.
+        // Match the direct LSP harness's canonical project-ownership model.
+        const folders = vscode.workspace.workspaceFolders;
+        assert.ok(folders && folders.length === 1, 'E2E runner must open one project workspace');
+        tempDir = folders[0].uri.fsPath;
+        assert.ok(fs.existsSync(path.join(tempDir, 'package.ph')), 'project workspace must contain package.ph');
     });
 
     test(
@@ -195,7 +188,7 @@ suite('Phalcom LSP extension E2E', function () {
     test(
         'live edit changes completion without restarting extension',
         async () => {
-            const file = path.join(tempDir, 'live-edit.ph');
+            const file = path.join(tempDir, 'live_edit.ph');
             fs.writeFileSync(
                 file,
                 [
