@@ -53,15 +53,18 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: tools/vsphalcom/package-lock.json
-      - name: Build language server
+      # The packaged extension runs an optimized LSP binary. In Debug, the
+      # canonical Universe bootstrap can dominate the VS Code E2E runtime,
+      # obscuring editor behavior behind compiler startup time.
+      - name: Build release language server
         run: >-
           cargo +nightly-2026-07-10
           --config 'build.rustc-wrapper=""'
-          build -p phalcom-lsp
+          build --release -p phalcom-lsp
       - name: Expose built language server to extension-host test process
         run: |
-          test -x "$GITHUB_WORKSPACE/target/debug/phalcom-lsp"
-          echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
+          test -x "$GITHUB_WORKSPACE/target/release/phalcom-lsp"
+          echo "$GITHUB_WORKSPACE/target/release" >> "$GITHUB_PATH"
       - name: Install extension dependencies
         run: npm ci --prefix tools/vsphalcom
       - name: Install virtual display
