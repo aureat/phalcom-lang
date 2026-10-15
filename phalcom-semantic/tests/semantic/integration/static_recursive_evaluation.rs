@@ -730,8 +730,7 @@ fn recursive_activation_shadowing() {
 }
 
 fn specialize_helper(
-    fixture: &WorkspaceAnalysisFixture,
-    body: &phalcom_semantic::static_definition::CheckedStaticBody,
+    source: (&WorkspaceAnalysisFixture, &phalcom_semantic::static_definition::CheckedStaticBody),
     residual: phalcom_semantic::static_eval::StaticResidualRef,
     supplied: &StaticSpecializationEnvironmentKey,
     values: &mut StaticValueStore,
@@ -739,6 +738,7 @@ fn specialize_helper(
     cancellation: &CancellationToken,
     stores: (&mut TypeStore, &mut StaticResidualStore),
 ) -> StaticEvalOutcome {
+    let (fixture, body) = source;
     let (types, residuals) = stores;
     let mut evaluator = StaticEvaluator::new(body, values, budget, cancellation, &[])
         .with_static_definitions(fixture.analysis.snapshot.static_definitions())
@@ -804,8 +804,7 @@ fn open_value_condition_defers_to_the_enclosing_application() {
         let supplied = StaticSpecializationEnvironmentKey::normalized([(parameter.clone(), StaticSpecializationArgument::Value(bool_value))], [], [])
             .expect("specialization");
         let specialized = specialize_helper(
-            &fixture,
-            body,
+            (&fixture, body),
             residual,
             &supplied,
             &mut values,
@@ -861,8 +860,7 @@ fn open_value_condition_defers_to_the_enclosing_application() {
     let true_value = values.intern_bool(true);
     let supplied = StaticSpecializationEnvironmentKey::normalized([(safe_parameter, StaticSpecializationArgument::Value(true_value))], [], []).unwrap();
     let selected = specialize_helper(
-        &fixture,
-        safe_body,
+        (&fixture, safe_body),
         safe_residual,
         &supplied,
         &mut values,
@@ -918,8 +916,7 @@ fn open_value_condition_defers_to_the_enclosing_application() {
         let supplied =
             StaticSpecializationEnvironmentKey::normalized([(mutating_parameter.clone(), StaticSpecializationArgument::Value(argument))], [], []).unwrap();
         let specialized = specialize_helper(
-            &fixture,
-            mutating_body,
+            (&fixture, mutating_body),
             mutation_residual,
             &supplied,
             &mut values,
@@ -1000,8 +997,7 @@ fn open_match_scrutinee_defers_without_losing_arm_order() {
         };
         let supplied = StaticSpecializationEnvironmentKey::normalized([(parameter.clone(), StaticSpecializationArgument::Value(argument))], [], []).unwrap();
         let specialized = specialize_helper(
-            &fixture,
-            body,
+            (&fixture, body),
             residual,
             &supplied,
             &mut values,
@@ -1073,8 +1069,7 @@ fn open_match_scrutinee_defers_without_losing_arm_order() {
     };
     let supplied = StaticSpecializationEnvironmentKey::normalized([(parameter, StaticSpecializationArgument::Value(argument))], [], []).unwrap();
     let specialized = specialize_helper(
-        &fixture,
-        option_body,
+        (&fixture, option_body),
         option_residual,
         &supplied,
         &mut values,
@@ -1166,8 +1161,7 @@ fn iterative_static_type_pack_algorithm_uses_checked_mode_and_finite_arguments()
     )
     .unwrap();
     let specialized = specialize_helper(
-        &fixture,
-        body,
+        (&fixture, body),
         open,
         &supplied,
         &mut values,
@@ -1270,8 +1264,7 @@ fn partially_known_tuple_construction_specializes_to_the_cold_value() {
     ));
     assert_eq!(
         specialize_helper(
-            &fixture,
-            body,
+            (&fixture, body),
             tuple,
             &StaticSpecializationEnvironmentKey::default(),
             &mut values,
@@ -1302,8 +1295,7 @@ fn partially_known_tuple_construction_specializes_to_the_cold_value() {
     };
     let supplied = StaticSpecializationEnvironmentKey::normalized([(formal, StaticSpecializationArgument::Value(three))], [], []).unwrap();
     let specialized = specialize_helper(
-        &fixture,
-        body,
+        (&fixture, body),
         tuple,
         &supplied,
         &mut values,
@@ -1364,8 +1356,7 @@ fn partially_known_record_preserves_canonical_keys_and_specializes() {
     assert!(matches!(fields[1].1, phalcom_semantic::static_eval::StaticEvalTerm::Value(_)));
     assert_eq!(
         specialize_helper(
-            &fixture,
-            body,
+            (&fixture, body),
             record,
             &StaticSpecializationEnvironmentKey::default(),
             &mut values,
@@ -1396,8 +1387,7 @@ fn partially_known_record_preserves_canonical_keys_and_specializes() {
     };
     let supplied = StaticSpecializationEnvironmentKey::normalized([(formal.clone(), StaticSpecializationArgument::Value(exact))], [], []).unwrap();
     let specialized = specialize_helper(
-        &fixture,
-        body,
+        (&fixture, body),
         record,
         &supplied,
         &mut values,
@@ -1457,8 +1447,7 @@ fn partially_known_variant_preserves_constructor_and_specializes() {
     ));
     assert_eq!(
         specialize_helper(
-            &fixture,
-            body,
+            (&fixture, body),
             variant,
             &StaticSpecializationEnvironmentKey::default(),
             &mut values,
@@ -1489,8 +1478,7 @@ fn partially_known_variant_preserves_constructor_and_specializes() {
     };
     let supplied = StaticSpecializationEnvironmentKey::normalized([(formal, StaticSpecializationArgument::Value(exact))], [], []).unwrap();
     let specialized = specialize_helper(
-        &fixture,
-        body,
+        (&fixture, body),
         variant,
         &supplied,
         &mut values,
@@ -1552,8 +1540,7 @@ fn partially_known_data_preserves_components_and_specializes() {
     ));
     assert_eq!(
         specialize_helper(
-            &fixture,
-            body,
+            (&fixture, body),
             data,
             &StaticSpecializationEnvironmentKey::default(),
             &mut values,
@@ -1583,8 +1570,7 @@ fn partially_known_data_preserves_components_and_specializes() {
     };
     let supplied = StaticSpecializationEnvironmentKey::normalized([(formal, StaticSpecializationArgument::Value(exact))], [], []).unwrap();
     let specialized = specialize_helper(
-        &fixture,
-        body,
+        (&fixture, body),
         data,
         &supplied,
         &mut values,
@@ -1662,8 +1648,7 @@ fn partially_known_pack_preserves_ordered_lanes_and_specializes() {
     assert_eq!(labeled_values[1], phalcom_semantic::static_eval::StaticEvalTerm::Residual(unknown));
     assert_eq!(
         specialize_helper(
-            &fixture,
-            body,
+            (&fixture, body),
             pack,
             &StaticSpecializationEnvironmentKey::default(),
             &mut values,
@@ -1677,8 +1662,7 @@ fn partially_known_pack_preserves_ordered_lanes_and_specializes() {
 
     let supplied = StaticSpecializationEnvironmentKey::normalized([(formal, StaticSpecializationArgument::Value(exact))], [], []).unwrap();
     let specialized = specialize_helper(
-        &fixture,
-        body,
+        (&fixture, body),
         pack,
         &supplied,
         &mut values,
@@ -1767,8 +1751,7 @@ fn checked_pack_construction_preserves_both_lanes_from_source() {
     );
     assert_eq!(
         specialize_helper(
-            &fixture,
-            body,
+            (&fixture, body),
             pack,
             &StaticSpecializationEnvironmentKey::default(),
             &mut values,
@@ -1799,8 +1782,7 @@ fn checked_pack_construction_preserves_both_lanes_from_source() {
     };
     let supplied = StaticSpecializationEnvironmentKey::normalized([(formal.clone(), StaticSpecializationArgument::Value(exact))], [], []).unwrap();
     let specialized = specialize_helper(
-        &fixture,
-        body,
+        (&fixture, body),
         pack,
         &supplied,
         &mut values,
@@ -1970,8 +1952,7 @@ fn source_pack_spread_uses_checked_constructor_lanes() {
     let ninety_nine = values.intern_int(99);
     let supplied = StaticSpecializationEnvironmentKey::normalized([(formal, StaticSpecializationArgument::Value(ninety_nine))], [], []).unwrap();
     let specialized = specialize_helper(
-        &fixture,
-        combined_body,
+        (&fixture, combined_body),
         pack_res,
         &supplied,
         &mut values,
@@ -2159,8 +2140,7 @@ fn iterative_source_pack_count_specializes_open_value_to_cold_result() {
     ));
     let supplied = StaticSpecializationEnvironmentKey::normalized([(formal, StaticSpecializationArgument::Value(pack))], [], []).unwrap();
     let specialized = specialize_helper(
-        &fixture,
-        body,
+        (&fixture, body),
         deferred,
         &supplied,
         &mut values,
@@ -2211,8 +2191,7 @@ fn direct_residual_escape_and_parity() {
     let supplied_int = StaticSpecializationEnvironmentKey::normalized(vec![], vec![(param_t, int_type)], vec![]).unwrap();
 
     let spec_true = specialize_helper(
-        &fixture,
-        is_subtype_body,
+        (&fixture, is_subtype_body),
         proof_res,
         &supplied_int,
         &mut values,
@@ -2236,8 +2215,7 @@ fn direct_residual_escape_and_parity() {
     // Specialize with T = String
     let supplied_str = StaticSpecializationEnvironmentKey::normalized(vec![], vec![(param_t, string_type)], vec![]).unwrap();
     let spec_false = specialize_helper(
-        &fixture,
-        is_subtype_body,
+        (&fixture, is_subtype_body),
         proof_res,
         &supplied_str,
         &mut values,
@@ -2264,8 +2242,7 @@ fn direct_residual_escape_and_parity() {
     // CV-ID-01: No-New-Facts identity
     let empty_supplied = StaticSpecializationEnvironmentKey::default();
     let no_facts = specialize_helper(
-        &fixture,
-        is_subtype_body,
+        (&fixture, is_subtype_body),
         proof_res,
         &empty_supplied,
         &mut values,
@@ -2362,8 +2339,7 @@ fn direct_residual_escape_and_parity() {
     let supplied_unit = StaticSpecializationEnvironmentKey::normalized(vec![], vec![(identity_param, unit)], vec![]).unwrap();
 
     let spec_member = specialize_helper(
-        &fixture,
-        &member_body,
+        (&fixture, &member_body),
         member_res,
         &supplied_unit,
         &mut values,
@@ -2382,8 +2358,7 @@ fn direct_residual_escape_and_parity() {
 
     // CV-ID-02: Idempotence: specializing with same environment produces same result
     let spec_again = specialize_helper(
-        &fixture,
-        &member_body,
+        (&fixture, &member_body),
         member_res,
         &supplied_unit,
         &mut values,
@@ -2429,8 +2404,7 @@ fn direct_residual_escape_and_parity() {
     let val_42 = values.intern_int(42);
     let supplied_val = StaticSpecializationEnvironmentKey::normalized(vec![(open_param, StaticSpecializationArgument::Value(val_42))], vec![], vec![]).unwrap();
     let spec_apply = specialize_helper(
-        &fixture,
-        apply_body,
+        (&fixture, apply_body),
         apply_res,
         &supplied_val,
         &mut values,
