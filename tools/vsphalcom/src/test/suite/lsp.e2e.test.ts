@@ -200,7 +200,7 @@ suite('Phalcom LSP extension E2E', function () {
     test(
         'live edit changes completion without restarting extension',
         async () => {
-            const file = path.join(tempDir, 'live_edit.ph');
+            const file = path.join(tempDir, 'live-edit.ph');
             fs.writeFileSync(
                 file,
                 [
