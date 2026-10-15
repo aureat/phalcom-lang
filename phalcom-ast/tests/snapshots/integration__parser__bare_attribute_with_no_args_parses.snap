@@ -85,7 +85,7 @@ Program {
                 invariants: [],
                 implementation: Phalcom,
                 implementation_range: None,
-                            is_primitive: false,
+                is_primitive: false,
                 range: CopyRange {
                     start: 0,
                     end: 48,
