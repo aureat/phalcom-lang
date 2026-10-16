@@ -66,11 +66,13 @@ Current task state and evidence:
   superclass, class-object/type-form, contextual realization, structural
   pattern, nested-loop Error/Zip, and source-derived callable/witness/type/static
   roots. User-attribute constructors and straightforward argument roots are
-  projected, while nonempty attribute arguments and unsupported expression
-  forms deliberately leave coverage incomplete; exact generated callable /
-  witness reads there are not closed. Break/continue trap ownership also
-  remains incomplete. The focused semantic `phase_evidence` suite passed
-  11/11; the full ruling family matrix is not closed.
+  projected. Complete query status alone no longer closes attribute coverage:
+  unknown or dynamic expression knowledge retains conservative Runtime import
+  fallback. A focused direct-call case verifies an exact external callable
+  owner requirement. Attribute witness-owner evidence and other declaration
+  forms remain open. Break/continue trap ownership also remains incomplete.
+  The focused semantic `phase_evidence` suite passed 20/20; the full ruling
+  family matrix is not closed.
 - **T5 — PARTIAL / FOCUSED_TESTED.** The finalizer projects canonical read
   slots and generated runtime edges together, then validates the strict DAG.
   Focused linker tests passed 18/18. Positive type-cycle and S4 fixtures pass
@@ -248,9 +250,10 @@ through semantic analysis into finalization. A focused regression verifies
 the generated requirements, per-import phases, and finalized linked-read
 slots.
 
-The directly affected semantic `phase_evidence` module passed 18/18 on the
-current worktree after finalizer assertions were added. T4 remains partial:
-other attribute declaration forms and the complete producer-family matrix
+The directly affected semantic `phase_evidence` module passed 20/20 on the
+current worktree after conservative fallback was extended to unknown/dynamic
+attribute expressions. T4 remains partial: other attribute declaration forms,
+attribute witness-owner evidence, and the complete producer-family matrix
 still need audit. T7/T8 cross-stage gates remain open.
 
 CV-04 now has an end-to-end source-project discriminator for a whole-module

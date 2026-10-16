@@ -777,6 +777,93 @@ fn attribute_argument_roots_emit_exact_prelude_and_import_reads() {
 }
 
 #[test]
+fn attribute_argument_selected_callable_emits_external_owner_requirement() {
+    let fixture = phase_fixture(
+        "class Factory { @class produce() {} }\nexport Factory\n",
+        "from .provider import Factory\nclass custom {}\n@custom(Factory.produce())\nclass Consumer {}\n",
+        "class Unchanged {}\n",
+    );
+    let mut session = session_with_private_numbers_child_exposed(phalcom_semantic::identity::WorkspaceId::from_raw(918));
+    let snapshot = session
+        .update_with_budget_and_cancel(
+            SemanticWorkspaceInput::new(fixture.semantic.to_unfinalized_program(), fixture.sources.clone(), 1).with_semantic_linked(fixture.semantic.clone()),
+            QueryBudget::default(),
+            &CancellationToken::new(),
+        )
+        .expect("attribute argument callable analysis succeeds")
+        .snapshot;
+
+    assert_eq!(
+        snapshot.import_phase_products[&fixture.consumer].coverage,
+        phalcom_modules::linker::PhaseEvidenceCoverage::Complete,
+        "a complete user-attribute argument analysis closes import coverage"
+    );
+    let factory_import = fixture.semantic.modules[&fixture.consumer].imports.by_local_name["Factory"].clone();
+    assert_eq!(
+        snapshot.import_phase_products[&fixture.consumer].bindings[&factory_import].phase,
+        DependencyPhase::Runtime,
+        "the attribute argument's receiver is an executable import"
+    );
+    assert!(
+        snapshot.generated_runtime_requirements.iter().any(|requirement| {
+            requirement.importer == fixture.consumer
+                && requirement.dependency == fixture.provider
+                && requirement.reason == RuntimeDependencyReason::RuntimeDeclarationReference
+                && requirement.read_target.is_none()
+                && requirement.provenance.producer == phalcom_modules::RuntimeRequirementProducer::CallableOwner
+                && requirement.provenance.target == phalcom_modules::RuntimeRequirementTarget::Module(fixture.provider.clone())
+        }),
+        "the selected external class callable's canonical owner is a runtime requirement: {:#?}",
+        snapshot.generated_runtime_requirements
+    );
+}
+
+#[test]
+fn attribute_argument_dynamic_trait_send_falls_back_to_runtime_imports() {
+    let consumer_source = "from .provider import Marked\nclass custom {}\nclass Local { @class make() -> Local { Local.new() } }\nimpl Marked for Local {}\n@custom(Local.make().marker())\nclass Consumer {}\n";
+    let fixture = phase_fixture("trait Marked { marker -> Int { 7 } }\nexport Marked\n", consumer_source, "class Unchanged {}\n");
+    let mut session = session_with_private_numbers_child_exposed(phalcom_semantic::identity::WorkspaceId::from_raw(919));
+    let snapshot = session
+        .update_with_budget_and_cancel(
+            SemanticWorkspaceInput::new(fixture.semantic.to_unfinalized_program(), fixture.sources.clone(), 1).with_semantic_linked(fixture.semantic.clone()),
+            QueryBudget::default(),
+            &CancellationToken::new(),
+        )
+        .expect("attribute argument analysis succeeds with an unresolved dynamic send")
+        .snapshot;
+
+    let marked_import = fixture.semantic.modules[&fixture.consumer].imports.by_local_name["Marked"].clone();
+    assert_eq!(
+        snapshot.import_phase_products[&fixture.consumer].coverage,
+        phalcom_modules::linker::PhaseEvidenceCoverage::Incomplete,
+        "a Ready analysis with an unresolved dynamic send cannot close runtime dependency coverage"
+    );
+    assert_eq!(
+        snapshot.import_phase_products[&fixture.consumer].bindings[&marked_import],
+        phalcom_modules::linker::ImportPhaseSummary {
+            phase: DependencyPhase::Runtime,
+            observed: true,
+        },
+        "an unresolved dynamic trait send must retain the imported trait module at runtime"
+    );
+    let marked_target = LinkedReadSpec::Binding(SymbolId {
+        module: fixture.provider.clone(),
+        name: "Marked".into(),
+    });
+    assert!(
+        snapshot.generated_runtime_requirements.iter().any(|requirement| {
+            requirement.importer == fixture.consumer
+                && requirement.dependency == fixture.provider
+                && requirement.reason == RuntimeDependencyReason::RuntimeDeclarationReference
+                && requirement.read_target == Some(marked_target.clone())
+                && requirement.provenance.producer == phalcom_modules::RuntimeRequirementProducer::ImportRead
+        }),
+        "an unresolved trait send falls back to the exact imported interface binding read: {:#?}",
+        snapshot.generated_runtime_requirements
+    );
+}
+
+#[test]
 fn conformance_trait_root_is_interface_only() {
     let fixture = phase_fixture(
         "trait Imported {}\nexport Imported\n",

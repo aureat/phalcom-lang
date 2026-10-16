@@ -1357,6 +1357,23 @@ fn statement_attributes(statement: &Statement) -> Vec<&Attribute> {
     attributes
 }
 
+/// Whether retained attribute analysis proves a closed runtime dependency
+/// set for one argument. A completed query may still contain an unknown or
+/// deliberately dynamic send; those expressions can select owners that the
+/// semantic product did not resolve, so they must keep conservative import
+/// fallback active.
+fn attribute_argument_has_closed_runtime_dependencies(product: Option<&Arc<crate::attribute_analysis::AttributeArgumentAnalysis>>) -> bool {
+    product.is_some_and(|product| {
+        product.analysis.status == crate::checker::CallableAnalysisStatus::Complete
+            && !product.analysis.expressions.is_empty()
+            && product
+                .analysis
+                .expressions
+                .values()
+                .all(|expression| expression.status.is_ready() && !expression.knowledge.is_unknown() && !expression.knowledge.is_dynamic())
+    })
+}
+
 /// Aggregates joined phase evidence and generated runtime requirements for all modules in a workspace.
 pub fn compute_module_import_phase_products(
     semantic_linked: &SemanticLinkedProgram,
@@ -1740,10 +1757,7 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
                             let site = supported_attribute_sites
                                 .iter()
                                 .find(|site| site.id.attribute_name.as_ref() == attribute.name && site.expression.range() == argument.range());
-                            let covered = site.and_then(|site| attribute_analyses.get(&site.id)).is_some_and(|product| {
-                                product.analysis.status == crate::checker::CallableAnalysisStatus::Complete
-                                    && product.analysis.expressions.values().all(|expression| expression.status.is_ready())
-                            });
+                            let covered = attribute_argument_has_closed_runtime_dependencies(site.and_then(|site| attribute_analyses.get(&site.id)));
                             if !covered {
                                 uncovered.push(argument);
                             }
@@ -1805,12 +1819,9 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
                                         module_complete = false;
                                     }
                                 }
-                                let covered = sites.iter().all(|site| {
-                                    attribute_analyses.get(&site.id).is_some_and(|product| {
-                                        product.analysis.status == crate::checker::CallableAnalysisStatus::Complete
-                                            && product.analysis.expressions.values().all(|expression| expression.status.is_ready())
-                                    })
-                                });
+                                let covered = sites
+                                    .iter()
+                                    .all(|site| attribute_argument_has_closed_runtime_dependencies(attribute_analyses.get(&site.id)));
                                 if !covered {
                                     // Preserve the P4 conservative rule if any
                                     // receiving callable lacks complete semantic

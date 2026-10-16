@@ -50,12 +50,14 @@ committing and pushing the scoped consolidation implementation.
   attribute arguments, including receiver/generic contract contexts and
   per-callable invariant contexts. Selected callable and witness requirements
   are derived from those products. Break/continue trap ownership is modeled
-  against materialized loop-control paths. Core propagates Debug/Release/
-  Unchecked so stripped attribute uses remain observed but interface-only;
-  finalizer assertions verify mode-specific read slots. Unsupported attribute
-  declaration forms and the complete ruling family matrix remain open. The
-  current semantic `phase_evidence` integration suite passed 18/18 after the
-  finalizer assertions were added.
+  conservatively: materialized Error traps are projected, while coverage stays
+  incomplete because their semantic owner is not established. Core propagates
+  Debug/Release/Unchecked so stripped attribute uses remain observed but
+  interface-only; finalizer assertions verify mode-specific read slots. Unsupported attribute
+  declaration forms, unknown/dynamic attribute expressions, and the complete
+  ruling family matrix remain open. The current semantic `phase_evidence`
+  integration suite passed 20/20 after conservative unknown/dynamic fallback
+  was added.
 - **T5:** Partial, focused-tested. Modules owns requirement transport and the
   finalizer projects canonical read slots and generated runtime edges together
   before strict DAG validation. The linker integration suite passed 24/24.
@@ -71,7 +73,7 @@ committing and pushing the scoped consolidation implementation.
   rather than append reads. `RUSTFLAGS='' cargo check -p phalcom-core` passed.
   The contextual-read test and two missing-mapping tests each passed 1/1.
 - **T7:** Partial. CV-06 and CV-07 pass at the semantic boundary (the focused
-  semantic suite passed 18/18 on the current tree). CV-03 has linker-boundary
+  semantic suite passed 20/20 on the current tree). CV-03 has linker-boundary
   evidence for conservative fallback and strict generated-cycle rejection.
   CV-04 passes an end-to-end fixture for distinct whole-module and canonical
   re-export reads, including correct VM values. CV-01/02 now have an executed
@@ -268,6 +270,16 @@ and unsupported/incomplete emitted expressions remain open. Cross-stage CV
 coverage was partial at this point; later focused evidence below advances
 CV-01/02/04/05/08/09 without closing the broader matrix. The full semantic
 suite, workspace checks, and release certification were not run.
+
+Follow-up evidence tightened what counts as closed attribute coverage. A
+completed query with an `Unknown` or dynamic expression can still lack a
+selected callable or witness, so such a product now keeps the conservative
+Runtime import fallback active. A focused direct-call case verifies the exact
+external callable owner requirement. An unresolved dynamic trait send verifies
+that fallback retains the exact imported interface read; it does not establish
+exact witness-owner resolution for that send. The focused semantic
+`phase_evidence` integration suite passed 20/20. Attribute witness-owner
+evidence and other declaration forms remain open.
 
 The initial execution probe exposed a lowering defect: class-object type-form
 reads used the canonical declaration's name as a `GetGlobal` operand instead
