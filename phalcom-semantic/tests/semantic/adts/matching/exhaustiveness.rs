@@ -364,7 +364,6 @@ fn match_exh_07_exact_case_scrutinee_requires_only_that_case() {
 }
 
 #[test]
-#[ignore = "GATED: transparent alias union fixture is required"]
 fn match_exh_08_alias_union_exhaustiveness_is_not_root_widened() {
     let case = analyze_adt(
         "data Choice { A B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n",
@@ -442,7 +441,6 @@ class Test {
 }
 
 #[test]
-#[ignore = "GATED: open object domain fixture is required"]
 fn match_exh_15_open_object_requires_wildcard() {
     let case = analyze_adt("class Test { run(_ value: Object) { match value { {name: value} => value } } }\n");
     case.only_match().assert_not_exhaustive();
@@ -506,26 +504,79 @@ fn review_m5_01_two_field_witness_keeps_both_fields() {
 #[ignore = "RED: multi-field residual witness generation remains incomplete"]
 fn review_m5_02_missing_two_field_combination_is_complete() {
     let case = analyze_adt(
-        "data Pair { Both(_ left: Int, right: String) }\nclass Test { run(_ value: Pair) { match value { Pair::Both(_, right: \"ok\") => 1 } } }\n",
+        r#"
+data Bit { Zero One }
+data Pair { Both(_ left: Bit, _ right: Bit) }
+class Test {
+    run(_ value: Pair) {
+        match value {
+            Pair::Both(Bit::Zero, Bit::Zero) => 0
+            Pair::Both(Bit::Zero, Bit::One) => 1
+            Pair::Both(Bit::One, Bit::Zero) => 2
+        }
+    }
+}
+"#,
     );
     let handle = case.only_match();
     let ExhaustivenessResult::Missing(witnesses) = &handle.resolution().exhaustiveness else {
         panic!("expected pair witness")
     };
-    assert!(!witnesses.is_empty());
+    let pair = case.variant("Pair", Selector::method("Both", [SelectorSlot::Positional, SelectorSlot::Positional]).expect("Both selector"));
+    let one = case.variant("Bit", Selector::getter("One").expect("One selector"));
+    let expected = phalcom_semantic::match_semantics::CoverageWitness::Variant {
+        variant: pair.id.clone(),
+        exact_case: pair.exact_case_template,
+        fields: Box::new([
+            phalcom_semantic::match_semantics::CoverageWitness::Variant {
+                variant: one.id.clone(),
+                exact_case: one.exact_case_template,
+                fields: Box::new([]),
+            },
+            phalcom_semantic::match_semantics::CoverageWitness::Variant {
+                variant: one.id.clone(),
+                exact_case: one.exact_case_template,
+                fields: Box::new([]),
+            },
+        ]),
+    };
+    assert_eq!(witnesses.as_ref(), &[expected], "the single missing product is One × One");
 }
 
 #[test]
 #[ignore = "RED: nested multi-field witness generation remains incomplete"]
 fn review_m5_03_nested_multi_field_witness_preserves_child_tree() {
     let case = analyze_adt(
-        "data Pair { Both(_ left: Int, right: String) }\ndata Outer { Boxed(_ value: Pair) }\nclass Test { run(_ value: Outer) { match value { Outer::Boxed(Pair::Both(_, \"ok\")) => 1 } } }\n",
+        r#"
+data Bit { Zero One }
+data Pair { Both(_ left: Bit, _ right: Bit) }
+data Outer { Boxed(_ value: Pair) }
+class Test {
+    run(_ value: Outer) {
+        match value {
+            Outer::Boxed(Pair::Both(Bit::Zero, Bit::Zero)) => 0
+        }
+    }
+}
+"#,
     );
     let handle = case.only_match();
     let ExhaustivenessResult::Missing(witnesses) = &handle.resolution().exhaustiveness else {
         panic!("expected nested pair witness")
     };
-    assert!(!witnesses.is_empty());
+    assert!(witnesses.iter().any(|witness| {
+        let phalcom_semantic::match_semantics::CoverageWitness::Variant { variant: outer_id, fields, .. } = witness else {
+            return false;
+        };
+        let phalcom_semantic::match_semantics::CoverageWitness::Variant { variant: pair_id, fields: pair_fields, .. } = &fields[0] else {
+            return false;
+        };
+        outer_id.owner.name.as_ref() == "Outer"
+            && outer_id.selector == Selector::getter("Boxed").expect("Boxed selector")
+            && pair_id.owner.name.as_ref() == "Pair"
+            && pair_id.selector == Selector::method("Both", [SelectorSlot::Positional, SelectorSlot::Positional]).expect("Both selector")
+            && pair_fields.len() == 2
+    }), "expected a nested Outer::Boxed(Pair::Both(field₀, field₁)) witness: {witnesses:#?}");
 }
 
 #[test]

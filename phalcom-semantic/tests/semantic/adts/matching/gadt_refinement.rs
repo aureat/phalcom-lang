@@ -227,7 +227,6 @@ fn match_gadt_09_branch_proof_does_not_leak_to_sibling_arm() {
 }
 
 #[test]
-#[ignore = "GATED: post-match flow environment fixture is required"]
 fn match_gadt_10_branch_proof_does_not_leak_after_match() {
     let case = analyze_adt(
         "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",

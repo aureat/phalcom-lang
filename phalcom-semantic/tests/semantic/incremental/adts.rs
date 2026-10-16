@@ -238,7 +238,6 @@ fn adt_incr_06_gadt_specialization_edit_changes_branch_product() {
 }
 
 #[test]
-#[ignore = "GATED: alias declaration fixture is required"]
 fn adt_incr_07_alias_union_expansion_invalidates_exhaustiveness() {
     let module = module();
     let mut session = SemanticWorkspaceSession::new();
@@ -267,7 +266,7 @@ fn adt_incr_08_alias_union_contraction_updates_residual_witness() {
     let mut session = SemanticWorkspaceSession::new();
     let source_a =
         "data Choice { A B C }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
-    let source_b = "data Choice { A B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } }\n";
+    let source_b = "data Choice { A B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
     let _ = session
         .update(single_module_input(module.clone(), source_a, 1))
         .expect("semantic test update should succeed");

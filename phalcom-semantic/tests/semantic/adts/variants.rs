@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
+use crate::semantic::support::WorkspaceFixture;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::analyze_single_module;
+use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::{DeclarationId, VariantId};
+use phalcom_semantic::match_semantics::PatternResolution;
 
 #[test]
 fn singleton_and_constructor_variants_have_distinct_identities_in_one_family() {
@@ -144,15 +147,71 @@ fn adt_variant_07_all_same_base_variants_share_one_family_identity() {
 #[test]
 #[ignore = "GATED: external-module visibility fixture is required"]
 fn adt_variant_08_private_variant_name_is_not_explicitly_acquirable() {
-    let _ = super::support::analyze_adt("data Animal { _Dog }\n");
-    panic!("external visibility fixture must assert inaccessible explicit acquisition");
+    let fixture = WorkspaceFixture::new()
+        .module("animals", "data Animal { @private Dog(_ name: Int) Cat }\nexport Animal\n")
+        .module(
+            "client",
+            "from .animals import Animal\nclass Test { run() { let result = Animal::Dog(1); result } }\n",
+        )
+        .entry("client")
+        .analyze();
+    let diagnostics = fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedMemberInaccessible)
+        .collect::<Vec<_>>();
+    assert_eq!(diagnostics.len(), 1, "expected inaccessible explicit construction: {diagnostics:#?}");
 }
 
 #[test]
 #[ignore = "GATED: cross-module construction and match visibility fixture is required"]
 fn adt_variant_09_construction_visibility_is_independent_from_match_universe() {
-    let _ = super::support::analyze_adt("data Animal { Dog }\n");
-    panic!("cross-module visibility fixture must assert construction and elimination separately");
+    let fixture = WorkspaceFixture::new()
+        .module("animals", "data Animal { @private Dog(_ name: Int) Cat }\nexport Animal\n")
+        .module(
+            "client",
+            r#"
+from .animals import Animal
+class Test {
+    run(_ value: Animal) -> Int {
+        let attempted = Animal::Dog(1)
+        match value {
+            Animal::Dog(_) => 1
+            _ => 0
+        }
+    }
+}
+"#,
+        )
+        .entry("client")
+        .analyze();
+    let inaccessible = fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedMemberInaccessible)
+        .collect::<Vec<_>>();
+    assert_eq!(inaccessible.len(), 1, "construction should be inaccessible while matching remains allowed: {inaccessible:#?}");
+
+    let (callable, analysis) = fixture
+        .analysis
+        .snapshot
+        .callable_analyses
+        .iter()
+        .find(|(callable, _)| callable.owner.module() == fixture.module("client"))
+        .expect("client callable analysis");
+    assert!(callable.selector.base == phalcom_common::selector::SelectorBase::Named("run".into()));
+    let resolution = analysis.match_resolutions.values().next().expect("client match resolution");
+    let PatternResolution::Variant(pattern) = &resolution.arms[0].pattern else {
+        panic!("expected the private Dog pattern to resolve as a variant: {:#?}", resolution.arms[0].pattern);
+    };
+    let expected = VariantId::new(
+        fixture.decl("animals", "Animal"),
+        Selector::method("Dog", [SelectorSlot::Positional]).expect("Dog selector"),
+    );
+    assert_eq!(pattern.candidates.len(), 1);
+    assert_eq!(pattern.candidates[0].variant, expected, "private construction must not remove Dog from match resolution");
 }
 
 #[test]

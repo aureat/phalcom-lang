@@ -232,9 +232,52 @@ fn review_m6_03_branch_local_facts_are_removed_with_binding() {
 #[test]
 #[ignore = "GATED: shadowed outer binding fixture is required"]
 fn review_m6_04_outer_same_name_binding_is_restored_after_match() {
-    let case =
-        analyze_adt("data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { let x = 7 match value { Choice::A(x) => x Choice::B => x } } }\n");
-    assert_eq!(case.only_match().arm(0).resolution().bindings.len(), 1);
+    let case = analyze_adt(
+        r#"
+data Choice { A(_ value: Int) B }
+class Test {
+    run(_ value: Choice) {
+        let x = 7
+        match value {
+            Choice::A(x) => x
+            Choice::B => x
+        }
+        x
+    }
+}
+"#,
+    );
+    let pattern_binding = case.only_match().arm(0).find_binding("x").expect("arm-local x").binding;
+    let callable = case
+        .analysis
+        .snapshot
+        .callable_analyses
+        .values()
+        .find(|callable| !callable.match_resolutions.is_empty())
+        .expect("Test::run analysis");
+    let mut reads = callable
+        .expressions
+        .values()
+        .filter(|expression| {
+            expression.binding_read.is_some() && case.source.get(expression.range.start..expression.range.end) == Some("x")
+        })
+        .collect::<Vec<_>>();
+    reads.sort_by_key(|expression| expression.range.start);
+    let expressions = callable
+        .expressions
+        .values()
+        .map(|expression| {
+            (
+                expression.range,
+                case.source.get(expression.range.start..expression.range.end),
+                expression.binding_read,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(reads.len(), 3, "expected the two arm reads and the post-match read; expressions: {expressions:#?}");
+    assert_eq!(reads[0].binding_read, Some(pattern_binding), "the first arm reads its pattern binding");
+    assert_ne!(reads[1].binding_read, Some(pattern_binding), "the second arm restores the outer binding");
+    assert_eq!(reads[2].binding_read, reads[1].binding_read, "the outer binding remains visible after the match");
 }
 
 #[test]

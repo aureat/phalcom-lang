@@ -116,8 +116,19 @@ fn r2_t03_nested_reachable_summary_uses_payload_subject() {
 #[test]
 #[ignore = "GATED: abrupt branch fixture is required"]
 fn match_flow_03_abrupt_arm_is_excluded_from_normal_result_join() {
-    let case =
-        analyze_adt("data Choice { Left Right }\nclass Test { run(_ value: Choice) -> Int { match value { Choice::Left => return 1 Choice::Right => 2 } } }\n");
+    let case = analyze_adt(
+        r#"
+data Choice { Left Right }
+class Test {
+    run(_ value: Choice) -> Int {
+        match value {
+            Choice::Left => { return 1 }
+            Choice::Right => 2
+        }
+    }
+}
+"#,
+    );
     assert_eq!(case.only_match().resolution().result.ty(), Some(case.declaration("Int").form));
 }
 
@@ -125,9 +136,20 @@ fn match_flow_03_abrupt_arm_is_excluded_from_normal_result_join() {
 #[ignore = "GATED: all-abrupt branch fixture is required"]
 fn match_flow_04_all_abrupt_arms_have_never_result() {
     let case = analyze_adt(
-        "data Choice { Left Right }\nclass Test { run(_ value: Choice) -> Int { match value { Choice::Left => return 1 Choice::Right => return 2 } } }\n",
+        r#"
+data Choice { Left Right }
+class Test {
+    run(_ value: Choice) -> Int {
+        match value {
+            Choice::Left => { return 1 }
+            Choice::Right => { return 2 }
+        }
+    }
+}
+"#,
     );
-    assert!(case.only_match().resolution().result.ty().is_some());
+    let result = case.only_match().resolution().result.ty().expect("abrupt match result");
+    assert!(matches!(case.type_data(result), phalcom_semantic::types::store::TypeData::Never));
 }
 
 #[test]
@@ -148,7 +170,54 @@ fn match_flow_06_wrong_branch_result_points_to_offending_arm() {
 #[ignore = "GATED: outer variable write/join fixture is required"]
 fn match_flow_10_branch_writes_join_after_match() {
     let case = analyze_adt(
-        "data Choice { Left Right }\nclass Test { run(_ value: Choice) { let total = match value { Choice::Left => 1 Choice::Right => 2 } total } }\n",
+        r#"
+data Choice { Left Right }
+class Test {
+    run(_ value: Choice) {
+        let mut total: Int | String = 0
+        match value {
+            Choice::Left => { total = 1 }
+            Choice::Right => { total = "two" }
+        }
+        total
+    }
+}
+"#,
     );
-    assert_eq!(case.only_match().resolution().result.ty(), Some(case.declaration("Int").form));
+    let callable = case
+        .analysis
+        .snapshot
+        .callable_analyses
+        .values()
+        .find(|callable| !callable.match_resolutions.is_empty())
+        .expect("Test::run analysis");
+    let source = case.source.as_ref();
+    let result_read = callable
+        .expressions
+        .values()
+        .filter(|expression| expression.binding_read.is_some() && source.get(expression.range.start..expression.range.end) == Some("total"))
+        .max_by_key(|expression| expression.range.start)
+        .unwrap_or_else(|| {
+            let expressions = callable
+                .expressions
+                .values()
+                .map(|expression| {
+                    (
+                        expression.range,
+                        source.get(expression.range.start..expression.range.end),
+                        expression.binding_read,
+                    )
+                })
+                .collect::<Vec<_>>();
+            panic!("post-match total read missing; expressions: {expressions:#?}");
+        });
+    let result_type = result_read.knowledge.ty().expect("post-match total type");
+    let phalcom_semantic::types::store::TypeData::Union(members) = case.type_data(result_type) else {
+        panic!("expected branch writes to join as a union, got {:?}", case.type_data(result_type));
+    };
+    let actual = members.iter().copied().collect::<std::collections::BTreeSet<_>>();
+    let expected = [case.declaration("Int").form, case.declaration("String").form]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(actual, expected, "post-match read should join both branch writes");
 }

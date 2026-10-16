@@ -150,7 +150,6 @@ fn review_x_01_malformed_pattern_cannot_prove_false_exhaustiveness() {
 }
 
 #[test]
-#[ignore = "GATED: typed semantic-to-lowering rejection seam is required"]
 fn review_x_02_invalid_semantic_match_never_reaches_lowering() {
     let case = super::super::support::analyze_adt("data Choice { A }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n");
     assert!(

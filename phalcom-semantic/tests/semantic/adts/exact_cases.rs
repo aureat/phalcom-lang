@@ -90,7 +90,6 @@ fn adt_exact_05_generic_substitution_changes_root_and_exact_case_together() {
 }
 
 #[test]
-#[ignore = "GATED: transparent alias declaration fixture is required"]
 fn adt_exact_06_transparent_alias_union_matches_direct_exact_union() {
     let parsed = phalcom_ast::parse_source("type ChoiceAlias = Choice\n", 0).expect("transparent alias fixture should parse");
     assert!(matches!(parsed.statements.first(), Some(phalcom_ast::ast::Statement::TypeDefinition(_))));

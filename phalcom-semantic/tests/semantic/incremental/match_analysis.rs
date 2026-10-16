@@ -61,7 +61,6 @@ fn adt_incr_match_analysis_uses_one_shared_query_index() {
 }
 
 #[test]
-#[ignore = "GATED: source-level match dependency product does not yet expose alias edges"]
 fn adt_incr_match_analysis_records_alias_union_dependency() {
     let module = module();
     let mut session = SemanticWorkspaceSession::new();

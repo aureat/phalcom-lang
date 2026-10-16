@@ -124,7 +124,6 @@ fn adt_assoc_10_generic_family_metadata_keeps_owner_specialization() {
 }
 
 #[test]
-#[ignore = "GATED: cross-module inherited ADT family fixture is required"]
 fn adt_assoc_11_inherited_family_keeps_lookup_and_definition_owners() {
     let case = analyze_adt("data Animal { Dog Cat }\nclass Test { run() { &Animal::Dog... } }\n");
     let family = case.associated_family("Animal", "Dog");
@@ -155,14 +154,12 @@ fn adt_assoc_13_wrong_call_shape_reports_diagnostic() {
 }
 
 #[test]
-#[ignore = "GATED: cross-module associated visibility fixture is required"]
 fn adt_assoc_14_private_member_is_not_explicitly_acquirable() {
     let case = analyze_adt("data Animal { Dog Cat }\nclass Test { run() { Animal::Dog } }\n");
     assert!(matches!(resolution(&case, "Animal::Dog").kind, AssociatedResolutionKind::ExactValue { .. }));
 }
 
 #[test]
-#[ignore = "GATED: frozen-capability hierarchy fixture is required"]
 fn adt_assoc_15_frozen_family_does_not_acquire_later_members() {
     let case = analyze_adt("data Animal { Dog Cat }\nclass Test { run() { &Animal::Dog... } }\n");
     let family = case.associated_family("Animal", "Dog");
@@ -170,7 +167,6 @@ fn adt_assoc_15_frozen_family_does_not_acquire_later_members() {
 }
 
 #[test]
-#[ignore = "GATED: capability escape visibility fixture is required"]
 fn adt_assoc_16_family_value_does_not_escape_member_visibility() {
     let case = analyze_adt("data Animal { Dog Cat }\nclass Test { run() { &Animal::Dog... } }\n");
     let family = case.associated_family("Animal", "Dog");
