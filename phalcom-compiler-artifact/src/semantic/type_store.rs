@@ -48,6 +48,7 @@ pub enum CanonicalRootFamilyTag {
     CallableAnalysis = 14,
     SelectedQueryRoot = 15,
     StaticValue = 16,
+    CallableDefinition = 17,
 }
 
 impl Wire for CanonicalRootFamilyTag {
@@ -73,6 +74,7 @@ impl Wire for CanonicalRootFamilyTag {
             14 => Ok(Self::CallableAnalysis),
             15 => Ok(Self::SelectedQueryRoot),
             16 => Ok(Self::StaticValue),
+            17 => Ok(Self::CallableDefinition),
             _ => Err(invalid("invalid CanonicalRootFamilyTag")),
         }
     }

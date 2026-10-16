@@ -40,7 +40,7 @@ pub(super) fn register_callable_definition_roots(
     let mut roots = Roots::new(
         types,
         StableOwnerRef::Callable(to_stable_callable(&definition.callable)),
-        Family::CallableSignature,
+        Family::CallableDefinition,
     );
     roots.callable_signature(&definition.signature)?;
     if let Some(context) = &definition.inherent_body_context {
@@ -1315,25 +1315,49 @@ pub fn register_semantic_world_roots(
         }
     }
     for (target, members) in snapshot.dispatch.conditional_members().iter() {
-        for domain in members.members.iter().map(|member| &member.domain) {
-            let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(&domain.impl_id)), Family::SurfaceAndDispatch);
-            r.ty(domain.head_type)?;
-            r.generic(&domain.generic_signature)?;
-            for constraint in &domain.constraints {
-                r.constraint(constraint)?;
+        if members.target.as_ref() != Some(target) {
+            return Err(ArtifactError::LimitExceeded(
+                "conditional inherent member set target disagrees with its owner".into(),
+            ));
+        }
+        let mut impl_roots = BTreeMap::new();
+        for member in &members.members {
+            if member.impl_id != member.domain.impl_id || &member.domain.target != target {
+                return Err(ArtifactError::LimitExceeded(
+                    "conditional inherent member domain disagrees with its owner".into(),
+                ));
+            }
+            if member.callable != member.signature_template.callable {
+                return Err(ArtifactError::LimitExceeded(
+                    "conditional inherent member key disagrees with its signature".into(),
+                ));
+            }
+            match impl_roots.entry(member.impl_id.clone()) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    let mut roots = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(&member.impl_id)), Family::SurfaceAndDispatch);
+                    roots.inherent_impl_domain(&member.domain)?;
+                    entry.insert((member.domain.as_ref(), roots.next_ordinal()));
+                }
+                std::collections::btree_map::Entry::Occupied(entry) if entry.get().0 != member.domain.as_ref() => {
+                    return Err(ArtifactError::LimitExceeded(
+                        "conditional inherent members disagree about their shared impl domain".into(),
+                    ));
+                }
+                std::collections::btree_map::Entry::Occupied(_) => {}
             }
         }
         for member in &members.members {
-            let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(&member.impl_id)), Family::SurfaceAndDispatch);
-            r.callable_signature(&member.signature_template)?;
-        }
-        match target {
-            crate::impls::InherentImplTarget::Declaration(declaration) => {
-                let _ = to_stable_declaration(declaration);
-            }
-            crate::impls::InherentImplTarget::ExactEnumCase(variant) => {
-                let _ = to_stable_variant(variant);
-            }
+            let (_, next_ordinal) = impl_roots
+                .get_mut(&member.impl_id)
+                .ok_or_else(|| ArtifactError::LimitExceeded("conditional inherent member has no root owner".into()))?;
+            let mut roots = Roots::new_with_ordinal(
+                types,
+                StableOwnerRef::Impl(to_stable_impl(&member.impl_id)),
+                Family::SurfaceAndDispatch,
+                *next_ordinal,
+            );
+            roots.callable_signature(&member.signature_template)?;
+            *next_ordinal = roots.next_ordinal();
         }
     }
     for (id, product) in snapshot.type_member_declarations.iter() {
@@ -1570,10 +1594,13 @@ pub fn register_semantic_world_roots(
 
 #[cfg(test)]
 mod tests {
-    use super::{Family, Roots, StableOwnerRef, register_callable_analysis_roots, to_stable_declaration};
+    use super::{
+        Family, Roots, StableOwnerRef, register_callable_analysis_roots, register_callable_definition_roots, register_callable_signature_roots,
+        to_stable_declaration,
+    };
     use crate::checker::analysis::{BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowStateSummary};
     use crate::identity::{
-        BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, FieldId, ImplLocalId, LocalExpressionId, ModuleId, VariantId,
+        BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, FieldId, ImplId, ImplLocalId, LocalExpressionId, ModuleId, VariantId,
     };
     use crate::types::denotation::SemanticDenotation;
     use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
@@ -1642,6 +1669,37 @@ mod tests {
             flow: phalcom_native_meta::ReturnFlowSpec::Value,
             lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
         }
+    }
+
+    #[test]
+    fn callable_signature_and_definition_use_distinct_root_namespaces() {
+        let owner = DeclarationId::new(ModuleId::universe_root(), "RootedDefinition".into());
+        let callable = CallableId::method(owner.clone(), Selector::getter("value").unwrap(), DispatchSide::Class);
+        let mut store = TypeStore::new();
+        let surface_return = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "SurfaceReturn".into()));
+        let definition_return = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "DefinitionReturn".into()));
+        let surface_signature = callable_signature(callable.clone(), &owner, surface_return);
+        let impl_id = ImplId::new(owner.module.clone(), ImplLocalId(0));
+        let definition = crate::impls::EffectiveCallableDefinition {
+            callable: callable.clone(),
+            origin: crate::impls::CallableDefinitionOrigin::InherentImpl(impl_id),
+            source_member_index: 0,
+            signature: callable_signature(callable, &owner, definition_return),
+            body_provenance: crate::impls::CallableDefinitionBodyProvenance::SourceBody,
+            inherent_body_context: Some(crate::impls::InherentBodyContext {
+                generic_signature: None,
+                covering: None,
+                source_target_head: definition_return,
+            }),
+        };
+
+        let mut types = TypeExportContext::new(&store);
+        register_callable_signature_roots(&mut types, &surface_signature).unwrap();
+        register_callable_definition_roots(&mut types, &definition).unwrap();
+        types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
+
+        assert!(types.ty(surface_return).is_ok());
+        assert!(types.ty(definition_return).is_ok());
     }
 
     #[test]

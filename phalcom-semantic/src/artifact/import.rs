@@ -1073,18 +1073,396 @@ fn import_exact_callable(callable: &StableCallableRef) -> Result<CallableId, Art
     ))
 }
 
-/// Relocates selected-call specialization rows and reconstructs the portable
-/// conformance variants currently admitted by the T5 importer.
+#[derive(Clone)]
+enum CallableEvidenceImportState {
+    Unvisited,
+    Visiting,
+    Complete(crate::generic_evidence::GenericConformanceEvidence),
+}
+
+struct CallableEvidenceImporter<'a> {
+    relocation: &'a TypeRelocation,
+    store: &'a TypeStore,
+    source_plan_fingerprints: &'a BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+    allocations: &'a mut AllocationBudget,
+    states: Vec<CallableEvidenceImportState>,
+    max_depth: usize,
+}
+
+impl<'a> CallableEvidenceImporter<'a> {
+    fn new(
+        evidence_count: usize,
+        relocation: &'a TypeRelocation,
+        store: &'a TypeStore,
+        source_plan_fingerprints: &'a BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+        allocations: &'a mut AllocationBudget,
+        max_depth: usize,
+    ) -> Result<Self, ArtifactError> {
+        let mut states = allocations.vector(evidence_count).map_err(allocation_error)?;
+        states.resize(evidence_count, CallableEvidenceImportState::Unvisited);
+        Ok(Self {
+            relocation,
+            store,
+            source_plan_fingerprints,
+            allocations,
+            states,
+            max_depth,
+        })
+    }
+
+    fn evidence(
+        &mut self,
+        evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
+        ordinal: u32,
+        depth: usize,
+    ) -> Result<crate::generic_evidence::GenericConformanceEvidence, ArtifactError> {
+        use phalcom_compiler_artifact::semantic::world as wire;
+
+        if depth > self.max_depth {
+            return Err(referential("callable conformance evidence nesting limit exceeded during import"));
+        }
+        let index = usize::try_from(ordinal).map_err(|_| referential("callable evidence ordinal exceeds address space"))?;
+        let node = evidence_nodes
+            .get(index)
+            .ok_or_else(|| referential("callable conformance evidence reference is out of range"))?;
+        match self.states.get(index) {
+            Some(CallableEvidenceImportState::Complete(evidence)) => return Ok(evidence.clone()),
+            Some(CallableEvidenceImportState::Visiting) => return Err(referential("callable conformance evidence graph contains a cycle")),
+            Some(CallableEvidenceImportState::Unvisited) => {}
+            None => return Err(referential("callable conformance evidence reference is out of range")),
+        }
+        self.states[index] = CallableEvidenceImportState::Visiting;
+
+        let imported = match node {
+            wire::CallableConformanceEvidenceNodeV1::Assumed { key, owner } => Ok(crate::generic_evidence::GenericConformanceEvidence::Assumed(
+                crate::generic_evidence::AssumedConformanceEvidence {
+                    key: import_generic_conformance_key_with_allocation_budget(key, self.relocation, self.allocations)?,
+                    owner: import_parameter_owner(owner)?,
+                },
+            )),
+            wire::CallableConformanceEvidenceNodeV1::CompilerDerived { evidence } => self.import_compiler_derived(evidence),
+            wire::CallableConformanceEvidenceNodeV1::Exact { evidence } => self.import_exact(evidence_nodes, evidence, depth + 1),
+            wire::CallableConformanceEvidenceNodeV1::Derived { evidence } => self.import_derived(evidence_nodes, evidence, depth + 1),
+        };
+
+        match imported {
+            Ok(evidence) => {
+                self.states[index] = CallableEvidenceImportState::Complete(evidence.clone());
+                Ok(evidence)
+            }
+            Err(error) => {
+                self.states[index] = CallableEvidenceImportState::Unvisited;
+                Err(error)
+            }
+        }
+    }
+
+    fn import_compiler_derived(
+        &mut self,
+        evidence: &phalcom_compiler_artifact::semantic::world::CallableCompilerDerivedConformanceEvidenceV1,
+    ) -> Result<crate::generic_evidence::GenericConformanceEvidence, ArtifactError> {
+        use phalcom_compiler_artifact::semantic::world as wire;
+
+        let key = import_generic_conformance_key_with_allocation_budget(&evidence.key, self.relocation, self.allocations)?;
+        let kind = match evidence.kind {
+            wire::CallableCompilerDerivedConformanceKindV1::Product => crate::generic_evidence::CompilerDerivedConformanceKind::Product,
+            wire::CallableCompilerDerivedConformanceKindV1::OrderedProduct => crate::generic_evidence::CompilerDerivedConformanceKind::OrderedProduct,
+            wire::CallableCompilerDerivedConformanceKindV1::UnorderedProduct => crate::generic_evidence::CompilerDerivedConformanceKind::UnorderedProduct,
+            wire::CallableCompilerDerivedConformanceKindV1::Sum => crate::generic_evidence::CompilerDerivedConformanceKind::Sum,
+        };
+        let classification = match &evidence.classification {
+            wire::CallableStructuralClassificationV1::Unsupported => crate::structural::StructuralClassification::Unsupported,
+            wire::CallableStructuralClassificationV1::OrderedProduct { form } => crate::structural::StructuralClassification::OrderedProduct(match form {
+                wire::CallableOrderedProductFormV1::Unit => crate::structural::OrderedProductForm::Unit,
+                wire::CallableOrderedProductFormV1::Tuple => crate::structural::OrderedProductForm::Tuple,
+                wire::CallableOrderedProductFormV1::TupleFromPacks => crate::structural::OrderedProductForm::TupleFromPacks,
+                wire::CallableOrderedProductFormV1::Pack => crate::structural::OrderedProductForm::Pack,
+                wire::CallableOrderedProductFormV1::PackFromPacks => crate::structural::OrderedProductForm::PackFromPacks,
+                wire::CallableOrderedProductFormV1::Data { owner } => crate::structural::OrderedProductForm::Data {
+                    owner: import_stable_declaration_with_allocation_budget(owner, self.allocations)?,
+                },
+            }),
+            wire::CallableStructuralClassificationV1::UnorderedProduct { form } => {
+                crate::structural::StructuralClassification::UnorderedProduct(match form {
+                    wire::CallableUnorderedProductFormV1::Record => crate::structural::UnorderedProductForm::Record,
+                    wire::CallableUnorderedProductFormV1::Data { owner } => crate::structural::UnorderedProductForm::Data {
+                        owner: import_stable_declaration_with_allocation_budget(owner, self.allocations)?,
+                    },
+                })
+            }
+            wire::CallableStructuralClassificationV1::Sum { owner } => crate::structural::StructuralClassification::Sum {
+                owner: import_stable_declaration_with_allocation_budget(owner, self.allocations)?,
+            },
+        };
+        let evidence = self
+            .allocations
+            .arc(crate::generic_evidence::CompilerDerivedConformanceEvidence { key, kind, classification })
+            .map_err(allocation_error)?;
+        Ok(crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence))
+    }
+
+    fn import_exact(
+        &mut self,
+        evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
+        evidence: &phalcom_compiler_artifact::semantic::world::CallableExactConformanceEvidenceV1,
+        depth: usize,
+    ) -> Result<crate::generic_evidence::GenericConformanceEvidence, ArtifactError> {
+        use phalcom_compiler_artifact::semantic::world::CallableAssociatedTypeBindingValueV1 as Value;
+
+        let source_impl = from_stable_impl(&evidence.source_impl).map_err(referential)?;
+        let source_plan_fingerprint = self
+            .source_plan_fingerprints
+            .get(&source_impl)
+            .copied()
+            .ok_or_else(|| referential("callable Exact conformance evidence has no reconstructed source witness plan"))?;
+        let exact_target = self.relocation.ty(evidence.exact_target)?;
+        let exact_trait_ref = import_trait_ref_identity(&evidence.exact_trait_ref, self.relocation, self.allocations)?;
+        let impl_environment = import_callable_type_environment_with_budget(&evidence.impl_environment, self.relocation, self.allocations)?;
+
+        let mut requirement_views = self.allocations.vector(evidence.requirement_views.len()).map_err(allocation_error)?;
+        for view in &evidence.requirement_views {
+            let requirement = import_callable_requirement_identity(&view.requirement)?;
+            if requirement.owner != exact_trait_ref.declaration {
+                return Err(referential("Exact conformance requirement view belongs to another trait"));
+            }
+            requirement_views.push((
+                requirement.clone(),
+                crate::traits::InstantiatedTraitRequirement {
+                    requirement,
+                    callable: import_exact_callable(&view.callable)?,
+                    signature: import_callable_signature(&view.signature, self.relocation, self.store, self.allocations)?,
+                    visibility: import_visibility(&view.visibility),
+                    default_callable: view.default_callable.as_ref().map(import_exact_callable).transpose()?,
+                },
+            ));
+        }
+        let requirement_views = import_analysis_map(requirement_views, self.allocations, "Exact conformance requirement views are not canonical")?;
+
+        let mut requirements = self.allocations.vector(evidence.requirements.len()).map_err(allocation_error)?;
+        for entry in &evidence.requirements {
+            let requirement = import_callable_requirement_identity(&entry.requirement)?;
+            if requirement.owner != exact_trait_ref.declaration {
+                return Err(referential("Exact conformance requirement selection belongs to another trait"));
+            }
+            let selection = import_callable_requirement_selection(&entry.selection, evidence_nodes, self, depth)?;
+            requirements.push((requirement, selection));
+        }
+        let requirements = import_analysis_map(requirements, self.allocations, "Exact conformance requirement selections are not canonical")?;
+
+        let mut associated_types = self.allocations.vector(evidence.associated_types.len()).map_err(allocation_error)?;
+        for binding in &evidence.associated_types {
+            let requirement = import_callable_associated_type_requirement_identity(&binding.requirement)?;
+            if requirement.owner != exact_trait_ref.declaration {
+                return Err(referential("Exact conformance associated-type binding belongs to another trait"));
+            }
+            associated_types.push((
+                requirement.clone(),
+                crate::impls::ExactAssociatedTypeBinding {
+                    requirement,
+                    value: match binding.value {
+                        Value::Type { ty } => crate::impls::AssociatedTypeBindingValue::Type(self.relocation.ty(ty)?),
+                        Value::Dynamic => crate::impls::AssociatedTypeBindingValue::Dynamic,
+                    },
+                    source_impl: from_stable_impl(&binding.source_impl).map_err(referential)?,
+                    source: import_source_span(&binding.source)?,
+                },
+            ));
+        }
+        let associated_types = import_analysis_map(associated_types, self.allocations, "Exact conformance associated types are not canonical")?;
+
+        let mut trait_header_contract = self.allocations.vector(evidence.trait_header_contract.len()).map_err(allocation_error)?;
+        for constraint in &evidence.trait_header_contract {
+            trait_header_contract.push(import_constraint(constraint, self.relocation)?);
+        }
+        let trait_header_contract = trait_header_contract.into_boxed_slice();
+        let trait_header_conformance_proofs = evidence
+            .trait_header_conformance_proofs
+            .as_ref()
+            .map(|proofs| {
+                let mut imported = self.allocations.vector(proofs.len()).map_err(allocation_error)?;
+                for proof in proofs {
+                    imported.push((
+                        import_generic_conformance_key_with_allocation_budget(&proof.key, self.relocation, self.allocations)?,
+                        self.evidence(evidence_nodes, proof.evidence, depth + 1)?,
+                    ));
+                }
+                import_analysis_map(imported, self.allocations, "Exact conformance proof keys are not canonical")
+            })
+            .transpose()?;
+
+        let fingerprint = crate::impls::conformance_evidence_fingerprint(
+            source_plan_fingerprint,
+            exact_target,
+            &exact_trait_ref,
+            &impl_environment,
+            &requirement_views,
+            &requirements,
+            &associated_types,
+            &trait_header_contract,
+        );
+        let evidence = crate::impls::ConformanceEvidence::from_frozen_parts(
+            source_impl,
+            exact_target,
+            exact_trait_ref,
+            impl_environment,
+            requirement_views,
+            requirements,
+            associated_types,
+            trait_header_contract,
+            trait_header_conformance_proofs,
+            fingerprint,
+        );
+        validate_relocated_conformance_evidence_fingerprint(&evidence, source_plan_fingerprint)?;
+        Ok(crate::generic_evidence::GenericConformanceEvidence::Exact(
+            self.allocations.arc(evidence).map_err(allocation_error)?,
+        ))
+    }
+
+    fn import_derived(
+        &mut self,
+        evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
+        evidence: &phalcom_compiler_artifact::semantic::world::CallableDerivedConformanceEvidenceV1,
+        depth: usize,
+    ) -> Result<crate::generic_evidence::GenericConformanceEvidence, ArtifactError> {
+        use phalcom_compiler_artifact::semantic::world::{CallableDerivedConformanceOriginV1 as Origin, CallableNestedGenericEvidenceV1 as Nested};
+
+        let origin = match &evidence.origin {
+            Origin::ConditionalSource { exact_source } => {
+                let imported = self.evidence(evidence_nodes, *exact_source, depth + 1)?;
+                let crate::generic_evidence::GenericConformanceEvidence::Exact(exact_source) = imported else {
+                    return Err(referential("callable Derived conditional source references a node of the wrong kind"));
+                };
+                crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source }
+            }
+            Origin::GuardedRule {
+                rule,
+                exact_subject,
+                exact_trait_ref,
+            } => {
+                let rule = import_callable_derived_conformance_rule(rule, evidence_nodes, self, depth + 1)?;
+                crate::generic_evidence::DerivedConformanceOrigin::GuardedRule {
+                    rule: self.allocations.arc(rule).map_err(allocation_error)?,
+                    exact_subject: self.relocation.ty(*exact_subject)?,
+                    exact_trait_ref: import_trait_ref_identity(exact_trait_ref, self.relocation, self.allocations)?,
+                }
+            }
+        };
+
+        let mut impl_bindings = self.allocations.vector(evidence.impl_bindings.len()).map_err(allocation_error)?;
+        for binding in &evidence.impl_bindings {
+            impl_bindings.push((self.relocation.parameter(binding.parameter)?, self.relocation.ty(binding.ty)?));
+        }
+        impl_bindings.sort_unstable_by_key(|(parameter, _)| *parameter);
+        let impl_bindings = crate::types::substitution::TypeSubstitution::from_budgeted_entries(impl_bindings, self.allocations).map_err(|error| match error {
+            crate::checker::analysis_map::AnalysisMapBuildError::Entries(_) => referential("callable Derived conformance bindings are not canonical"),
+            crate::checker::analysis_map::AnalysisMapBuildError::Allocation(error) => allocation_error(error),
+        })?;
+
+        let mut nested = self.allocations.vector(evidence.nested.len()).map_err(allocation_error)?;
+        for item in &evidence.nested {
+            nested.push(match item {
+                Nested::Conformance { evidence } => {
+                    crate::generic_evidence::NestedGenericEvidence::Conformance(self.evidence(evidence_nodes, *evidence, depth + 1)?)
+                }
+                Nested::Equivalent => crate::generic_evidence::NestedGenericEvidence::Equivalent,
+                Nested::Subtype => crate::generic_evidence::NestedGenericEvidence::Subtype,
+            });
+        }
+        let evidence = crate::generic_evidence::DerivedConformanceEvidence {
+            origin,
+            impl_bindings,
+            nested: nested.into_boxed_slice(),
+        };
+        Ok(crate::generic_evidence::GenericConformanceEvidence::Derived(
+            self.allocations.arc(evidence).map_err(allocation_error)?,
+        ))
+    }
+
+    fn binding(
+        &mut self,
+        binding: &phalcom_compiler_artifact::semantic::world::CallableGenericCallConformanceBindingV1,
+        evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
+    ) -> Result<crate::checker::analysis::GenericCallConformanceBinding, ArtifactError> {
+        use phalcom_compiler_artifact::semantic::world::CallableGenericCallConformanceSourceV1 as Source;
+
+        let callee_conformance = import_generic_conformance_key_with_allocation_budget(&binding.callee_conformance, self.relocation, self.allocations)?;
+        let source = match &binding.source {
+            Source::Exact { evidence } => {
+                let imported = self.evidence(evidence_nodes, *evidence, 0)?;
+                let crate::generic_evidence::GenericConformanceEvidence::Exact(evidence) = imported else {
+                    return Err(referential("callable Exact conformance binding references a node of the wrong kind"));
+                };
+                crate::checker::analysis::GenericCallConformanceSource::Exact { evidence }
+            }
+            Source::Forwarded { caller_conformance } => crate::checker::analysis::GenericCallConformanceSource::Forwarded {
+                caller_conformance: import_generic_conformance_key_with_allocation_budget(caller_conformance, self.relocation, self.allocations)?,
+            },
+            Source::Derived { evidence } => {
+                let imported = self.evidence(evidence_nodes, *evidence, 0)?;
+                let crate::generic_evidence::GenericConformanceEvidence::Derived(evidence) = imported else {
+                    return Err(referential("callable Derived conformance binding references a node of the wrong kind"));
+                };
+                crate::checker::analysis::GenericCallConformanceSource::Derived { evidence }
+            }
+            Source::CompilerDerived { evidence } => {
+                let imported = self.evidence(evidence_nodes, *evidence, 0)?;
+                let crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence) = imported else {
+                    return Err(referential("callable CompilerDerived conformance binding references a node of the wrong kind"));
+                };
+                crate::checker::analysis::GenericCallConformanceSource::CompilerDerived { evidence }
+            }
+        };
+        Ok(crate::checker::analysis::GenericCallConformanceBinding { callee_conformance, source })
+    }
+}
+
+fn import_analysis_map<K: Ord, V>(
+    entries: Vec<(K, V)>,
+    allocations: &mut AllocationBudget,
+    malformed_message: &'static str,
+) -> Result<crate::checker::analysis_map::AnalysisMap<K, V>, ArtifactError> {
+    crate::checker::analysis_map::AnalysisMap::from_budgeted_entries(entries, allocations).map_err(|error| match error {
+        crate::checker::analysis_map::AnalysisMapBuildError::Entries(_) => referential(malformed_message),
+        crate::checker::analysis_map::AnalysisMapBuildError::Allocation(error) => allocation_error(error),
+    })
+}
+
+fn validate_relocated_conformance_evidence_fingerprint(
+    evidence: &crate::impls::ConformanceEvidence,
+    source_plan_fingerprint: crate::db::ProductFingerprint,
+) -> Result<(), ArtifactError> {
+    let reconstructed = crate::impls::conformance_evidence_fingerprint(
+        source_plan_fingerprint,
+        evidence.exact_target,
+        &evidence.exact_trait_ref,
+        &evidence.impl_environment,
+        &evidence.requirement_views,
+        &evidence.requirements,
+        &evidence.associated_types,
+        &evidence.trait_header_contract,
+    );
+    if evidence.fingerprint != reconstructed {
+        return Err(referential("reconstructed Exact conformance evidence fingerprint is stale after relocation"));
+    }
+    Ok(())
+}
+
+/// Relocates selected-call specialization rows and reconstructs every portable
+/// conformance variant through one callable-local evidence memo.
 pub(crate) fn import_callable_call_specializations(
     expressions: &[phalcom_compiler_artifact::semantic::world::CallableExpressionRowV1],
     evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
     relocation: &TypeRelocation,
     store: &TypeStore,
+    source_plan_fingerprints: &BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
     allocations: &mut AllocationBudget,
+    max_depth: usize,
 ) -> Result<Vec<(u32, crate::checker::analysis::CallSpecialization)>, ArtifactError> {
     use phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1;
     let mut child = allocations.child(allocations.remaining());
-    let mut output = child
+    let mut importer = CallableEvidenceImporter::new(evidence_nodes.len(), relocation, store, source_plan_fingerprints, &mut child, max_depth)?;
+    let mut output = importer
+        .allocations
         .vector::<(u32, crate::checker::analysis::CallSpecialization)>(expressions.len())
         .map_err(allocation_error)?;
     for (index, expression) in expressions.iter().enumerate() {
@@ -1094,8 +1472,9 @@ pub(crate) fn import_callable_call_specializations(
         let Some(record) = &expression.call_specialization else {
             continue;
         };
-        let callable = import_stable_callable_with_allocation_budget(&record.callable, &mut child)?;
-        let mut bindings = child
+        let callable = import_stable_callable_with_allocation_budget(&record.callable, importer.allocations)?;
+        let mut bindings = importer
+            .allocations
             .vector::<(crate::types::id::TypeParameterId, crate::types::store::StaticArgument)>(record.bindings.len())
             .map_err(allocation_error)?;
         for binding in &record.bindings {
@@ -1110,17 +1489,12 @@ pub(crate) fn import_callable_call_specializations(
             };
             bindings.push((parameter, argument));
         }
-        let mut conformances = child
+        let mut conformances = importer
+            .allocations
             .vector::<crate::checker::analysis::GenericCallConformanceBinding>(record.conformances.len())
             .map_err(allocation_error)?;
         for binding in &record.conformances {
-            conformances.push(import_callable_generic_call_conformance_binding(
-                binding,
-                evidence_nodes,
-                relocation,
-                store,
-                &mut child,
-            )?);
+            conformances.push(importer.binding(binding, evidence_nodes)?);
         }
         output.push((
             expression.ordinal,
@@ -1131,6 +1505,7 @@ pub(crate) fn import_callable_call_specializations(
             },
         ));
     }
+    drop(importer);
     allocations.commit_child(child).map_err(allocation_error)?;
     Ok(output)
 }
@@ -1143,129 +1518,6 @@ fn import_generic_conformance_key_with_allocation_budget(
     let subject = import_type_term_with_allocation_budget(&key.subject, relocation, allocations)?;
     let trait_ref = import_trait_ref_identity(&key.trait_ref, relocation, allocations)?;
     Ok(crate::generic_evidence::GenericConformanceKey::new(subject, trait_ref))
-}
-
-fn import_callable_conformance_evidence_node(
-    ordinal: u32,
-    evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
-    relocation: &TypeRelocation,
-    allocations: &mut AllocationBudget,
-) -> Result<crate::generic_evidence::GenericConformanceEvidence, ArtifactError> {
-    use phalcom_compiler_artifact::semantic::world as wire;
-    let node = evidence_nodes
-        .get(usize::try_from(ordinal).map_err(|_| referential("callable evidence ordinal exceeds address space"))?)
-        .ok_or_else(|| referential("callable conformance evidence reference is out of range"))?;
-    match node {
-        wire::CallableConformanceEvidenceNodeV1::Assumed { key, owner } => Ok(crate::generic_evidence::GenericConformanceEvidence::Assumed(
-            crate::generic_evidence::AssumedConformanceEvidence {
-                key: import_generic_conformance_key_with_allocation_budget(key, relocation, allocations)?,
-                owner: import_parameter_owner(owner)?,
-            },
-        )),
-        wire::CallableConformanceEvidenceNodeV1::CompilerDerived { evidence } => {
-            let key = import_generic_conformance_key_with_allocation_budget(&evidence.key, relocation, allocations)?;
-            let kind = match evidence.kind {
-                wire::CallableCompilerDerivedConformanceKindV1::Product => crate::generic_evidence::CompilerDerivedConformanceKind::Product,
-                wire::CallableCompilerDerivedConformanceKindV1::OrderedProduct => crate::generic_evidence::CompilerDerivedConformanceKind::OrderedProduct,
-                wire::CallableCompilerDerivedConformanceKindV1::UnorderedProduct => crate::generic_evidence::CompilerDerivedConformanceKind::UnorderedProduct,
-                wire::CallableCompilerDerivedConformanceKindV1::Sum => crate::generic_evidence::CompilerDerivedConformanceKind::Sum,
-            };
-            let classification = match &evidence.classification {
-                wire::CallableStructuralClassificationV1::Unsupported => crate::structural::StructuralClassification::Unsupported,
-                wire::CallableStructuralClassificationV1::OrderedProduct { form } => crate::structural::StructuralClassification::OrderedProduct(match form {
-                    wire::CallableOrderedProductFormV1::Unit => crate::structural::OrderedProductForm::Unit,
-                    wire::CallableOrderedProductFormV1::Tuple => crate::structural::OrderedProductForm::Tuple,
-                    wire::CallableOrderedProductFormV1::TupleFromPacks => crate::structural::OrderedProductForm::TupleFromPacks,
-                    wire::CallableOrderedProductFormV1::Pack => crate::structural::OrderedProductForm::Pack,
-                    wire::CallableOrderedProductFormV1::PackFromPacks => crate::structural::OrderedProductForm::PackFromPacks,
-                    wire::CallableOrderedProductFormV1::Data { owner } => crate::structural::OrderedProductForm::Data {
-                        owner: import_stable_declaration_with_allocation_budget(owner, allocations)?,
-                    },
-                }),
-                wire::CallableStructuralClassificationV1::UnorderedProduct { form } => {
-                    crate::structural::StructuralClassification::UnorderedProduct(match form {
-                        wire::CallableUnorderedProductFormV1::Record => crate::structural::UnorderedProductForm::Record,
-                        wire::CallableUnorderedProductFormV1::Data { owner } => crate::structural::UnorderedProductForm::Data {
-                            owner: import_stable_declaration_with_allocation_budget(owner, allocations)?,
-                        },
-                    })
-                }
-                wire::CallableStructuralClassificationV1::Sum { owner } => crate::structural::StructuralClassification::Sum {
-                    owner: import_stable_declaration_with_allocation_budget(owner, allocations)?,
-                },
-            };
-            let evidence = allocations
-                .arc(crate::generic_evidence::CompilerDerivedConformanceEvidence { key, kind, classification })
-                .map_err(allocation_error)?;
-            Ok(crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence))
-        }
-        wire::CallableConformanceEvidenceNodeV1::Exact { .. } | wire::CallableConformanceEvidenceNodeV1::Derived { .. } => Err(referential(
-            "Exact and Derived conformance import remains fail-closed until their derived fingerprints and native allocation boundary are portable",
-        )),
-    }
-}
-
-fn import_callable_generic_call_conformance_binding(
-    binding: &phalcom_compiler_artifact::semantic::world::CallableGenericCallConformanceBindingV1,
-    evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
-    relocation: &TypeRelocation,
-    _store: &TypeStore,
-    allocations: &mut AllocationBudget,
-) -> Result<crate::checker::analysis::GenericCallConformanceBinding, ArtifactError> {
-    use phalcom_compiler_artifact::semantic::world::CallableGenericCallConformanceSourceV1 as Source;
-    let callee_conformance = import_generic_conformance_key_with_allocation_budget(&binding.callee_conformance, relocation, allocations)?;
-    let source = match &binding.source {
-        Source::Exact { evidence } => {
-            let node = evidence_nodes
-                .get(usize::try_from(*evidence).map_err(|_| referential("callable evidence ordinal exceeds address space"))?)
-                .ok_or_else(|| referential("callable Exact conformance evidence reference is out of range"))?;
-            if !matches!(
-                node,
-                phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1::Exact { .. }
-            ) {
-                return Err(referential("callable Exact conformance binding references a node of the wrong kind"));
-            }
-            let _ = import_callable_conformance_evidence_node(*evidence, evidence_nodes, relocation, allocations)?;
-            return Err(referential(
-                "callable Exact conformance evidence requires the T5 fingerprint reconstruction path",
-            ));
-        }
-        Source::Forwarded { caller_conformance } => crate::checker::analysis::GenericCallConformanceSource::Forwarded {
-            caller_conformance: import_generic_conformance_key_with_allocation_budget(caller_conformance, relocation, allocations)?,
-        },
-        Source::Derived { evidence } => {
-            let node = evidence_nodes
-                .get(usize::try_from(*evidence).map_err(|_| referential("callable evidence ordinal exceeds address space"))?)
-                .ok_or_else(|| referential("callable Derived conformance evidence reference is out of range"))?;
-            if !matches!(
-                node,
-                phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1::Derived { .. }
-            ) {
-                return Err(referential("callable Derived conformance binding references a node of the wrong kind"));
-            }
-            let _ = import_callable_conformance_evidence_node(*evidence, evidence_nodes, relocation, allocations)?;
-            return Err(referential(
-                "callable Derived conformance evidence requires the T5 fingerprint reconstruction path",
-            ));
-        }
-        Source::CompilerDerived { evidence } => {
-            let node = evidence_nodes
-                .get(usize::try_from(*evidence).map_err(|_| referential("callable evidence ordinal exceeds address space"))?)
-                .ok_or_else(|| referential("callable CompilerDerived conformance evidence reference is out of range"))?;
-            if !matches!(
-                node,
-                phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1::CompilerDerived { .. }
-            ) {
-                return Err(referential("callable CompilerDerived conformance binding references a node of the wrong kind"));
-            }
-            let imported = import_callable_conformance_evidence_node(*evidence, evidence_nodes, relocation, allocations)?;
-            let crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence) = imported else {
-                return Err(referential("callable CompilerDerived binding references a node of the wrong kind"));
-            };
-            crate::checker::analysis::GenericCallConformanceSource::CompilerDerived { evidence }
-        }
-    };
-    Ok(crate::checker::analysis::GenericCallConformanceBinding { callee_conformance, source })
 }
 
 /// Reconstructs expression statuses, retaining blocked query-owner identities
@@ -1314,6 +1566,7 @@ pub(crate) struct ImportedCallableExpressionFacts {
     pub range: phalcom_common::range::SourceRange,
     pub knowledge: crate::types::evidence::TypeKnowledge,
     pub callable: Option<CallableId>,
+    pub conditional_dispatch: Option<crate::dispatch::ConditionalDispatchSelection>,
     pub causal_invalidity: crate::checker::causal::CausalInvalidity,
     pub binding_read_safety: Option<crate::checker::flow::BindingReadSafety>,
     /// Owner-local binding ordinal; the complete callable materializer resolves
@@ -1366,6 +1619,11 @@ pub(crate) fn import_callable_expression_facts(
             .as_ref()
             .map(|callable| import_stable_callable_with_allocation_budget(callable, &mut child))
             .transpose()?;
+        let conditional_dispatch = expression
+            .conditional_dispatch
+            .as_ref()
+            .map(|selection| import_conditional_dispatch_selection(selection, &mut child))
+            .transpose()?;
         let causal_invalidity = match expression.causal_invalidity {
             CallableCausalInvalidityV1::Clean => CausalInvalidity::Clean,
             CallableCausalInvalidityV1::One { cause } => CausalInvalidity::One(DiagnosticCauseId(cause)),
@@ -1381,6 +1639,7 @@ pub(crate) fn import_callable_expression_facts(
             range,
             knowledge,
             callable,
+            conditional_dispatch,
             causal_invalidity,
             binding_read_safety,
             binding_read: expression.binding_read,
@@ -1562,20 +1821,22 @@ fn import_callable_type_environment_with_budget(
     allocations: &mut AllocationBudget,
 ) -> Result<crate::types::environment::TypeEnvironment, ArtifactError> {
     use phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1;
-    let mut seen = BTreeSet::new();
+    let mut seen = allocations.vector(environment.bindings.len()).map_err(allocation_error)?;
     let mut bindings = allocations.vector(environment.bindings.len()).map_err(allocation_error)?;
     let mut dynamic_bindings = allocations.vector(environment.bindings.len()).map_err(allocation_error)?;
     let mut row_bindings = allocations.vector(environment.bindings.len()).map_err(allocation_error)?;
     for binding in &environment.bindings {
         let parameter = relocation.parameter(binding.parameter)?;
-        if !seen.insert(parameter) {
-            return Err(referential("callable type environment binds one parameter more than once"));
-        }
+        seen.push(parameter);
         match &binding.argument {
             StaticArgumentV1::Term { term } => bindings.push((parameter, relocation.ty(*term)?)),
             StaticArgumentV1::DynamicType => dynamic_bindings.push(parameter),
             StaticArgumentV1::RecordRow { row } => row_bindings.push((parameter, relocation.row(*row)?)),
         }
+    }
+    seen.sort_unstable();
+    if seen.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(referential("callable type environment binds one parameter more than once"));
     }
     bindings.sort_unstable_by_key(|(parameter, _)| *parameter);
     dynamic_bindings.sort_unstable();
@@ -1603,41 +1864,29 @@ fn import_callable_type_environment_with_budget(
 fn import_callable_inherent_specialization(
     specialization: &phalcom_compiler_artifact::semantic::world::CallableInherentImplSpecializationV1,
     evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
-    relocation: &TypeRelocation,
-    store: &TypeStore,
-    allocations: &mut AllocationBudget,
+    importer: &mut CallableEvidenceImporter<'_>,
 ) -> Result<crate::impls::InherentImplSpecialization, ArtifactError> {
     let impl_id = from_stable_impl(&specialization.impl_id).map_err(referential)?;
-    let mut bindings = allocations.vector(specialization.bindings.len()).map_err(allocation_error)?;
+    let mut bindings = importer.allocations.vector(specialization.bindings.len()).map_err(allocation_error)?;
     for binding in &specialization.bindings {
-        bindings.push((relocation.parameter(binding.parameter)?, relocation.ty(binding.ty)?));
+        bindings.push((importer.relocation.parameter(binding.parameter)?, importer.relocation.ty(binding.ty)?));
     }
-    let bindings = crate::checker::analysis_map::AnalysisMap::from_budgeted_entries(bindings, allocations).map_err(|error| match error {
-        crate::checker::analysis_map::AnalysisMapBuildError::Entries(_) => referential("inherent specialization bindings are not canonical"),
-        crate::checker::analysis_map::AnalysisMapBuildError::Allocation(error) => allocation_error(error),
-    })?;
-    let environment = import_callable_type_environment_with_budget(&specialization.environment, relocation, allocations)?;
-    let conformance_provenance = specialization
-        .conformance_provenance
-        .as_ref()
-        .map(|bindings| {
-            let mut imported = allocations.vector(bindings.len()).map_err(allocation_error)?;
-            for binding in bindings {
-                imported.push(import_callable_generic_call_conformance_binding(
-                    binding,
-                    evidence_nodes,
-                    relocation,
-                    store,
-                    allocations,
-                )?);
-            }
-            Ok::<_, ArtifactError>(imported.into_boxed_slice())
-        })
-        .transpose()?;
+    bindings.sort_unstable_by_key(|(parameter, _)| *parameter);
+    let bindings = import_analysis_map(bindings, importer.allocations, "inherent specialization bindings are not canonical")?;
+    let environment = import_callable_type_environment_with_budget(&specialization.environment, importer.relocation, importer.allocations)?;
+    let conformance_provenance = if let Some(bindings) = &specialization.conformance_provenance {
+        let mut imported = importer.allocations.vector(bindings.len()).map_err(allocation_error)?;
+        for binding in bindings {
+            imported.push(importer.binding(binding, evidence_nodes)?);
+        }
+        Some(imported.into_boxed_slice())
+    } else {
+        None
+    };
     Ok(crate::impls::InherentImplSpecialization {
         impl_id,
-        receiver: relocation.ty(specialization.receiver)?,
-        owner_view: relocation.ty(specialization.owner_view)?,
+        receiver: importer.relocation.ty(specialization.receiver)?,
+        owner_view: importer.relocation.ty(specialization.owner_view)?,
         bindings,
         environment,
         conformance_provenance,
@@ -1647,53 +1896,48 @@ fn import_callable_inherent_specialization(
 fn import_callable_effective_inherent_witness(
     witness: &phalcom_compiler_artifact::semantic::world::CallableEffectiveInherentWitnessV1,
     evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
-    relocation: &TypeRelocation,
-    store: &TypeStore,
-    allocations: &mut AllocationBudget,
+    importer: &mut CallableEvidenceImporter<'_>,
 ) -> Result<crate::impls::EffectiveInherentWitness, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world::CallableInherentImplTargetV1 as Target;
-    let conditional_domain = witness
-        .conditional_domain
-        .as_ref()
-        .map(|domain| {
-            let target = match &domain.target {
-                Target::Declaration { declaration } => {
-                    crate::impls::InherentImplTarget::Declaration(from_stable_declaration(declaration).map_err(referential)?)
-                }
-                Target::ExactEnumCase { variant } => crate::impls::InherentImplTarget::ExactEnumCase(from_stable_variant(variant).map_err(referential)?),
-            };
-            let generic_signature = domain
-                .generic_signature
-                .as_ref()
-                .map(|signature| import_generic_signature(signature, relocation, store))
-                .transpose()?;
-            let constraints = domain
-                .constraints
-                .iter()
-                .map(|constraint| import_constraint(constraint, relocation))
-                .collect::<Result<Vec<_>, _>>()?
-                .into_boxed_slice();
-            Ok::<_, ArtifactError>(
-                allocations
-                    .arc(crate::impls::InherentImplDomain {
-                        impl_id: from_stable_impl(&domain.impl_id).map_err(referential)?,
-                        target,
-                        head_type: relocation.ty(domain.head_type)?,
-                        generic_signature,
-                        constraints,
-                    })
-                    .map_err(allocation_error)?,
-            )
-        })
-        .transpose()?;
+    let conditional_domain = if let Some(domain) = &witness.conditional_domain {
+        let target = match &domain.target {
+            Target::Declaration { declaration } => {
+                crate::impls::InherentImplTarget::Declaration(from_stable_declaration(declaration).map_err(referential)?)
+            }
+            Target::ExactEnumCase { variant } => crate::impls::InherentImplTarget::ExactEnumCase(from_stable_variant(variant).map_err(referential)?),
+        };
+        let generic_signature = domain
+            .generic_signature
+            .as_ref()
+            .map(|signature| import_generic_signature(signature, importer.relocation, importer.store))
+            .transpose()?;
+        let mut constraints = importer.allocations.vector(domain.constraints.len()).map_err(allocation_error)?;
+        for constraint in &domain.constraints {
+            constraints.push(import_constraint(constraint, importer.relocation)?);
+        }
+        Some(
+            importer
+                .allocations
+                .arc(crate::impls::InherentImplDomain {
+                    impl_id: from_stable_impl(&domain.impl_id).map_err(referential)?,
+                    target,
+                    head_type: importer.relocation.ty(domain.head_type)?,
+                    generic_signature,
+                    constraints: constraints.into_boxed_slice(),
+                })
+                .map_err(allocation_error)?,
+        )
+    } else {
+        None
+    };
     let applicability = witness
         .applicability
         .as_ref()
-        .map(|specialization| import_callable_inherent_specialization(specialization, evidence_nodes, relocation, store, allocations))
+        .map(|specialization| import_callable_inherent_specialization(specialization, evidence_nodes, importer))
         .transpose()?;
     Ok(crate::impls::EffectiveInherentWitness {
         callable: import_exact_callable(&witness.callable)?,
-        signature: import_callable_signature(&witness.signature, relocation, store, allocations)?,
+        signature: import_callable_signature(&witness.signature, importer.relocation, importer.store, importer.allocations)?,
         visibility: import_visibility(&witness.visibility),
         owner: from_stable_declaration(&witness.owner).map_err(referential)?,
         conditional_impl: witness
@@ -1709,14 +1953,11 @@ fn import_callable_effective_inherent_witness(
 fn import_callable_requirement_selection(
     selection: &phalcom_compiler_artifact::semantic::world::CallableRequirementSelectionV1,
     evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
-    relocation: &TypeRelocation,
-    store: &TypeStore,
-    allocations: &mut AllocationBudget,
+    importer: &mut CallableEvidenceImporter<'_>,
     depth: usize,
-    max_depth: usize,
 ) -> Result<crate::impls::RequirementSelectionTemplate, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world::CallableRequirementSelectionV1 as Portable;
-    if depth > max_depth {
+    if depth > importer.max_depth {
         return Err(referential("witness requirement-selection nesting limit exceeded"));
     }
     Ok(match selection {
@@ -1732,16 +1973,16 @@ fn import_callable_requirement_selection(
             conditional_impl: conditional_impl.as_ref().map(|id| from_stable_impl(id).map_err(referential)).transpose()?,
             applicability: applicability
                 .as_ref()
-                .map(|specialization| import_callable_inherent_specialization(specialization, evidence_nodes, relocation, store, allocations))
+                .map(|specialization| import_callable_inherent_specialization(specialization, evidence_nodes, importer))
                 .transpose()?,
         },
         Portable::ConditionalInherent { candidate, pending, fallback } => crate::impls::RequirementSelectionTemplate::ConditionalInherent {
-            candidate: import_callable_effective_inherent_witness(candidate, evidence_nodes, relocation, store, allocations)?,
-            pending: import_callable_conformance_completeness(pending, relocation, allocations)?,
+            candidate: import_callable_effective_inherent_witness(candidate, evidence_nodes, importer)?,
+            pending: import_callable_conformance_completeness(pending, importer.relocation, importer.allocations)?,
             fallback: fallback
                 .as_deref()
                 .map(|selection| {
-                    import_callable_requirement_selection(selection, evidence_nodes, relocation, store, allocations, depth + 1, max_depth).map(Box::new)
+                    import_callable_requirement_selection(selection, evidence_nodes, importer, depth + 1).map(Box::new)
                 })
                 .transpose()?,
         },
@@ -1751,7 +1992,7 @@ fn import_callable_requirement_selection(
             specialized_type,
         } => crate::impls::RequirementSelectionTemplate::DataComponent {
             component: DataComponentId::new(from_stable_declaration(owner).map_err(referential)?, *index),
-            specialized_type: relocation.ty(*specialized_type)?,
+            specialized_type: importer.relocation.ty(*specialized_type)?,
         },
         Portable::TraitDefault { callable } => crate::impls::RequirementSelectionTemplate::TraitDefault {
             callable: import_exact_callable(callable)?,
@@ -1759,68 +2000,53 @@ fn import_callable_requirement_selection(
     })
 }
 
-fn import_derived_conformance_rule_record(
-    record: &phalcom_compiler_artifact::semantic::world::DerivedConformanceRuleRecordV1,
-    relocation: &TypeRelocation,
-    store: &TypeStore,
-    allocations: &mut AllocationBudget,
-    max_depth: usize,
+fn import_callable_derived_conformance_rule(
+    rule: &phalcom_compiler_artifact::semantic::world::CallableDerivedConformanceRuleV1,
+    evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
+    importer: &mut CallableEvidenceImporter<'_>,
+    depth: usize,
 ) -> Result<crate::derived_conformance::DerivedConformanceRule, ArtifactError> {
-    use phalcom_compiler_artifact::semantic::world::CallableDerivedConformanceRuleV1;
-    let rule: &CallableDerivedConformanceRuleV1 = &record.rule;
-    if !record.conformance_evidence.is_empty() {
-        return Err(referential(
-            "derived rule conformance provenance remains fail-closed until the callable Exact/Derived evidence import gate passes",
-        ));
+    if depth > importer.max_depth {
+        return Err(referential("callable derived-rule evidence nesting limit exceeded"));
     }
     let impl_id = from_stable_impl(&rule.impl_id).map_err(referential)?;
     let source_module = from_stable_module(&rule.source_module).map_err(referential)?;
-    let target_parameter = relocation.parameter(rule.target_parameter)?;
-    let target_template = relocation.ty(rule.target_template)?;
-    let trait_ref = import_trait_ref_identity(&rule.trait_ref, relocation, allocations)?;
-    let generic_signature = import_generic_signature(&rule.generic_signature, relocation, store)?;
-    let associated_type_plan = import_callable_associated_type_plan(&rule.associated_type_plan, &impl_id, &trait_ref.declaration, relocation, allocations)?;
+    let target_parameter = importer.relocation.parameter(rule.target_parameter)?;
+    let target_template = importer.relocation.ty(rule.target_template)?;
+    let trait_ref = import_trait_ref_identity(&rule.trait_ref, importer.relocation, importer.allocations)?;
+    let generic_signature = import_generic_signature(&rule.generic_signature, importer.relocation, importer.store)?;
+    let associated_type_plan =
+        import_callable_associated_type_plan(&rule.associated_type_plan, &impl_id, &trait_ref.declaration, importer.relocation, importer.allocations)?;
 
-    let mut requirement_views = allocations
-        .vector::<(crate::traits::TraitRequirementId, crate::traits::InstantiatedTraitRequirement)>(rule.requirement_views.len())
-        .map_err(allocation_error)?;
+    let mut requirement_views = importer.allocations.vector(rule.requirement_views.len()).map_err(allocation_error)?;
     for view in &rule.requirement_views {
         let requirement = import_callable_requirement_identity(&view.requirement)?;
         if requirement.owner != trait_ref.declaration {
             return Err(referential("derived rule requirement view belongs to another trait"));
         }
-        let signature = import_callable_signature(&view.signature, relocation, store, allocations)?;
         requirement_views.push((
             requirement.clone(),
             crate::traits::InstantiatedTraitRequirement {
                 requirement,
                 callable: import_exact_callable(&view.callable)?,
-                signature,
+                signature: import_callable_signature(&view.signature, importer.relocation, importer.store, importer.allocations)?,
                 visibility: import_visibility(&view.visibility),
                 default_callable: view.default_callable.as_ref().map(import_exact_callable).transpose()?,
             },
         ));
     }
-    let requirement_views = crate::checker::analysis_map::AnalysisMap::from_budgeted_entries(requirement_views, allocations).map_err(|error| match error {
-        crate::checker::analysis_map::AnalysisMapBuildError::Entries(_) => referential("derived rule requirement views are not canonical"),
-        crate::checker::analysis_map::AnalysisMapBuildError::Allocation(error) => allocation_error(error),
-    })?;
+    let requirement_views = import_analysis_map(requirement_views, importer.allocations, "derived rule requirement views are not canonical")?;
 
-    let mut requirements = allocations
-        .vector::<(crate::traits::TraitRequirementId, crate::impls::RequirementSelectionTemplate)>(rule.requirements.len())
-        .map_err(allocation_error)?;
+    let mut requirements = importer.allocations.vector(rule.requirements.len()).map_err(allocation_error)?;
     for entry in &rule.requirements {
         let requirement = import_callable_requirement_identity(&entry.requirement)?;
         if requirement.owner != trait_ref.declaration {
             return Err(referential("derived rule selection belongs to another trait"));
         }
-        let selection = import_callable_requirement_selection(&entry.selection, &record.conformance_evidence, relocation, store, allocations, 0, max_depth)?;
+        let selection = import_callable_requirement_selection(&entry.selection, evidence_nodes, importer, depth + 1)?;
         requirements.push((requirement, selection));
     }
-    let requirements = crate::checker::analysis_map::AnalysisMap::from_budgeted_entries(requirements, allocations).map_err(|error| match error {
-        crate::checker::analysis_map::AnalysisMapBuildError::Entries(_) => referential("derived rule requirements are not canonical"),
-        crate::checker::analysis_map::AnalysisMapBuildError::Allocation(error) => allocation_error(error),
-    })?;
+    let requirements = import_analysis_map(requirements, importer.allocations, "derived rule requirements are not canonical")?;
 
     Ok(crate::derived_conformance::DerivedConformanceRule::from_frozen_parts(
         impl_id,
@@ -1834,6 +2060,29 @@ fn import_derived_conformance_rule_record(
         requirements,
         import_source_span(&rule.source)?,
     ))
+}
+
+fn import_derived_conformance_rule_record(
+    record: &phalcom_compiler_artifact::semantic::world::DerivedConformanceRuleRecordV1,
+    relocation: &TypeRelocation,
+    store: &TypeStore,
+    source_plan_fingerprints: &BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+    allocations: &mut AllocationBudget,
+    max_depth: usize,
+) -> Result<crate::derived_conformance::DerivedConformanceRule, ArtifactError> {
+    let mut child = allocations.child(allocations.remaining());
+    let mut importer = CallableEvidenceImporter::new(
+        record.conformance_evidence.len(),
+        relocation,
+        store,
+        source_plan_fingerprints,
+        &mut child,
+        max_depth,
+    )?;
+    let rule = import_callable_derived_conformance_rule(&record.rule, &record.conformance_evidence, &mut importer, 0)?;
+    drop(importer);
+    allocations.commit_child(child).map_err(allocation_error)?;
+    Ok(rule)
 }
 
 fn import_callable_associated_type_failure(
@@ -4056,6 +4305,17 @@ fn validate_and_import_semantic_world_inner(
         });
     }
 
+    let mut source_plan_fingerprints = BTreeMap::new();
+    for witness in &world.witness_plans {
+        let impl_id = from_stable_impl(&witness.impl_id).map_err(referential)?;
+        if source_plan_fingerprints
+            .insert(impl_id, crate::db::ProductFingerprint::new(witness.fingerprint))
+            .is_some()
+        {
+            return Err(referential("conformance witness fingerprint owner is duplicated"));
+        }
+    }
+
     let mut witness_plans_map = BTreeMap::new();
     for witness in &world.witness_plans {
         let impl_id = from_stable_impl(&witness.impl_id).map_err(referential)?;
@@ -4091,6 +4351,14 @@ fn validate_and_import_semantic_world_inner(
             }
         }
         let mut requirements = BTreeMap::new();
+        let mut evidence_importer = CallableEvidenceImporter::new(
+            witness.conformance_evidence.len(),
+            &type_relocation,
+            &type_store,
+            &source_plan_fingerprints,
+            allocations,
+            limits.max_recursion_depth,
+        )?;
         for entry in &witness.requirements {
             let requirement = import_callable_requirement_identity(&entry.requirement)?;
             if requirement.owner != trait_decl {
@@ -4099,16 +4367,14 @@ fn validate_and_import_semantic_world_inner(
             let selection = import_callable_requirement_selection(
                 &entry.selection,
                 &witness.conformance_evidence,
-                &type_relocation,
-                &type_store,
-                allocations,
+                &mut evidence_importer,
                 0,
-                limits.max_recursion_depth,
             )?;
             if requirements.insert(requirement, selection).is_some() {
                 return Err(referential("witness requirement selection is duplicated"));
             }
         }
+        drop(evidence_importer);
         let associated_type_plan = import_callable_associated_type_plan(&witness.associated_type_plan, &impl_id, &trait_decl, &type_relocation, allocations)?;
         let completeness = import_callable_conformance_completeness(&witness.completeness, &type_relocation, allocations)?;
         let diagnostics = witness
@@ -4138,7 +4404,14 @@ fn validate_and_import_semantic_world_inner(
 
     let mut derived_conformance_rules = crate::derived_conformance::DerivedConformanceRuleIndex::new();
     for record in &world.derived_conformance_rules {
-        let rule = import_derived_conformance_rule_record(record, &type_relocation, &type_store, allocations, limits.max_recursion_depth)?;
+        let rule = import_derived_conformance_rule_record(
+            record,
+            &type_relocation,
+            &type_store,
+            &source_plan_fingerprints,
+            allocations,
+            limits.max_recursion_depth,
+        )?;
         if derived_conformance_rules.get_rule(&rule.impl_id).is_some() {
             return Err(referential("derived conformance rule implementation is duplicated after identity relocation"));
         }
@@ -4625,6 +4898,7 @@ mod tests {
                         reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
                     },
                     callable: None,
+                    conditional_dispatch: None,
                     causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                     binding_read_safety: None,
                     binding_read: None,
@@ -4640,6 +4914,7 @@ mod tests {
                         reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
                     },
                     callable: None,
+                    conditional_dispatch: None,
                     causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                     binding_read_safety: None,
                     binding_read: None,
@@ -4655,6 +4930,7 @@ mod tests {
                         reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
                     },
                     callable: None,
+                    conditional_dispatch: None,
                     causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                     binding_read_safety: None,
                     binding_read: None,
@@ -4818,6 +5094,15 @@ mod tests {
                     },
                 },
                 callable: Some(stable_callable.clone()),
+                conditional_dispatch: Some(phalcom_compiler_artifact::semantic::world::ConditionalDispatchSelectionV1 {
+                    impl_id: crate::metadata::stable_identity::to_stable_impl(&crate::identity::ImplId::new(
+                        declaration.module.clone(),
+                        crate::identity::ImplLocalId(4),
+                    )),
+                    callable: stable_callable.clone(),
+                    declaring_owner: stable_declaration.clone(),
+                    side: 0,
+                }),
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::One { cause: 7 },
                 binding_read_safety: Some(phalcom_compiler_artifact::semantic::world::CallableBindingReadSafetyV1::RuntimeCheckRequired),
                 binding_read: Some(0),
@@ -4938,7 +5223,7 @@ mod tests {
         assert_eq!(
             rows[0].source_authority,
             ImportedCallableBindingSourceAuthority::Source(SourceSiteId {
-                owner: SourceOwner::Module(declaration.module),
+                owner: SourceOwner::Module(declaration.module.clone()),
                 local: SourceSiteLocalId(12),
             })
         );
@@ -4988,6 +5273,12 @@ mod tests {
                     },
                 ),
                 callable: Some(callable.clone()),
+                conditional_dispatch: Some(crate::dispatch::ConditionalDispatchSelection {
+                    impl_id: crate::identity::ImplId::new(declaration.module.clone(), crate::identity::ImplLocalId(4)),
+                    callable: callable.clone(),
+                    declaring_owner: declaration.clone(),
+                    side: DispatchSide::Instance,
+                }),
                 causal_invalidity: CausalInvalidity::One(DiagnosticCauseId(7)),
                 binding_read_safety: Some(crate::checker::flow::BindingReadSafety::RuntimeCheckRequired),
                 binding_read: Some(0),
@@ -5136,8 +5427,10 @@ mod tests {
         use phalcom_compiler_artifact::semantic::type_store::{ArtifactRecordRowId, ArtifactTypeId, ArtifactTypeParameterId, StaticArgumentV1};
         use phalcom_compiler_artifact::semantic::world::{
             CallableCallSpecializationV1, CallableCompilerDerivedConformanceEvidenceV1, CallableCompilerDerivedConformanceKindV1,
-            CallableConformanceEvidenceNodeV1, CallableExpressionRowV1, CallableGenericCallConformanceBindingV1, CallableGenericCallConformanceSourceV1,
-            CallableOrderedProductFormV1, CallableStaticArgumentBindingV1, CallableStructuralClassificationV1, GenericConformanceKeyV1,
+            CallableConformanceEvidenceNodeV1, CallableDerivedConformanceEvidenceV1, CallableDerivedConformanceOriginV1, CallableExactConformanceEvidenceV1,
+            CallableExpressionRowV1, CallableGenericCallConformanceBindingV1, CallableGenericCallConformanceSourceV1, CallableNestedGenericEvidenceV1,
+            CallableOrderedProductFormV1, CallableStaticArgumentBindingV1, CallableStructuralClassificationV1, CallableTypeEnvironmentV1,
+            GenericConformanceKeyV1,
         };
 
         let owner = owner();
@@ -5156,15 +5449,41 @@ mod tests {
         };
         let compiler_key = portable_key();
         let caller_key = portable_key();
-        let evidence_nodes = vec![CallableConformanceEvidenceNodeV1::CompilerDerived {
-            evidence: CallableCompilerDerivedConformanceEvidenceV1 {
-                key: compiler_key.clone(),
-                kind: CallableCompilerDerivedConformanceKindV1::OrderedProduct,
-                classification: CallableStructuralClassificationV1::OrderedProduct {
-                    form: CallableOrderedProductFormV1::Unit,
+        let source_impl = crate::identity::ImplId::new(callable.module().clone(), crate::identity::ImplLocalId(0));
+        let evidence_nodes = vec![
+            CallableConformanceEvidenceNodeV1::CompilerDerived {
+                evidence: CallableCompilerDerivedConformanceEvidenceV1 {
+                    key: compiler_key.clone(),
+                    kind: CallableCompilerDerivedConformanceKindV1::OrderedProduct,
+                    classification: CallableStructuralClassificationV1::OrderedProduct {
+                        form: CallableOrderedProductFormV1::Unit,
+                    },
                 },
             },
-        }];
+            CallableConformanceEvidenceNodeV1::Exact {
+                evidence: CallableExactConformanceEvidenceV1 {
+                    source_impl: crate::metadata::stable_identity::to_stable_impl(&source_impl),
+                    exact_target: ArtifactTypeId(0),
+                    exact_trait_ref: compiler_key.trait_ref.clone(),
+                    impl_environment: CallableTypeEnvironmentV1 {
+                        bindings: vec![],
+                        self_binding: None,
+                    },
+                    requirement_views: vec![],
+                    requirements: vec![],
+                    associated_types: vec![],
+                    trait_header_contract: vec![],
+                    trait_header_conformance_proofs: Some(vec![]),
+                },
+            },
+            CallableConformanceEvidenceNodeV1::Derived {
+                evidence: CallableDerivedConformanceEvidenceV1 {
+                    origin: CallableDerivedConformanceOriginV1::ConditionalSource { exact_source: 1 },
+                    impl_bindings: vec![],
+                    nested: vec![CallableNestedGenericEvidenceV1::Conformance { evidence: 0 }, CallableNestedGenericEvidenceV1::Equivalent],
+                },
+            },
+        ];
         let expressions = vec![
             CallableExpressionRowV1 {
                 ordinal: 0,
@@ -5173,6 +5492,7 @@ mod tests {
                     reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
                 },
                 callable: None,
+                conditional_dispatch: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                 binding_read_safety: None,
                 binding_read: None,
@@ -5188,6 +5508,7 @@ mod tests {
                     reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
                 },
                 callable: None,
+                conditional_dispatch: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                 binding_read_safety: None,
                 binding_read: None,
@@ -5203,6 +5524,7 @@ mod tests {
                     reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
                 },
                 callable: None,
+                conditional_dispatch: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                 binding_read_safety: None,
                 binding_read: None,
@@ -5218,6 +5540,7 @@ mod tests {
                     reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
                 },
                 callable: None,
+                conditional_dispatch: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                 binding_read_safety: None,
                 binding_read: None,
@@ -5251,6 +5574,14 @@ mod tests {
                                 caller_conformance: caller_key,
                             },
                         },
+                        CallableGenericCallConformanceBindingV1 {
+                            callee_conformance: portable_key(),
+                            source: CallableGenericCallConformanceSourceV1::Exact { evidence: 1 },
+                        },
+                        CallableGenericCallConformanceBindingV1 {
+                            callee_conformance: portable_key(),
+                            source: CallableGenericCallConformanceSourceV1::Derived { evidence: 2 },
+                        },
                     ],
                 }),
             },
@@ -5276,8 +5607,18 @@ mod tests {
             lambdas: vec![],
         };
         let store = TypeStore::new();
+        let source_plan_fingerprints = BTreeMap::from([(source_impl.clone(), crate::db::ProductFingerprint::new(37))]);
         let mut allocations = AllocationBudget::new(8192);
-        let restored = import_callable_call_specializations(&expressions, &evidence_nodes, &relocation, &store, &mut allocations).unwrap();
+        let restored = import_callable_call_specializations(
+            &expressions,
+            &evidence_nodes,
+            &relocation,
+            &store,
+            &source_plan_fingerprints,
+            &mut allocations,
+            16,
+        )
+        .unwrap();
         assert_eq!(restored[0].0, 3);
         assert_eq!(restored[0].1.callable, callable);
         assert_eq!(
@@ -5288,7 +5629,7 @@ mod tests {
                 (relocated_parameters[2], crate::types::store::StaticArgument::RecordRow(relocated_row)),
             ]
         );
-        assert_eq!(restored[0].1.conformances.len(), 2);
+        assert_eq!(restored[0].1.conformances.len(), 4);
         let crate::checker::analysis::GenericCallConformanceSource::CompilerDerived { evidence } = &restored[0].1.conformances[0].source else {
             panic!("compiler-derived evidence source must be preserved");
         };
@@ -5302,12 +5643,86 @@ mod tests {
             panic!("forwarded evidence source must preserve its caller key");
         };
         assert_eq!(caller_conformance.subject, crate::types::parameter::TypeTerm::Canonical(relocated_type));
+        let crate::checker::analysis::GenericCallConformanceSource::Exact { evidence } = &restored[0].1.conformances[2].source else {
+            panic!("exact evidence source must be reconstructed");
+        };
+        assert_eq!(evidence.source_impl, source_impl);
+        assert_eq!(evidence.exact_target, relocated_type);
+        assert_eq!(evidence.exact_trait_ref.arguments.as_ref(), &[relocated_type]);
+        validate_relocated_conformance_evidence_fingerprint(evidence, source_plan_fingerprints[&source_impl]).unwrap();
+        let mut stale_evidence = evidence.as_ref().clone();
+        stale_evidence.fingerprint = crate::db::ProductFingerprint::new(stale_evidence.fingerprint.raw().wrapping_add(1));
+        let error = validate_relocated_conformance_evidence_fingerprint(&stale_evidence, source_plan_fingerprints[&source_impl])
+            .expect_err("a stale post-relocation Exact fingerprint must be rejected");
+        assert!(error.to_string().contains("fingerprint is stale after relocation"));
+        let crate::checker::analysis::GenericCallConformanceSource::Derived { evidence: derived } = &restored[0].1.conformances[3].source else {
+            panic!("derived evidence source must be reconstructed");
+        };
+        let crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } = &derived.origin else {
+            panic!("derived conditional source must be preserved");
+        };
+        assert!(std::sync::Arc::ptr_eq(exact_source, evidence), "shared exact evidence must remain shared after import");
         let mut wrong_kind = expressions.clone();
         wrong_kind[3].call_specialization.as_mut().unwrap().conformances[0].source = CallableGenericCallConformanceSourceV1::Exact { evidence: 0 };
-        let error = import_callable_call_specializations(&wrong_kind, &evidence_nodes, &relocation, &store, &mut allocations)
+        let mut negative_allocations = AllocationBudget::new(8192);
+        let error = import_callable_call_specializations(
+            &wrong_kind,
+            &evidence_nodes,
+            &relocation,
+            &store,
+            &source_plan_fingerprints,
+            &mut negative_allocations,
+            16,
+        )
             .expect_err("a compiler-derived node cannot satisfy an Exact binding");
         assert!(error.to_string().contains("references a node of the wrong kind"));
-        assert!(import_callable_call_specializations(&[], &[], &relocation, &store, &mut allocations).is_ok());
+
+        let mut dangling = expressions.clone();
+        dangling[3].call_specialization.as_mut().unwrap().conformances[2].source = CallableGenericCallConformanceSourceV1::Exact { evidence: u32::MAX };
+        let mut negative_allocations = AllocationBudget::new(8192);
+        let error = import_callable_call_specializations(
+            &dangling,
+            &evidence_nodes,
+            &relocation,
+            &store,
+            &source_plan_fingerprints,
+            &mut negative_allocations,
+            16,
+        )
+        .expect_err("a dangling evidence ordinal must be rejected");
+        assert!(error.to_string().contains("reference is out of range"));
+
+        let mut cyclic_nodes = evidence_nodes.clone();
+        let CallableConformanceEvidenceNodeV1::Derived { evidence } = &mut cyclic_nodes[2] else {
+            panic!("fixture node must remain Derived");
+        };
+        evidence.nested = vec![CallableNestedGenericEvidenceV1::Conformance { evidence: 2 }];
+        let mut negative_allocations = AllocationBudget::new(8192);
+        let error = import_callable_call_specializations(
+            &expressions,
+            &cyclic_nodes,
+            &relocation,
+            &store,
+            &source_plan_fingerprints,
+            &mut negative_allocations,
+            16,
+        )
+        .expect_err("a recursive evidence graph must be rejected");
+        assert!(error.to_string().contains("contains a cycle"));
+
+        let mut negative_allocations = AllocationBudget::new(8192);
+        let error = import_callable_call_specializations(
+            &expressions,
+            &evidence_nodes,
+            &relocation,
+            &store,
+            &BTreeMap::new(),
+            &mut negative_allocations,
+            16,
+        )
+            .expect_err("Exact evidence without its source witness fingerprint must be rejected");
+        assert!(error.to_string().contains("no reconstructed source witness plan"));
+        assert!(import_callable_call_specializations(&[], &[], &relocation, &store, &source_plan_fingerprints, &mut allocations, 16).is_ok());
     }
 
     #[test]

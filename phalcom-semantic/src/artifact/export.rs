@@ -2139,6 +2139,7 @@ fn export_callable_analysis_record(
             range,
             knowledge,
             callable: expression.callable.as_ref().map(to_stable_callable),
+            conditional_dispatch: expression.conditional_dispatch.as_ref().map(export_conditional_dispatch_selection),
             status,
             causal_invalidity,
             binding_read_safety,
@@ -4315,6 +4316,13 @@ mod callable_analysis_status_tests {
         call_expression.binding_read = Some(binding);
         call_expression.binding_write = Some(binding);
         call_expression.binding_read_safety = Some(crate::checker::flow::BindingReadSafety::RuntimeCheckRequired);
+        let conditional_impl = crate::identity::ImplId::new(callable.module().clone(), crate::identity::ImplLocalId(4));
+        call_expression.conditional_dispatch = Some(crate::dispatch::ConditionalDispatchSelection {
+            impl_id: conditional_impl.clone(),
+            callable: callable.clone(),
+            declaring_owner: owner.clone(),
+            side: DispatchSide::Class,
+        });
         call_expression.status = crate::checker::analysis::AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnavailableSemanticOwner(
             crate::db::QueryKey::GenericConformance(crate::generic_evidence::GenericConformanceKey::new(
                 crate::types::parameter::TypeTerm::Canonical(blocked_subject),
@@ -4518,6 +4526,15 @@ mod callable_analysis_status_tests {
             }
         ));
         assert_eq!(expression_row.callable, Some(to_stable_callable(&callable)));
+        assert_eq!(
+            expression_row.conditional_dispatch,
+            Some(phalcom_compiler_artifact::semantic::world::ConditionalDispatchSelectionV1 {
+                impl_id: to_stable_impl(&conditional_impl),
+                callable: to_stable_callable(&callable),
+                declaring_owner: to_stable_declaration(&owner),
+                side: 1,
+            })
+        );
         assert_eq!(
             expression_row.binding_read_safety,
             Some(phalcom_compiler_artifact::semantic::world::CallableBindingReadSafetyV1::RuntimeCheckRequired)

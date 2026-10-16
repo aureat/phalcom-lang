@@ -2449,7 +2449,7 @@ pub fn conformance_witness_plan_fingerprint(plan: &ConformanceWitnessPlan) -> Pr
     ProductFingerprint::new(hasher.finish())
 }
 
-fn conformance_evidence_fingerprint(
+pub(crate) fn conformance_evidence_fingerprint(
     source_plan: ProductFingerprint,
     target: TypeId,
     trait_ref: &TraitRef,

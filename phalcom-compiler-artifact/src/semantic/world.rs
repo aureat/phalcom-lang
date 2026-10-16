@@ -400,6 +400,7 @@ record!(CallableExpressionRowV1 {
     range: SpanV1,
     knowledge: TypeKnowledgeV1,
     callable: Option<StableCallableRef>,
+    conditional_dispatch: Option<ConditionalDispatchSelectionV1>,
     status: CallableExpressionStatusV1,
     causal_invalidity: CallableCausalInvalidityV1,
     binding_read_safety: Option<CallableBindingReadSafetyV1>,
@@ -1575,6 +1576,9 @@ impl SemanticWorldV3 {
                 return Err(invalid("constructor super-initializer range is inverted"));
             }
             for expression in &analysis.expressions {
+                if let Some(selection) = &expression.conditional_dispatch {
+                    self.validate_conditional_dispatch_selection(selection)?;
+                }
                 let Some(call) = &expression.call_specialization else {
                     continue;
                 };

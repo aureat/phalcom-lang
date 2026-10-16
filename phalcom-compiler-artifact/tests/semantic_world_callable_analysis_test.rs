@@ -52,6 +52,7 @@ fn expression_row(ordinal: u32) -> CallableExpressionRowV1 {
             reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
         },
         callable: None,
+        conditional_dispatch: None,
         causal_invalidity: CallableCausalInvalidityV1::Clean,
         binding_read_safety: None,
         binding_read: None,
@@ -351,6 +352,23 @@ fn callable_analysis_owner_and_constructor_range_are_validated() {
         .expect("constructor attachment is present")
         .call_range = SpanV1 { start: 9, end: 7 };
     assert!(inverted_range.validate(&Default::default()).is_err());
+
+    let mut invalid_conditional_side = world(CallableAnalysisStatusV1::Complete);
+    let mut expression = expression_row(0);
+    expression.conditional_dispatch = Some(phalcom_compiler_artifact::semantic::world::ConditionalDispatchSelectionV1 {
+        impl_id: StableImplRef {
+            module: owner_ref().module,
+            local_id: 0,
+        },
+        callable: callable(),
+        declaring_owner: owner_ref(),
+        side: 2,
+    });
+    invalid_conditional_side.callable_analyses[0].expressions = vec![expression];
+    let error = invalid_conditional_side
+        .validate(&Default::default())
+        .expect_err("an expression conditional selection must use a valid dispatch side");
+    assert!(error.to_string().contains("conditional dispatch selection has an invalid or inconsistent side"));
 }
 
 #[test]
@@ -404,6 +422,7 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
             reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
         },
         callable: None,
+        conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
         binding_read_safety: None,
         binding_read: None,
@@ -432,6 +451,7 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
                 reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
             },
             callable: None,
+            conditional_dispatch: None,
             causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
             binding_read_safety: None,
             binding_read: None,
@@ -451,6 +471,7 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
                 reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
             },
             callable: None,
+            conditional_dispatch: None,
             causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
             binding_read_safety: None,
             binding_read: None,
@@ -502,6 +523,7 @@ fn explicit_dynamic_call_argument_round_trips_without_a_type_node() {
             reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
         },
         callable: None,
+        conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
         binding_read_safety: None,
         binding_read: None,
@@ -556,6 +578,7 @@ fn call_specialization_rejects_unowned_ordinals_duplicate_bindings_and_wrong_dyn
             reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
         },
         callable: None,
+        conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
         binding_read_safety: None,
         binding_read: None,
@@ -596,6 +619,7 @@ fn call_specialization_rejects_unowned_ordinals_duplicate_bindings_and_wrong_dyn
             reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
         },
         callable: None,
+        conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
         binding_read_safety: None,
         binding_read: None,
@@ -663,6 +687,7 @@ fn associated_denotation_rejects_member_from_wrong_declaration_owner() {
             reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
         },
         callable: None,
+        conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
         binding_read_safety: None,
         binding_read: None,
@@ -730,6 +755,7 @@ fn associated_denotation_rejects_member_without_primary_owner_authority() {
             reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
         },
         callable: None,
+        conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
         binding_read_safety: None,
         binding_read: None,
@@ -896,6 +922,7 @@ fn associated_family_capture_round_trips_subset_and_optional_targets() {
             reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
         },
         callable: None,
+        conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
         binding_read_safety: None,
         binding_read: None,
@@ -1090,6 +1117,7 @@ fn behavioral_family_capture_requires_conditional_member_authority() {
             reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
         },
         callable: None,
+        conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
         binding_read_safety: None,
         binding_read: None,

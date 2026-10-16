@@ -2036,3 +2036,76 @@ integration fixtures, so the new regression remains unexecuted and
 unverified. No source-denied, fresh-store, source/canonical differential,
 fingerprint, or malformed-layout runtime gate has passed. Static guards remain
 active; PATCH2, P7, and P8 status are unchanged.
+
+## PATCH2 T13 canonical root namespace correction — 2026-10-16
+
+The first live Universe artifact build at `065e8061` stopped before semantic
+projection because accepted callable-definition signatures reused the
+`CallableSignature` root family for the same stable callable owner. Effective
+definitions may carry body-specialized types that legitimately differ from the
+published surface signature, so the shared key falsely identified distinct
+products. `CanonicalRootFamilyTag::CallableDefinition` now gives accepted
+definition roots their own deterministic product namespace.
+
+After that correction, the build exposed the same ordinal-reset defect inside
+conditional inherent dispatch: each domain and each member signature restarted
+`SurfaceAndDispatch` at ordinal 100 for one impl owner. Root collection now
+validates the set/domain/member ownership relation and emits one stream per
+stable impl: the domain once, followed by that impl's member signatures in
+canonical member order. This preserves impl-qualified candidate identity; it
+does not collapse competing conditional members by runtime callable selector.
+
+Focused evidence:
+
+- `cargo test -p phalcom-semantic --lib
+  callable_signature_and_definition_use_distinct_root_namespaces` — the new
+  regression failed with the reproduced duplicate root key before the repair
+  and passed 1/1 afterward;
+- `cargo test -p phalcom-semantic --lib 'artifact::roots::tests'
+  -- --test-threads=1` — passed 19/19;
+- `cargo check -p phalcom-compiler-artifact -p phalcom-semantic -p phalcom-core
+  --lib` — passed with the existing six guarded-importer dead-code warnings;
+- `build_and_load_universe_telosc_compiles_source_free_inline_user_entry` first
+  reproduced the callable-definition collision, then the conditional-dispatch
+  collision, and after both repairs reached the intended callable-analysis
+  completeness guard. It still fails there; no artifact bytes, load, dependent
+  compilation, or runtime evidence follows.
+
+The broad semantic integration target remains baseline-blocked by inherited
+source/frozen API migration errors (224 errors in this attempt). The next
+portable-correctness blocker is unchanged: PATCH1 must complete the full
+callable-analysis wire/import owner graph before its guard can be removed.
+PATCH3's global allocation guards remain independently downstream. PATCH2,
+P7, and P8 lifecycle status is unchanged.
+
+## PATCH1 T5 Exact/Derived gate and T8 consultation — 2026-10-16
+
+Callable-local Exact and Derived conformance evidence now reconstructs through
+the frozen, budgeted owner representations. The focused relocation test passed
+with discriminators for wrong evidence kind, dangling ordinal, cyclic evidence,
+missing source witness-plan authority, and a stale reconstructed Exact
+fingerprint. The complete artifact importer unit module passed 11/11, and the
+semantic crate check passed with only the expected dead-code warnings for
+callable helpers that remain behind the completeness guard.
+
+Consultation confirmed that this evidence gate does not satisfy PATCH1 T8's
+preconditions. Live `CallableAnalysisRecordV1` still omits expression dispatch
+and contextual authority plus the T6/T7 resolution, flow-boundary, causal,
+explanation, diagnostic, and dependency families required by native
+`CallableAnalysis`. The wire cannot distinguish an omitted product from a
+semantically empty one, so materializing the currently encoded subset with
+default empty owners would fabricate compiler authority. Resume incomplete T5,
+then T6 and T7; only afterward assemble the complete callable owner, recompute
+its fingerprint, and build the source-free formal projection from imported
+binding authority. Keep both callable completeness guards, the empty broad
+`source_index`, `CheckedStaticBody` ownership of `StaticApplication`, and the
+PATCH3 global allocation guard unchanged.
+
+The first resumed T5 slice now transports
+`ExpressionAnalysis::conditional_dispatch` through the existing stable
+conditional-selection record. Export and fresh import preserve impl, callable,
+declaring-owner, and side identity; semantic-world validation rejects invalid
+or inconsistent sides and requires the existing serialized conditional-member
+authority. Focused export, import, and malformed-side tests pass. The other T5
+expression authority and all T6/T7 families remain open, so T8 and both callable
+guards remain blocked.
