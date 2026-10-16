@@ -426,7 +426,7 @@ fn declaration_surface_reports_exact_missing_computed_signature_owner() {
         outcome,
         phalcom_semantic::db::QueryOutcome::Blocked(
             phalcom_semantic::types::outcome::BlockReason::UnavailableSemanticOwner(missing)
-        ) if missing == key
+        ) if *missing == key
     ));
     assert!(db.product(&QueryKey::DeclarationSurface(owner)).is_none());
 }

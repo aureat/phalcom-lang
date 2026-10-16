@@ -109,3 +109,22 @@ Verification:
 - Close remaining CV cross-stage coverage and executable T8 acceptance,
   including the existing NonExportableRecordKeyDomain metadata-export gap.
 - Keep P4 partial until those acceptance criteria are met.
+
+### Horner execution follow-up — 2026-10-17
+
+The consolidation follow-up repairs recursive expression stack use in semantic
+analysis and binary lowering. The unchanged 2 MiB Horner analysis and carrier
+budget pass in the 9/9 algebraic semantic suite. Exact-owner queries pass 7/7;
+publication rollback/retry tests pass 13/13. The package regression
+`audit_probes::algebraic_literals::ordinary_float_horner_package_executes_all_coefficients`
+compiles through `ProgramCompiler`, links, runs with `VM::new()`, and asserts
+`2080.0` for the 64-coefficient polynomial at `x = 1`. It passed 1/1 in 128.88s
+on the unchanged 8 MiB package-test thread.
+
+The fix preserves exact missing-owner query keys and their fingerprints,
+query-local solver ownership, publication order, contextual lowering precedence,
+operator dispatch, and finalized linkage. P4 is still
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`: generated contract-error reads,
+remaining attribute/witness forms, conformance-cycle execution, comprehensive
+read audits, and broader incremental acceptance remain open. See the
+consolidation record for the complete stabilization evidence.

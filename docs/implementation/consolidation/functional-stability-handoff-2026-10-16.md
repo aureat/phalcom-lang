@@ -278,3 +278,24 @@ validation, and finalized read ownership remain the starting contract.
 
 No slice has been committed. No runtime result from the pending mode test is
 claimed. P4 and full functional-stability acceptance remain incomplete.
+
+## Continuation update — 2026-10-17
+
+The mode slice was committed and pushed as `324ee315`; the worktree was clean
+when this continuation began. Its completed results are recorded in the P4
+checkpoint: module linking 20/20, retained fixture mode transitions 1/1,
+semantic phase evidence 20/20.
+
+The supervising agent resumed implementation. The Horner and carrier findings
+above are now repaired in the working tree: keep exceptional query keys and
+optional symbolic results indirect, separate post-descent semantic publication,
+and dispatch binary lowering outside the large compiler expression match.
+The unchanged semantic algebraic suite passes 9/9; query ownership 7/7;
+publication rollback/retry 13/13. The production Horner package executes and
+asserts `2080.0` (1/1, 128.88s). The unchanged package test uses an 8 MiB stack;
+its first execution exposed a separate compiler-lowering overflow that the
+binary-dispatch extraction repairs. See the consolidation record for final
+verification and delivery. The scratch transformation is obsolete.
+
+The generated contract-error and incremental disposition findings remain open.
+P4 and branch-wide stability acceptance remain incomplete.

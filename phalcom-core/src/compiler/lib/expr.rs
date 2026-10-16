@@ -640,6 +640,88 @@ impl<'vm> Compiler<'vm> {
     }
 
     fn compile_expr_want_inner(&mut self, expr: Expr, want_value: bool) -> Result<(), CompilerError> {
+        // Other expression forms have large lowering temporaries. Keep them
+        // out of the frame retained for each nested arithmetic operation.
+        match expr {
+            Expr::Binary(binary) => self.compile_binary_expr(*binary),
+            other => self.compile_non_binary_expr_want(other, want_value),
+        }
+    }
+
+    fn compile_binary_expr(&mut self, binary_expr: phalcom_ast::ast::BinaryExpr) -> Result<(), CompilerError> {
+        // U5 (control-flow.md §1): every binary operator is an
+        // ordinary `Invoke` send — none of these are opcodes anymore.
+        // `and`/`or` are the two *lazy* exceptions (control-flow.md
+        // §2): their right operand compiles as a 0-arity block
+        // literal, not a plain expression, so `Bool::and(_)`/`or(_)`
+        // can choose whether to evaluate it at all. That literal
+        // block is compiler-synthesized here but is exactly as
+        // "literal" as a user-written `{ ... }` — U5-plan.md §4.2's
+        // "literal block at the call site" inlining condition is
+        // about the block's *shape*, not its origin — so `a and b`
+        // is built directly as a recognized `SacredCall::And` and
+        // handed to the same guarded-jump emitter `a.and { b }`
+        // uses (`inliner.rs`), not a plain send.
+        let range = binary_expr.range;
+        match binary_expr.op.clone() {
+            BinaryOp::And => {
+                // The left operand is a branch condition (control-flow
+                // .md §2); reject a literal `Option` there (BD-U6-1).
+                if is_option_literal(&binary_expr.left) {
+                    return Err(CompilerError::OptionTruthiness);
+                }
+                let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
+                return self.compile_sacred_call(
+                    inliner::SacredCall::And {
+                        receiver: binary_expr.left,
+                        rhs_block,
+                    },
+                    range,
+                );
+            }
+            BinaryOp::Or => {
+                if is_option_literal(&binary_expr.left) {
+                    return Err(CompilerError::OptionTruthiness);
+                }
+                let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
+                return self.compile_sacred_call(
+                    inliner::SacredCall::Or {
+                        receiver: binary_expr.left,
+                        rhs_block,
+                    },
+                    range,
+                );
+            }
+            BinaryOp::Same => {
+                self.compile_expr(binary_expr.left)?;
+                self.compile_expr(binary_expr.right)?;
+                self.emit(Bytecode::Same, range);
+            }
+            BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::IntegerDivide
+            | BinaryOp::Power
+            | BinaryOp::Modulo
+            | BinaryOp::ShiftLeft
+            | BinaryOp::ShiftRight
+            | BinaryOp::BitAnd
+            | BinaryOp::BitXor
+            | BinaryOp::BitOr
+            | BinaryOp::Compare => {
+                self.compile_bilateral_binary(binary_expr.left, binary_expr.right, &binary_expr.op, range)?;
+            }
+            op => {
+                self.compile_expr(binary_expr.left)?;
+                self.compile_expr(binary_expr.right)?;
+                self.emit_operator_send(binary_op_selector_name(&op), 1, range)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_non_binary_expr_want(&mut self, expr: Expr, want_value: bool) -> Result<(), CompilerError> {
         match expr {
             Expr::UnqualifiedCall(call) => {
                 let call = *call;
@@ -2163,77 +2245,7 @@ impl<'vm> Compiler<'vm> {
                     _ => return Err(CompilerError::InvalidAssignmentTarget),
                 }
             }
-            Expr::Binary(binary_expr) => {
-                // U5 (control-flow.md §1): every binary operator is an
-                // ordinary `Invoke` send — none of these are opcodes anymore.
-                // `and`/`or` are the two *lazy* exceptions (control-flow.md
-                // §2): their right operand compiles as a 0-arity block
-                // literal, not a plain expression, so `Bool::and(_)`/`or(_)`
-                // can choose whether to evaluate it at all. That literal
-                // block is compiler-synthesized here but is exactly as
-                // "literal" as a user-written `{ ... }` — U5-plan.md §4.2's
-                // "literal block at the call site" inlining condition is
-                // about the block's *shape*, not its origin — so `a and b`
-                // is built directly as a recognized `SacredCall::And` and
-                // handed to the same guarded-jump emitter `a.and { b }`
-                // uses (`inliner.rs`), not a plain send.
-                let range = binary_expr.range;
-                match binary_expr.op.clone() {
-                    BinaryOp::And => {
-                        // The left operand is a branch condition (control-flow
-                        // .md §2); reject a literal `Option` there (BD-U6-1).
-                        if is_option_literal(&binary_expr.left) {
-                            return Err(CompilerError::OptionTruthiness);
-                        }
-                        let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
-                        return self.compile_sacred_call(
-                            inliner::SacredCall::And {
-                                receiver: binary_expr.left,
-                                rhs_block,
-                            },
-                            range,
-                        );
-                    }
-                    BinaryOp::Or => {
-                        if is_option_literal(&binary_expr.left) {
-                            return Err(CompilerError::OptionTruthiness);
-                        }
-                        let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
-                        return self.compile_sacred_call(
-                            inliner::SacredCall::Or {
-                                receiver: binary_expr.left,
-                                rhs_block,
-                            },
-                            range,
-                        );
-                    }
-                    BinaryOp::Same => {
-                        self.compile_expr(binary_expr.left)?;
-                        self.compile_expr(binary_expr.right)?;
-                        self.emit(Bytecode::Same, range);
-                    }
-                    BinaryOp::Add
-                    | BinaryOp::Subtract
-                    | BinaryOp::Multiply
-                    | BinaryOp::Divide
-                    | BinaryOp::IntegerDivide
-                    | BinaryOp::Power
-                    | BinaryOp::Modulo
-                    | BinaryOp::ShiftLeft
-                    | BinaryOp::ShiftRight
-                    | BinaryOp::BitAnd
-                    | BinaryOp::BitXor
-                    | BinaryOp::BitOr
-                    | BinaryOp::Compare => {
-                        self.compile_bilateral_binary(binary_expr.left, binary_expr.right, &binary_expr.op, range)?;
-                    }
-                    op => {
-                        self.compile_expr(binary_expr.left)?;
-                        self.compile_expr(binary_expr.right)?;
-                        self.emit_operator_send(binary_op_selector_name(&op), 1, range)?;
-                    }
-                }
-            }
+            Expr::Binary(_) => unreachable!("binary expressions are dispatched before other expression forms"),
             Expr::Unary(unary_expr) => {
                 // All four unary operators lower to bare getter sends so user-defined
                 // classes can implement them as zero-arg getters with bare selector

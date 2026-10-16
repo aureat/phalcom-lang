@@ -2501,12 +2501,12 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     if let Some(class_def) = class_def
         && let Some(owner) = unavailable_computed_signature_owner(db, &decl_id, class_def, field_signatures, callable_signatures)
     {
-        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(owner));
+        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(Box::new(owner)));
     }
     let (input_fingerprint, signature_diagnostics) = if let Some(class_def) = class_def {
         let signature_diagnostics = match declaration_signature_owner_diagnostics(db, &decl_id, class_def, field_signatures, callable_signatures) {
             Ok(diagnostics) => diagnostics,
-            Err(owner) => return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(owner)),
+            Err(owner) => return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(Box::new(owner))),
         };
         let input_fingerprint = crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def);
         (
@@ -2783,7 +2783,7 @@ pub fn query_callable_signature_with_inputs(
         && record_key_projections.is_none()
         && callable_source_has_computed_record_key(&unit, &callable, effective_definition.as_deref())
     {
-        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(key));
+        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(Box::new(key)));
     }
     let projected_resolver = match signature_projection_resolver(resolver, record_key_projections, &key) {
         Ok(projected_resolver) => projected_resolver,
@@ -3075,7 +3075,7 @@ pub fn query_field_signature_with_inputs(
             .as_ref()
             .is_some_and(crate::checker::declaration_signature::annotation_has_computed_record_key)
     {
-        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(key));
+        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(Box::new(key)));
     }
 
     let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, field.owner.module.clone());

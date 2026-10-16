@@ -302,3 +302,18 @@ Verification on `feat/consolidation-universe`:
 - `modules::compile_session::tests::retained_fixture_mode_transitions_preserve_the_selected_execution_policy`: 1 passed (3.18s).
 - Full `modules_linking` suite: 20 passed, 0 failed (322.15s).
 - Semantic `integration::phase_evidence`: 20 passed, 0 failed (23.22s). Retained Debug → Release → Unchecked → Debug transitions match cold phase products and finalized reads.
+
+### Consolidation checker robustness follow-up — 2026-10-17
+
+The stability follow-up repairs the unchanged recursive-carrier and 2 MiB
+Horner-analysis regressions. The exceptional missing-owner `QueryKey` and
+optional solver-local result are indirect; exact identity, blocked outcomes,
+fingerprints, and query-local lifetimes are preserved. Post-descent publication
+work retains its original order in a separate helper. P4's finalized read slots
+and availability contracts are unchanged.
+
+The algebraic semantic suite passed 9/9, exact-owner query tests 7/7, and
+publication rollback/retry tests 13/13. The latter suite required adding the
+missing Debug argument at one test call site from the mode slice. Full baseline
+recount and P4 closure remain outstanding; see the consolidation record for
+cross-stage runtime evidence.

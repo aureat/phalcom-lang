@@ -494,3 +494,73 @@ to 20 tests. The 23 ignored tests were not executed.
 
 `TypedExpression` carrier size in this build measured 1,072 bytes, exceeding
 the 760-byte upper limit (744-byte base plus two-pointer allowance).
+
+## Recursive checker stabilization — 2026-10-17
+
+Starting from `324ee315`, the unchanged Horner regression reproduced a process
+abort on its 2 MiB analysis thread. The expression carrier exceeded its 760-byte
+budget. `BlockReason::UnavailableSemanticOwner` embedded a full `QueryKey`,
+enlarging every `AnalysisStatus`; solver-local terms also occupied every
+expression carrier even when absent.
+
+The correction keeps the exceptional owner key and optional solver result in
+owned boxes. Exact owner identity, equality, fingerprints, query outcomes, and
+single ownership remain unchanged. Publication, contextual realization,
+inference constraints, and explanations run in their original order in a
+post-descent helper. No evidence or diagnostics are removed. On this arm64 debug
+build, the recursive publication frame fell from the recorded 13,568 bytes to
+2,688 bytes. The stack allowance and carrier assertion are unchanged.
+
+The semantic library tests also contained a missed call-site update from the
+mode slice. The budget-exhaustion test now explicitly supplies Debug to the
+updated private API; its assertions are unchanged.
+
+Executed with `CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016`
+and empty `RUSTFLAGS`/`RUSTC_WRAPPER`:
+
+```text
+cargo test -p phalcom-semantic --test semantic capabilities::algebraic_realization -- --nocapture
+  9 passed; 0 failed; 2240 filtered out; 8.20s
+```
+
+This proves the bounded Horner analysis and carrier regressions are repaired,
+alongside the existing positive and negative realization cases. It does not
+establish arbitrary-depth stack safety or close P4. The 94-failure full-suite
+baseline has not been rerun after this correction; its carrier entry is now
+resolved by focused evidence.
+
+The new package probe also reproduced an 8 MiB lowering-thread overflow after
+semantic analysis succeeded. The native crash report showed repeated
+`compile_expr_want_inner` / `compile_bilateral_binary` frames. Binary expressions
+now dispatch before the large non-binary lowering match. The existing binary
+lowering body was moved without changing contextual-realization precedence,
+operand order, lazy Boolean blocks, operator selection, or scratch-slot lifetime.
+
+Additional completed semantic checks:
+
+```text
+cargo test -p phalcom-semantic --test semantic incremental::query_ownership -- --nocapture
+  7 passed; 0 failed; 2242 filtered out; 2.95s
+cargo test -p phalcom-semantic --lib session::publication_tests -- --nocapture
+  13 passed; 0 failed; 179 filtered out; 9.19s
+```
+
+Production-path regression:
+
+```text
+cargo test -p phalcom-core --test core ordinary_float_horner_package_executes_all_coefficients -- --nocapture
+  1 passed; 0 failed; 994 filtered out; 128.88s
+```
+
+The test uses the production package compiler and full Universe VM and asserts
+exactly `2080.0`, the sum of coefficients 1 through 64 at `x = 1`. The original
+8 MiB package-test stack is unchanged.
+
+Broader gate: `cargo test -p phalcom-core --test language-corpus -- arithmetic booleans --nocapture`
+selected two corpus groups and failed both (89.31s) before fixture execution:
+`finalized executable link has no runtime read for class System from universe:concurrency.fiber`.
+The retained fixture compiler still uses `ExecutableLinkedProgram::from_conservative_link`
+instead of projecting the semantic snapshot's generated requirements. This is
+an unresolved linkage blocker; the corpus run supplies no operator-runtime
+acceptance evidence. The exact Horner package uses the production finalizer and
+passes. Do not relax finalized-read checks to unblock the corpus.

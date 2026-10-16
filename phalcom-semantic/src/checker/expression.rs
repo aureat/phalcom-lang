@@ -88,6 +88,20 @@ pub(crate) fn analyze_expression_with_publication(
     } else {
         analyze_expression_inner(ctx, expr, effective_expected)
     };
+    finish_expression_analysis(ctx, expr_id, expr, expected, effective_expected, &mut typed);
+    typed
+}
+
+// Publication and explanation temporaries are needed after child analysis.
+// Keep them out of each live recursive descent frame.
+fn finish_expression_analysis(
+    ctx: &mut CheckingContext<'_>,
+    expr_id: crate::identity::ExpressionId,
+    expr: &Expr,
+    expected: &ExpectedType,
+    effective_expected: &ExpectedType,
+    typed: &mut TypedExpression,
+) {
     typed.publication_dependencies.extend(ctx.sequence_dependencies());
     ctx.record_sequence_dependencies(&typed.publication_dependencies);
     if let Some(cause_id) = ctx.pop_expression_owner(expr_id) {
@@ -97,7 +111,7 @@ pub(crate) fn analyze_expression_with_publication(
         ctx.reject_sequence_expression(expr_id);
     }
 
-    super::algebraic_realization::apply_contextual_realization(ctx, expr_id, expr, effective_expected, &mut typed);
+    super::algebraic_realization::apply_contextual_realization(ctx, expr_id, expr, effective_expected, typed);
 
     if let (Some(expected_ty), Some(origin)) = (expected.ty(), expected.origin()) {
         let requirement = crate::explain::ExplanationStep::TypeRequirement {
@@ -223,8 +237,7 @@ pub(crate) fn analyze_expression_with_publication(
     let explanation_id = Some(ctx.record_derivation(step, rule, status, origin, ev, typed.explanation_parents.clone()));
     ctx.record_call_dependency(typed.causal_invalidity, explanation_id);
     typed.expression_id = Some(expr_id);
-    ctx.publish_expression_analysis(expr_id, expr.range(), &typed, explanation_id);
-    typed
+    ctx.publish_expression_analysis(expr_id, expr.range(), typed, explanation_id);
 }
 
 /// Propagates only the provenance of an expectation derived from this result.

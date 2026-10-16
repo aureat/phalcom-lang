@@ -636,3 +636,17 @@ let result = Box(7).wrap
     assert_ne!(recipe.bindings[0].0.owner, recipe.bindings[1].0.owner);
     assert_eq!(recipe.bindings[0].1, recipe.bindings[1].1);
 }
+
+#[test]
+fn ordinary_float_horner_package_executes_all_coefficients() {
+    on_algebraic_stack("ordinary-horner-package", || {
+        let mut expression = "64.0".to_owned();
+        for coefficient in (1..64).rev() {
+            expression = format!("{coefficient}.0 + x * ({expression})");
+        }
+        let (vm, module) = run(&format!(
+            "class Probe {{ @class calculate(_ x: Float) -> Float {{ return ({expression}) }} }}\nlet answer = Probe.calculate(1.0)\n"
+        ));
+        assert_eq!(global(&vm, module, "answer"), Value::float(2080.0));
+    });
+}
