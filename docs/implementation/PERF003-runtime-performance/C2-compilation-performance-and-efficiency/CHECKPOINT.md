@@ -327,6 +327,12 @@ filter passed 22/22. This is preflight hardening only: the sparse record still
 lacks complete expression/binding rows, the other owner families, and final root
 reconciliation. Keep the public decoder allocation guard active.
 
+The shared `CallableAnalysisOrdinalMap` now also assigns deterministic,
+callable-local ordinals to pattern-site keys. The reversed insertion-history
+regression passed in the focused semantic export test (1/1), establishing that
+pattern-site rows use the same ordinal authority as expressions, bindings,
+flow, explanations, and causes.
+
 Next action: continue T3 by replacing the sparse record with the schema-2
 owner-centric rows, extend owner-local closure/limits to those rows, and
 reconcile roots against the completed wire fields. P7 remains IN_PROGRESS /

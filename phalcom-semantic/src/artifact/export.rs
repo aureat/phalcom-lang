@@ -704,6 +704,7 @@ struct CallableAnalysisOrdinalMap {
     flow_edges: BTreeMap<crate::identity::FlowEdgeId, u32>,
     explanations: BTreeMap<crate::identity::ExplanationId, u32>,
     diagnostic_causes: BTreeMap<crate::identity::DiagnosticCauseId, u32>,
+    pattern_sites: BTreeMap<crate::match_semantics::PatternSiteKey, u32>,
 }
 
 fn assign_local_ordinals<T: Copy + Ord>(ids: impl IntoIterator<Item = T>) -> Result<BTreeMap<T, u32>, ArtifactError> {
@@ -716,7 +717,7 @@ fn assign_local_ordinals<T: Copy + Ord>(ids: impl IntoIterator<Item = T>) -> Res
 }
 
 impl CallableAnalysisOrdinalMap {
-    fn local_counts(&self) -> [usize; 6] {
+    fn local_counts(&self) -> [usize; 7] {
         [
             self.expressions.len(),
             self.bindings.len(),
@@ -724,6 +725,7 @@ impl CallableAnalysisOrdinalMap {
             self.flow_edges.len(),
             self.explanations.len(),
             self.diagnostic_causes.len(),
+            self.pattern_sites.len(),
         ]
     }
 
@@ -775,6 +777,7 @@ impl CallableAnalysisOrdinalMap {
         let flow_nodes = assign_local_ordinals(analysis.flow_graph.node_ids().copied())?;
         let flow_edges = assign_local_ordinals(analysis.flow_graph.edge_ids().copied())?;
         let explanations = assign_local_ordinals(analysis.explanations.iter().map(|(id, _)| *id))?;
+        let pattern_sites = assign_local_ordinals(analysis.pattern_site_resolutions.keys().copied())?;
 
         fn add_cause(causes: &mut std::collections::BTreeSet<crate::identity::DiagnosticCauseId>, cause: crate::identity::DiagnosticCauseId) {
             causes.insert(cause);
@@ -943,6 +946,7 @@ impl CallableAnalysisOrdinalMap {
             flow_edges,
             explanations,
             diagnostic_causes,
+            pattern_sites,
         })
     }
 }
@@ -2449,6 +2453,28 @@ mod callable_analysis_status_tests {
             .binding_origins
             .insert_source(binding, crate::checker::analysis::CallableBindingOrigin::BodyLocal)
             .unwrap();
+        let pattern_site_a = crate::match_semantics::PatternSiteKey::new(crate::match_semantics::PatternSiteKind::IfLet, SourceRange { start: 40, end: 45 });
+        let pattern_site_b = crate::match_semantics::PatternSiteKey::new(crate::match_semantics::PatternSiteKind::IfLet, SourceRange { start: 50, end: 55 });
+        let mut pattern_sites = crate::match_semantics::PatternSiteResolutionIndex::default();
+        for (key, range) in [
+            (pattern_site_b, SourceRange { start: 50, end: 55 }),
+            (pattern_site_a, SourceRange { start: 40, end: 45 }),
+        ] {
+            pattern_sites
+                .insert_source(
+                    key,
+                    crate::match_semantics::PatternSiteResolution {
+                        kind: key.kind,
+                        range,
+                        subject: crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
+                        pattern: crate::match_semantics::PatternResolution::Wildcard,
+                        bindings: Box::default(),
+                        usefulness: crate::match_semantics::PatternUsefulness::Useful,
+                    },
+                )
+                .unwrap();
+        }
+        analysis.pattern_site_resolutions = std::sync::Arc::new(pattern_sites);
 
         let mut store = crate::types::store::TypeStore::new();
         let parameter = store.intern_type_parameter(crate::types::parameter::TypeParameterData::new(
@@ -2492,9 +2518,19 @@ mod callable_analysis_status_tests {
         assert_eq!(ordinals.expressions.get(&expression_b), Some(&0));
         assert_eq!(ordinals.expressions.get(&expression_a), Some(&1));
         assert_eq!(ordinals.bindings.get(&binding), Some(&0));
+        assert_eq!(ordinals.pattern_sites.get(&pattern_site_a), Some(&0));
+        assert_eq!(ordinals.pattern_sites.get(&pattern_site_b), Some(&1));
 
         let mut allocation_history_permuted = analysis.clone();
         allocation_history_permuted.expressions = analysis.expressions.iter().rev().map(|(id, expression)| (*id, expression.clone())).collect();
+        allocation_history_permuted.pattern_site_resolutions = std::sync::Arc::new(
+            analysis
+                .pattern_site_resolutions
+                .iter()
+                .rev()
+                .map(|(key, resolution)| (*key, resolution.clone()))
+                .collect(),
+        );
         let permuted_ordinals = CallableAnalysisOrdinalMap::new(&callable, &allocation_history_permuted)
             .expect("reordered insertion history keeps the same callable-local coordinate map");
         assert_eq!(permuted_ordinals.expressions, ordinals.expressions);
@@ -2503,6 +2539,7 @@ mod callable_analysis_status_tests {
         assert_eq!(permuted_ordinals.flow_edges, ordinals.flow_edges);
         assert_eq!(permuted_ordinals.explanations, ordinals.explanations);
         assert_eq!(permuted_ordinals.diagnostic_causes, ordinals.diagnostic_causes);
+        assert_eq!(permuted_ordinals.pattern_sites, ordinals.pattern_sites);
 
         let other_callable = CallableId::method(owner.clone(), Selector::getter("other").unwrap(), DispatchSide::Class);
         assert!(
