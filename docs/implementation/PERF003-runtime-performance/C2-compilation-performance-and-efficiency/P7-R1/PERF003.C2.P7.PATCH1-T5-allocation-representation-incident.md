@@ -111,3 +111,17 @@ Choosing source/frozen map wrappers changes shared native product field types an
 ## 14. Decision requested
 
 Should PATCH1 introduce source/frozen budgeted ordered-map wrappers for the shared Exact/Derived evidence products and migrate the relevant readers, or should PATCH1 retain fail-closed Exact/Derived import and split that representation migration into a separately numbered prerequisite under PERF003.C2.P7? If the wrapper path is approved, identify its intended scope across `ConformanceEvidence`, `ConformanceAssociatedTypePlan`, `DerivedConformanceRule`, and any environment/proof maps, plus the required source/frozen equality and API invariants.
+
+## Architect decision — 2026-10-16
+
+Approved: implement the source/frozen wrapper path inside PATCH1 as T5.GE-A;
+do not split it into another P7 prerequisite. The required transitive scope
+also includes `TypeSubstitution.bindings` because Derived evidence owns its
+currently `HashMap`-backed substitution. Preserve existing frozen-capable
+`TypeEnvironment` and `InherentImplSpecialization.bindings`; do not migrate
+`ConformanceWitnessPlan`'s own maps, `DerivedConformanceRuleIndex`, global
+indexes, or unrelated containers. The checkpoint and active plan record the
+bounded scope and GE-ALLOC-01..17. This resolves the consultation hold and
+authorizes implementation within the approved boundary. The representation
+slice is underway; GE-ALLOC remains incomplete and Exact/Derived import stays
+fail-closed until every required gate passes.

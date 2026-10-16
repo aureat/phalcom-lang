@@ -2,6 +2,7 @@
 
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedSet, SortedSetEntriesError};
 use std::collections::BTreeSet;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 /// Immutable-set construction failure for a callable analysis owner.
@@ -25,9 +26,15 @@ enum AnalysisSetStorage<T> {
 
 /// Ordered set with mutable source storage and immutable charged artifact
 /// storage behind one read interface.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AnalysisSet<T> {
     storage: AnalysisSetStorage<T>,
+}
+
+impl<T: Debug + Ord> Debug for AnalysisSet<T> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_set().entries(self.iter()).finish()
+    }
 }
 
 impl<T: Ord> PartialEq for AnalysisSet<T> {
@@ -209,6 +216,7 @@ mod tests {
             assert!(!set.is_empty());
         }
         assert_eq!(source, frozen, "storage representation is not part of set equality");
+        assert_eq!(format!("{source:?}"), format!("{frozen:?}"), "debug output exposes only semantic entries");
     }
 
     #[test]

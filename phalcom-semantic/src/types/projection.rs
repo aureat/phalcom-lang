@@ -8,6 +8,7 @@ use super::row::RecordRowField;
 use super::store::{
     AnonymousTupleRemainder, AssociatedTypeProjection, CallableParameterType, CallableType, StaticArgument, TupleType, TupleTypeElement, TypeData, TypeStore,
 };
+use crate::checker::analysis_map::AnalysisMap;
 use crate::declarations::DeclarationTypeTable;
 use crate::generic_evidence::{GenericConformanceKey, GenericEvidenceEnvironment};
 use crate::identity::ImplId;
@@ -63,7 +64,7 @@ pub struct ProjectionNormalizationContext<'a> {
 struct CurrentExactEvidence<'a> {
     target: TypeId,
     trait_ref: &'a TraitRef,
-    associated_types: &'a BTreeMap<crate::traits::AssociatedTypeRequirementId, crate::impls::ExactAssociatedTypeBinding>,
+    associated_types: &'a AnalysisMap<crate::traits::AssociatedTypeRequirementId, crate::impls::ExactAssociatedTypeBinding>,
 }
 
 impl<'a> ProjectionNormalizationContext<'a> {
@@ -84,7 +85,7 @@ impl<'a> ProjectionNormalizationContext<'a> {
         mut self,
         target: TypeId,
         trait_ref: &'a TraitRef,
-        associated_types: &'a BTreeMap<crate::traits::AssociatedTypeRequirementId, crate::impls::ExactAssociatedTypeBinding>,
+        associated_types: &'a AnalysisMap<crate::traits::AssociatedTypeRequirementId, crate::impls::ExactAssociatedTypeBinding>,
     ) -> Self {
         self.current_exact_evidence = Some(CurrentExactEvidence {
             target,

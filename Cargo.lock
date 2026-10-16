@@ -1151,6 +1151,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.9.1",
  "blake3",
+ "phalcom-common",
  "phalcom-type-meta",
  "serde",
  "serde_json",

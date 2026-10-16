@@ -143,6 +143,80 @@ fn failed_fresh_publication_is_not_returned_as_authoritative_success() {
 }
 
 #[test]
+fn generated_delegation_definition_retains_body_authority_without_analysis() {
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session
+        .apply_module_mutations([set_overlay(
+            "/typeaud001/delegation-provenance.ph",
+            1,
+            "class Counter { mut _count: Int }\nimpl Counter { mut count via _count }\n",
+        )])
+        .expect("delegation source should publish");
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let generated = update
+        .snapshot
+        .callable_definitions
+        .iter()
+        .filter(|(_, definition)| {
+            matches!(
+                definition.body_provenance,
+                crate::impls::CallableDefinitionBodyProvenance::GeneratedDelegation { .. }
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(generated.len(), 2, "delegated property publishes its getter and setter definitions");
+    for (callable, definition) in generated {
+        assert!(matches!(
+            &definition.body_provenance,
+            crate::impls::CallableDefinitionBodyProvenance::GeneratedDelegation { target_field }
+                if target_field.as_ref() == "_count"
+        ));
+        assert!(
+            !update.snapshot.callable_analyses.contains_key(callable),
+            "body provenance authorizes generated accessors without a CallableAnalysis"
+        );
+    }
+}
+
+#[test]
+fn generated_trait_property_accessors_share_source_member_index() {
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session
+        .apply_module_mutations([set_overlay(
+            "/typeaud001/trait-property-source-ordinal.ph",
+            1,
+            "trait PropertySourceOrdinal { mut count: Int }\ntrait DiagnosticSurface {\n  item: Int\n  item: Int\n}\n",
+        )])
+        .expect("trait property source should publish");
+
+    let (declaration, surface) = update
+        .snapshot
+        .trait_surfaces
+        .iter_local()
+        .find(|(declaration, _)| declaration.name.as_ref() == "PropertySourceOrdinal")
+        .expect("trait surface should be published");
+    assert_eq!(surface.declaration, *declaration);
+    assert_eq!(surface.members.len(), 2, "mutable property publishes getter and setter requirements");
+    assert!(
+        surface.members.values().all(|member| member.source_member_index == 0),
+        "both generated accessors belong to the property's single source member"
+    );
+    assert!(surface.diagnostics.is_empty());
+
+    let diagnostic_surface = update
+        .snapshot
+        .trait_surfaces
+        .iter_local()
+        .find(|(declaration, _)| declaration.name.as_ref() == "DiagnosticSurface")
+        .map(|(_, surface)| surface)
+        .expect("diagnostic trait surface should be published");
+    assert!(diagnostic_surface.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == crate::diagnostic::DiagnosticCode::TraitMemberConflict && diagnostic.message.contains("duplicate trait member selector")
+    }));
+}
+
+#[test]
 fn failed_module_update_retains_its_pending_semantic_delta() {
     let mut session = SemanticWorkspaceSession::new();
     session

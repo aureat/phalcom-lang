@@ -2490,7 +2490,9 @@ impl SemanticWorkspaceSession {
         if !removed_modules.is_empty() {
             for module in &removed_modules {
                 alias_sources.retain(|declaration, _| &declaration.module != module);
-                let Some(provider) = &self.universe_source_provider else { continue; };
+                let Some(provider) = &self.universe_source_provider else {
+                    continue;
+                };
                 let Ok(source) = provider.load_parsed(module) else {
                     continue;
                 };
@@ -5544,6 +5546,7 @@ impl SemanticWorkspaceSession {
                                             origin: crate::impls::CallableDefinitionOrigin::ConformanceWitness(contribution.impl_id.clone()),
                                             source_member_index,
                                             signature: signature.clone(),
+                                            body_provenance: crate::impls::CallableDefinitionBodyProvenance::SourceBody,
                                             inherent_body_context: None,
                                         };
                                         callable_definitions.insert(callable.clone(), definition.clone());
@@ -5689,6 +5692,7 @@ impl SemanticWorkspaceSession {
                                         origin: crate::impls::CallableDefinitionOrigin::ConformanceWitness(rule_head.impl_id.clone()),
                                         source_member_index,
                                         signature: signature.clone(),
+                                        body_provenance: crate::impls::CallableDefinitionBodyProvenance::SourceBody,
                                         inherent_body_context: None,
                                     };
                                     callable_definitions.insert(callable.clone(), definition.clone());
@@ -6001,6 +6005,7 @@ impl SemanticWorkspaceSession {
                                     origin: crate::impls::CallableDefinitionOrigin::InherentImpl(contrib.id.clone()),
                                     source_member_index: member.source_member,
                                     signature: member.signature.clone(),
+                                    body_provenance: member.body_provenance.clone(),
                                     inherent_body_context: Some(crate::impls::InherentBodyContext {
                                         generic_signature: contrib.generic_signature.clone(),
                                         covering: contrib.covering.clone(),
@@ -8066,7 +8071,9 @@ impl SemanticWorkspaceSession {
                     .as_deref()
                     .into_iter()
                     .flat_map(|snapshot| snapshot.source_index.modules())
-                    .filter(|(module, _)| module.project.is_universe() && !input.sources.contains_key(module) && !module_body_attachment_modules.contains(*module))
+                    .filter(|(module, _)| {
+                        module.project.is_universe() && !input.sources.contains_key(module) && !module_body_attachment_modules.contains(*module)
+                    })
                     .map(|(module, _)| module.clone()),
             );
         }
@@ -8079,9 +8086,8 @@ impl SemanticWorkspaceSession {
             callables.extend(shard.callable_signature_fingerprints.keys().cloned());
             callables.extend(shard.callable_body_fingerprints.keys().cloned());
             callables.extend(callable_analyses.iter().filter_map(|(callable, analysis)| {
-                (callable.module() == module
-                    && analysis.body_source_owner.as_ref() == Some(&crate::identity::SourceOwner::Module(module.clone())))
-                .then(|| callable.clone())
+                (callable.module() == module && analysis.body_source_owner.as_ref() == Some(&crate::identity::SourceOwner::Module(module.clone())))
+                    .then(|| callable.clone())
             }));
             source_index_analysis_callables.insert(module.clone(), callables);
         }
@@ -8434,8 +8440,16 @@ impl SemanticWorkspaceSession {
                 .entry(definition_id.module.clone())
                 .or_default()
                 .extend(checked_body.diagnostics.iter().cloned());
+            let canonical_program = crate::static_definition::CanonicalStaticProgram::from_checked_body(
+                &checked_body,
+                Arc::make_mut(&mut self.static_values),
+                Arc::make_mut(&mut self.store),
+            )
+            .ok()
+            .map(Arc::new);
             let mut composed = (*definition_product).clone();
             composed.checked_body = Some(checked_body);
+            composed.canonical_program = canonical_program;
             static_definitions_table.insert(Arc::new(composed));
         }
         static_definitions_scope.finish(SemanticPerfOutcome::Success);
@@ -8549,7 +8563,7 @@ impl SemanticWorkspaceSession {
                         .product(&key)
                         .and_then(|product| product.as_static_constant())
                         .into_iter()
-                        .flat_map(|product| product.checked.record_key_static_constant_reads.iter())
+                        .flat_map(|product| product.authority.record_key_static_constant_reads.iter())
                         .cloned()
                         .map(crate::static_constant::StaticConstantId)
                         .collect();
@@ -8771,7 +8785,8 @@ impl SemanticWorkspaceSession {
                         id: id.clone(),
                         declaration_range: decl.declaration_range,
                         initializer_range: decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
-                        checked,
+                        authority: crate::static_constant::StaticConstantAuthority::from_checked(&checked),
+                        checked: Some(checked),
                         outcome: crate::static_eval::StaticEvalOutcome::Recursive(crate::static_eval::StaticCycle::empty()),
                         residuals: None,
                         value: None,
@@ -9017,7 +9032,8 @@ impl SemanticWorkspaceSession {
                         id: id.clone(),
                         declaration_range: decl.declaration_range,
                         initializer_range: decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
-                        checked: checked.clone(),
+                        checked: Some(checked.clone()),
+                        authority: crate::static_constant::StaticConstantAuthority::from_checked(&checked),
                         outcome,
                         residuals,
                         value,
@@ -11259,7 +11275,7 @@ pub(crate) fn static_constant_binding_states(
 
         let result_type = constants
             .and_then(|constants| constants.get(&crate::static_constant::StaticConstantId(binding.symbol.clone())))
-            .and_then(|product| product.checked.result_type);
+            .and_then(|product| product.authority.result_type);
         let current = result_type.map_or_else(
             || crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
             |ty| crate::types::evidence::TypeKnowledge::established(ty, crate::types::evidence::EvidenceOrigin::Flow),
@@ -11424,9 +11440,11 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
     };
     let mut index_sources = BTreeMap::new();
     if previous.is_none() {
-        index_sources.extend(current_modules.iter().filter_map(|module| {
-            sources.get(module).map(|source| (module.clone(), source.clone()))
-        }));
+        index_sources.extend(
+            current_modules
+                .iter()
+                .filter_map(|module| sources.get(module).map(|source| (module.clone(), source.clone()))),
+        );
     } else {
         for module in rebuild_modules {
             if let Some(source) = sources.get(module) {
@@ -11445,7 +11463,10 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
         if previous.is_some() && !rebuild_modules.contains(module) {
             continue;
         }
-        let parsed = provider.expect("source presentation requires a source provider").load_parsed(module).expect("canonical Universe presentation source must load");
+        let parsed = provider
+            .expect("source presentation requires a source provider")
+            .load_parsed(module)
+            .expect("canonical Universe presentation source must load");
         presentation_sources.insert(module.clone(), parsed.text.clone());
         index_sources.insert(module.clone(), parsed);
     }
@@ -11463,11 +11484,10 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
         ..SourceIndexContext::default()
     };
     for (body_callable, analysis) in callable_analyses {
-        let source_owner = analysis.body_source_owner.clone().or_else(|| {
-            callable_signatures
-                .id_for_body(body_callable)
-                .map(crate::identity::SourceOwner::Callable)
-        });
+        let source_owner = analysis
+            .body_source_owner
+            .clone()
+            .or_else(|| callable_signatures.id_for_body(body_callable).map(crate::identity::SourceOwner::Callable));
         if let Some(source_owner) = source_owner {
             context.body_source_owners.insert(body_callable.clone(), source_owner);
         }
@@ -13651,6 +13671,7 @@ mod tests {
             origin: CallableDefinitionOrigin::InherentImpl(ImplId::new(module.clone(), ImplLocalId(1))),
             source_member_index: 0,
             signature,
+            body_provenance: crate::impls::CallableDefinitionBodyProvenance::SourceBody,
             inherent_body_context: None,
         };
         let (_, selected_range) = source_body_for_callable(&callable, Some(&definition), &unit).expect("body selected");

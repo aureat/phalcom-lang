@@ -13,7 +13,7 @@ use phalcom_compiler_artifact::metadata::{METADATA_SECTION_SCHEMA_V1, MetadataPr
 use phalcom_compiler_artifact::module_world::MODULE_WORLD_SCHEMA_V1;
 use phalcom_compiler_artifact::query::{QUERY_IMAGE_SCHEMA_V1, QueryImageV1};
 use phalcom_compiler_artifact::section::{SectionFlags, SectionKind};
-use phalcom_compiler_artifact::semantic::world::{SEMANTIC_WORLD_SCHEMA_V2, SemanticWorldV2};
+use phalcom_compiler_artifact::semantic::world::{SEMANTIC_WORLD_SCHEMA_V3, SemanticWorldV3};
 use phalcom_native_meta::NATIVE_SURFACE_SCHEMA_VERSION;
 use phalcom_semantic::artifact::export::{export_query_image, export_semantic_world};
 use phalcom_semantic::artifact::import::validate_and_import_semantic_world_with_allocation_budget;
@@ -94,9 +94,7 @@ pub enum TeloscArtifactError {
 fn allocation_error(error: AllocationError, limit_bytes: usize) -> TeloscArtifactError {
     match error {
         AllocationError::Exhausted | AllocationError::Overflow | AllocationError::Failed => TeloscArtifactError::BudgetExceeded { limit_bytes },
-        AllocationError::UnaccountedBoundary => {
-            TeloscArtifactError::Artifact(phalcom_compiler_artifact::ArtifactError::Allocation(error))
-        }
+        AllocationError::UnaccountedBoundary => TeloscArtifactError::Artifact(phalcom_compiler_artifact::ArtifactError::Allocation(error)),
     }
 }
 
@@ -208,7 +206,7 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
     );
     builder.add_section(
         SectionKind::SemanticWorld,
-        SEMANTIC_WORLD_SCHEMA_V2,
+        SEMANTIC_WORLD_SCHEMA_V3,
         SectionFlags::REQUIRED,
         semantic_world_bytes.clone(),
     );
@@ -343,7 +341,7 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     let modules = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_world_v1, limits, allocations)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
 
-    let world_v2 = SemanticWorldV2::decode_with_allocation_budget(semantic_world_sec, limits, allocations)
+    let world_v2 = SemanticWorldV3::decode_with_allocation_budget(semantic_world_sec, limits, allocations)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
     let parts = validate_and_import_semantic_world_with_allocation_budget(world_v2, limits, allocations)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;

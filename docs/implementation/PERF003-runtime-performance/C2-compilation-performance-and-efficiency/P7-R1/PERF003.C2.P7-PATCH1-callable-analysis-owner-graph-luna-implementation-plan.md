@@ -2477,6 +2477,64 @@ and all existing callable guards until the GE-1..GE-12 gate and final PATCH1
 owner-parity gate pass. The full architect decision is retained in the
 2026-10-16 PATCH1/T5 entry in `CHECKPOINT.md`.
 
+### Approved T5.GE-A allocation-representation amendment — 2026-10-16
+
+Decision: extend the T1 source/frozen storage model inside PATCH1; do not split
+the evidence-storage migration into another P7 prerequisite. ALLOC-GE-01
+requires every dynamically allocated associative container transitively
+constructed while importing callable-local Exact or Derived evidence to use
+immutable allocation-budgeted storage.
+
+Migrate only these containers:
+
+- `ConformanceEvidence.requirement_views`, `requirements`, `associated_types`,
+  and optional `trait_header_conformance_proofs`;
+- `ConformanceAssociatedTypePlan.bindings`;
+- `DerivedConformanceRule.requirement_views` and `requirements`;
+- `TypeSubstitution.bindings`, because `DerivedConformanceEvidence` owns a
+  substitution currently backed by `HashMap<TypeParameterId, TypeId>`.
+
+Do not migrate `TypeEnvironment` or `InherentImplSpecialization.bindings`;
+both already use source/frozen storage. Do not migrate unrelated maps,
+`ConformanceWitnessPlan`'s own fields, `DerivedConformanceRuleIndex`, global
+indexes, or caches. `ConformanceWitnessPlan` may contain the migrated
+`ConformanceAssociatedTypePlan`, but receives no additional map migration.
+
+Use the existing `AnalysisMap`/`BudgetedSortedMap` source/frozen contract:
+semantic equality ignores backing choice; lookups and canonical ordered reads
+are equivalent and allocation-free for frozen storage; frozen mutation is
+rejected; cloning frozen values shares their `Arc`; import builds directly from
+charged sorted buffers and never materializes intermediate `BTreeMap` or
+`HashMap` values. Preserve `None` versus `Some(empty)` exactly. Fingerprints
+must observe only semantic entries and remain equal across source/frozen
+backings, subject to FP-GE-01 relocation invariance.
+
+Before enabling Exact/Derived import, complete GE-ALLOC:
+
+| Gate | Required evidence |
+|---|---|
+| GE-ALLOC-01 | Census every associative allocation reachable from imported Exact/Derived evidence. |
+| GE-ALLOC-02 | `ConformanceEvidence` maps use source/frozen storage. |
+| GE-ALLOC-03 | `ConformanceAssociatedTypePlan.bindings` uses source/frozen storage. |
+| GE-ALLOC-04 | `DerivedConformanceRule` maps use source/frozen storage. |
+| GE-ALLOC-05 | Imported `TypeSubstitution` does not allocate a native `HashMap`. |
+| GE-ALLOC-06 | Existing `TypeEnvironment` and `InherentImplSpecialization` frozen behavior is preserved. |
+| GE-ALLOC-07 | Source/frozen equality, ordered iteration, and lookup parity pass. |
+| GE-ALLOC-08 | Frozen mutation is rejected. |
+| GE-ALLOC-09 | Exact/Derived import creates no ordinary `BTreeMap`/`HashMap` for migrated fields. |
+| GE-ALLOC-10 | Exact budget N succeeds. |
+| GE-ALLOC-11 | Budget N−1 fails with the typed allocation error. |
+| GE-ALLOC-12 | Failed child construction leaves the parent ledger unchanged. |
+| GE-ALLOC-13 | Nested Exact trait-header proof maps satisfy the same accounting. |
+| GE-ALLOC-14 | Derived nested evidence and substitutions satisfy the same accounting. |
+| GE-ALLOC-15 | Source/frozen product fingerprints are equal before relocation. |
+| GE-ALLOC-16 | Fresh-store relocation satisfies FP-GE-01. |
+| GE-ALLOC-17 | Existing semantic/core readers compile and focused parity tests pass. |
+
+Exact/Derived import stays fail-closed until every GE-ALLOC gate passes. Callable
+guards still require full PATCH1 owner parity; global semantic allocation
+guards remain PATCH3-owned.
+
 ---
 
 # T6 — Transport flow boundaries and all callable resolution families

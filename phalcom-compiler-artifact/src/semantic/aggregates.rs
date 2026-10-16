@@ -348,7 +348,7 @@ impl StructuralPrimaryContractsV1 {
     }
 }
 
-fn validate_signature(signature: &GenericSignatureV1, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+pub(crate) fn validate_signature(signature: &GenericSignatureV1, limits: &ValidationLimits) -> Result<(), ArtifactError> {
     validate_index_list(&signature.parameters, limits)?;
     if signature.parameter_modes.len() != signature.parameters.len() {
         return Err(invalid("generic signature parameter modes disagree with parameters"));
@@ -460,7 +460,7 @@ fn validate_name(value: &str, limits: &ValidationLimits) -> Result<(), ArtifactE
     Ok(())
 }
 
-fn validate_owner(value: &StableDeclarationRef, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+pub(crate) fn validate_owner(value: &StableDeclarationRef, limits: &ValidationLimits) -> Result<(), ArtifactError> {
     use phalcom_type_meta::identity::StableProjectRef;
     match &value.module.project {
         StableProjectRef::Builtin { namespace, version } if !namespace.is_empty() && !version.is_empty() => {

@@ -10,5 +10,6 @@ thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 phalcom-type-meta = { path = "../phalcom-type-meta" }
+phalcom-common = { path = "../phalcom-common" }
 
 [dev-dependencies]

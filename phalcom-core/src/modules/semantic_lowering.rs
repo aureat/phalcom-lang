@@ -1165,10 +1165,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         if analysis.body_range.start == analysis.body_range.end {
             continue;
         }
-        let source_callable = snapshot
-            .callable_signatures
-            .id_for_body(callable)
-            .unwrap_or_else(|| callable.clone());
+        let source_callable = snapshot.callable_signatures.id_for_body(callable).unwrap_or_else(|| callable.clone());
         for binding in analysis.bindings.values() {
             let identity = lowering_binding_identity(callable, analysis, binding.binding)?;
             if matches!(identity, LoweringBindingIdentity::ModuleValue { .. }) {
@@ -1332,15 +1329,10 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         if impl_id.module != *module {
             continue;
         }
-        let is_generated_delegation = snapshot
-            .sources
-            .get(&impl_id.module)
-            .and_then(|source| source.program.statements.get(impl_id.local.0 as usize))
-            .and_then(|statement| match statement {
-                phalcom_ast::ast::Statement::Impl(impl_def) => impl_def.members.get(definition.source_member_index),
-                _ => None,
-            })
-            .is_some_and(|member| matches!(member, phalcom_ast::ast::ImplMember::Delegation(_)));
+        let is_generated_delegation = matches!(
+            &definition.body_provenance,
+            phalcom_semantic::impls::CallableDefinitionBodyProvenance::GeneratedDelegation { .. }
+        );
         if !snapshot.callable_analyses.contains_key(&definition.callable) && !is_generated_delegation {
             continue;
         }
@@ -1357,18 +1349,10 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         entry.1.push(InherentImplMemberLowering {
             callable: definition.callable.clone(),
             source_member_index: definition.source_member_index,
-            delegation_target_field: snapshot
-                .sources
-                .get(&impl_id.module)
-                .and_then(|source| source.program.statements.get(impl_id.local.0 as usize))
-                .and_then(|statement| match statement {
-                    phalcom_ast::ast::Statement::Impl(impl_def) => impl_def.members.get(definition.source_member_index),
-                    _ => None,
-                })
-                .and_then(|member| match member {
-                    phalcom_ast::ast::ImplMember::Delegation(delegation) => Some(delegation.target_field.clone().into_boxed_str()),
-                    _ => None,
-                }),
+            delegation_target_field: match &definition.body_provenance {
+                phalcom_semantic::impls::CallableDefinitionBodyProvenance::SourceBody => None,
+                phalcom_semantic::impls::CallableDefinitionBodyProvenance::GeneratedDelegation { target_field } => Some(target_field.clone()),
+            },
         });
     }
     let mut inherent_impls = inherent_impls_by_id
@@ -1428,38 +1412,22 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
             );
         }
     }
-    if let Some(source) = snapshot.sources.get(module) {
-        for statement in &source.program.statements {
-            let phalcom_ast::ast::Statement::Trait(trait_def) = statement else { continue };
-            let trait_declaration = DeclarationId::new(module.clone(), trait_def.name.clone().into());
-            let Some(surface) = snapshot.trait_surfaces.get(&trait_declaration) else {
-                continue;
-            };
-            for (source_member_index, trait_member) in trait_def.members.iter().enumerate() {
-                let Some(member) = trait_member.behavior() else {
-                    continue;
-                };
-                let member_range = match member {
-                    phalcom_ast::ast::BehaviorMember::Method(member) => member.range,
-                    phalcom_ast::ast::BehaviorMember::Getter(member) => member.range,
-                    phalcom_ast::ast::BehaviorMember::Setter(member) => member.range,
-                    phalcom_ast::ast::BehaviorMember::Index(member) => member.range,
-                };
-                let Some((_, surface_member)) = surface.iter().find(|(_, member)| member.source.range == member_range) else {
-                    continue;
-                };
-                if surface_member.default_present {
-                    detached_methods.insert(
-                        surface_member.callable.clone(),
-                        DetachedMethodSpec {
-                            callable: surface_member.callable.clone(),
-                            source: DetachedMethodSource::TraitDefault {
-                                trait_declaration: trait_declaration.clone(),
-                                source_member_index,
-                            },
+    for (trait_declaration, surface) in snapshot.trait_surfaces.iter() {
+        if &trait_declaration.module != module {
+            continue;
+        }
+        for (_, surface_member) in surface.iter() {
+            if surface_member.default_present {
+                detached_methods.insert(
+                    surface_member.callable.clone(),
+                    DetachedMethodSpec {
+                        callable: surface_member.callable.clone(),
+                        source: DetachedMethodSource::TraitDefault {
+                            trait_declaration: trait_declaration.clone(),
+                            source_member_index: surface_member.source_member_index,
                         },
-                    );
-                }
+                    },
+                );
             }
         }
     }
@@ -3234,7 +3202,7 @@ fn exact_prerequisite_has_flat_runtime_environment(exact: &phalcom_semantic::imp
         .trait_header_contract
         .iter()
         .any(|constraint| matches!(constraint, phalcom_semantic::types::parameter::GenericConstraint::Conforms { .. }))
-        && exact.trait_header_conformance_proofs.as_ref().is_some_and(BTreeMap::is_empty)
+        && exact.trait_header_conformance_proofs.as_ref().is_some_and(|proofs| proofs.is_empty())
 }
 
 fn project_antecedent_slots(
@@ -3963,10 +3931,7 @@ mod tests {
         let other_range = phalcom_common::range::SourceRange { start: 8, end: 9 };
         insert_binding_attachment(&mut bindings, other_range, other_owner_identity.clone(), "other callable")
             .expect("same numeric id under another owner is distinct");
-        assert_ne!(
-            LoweringBindingIdentity::BodyLocal { callable, binding: first },
-            other_owner_identity
-        );
+        assert_ne!(LoweringBindingIdentity::BodyLocal { callable, binding: first }, other_owner_identity);
     }
 
     fn exact_conformance_evidence() -> Arc<ConformanceEvidence> {
@@ -3977,9 +3942,9 @@ mod tests {
             exact_target: TypeId::DUMMY,
             exact_trait_ref: TraitRef::new(trait_declaration, Box::<[TypeId]>::default()),
             impl_environment: TypeEnvironment::default(),
-            requirement_views: BTreeMap::new(),
-            requirements: BTreeMap::new(),
-            associated_types: BTreeMap::new(),
+            requirement_views: Default::default(),
+            requirements: Default::default(),
+            associated_types: Default::default(),
             trait_header_contract: Box::default(),
             trait_header_conformance_proofs: None,
             fingerprint: Default::default(),
@@ -4103,16 +4068,14 @@ mod tests {
         let gate_ref = TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Gate".into()), Box::<[TypeId]>::default());
         let gate_key = GenericConformanceKey::new(TypeTerm::Canonical(TypeId::DUMMY), gate_ref);
         let mut completed_prerequisite = (*exact_conformance_evidence()).clone();
-        completed_prerequisite.trait_header_conformance_proofs = Some(BTreeMap::new());
+        completed_prerequisite.trait_header_conformance_proofs = Some(Default::default());
         let mut completed_parent = (*exact_conformance_evidence()).clone();
         completed_parent.trait_header_contract = Box::new([phalcom_semantic::types::parameter::GenericConstraint::Conforms {
             subject: TypeTerm::Canonical(TypeId::DUMMY),
             trait_ref: gate_key.trait_ref.clone(),
         }]);
-        completed_parent.trait_header_conformance_proofs = Some(BTreeMap::from([(
-            gate_key,
-            GenericConformanceEvidence::Exact(Arc::new(completed_prerequisite)),
-        )]));
+        completed_parent.trait_header_conformance_proofs =
+            Some(BTreeMap::from([(gate_key, GenericConformanceEvidence::Exact(Arc::new(completed_prerequisite)))]).into());
         assert_eq!(
             classify_realization_prerequisite_projection(&selection, &GenericConformanceEvidence::Exact(Arc::new(completed_parent)), true),
             Ok(false),
@@ -4120,25 +4083,31 @@ mod tests {
         );
 
         let mut recursive_prerequisite = (*exact_conformance_evidence()).clone();
-        recursive_prerequisite.trait_header_conformance_proofs = Some(BTreeMap::from([(
-            GenericConformanceKey::new(
-                TypeTerm::Canonical(TypeId::DUMMY),
-                TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Nested".into()), Box::<[TypeId]>::default()),
-            ),
-            GenericConformanceEvidence::Exact(exact_conformance_evidence()),
-        )]));
+        recursive_prerequisite.trait_header_conformance_proofs = Some(
+            BTreeMap::from([(
+                GenericConformanceKey::new(
+                    TypeTerm::Canonical(TypeId::DUMMY),
+                    TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Nested".into()), Box::<[TypeId]>::default()),
+                ),
+                GenericConformanceEvidence::Exact(exact_conformance_evidence()),
+            )])
+            .into(),
+        );
         let mut recursive_parent = (*exact_conformance_evidence()).clone();
         recursive_parent.trait_header_contract = Box::new([phalcom_semantic::types::parameter::GenericConstraint::Conforms {
             subject: TypeTerm::Canonical(TypeId::DUMMY),
             trait_ref: TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Gate".into()), Box::<[TypeId]>::default()),
         }]);
-        recursive_parent.trait_header_conformance_proofs = Some(BTreeMap::from([(
-            GenericConformanceKey::new(
-                TypeTerm::Canonical(TypeId::DUMMY),
-                TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Gate".into()), Box::<[TypeId]>::default()),
-            ),
-            GenericConformanceEvidence::Exact(Arc::new(recursive_prerequisite)),
-        )]));
+        recursive_parent.trait_header_conformance_proofs = Some(
+            BTreeMap::from([(
+                GenericConformanceKey::new(
+                    TypeTerm::Canonical(TypeId::DUMMY),
+                    TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Gate".into()), Box::<[TypeId]>::default()),
+                ),
+                GenericConformanceEvidence::Exact(Arc::new(recursive_prerequisite)),
+            )])
+            .into(),
+        );
         assert_eq!(
             classify_realization_prerequisite_projection(&selection, &GenericConformanceEvidence::Exact(Arc::new(recursive_parent)), true),
             Err(ProjectionError::UnsupportedContextualRealizationEvidence(

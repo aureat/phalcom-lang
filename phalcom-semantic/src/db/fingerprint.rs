@@ -370,6 +370,19 @@ pub(crate) fn inherent_body_context_fingerprint(context: &crate::impls::Inherent
     hasher.finish()
 }
 
+/// Fingerprints body-generation authority without relying on source syntax.
+pub(crate) fn callable_definition_body_provenance_fingerprint(provenance: &crate::impls::CallableDefinitionBodyProvenance) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    match provenance {
+        crate::impls::CallableDefinitionBodyProvenance::SourceBody => 0u8.hash(&mut hasher),
+        crate::impls::CallableDefinitionBodyProvenance::GeneratedDelegation { target_field } => {
+            1u8.hash(&mut hasher);
+            target_field.hash(&mut hasher);
+        }
+    }
+    hasher.finish()
+}
+
 fn hash_generic_binder_header(header: &GenericBinderHeader, hasher: &mut impl Hasher) {
     header.owner.hash(hasher);
     header.parameter_kinds.hash(hasher);
@@ -1697,6 +1710,7 @@ fn hash_trait_surface(surface: &crate::traits::TraitSurface, include_source: boo
         member.callable.hash(hasher);
         callable_signature_product_fingerprint(&member.signature).raw().hash(hasher);
         member.visibility.hash(hasher);
+        member.source_member_index.hash(hasher);
         member.default_present.hash(hasher);
         member.default_source.is_some().hash(hasher);
         if include_source {
@@ -3140,48 +3154,37 @@ pub fn static_definition_product_fingerprint(product: &crate::static_definition:
     let mut hasher = DefaultHasher::new();
     let def = &product.definition;
     def.id.hash(&mut hasher);
-    def.signature.result_domain.hash(&mut hasher);
-    def.signature.parameters.len().hash(&mut hasher);
-    for p in def.signature.parameters.iter() {
-        p.name.hash(&mut hasher);
-        p.domain.hash(&mut hasher);
-        p.mode.hash(&mut hasher);
-        p.index.hash(&mut hasher);
-        p.type_parameter_id.is_some().hash(&mut hasher);
-    }
-    match &def.signature.generic_signature {
-        Some(sig) => {
-            1u8.hash(&mut hasher);
-            hash_generic_signature(sig, &mut hasher);
+    hash_static_definition_signature(&def.signature, &mut hasher);
+    if let Some(program) = &product.canonical_program {
+        1u8.hash(&mut hasher);
+        hash_canonical_static_program(program, &mut hasher);
+    } else {
+        0u8.hash(&mut hasher);
+        match &def.body {
+            crate::static_definition::StaticDefinitionBodyRepr::TypeForm(ann) => {
+                0u8.hash(&mut hasher);
+                hash_debug_without_source_ranges(ann, &mut hasher);
+            }
+            crate::static_definition::StaticDefinitionBodyRepr::Expression(expr) => {
+                1u8.hash(&mut hasher);
+                hash_debug_without_source_ranges(expr, &mut hasher);
+            }
+            crate::static_definition::StaticDefinitionBodyRepr::Block(block) => {
+                2u8.hash(&mut hasher);
+                hash_debug_without_source_ranges(block, &mut hasher);
+            }
+            crate::static_definition::StaticDefinitionBodyRepr::Operational(program) => {
+                3u8.hash(&mut hasher);
+                hash_canonical_static_program(program, &mut hasher);
+            }
         }
-        None => 0u8.hash(&mut hasher),
-    }
-    match &def.body {
-        crate::static_definition::StaticDefinitionBodyRepr::TypeForm(ann) => {
-            0u8.hash(&mut hasher);
-            hash_debug_without_source_ranges(ann, &mut hasher);
+        match product.checked_body.as_ref() {
+            Some(body) => {
+                1u8.hash(&mut hasher);
+                checked_static_body_product_fingerprint(body).hash(&mut hasher);
+            }
+            None => 0u8.hash(&mut hasher),
         }
-        crate::static_definition::StaticDefinitionBodyRepr::Expression(expr) => {
-            1u8.hash(&mut hasher);
-            hash_debug_without_source_ranges(expr, &mut hasher);
-        }
-        crate::static_definition::StaticDefinitionBodyRepr::Block(block) => {
-            2u8.hash(&mut hasher);
-            hash_debug_without_source_ranges(block, &mut hasher);
-        }
-        crate::static_definition::StaticDefinitionBodyRepr::Operational(template) => {
-            3u8.hash(&mut hasher);
-            template.owner.hash(&mut hasher);
-            template.parameter_count.hash(&mut hasher);
-            template.local_count.hash(&mut hasher);
-        }
-    }
-    match product.checked_body.as_ref() {
-        Some(body) => {
-            1u8.hash(&mut hasher);
-            checked_static_body_product_fingerprint(body).hash(&mut hasher);
-        }
-        None => 0u8.hash(&mut hasher),
     }
     match &product.alias_info {
         Some(info) => {
@@ -3191,6 +3194,64 @@ pub fn static_definition_product_fingerprint(product: &crate::static_definition:
         None => 0u8.hash(&mut hasher),
     }
     finish_product(hasher)
+}
+
+fn hash_static_definition_signature(signature: &crate::static_definition::StaticDefinitionSignature, hasher: &mut impl Hasher) {
+    signature.result_domain.hash(hasher);
+    signature.parameters.len().hash(hasher);
+    for parameter in signature.parameters.iter() {
+        parameter.name.hash(hasher);
+        parameter.domain.hash(hasher);
+        parameter.mode.hash(hasher);
+        parameter.index.hash(hasher);
+        parameter.type_parameter_id.is_some().hash(hasher);
+    }
+    match &signature.generic_signature {
+        Some(signature) => {
+            1u8.hash(hasher);
+            hash_generic_signature(signature, hasher);
+        }
+        None => 0u8.hash(hasher),
+    }
+}
+
+fn hash_canonical_static_program(program: &crate::static_definition::CanonicalStaticProgram, hasher: &mut impl Hasher) {
+    program.owner.hash(hasher);
+    program.parameter_count.hash(hasher);
+    program.local_count.hash(hasher);
+    format!("{:?}", program.root).hash(hasher);
+    program.result.hash(hasher);
+    program.kinded_parameters.hash(hasher);
+    program.static_constant_reads.hash(hasher);
+    program.module_binding_fingerprint.hash(hasher);
+    for dependency in program.dependencies.iter() {
+        format!("{dependency:?}").hash(hasher);
+    }
+    program.applications.len().hash(hasher);
+    for application in program.applications.iter() {
+        application.id.ordinal.hash(hasher);
+        application.target.hash(hasher);
+        hash_static_definition_signature(&application.signature, hasher);
+        application.arguments.len().hash(hasher);
+        for argument in application.arguments.iter() {
+            match argument {
+                crate::static_definition::CanonicalStaticApplicationArgument::KindedTerm { parameter_index, term } => {
+                    0u8.hash(hasher);
+                    parameter_index.hash(hasher);
+                    term.hash(hasher);
+                }
+                crate::static_definition::CanonicalStaticApplicationArgument::KindedExpression { parameter_index, application_ordinal } => {
+                    1u8.hash(hasher);
+                    parameter_index.hash(hasher);
+                    application_ordinal.hash(hasher);
+                }
+                crate::static_definition::CanonicalStaticApplicationArgument::Value { parameter_index } => {
+                    2u8.hash(hasher);
+                    parameter_index.hash(hasher);
+                }
+            }
+        }
+    }
 }
 
 fn hash_module_static_binding_index(index: &crate::module_bindings::ModuleStaticBindingIndex, hasher: &mut impl Hasher) {
@@ -3280,7 +3341,7 @@ pub fn static_constant_product_fingerprint(
 ) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
     product.id.hash(&mut hasher);
-    product.checked.record_key_static_constant_reads.hash(&mut hasher);
+    product.authority.record_key_static_constant_reads.hash(&mut hasher);
     match &product.outcome {
         crate::static_eval::StaticEvalOutcome::Reduced(val_ref) => {
             0u8.hash(&mut hasher);
@@ -3444,6 +3505,25 @@ mod tests {
         };
 
         assert_ne!(fingerprint(&concrete), fingerprint(&dynamic));
+    }
+
+    #[test]
+    fn callable_definition_body_provenance_changes_definition_fingerprint() {
+        use crate::impls::CallableDefinitionBodyProvenance;
+
+        let source = CallableDefinitionBodyProvenance::SourceBody;
+        let delegation = CallableDefinitionBodyProvenance::GeneratedDelegation {
+            target_field: "storage".into(),
+        };
+        let other_delegation = CallableDefinitionBodyProvenance::GeneratedDelegation { target_field: "other".into() };
+        assert_ne!(
+            callable_definition_body_provenance_fingerprint(&source),
+            callable_definition_body_provenance_fingerprint(&delegation)
+        );
+        assert_ne!(
+            callable_definition_body_provenance_fingerprint(&delegation),
+            callable_definition_body_provenance_fingerprint(&other_delegation)
+        );
     }
 
     #[test]

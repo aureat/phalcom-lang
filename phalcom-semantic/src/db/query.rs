@@ -1354,7 +1354,7 @@ pub fn query_static_constant(
         _ => {}
     }
     let key = QueryKey::StaticConstant(product.id.clone());
-    let input_fingerprint = product.checked.input_fingerprint;
+    let input_fingerprint = product.authority.input_fingerprint;
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(cached) = db.product(&key).and_then(|value| value.as_static_constant()) {
             db.metrics().record_hit();
@@ -1368,7 +1368,7 @@ pub fn query_static_constant(
 
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     if !matches!(product.outcome, crate::static_eval::StaticEvalOutcome::Recursive(_)) {
-        for semantic_dependency in product.checked.dependencies.iter() {
+        for semantic_dependency in product.authority.dependencies.iter() {
             match ensure_formal_semantic_dependency_current(db, semantic_dependency, inputs, type_store) {
                 QueryOutcome::Ready(()) => {}
                 QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
@@ -1395,7 +1395,7 @@ pub fn query_static_constant(
             }
         }
     } else {
-        for semantic_dependency in product.checked.dependencies.iter() {
+        for semantic_dependency in product.authority.dependencies.iter() {
             let dependency_key = semantic_dependency_query_key(semantic_dependency);
             if dependency_key == key {
                 continue;
@@ -2687,8 +2687,12 @@ pub fn query_callable_definition(
         .inherent_body_context
         .as_ref()
         .map_or(0, crate::db::fingerprint::inherent_body_context_fingerprint);
-    let value =
-        signature_fingerprint.raw() ^ origin_tag.rotate_left(17) ^ (definition.source_member_index as u64).rotate_left(33) ^ body_context_tag.rotate_left(11);
+    let body_provenance_tag = crate::db::fingerprint::callable_definition_body_provenance_fingerprint(&definition.body_provenance);
+    let value = signature_fingerprint.raw()
+        ^ origin_tag.rotate_left(17)
+        ^ (definition.source_member_index as u64).rotate_left(33)
+        ^ body_context_tag.rotate_left(11)
+        ^ body_provenance_tag.rotate_left(23);
     let input_fingerprint = crate::db::InputFingerprint::new(value);
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_callable_definition()) {
@@ -4094,5 +4098,106 @@ mod exact_module_fact_tests {
             crate::db::fingerprint::resolved_import_product_fingerprint(&first),
             crate::db::fingerprint::resolved_import_product_fingerprint(&second)
         );
+    }
+}
+
+#[cfg(test)]
+mod callable_definition_fingerprint_tests {
+    use super::*;
+
+    fn definition(
+        origin: crate::impls::CallableDefinitionOrigin,
+        source_member_index: usize,
+        source_target_head: crate::types::id::TypeId,
+        target_field: &str,
+    ) -> crate::impls::EffectiveCallableDefinition {
+        let owner = crate::identity::DeclarationId::new(crate::identity::ModuleId::universe_root(), "CallableDefinitionFingerprint".into());
+        let selector = phalcom_common::selector::Selector::method("run", vec![]).expect("valid test selector");
+        let callable = crate::identity::CallableId::new(owner.clone(), selector.clone(), crate::identity::DispatchSide::Instance);
+        let signature = crate::signature::CallableSemanticSignature {
+            callable: callable.clone(),
+            owner,
+            side: crate::identity::DispatchSide::Instance,
+            selector,
+            generics: None,
+            parameters: Box::new([]),
+            declared_return: crate::declaration_type::DeclaredTypeFact::unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
+            return_validation: crate::signature::ReturnContractValidation::NotApplicable,
+            inferred_return: None,
+            source: None,
+            implementation: phalcom_common::modifier::ImplementationKind::Phalcom,
+            native_id: None,
+            effects: phalcom_native_meta::EffectSpec::Unknown,
+            raises: phalcom_native_meta::RaisesSpec::Unknown,
+            flow: phalcom_native_meta::ReturnFlowSpec::Value,
+            lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
+        };
+        let inherent_body_context = matches!(&origin, crate::impls::CallableDefinitionOrigin::InherentImpl(_)).then_some(crate::impls::InherentBodyContext {
+            generic_signature: None,
+            covering: None,
+            source_target_head,
+        });
+        crate::impls::EffectiveCallableDefinition {
+            callable,
+            origin,
+            source_member_index,
+            signature,
+            body_provenance: crate::impls::CallableDefinitionBodyProvenance::GeneratedDelegation {
+                target_field: target_field.into(),
+            },
+            inherent_body_context,
+        }
+    }
+
+    fn fingerprints(definition: crate::impls::EffectiveCallableDefinition) -> (InputFingerprint, ProductFingerprint) {
+        let key = QueryKey::CallableDefinition(definition.callable.clone());
+        let mut db = crate::db::SemanticDb::new();
+        assert!(matches!(query_callable_definition(&mut db, Arc::new(definition)), QueryOutcome::Ready(_)));
+        let state = db.query_state(&key).expect("callable definition query state");
+        (
+            state.input_fingerprint().expect("ready input fingerprint"),
+            state.product_fingerprint().expect("ready product fingerprint"),
+        )
+    }
+
+    #[test]
+    fn callable_definition_query_fingerprints_cover_origin_member_context_and_body_provenance() {
+        let module = crate::identity::ModuleId::universe_root();
+        let impl_id = crate::identity::ImplId::new(module, crate::identity::ImplLocalId(7));
+        let baseline = fingerprints(definition(
+            crate::impls::CallableDefinitionOrigin::InherentImpl(impl_id.clone()),
+            2,
+            crate::types::id::TypeId(10),
+            "storage",
+        ));
+        let changed_origin = fingerprints(definition(
+            crate::impls::CallableDefinitionOrigin::PrimaryDeclaration,
+            2,
+            crate::types::id::TypeId(10),
+            "storage",
+        ));
+        let changed_member = fingerprints(definition(
+            crate::impls::CallableDefinitionOrigin::InherentImpl(impl_id.clone()),
+            3,
+            crate::types::id::TypeId(10),
+            "storage",
+        ));
+        let changed_context = fingerprints(definition(
+            crate::impls::CallableDefinitionOrigin::InherentImpl(impl_id.clone()),
+            2,
+            crate::types::id::TypeId(11),
+            "storage",
+        ));
+        let changed_body_provenance = fingerprints(definition(
+            crate::impls::CallableDefinitionOrigin::InherentImpl(impl_id),
+            2,
+            crate::types::id::TypeId(10),
+            "other",
+        ));
+
+        for changed in [changed_origin, changed_member, changed_context, changed_body_provenance] {
+            assert_ne!(baseline.0, changed.0, "query input fingerprint must include every definition authority field");
+            assert_ne!(baseline.1, changed.1, "query product fingerprint must include every definition authority field");
+        }
     }
 }

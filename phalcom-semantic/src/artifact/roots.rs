@@ -1,13 +1,14 @@
 //! Stable primary-owner roots collected before either relocation graph closes.
 use super::export::register_structural_primary_roots;
 use crate::declaration_type::{DeclaredTypeFact, DeclaredTypeState};
-use crate::metadata::stable_identity::{to_stable_callable, to_stable_declaration, to_stable_impl, to_stable_variant};
+use crate::metadata::stable_identity::{to_stable_callable, to_stable_declaration, to_stable_impl, to_stable_module, to_stable_variant};
 use crate::snapshot::SemanticSnapshot;
 use crate::static_value::StaticExportContext;
 use crate::types::parameter::{GenericConstraint, GenericSignature, TypeTerm};
 use crate::types::store::artifact::TypeExportContext;
 use phalcom_compiler_artifact::semantic::type_store::{CanonicalRootFamilyTag as Family, CanonicalTypeRootKey, StableOwnerRef};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
+use std::collections::BTreeMap;
 
 struct Roots<'a> {
     types: &'a mut TypeExportContext,
@@ -27,6 +28,40 @@ pub(super) fn register_callable_signature_roots(
         Family::CallableSignature,
     );
     roots.callable_signature(signature)
+}
+
+pub(super) fn register_callable_definition_roots(
+    types: &mut TypeExportContext,
+    definition: &crate::impls::EffectiveCallableDefinition,
+) -> Result<(), ArtifactError> {
+    if definition.callable != definition.signature.callable {
+        return Err(ArtifactError::LimitExceeded("callable definition key disagrees with its signature".into()));
+    }
+    let mut roots = Roots::new(
+        types,
+        StableOwnerRef::Callable(to_stable_callable(&definition.callable)),
+        Family::CallableSignature,
+    );
+    roots.callable_signature(&definition.signature)?;
+    if let Some(context) = &definition.inherent_body_context {
+        roots.generic(&context.generic_signature)?;
+        roots.ty(context.source_target_head)?;
+        if let Some(covering) = &context.covering {
+            let mut forward = covering.impl_to_decl.iter().collect::<Vec<_>>();
+            forward.sort_unstable_by_key(|(parameter, _)| **parameter);
+            for (&implementation, &declaration) in forward {
+                roots.parameter(implementation)?;
+                roots.parameter(declaration)?;
+            }
+            let mut inverse = covering.decl_to_impl.iter().collect::<Vec<_>>();
+            inverse.sort_unstable_by_key(|(parameter, _)| **parameter);
+            for (&declaration, &implementation) in inverse {
+                roots.parameter(declaration)?;
+                roots.parameter(implementation)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Registers type and row roots carried by already-selected call specializations.
@@ -191,6 +226,9 @@ impl<'a> Roots<'a> {
             product_subkey: ordinal,
         })
     }
+    fn next_ordinal(&self) -> u32 {
+        self.ordinal
+    }
     fn ty(&mut self, ty: crate::types::id::TypeId) -> Result<(), ArtifactError> {
         let key = self.key()?;
         self.types.register_type_root(self.types.expected_lineage(), key, ty)?;
@@ -232,6 +270,17 @@ impl<'a> Roots<'a> {
     fn binding_consistency(&mut self, consistency: &crate::checker::binding::BindingConsistency) -> Result<(), ArtifactError> {
         if let crate::checker::binding::BindingConsistency::Blocked(reason) = consistency {
             self.block_reason(reason)?;
+        }
+        Ok(())
+    }
+    fn binding_state(&mut self, state: &crate::checker::analysis::BindingState) -> Result<(), ArtifactError> {
+        if let Some(contract) = &state.contract {
+            self.ty(contract.ty)?;
+        }
+        self.knowledge(&state.current)?;
+        self.binding_consistency(&state.consistency)?;
+        if let Some(denotation) = &state.denotation {
+            self.denotation(denotation)?;
         }
         Ok(())
     }
@@ -285,6 +334,24 @@ impl<'a> Roots<'a> {
     fn generic_conformance_key(&mut self, key: &crate::generic_evidence::GenericConformanceKey) -> Result<(), ArtifactError> {
         self.term(&key.subject)?;
         self.trait_ref(&key.trait_ref)
+    }
+    fn semantic_dependency(&mut self, dependency: &crate::checker::analysis::SemanticDependency) -> Result<(), ArtifactError> {
+        use crate::checker::analysis::SemanticDependency;
+        match dependency {
+            SemanticDependency::GenericConformance(key) => self.generic_conformance_key(key),
+            SemanticDependency::TraitDispatchBucket(bucket) => {
+                if let crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(variant) = &bucket.target_family {
+                    let variant_type = self
+                        .store
+                        .and_then(|store| store.variant_type_id(variant))
+                        .ok_or_else(|| ValidationError::ReferentialIntegrity("semantic dependency references an uninterned exact enum-case identity".into()))?;
+                    let key = self.key()?;
+                    self.types.register_variant_root(self.types.expected_lineage(), key, variant_type)?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
     fn generic_call_conformance_binding(&mut self, binding: &crate::checker::analysis::GenericCallConformanceBinding) -> Result<(), ArtifactError> {
         use crate::checker::analysis::GenericCallConformanceSource;
@@ -796,6 +863,12 @@ impl<'a> Roots<'a> {
             DiagnosticGuidance::UseCallableShape { .. } => Ok(()),
         }
     }
+    fn semantic_diagnostic(&mut self, diagnostic: &crate::diagnostic::SemanticDiagnostic) -> Result<(), ArtifactError> {
+        for guidance in &diagnostic.guidance {
+            self.diagnostic_guidance(guidance)?;
+        }
+        Ok(())
+    }
     fn positional_expansion(&mut self, expansion: &crate::checker::analysis::PositionalExpansionIterationResolution) -> Result<(), ArtifactError> {
         self.ty(expansion.source_type)?;
         self.ty(expansion.item_type)?;
@@ -878,6 +951,17 @@ impl<'a> Roots<'a> {
             if let crate::impls::AssociatedTypeBindingValue::Type(ty) = binding.value_template {
                 self.ty(ty)?;
             }
+        }
+        for diagnostic in &plan.diagnostics {
+            for guidance in &diagnostic.guidance {
+                self.diagnostic_guidance(guidance)?;
+            }
+        }
+        Ok(())
+    }
+    fn conformance_completeness(&mut self, completeness: &crate::impls::ConformanceCompleteness) -> Result<(), ArtifactError> {
+        if let crate::impls::ConformanceCompleteness::Blocked(reason) = completeness {
+            self.block_reason(reason)?;
         }
         Ok(())
     }
@@ -1168,6 +1252,12 @@ pub fn register_semantic_world_roots(
         }
         register_callable_signature_roots(types, sig)?;
     }
+    for (id, definition) in snapshot.callable_definitions.iter() {
+        if id != &definition.callable {
+            return Err(ArtifactError::LimitExceeded("callable definition table key disagrees with its owner".into()));
+        }
+        register_callable_definition_roots(types, definition)?;
+    }
     for (id, analysis) in snapshot.callable_analyses.iter() {
         if id != &analysis.callable {
             return Err(ArtifactError::LimitExceeded("callable analysis table key disagrees with its owner".into()));
@@ -1187,24 +1277,62 @@ pub fn register_semantic_world_roots(
             r.ty(ty)?;
         }
     }
-    for (decl_id, _surface) in snapshot.surfaces.iter() {
+    for (decl_id, surface) in snapshot.surfaces.iter() {
         let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration(decl_id)), Family::SurfaceAndDispatch);
         for (_, field_sig) in snapshot.field_signatures.iter_owner(decl_id) {
             r.fact(&field_sig.declared_type)?;
+        }
+        for side in [crate::identity::DispatchSide::Instance, crate::identity::DispatchSide::Class] {
+            let members = surface.surface(side);
+            for knowledge in members.callables.values().chain(members.fields.values()) {
+                r.knowledge(knowledge)?;
+            }
         }
     }
     for (id, surface) in snapshot.trait_surfaces.iter() {
         let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration(id)), Family::TraitAndConformance);
         r.generic(&surface.generic_signature)?;
-        if let Some(generics) = &surface.generic_signature {
-            for constraint in &generics.constraints {
-                if let GenericConstraint::Conforms { subject, trait_ref } = constraint {
-                    if matches!(subject, TypeTerm::SelfType(_)) {
-                        for &arg in &trait_ref.arguments {
-                            r.ty(arg)?;
-                        }
-                    }
+        for (_, member) in surface.iter() {
+            r.callable_signature(&member.signature)?;
+        }
+        for associated in surface.associated_types.values() {
+            match associated.domain {
+                crate::types::type_member::TypeMemberDomain::Kind(kind) => r.kind(kind)?,
+                crate::types::type_member::TypeMemberDomain::ValueType(ty) => r.ty(ty)?,
+            }
+        }
+        for diagnostic in &surface.diagnostics {
+            for guidance in &diagnostic.guidance {
+                match guidance {
+                    crate::diagnostic::DiagnosticGuidance::ChangeAnnotation { ty, .. }
+                    | crate::diagnostic::DiagnosticGuidance::SupplyAssignableValue { expected: ty }
+                    | crate::diagnostic::DiagnosticGuidance::EstablishTypeEvidence { expected: Some(ty), .. } => r.ty(*ty)?,
+                    crate::diagnostic::DiagnosticGuidance::ResolveGenericParameter { parameter } => r.parameter(*parameter)?,
+                    crate::diagnostic::DiagnosticGuidance::UseCallableShape { .. }
+                    | crate::diagnostic::DiagnosticGuidance::EstablishTypeEvidence { expected: None, .. } => {}
                 }
+            }
+        }
+    }
+    for (target, members) in snapshot.dispatch.conditional_members().iter() {
+        for domain in members.members.iter().map(|member| &member.domain) {
+            let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(&domain.impl_id)), Family::SurfaceAndDispatch);
+            r.ty(domain.head_type)?;
+            r.generic(&domain.generic_signature)?;
+            for constraint in &domain.constraints {
+                r.constraint(constraint)?;
+            }
+        }
+        for member in &members.members {
+            let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(&member.impl_id)), Family::SurfaceAndDispatch);
+            r.callable_signature(&member.signature_template)?;
+        }
+        match target {
+            crate::impls::InherentImplTarget::Declaration(declaration) => {
+                let _ = to_stable_declaration(declaration);
+            }
+            crate::impls::InherentImplTarget::ExactEnumCase(variant) => {
+                let _ = to_stable_variant(variant);
             }
         }
     }
@@ -1255,35 +1383,186 @@ pub fn register_semantic_world_roots(
             types.register_constructor_root(types.expected_lineage(), key, constructor)?;
         }
     }
+    for (domain, catalog) in snapshot.static_case_catalogs.iter() {
+        if domain != &catalog.domain {
+            return Err(ArtifactError::LimitExceeded("static-case catalog table key disagrees with its owner".into()));
+        }
+        let owner = match domain {
+            crate::identity::StaticDomainDeclarationId::Nominal(declaration) => declaration,
+            crate::identity::StaticDomainDeclarationId::Associated(declaration) => &declaration.owner,
+        };
+        if let crate::identity::StaticDomainDeclarationId::Nominal(declaration) = domain {
+            let domain_id = snapshot
+                .store
+                .static_domain_ids()
+                .find(|candidate| {
+                    matches!(snapshot.store.static_domain(*candidate), Some(crate::types::store::StaticDomainData::Nominal { declaration: found }) if found == declaration)
+                })
+                .ok_or_else(|| ValidationError::ReferentialIntegrity("static-case catalog has no interned nominal domain root".into()))?;
+            let key = CanonicalTypeRootKey {
+                family_tag: Family::TypeMemberAndDomain,
+                owner: StableOwnerRef::Declaration(to_stable_declaration(owner)),
+                product_subkey: associated_domain_ordinal,
+            };
+            associated_domain_ordinal = associated_domain_ordinal
+                .checked_add(1)
+                .ok_or_else(|| ArtifactError::LimitExceeded("root ordinal overflow".into()))?;
+            types.register_domain_root(types.expected_lineage(), key, domain_id)?;
+        }
+    }
+    for (case, signature) in snapshot.static_case_signatures.iter() {
+        if case != &signature.id {
+            return Err(ArtifactError::LimitExceeded("static-case signature table key disagrees with its owner".into()));
+        }
+        let owner = match &case.domain {
+            crate::identity::StaticDomainDeclarationId::Nominal(declaration) => declaration,
+            crate::identity::StaticDomainDeclarationId::Associated(declaration) => &declaration.owner,
+        };
+        for &kind in signature.parameter_kinds.iter() {
+            let key = CanonicalTypeRootKey {
+                family_tag: Family::TypeMemberAndDomain,
+                owner: StableOwnerRef::Declaration(to_stable_declaration(owner)),
+                product_subkey: associated_domain_ordinal,
+            };
+            associated_domain_ordinal = associated_domain_ordinal
+                .checked_add(1)
+                .ok_or_else(|| ArtifactError::LimitExceeded("root ordinal overflow".into()))?;
+            types.register_kind_root(types.expected_lineage(), key, kind)?;
+        }
+    }
     for (id, plan) in snapshot.conformance_witness_plans.iter() {
+        if id != &plan.impl_id {
+            return Err(ArtifactError::LimitExceeded("conformance witness table key disagrees with its owner".into()));
+        }
         let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(id)), Family::ConstructorContract);
+        r.store = Some(&snapshot.store);
         r.ty(plan.target_template)?;
         r.generic(&plan.generic_signature)?;
-        for &ty in &plan.trait_ref_template.arguments {
-            r.ty(ty)?;
+        r.trait_ref(&plan.trait_ref_template)?;
+        for requirement in plan.requirement_views.values() {
+            r.callable_signature(&requirement.signature)?;
         }
         for selection in plan.requirements.values() {
-            if let crate::impls::RequirementSelectionTemplate::DataComponent { specialized_type, .. } = selection {
-                r.ty(*specialized_type)?;
-            }
+            r.requirement_selection(selection)?;
         }
-        for template in plan.associated_type_plan.bindings.values() {
-            if let crate::impls::AssociatedTypeBindingValue::Type(ty) = template.value_template {
-                r.ty(ty)?;
+        r.associated_type_plan(&plan.associated_type_plan)?;
+        r.conformance_completeness(&plan.completeness)?;
+        for diagnostic in &plan.diagnostics {
+            for guidance in &diagnostic.guidance {
+                r.diagnostic_guidance(guidance)?;
             }
         }
     }
+    for rule in snapshot.derived_conformance_rules.iter() {
+        let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(&rule.impl_id)), Family::TraitAndConformance);
+        r.store = Some(&snapshot.store);
+        r.derived_conformance_rule(rule)?;
+    }
     for (_, product) in snapshot.static_definitions.iter() {
-        if let Some(body) = &product.checked_body {
+        if let Some(program) = &product.canonical_program {
+            let owner = StableOwnerRef::Declaration(to_stable_declaration(&program.owner.0));
+            let next_ordinal = super::operational::register_operational_template_roots(program, statics, types)?;
+            let mut roots = Roots::new_with_ordinal(types, owner, Family::StaticDefAndBinding, next_ordinal);
+            for application in program.applications.iter() {
+                roots.static_definition_signature(&application.signature)?;
+                for argument in application.arguments.iter() {
+                    if let crate::static_definition::CanonicalStaticApplicationArgument::KindedTerm { term, .. } = argument {
+                        roots.ty(*term)?;
+                    }
+                }
+            }
+            roots.static_definition_signature(&product.definition.signature)?;
+            for dependency in program.dependencies.iter() {
+                roots.semantic_dependency(dependency)?;
+            }
+            for diagnostic in product.diagnostics.iter() {
+                roots.semantic_diagnostic(diagnostic)?;
+            }
+        } else if let Some(body) = &product.checked_body {
             let owner = StableOwnerRef::Declaration(to_stable_declaration(&body.owner.0));
             let mut next_ordinal = 0;
-            if let crate::static_definition::StaticDefinitionBodyRepr::Operational(template) = &body.root {
-                next_ordinal = super::operational::register_operational_template_roots(template, statics, types)?;
+            if let crate::static_definition::StaticDefinitionBodyRepr::Operational(program) = &body.root {
+                next_ordinal = super::operational::register_operational_template_roots(program, statics, types)?;
             }
             let mut roots = Roots::new_with_ordinal(types, owner, Family::StaticDefAndBinding, next_ordinal);
+            roots.store = Some(&snapshot.store);
             for application in body.static_applications.iter() {
                 roots.checked_static_application(&body.owner, application)?;
             }
+            for diagnostic in product.diagnostics.iter() {
+                roots.semantic_diagnostic(diagnostic)?;
+            }
+        }
+    }
+    let mut static_constant_ordinals = BTreeMap::<_, u32>::new();
+    let mut static_constants = snapshot.static_constants.iter().collect::<Vec<_>>();
+    static_constants.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    for (id, product) in static_constants {
+        if id != &product.id {
+            return Err(ArtifactError::LimitExceeded(
+                "static constant table key disagrees with its product owner".into(),
+            ));
+        }
+        let crate::static_eval::StaticEvalOutcome::Reduced(value) = &product.outcome else {
+            return Err(ArtifactError::LimitExceeded("canonical static constants require Reduced outcomes".into()));
+        };
+        if product.value != Some(*value)
+            || product
+                .checked
+                .as_ref()
+                .is_some_and(|checked| crate::static_constant::StaticConstantAuthority::from_checked(checked) != product.authority)
+        {
+            return Err(ArtifactError::LimitExceeded(
+                "static constant persistent authority disagrees with its source product".into(),
+            ));
+        }
+        let stable_module = to_stable_module(&id.0.module);
+        let ordinal = static_constant_ordinals.entry(stable_module.clone()).or_default();
+        let base = *ordinal;
+        let after_values = base
+            .checked_add(3)
+            .ok_or_else(|| ArtifactError::LimitExceeded("static constant root ordinal overflow".into()))?;
+        let owner = StableOwnerRef::Module(stable_module);
+        let root_key = |product_subkey| CanonicalTypeRootKey {
+            family_tag: Family::StaticValue,
+            owner: owner.clone(),
+            product_subkey,
+        };
+        if let Some(ty) = product.authority.result_type {
+            types.register_type_root(types.expected_lineage(), root_key(base), ty)?;
+        }
+        statics.register_root(root_key(base + 1), *value)?;
+        if let Some(value) = product.lkg_value {
+            statics.register_root(root_key(base + 2), value)?;
+        }
+        *ordinal = ordinal
+            .checked_add(1)
+            .ok_or_else(|| ArtifactError::LimitExceeded("static constant root ordinal overflow".into()))?;
+        let mut roots = Roots::new_with_ordinal(types, owner.clone(), Family::StaticValue, after_values);
+        roots.store = Some(&snapshot.store);
+        for dependency in product.authority.dependencies.iter() {
+            roots.semantic_dependency(dependency)?;
+        }
+        for diagnostic in product.diagnostics.iter() {
+            roots.semantic_diagnostic(diagnostic)?;
+        }
+        *ordinal = roots.next_ordinal();
+    }
+    let mut module_bindings = snapshot.module_static_bindings.iter().collect::<Vec<_>>();
+    module_bindings.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    for (module, index) in module_bindings {
+        if module != index.module() {
+            return Err(ArtifactError::LimitExceeded("module static-binding index key disagrees with its owner".into()));
+        }
+        let mut roots = Roots::new(types, StableOwnerRef::Module(to_stable_module(module)), Family::StaticDefAndBinding);
+        roots.store = Some(&snapshot.store);
+        for (_, fact) in index.iter() {
+            if fact.state.binding != fact.source_binding || fact.source_body.module() != &fact.symbol.module {
+                return Err(ArtifactError::LimitExceeded(
+                    "module static-binding fact has an inconsistent binding or symbol owner".into(),
+                ));
+            }
+            roots.binding_state(&fact.state)?;
         }
     }
     Ok(())
@@ -1995,11 +2274,11 @@ mod tests {
                 vec![exact_trait_argument].into_boxed_slice(),
             ),
             impl_environment: TypeEnvironment::new(),
-            requirement_views: BTreeMap::new(),
-            requirements: BTreeMap::new(),
-            associated_types: BTreeMap::new(),
+            requirement_views: Default::default(),
+            requirements: Default::default(),
+            associated_types: Default::default(),
             trait_header_contract: Box::new([]),
-            trait_header_conformance_proofs: Some(BTreeMap::new()),
+            trait_header_conformance_proofs: Some(Default::default()),
             fingerprint: crate::db::ProductFingerprint::default(),
         });
         let assumed = crate::generic_evidence::GenericConformanceEvidence::Assumed(AssumedConformanceEvidence {

@@ -103,10 +103,14 @@ query eligibility authority and contains only closed, immutable, relocatable
 products. METADATA transports the existing canonical RuntimePublic bundle;
 loading does not invoke its exporter.
 
-### Semantic-world payload schema 2
+### Semantic-world payload schema 3
 
 `SEMANTIC_WORLD` starts with a u32 payload schema. Schema 2 carries the complete
-compiler-required callable-analysis owner graph. Every body-local expression,
+compiler-required callable-analysis owner graph. Schema 3 preserves that graph
+and adds exact accepted callable-definition owners, including their complete
+semantic signatures, origin, source member ordinal, body provenance, and
+inherent body context. Schema-3 readers reject schema 2 semantic-world
+payloads; the outer container remains schema 2. Every body-local expression,
 binding, explanation, flow node/edge, diagnostic cause, and related handle uses
 a deterministic artifact-local ordinal qualified by its stable callable owner.
 Loaders validate owner/reference closure and relocate every handle into fresh
@@ -136,8 +140,9 @@ binding handles in different callables remain distinct while copies of one
 module symbol agree. Missing origins, mismatched import slots, and conflicting
 qualified identities fail closed.
 
-Readers reject semantic-world schema 1, whose callable-analysis rows do not
-contain this complete owner graph.
+Readers reject semantic-world schemas 1 and 2. Schema 1 lacks the complete
+callable-analysis owner graph; schema 2 lacks accepted callable-definition
+authority required by source-independent lowering.
 
 Optional presentation/source provenance is a separate tooling capability.
 Source-built images may retain it without requiring it for formal authority.

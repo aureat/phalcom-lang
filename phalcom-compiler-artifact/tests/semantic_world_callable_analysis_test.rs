@@ -1,6 +1,5 @@
 use phalcom_compiler_artifact::module_world::SpanV1;
-use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
-use phalcom_compiler_artifact::semantic::operational::CheckedStaticDefinitionsV1;
+use phalcom_compiler_artifact::semantic::aggregates::{StructuralPrimaryContractsV1, VisibilityV1};
 use phalcom_compiler_artifact::semantic::static_value::StaticValueGraphV1;
 use phalcom_compiler_artifact::semantic::type_store::TypeGraphV1;
 use phalcom_compiler_artifact::semantic::world::{
@@ -8,7 +7,8 @@ use phalcom_compiler_artifact::semantic::world::{
     CallableBindingRowV1, CallableCallSpecializationV1, CallableCausalInvalidityV1, CallableConformanceEvidenceNodeV1, CallableExactConformanceEvidenceV1,
     CallableExpressionRowV1, CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1, CallableFlowNodeV1,
     CallableGenericCallConformanceBindingV1, CallableGenericCallConformanceSourceV1, CallableGenericConformanceProofRefV1, CallableInitializationStateV1,
-    CallableTypeEnvironmentV1, ConstructorSuperInitializerV1, GenericConformanceKeyV1, SemanticWorldV2, TypeKnowledgeV1,
+    CallableTypeEnvironmentV1, ConstructorSuperInitializerV1, EvidenceOriginV1, EvidenceSetV1, EvidenceStatusV1, GenericConformanceKeyV1, SemanticWorldV3,
+    TypeKnowledgeV1,
 };
 use phalcom_type_meta::identity::{
     StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableImplRef, StableModuleRef, StableProjectRef,
@@ -162,8 +162,8 @@ fn body_local_binding_row(ordinal: u32) -> CallableBindingRowV1 {
     }
 }
 
-fn world(status: CallableAnalysisStatusV1) -> SemanticWorldV2 {
-    SemanticWorldV2 {
+fn world(status: CallableAnalysisStatusV1) -> SemanticWorldV3 {
+    SemanticWorldV3 {
         type_graph: TypeGraphV1 {
             types: vec![],
             kinds: vec![],
@@ -198,9 +198,13 @@ fn world(status: CallableAnalysisStatusV1) -> SemanticWorldV2 {
             pack_backings: vec![],
             packs: vec![],
         },
-        checked_definitions: CheckedStaticDefinitionsV1 { definitions: vec![] },
+        static_definitions: vec![],
+        static_constants: vec![],
+        module_static_bindings: vec![],
         witness_plans: vec![],
+        derived_conformance_rules: vec![],
         callable_signatures: vec![],
+        callable_definitions: vec![],
         callable_analyses: vec![CallableAnalysisRecordV1 {
             callable: callable(),
             body_source_owner: None,
@@ -250,10 +254,13 @@ fn world(status: CallableAnalysisStatusV1) -> SemanticWorldV2 {
         }],
         trait_surfaces: vec![],
         dispatch_surfaces: vec![],
+        conditional_inherent_sets: vec![],
         conformance_heads: vec![],
         constructor_initializations: vec![],
         type_member_declarations: vec![],
         associated_static_domains: vec![],
+        static_case_catalogs: vec![],
+        static_case_signatures: vec![],
         associated_surfaces: vec![],
         enum_requirements: vec![],
     }
@@ -269,7 +276,7 @@ fn callable_analysis_status_is_preserved_by_semantic_world_codec() {
         CallableAnalysisStatusV1::BudgetExceeded,
     ] {
         let encoded = world(status.clone()).encode().expect("valid semantic world encodes");
-        let decoded = SemanticWorldV2::decode(&encoded, &Default::default()).expect("semantic world decodes");
+        let decoded = SemanticWorldV3::decode(&encoded, &Default::default()).expect("semantic world decodes");
         assert_eq!(decoded.callable_analyses[0].status, status);
         assert_eq!(decoded.callable_analyses[0].callable, callable());
         assert!(decoded.callable_analyses[0].exits_unreachable);
@@ -311,7 +318,7 @@ fn callable_flow_graph_round_trips_owner_local_nodes_edges_and_entry_exit() {
     let expected = source.callable_analyses[0].flow_graph.clone();
 
     let encoded = source.encode().expect("well-formed owner-local graph encodes");
-    let decoded = SemanticWorldV2::decode(&encoded, &Default::default()).expect("owner-local graph decodes");
+    let decoded = SemanticWorldV3::decode(&encoded, &Default::default()).expect("owner-local graph decodes");
     assert_eq!(decoded.callable_analyses[0].flow_graph, expected);
 
     let mut malformed = source.clone();
@@ -512,7 +519,7 @@ fn explicit_dynamic_call_argument_round_trips_without_a_type_node() {
     }];
 
     let encoded = image.encode().expect("explicit Dynamic is a valid call argument");
-    let decoded = SemanticWorldV2::decode(&encoded, &Default::default()).expect("call argument decodes");
+    let decoded = SemanticWorldV3::decode(&encoded, &Default::default()).expect("call argument decodes");
     assert_eq!(decoded.type_graph.types.len(), 0, "Dynamic has no proper type node");
     assert!(matches!(
         decoded.callable_analyses[0].expressions[0]
@@ -899,12 +906,12 @@ fn associated_family_capture_round_trips_subset_and_optional_targets() {
     }];
 
     let encoded = image.encode().expect("valid checker-captured subset should encode");
-    let decoded = SemanticWorldV2::decode(&encoded, &Default::default()).expect("captured subset should validate and decode");
+    let decoded = SemanticWorldV3::decode(&encoded, &Default::default()).expect("captured subset should validate and decode");
     assert_eq!(decoded.callable_analyses[0].expressions[0].denotation.as_ref(), Some(&source_denotation));
 }
 
 #[test]
-fn behavioral_family_capture_round_trips_conditional_and_unconditional_targets() {
+fn behavioral_family_capture_requires_conditional_member_authority() {
     use phalcom_compiler_artifact::semantic::aggregates::TraitRefV1;
     use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeMemberSelectorV1, TypeV1};
     use phalcom_compiler_artifact::semantic::world::{
@@ -939,9 +946,84 @@ fn behavioral_family_capture_round_trips_conditional_and_unconditional_targets()
     }];
     image.dispatch_surfaces = vec![DeclarationSurfaceRecordV1 {
         declaration: owner.clone(),
-        instance_callables: vec![callable.clone()],
+        instance_callables: vec![phalcom_compiler_artifact::semantic::world::DispatchCallableFactV1 {
+            callable: callable.clone(),
+            knowledge: TypeKnowledgeV1::Known {
+                ty: ArtifactTypeId(0),
+                status: EvidenceStatusV1::Established,
+                origin: EvidenceOriginV1::CallableSignature,
+                provenance: EvidenceSetV1 {
+                    ranges: vec![],
+                    descriptions: vec![],
+                },
+            },
+            visibility: VisibilityV1::Public,
+        }],
         class_callables: vec![],
-        fields: vec![],
+        fields: vec![
+            phalcom_compiler_artifact::semantic::world::FieldSignatureV1 {
+                owner: owner.clone(),
+                name: "field".into(),
+                declared_type: Some(phalcom_compiler_artifact::semantic::aggregates::DeclaredTypeFactV1 {
+                    state: phalcom_compiler_artifact::semantic::aggregates::DeclaredTypeStateV1::Unknown {
+                        reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+                    },
+                    basis: phalcom_compiler_artifact::semantic::aggregates::DeclaredTypeBasisV1::Unspecified,
+                }),
+                knowledge: TypeKnowledgeV1::Known {
+                    ty: ArtifactTypeId(0),
+                    status: EvidenceStatusV1::Established,
+                    origin: EvidenceOriginV1::DeclarationSemantics,
+                    provenance: EvidenceSetV1 {
+                        ranges: vec![],
+                        descriptions: vec![],
+                    },
+                },
+                mutable: Some(true),
+                side: 0,
+                visibility: VisibilityV1::Protected,
+                source: Some(SpanV1 { start: 8, end: 13 }),
+            },
+            phalcom_compiler_artifact::semantic::world::FieldSignatureV1 {
+                owner: owner.clone(),
+                name: "native".into(),
+                declared_type: None,
+                knowledge: TypeKnowledgeV1::Unknown {
+                    reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+                },
+                mutable: None,
+                side: 0,
+                visibility: VisibilityV1::Public,
+                source: None,
+            },
+        ],
+    }];
+    image.callable_signatures = vec![phalcom_compiler_artifact::semantic::world::CallableSignatureRecordV1 {
+        callable: callable.clone(),
+        owner: owner.clone(),
+        side: 0,
+        selector: callable.selector.clone(),
+        generics: None,
+        parameters: vec![],
+        declared_return: phalcom_compiler_artifact::semantic::aggregates::DeclaredTypeFactV1 {
+            state: phalcom_compiler_artifact::semantic::aggregates::DeclaredTypeStateV1::Unknown {
+                reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+            },
+            basis: phalcom_compiler_artifact::semantic::aggregates::DeclaredTypeBasisV1::Unspecified,
+        },
+        return_validation: phalcom_compiler_artifact::semantic::world::ReturnContractValidationV1::NotApplicable,
+        inferred_return: None,
+        source: None,
+        implementation: phalcom_compiler_artifact::semantic::world::ImplementationKindV1::Phalcom,
+        native_id: None,
+        effects: phalcom_compiler_artifact::semantic::world::EffectSpecV1::Unknown,
+        raises: phalcom_compiler_artifact::semantic::world::RaisesSpecV1::Unknown,
+        flow: phalcom_compiler_artifact::semantic::world::ReturnFlowV1::Value,
+        lifecycle: phalcom_compiler_artifact::semantic::world::NativeLifecycleSpecV1 {
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+        },
     }];
     image.conformance_heads = vec![ConformanceHeadRecordV1 {
         impl_id: impl_id.clone(),
@@ -955,6 +1037,26 @@ fn behavioral_family_capture_round_trips_conditional_and_unconditional_targets()
         generic_signature: None,
         authorized: true,
         eligible: true,
+    }];
+    image.conditional_inherent_sets = vec![phalcom_compiler_artifact::semantic::world::ConditionalInherentSetV1 {
+        target: phalcom_compiler_artifact::semantic::world::InherentImplTargetV1::Declaration { declaration: owner.clone() },
+        domains: vec![phalcom_compiler_artifact::semantic::world::InherentImplDomainV1 {
+            impl_id: impl_id.clone(),
+            target: phalcom_compiler_artifact::semantic::world::InherentImplTargetV1::Declaration { declaration: owner.clone() },
+            head_type: ArtifactTypeId(0),
+            generic_signature: None,
+            constraints: vec![],
+        }],
+        members: vec![phalcom_compiler_artifact::semantic::world::ConditionalInherentMemberV1 {
+            impl_id: impl_id.clone(),
+            member_order: 0,
+            is_conditionally_applicable: true,
+            callable: callable.clone(),
+            signature: image.callable_signatures[0].clone(),
+            visibility: VisibilityV1::Public,
+            source_member_index: 0,
+            is_requirement: false,
+        }],
     }];
     let denotation = SemanticDenotationV1::BehavioralFamily {
         family: BehavioralFamilyDenotationV1 {
@@ -997,7 +1099,12 @@ fn behavioral_family_capture_round_trips_conditional_and_unconditional_targets()
         call_specialization: None,
     }];
 
-    let encoded = image.encode().expect("valid captured behavioral targets should encode");
-    let decoded = SemanticWorldV2::decode(&encoded, &Default::default()).expect("behavioral capture should validate and decode");
-    assert_eq!(decoded.callable_analyses[0].expressions[0].denotation.as_ref(), Some(&denotation));
+    image
+        .validate(&Default::default())
+        .expect("serialized conditional member should authorize the captured selection");
+    image.encode().expect("valid captured behavioral targets should encode");
+
+    let mut missing_member_authority = image;
+    missing_member_authority.conditional_inherent_sets.clear();
+    assert!(missing_member_authority.validate(&Default::default()).is_err());
 }

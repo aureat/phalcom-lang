@@ -151,6 +151,22 @@ pub struct ModuleStaticBindingIndex {
 }
 
 impl ModuleStaticBindingIndex {
+    /// Reconstructs a final index from already validated artifact owner rows.
+    pub(crate) fn from_artifact_parts(
+        module: ModuleId,
+        bindings: BTreeMap<SymbolId, ModuleBindingFact>,
+        visible_names: BTreeMap<Box<str>, SymbolId>,
+    ) -> Result<Self, &'static str> {
+        if bindings.iter().any(|(symbol, fact)| symbol != &fact.symbol) || visible_names.values().any(|symbol| !bindings.contains_key(symbol)) {
+            return Err("module binding artifact parts contain a mismatched owner or dangling visible name");
+        }
+        Ok(Self {
+            module,
+            bindings,
+            visible_names,
+        })
+    }
+
     /// Builds the stable module handoff from the final ordinary `<main>`
     /// checker result and the source declarations that established phase.
     ///
@@ -208,9 +224,13 @@ impl ModuleStaticBindingIndex {
 
     /// Returns visible source names and their stable binding identities.
     pub fn visible_bindings(&self) -> impl Iterator<Item = (&str, &ModuleBindingFact)> {
-        self.visible_names
-            .iter()
-            .filter_map(|(name, symbol)| self.bindings.get(symbol).map(|fact| (name.as_ref(), fact)))
+        self.visible_symbol_bindings()
+            .filter_map(|(name, symbol)| self.bindings.get(symbol).map(|fact| (name, fact)))
+    }
+
+    /// Returns the exact local-name to canonical-symbol mapping.
+    pub fn visible_symbol_bindings(&self) -> impl Iterator<Item = (&str, &SymbolId)> {
+        self.visible_names.iter().map(|(name, symbol)| (name.as_ref(), symbol))
     }
 
     /// Adds a linked imported binding under its local source name.

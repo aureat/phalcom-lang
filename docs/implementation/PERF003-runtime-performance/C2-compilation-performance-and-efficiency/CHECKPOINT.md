@@ -6,9 +6,18 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
 latest_completed_plan_verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P7.PATCH1
+active_plan: PERF003.C2.P7.PATCH2
 latest_completed_plan: PERF003.C2.P6
-next_plan: PERF003.C2.P7
+next_plan: PERF003.C2.P7.PATCH2
+next_action: >
+  Obtain the architect decision for INC-PATCH2-T7-T12-STATIC-EVAL before editing
+  the source-free static evaluator path. Then resume G4/G6 source-denial and
+  evaluator parity work, alongside independent remaining G1-G8 owner-parity and
+  malformed-wire gates. T7-T10 owner transport and T11-T13 assembly/root work
+  are implemented, but no gate is promoted from compilation alone. Keep the
+  semantic importer partial until PATCH6 promotion, and preserve PATCH1
+  callable/Exact/Derived plus PATCH3 allocation guards until their named
+  acceptance gates pass.
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
 execution_tree_head: dbde1d8c
 latest_tested_revision: dbde1d8c
@@ -514,32 +523,23 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
 latest_completed_plan_verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P7.PATCH1
+active_plan: PERF003.C2.P7.PATCH2
 latest_completed_plan: PERF003.C2.P6
-next_plan: PERF003.C2.P7.PATCH1
+next_plan: PERF003.C2.P7.PATCH2
 next_action: >
-  PATCH1 T0 and T1 are complete: the PATCH0 fingerprint prerequisite is
-  satisfied; focused callable-analysis, frozen owner, semantic library, and core
-  library evidence is recorded below. T2 establishes the owner-local ordinal
-  validation context; T3 has dense expression/binding rows and the discovered
-  call-conformance root path, but the complete owner graph and rich validation
-  remain incomplete. The T4/T5 query-owner hold is resolved by
-  PATCH1-ADR-QUERY-OWNER and plan §12.4. QO-0's 45-variant source census is
-  complete and recorded in plan §12.4. QO-1's closed owner DTO/adapters and
-  QO-3's callable blocked-owner root closure are implemented with focused
-  regressions. T4 binding rows and the initial T5 expression status/basic-fact
-  slice now retain the admitted owner identities, but T4/T5 remain partial.
-  T5 is stopped at the generic-conformance evidence representation decision
-  recorded above; resolve that boundary before encoding Exact, Forwarded,
-  Derived, or CompilerDerived sources. Then complete remaining expression and
-  binding owner graphs, enforce whole-record QO-2 preflight, and continue QO-4
-  through QO-9;
-  retain typed fail-closed behavior and keep all callable/global guards until
-  their named gates pass. Keep
-  checked StaticApplication
-  rows owned by CheckedStaticBody; PATCH1 leaves their denotation fail-closed.
-  Preserve the budgeted enum-requirement wrapper. Keep P7 IN_PROGRESS / PARTIAL /
-  UNVERIFIED and P8 blocked until all P7 rows and acceptance gates pass.
+  PATCH2 is active after PATCH1's callable-analysis implementation slices. The
+  user's PATCH2 version ruling is semantic-world schema 3, with the outer
+  container remaining schema 2; schema-2 semantic-world payloads are rejected.
+  PATCH2 T0-T10 transport work is recorded below. T11 now assembles exact
+  owner families into a partial imported snapshot; PATCH6 retains final
+  source-free promotion. T12 owner-driven core projection is in place, and T13
+  root closure has been extended. Complete the remaining parity and malformed
+  wire gates before considering T14. Preserve PATCH1 allocation, Exact/Derived,
+  callable-analysis and witness guards plus PATCH3 global allocation guards.
+  Keep checked StaticApplication rows owned by CheckedStaticBody and preserve
+  the budgeted enum-requirement wrapper.
+  Keep P7 IN_PROGRESS / PARTIAL / UNVERIFIED and P8 blocked until all P7 rows
+  and acceptance gates pass.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -1692,8 +1692,324 @@ verification is FOCUSED_TESTED.
   guessed tree-node debits and requires keeping global allocation guards.
   Consultation packet:
   `P7-R1/PERF003.C2.P7.PATCH1-T5-allocation-representation-incident.md`.
-  Stop T5 Exact/Derived materialization until the architect chooses whether
-  shared conformance products gain source/frozen budgeted map wrappers or that
-  migration is split into a separately numbered prerequisite. No callable
-  guard was removed. P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED; P8 remains
+  The initial stop was resolved by the architecture decision below; no
+  callable guard was removed. P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED;
+  P8 remains blocked.
+
+- PATCH1/T5.GE-A frozen conformance-evidence storage decision (2026-10-16;
+  Level 2): approved source/frozen budgeted map wrappers inside PATCH1; do not
+  split into another P7 prerequisite. Add ALLOC-GE-01: every associative
+  container transitively allocated while importing callable-local Exact or
+  Derived evidence must use immutable charged storage. Migrate only
+  `ConformanceEvidence.requirement_views`, `requirements`, `associated_types`,
+  and optional `trait_header_conformance_proofs`;
+  `ConformanceAssociatedTypePlan.bindings`; `DerivedConformanceRule`'s
+  `requirement_views` and `requirements`; and `TypeSubstitution.bindings`,
+  because Derived evidence owns a substitution currently backed by
+  `HashMap`. Preserve `None` versus `Some(empty)`. Reuse the existing
+  `AnalysisMap`/`BudgetedSortedMap` source/frozen model; source and frozen
+  contents compare equal, read in canonical order, share fingerprints, and
+  frozen mutation is rejected. Imported construction uses charged sorted
+  buffers directly, without temporary native maps, guessed node sizes, thawing,
+  or semantic queries. Existing `TypeEnvironment` and
+  `InherentImplSpecialization.bindings` representations remain unchanged.
+  `ConformanceWitnessPlan`, `DerivedConformanceRuleIndex`, global indexes,
+  caches, and unrelated maps remain out of scope. Add GE-ALLOC-01..17 for the
+  associative census, parity, immutability, no-shadow-map construction,
+  exact-budget/N−1/rollback, nested evidence, and fingerprint gates. Exact and
+  Derived import remains fail-closed until GE-ALLOC passes; callable guards
+  still require full owner parity, and PATCH3 retains the global semantic
+  allocation guards.
+
+- PATCH1/T5.GE-A representation slice (2026-10-16): migrated the approved
+  `ConformanceEvidence`, `ConformanceAssociatedTypePlan`,
+  `DerivedConformanceRule`, and `TypeSubstitution` associative fields to
+  `AnalysisMap`. Semantic readers now consume ordered wrapper APIs; source
+  construction remains mutable. Added frozen-parts constructors and changed
+  the witness-plan importer to charge an exact sorted associated-binding
+  buffer directly, without constructing a `BTreeMap`. Added tests for map and
+  product equality/fingerprint parity, `None` versus `Some(empty)`, frozen
+  mutation rejection, malformed ordering rejection, exact-budget success, N−1
+  allocation failure, and failed child-ledger rollback. `cargo check -p phalcom-semantic` and
+  `cargo check -p phalcom-core` passed; focused semantic representation tests
+  passed 21/21, the derived-rule fingerprint test passed 1/1, and the focused
+  core prerequisite-projection test passed 1/1. This is partial GE-ALLOC
+  evidence only: the full transitive allocation census, nested proof/substitution
+  import accounting, fresh-store FP-GE-01 parity, and final Exact/Derived
+  reconstruction gates remain open. Exact/Derived import and callable guards
+  remain fail-closed; P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED and P8 is
   blocked.
+
+## PATCH2 takeover and T0 owner census — 2026-10-16
+
+PATCH2 is active at `f7fabde89223c24317d04511020b874047ea2aef` on
+`perf/universe-characterization`; it equals the configured upstream. The
+worktree starts dirty with the documented PATCH1 T5.GE-A source/frozen-map
+representation slice. PATCH1 remains partial: its schema-2 callable evidence
+graph and earlier owner-qualified ordinal/`BindingState` contracts are present,
+but GE-ALLOC and full callable-owner import/parity are incomplete. Exact and
+Derived evidence import, callable-analysis reconstruction, and global semantic
+allocation guards remain fail-closed. PATCH0 is complete and focused-tested at
+`8284893769d121dc2fe33ed0c866a402ff48bd35`. No PATCH1 walkthrough/handoff file
+is present in this tree; the checkpoint and active PATCH1 plan contain its
+current takeover state and approved decisions.
+
+T0's current owner/transport census is:
+
+| PATCH2 family | Native owner and primary fields | Current wire/export/root/import/snapshot state | Consumer, fingerprint, and current gap |
+|---|---|---|---|
+| Accepted callable definitions | `EffectiveCallableDefinition`: callable, origin, member ordinal, full signature, optional inherent body context | No definition row is exported or rooted. Import fabricates `PrimaryDeclaration` from every callable signature and inserts it into the snapshot; module index is derived from signatures. | Query product hashes signature/origin/member/context but not body provenance. Core lowering reopens impl AST to authorize and recover delegation. No exact definition parity test. |
+| Trait headers and surfaces | Header generic signature/source; members carry requirement, callable, semantic signature, visibility, source, default flag/source; associated requirements carry identity/name/domain/source | `TraitSurfaceRecordV1` carries generic signature, derived supertrait list, callable-ID lists, and associated names. Roots cover existing generic/type fields. Import invents associated `KindId(0)`, `Public`, default spans, and no default source. | Core scans trait AST for member ordinal/default bodies. Surface/member signatures, visibility, domains, source ordinal, and default provenance are lossy. |
+| Declaration dispatch surfaces | `DeclarationSurface`/`MemberSurface`: callable `TypeKnowledge`, dispatch signatures, visibility, field knowledge/IDs/visibility | `DeclarationSurfaceRecordV1` carries callable IDs and a reduced field-signature list; roots cover the encoded field types. Import assigns callable knowledge with `TypeId(0)` and assumed flow evidence. | Resolver consumes final surfaces. Conditional inherent sets/domains are absent from wire, so imported conditional lookup authority is lost. |
+| Conditional inherent dispatch | `SurfaceDispatchResolver`: surfaces, conditional members/targets, declarations, inherent domains; member includes impl/domain/applicability/callable/signature/visibility/source ordinal/requirement flag | No owner rows, exporter coverage guard rejects nonempty omitted families, importer rebuilds only from reduced declaration surfaces. | Dispatch queries need these checked facts; no source-independent parity test. |
+| Witness and associated-type plans | `ConformanceWitnessPlan` plus full requirement views/selections/completeness/diagnostics and `ConformanceAssociatedTypePlan` bindings/failures/diagnostics/fingerprint | `WitnessPlanV1` is reduced to requirement/associated rows, copied fingerprint/layout, and a collapsed completeness tag; requirement variants and diagnostics/failures are incomplete. Import initializes associated plan empty then mutates bindings, leaving its fingerprint stale. Roots cover current exported fields only. | Conformance queries consume complete proof state. No field-complete import/fingerprint parity. |
+| Derived conformance and trait dispatch | `DerivedConformanceRule` is primary; `DerivedConformanceRuleIndex` and `TraitDispatchIndex` are indexes | No derived-rule wire rows; import installs empty derived and trait-dispatch indexes. No serialized trait-dispatch authority exists. | `TraitDispatchIndex::build(conformance_index, trait_surfaces)` is the prescribed O(N) derivation but has no imported-source parity gate yet. |
+| Static case catalogs/signatures | `StaticDomainCaseCatalogProduct`, `StaticCaseSignatureProduct` | No wire, export, root, or import rows; snapshot fields are empty and export is guarded. | Static-domain/case consumers lack canonical loaded products; no parity tests. |
+| Static definitions/programs/applications | `StaticDefinitionProduct` with body; checked applications are owned by `CheckedStaticBody` as `(StaticBodyId, ordinal)` | Checked-definition wire currently accepts operational templates only; source checked applications have no operational row reference/signature. Export skips source-form bodies; import returns detached templates and leaves snapshot definitions empty. Existing roots cover operational program references and checked-body rows, not a transported application-owner graph. | Evaluator/core needs checked application authority. `from_checked_body` has first-application and `KindedExpression` gaps. No source/import evaluator or product-fingerprint parity. |
+| Static constants | `StaticConstantProduct`: checked initializer/query summary, outcome/residuals/value/LKG/diagnostics | No canonical constant rows or import; loaded snapshot table is empty. | Lowering projects successful values; query reuse needs fingerprint/dependencies. Loading must restore reduced authority without re-evaluating initializer AST. |
+| Module static bindings | `ModuleStaticBindingIndex`: symbol, source body/binding, phase/state/ranges, visible-name aliases | No wire/export/root/import; loaded snapshot table is empty. Source `from_module_analysis` reconstructs by scanning source and name/range matching. | Binding ID must use PATCH1 callable-local ordinal. No imported final-index parity or alias test. |
+| Source-independent core lowering | Accepted definition and trait-surface products | Exact current semantic-authority source reads are the inherent delegation check/target recovery at `semantic_lowering.rs:1335,1361` and trait AST scan at `1431`; source-id lookup at `1126` is an incidental module-source identity fallback. | Remove the first two for canonical owners. Retain source access for the user module's source identity/body attachment only. No source-denied canonical-owner gate yet. |
+
+This census is grounded in the live owner/codec paths in `impls.rs`,
+`traits.rs`, `surface.rs`, `derived_conformance.rs`, the static owner modules,
+`artifact/{roots,export,import}.rs`, `compiler-artifact/semantic/world.rs`,
+`db/query.rs`, and `core/modules/semantic_lowering.rs`, and in PATCH2 §2.2.
+The prior known integration compile blocker is the stale `local_len()` call at
+`phalcom-semantic/tests/semantic/integration/canonical_image.rs:203`; the
+callable artifact baseline also records four unaccounted-allocation failures
+and one conditional-dispatch owner-validation failure. No new T0 Cargo test was
+run because no existing test exercises the false definition import or the
+source-AST authority reads; T1 adds discriminators for those gaps. T0 made no
+production changes. PATCH2 T1 is next.
+
+## PATCH2 schema-3 decision and T1 progress — 2026-10-16
+
+The user resolved PATCH2's versioning stop: keep the outer Telosc container at
+schema 2, advance the semantic-world section and payload to schema 3, and reject
+schema-2 semantic-world payloads. This supersedes PATCH1's earlier schema-2
+implementation assumption for PATCH2 because the new accepted callable owner
+family is required primary authority. The Telosc specification and active PATCH2
+plan now state this boundary.
+
+PATCH2 T1 implementation has begun. Native accepted callable definitions now
+retain explicit source/generated body provenance. Schema 3 carries their
+complete signature, origin, source-member ordinal, body provenance, and optional
+inherent context; export roots cover the owner fields; import no longer fabricates
+definitions from signature rows and derives the per-module index from imported
+definitions. Core delegation lowering reads the retained target field and
+provenance instead of reopening canonical impl AST. Focused evidence so far:
+
+- generated delegation source publication without a callable analysis: 1/1;
+- callable-definition query input/product fingerprint sensitivity to origin,
+  member ordinal, inherent context, and generated target: 1/1;
+- callable-definition schema validation/encoding and duplicate rejection: 2/2;
+- semantic-world schema-2 section rejection: 1/1;
+- complete container test target: 13/13;
+- container allocation target after the schema-3 fixture update: 1/1;
+- targeted rustfmt check and `git diff --check`: pass.
+
+A direct semantic-world decode probe encoded the new definition row but stopped
+at the existing `Allocation(UnaccountedBoundary)` import boundary. This is not
+evidence of import parity; PATCH3 owns the global allocation gate and the
+fail-closed import boundary remains. The broader callable-analysis integration
+target also remains blocked by inherited PATCH1 test API compile errors, and the
+core delegation runtime regression remains blocked during Universe bootstrap
+before the tested function by missing canonical `ProductKind` facade binding.
+T1's complete Primary/Inherent/ConformanceWitness owner parity, source-denied
+lowering, and imported module-index gates remain open. PATCH2 continues at T1;
+P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED and P8 remains blocked.
+
+## PATCH2 T2 diagnostic ruling and T3 implementation progress — 2026-10-16
+
+The user resolved PATCH2 T2 diagnostic transport: **preserve full
+`TraitSurface` diagnostics**. Schema-3 trait rows carry severity, stable code,
+message, primary/secondary source locations, notes, helps, guidance, fixes,
+callable-qualified explanation references, and root-cause identity. Explanation
+references are translated through the referenced callable's canonical local
+explanation ordinals. Trait diagnostic causes receive dense first-occurrence
+ordinals over trait owners sorted by stable declaration identity; import uses
+the same portable IDs, preserving cause sharing within that owner family. The
+wire validator rejects non-dense trait cause ordinals. No diagnostic fields are
+dropped or replaced with defaults.
+
+T2 implementation evidence includes the source property-accessor ordinal test
+(1/1, from the preceding focused slice) and
+`trait_surface_preserves_complete_member_and_source_ordinal` (1/1), which checks
+full diagnostic cause/explanation fields through validation and encoding. A
+direct semantic-world decode attempt stopped at the existing
+`Allocation(UnaccountedBoundary)` guard; it is recorded as blocked evidence,
+not a decode pass. The guard remains owned by PATCH3.
+
+T3 now carries dispatch callable knowledge/visibility, field surface
+knowledge/visibility and optional source declaration metadata, plus conditional
+inherent targets, domains, ordered member rows, full signatures, visibility,
+and source ordinals. Source fields without a `FieldSemanticSignature` remain
+surface facts without fabricated declared type or mutability. Import rebuilds
+the `DeclarationSurface`, its type-form registration from the matching imported
+declaration shell, and conditional member/domain indexes. Conditional dispatch
+capture validation now requires a matching transported member row. Focused
+evidence:
+
+- `cargo check -p phalcom-semantic --lib` — passed (existing fail-closed-path
+  dead-code warnings remain);
+- `behavioral_family_capture_requires_conditional_member_authority` — 1/1;
+- `trait_surface_preserves_complete_member_and_source_ordinal` — 1/1.
+
+T3 source-vs-import differential checks and runtime dispatch parity remain
+unverified because semantic import still fails closed at the existing global
+allocation accounting boundary. No source-denied check was run. T3 is active;
+continue with differential coverage after the PATCH3 gate can safely admit
+materialization. PATCH2 remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED, P7
+remains IN_PROGRESS / PARTIAL / UNVERIFIED, and P8 remains blocked.
+
+## PATCH2 T4/T5 implementation continuation — 2026-10-16
+
+T4's schema-3 witness transport now carries complete requirement views and
+selection variants, associated-type bindings/failures/diagnostics, all
+conformance-completeness payloads, invalid-explicit-member state, and
+owner-local nested evidence rows. Import uses final-part constructors and
+recomputes witness and associated-plan fingerprints. The wire validator checks
+stable trait/impl ownership, canonical order, selection owners, associated
+rows, fallback depth, and nested evidence references/cycles. Exact/Derived
+evidence reconstruction remains behind the accepted PATCH1 allocation gate.
+
+T5 now adds sorted `DerivedConformanceRuleRecordV1` primary rows to schema 3,
+including rule fields and rule-local evidence ordinals. Export rejects stale
+native rule fingerprints but does not serialize them. Import reconstructs
+requirement maps through budgeted frozen `AnalysisMap` storage and the
+`from_frozen_parts` constructor, following the approved PATCH1 T5.GE-A storage
+contract. It rebuilds `DerivedConformanceRuleIndex` and derives
+`TraitDispatchIndex` from imported conformance heads and trait surfaces; no
+dispatch buckets are serialized. Rules carrying nonempty nested Exact/Derived
+evidence still fail closed under PATCH1's unresolved importer gate.
+
+Verification during this continuation:
+
+- `cargo check -p phalcom-semantic --lib` — passed, with existing dead-code
+  warnings for intentionally guarded importer seams;
+- `cargo check -p phalcom-compiler-artifact --all-targets` — passed after the
+  schema-3 fixtures were updated with the new empty derived-rule family;
+- `cargo check -p phalcom-semantic --all-targets` — failed while compiling
+  inherited PATCH1 semantic integration-test consumers (209 errors from the
+  source/frozen representation API migration, including old `BTreeMap` field
+  initializers and mutation calls). This broad test-compilation failure is
+  outside the T4/T5 source changes and remains deferred for PATCH1 repair;
+- no test binaries were run in this continuation.
+
+T4/T5 semantic source/import parity and user-resolution evidence are not yet
+verified. T5 remains partial while rule-local nested provenance is fail-closed
+and its focused parity gate is outstanding. PATCH2 remains IN_PROGRESS /
+PARTIAL / FOCUSED_TESTED, P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED, and
+P8 remains blocked.
+
+PATCH2 T6 now adds schema-3 primary rows for nominal and associated static-case
+catalogs plus checked constructor signatures. The wire validator checks domain
+authority, unique case/signature identities, source order, singleton versus
+constructor selector shape, constructor arity, and relocated kind references.
+Export preserves source case order and exact selectors; import reconstructs
+`StaticDomainCaseCatalogProduct` and `StaticCaseSignatureProduct` into the
+loaded snapshot. Root registration covers nominal catalog domains and every
+signature parameter kind; associated domains retain their existing owner root.
+The static-case owner export guard was removed only after this path was added.
+
+Focused compilation after T5/T6:
+
+- `cargo check -p phalcom-semantic --lib` — passed with the same existing
+  fail-closed-path dead-code warnings;
+- `cargo check -p phalcom-compiler-artifact --all-targets` — passed;
+- no tests were run. T5's source/import differential and T6's malformed-row
+tests remain outstanding. The inherited semantic all-target test-compilation
+failure recorded above remains unchanged.
+
+## PATCH2 T7-T13 implementation continuation — 2026-10-16
+
+T7-T10 implementation has advanced through static program/application,
+definition, constant, and final module-binding owner transport. Static
+applications remain owned by `CheckedStaticBody` and are referenced with the
+PATCH1 body-qualified ordinal. T8 imports source-independent static definition
+products; T9 imports reduced static-constant authority without evaluating
+initializer syntax; T10 resolves final module bindings through callable-local
+ordinals and retains visible aliases.
+
+The T9 canonical-Universe outcome census found 11 static constants, all with
+`Reduced` outcomes (11/11); no other outcome class was present. This was a
+read-only census, not an import or parity gate. T9's semantic fingerprint,
+materialization, and no-re-evaluation gates remain open.
+
+T11 constructs the PATCH2 owner families and derives
+`callable_definitions_by_module`, trait requirement layout,
+`SurfaceDispatchResolver`, and `TraitDispatchIndex` from imported primary
+owners. The staged snapshot remains `Partial`; the constructor no longer
+promotes it to `Complete` or runs PATCH6's final source-free completeness
+predicate. The public importer still fails at PATCH3's global semantic
+allocation boundary before materializing the graph, and PATCH1 still blocks
+nonempty callable-analysis records. PATCH6 promotion and module-product
+assembly remain downstream.
+
+T12 core lowering now reads generated-delegation provenance and trait-default
+ordinals from semantic owners. The remaining `snapshot.sources` accesses in
+`semantic_lowering.rs` are the module source-ID fallback and user-module
+anonymous-product projection. No source-denial differential was run, so this is
+an implementation observation rather than source-free acceptance evidence.
+
+T13 root review added roots for module `BindingState` facts, witness requirement
+views and selections, derived conformance rule owners, exact enum-case
+semantic dependencies, static owner diagnostic guidance, and nominal static
+case domains. The module-binding owner and binding identity are checked during
+root registration. Witness and derived-rule requirement lookups now use binary
+search over the trait surface's validated canonical member order rather than
+repeated full scans. Static application validation now checks exact kinded
+argument/result-kind agreement and rejects cyclic `KindedExpression` links;
+its traversal scratch is charged through the semantic validation ledger. Static
+case duplicate detection now uses a charged, reusable sorted index instead of
+quadratic prefix scans; signature-to-case validation consumes domain groups
+and binary-searches that index. T13 malformed-wire and graph-closure gates
+remain open.
+
+Compilation and static hygiene during this continuation:
+
+- `cargo check -p phalcom-compiler-artifact --all-targets --offline` — passed;
+- `cargo check -p phalcom-semantic --lib --offline` — passed with existing
+  dead-code warnings for guarded importer seams;
+- `cargo check -p phalcom-core --lib --offline` — passed with those same
+  semantic warnings;
+- `cargo check -p phalcom-compiler-artifact --all-targets --offline` — passed
+  after the T13 validator continuation;
+- targeted `rustfmt --check` for `roots.rs`, `import.rs`, and
+  `module_bindings.rs` plus `git diff --check` — passed. A full-file
+  `rustfmt --check` of `world.rs` still reports pre-existing formatting drift
+  elsewhere in that already-modified file; the new validator regions have no
+  rustfmt diff;
+- no tests were run in this continuation.
+
+T14 remains incomplete. The exporter still fails closed for nonempty callable
+analyses and for witness rows that do not satisfy the exact proof-transport
+profile. The global PATCH3 import allocation guard is unchanged. Do not remove
+these guards until the named PATCH1/PATCH2 gates have passing evidence. The
+inherited PATCH1 semantic all-target compile failure and all source/import,
+fresh-process, determinism, and P5/P6 acceptance gaps remain. PATCH2 stays
+IN_PROGRESS / PARTIAL; P7 stays IN_PROGRESS / PARTIAL / UNVERIFIED; P8 remains
+blocked.
+
+## PATCH2 T7/T12 source-free static execution consultation hold — 2026-10-16
+
+`INC-PATCH2-T7-T12-STATIC-EVAL` is awaiting an architect decision before any
+change to the evaluator's imported-program execution model. PATCH2 §6.14 and
+T7/T12 with G4/G6 require imported canonical static programs to be executable
+without source checked bodies. The live importer constructs each imported
+static definition with `canonical_program: Some(program)` and
+`checked_body: None`. The current evaluator still requires
+`CheckedStaticBody`: its public definition constructor takes that type, and
+operational static-application execution rejects a target whose
+`StaticDefinitionProduct.checked_body` is absent with `UnsupportedExpression`;
+frame loading also reads body-owned parameter/kinded-parameter/local layout.
+
+The pending decision is whether PATCH2 should make the canonical program a
+sufficient source-independent evaluator frame while preserving the established
+`StaticBodyId`-qualified checked-application owner, or whether the plan's
+source-free execution obligation must be clarified/amended and deferred. No
+evaluator code or fail-closed guard was changed for this incident. No
+source-denied evaluator reproduction or differential was run; the failure path
+is established by the live code checks above. Compilation evidence does not
+close G4/G6. Continue only on independent work while this evaluator fork is
+pending.

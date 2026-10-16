@@ -176,7 +176,7 @@ impl<'a> TeloscContainerView<'a> {
                 return Err(ContainerError::UnsupportedSectionFlags(flags_bits).into());
             }
             let supported_schema = match kind {
-                SectionKind::SemanticWorld => Some(crate::semantic::world::SEMANTIC_WORLD_SCHEMA_V2),
+                SectionKind::SemanticWorld => Some(crate::semantic::world::SEMANTIC_WORLD_SCHEMA_V3),
                 SectionKind::Unknown(_) => None,
                 _ => Some(1),
             };

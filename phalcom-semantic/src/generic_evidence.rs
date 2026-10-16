@@ -1,6 +1,7 @@
 //! Canonical generic conformance evidence, lexical evidence environments,
 //! deterministic evidence layout, and direct proof queries.
 
+use crate::checker::analysis_map::AnalysisMap;
 use crate::declarations::DeclarationTypeTable;
 use crate::identity::ImplId;
 use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan};
@@ -72,14 +73,14 @@ impl DerivedConformanceEvidence {
         }
     }
 
-    pub fn requirements(&self) -> &BTreeMap<crate::traits::TraitRequirementId, crate::impls::RequirementSelectionTemplate> {
+    pub fn requirements(&self) -> &AnalysisMap<crate::traits::TraitRequirementId, crate::impls::RequirementSelectionTemplate> {
         match &self.origin {
             DerivedConformanceOrigin::ConditionalSource { exact_source } => &exact_source.requirements,
             DerivedConformanceOrigin::GuardedRule { rule, .. } => &rule.requirements,
         }
     }
 
-    pub fn requirement_views(&self) -> &BTreeMap<crate::traits::TraitRequirementId, crate::traits::InstantiatedTraitRequirement> {
+    pub fn requirement_views(&self) -> &AnalysisMap<crate::traits::TraitRequirementId, crate::traits::InstantiatedTraitRequirement> {
         match &self.origin {
             DerivedConformanceOrigin::ConditionalSource { exact_source } => &exact_source.requirement_views,
             DerivedConformanceOrigin::GuardedRule { rule, .. } => &rule.requirement_views,
@@ -898,7 +899,7 @@ fn complete_exact_conformance_evidence(evidence: Arc<ConformanceEvidence>, conte
         Err(proof) => return proof,
     };
     let mut completed = (*evidence).clone();
-    completed.trait_header_conformance_proofs = Some(trait_header_conformance_proofs);
+    completed.trait_header_conformance_proofs = Some(trait_header_conformance_proofs.into());
     GenericConformanceProof::Proven(GenericConformanceEvidence::Exact(Arc::new(completed)))
 }
 

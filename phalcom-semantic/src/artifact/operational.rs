@@ -1,11 +1,11 @@
 //! Artifact export, import, and lowering for checked operational static templates (`PERF003.C2.P7.T7.B`).
 
-use crate::identity::{BindingId, VariantId};
-use crate::metadata::stable_identity::{from_stable_declaration, to_stable_declaration};
+use crate::identity::VariantId;
+use crate::metadata::stable_identity::{from_stable_declaration, from_stable_module, to_stable_declaration, to_stable_module};
 use crate::static_definition::{
-    CheckedStaticApplicationArgument, CheckedStaticBody, OperationalNode, OperationalTarget,
-    OperationalTemplate, StaticBinaryOp, StaticDefinition, StaticDefinitionBodyRepr,
-    StaticDefinitionProduct, StaticDefinitionSignature, StaticUnaryOp,
+    CanonicalCheckedStaticApplication, CanonicalStaticApplicationArgument, CanonicalStaticProgram,
+    CheckedStaticApplication, CheckedStaticApplicationArgument, CheckedStaticBody, OperationalNode, OperationalTarget,
+    OperationalTemplate, StaticBodyId, StaticBinaryOp, StaticDefinitionBodyRepr, StaticDefinitionSignature, StaticUnaryOp,
 };
 use crate::static_domain::StaticValueDomain;
 use crate::static_eval::machine::canonical_symbol_spelling;
@@ -17,15 +17,13 @@ use phalcom_ast::ast::{
     BinaryOp, BracketLiteralElement, Expr, IfElseBody, LexicalBlock, Pattern, Statement, TupleLiteralEntry, UnaryOp,
 };
 use phalcom_compiler_artifact::semantic::operational::*;
-use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 
 fn referential(message: impl Into<String>) -> ArtifactError {
     ValidationError::ReferentialIntegrity(message.into()).into()
 }
 
-impl OperationalTemplate {
+impl CanonicalStaticProgram {
     pub fn from_checked_body(
         body: &CheckedStaticBody,
         values: &mut StaticValueStore,
@@ -38,69 +36,174 @@ impl OperationalTemplate {
             .max()
             .map_or(0, |idx| *idx + 1);
         let local_count = body.local_slots.len() as u32;
-        let owner = body.owner.0.clone();
-
         let root = match &body.root {
-            StaticDefinitionBodyRepr::Operational(template) => return Ok((**template).clone()),
+            StaticDefinitionBodyRepr::Operational(program) => return Ok((**program).clone()),
             StaticDefinitionBodyRepr::Expression(expr) => lower_expr(expr, body, values, types)?,
             StaticDefinitionBodyRepr::Block(block) => lower_block(block, body, values, types)?,
-            StaticDefinitionBodyRepr::TypeForm(_) => {
-                if let Some(app) = body.static_applications.first() {
-                    let mut arguments = Vec::with_capacity(app.arguments.len());
-                    for arg in app.arguments.iter() {
-                        match arg {
-                            CheckedStaticApplicationArgument::Kinded { term, .. } => {
-                                arguments.push(OperationalNode::TypeForm(*term));
-                            }
-                            CheckedStaticApplicationArgument::Value { expression, .. } => {
-                                let binding = body.expressions.get(expression).and_then(|e| e.binding_read);
-                                if let Some(binding) = binding {
-                                    if let Some((&idx, _)) = body.parameter_bindings.iter().find(|(_, b)| **b == binding) {
-                                        arguments.push(OperationalNode::ReadParameter(idx));
-                                    } else if let Some(&slot) = body.local_slots.get(&binding) {
-                                        arguments.push(OperationalNode::ReadLocal(slot));
-                                    } else {
-                                        return Err(referential("unbound static arg binding"));
-                                    }
-                                } else {
-                                    return Err(referential("missing binding for static argument"));
-                                }
-                            }
-                            CheckedStaticApplicationArgument::KindedExpression { .. } => {
-                                return Err(referential("unsupported kinded expression in static application"));
-                            }
-                        }
-                    }
-                    OperationalNode::StaticApplication {
-                        target: app.target.clone(),
-                        arguments,
-                    }
-                } else if let StaticValueDomain::Kind(_) = body.result {
-                    if let Some((_, analysis)) = body.expressions.iter().next() {
-                        if let Some(
-                            crate::types::denotation::SemanticDenotation::TypeForm(ty)
-                            | crate::types::denotation::SemanticDenotation::StaticTerm(ty),
-                        ) = analysis.denotation.as_ref() {
-                            OperationalNode::TypeForm(*ty)
-                        } else {
-                            return Err(referential("missing type denotation on static type form"));
-                        }
-                    } else {
-                        return Err(referential("empty expressions on static type form"));
-                    }
-                } else {
-                    return Err(referential("unsupported static type form body"));
-                }
+            StaticDefinitionBodyRepr::TypeForm(annotation) => {
+                lower_expr(&Expr::TypeForm(Box::new(annotation.clone())), body, values, types)?
             }
         };
 
-        Ok(OperationalTemplate {
-            owner,
+        let mut ordered_rows = body.static_applications.iter().collect::<Vec<_>>();
+        ordered_rows.sort_unstable_by_key(|application| application.id.ordinal);
+        let mut applications = Vec::with_capacity(ordered_rows.len());
+        for (index, application) in ordered_rows.into_iter().enumerate() {
+            let expected = u32::try_from(index).map_err(|_| referential("static application ordinal overflow"))?;
+            if application.id.body != body.owner || application.id.ordinal != expected {
+                return Err(referential("checked static application rows are not canonical for their body"));
+            }
+            let mut canonical_arguments = Vec::with_capacity(application.arguments.len());
+            for argument in application.arguments.iter() {
+                canonical_arguments.push(match argument {
+                    CheckedStaticApplicationArgument::Kinded { parameter_index, term } => {
+                        CanonicalStaticApplicationArgument::KindedTerm { parameter_index: *parameter_index, term: *term }
+                    }
+                    CheckedStaticApplicationArgument::KindedExpression { parameter_index, expression } => {
+                        let nested = unique_application_for_expression(body, *expression)?;
+                        CanonicalStaticApplicationArgument::KindedExpression {
+                            parameter_index: *parameter_index,
+                            application_ordinal: nested.id.ordinal,
+                        }
+                    }
+                    CheckedStaticApplicationArgument::Value { parameter_index, .. } => {
+                        CanonicalStaticApplicationArgument::Value { parameter_index: *parameter_index }
+                    }
+                });
+            }
+            if application.signature.parameters.len() != canonical_arguments.len()
+                || canonical_arguments.iter().enumerate().any(|(index, argument)| {
+                    let parameter_index = match argument {
+                        CanonicalStaticApplicationArgument::KindedTerm { parameter_index, .. }
+                        | CanonicalStaticApplicationArgument::KindedExpression { parameter_index, .. }
+                        | CanonicalStaticApplicationArgument::Value { parameter_index } => *parameter_index,
+                    };
+                    parameter_index as usize != index
+                })
+            {
+                return Err(referential("checked static application arguments disagree with the target signature"));
+            }
+            for (parameter, argument) in application.signature.parameters.iter().zip(&canonical_arguments) {
+                match (parameter.domain, argument) {
+                    (
+                        StaticValueDomain::Kind(expected),
+                        CanonicalStaticApplicationArgument::KindedTerm { term, .. },
+                    ) if types.kind_of(*term) == expected => {}
+                    (
+                        StaticValueDomain::Kind(expected),
+                        CanonicalStaticApplicationArgument::KindedExpression { application_ordinal, .. },
+                    ) => {
+                        let nested = body
+                            .static_applications
+                            .iter()
+                            .find(|candidate| candidate.id.ordinal == *application_ordinal)
+                            .ok_or_else(|| referential("kinded-expression child application is missing"))?;
+                        if nested.signature.result_domain.as_kind() != Some(expected) {
+                            return Err(referential("kinded-expression child result kind disagrees with its parameter"));
+                        }
+                    }
+                    (StaticValueDomain::ValueType(_), CanonicalStaticApplicationArgument::Value { .. }) => {}
+                    _ => return Err(referential("checked static application argument category disagrees with its parameter")),
+                }
+            }
+            applications.push(CanonicalCheckedStaticApplication {
+                id: application.id.clone(),
+                source_range: application.source_range,
+                target: application.target.clone(),
+                signature: application.signature.clone(),
+                arguments: canonical_arguments.into_boxed_slice(),
+            });
+        }
+
+        Ok(Self {
+            owner: body.owner.clone(),
             parameter_count,
             local_count,
             root,
+            applications: applications.into(),
+            kinded_parameters: body.kinded_parameters.keys().copied().collect::<Vec<_>>().into(),
+            static_constant_reads: body.static_constant_reads.clone(),
+            dependencies: body.dependencies.clone(),
+            result: body.result,
+            input_fingerprint: body.input_fingerprint,
+            module_binding_fingerprint: body.module_binding_fingerprint,
         })
     }
+}
+
+fn unique_application_for_expression(
+    body: &CheckedStaticBody,
+    expression: crate::identity::ExpressionId,
+) -> Result<&CheckedStaticApplication, ArtifactError> {
+    let mut matches = body.static_applications.iter().filter(|application| application.expression == expression);
+    let Some(application) = matches.next() else {
+        return Err(referential("checked static application reference has no row"));
+    };
+    if matches.next().is_some() {
+        return Err(referential("checked static application reference is ambiguous"));
+    }
+    Ok(application)
+}
+
+fn checked_application_for_range(
+    body: &CheckedStaticBody,
+    range: phalcom_common::range::SourceRange,
+) -> Result<Option<&CheckedStaticApplication>, ArtifactError> {
+    let mut expressions = body.expressions.iter().filter(|(_, analysis)| analysis.range == range).map(|(id, _)| *id);
+    let Some(expression) = expressions.next() else {
+        return Ok(None);
+    };
+    if expressions.next().is_some() {
+        return Err(referential("static application expression range is ambiguous"));
+    }
+    let mut applications = body.static_applications.iter().filter(|application| application.expression == expression);
+    let Some(application) = applications.next() else {
+        return Ok(None);
+    };
+    if applications.next().is_some() {
+        return Err(referential("static application expression maps to multiple checked rows"));
+    }
+    Ok(Some(application))
+}
+
+fn lower_application_node(
+    body: &CheckedStaticBody,
+    application: &CheckedStaticApplication,
+    path: &mut std::collections::BTreeSet<u32>,
+) -> Result<OperationalNode, ArtifactError> {
+    if !path.insert(application.id.ordinal) {
+        return Err(referential("checked static application graph contains a cycle"));
+    }
+    let mut arguments = Vec::with_capacity(application.arguments.len());
+    for argument in application.arguments.iter() {
+        arguments.push(match argument {
+            CheckedStaticApplicationArgument::Kinded { term, .. } => OperationalNode::TypeForm(*term),
+            CheckedStaticApplicationArgument::KindedExpression { expression, .. } => {
+                let nested = unique_application_for_expression(body, *expression)?;
+                lower_application_node(body, nested, path)?
+            }
+            CheckedStaticApplicationArgument::Value { expression, .. } => {
+                let binding = body.expressions.get(expression).and_then(|analysis| analysis.binding_read);
+                let Some(binding) = binding else {
+                    return Err(referential("checked static value argument has no canonical binding"));
+                };
+                if let Some((&index, _)) = body.parameter_bindings.iter().find(|(_, candidate)| **candidate == binding) {
+                    OperationalNode::ReadParameter(index)
+                } else if let Some(&slot) = body.local_slots.get(&binding) {
+                    OperationalNode::ReadLocal(slot)
+                } else if let Some(symbol) = body.static_constant_bindings.get(&binding) {
+                    OperationalNode::ReadStaticConstant(symbol.clone())
+                } else {
+                    return Err(referential("checked static value argument binding is not local to its body"));
+                }
+            }
+        });
+    }
+    path.remove(&application.id.ordinal);
+    Ok(OperationalNode::StaticApplication {
+        application_ordinal: application.id.ordinal,
+        arguments,
+    })
 }
 
 fn lower_expr(
@@ -155,6 +258,8 @@ fn lower_expr(
                     Ok(OperationalNode::ReadParameter(index))
                 } else if let Some(&slot) = body.local_slots.get(&binding) {
                     Ok(OperationalNode::ReadLocal(slot))
+                } else if let Some(symbol) = body.static_constant_bindings.get(&binding) {
+                    Ok(OperationalNode::ReadStaticConstant(symbol.clone()))
                 } else {
                     Err(referential(format!("unbound binding {:?}", binding)))
                 }
@@ -163,54 +268,27 @@ fn lower_expr(
             }
         }
         Expr::TypeForm(_) => {
-            let expr_id = body
-                .expressions
-                .iter()
-                .find(|(_, a)| a.range == expr.range())
-                .map(|(id, _)| *id);
-            if let Some(id) = expr_id {
-                if let Some(app) = body.static_applications.iter().find(|a| a.expression == id) {
-                    let mut arguments = Vec::with_capacity(app.arguments.len());
-                    for arg in app.arguments.iter() {
-                        match arg {
-                            CheckedStaticApplicationArgument::Kinded { term, .. } => {
-                                arguments.push(OperationalNode::TypeForm(*term));
-                            }
-                            CheckedStaticApplicationArgument::Value { expression, .. } => {
-                                let binding = body.expressions.get(expression).and_then(|e| e.binding_read);
-                                if let Some(binding) = binding {
-                                    if let Some((&idx, _)) = body.parameter_bindings.iter().find(|(_, b)| **b == binding) {
-                                        arguments.push(OperationalNode::ReadParameter(idx));
-                                    } else if let Some(&slot) = body.local_slots.get(&binding) {
-                                        arguments.push(OperationalNode::ReadLocal(slot));
-                                    } else {
-                                        return Err(referential("unbound static arg binding"));
-                                    }
-                                } else {
-                                    return Err(referential("missing binding for static argument"));
-                                }
-                            }
-                            CheckedStaticApplicationArgument::KindedExpression { .. } => {
-                                return Err(referential("unsupported kinded expression in static application"));
-                            }
-                        }
-                    }
-                    return Ok(OperationalNode::StaticApplication {
-                        target: app.target.clone(),
-                        arguments,
-                    });
-                }
-                if let Some(analysis) = body.expressions.get(&id) {
-                    if let Some(
-                        crate::types::denotation::SemanticDenotation::TypeForm(ty)
-                        | crate::types::denotation::SemanticDenotation::StaticTerm(ty),
-                    ) = analysis.denotation.as_ref()
-                    {
-                        return Ok(OperationalNode::TypeForm(*ty));
-                    }
-                }
+            if let Some(application) = checked_application_for_range(body, expr.range())? {
+                return lower_application_node(body, application, &mut std::collections::BTreeSet::new());
             }
-            Err(referential("unresolved type form expression"))
+            let mut analyses = body.expressions.iter().filter(|(_, analysis)| analysis.range == expr.range());
+            let Some((_, analysis)) = analyses.next() else {
+                return Err(referential("unresolved type form expression"));
+            };
+            if analyses.next().is_some() {
+                return Err(referential("static type-form expression range is ambiguous"));
+            }
+            if let Some(
+                crate::types::denotation::SemanticDenotation::TypeForm(ty)
+                | crate::types::denotation::SemanticDenotation::StaticTerm(ty),
+            ) = analysis.denotation.as_ref()
+            {
+                Ok(OperationalNode::TypeForm(*ty))
+            } else if matches!(analysis.denotation, Some(crate::types::denotation::SemanticDenotation::StaticApplication(_))) {
+                Err(referential("static application denotation has no checked row"))
+            } else {
+                Err(referential("unresolved type form expression"))
+            }
         }
         Expr::Binary(b) => {
             let op = match b.op {
@@ -433,7 +511,7 @@ pub fn register_operational_template_roots(
             OperationalNode::TypeForm(ty) => {
                 type_context.register_type_root(type_context.expected_lineage(), key, *ty)?;
             }
-            OperationalNode::ReadParameter(_) | OperationalNode::ReadLocal(_) => {}
+            OperationalNode::ReadParameter(_) | OperationalNode::ReadLocal(_) | OperationalNode::ReadStaticConstant(_) => {}
             OperationalNode::WriteLocal(_, val) => {
                 walk(val, static_context, type_context, owner, ordinal)?;
             }
@@ -492,7 +570,7 @@ pub fn register_operational_template_roots(
         }
         Ok(())
     }
-    let owner = phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Declaration(to_stable_declaration(&template.owner));
+    let owner = phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Declaration(to_stable_declaration(&template.owner.0));
     let mut ordinal = 0;
     walk(&template.root, static_context, type_context, &owner, &mut ordinal)?;
     Ok(ordinal)
@@ -553,6 +631,10 @@ fn export_op(
         OperationalNode::Constant(val) => OperationalOpV1::Constant {
             value: static_context.value(*val)?,
         },
+        OperationalNode::ReadStaticConstant(symbol) => OperationalOpV1::ReadStaticConstant {
+            module: to_stable_module(&symbol.module),
+            name: symbol.name.to_string(),
+        },
         OperationalNode::ReadParameter(index) => OperationalOpV1::ReadParameter { index: *index },
         OperationalNode::ReadLocal(slot) => OperationalOpV1::ReadLocal { slot: *slot },
         OperationalNode::WriteLocal(slot, val) => OperationalOpV1::WriteLocal {
@@ -606,9 +688,9 @@ fn export_op(
             target: Box::new(export_op(target, static_context, type_context)?),
             member: member.clone(),
         },
-        OperationalNode::StaticApplication { target, arguments } => {
+        OperationalNode::StaticApplication { application_ordinal, arguments } => {
             OperationalOpV1::StaticApplication {
-                target: to_stable_declaration(target),
+                application_ordinal: *application_ordinal,
                 arguments: arguments
                     .iter()
                     .map(|a| export_op(a, static_context, type_context))
@@ -633,28 +715,6 @@ fn export_op(
                 .transpose()?,
         },
     })
-}
-
-pub fn export_checked_static_definitions(
-    templates: &[OperationalTemplate],
-    static_context: &StaticExportContext,
-    type_context: &TypeExportContext,
-    limits: &ValidationLimits,
-) -> Result<CheckedStaticDefinitionsV1, ArtifactError> {
-    let mut definitions = Vec::with_capacity(templates.len());
-    for template in templates {
-        let owner = to_stable_declaration(&template.owner);
-        let root = export_op(&template.root, static_context, type_context)?;
-        definitions.push(OperationalTemplateV1 {
-            owner,
-            parameter_count: template.parameter_count,
-            local_count: template.local_count,
-            root,
-        });
-    }
-    let product = CheckedStaticDefinitionsV1 { definitions };
-    product.validate(limits)?;
-    Ok(product)
 }
 
 fn import_binary_op(op: &StaticBinaryOpV1) -> StaticBinaryOp {
@@ -713,6 +773,12 @@ fn import_op(
         OperationalOpV1::Constant { value } => {
             OperationalNode::Constant(static_relocation.value(*value)?)
         }
+        OperationalOpV1::ReadStaticConstant { module, name } => OperationalNode::ReadStaticConstant(
+            phalcom_modules::linker::SymbolId {
+                module: from_stable_module(module).map_err(referential)?,
+                name: name.clone().into_boxed_str(),
+            },
+        ),
         OperationalOpV1::ReadParameter { index } => OperationalNode::ReadParameter(*index),
         OperationalOpV1::ReadLocal { slot } => OperationalNode::ReadLocal(*slot),
         OperationalOpV1::WriteLocal { slot, value } => OperationalNode::WriteLocal(
@@ -768,9 +834,9 @@ fn import_op(
                 member: member.clone(),
             }
         }
-        OperationalOpV1::StaticApplication { target, arguments } => {
+        OperationalOpV1::StaticApplication { application_ordinal, arguments } => {
             OperationalNode::StaticApplication {
-                target: from_stable_declaration(target).map_err(referential)?,
+                application_ordinal: *application_ordinal,
                 arguments: arguments
                     .iter()
                     .map(|a| import_op(a, static_relocation, type_relocation))
@@ -797,80 +863,238 @@ fn import_op(
     })
 }
 
-pub fn import_checked_static_definitions(
-    definitions: &CheckedStaticDefinitionsV1,
-    static_relocation: &StaticRelocation,
-    type_relocation: &TypeRelocation,
-    limits: &ValidationLimits,
-) -> Result<Vec<OperationalTemplate>, ArtifactError> {
-    definitions.validate(limits)?;
-    let mut templates = Vec::with_capacity(definitions.definitions.len());
-    for def in &definitions.definitions {
-        let owner = from_stable_declaration(&def.owner).map_err(referential)?;
-        let root = import_op(&def.root, static_relocation, type_relocation)?;
-        templates.push(OperationalTemplate {
-            owner,
-            parameter_count: def.parameter_count,
-            local_count: def.local_count,
-            root,
-        });
-    }
-    Ok(templates)
+fn export_source_range(range: phalcom_common::range::SourceRange) -> Result<phalcom_compiler_artifact::module_world::SpanV1, ArtifactError> {
+    Ok(phalcom_compiler_artifact::module_world::SpanV1 {
+        start: u64::try_from(range.start).map_err(|_| referential("static definition source start exceeds portable range"))?,
+        end: u64::try_from(range.end).map_err(|_| referential("static definition source end exceeds portable range"))?,
+    })
 }
 
-pub fn template_to_static_definition(
-    template: OperationalTemplate,
-    signature: StaticDefinitionSignature,
-) -> StaticDefinitionProduct {
-    let owner_decl = template.owner.clone();
-    let body_repr = StaticDefinitionBodyRepr::Operational(Arc::new(template.clone()));
-    let definition = Arc::new(StaticDefinition {
-        id: owner_decl.clone(),
-        signature: signature.clone(),
-        body: body_repr.clone(),
-        source_range: phalcom_common::range::SourceRange::default(),
-    });
-
-    let mut parameter_bindings = BTreeMap::new();
-    for i in 0..template.parameter_count {
-        parameter_bindings.insert(i, BindingId(i));
+fn import_source_range(range: &phalcom_compiler_artifact::module_world::SpanV1) -> Result<phalcom_common::range::SourceRange, ArtifactError> {
+    if range.start > range.end {
+        return Err(referential("static definition source range is inverted"));
     }
-    let mut local_slots = BTreeMap::new();
-    for slot in 0..template.local_count {
-        local_slots.insert(BindingId(slot), slot);
-    }
+    Ok(phalcom_common::range::SourceRange {
+        start: usize::try_from(range.start).map_err(|_| referential("static definition source start exceeds address space"))?,
+        end: usize::try_from(range.end).map_err(|_| referential("static definition source end exceeds address space"))?,
+    })
+}
 
-    let checked_body = Arc::new(CheckedStaticBody {
-        owner: crate::static_definition::StaticBodyId(owner_decl),
-        root: body_repr,
-        expressions: Arc::new(Default::default()),
-        bindings: Arc::new(Default::default()),
-        static_operations: Arc::new(Default::default()),
-        static_applications: Arc::new([]),
-        static_constructions: Arc::new(Default::default()),
-        member_projections: Arc::new(Default::default()),
-        associated_resolutions: Arc::new(Default::default()),
-        sequence_literals: Arc::new(Default::default()),
-        match_resolutions: Arc::new(Default::default()),
-        pattern_site_resolutions: Arc::new(Default::default()),
-        static_iteration_lanes: Arc::new(Default::default()),
-        proof_predicates: Arc::new(Default::default()),
-        parameter_bindings: Arc::new(parameter_bindings),
-        kinded_parameters: Arc::new(Default::default()),
-        local_slots: Arc::new(local_slots),
-        static_constant_bindings: Arc::new(Default::default()),
-        static_constant_reads: Arc::new([]),
-        module_binding_fingerprint: None,
-        input_fingerprint: crate::db::key::InputFingerprint(0),
-        dependencies: Arc::new([]),
-        result: signature.result_domain,
-        diagnostics: Arc::new([]),
-    });
+pub(crate) fn export_static_value_domain(
+    domain: StaticValueDomain,
+    types: &TypeExportContext,
+) -> Result<phalcom_compiler_artifact::semantic::world::StaticValueDomainV1, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::world::StaticValueDomainV1 as Portable;
+    Ok(match domain {
+        StaticValueDomain::Kind(kind) => Portable::Kind { kind: types.kind(kind)? },
+        StaticValueDomain::ValueType(ty) => Portable::ValueType { ty: types.ty(ty)? },
+    })
+}
 
-    StaticDefinitionProduct {
-        definition,
-        diagnostics: Arc::new([]),
-        alias_info: None,
-        checked_body: Some(checked_body),
-    }
+pub(crate) fn import_static_value_domain(
+    domain: &phalcom_compiler_artifact::semantic::world::StaticValueDomainV1,
+    types: &TypeRelocation,
+) -> Result<StaticValueDomain, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::world::StaticValueDomainV1 as Portable;
+    Ok(match domain {
+        Portable::Kind { kind } => StaticValueDomain::Kind(types.kind(*kind)?),
+        Portable::ValueType { ty } => StaticValueDomain::ValueType(types.ty(*ty)?),
+    })
+}
+
+pub(crate) fn export_static_definition_signature(
+    signature: &StaticDefinitionSignature,
+    types: &TypeExportContext,
+) -> Result<phalcom_compiler_artifact::semantic::world::StaticDefinitionSignatureV1, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::world::{StaticDefinitionSignatureV1, StaticParameterV1};
+    let parameters = signature
+        .parameters
+        .iter()
+        .map(|parameter| {
+            Ok(StaticParameterV1 {
+                name: parameter.name.clone().into_boxed_str(),
+                domain: export_static_value_domain(parameter.domain, types)?,
+                mode: crate::artifact::export::export_mode(parameter.mode),
+                index: parameter.index,
+                type_parameter: parameter.type_parameter_id.map(|id| types.parameter(id)).transpose()?,
+                source: export_source_range(parameter.range)?,
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    Ok(StaticDefinitionSignatureV1 {
+        parameters,
+        result_domain: export_static_value_domain(signature.result_domain, types)?,
+        generic_signature: signature
+            .generic_signature
+            .as_ref()
+            .map(|signature| crate::artifact::export::export_generic_signature(signature, types))
+            .transpose()?,
+    })
+}
+
+pub(crate) fn import_static_definition_signature(
+    signature: &phalcom_compiler_artifact::semantic::world::StaticDefinitionSignatureV1,
+    types: &TypeRelocation,
+    store: &TypeStore,
+) -> Result<StaticDefinitionSignature, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::world::StaticParameterV1;
+    let parameters = signature
+        .parameters
+        .iter()
+        .map(|parameter: &StaticParameterV1| {
+            Ok(crate::static_definition::StaticParameter {
+                name: parameter.name.to_string(),
+                domain: import_static_value_domain(&parameter.domain, types)?,
+                mode: crate::artifact::import::import_mode(&parameter.mode),
+                index: parameter.index,
+                type_parameter_id: parameter.type_parameter.map(|id| types.parameter(id)).transpose()?,
+                range: import_source_range(&parameter.source)?,
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    Ok(StaticDefinitionSignature {
+        parameters: parameters.into_boxed_slice(),
+        result_domain: import_static_value_domain(&signature.result_domain, types)?,
+        generic_signature: signature
+            .generic_signature
+            .as_ref()
+            .map(|signature| crate::artifact::import::import_generic_signature(signature, types, store))
+            .transpose()?,
+        where_clause: None,
+    })
+}
+
+pub(crate) fn export_canonical_static_program(
+    program: &CanonicalStaticProgram,
+    static_context: &StaticExportContext,
+    type_context: &TypeExportContext,
+    dependencies: Vec<phalcom_compiler_artifact::semantic::world::StaticSemanticDependencyV1>,
+) -> Result<phalcom_compiler_artifact::semantic::world::CanonicalStaticProgramV1, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::world::{
+        CanonicalCheckedStaticApplicationV1, CanonicalStaticApplicationArgumentV1 as Argument, CanonicalStaticProgramV1,
+        StaticConstantSymbolV1,
+    };
+    let applications = program
+        .applications
+        .iter()
+        .map(|application| {
+            let arguments = application
+                .arguments
+                .iter()
+                .map(|argument| {
+                    Ok(match argument {
+                        CanonicalStaticApplicationArgument::KindedTerm { parameter_index, term } => Argument::KindedTerm {
+                            parameter_index: *parameter_index,
+                            term: type_context.ty(*term)?,
+                        },
+                        CanonicalStaticApplicationArgument::KindedExpression { parameter_index, application_ordinal } => {
+                            Argument::KindedExpression {
+                                parameter_index: *parameter_index,
+                                application_ordinal: *application_ordinal,
+                            }
+                        }
+                        CanonicalStaticApplicationArgument::Value { parameter_index } => Argument::Value {
+                            parameter_index: *parameter_index,
+                        },
+                    })
+                })
+                .collect::<Result<Vec<_>, ArtifactError>>()?;
+            Ok(CanonicalCheckedStaticApplicationV1 {
+                ordinal: application.id.ordinal,
+                source: export_source_range(application.source_range)?,
+                target: to_stable_declaration(&application.target),
+                signature: export_static_definition_signature(&application.signature, type_context)?,
+                arguments,
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    let static_constant_reads = program
+        .static_constant_reads
+        .iter()
+        .map(|symbol| StaticConstantSymbolV1 {
+            module: to_stable_module(&symbol.module),
+            name: symbol.name.clone(),
+        })
+        .collect();
+    Ok(CanonicalStaticProgramV1 {
+        owner: to_stable_declaration(&program.owner.0),
+        parameter_count: program.parameter_count,
+        local_count: program.local_count,
+        root: export_op(&program.root, static_context, type_context)?,
+        applications,
+        kinded_parameters: program.kinded_parameters.to_vec(),
+        static_constant_reads,
+        dependencies,
+        result: export_static_value_domain(program.result, type_context)?,
+        input_fingerprint: program.input_fingerprint.0,
+        module_binding_fingerprint: program.module_binding_fingerprint.map(|fingerprint| fingerprint.0),
+    })
+}
+
+pub(crate) fn import_canonical_static_program(
+    program: &phalcom_compiler_artifact::semantic::world::CanonicalStaticProgramV1,
+    static_relocation: &StaticRelocation,
+    type_relocation: &TypeRelocation,
+    type_store: &TypeStore,
+    dependencies: Vec<crate::checker::analysis::SemanticDependency>,
+) -> Result<CanonicalStaticProgram, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::world::CanonicalStaticApplicationArgumentV1 as Argument;
+    let applications = program
+        .applications
+        .iter()
+        .map(|application| {
+            let arguments = application
+                .arguments
+                .iter()
+                .map(|argument| {
+                    Ok(match argument {
+                        Argument::KindedTerm { parameter_index, term } => CanonicalStaticApplicationArgument::KindedTerm {
+                            parameter_index: *parameter_index,
+                            term: type_relocation.ty(*term)?,
+                        },
+                        Argument::KindedExpression { parameter_index, application_ordinal } => CanonicalStaticApplicationArgument::KindedExpression {
+                            parameter_index: *parameter_index,
+                            application_ordinal: *application_ordinal,
+                        },
+                        Argument::Value { parameter_index } => CanonicalStaticApplicationArgument::Value {
+                            parameter_index: *parameter_index,
+                        },
+                    })
+                })
+                .collect::<Result<Vec<_>, ArtifactError>>()?;
+            Ok(CanonicalCheckedStaticApplication {
+                id: crate::static_definition::StaticApplicationId {
+                    body: StaticBodyId(from_stable_declaration(&program.owner).map_err(referential)?),
+                    ordinal: application.ordinal,
+                },
+                source_range: import_source_range(&application.source)?,
+                target: from_stable_declaration(&application.target).map_err(referential)?,
+                signature: import_static_definition_signature(&application.signature, type_relocation, type_store)?,
+                arguments: arguments.into_boxed_slice(),
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    let static_constant_reads = program
+        .static_constant_reads
+        .iter()
+        .map(|symbol| {
+            Ok(phalcom_modules::linker::SymbolId {
+                module: from_stable_module(&symbol.module).map_err(referential)?,
+            name: symbol.name.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    Ok(CanonicalStaticProgram {
+        owner: StaticBodyId(from_stable_declaration(&program.owner).map_err(referential)?),
+        parameter_count: program.parameter_count,
+        local_count: program.local_count,
+        root: import_op(&program.root, static_relocation, type_relocation)?,
+        applications: applications.into(),
+        kinded_parameters: program.kinded_parameters.clone().into(),
+        static_constant_reads: static_constant_reads.into(),
+        dependencies: dependencies.into(),
+        result: import_static_value_domain(&program.result, type_relocation)?,
+        input_fingerprint: crate::db::key::InputFingerprint(program.input_fingerprint),
+        module_binding_fingerprint: program.module_binding_fingerprint.map(crate::db::ProductFingerprint),
+    })
 }

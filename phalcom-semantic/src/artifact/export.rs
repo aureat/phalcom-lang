@@ -295,7 +295,7 @@ fn export_type_knowledge(knowledge: &TypeKnowledge, types: &TypeExportContext) -
                     .ranges
                     .iter()
                     .map(|range| {
-                        Ok(phalcom_compiler_artifact::module_world::SpanV1 {
+                        Ok::<_, ArtifactError>(phalcom_compiler_artifact::module_world::SpanV1 {
                             start: u64::try_from(range.start).map_err(|_| referential("evidence range start exceeds portable range"))?,
                             end: u64::try_from(range.end).map_err(|_| referential("evidence range end exceeds portable range"))?,
                         })
@@ -711,7 +711,6 @@ pub fn export_structural_primary_contracts(
     Ok(contracts)
 }
 
-use crate::artifact::operational::export_checked_static_definitions;
 use crate::artifact::query::validate_query_image_closure_with_allocation_budget;
 use crate::artifact::validate::compute_witness_layout_fingerprint;
 use crate::canonical_image::CanonicalSemanticQueryImage;
@@ -721,21 +720,22 @@ use crate::static_value::StaticExportContext;
 use phalcom_compiler_artifact::query::{DependencyEvidenceEntryV1, PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1};
 use phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1;
 use phalcom_compiler_artifact::semantic::world::{
-    AssociatedBindingEntryV1, AssociatedBindingValueV1, AssociatedFamilyIdentityV1, AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1,
-    AssociatedStaticDomainRecordV1, AssociatedSurfaceRecordV1, AssociatedValueDenotationV1, BehavioralFamilyDenotationV1, BehavioralFamilySpecV1,
-    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingAssumptionBasisV1, CallableBindingAuthorityV1,
-    CallableBindingConsistencyV1, CallableBindingContractOriginV1, CallableBindingRowV1, CallableBlockReasonV1, CallableBudgetKindV1, CallableBudgetReportV1,
-    CallableCallSpecializationV1, CallableCausalInvalidityV1, CallableExpressionRowV1, CallableExpressionStatusV1, CallableGeneratedBindingReasonV1,
+    AssociatedFamilyIdentityV1, AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedStaticDomainRecordV1,
+    AssociatedSurfaceRecordV1, AssociatedValueDenotationV1, BehavioralFamilyDenotationV1, BehavioralFamilySpecV1, CallableAnalysisRecordV1,
+    CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableAssociatedTypeRequirementIdentityV1, CallableBindingAssumptionBasisV1,
+    CallableBindingAuthorityV1, CallableBindingConsistencyV1, CallableBindingContractOriginV1, CallableBindingRowV1, CallableBlockReasonV1,
+    CallableBudgetKindV1, CallableBudgetReportV1, CallableCallSpecializationV1, CallableCausalInvalidityV1, CallableDefinitionBodyProvenanceV1,
+    CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableExpressionRowV1, CallableExpressionStatusV1, CallableGeneratedBindingReasonV1,
     CallableInitializationStateV1, CallableParameterIdentityV1, CallableParameterV1 as PortableCallableParameter, CallableRefutationReasonV1,
-    CallableSignatureRecordV1, CallableStaticArgumentBindingV1, CallableSuppressionCauseV1, CapturedAssociatedMemberV1, CapturedBehavioralMemberV1,
-    CaseRequirementResultV1, CaseRequirementStatusV1, ConditionalDispatchSelectionV1, ConformanceHeadRecordV1, ConformanceTargetV1,
-    ConstructorInitializationRecordV1, ConstructorParamFieldV1, DeclarationSurfaceRecordV1, EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1,
-    EnumRequirementSourceV1, EvidenceOriginV1, EvidenceSetV1, EvidenceStatusV1, ExactSelectorV1, FamilyOperationShapeV1, FieldSignatureV1,
-    ImplementationKindV1, IntrinsicTypeOperationV1, InvocationTargetV1, LabeledParameterSpecV1, NativeEffectV1, NativeLifecycleSpecV1, NativeSurfaceIdV1,
-    ParameterContractV1, ParameterTupleSpecV1, RaisesSpecV1, RequirementEntryV1, RequirementSelectionV1, RestParameterSpecV1, RestValueContractV1,
-    ReturnContractValidationV1, ReturnFlowV1, SelectorKindPatternV1, SelectorKindV1, SelectorPatternSpecV1, SelectorSlotV1, SemanticDenotationV1,
-    SemanticWorldV2, TraitSurfaceRecordV1, TypeExprSpecV1, TypeKnowledgeV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
-    TypeMemberParameterV1, WitnessPlanV1,
+    CallableRequirementIdentityV1, CallableSignatureRecordV1, CallableStaticArgumentBindingV1, CallableSuppressionCauseV1, CapturedAssociatedMemberV1,
+    CapturedBehavioralMemberV1, CaseRequirementResultV1, CaseRequirementStatusV1, ConditionalDispatchSelectionV1, ConformanceHeadRecordV1, ConformanceTargetV1,
+    ConstructorInitializationRecordV1, ConstructorParamFieldV1, CoveringImplParameterBindingV1, CoveringImplSubstitutionV1, DeclarationSurfaceRecordV1,
+    EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1, EnumRequirementSourceV1, EvidenceOriginV1, EvidenceSetV1, EvidenceStatusV1, ExactSelectorV1,
+    FamilyOperationShapeV1, FieldSignatureV1, ImplementationKindV1, InherentBodyContextV1, IntrinsicTypeOperationV1, InvocationTargetV1,
+    LabeledParameterSpecV1, NativeEffectV1, NativeLifecycleSpecV1, NativeSurfaceIdV1, ParameterContractV1, ParameterTupleSpecV1, RaisesSpecV1,
+    RestParameterSpecV1, RestValueContractV1, ReturnContractValidationV1, ReturnFlowV1, SelectorKindPatternV1, SelectorKindV1, SelectorPatternSpecV1,
+    SelectorSlotV1, SemanticDenotationV1, SemanticWorldV3, TraitAssociatedTypeRequirementV1, TraitSurfaceMemberV1, TraitSurfaceRecordV1, TypeExprSpecV1,
+    TypeKnowledgeV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1, TypeMemberParameterV1, WitnessPlanV1,
 };
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{StableAssociatedStaticDomainDeclarationRef, StableCallableRef};
@@ -990,12 +990,12 @@ fn export_callable_type_bindings(
     Ok(rows)
 }
 
-fn export_callable_requirement_views(
-    views: &std::collections::BTreeMap<crate::traits::TraitRequirementId, crate::traits::InstantiatedTraitRequirement>,
+fn export_callable_requirement_views<'a>(
+    views: impl IntoIterator<Item = (&'a crate::traits::TraitRequirementId, &'a crate::traits::InstantiatedTraitRequirement)>,
     types: &TypeExportContext,
 ) -> Result<Vec<phalcom_compiler_artifact::semantic::world::CallableRequirementViewV1>, ArtifactError> {
     views
-        .iter()
+        .into_iter()
         .map(|(requirement, view)| {
             if &view.requirement != requirement {
                 return Err(referential("callable requirement view key disagrees with its value"));
@@ -1011,9 +1011,11 @@ fn export_callable_requirement_views(
         .collect()
 }
 
-fn export_callable_evidence_diagnostic(
+fn export_semantic_diagnostic(
     diagnostic: &crate::diagnostic::SemanticDiagnostic,
-    ordinals: &CallableAnalysisOrdinalMap,
+    ordinals: Option<&CallableAnalysisOrdinalMap>,
+    portable_explanations: Option<&BTreeMap<crate::identity::CallableId, BTreeMap<crate::identity::ExplanationId, u32>>>,
+    portable_causes: Option<&BTreeMap<crate::identity::DiagnosticCauseId, u32>>,
     types: &TypeExportContext,
 ) -> Result<phalcom_compiler_artifact::semantic::world::CallableEvidenceDiagnosticV1, ArtifactError> {
     use crate::diagnostic::{DiagnosticGuidance, DiagnosticSeverity};
@@ -1065,18 +1067,25 @@ fn export_callable_evidence_diagnostic(
         .explanations
         .iter()
         .map(|reference| {
-            if to_stable_callable(&reference.callable) != ordinals.owner {
-                return Err(referential("evidence diagnostic references an explanation owned by another callable"));
-            }
-            let ordinal = ordinals
-                .explanations
-                .get(&reference.explanation)
-                .copied()
-                .ok_or_else(|| referential("evidence diagnostic references an absent callable explanation"))?;
-            Ok(wire::CallableEvidenceExplanationRefV1 {
-                callable: ordinals.owner.clone(),
-                ordinal,
-            })
+            let callable = to_stable_callable(&reference.callable);
+            let ordinal = match ordinals {
+                Some(ordinals) => {
+                    if callable != ordinals.owner {
+                        return Err(referential("evidence diagnostic references an explanation owned by another callable"));
+                    }
+                    ordinals
+                        .explanations
+                        .get(&reference.explanation)
+                        .copied()
+                        .ok_or_else(|| referential("evidence diagnostic references an absent callable explanation"))?
+                }
+                None => portable_explanations
+                    .and_then(|by_callable| by_callable.get(&reference.callable))
+                    .and_then(|ordinals| ordinals.get(&reference.explanation))
+                    .copied()
+                    .ok_or_else(|| referential("trait diagnostic references an absent callable explanation"))?,
+            };
+            Ok(wire::CallableEvidenceExplanationRefV1 { callable, ordinal })
         })
         .collect::<Result<Vec<_>, ArtifactError>>()?;
     let fixes = diagnostic
@@ -1115,22 +1124,30 @@ fn export_callable_evidence_diagnostic(
         guidance,
         explanations,
         fixes,
-        root_cause: diagnostic
-            .root_cause
-            .map(|cause| {
+        root_cause: match (ordinals, diagnostic.root_cause) {
+            (Some(ordinals), Some(cause)) => Some(
                 ordinals
                     .diagnostic_causes
                     .get(&cause)
                     .copied()
-                    .ok_or_else(|| referential("evidence diagnostic references an absent callable diagnostic cause"))
-            })
-            .transpose()?,
+                    .ok_or_else(|| referential("evidence diagnostic references an absent callable diagnostic cause"))?,
+            ),
+            (None, Some(cause)) => Some(
+                portable_causes
+                    .and_then(|causes| causes.get(&cause))
+                    .copied()
+                    .ok_or_else(|| referential("trait diagnostic references an unregistered diagnostic cause"))?,
+            ),
+            (_, None) => None,
+        },
     })
 }
 
 struct CallableConformanceEvidenceExport<'a> {
     types: &'a TypeExportContext,
-    ordinals: &'a CallableAnalysisOrdinalMap,
+    ordinals: Option<&'a CallableAnalysisOrdinalMap>,
+    portable_explanations: Option<&'a BTreeMap<crate::identity::CallableId, BTreeMap<crate::identity::ExplanationId, u32>>>,
+    portable_causes: Option<&'a BTreeMap<crate::identity::DiagnosticCauseId, u32>>,
     max_nodes: usize,
     max_depth: usize,
     active_arc_addresses: std::collections::HashSet<usize>,
@@ -1240,7 +1257,7 @@ impl CallableConformanceEvidenceExport<'_> {
                         exact_target: self.types.ty(exact.exact_target)?,
                         exact_trait_ref: export_trait_ref_identity(&exact.exact_trait_ref, self.types)?,
                         impl_environment: export_callable_type_environment(&exact.impl_environment, self.types)?,
-                        requirement_views: export_callable_requirement_views(&exact.requirement_views, self.types)?,
+                        requirement_views: export_callable_requirement_views(exact.requirement_views.iter(), self.types)?,
                         requirements,
                         associated_types,
                         trait_header_contract: exact
@@ -1274,27 +1291,7 @@ impl CallableConformanceEvidenceExport<'_> {
                             exact_subject,
                             exact_trait_ref,
                         } => {
-                            let rule_wire = wire::CallableDerivedConformanceRuleV1 {
-                                impl_id: to_stable_impl(&rule.impl_id),
-                                source_module: to_stable_module(&rule.source_module),
-                                target_parameter: self.types.parameter(rule.target_parameter)?,
-                                target_template: self.types.ty(rule.target_template)?,
-                                trait_ref: export_trait_ref_identity(&rule.trait_ref, self.types)?,
-                                generic_signature: export_generic_signature(&rule.generic_signature, self.types)?,
-                                associated_type_plan: self.associated_type_plan(&rule.associated_type_plan)?,
-                                requirement_views: export_callable_requirement_views(&rule.requirement_views, self.types)?,
-                                requirements: rule
-                                    .requirements
-                                    .iter()
-                                    .map(|(requirement, selection)| {
-                                        Ok(wire::CallableRequirementSelectionEntryV1 {
-                                            requirement: export_callable_requirement_identity(requirement),
-                                            selection: self.selection(selection, depth + 1)?,
-                                        })
-                                    })
-                                    .collect::<Result<Vec<_>, ArtifactError>>()?,
-                                source: export_source_span(&rule.source)?,
-                            };
+                            let rule_wire = self.derived_rule(rule, depth + 1)?;
                             wire::CallableDerivedConformanceOriginV1::GuardedRule {
                                 rule: rule_wire,
                                 exact_subject: self.types.ty(*exact_subject)?,
@@ -1418,6 +1415,42 @@ impl CallableConformanceEvidenceExport<'_> {
         })
     }
 
+    fn derived_rule(
+        &mut self,
+        rule: &crate::derived_conformance::DerivedConformanceRule,
+        depth: usize,
+    ) -> Result<phalcom_compiler_artifact::semantic::world::CallableDerivedConformanceRuleV1, ArtifactError> {
+        use phalcom_compiler_artifact::semantic::world as wire;
+        if depth > self.max_depth {
+            return Err(referential("derived conformance rule nesting limit exceeded during export"));
+        }
+        if rule.associated_type_plan.impl_id != rule.impl_id {
+            return Err(referential("derived conformance associated-type plan disagrees with its rule owner"));
+        }
+        let mut requirements = Vec::with_capacity(rule.requirements.len());
+        for (requirement, selection) in &rule.requirements {
+            if requirement.owner != rule.trait_ref.declaration {
+                return Err(referential("derived rule selection belongs to another trait"));
+            }
+            requirements.push(wire::CallableRequirementSelectionEntryV1 {
+                requirement: export_callable_requirement_identity(requirement),
+                selection: self.selection(selection, depth + 1)?,
+            });
+        }
+        Ok(wire::CallableDerivedConformanceRuleV1 {
+            impl_id: to_stable_impl(&rule.impl_id),
+            source_module: to_stable_module(&rule.source_module),
+            target_parameter: self.types.parameter(rule.target_parameter)?,
+            target_template: self.types.ty(rule.target_template)?,
+            trait_ref: export_trait_ref_identity(&rule.trait_ref, self.types)?,
+            generic_signature: export_generic_signature(&rule.generic_signature, self.types)?,
+            associated_type_plan: self.associated_type_plan(&rule.associated_type_plan)?,
+            requirement_views: export_callable_requirement_views(rule.requirement_views.iter(), self.types)?,
+            requirements,
+            source: export_source_span(&rule.source)?,
+        })
+    }
+
     fn inherent_specialization(
         &mut self,
         specialization: &crate::impls::InherentImplSpecialization,
@@ -1533,7 +1566,7 @@ impl CallableConformanceEvidenceExport<'_> {
             diagnostics: plan
                 .diagnostics
                 .iter()
-                .map(|diagnostic| export_callable_evidence_diagnostic(diagnostic, self.ordinals, self.types))
+                .map(|diagnostic| export_semantic_diagnostic(diagnostic, self.ordinals, self.portable_explanations, self.portable_causes, self.types))
                 .collect::<Result<Vec<_>, _>>()?,
         })
     }
@@ -1992,7 +2025,9 @@ fn export_callable_analysis_record(
     };
     let mut conformance_export = CallableConformanceEvidenceExport {
         types,
-        ordinals: &ordinals,
+        ordinals: Some(&ordinals),
+        portable_explanations: None,
+        portable_causes: None,
         max_nodes: limits.max_semantic_entries_per_family,
         max_depth: limits.max_recursion_depth,
         active_arc_addresses: std::collections::HashSet::new(),
@@ -2475,6 +2510,130 @@ pub(super) fn export_callable_signature(
     })
 }
 
+fn export_callable_definition(
+    definition: &crate::impls::EffectiveCallableDefinition,
+    store: &crate::types::store::TypeStore,
+    types: &TypeExportContext,
+) -> Result<CallableDefinitionRecordV1, ArtifactError> {
+    use crate::impls::{CallableDefinitionBodyProvenance, CallableDefinitionOrigin};
+
+    if definition.callable != definition.signature.callable {
+        return Err(referential("accepted callable definition key disagrees with its complete signature"));
+    }
+    let origin = match &definition.origin {
+        CallableDefinitionOrigin::PrimaryDeclaration => CallableDefinitionOriginV1::PrimaryDeclaration,
+        CallableDefinitionOrigin::InherentImpl(impl_id) => CallableDefinitionOriginV1::InherentImpl {
+            impl_id: to_stable_impl(impl_id),
+        },
+        CallableDefinitionOrigin::ConformanceWitness(impl_id) => CallableDefinitionOriginV1::ConformanceWitness {
+            impl_id: to_stable_impl(impl_id),
+        },
+    };
+    let body_provenance = match &definition.body_provenance {
+        CallableDefinitionBodyProvenance::SourceBody => CallableDefinitionBodyProvenanceV1::SourceBody,
+        CallableDefinitionBodyProvenance::GeneratedDelegation { target_field } => CallableDefinitionBodyProvenanceV1::GeneratedDelegation {
+            target_field: target_field.clone(),
+        },
+    };
+    let inherent_body_context = definition
+        .inherent_body_context
+        .as_ref()
+        .map(|context| -> Result<_, ArtifactError> {
+            let covering = context
+                .covering
+                .as_ref()
+                .map(|covering| -> Result<_, ArtifactError> {
+                    if covering.impl_to_decl.len() != covering.decl_to_impl.len() {
+                        return Err(referential("covering impl substitution is not a bijection"));
+                    }
+                    let mut forward_native = covering
+                        .impl_to_decl
+                        .iter()
+                        .map(|(&implementation, &declaration)| (implementation, declaration))
+                        .collect::<Vec<_>>();
+                    let mut inverse_native = covering
+                        .decl_to_impl
+                        .iter()
+                        .map(|(&declaration, &implementation)| (implementation, declaration))
+                        .collect::<Vec<_>>();
+                    forward_native.sort_unstable_by_key(|(implementation, _)| *implementation);
+                    inverse_native.sort_unstable_by_key(|(_, declaration)| *declaration);
+                    if forward_native.windows(2).any(|pair| pair[0].0 >= pair[1].0) || inverse_native.windows(2).any(|pair| pair[0].1 >= pair[1].1) {
+                        return Err(referential("covering impl substitution contains duplicate parameter identities"));
+                    }
+                    let expected_impl = match &definition.origin {
+                        CallableDefinitionOrigin::InherentImpl(impl_id) => impl_id,
+                        _ => return Err(referential("covering substitution is attached to a non-inherent definition")),
+                    };
+                    for &(impl_parameter, declaration_parameter) in &forward_native {
+                        if covering.decl_to_impl.get(&declaration_parameter) != Some(&impl_parameter) {
+                            return Err(referential("covering impl substitution maps are not exact inverses"));
+                        }
+                        let impl_info = store
+                            .try_type_parameter(impl_parameter)
+                            .ok_or_else(|| referential("covering impl substitution references an absent implementation parameter"))?;
+                        let declaration_info = store
+                            .try_type_parameter(declaration_parameter)
+                            .ok_or_else(|| referential("covering impl substitution references an absent declaration parameter"))?;
+                        if impl_info.owner != TypeParameterOwner::Impl(expected_impl.clone())
+                            || declaration_info.owner != TypeParameterOwner::Declaration(definition.signature.owner.clone())
+                            || impl_info.kind != declaration_info.kind
+                        {
+                            return Err(referential("covering impl substitution is not an owner-correct, kind-preserving bijection"));
+                        }
+                    }
+                    let impl_to_decl = forward_native
+                        .into_iter()
+                        .map(|(impl_parameter, declaration_parameter)| {
+                            Ok(CoveringImplParameterBindingV1 {
+                                impl_parameter: types.parameter(impl_parameter)?,
+                                declaration_parameter: types.parameter(declaration_parameter)?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, ArtifactError>>()?;
+                    let decl_to_impl = inverse_native
+                        .into_iter()
+                        .map(|(impl_parameter, declaration_parameter)| {
+                            Ok(CoveringImplParameterBindingV1 {
+                                impl_parameter: types.parameter(impl_parameter)?,
+                                declaration_parameter: types.parameter(declaration_parameter)?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, ArtifactError>>()?;
+                    Ok(CoveringImplSubstitutionV1 { impl_to_decl, decl_to_impl })
+                })
+                .transpose()?;
+            Ok(InherentBodyContextV1 {
+                generic_signature: context
+                    .generic_signature
+                    .as_ref()
+                    .map(|signature| export_generic_signature(signature, types))
+                    .transpose()?,
+                covering,
+                source_target_head: types.ty(context.source_target_head)?,
+            })
+        })
+        .transpose()?;
+    let is_inherent = matches!(&definition.origin, CallableDefinitionOrigin::InherentImpl(_));
+    if is_inherent != inherent_body_context.is_some()
+        || (matches!(&definition.origin, CallableDefinitionOrigin::ConformanceWitness(_))
+            && !matches!(&definition.body_provenance, CallableDefinitionBodyProvenance::SourceBody))
+    {
+        return Err(referential(
+            "accepted callable definition origin, context, and body provenance are inconsistent",
+        ));
+    }
+
+    Ok(CallableDefinitionRecordV1 {
+        callable: to_stable_callable(&definition.callable),
+        origin,
+        source_member_index: u32::try_from(definition.source_member_index).map_err(|_| referential("callable source member index exceeds portable range"))?,
+        signature: export_callable_signature(&definition.signature, types)?,
+        body_provenance,
+        inherent_body_context,
+    })
+}
+
 pub(super) fn export_enum_requirements(
     requirements: &EnumRequirementTable,
     enum_semantics: &EnumSemanticTable,
@@ -2647,6 +2806,111 @@ fn export_associated_static_domain_declaration(
         owner: to_stable_declaration(&declaration.owner),
         name: declaration.name.clone(),
     }
+}
+
+fn export_static_case_domain(domain: &crate::identity::StaticDomainDeclarationId) -> phalcom_compiler_artifact::semantic::world::StaticCaseDomainV1 {
+    use phalcom_compiler_artifact::semantic::world::StaticCaseDomainV1;
+    match domain {
+        crate::identity::StaticDomainDeclarationId::Nominal(declaration) => StaticCaseDomainV1::Nominal {
+            declaration: to_stable_declaration(declaration),
+        },
+        crate::identity::StaticDomainDeclarationId::Associated(declaration) => StaticCaseDomainV1::Associated {
+            declaration: export_associated_static_domain_declaration(declaration),
+        },
+    }
+}
+
+fn export_static_semantic_dependency(
+    dependency: &crate::checker::analysis::SemanticDependency,
+    types: &TypeExportContext,
+) -> Result<phalcom_compiler_artifact::semantic::world::StaticSemanticDependencyV1, ArtifactError> {
+    use crate::checker::analysis::SemanticDependency as Dependency;
+    use phalcom_compiler_artifact::semantic::world::{
+        ConformanceTargetV1, StaticConstantSymbolV1, StaticSemanticDependencyV1 as Portable,
+    };
+    Ok(match dependency {
+        Dependency::DeclarationShell(owner) => Portable::DeclarationShell { owner: to_stable_declaration(owner) },
+        Dependency::TraitHeader(owner) => Portable::TraitHeader { owner: to_stable_declaration(owner) },
+        Dependency::CallableSignature(callable) => Portable::CallableSignature { callable: to_stable_callable(callable) },
+        Dependency::FieldSignature(field) => Portable::FieldSignature {
+            field: phalcom_compiler_artifact::semantic::world::StaticFieldDependencyV1 {
+                owner: to_stable_declaration(&field.owner),
+                side: to_stable_dispatch_side(field.side),
+                name: field.name.clone(),
+            },
+        },
+        Dependency::DeclarationSurface(owner) => Portable::DeclarationSurface { owner: to_stable_declaration(owner) },
+        Dependency::TraitSurface(owner) => Portable::TraitSurface { owner: to_stable_declaration(owner) },
+        Dependency::ConformanceDispatch(implementation) => Portable::ConformanceDispatch { implementation: to_stable_impl(implementation) },
+        Dependency::TraitDispatchBucket(bucket) => Portable::TraitDispatchBucket {
+            target: match &bucket.target_family {
+                crate::trait_dispatch::TraitDispatchTargetFamily::Declaration(declaration) => ConformanceTargetV1::Declaration {
+                    declaration: to_stable_declaration(declaration),
+                },
+                crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(variant) => ConformanceTargetV1::ExactEnumCase {
+                    variant: to_stable_variant(variant),
+                },
+            },
+            selector: export_exact_selector(&bucket.selector),
+            side: to_stable_dispatch_side(bucket.side),
+        },
+        Dependency::GenericConformance(key) => Portable::GenericConformance {
+            subject: export_type_term(&key.subject, types)?,
+            trait_ref: export_trait_ref_identity(&key.trait_ref, types)?,
+        },
+        Dependency::HierarchyEdge(owner) => Portable::HierarchyEdge { owner: to_stable_declaration(owner) },
+        Dependency::LinkedInterface(module) => Portable::LinkedInterface { module: to_stable_module(module) },
+        Dependency::DataDeclaration(owner) => Portable::DataDeclaration { owner: to_stable_declaration(owner) },
+        Dependency::EnumDeclaration(owner) => Portable::EnumDeclaration { owner: to_stable_declaration(owner) },
+        Dependency::AssociatedSurface(owner) => Portable::AssociatedSurface { owner: to_stable_declaration(owner) },
+        Dependency::TypeMemberDeclaration(member) => Portable::TypeMemberDeclaration {
+            owner: to_stable_declaration(&member.owner),
+            selector: export_type_member_selector(&member.selector),
+        },
+        Dependency::StaticDomainCaseCatalog(domain) => Portable::StaticDomainCaseCatalog {
+            domain: export_static_case_domain(domain),
+        },
+        Dependency::StaticCaseSignature(case) => Portable::StaticCaseSignature {
+            domain: export_static_case_domain(&case.domain),
+            selector: export_exact_selector(&case.selector),
+        },
+        Dependency::StaticDefinition(owner) => Portable::StaticDefinition { owner: to_stable_declaration(owner) },
+        Dependency::StaticConstant(id) => Portable::StaticConstant {
+            symbol: StaticConstantSymbolV1 {
+                module: to_stable_module(&id.0.module),
+                name: id.0.name.clone(),
+            },
+        },
+        Dependency::ModuleStaticBindingCatalog(module) => Portable::ModuleStaticBindingCatalog { module: to_stable_module(module) },
+        Dependency::ConstructorInitialization(owner) => Portable::ConstructorInitialization { owner: to_stable_declaration(owner) },
+        Dependency::ResolvedImport(site) => Portable::ResolvedImport {
+            module: to_stable_module(&site.importer),
+            local_id: site.local.0,
+        },
+        Dependency::LinkedName(module, name) => Portable::LinkedName {
+            module: to_stable_module(module),
+            name: name.clone().into_boxed_str(),
+        },
+        Dependency::PublicExport(module, name) => Portable::PublicExport {
+            module: to_stable_module(module),
+            name: name.clone().into_boxed_str(),
+        },
+        Dependency::ModuleStaticBindings(module) => Portable::ModuleStaticBindings { module: to_stable_module(module) },
+    })
+}
+
+fn export_static_constant_symbol(id: &crate::static_constant::StaticConstantId) -> phalcom_compiler_artifact::semantic::world::StaticConstantSymbolV1 {
+    phalcom_compiler_artifact::semantic::world::StaticConstantSymbolV1 {
+        module: to_stable_module(&id.0.module),
+        name: id.0.name.clone(),
+    }
+}
+
+fn export_source_range(range: phalcom_common::range::SourceRange) -> Result<phalcom_compiler_artifact::module_world::SpanV1, ArtifactError> {
+    Ok(phalcom_compiler_artifact::module_world::SpanV1 {
+        start: u64::try_from(range.start).map_err(|_| referential("static-case source start exceeds portable range"))?,
+        end: u64::try_from(range.end).map_err(|_| referential("static-case source end exceeds portable range"))?,
+    })
 }
 
 fn export_associated_member(member: &crate::associated::AssociatedMemberId) -> AssociatedMemberV1 {
@@ -2925,7 +3189,9 @@ pub fn export_semantic_world(
     types: &TypeExportContext,
     statics: &StaticExportContext,
     limits: &ValidationLimits,
-) -> Result<SemanticWorldV2, ArtifactError> {
+) -> Result<SemanticWorldV3, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::world as wire;
+
     validate_semantic_world_export_coverage(snapshot)?;
 
     let type_graph = types.project_graph(&snapshot.store, limits)?;
@@ -2940,18 +3206,217 @@ pub fn export_semantic_world(
     )?;
     let static_values = statics.project_graph(snapshot.static_values.as_ref(), types, limits)?;
 
-    let mut templates = Vec::new();
-    for (_, product) in snapshot.static_definitions.iter() {
-        if let Some(checked_body) = &product.checked_body {
-            if let crate::static_definition::StaticDefinitionBodyRepr::Operational(template) = &checked_body.root {
-                templates.push((**template).clone());
+    let mut ordered_analyses = snapshot.callable_analyses.iter().collect::<Vec<_>>();
+    ordered_analyses.sort_unstable_by(|(left, _), (right, _)| to_stable_callable(left).cmp(&to_stable_callable(right)));
+    let mut portable_explanations = BTreeMap::new();
+    let mut portable_causes = BTreeMap::new();
+    for (callable, analysis) in ordered_analyses {
+        let ordinals = CallableAnalysisOrdinalMap::new(callable, analysis)?;
+        portable_explanations.insert(callable.clone(), ordinals.explanations);
+        for cause in ordinals.diagnostic_causes.keys() {
+            if !portable_causes.contains_key(cause) {
+                let ordinal = u32::try_from(portable_causes.len()).map_err(|_| referential("witness diagnostic cause ordinal overflow"))?;
+                portable_causes.insert(*cause, ordinal);
             }
         }
     }
-    let checked_definitions = export_checked_static_definitions(&templates, statics, types, limits)?;
+
+    let mut ordered_witness_plans = snapshot.conformance_witness_plans.iter().collect::<Vec<_>>();
+    ordered_witness_plans.sort_unstable_by(|(left, _), (right, _)| to_stable_impl(left).cmp(&to_stable_impl(right)));
+    for (_, plan) in &ordered_witness_plans {
+        for diagnostic in plan.diagnostics.iter().chain(plan.associated_type_plan.diagnostics.iter()) {
+            if let Some(cause) = diagnostic.root_cause
+                && !portable_causes.contains_key(&cause)
+            {
+                let ordinal = u32::try_from(portable_causes.len()).map_err(|_| referential("witness diagnostic cause ordinal overflow"))?;
+                portable_causes.insert(cause, ordinal);
+            }
+        }
+    }
+    for rule in snapshot.derived_conformance_rules.iter() {
+        for diagnostic in &rule.associated_type_plan.diagnostics {
+            if let Some(cause) = diagnostic.root_cause
+                && !portable_causes.contains_key(&cause)
+            {
+                let ordinal = u32::try_from(portable_causes.len()).map_err(|_| referential("derived-rule diagnostic cause ordinal overflow"))?;
+                portable_causes.insert(cause, ordinal);
+            }
+        }
+    }
+
+    let mut ordered_static_definitions = snapshot.static_definitions.iter().collect::<Vec<_>>();
+    ordered_static_definitions.sort_unstable_by(|(left, _), (right, _)| to_stable_declaration(left).cmp(&to_stable_declaration(right)));
+    for (_, product) in &ordered_static_definitions {
+        for diagnostic in product.diagnostics.iter() {
+            if let Some(cause) = diagnostic.root_cause
+                && !portable_causes.contains_key(&cause)
+            {
+                let ordinal = u32::try_from(portable_causes.len()).map_err(|_| referential("static diagnostic cause ordinal overflow"))?;
+                portable_causes.insert(cause, ordinal);
+            }
+        }
+    }
+    let mut ordered_static_constants = snapshot.static_constants.iter().collect::<Vec<_>>();
+    ordered_static_constants.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    for (_, product) in &ordered_static_constants {
+        for diagnostic in product.diagnostics.iter() {
+            if let Some(cause) = diagnostic.root_cause
+                && !portable_causes.contains_key(&cause)
+            {
+                let ordinal = u32::try_from(portable_causes.len()).map_err(|_| referential("static constant diagnostic cause ordinal overflow"))?;
+                portable_causes.insert(cause, ordinal);
+            }
+        }
+    }
+    let mut static_definitions = Vec::with_capacity(ordered_static_definitions.len());
+    for (owner, product) in ordered_static_definitions {
+        if &product.definition.id != owner {
+            return Err(referential("static definition table key disagrees with its product owner"));
+        }
+        let program = product
+            .canonical_program
+            .as_ref()
+            .ok_or_else(|| referential("static definition has no canonical static program"))?;
+        if program.owner.0 != *owner {
+            return Err(referential("canonical static program belongs to a different definition"));
+        }
+        let alias_info = if let Some(alias) = &product.alias_info {
+            if alias.declaration != *owner || snapshot.type_aliases.get(owner) != Some(alias.as_ref()) {
+                return Err(referential("static definition alias projection disagrees with structural alias authority"));
+            }
+            Some(to_stable_declaration(owner))
+        } else {
+            None
+        };
+        let dependencies = program
+            .dependencies
+            .iter()
+            .map(|dependency| export_static_semantic_dependency(dependency, types))
+            .collect::<Result<Vec<_>, _>>()?;
+        let canonical_program = crate::artifact::operational::export_canonical_static_program(program, statics, types, dependencies)?;
+        let signature = crate::artifact::operational::export_static_definition_signature(&product.definition.signature, types)?;
+        let diagnostics = product
+            .diagnostics
+            .iter()
+            .map(|diagnostic| export_semantic_diagnostic(diagnostic, None, Some(&portable_explanations), Some(&portable_causes), types))
+            .collect::<Result<Vec<_>, _>>()?;
+        static_definitions.push(wire::StaticDefinitionRecordV1 {
+            id: to_stable_declaration(owner),
+            signature,
+            source: export_source_range(product.definition.source_range)?,
+            alias_info,
+            canonical_program,
+            diagnostics,
+        });
+    }
+
+    let mut static_constants = Vec::with_capacity(ordered_static_constants.len());
+    for (owner, product) in ordered_static_constants {
+        if owner != &product.id {
+            return Err(referential("static constant table key disagrees with its product owner"));
+        }
+        let crate::static_eval::StaticEvalOutcome::Reduced(value) = &product.outcome else {
+            return Err(referential("canonical static constants require Reduced outcomes"));
+        };
+        if product.value != Some(*value)
+            || product.checked.as_ref().is_some_and(|checked| crate::static_constant::StaticConstantAuthority::from_checked(checked) != product.authority)
+        {
+            return Err(referential("static constant outcome or authority disagrees with its source product"));
+        }
+        let dependencies = product
+            .authority
+            .dependencies
+            .iter()
+            .map(|dependency| export_static_semantic_dependency(dependency, types))
+            .collect::<Result<Vec<_>, _>>()?;
+        let static_constant_reads = product
+            .authority
+            .static_constant_reads
+            .iter()
+            .map(|symbol| export_static_constant_symbol(&crate::static_constant::StaticConstantId(symbol.clone())))
+            .collect();
+        let record_key_static_constant_reads = product
+            .authority
+            .record_key_static_constant_reads
+            .iter()
+            .map(|symbol| export_static_constant_symbol(&crate::static_constant::StaticConstantId(symbol.clone())))
+            .collect();
+        let diagnostics = product
+            .diagnostics
+            .iter()
+            .map(|diagnostic| export_semantic_diagnostic(diagnostic, None, Some(&portable_explanations), Some(&portable_causes), types))
+            .collect::<Result<Vec<_>, _>>()?;
+        static_constants.push(wire::StaticConstantRecordV1 {
+            symbol: export_static_constant_symbol(owner),
+            declaration_source: export_source_range(product.declaration_range)?,
+            initializer_source: export_source_range(product.initializer_range)?,
+            input_fingerprint: product.authority.input_fingerprint.raw(),
+            dependencies,
+            static_constant_reads,
+            record_key_static_constant_reads,
+            result_type: product.authority.result_type.map(|ty| types.ty(ty)).transpose()?,
+            outcome: wire::StaticConstantOutcomeV1::Reduced { value: statics.value(*value)? },
+            lkg_value: product.lkg_value.map(|value| statics.value(value)).transpose()?,
+            diagnostics,
+        });
+    }
+
+    let mut ordered_module_bindings = snapshot.module_static_bindings.iter().collect::<Vec<_>>();
+    ordered_module_bindings.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    let mut module_static_bindings = Vec::with_capacity(ordered_module_bindings.len());
+    for (module, index) in ordered_module_bindings {
+        if index.module() != module {
+            return Err(referential("module static-binding table key disagrees with its index owner"));
+        }
+        let mut bindings = Vec::with_capacity(index.len());
+        for (symbol, fact) in index.iter() {
+            if symbol != &fact.symbol {
+                return Err(referential("module static-binding key disagrees with its fact symbol"));
+            }
+            let analysis = snapshot
+                .callable_analyses
+                .get(&fact.source_body)
+                .ok_or_else(|| referential("module static binding references an absent callable analysis"))?;
+            if analysis.bindings.get(&fact.source_binding) != Some(&fact.state) {
+                return Err(referential("module static binding state disagrees with its callable owner row"));
+            }
+            let ordinals = CallableAnalysisOrdinalMap::new(&fact.source_body, analysis)?;
+            let source_binding_ordinal = ordinals
+                .bindings
+                .get(&fact.source_binding)
+                .copied()
+                .ok_or_else(|| referential("module static binding references an absent owner-local binding ordinal"))?;
+            bindings.push(wire::ModuleStaticBindingRecordV1 {
+                symbol: export_static_constant_symbol(&crate::static_constant::StaticConstantId(symbol.clone())),
+                source_body: to_stable_callable(&fact.source_body),
+                source_binding_ordinal,
+                phase: match fact.phase {
+                    crate::module_bindings::ModuleBindingPhase::StaticConstant => wire::ModuleStaticBindingPhaseV1::StaticConstant,
+                    crate::module_bindings::ModuleBindingPhase::Runtime => wire::ModuleStaticBindingPhaseV1::Runtime,
+                },
+                declaration_source: export_source_range(fact.declaration_range)?,
+                initializer_source: fact.initializer_range.map(export_source_range).transpose()?,
+            });
+        }
+        let visible_names = index
+            .visible_symbol_bindings()
+            .map(|(name, symbol)| wire::ModuleStaticBindingVisibleNameV1 {
+                name: name.into(),
+                symbol: export_static_constant_symbol(&crate::static_constant::StaticConstantId(symbol.clone())),
+            })
+            .collect();
+        module_static_bindings.push(wire::ModuleStaticBindingIndexV1 {
+            module: to_stable_module(module),
+            bindings,
+            visible_names,
+        });
+    }
 
     let mut witness_plans = Vec::new();
-    for (_, plan) in snapshot.conformance_witness_plans.iter() {
+    for (owner, plan) in ordered_witness_plans {
+        if owner != &plan.impl_id || plan.associated_type_plan.impl_id != plan.impl_id {
+            return Err(referential("conformance witness plan identity disagrees with its owner"));
+        }
         let impl_id = to_stable_impl(&plan.impl_id);
         let source_module = to_stable_module(&plan.source_module);
         let mut trait_args = Vec::with_capacity(plan.trait_ref_template.arguments.len());
@@ -2968,44 +3433,36 @@ pub fn export_semantic_world(
         } else {
             None
         };
+        let mut conformance_export = CallableConformanceEvidenceExport {
+            types,
+            ordinals: None,
+            portable_explanations: Some(&portable_explanations),
+            portable_causes: Some(&portable_causes),
+            max_nodes: limits.max_semantic_entries_per_family,
+            max_depth: limits.max_recursion_depth,
+            active_arc_addresses: std::collections::HashSet::new(),
+            nodes: Vec::new(),
+        };
+        let requirement_views = export_callable_requirement_views(plan.requirement_views.iter(), types)?;
         let mut requirements = Vec::with_capacity(plan.requirements.len());
         for (req_id, selection) in &plan.requirements {
-            let side = match req_id.side {
-                crate::identity::DispatchSide::Instance => 0,
-                crate::identity::DispatchSide::Class => 1,
-            };
-            let sel_v1 = match selection {
-                crate::impls::RequirementSelectionTemplate::ConformanceCallable { callable } => RequirementSelectionV1::ConformanceCallable {
-                    callable: to_stable_callable(callable),
-                },
-                crate::impls::RequirementSelectionTemplate::InherentCallable { callable, .. } => RequirementSelectionV1::InherentCallable {
-                    callable: to_stable_callable(callable),
-                },
-                crate::impls::RequirementSelectionTemplate::TraitDefault { callable } => RequirementSelectionV1::TraitDefault {
-                    callable: to_stable_callable(callable),
-                },
-                crate::impls::RequirementSelectionTemplate::DataComponent { component, specialized_type } => RequirementSelectionV1::DataComponent {
-                    owner: to_stable_declaration(&component.owner),
-                    index: component.index,
-                    specialized_type: types.ty(*specialized_type)?,
-                },
-                crate::impls::RequirementSelectionTemplate::ConditionalInherent { .. } => {
-                    return Err(referential("unresolved conditional inherent cannot be exported to artifact"));
-                }
-            };
-            requirements.push(RequirementEntryV1 {
-                selector: req_id.selector.to_string().into_boxed_str(),
-                side,
-                selection: sel_v1,
+            if req_id.owner != plan.trait_ref_template.declaration {
+                return Err(referential("witness requirement selection belongs to another trait"));
+            }
+            requirements.push(wire::CallableRequirementSelectionEntryV1 {
+                requirement: export_callable_requirement_identity(req_id),
+                selection: conformance_export.selection(selection, 0)?,
             });
         }
-        let mut associated_types = Vec::with_capacity(plan.associated_type_plan.bindings.len());
-        for (req_id, template) in &plan.associated_type_plan.bindings {
-            let value = match template.value_template {
-                crate::impls::AssociatedTypeBindingValue::Type(ty) => AssociatedBindingValueV1::Type { ty: types.ty(ty)? },
-                crate::impls::AssociatedTypeBindingValue::Dynamic => AssociatedBindingValueV1::Dynamic,
-            };
-            associated_types.push(AssociatedBindingEntryV1 { index: req_id.index, value });
+        let associated_type_plan = conformance_export.associated_type_plan(&plan.associated_type_plan)?;
+        let completeness = conformance_export.completeness(&plan.completeness)?;
+        let diagnostics = plan
+            .diagnostics
+            .iter()
+            .map(|diagnostic| export_semantic_diagnostic(diagnostic, None, Some(&portable_explanations), Some(&portable_causes), types))
+            .collect::<Result<Vec<_>, _>>()?;
+        if plan.fingerprint != crate::impls::conformance_witness_plan_fingerprint(plan) {
+            return Err(referential("conformance witness plan fingerprint is stale"));
         }
         let fingerprint = plan.fingerprint.0;
         let ordered_selected_callables: Vec<StableCallableRef> = plan
@@ -3019,28 +3476,49 @@ pub fn export_semantic_world(
             })
             .collect();
         let slot_layout_fingerprint = compute_witness_layout_fingerprint(&ordered_selected_callables);
-        let completeness = match plan.completeness {
-            crate::impls::ConformanceCompleteness::Complete => 0,
-            crate::impls::ConformanceCompleteness::Incomplete { .. } => 1,
-            crate::impls::ConformanceCompleteness::Unknown(_) => 2,
-            crate::impls::ConformanceCompleteness::Blocked(_) => 3,
-            crate::impls::ConformanceCompleteness::Dynamic(_) => 4,
-            crate::impls::ConformanceCompleteness::Cancelled => 5,
-            crate::impls::ConformanceCompleteness::BudgetExceeded(_) => 6,
-            crate::impls::ConformanceCompleteness::InternalFailure(_) => 7,
-        };
         witness_plans.push(WitnessPlanV1 {
             impl_id,
             source_module,
             trait_ref_template,
             target_template,
             generic_signature,
+            requirement_views,
             requirements,
-            associated_types,
+            associated_type_plan,
+            invalid_explicit_members: plan.invalid_explicit_members,
+            completeness,
+            diagnostics,
+            conformance_evidence: conformance_export.nodes,
             fingerprint,
             ordered_selected_callables,
             slot_layout_fingerprint,
-            completeness,
+        });
+    }
+
+    let mut ordered_derived_rules = snapshot.derived_conformance_rules.iter().collect::<Vec<_>>();
+    ordered_derived_rules.sort_unstable_by(|left, right| to_stable_impl(&left.impl_id).cmp(&to_stable_impl(&right.impl_id)));
+    let mut derived_conformance_rules = Vec::with_capacity(ordered_derived_rules.len());
+    for rule in ordered_derived_rules {
+        if rule.associated_type_plan.impl_id != rule.impl_id {
+            return Err(referential("derived conformance rule identity disagrees with its owner"));
+        }
+        if rule.fingerprint != crate::derived_conformance::derived_conformance_rule_fingerprint(rule) {
+            return Err(referential("derived conformance rule fingerprint is stale"));
+        }
+        let mut conformance_export = CallableConformanceEvidenceExport {
+            types,
+            ordinals: None,
+            portable_explanations: Some(&portable_explanations),
+            portable_causes: Some(&portable_causes),
+            max_nodes: limits.max_semantic_entries_per_family,
+            max_depth: limits.max_recursion_depth,
+            active_arc_addresses: std::collections::HashSet::new(),
+            nodes: Vec::new(),
+        };
+        let rule = conformance_export.derived_rule(rule, 0)?;
+        derived_conformance_rules.push(wire::DerivedConformanceRuleRecordV1 {
+            rule,
+            conformance_evidence: conformance_export.nodes,
         });
     }
 
@@ -3049,6 +3527,15 @@ pub fn export_semantic_world(
         callable_signatures.push(export_callable_signature(sig, types)?);
     }
     callable_signatures.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
+
+    let mut callable_definitions = Vec::new();
+    for (callable, definition) in snapshot.callable_definitions.iter() {
+        if callable != &definition.callable {
+            return Err(referential("callable definition table key disagrees with its owner"));
+        }
+        callable_definitions.push(export_callable_definition(definition, &snapshot.store, types)?);
+    }
+    callable_definitions.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
 
     let mut callable_analyses = Vec::new();
     for (callable_id, analysis) in snapshot.callable_analyses.iter() {
@@ -3089,75 +3576,223 @@ pub fn export_semantic_world(
     }
     callable_analyses.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
 
+    let mut trait_owners = snapshot.trait_surfaces.iter().collect::<Vec<_>>();
+    trait_owners.sort_unstable_by(|(left, _), (right, _)| to_stable_declaration(left).cmp(&to_stable_declaration(right)));
+    let mut portable_explanations = BTreeMap::new();
+    for (callable, analysis) in snapshot.callable_analyses.iter() {
+        portable_explanations.insert(callable.clone(), assign_local_ordinals(analysis.explanations.iter().map(|(id, _)| *id))?);
+    }
+    let mut portable_causes = BTreeMap::new();
+    for (_, surface) in &trait_owners {
+        for diagnostic in &surface.diagnostics {
+            let Some(cause) = diagnostic.root_cause else {
+                continue;
+            };
+            if !portable_causes.contains_key(&cause) {
+                let ordinal = u32::try_from(portable_causes.len()).map_err(|_| referential("trait diagnostic cause ordinal overflow"))?;
+                portable_causes.insert(cause, ordinal);
+            }
+        }
+    }
+
     let mut trait_surfaces = Vec::new();
-    for (decl_id, surface) in snapshot.trait_surfaces.iter() {
+    for (decl_id, surface) in trait_owners {
         let declaration = to_stable_declaration(decl_id);
-        let generic_signature = if let Some(g) = &surface.generic_signature {
-            Some(export_generic_signature(g, types)?)
-        } else {
-            None
-        };
-        let mut super_traits = Vec::new();
-        if let Some(generics) = &surface.generic_signature {
-            for constraint in &generics.constraints {
-                if let GenericConstraint::Conforms { subject, trait_ref } = constraint {
-                    if matches!(subject, TypeTerm::SelfType(_)) {
-                        let mut args = Vec::with_capacity(trait_ref.arguments.len());
-                        for a in &trait_ref.arguments {
-                            args.push(types.ty(*a)?);
-                        }
-                        super_traits.push(TraitRefV1 {
-                            declaration: to_stable_declaration(&trait_ref.declaration),
-                            arguments: args,
-                        });
-                    }
+        let header = snapshot
+            .trait_headers
+            .get(decl_id)
+            .ok_or_else(|| referential("trait surface has no canonical trait-header owner"))?;
+        if &header.declaration != decl_id || header.generic_signature != surface.generic_signature {
+            return Err(referential("trait surface generic signature disagrees with its header owner"));
+        }
+        let generic_signature = header
+            .generic_signature
+            .as_ref()
+            .map(|signature| export_generic_signature(signature, types))
+            .transpose()?;
+        let members = surface
+            .iter()
+            .map(|(requirement, member)| -> Result<_, ArtifactError> {
+                if &member.requirement != requirement
+                    || &requirement.owner != decl_id
+                    || member.signature.callable != member.callable
+                    || member.signature.owner != *decl_id
+                    || member.signature.selector != requirement.selector
+                    || member.signature.side != requirement.side
+                    || member.default_present != member.default_source.is_some()
+                {
+                    return Err(referential("trait surface member disagrees with its complete callable owner"));
                 }
-            }
-        }
-        let mut required_callables = Vec::new();
-        let mut default_callables = Vec::new();
-        for (_, member) in surface.iter() {
-            let stable = to_stable_callable(&member.callable);
-            if member.default_present {
-                default_callables.push(stable);
-            } else {
-                required_callables.push(stable);
-            }
-        }
-        let associated_types = surface.associated_types.values().map(|req| req.name.clone()).collect();
+                Ok(TraitSurfaceMemberV1 {
+                    requirement: CallableRequirementIdentityV1 {
+                        owner: declaration.clone(),
+                        selector: requirement.selector.to_string().into_boxed_str(),
+                        side: match requirement.side {
+                            crate::identity::DispatchSide::Instance => 0,
+                            crate::identity::DispatchSide::Class => 1,
+                        },
+                    },
+                    callable: to_stable_callable(&member.callable),
+                    signature: export_callable_signature(&member.signature, types)?,
+                    visibility: export_visibility(member.visibility),
+                    source: export_source_span(&member.source)?,
+                    source_member_index: u32::try_from(member.source_member_index)
+                        .map_err(|_| referential("trait member source ordinal exceeds portable range"))?,
+                    default_present: member.default_present,
+                    default_source: member.default_source.as_ref().map(export_source_span).transpose()?,
+                })
+            })
+            .collect::<Result<Vec<_>, ArtifactError>>()?;
+        let associated_types = surface
+            .associated_types
+            .iter()
+            .map(|(requirement, associated)| -> Result<_, ArtifactError> {
+                if &associated.requirement != requirement || &requirement.owner != decl_id {
+                    return Err(referential("trait associated-type owner disagrees with its surface key"));
+                }
+                let domain = match associated.domain {
+                    crate::types::type_member::TypeMemberDomain::Kind(kind) => TypeMemberDomainV1::Kind { kind: types.kind(kind)? },
+                    crate::types::type_member::TypeMemberDomain::ValueType(ty) => TypeMemberDomainV1::ValueType { ty: types.ty(ty)? },
+                };
+                Ok(TraitAssociatedTypeRequirementV1 {
+                    requirement: CallableAssociatedTypeRequirementIdentityV1 {
+                        owner: declaration.clone(),
+                        index: requirement.index,
+                    },
+                    name: associated.name.clone(),
+                    domain,
+                    source: export_source_span(&associated.source)?,
+                })
+            })
+            .collect::<Result<Vec<_>, ArtifactError>>()?;
+        let diagnostics = surface
+            .diagnostics
+            .iter()
+            .map(|diagnostic| export_semantic_diagnostic(diagnostic, None, Some(&portable_explanations), Some(&portable_causes), types))
+            .collect::<Result<Vec<_>, _>>()?;
         trait_surfaces.push(TraitSurfaceRecordV1 {
             declaration,
             generic_signature,
-            super_traits,
-            required_callables,
-            default_callables,
+            header_source: export_source_span(&header.source)?,
+            members,
             associated_types,
+            diagnostics,
         });
     }
+    trait_surfaces.sort_unstable_by(|left, right| left.declaration.cmp(&right.declaration));
 
     let mut dispatch_surfaces = Vec::new();
     for (decl_id, surface) in snapshot.surfaces.iter() {
         let declaration = to_stable_declaration(decl_id);
-        let instance_callables = surface.instance.callables.keys().map(to_stable_callable).collect();
-        let class_callables = surface.class.callables.keys().map(to_stable_callable).collect();
-        let mut fields = Vec::new();
-        for (_, field_sig) in snapshot.field_signatures.iter_owner(decl_id) {
-            let owner = to_stable_declaration(&field_sig.owner);
-            let name = field_sig.name.clone();
-            let declared_type = export_declared_type_fact(&field_sig.declared_type, types)?;
-            let mutable = field_sig.mutable;
-            let side = match field_sig.side {
-                crate::identity::DispatchSide::Instance => 0,
-                crate::identity::DispatchSide::Class => 1,
+        let dispatch_callables =
+            |side: crate::identity::DispatchSide, member_surface: &crate::surface::MemberSurface| -> Result<Vec<wire::DispatchCallableFactV1>, ArtifactError> {
+                let mut callables = Vec::with_capacity(member_surface.callables.len());
+                for (callable, knowledge) in &member_surface.callables {
+                    if callable.owner != crate::identity::CallableOwnerId::Declaration(decl_id.clone()) || callable.side != side {
+                        return Err(referential("declaration dispatch callable owner or side disagrees with its surface"));
+                    }
+                    let semantic = snapshot
+                        .callable_signatures
+                        .get(callable)
+                        .ok_or_else(|| referential("declaration dispatch callable has no canonical semantic signature"))?;
+                    let projected = crate::checker::declaration_signature::project_semantic_signature(semantic);
+                    let retained = member_surface
+                        .callable_signatures
+                        .get(&callable.selector)
+                        .ok_or_else(|| referential("declaration dispatch callable has no final projected signature"))?;
+                    if retained.selector != callable.selector || &retained.return_type != knowledge {
+                        return Err(referential("declaration dispatch callable knowledge disagrees with its final projection"));
+                    }
+                    let mut projected_with_final_return = projected;
+                    projected_with_final_return.return_type = retained.return_type.clone();
+                    if projected_with_final_return != *retained {
+                        return Err(referential("declaration dispatch signature differs from its canonical semantic projection"));
+                    }
+                    let visibility = member_surface
+                        .callable_visibility
+                        .get(&callable.selector)
+                        .copied()
+                        .ok_or_else(|| referential("declaration dispatch callable has no retained visibility"))?;
+                    callables.push(wire::DispatchCallableFactV1 {
+                        callable: to_stable_callable(callable),
+                        knowledge: export_type_knowledge(knowledge, types)?,
+                        visibility: export_visibility(visibility),
+                    });
+                }
+                callables.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
+                Ok(callables)
             };
-            fields.push(FieldSignatureV1 {
-                owner,
-                name,
-                declared_type,
-                mutable,
-                side,
-            });
+        let instance_callables = dispatch_callables(crate::identity::DispatchSide::Instance, &surface.instance)?;
+        let class_callables = dispatch_callables(crate::identity::DispatchSide::Class, &surface.class)?;
+        let mut fields = Vec::new();
+        for (field_side, member_surface) in [
+            (crate::identity::DispatchSide::Instance, &surface.instance),
+            (crate::identity::DispatchSide::Class, &surface.class),
+        ] {
+            for (name, knowledge) in &member_surface.fields {
+                let field_id = member_surface
+                    .fields_by_name
+                    .get(name)
+                    .ok_or_else(|| referential("declaration field has no stable field identity"))?;
+                if field_id.owner != *decl_id || field_id.side != field_side || field_id.name.as_ref() != name {
+                    return Err(referential("declaration field identity disagrees with its dispatch surface"));
+                }
+                let field_signature = snapshot.field_signatures.get(field_id);
+                if field_signature.is_some_and(|signature| {
+                    signature.field != *field_id || signature.owner != *decl_id || signature.side != field_side || signature.name.as_ref() != name
+                }) {
+                    return Err(referential("declaration field signature disagrees with its stable field identity"));
+                }
+                let visibility = member_surface
+                    .field_visibility
+                    .get(name)
+                    .copied()
+                    .ok_or_else(|| referential("declaration field has no retained visibility"))?;
+                let (declared_type, mutable, source) = match field_signature {
+                    Some(signature) => {
+                        if signature.source.as_ref().is_some_and(|source| source.module != decl_id.module) {
+                            return Err(referential("declaration field source belongs to a different module"));
+                        }
+                        let source = signature
+                            .source
+                            .as_ref()
+                            .map(|source| {
+                                Ok::<_, ArtifactError>(phalcom_compiler_artifact::module_world::SpanV1 {
+                                    start: u64::try_from(source.range.start).map_err(|_| referential("field source start exceeds portable range"))?,
+                                    end: u64::try_from(source.range.end).map_err(|_| referential("field source end exceeds portable range"))?,
+                                })
+                            })
+                            .transpose()?;
+                        (
+                            Some(export_declared_type_fact(&signature.declared_type, types)?),
+                            Some(signature.mutable),
+                            source,
+                        )
+                    }
+                    None => (None, None, None),
+                };
+                fields.push(FieldSignatureV1 {
+                    owner: to_stable_declaration(decl_id),
+                    name: name.clone().into_boxed_str(),
+                    declared_type,
+                    knowledge: export_type_knowledge(knowledge, types)?,
+                    mutable,
+                    side: match field_side {
+                        crate::identity::DispatchSide::Instance => 0,
+                        crate::identity::DispatchSide::Class => 1,
+                    },
+                    visibility: export_visibility(visibility),
+                    source,
+                });
+            }
         }
+        for (field_id, field_signature) in snapshot.field_signatures.iter_owner(decl_id) {
+            let member_surface = surface.surface(field_signature.side);
+            if field_signature.owner != *decl_id || field_signature.field != *field_id || !member_surface.fields.contains_key(field_signature.name.as_ref()) {
+                return Err(referential("declaration field signature has no final dispatch surface field"));
+            }
+        }
+        fields.sort_unstable_by(|left, right| (left.side, &left.name).cmp(&(right.side, &right.name)));
         dispatch_surfaces.push(DeclarationSurfaceRecordV1 {
             declaration,
             instance_callables,
@@ -3165,6 +3800,82 @@ pub fn export_semantic_world(
             fields,
         });
     }
+
+    let mut conditional_inherent_sets = Vec::new();
+    for (target, set) in snapshot.dispatch.conditional_members().iter() {
+        let portable_target = match target {
+            crate::impls::InherentImplTarget::Declaration(declaration) => wire::InherentImplTargetV1::Declaration {
+                declaration: to_stable_declaration(declaration),
+            },
+            crate::impls::InherentImplTarget::ExactEnumCase(variant) => wire::InherentImplTargetV1::ExactEnumCase {
+                variant: to_stable_variant(variant),
+            },
+        };
+        if set.target.as_ref() != Some(target) {
+            return Err(referential("conditional inherent member set target disagrees with its resolver owner"));
+        }
+        let mut domains = BTreeMap::new();
+        for member in &set.members {
+            if let Some(existing) = domains.insert(member.impl_id.clone(), member.domain.clone())
+                && existing.as_ref() != member.domain.as_ref()
+            {
+                return Err(referential("conditional inherent members disagree about their shared impl domain"));
+            }
+        }
+        let domains = domains
+            .into_iter()
+            .map(|(impl_id, domain)| -> Result<_, ArtifactError> {
+                if domain.impl_id != impl_id || &domain.target != target {
+                    return Err(referential("conditional inherent domain identity disagrees with its set"));
+                }
+                Ok(wire::InherentImplDomainV1 {
+                    impl_id: to_stable_impl(&impl_id),
+                    target: portable_target.clone(),
+                    head_type: types.ty(domain.head_type)?,
+                    generic_signature: domain
+                        .generic_signature
+                        .as_ref()
+                        .map(|signature| export_generic_signature(signature, types))
+                        .transpose()?,
+                    constraints: domain
+                        .constraints
+                        .iter()
+                        .map(|constraint| export_constraint(constraint, types))
+                        .collect::<Result<Vec<_>, _>>()?,
+                })
+            })
+            .collect::<Result<Vec<_>, ArtifactError>>()?;
+        let members = set
+            .members
+            .iter()
+            .enumerate()
+            .map(|(member_order, member)| -> Result<_, ArtifactError> {
+                let member_order = u32::try_from(member_order).map_err(|_| referential("conditional inherent member order exceeds portable range"))?;
+                Ok(wire::ConditionalInherentMemberV1 {
+                    impl_id: to_stable_impl(&member.impl_id),
+                    member_order,
+                    is_conditionally_applicable: member.is_conditionally_applicable,
+                    callable: to_stable_callable(&member.callable),
+                    signature: export_callable_signature(&member.signature_template, types)?,
+                    visibility: export_visibility(member.visibility),
+                    source_member_index: u32::try_from(member.source_member)
+                        .map_err(|_| referential("conditional inherent source ordinal exceeds portable range"))?,
+                    is_requirement: member.is_requirement,
+                })
+            })
+            .collect::<Result<Vec<_>, ArtifactError>>()?;
+        conditional_inherent_sets.push(wire::ConditionalInherentSetV1 {
+            target: portable_target,
+            domains,
+            members,
+        });
+    }
+    conditional_inherent_sets.sort_unstable_by(|left, right| match (&left.target, &right.target) {
+        (wire::InherentImplTargetV1::Declaration { declaration: left }, wire::InherentImplTargetV1::Declaration { declaration: right }) => left.cmp(right),
+        (wire::InherentImplTargetV1::ExactEnumCase { variant: left }, wire::InherentImplTargetV1::ExactEnumCase { variant: right }) => left.cmp(right),
+        (wire::InherentImplTargetV1::Declaration { .. }, wire::InherentImplTargetV1::ExactEnumCase { .. }) => std::cmp::Ordering::Less,
+        (wire::InherentImplTargetV1::ExactEnumCase { .. }, wire::InherentImplTargetV1::Declaration { .. }) => std::cmp::Ordering::Greater,
+    });
 
     let mut conformance_heads = Vec::new();
     for (impl_id, contribution) in snapshot.conformance_index.iter() {
@@ -3250,21 +3961,68 @@ pub fn export_semantic_world(
     )?;
     let enum_requirements = export_enum_requirements(&snapshot.enum_requirements, &snapshot.enum_semantics, types)?;
 
-    let world = SemanticWorldV2 {
+    let mut static_case_catalogs = Vec::with_capacity(snapshot.static_case_catalogs.len());
+    for (domain, catalog) in snapshot.static_case_catalogs.iter() {
+        if domain != &catalog.domain {
+            return Err(referential("static-case catalog table key disagrees with its owner"));
+        }
+        let mut cases = Vec::with_capacity(catalog.cases.len());
+        for case in catalog.cases.iter() {
+            if case.id.domain != *domain {
+                return Err(referential("static-case identity belongs to another catalog domain"));
+            }
+            let shape = match &case.shape {
+                crate::static_case::StaticCaseShape::Singleton => wire::StaticCaseShapeV1::Singleton,
+                crate::static_case::StaticCaseShape::Constructor { slots } => wire::StaticCaseShapeV1::Constructor {
+                    slots: slots.iter().map(export_selector_slot).collect(),
+                },
+            };
+            cases.push(wire::StaticCaseHeaderV1 {
+                selector: export_exact_selector(&case.id.selector),
+                shape,
+                source: export_source_range(case.source_range)?,
+            });
+        }
+        static_case_catalogs.push(wire::StaticDomainCaseCatalogRecordV1 {
+            domain: export_static_case_domain(domain),
+            cases,
+        });
+    }
+    let mut static_case_signatures = Vec::with_capacity(snapshot.static_case_signatures.len());
+    for (case_id, signature) in snapshot.static_case_signatures.iter() {
+        if case_id != &signature.id {
+            return Err(referential("static-case signature table key disagrees with its owner"));
+        }
+        static_case_signatures.push(wire::StaticCaseSignatureRecordV1 {
+            domain: export_static_case_domain(&case_id.domain),
+            selector: export_exact_selector(&case_id.selector),
+            parameter_kinds: signature.parameter_kinds.iter().map(|&kind| types.kind(kind)).collect::<Result<Vec<_>, _>>()?,
+            source: export_source_range(signature.source_range)?,
+        });
+    }
+
+    let world = SemanticWorldV3 {
         type_graph,
         structural_contracts,
         enum_requirements,
         static_values,
-        checked_definitions,
+        static_definitions,
+        static_constants,
+        module_static_bindings,
         witness_plans,
+        derived_conformance_rules,
         callable_signatures,
+        callable_definitions,
         callable_analyses,
         trait_surfaces,
         dispatch_surfaces,
+        conditional_inherent_sets,
         conformance_heads,
         constructor_initializations,
         type_member_declarations,
         associated_static_domains,
+        static_case_catalogs,
+        static_case_signatures,
         associated_surfaces,
     };
     world.validate(limits)?;
@@ -3285,18 +4043,6 @@ fn validate_semantic_world_export_coverage(snapshot: &SemanticSnapshot) -> Resul
     if !snapshot.callable_analyses.is_empty() {
         return Err(referential(
             "semantic artifact export does not yet encode complete callable analysis facts and cannot publish a complete image",
-        ));
-    }
-    if !snapshot.static_case_catalogs.is_empty()
-        || !snapshot.static_case_signatures.is_empty()
-        || snapshot.static_definitions.iter().next().is_some()
-        || !snapshot.static_constants.is_empty()
-        || snapshot.module_static_bindings.iter().next().is_some()
-        || !snapshot.derived_conformance_rules.is_empty()
-        || !snapshot.trait_dispatch_index.is_empty()
-    {
-        return Err(referential(
-            "semantic artifact export omits required primary owner families and cannot publish a complete image",
         ));
     }
     for (_, plan) in snapshot.conformance_witness_plans.iter() {

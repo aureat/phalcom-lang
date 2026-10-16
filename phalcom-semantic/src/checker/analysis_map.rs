@@ -2,6 +2,7 @@
 
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedMap, SortedMapEntriesError};
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Index;
 use std::sync::Arc;
@@ -32,9 +33,15 @@ enum AnalysisMapStorage<K, V> {
 /// assembled. Imported canonical products use a shared [`BudgetedSortedMap`]
 /// whose backing buffer was charged by the caller's [`AllocationBudget`].
 /// Reads have the same ordering and lookup behavior for both representations.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AnalysisMap<K, V> {
     storage: AnalysisMapStorage<K, V>,
+}
+
+impl<K: Debug + Ord, V: Debug> Debug for AnalysisMap<K, V> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_map().entries(self.iter()).finish()
+    }
 }
 
 impl<K: Ord, V: PartialEq> PartialEq for AnalysisMap<K, V> {
@@ -297,6 +304,7 @@ mod tests {
             assert!(!map.is_empty());
         }
         assert_eq!(source, frozen, "storage representation is not part of map equality");
+        assert_eq!(format!("{source:?}"), format!("{frozen:?}"), "debug output exposes only semantic entries");
     }
 
     #[test]
@@ -362,5 +370,27 @@ mod tests {
             Err(AnalysisMapBuildError::Allocation(phalcom_type_meta::allocation::AllocationError::Exhausted))
         );
         assert_eq!(short.requested(), parent_requested);
+    }
+
+    #[test]
+    fn frozen_constructor_rejects_unsorted_and_duplicate_keys() {
+        let mut budget = AllocationBudget::new(1024);
+        let mut unsorted = budget.vector(2).unwrap();
+        unsorted.push((3, "three"));
+        unsorted.push((1, "one"));
+        assert_eq!(
+            AnalysisMap::from_budgeted_entries(unsorted, &mut budget),
+            Err(AnalysisMapBuildError::Entries(phalcom_type_meta::allocation::SortedMapEntriesError::OutOfOrder))
+        );
+
+        let mut duplicate = budget.vector(2).unwrap();
+        duplicate.push((1, "first"));
+        duplicate.push((1, "second"));
+        assert_eq!(
+            AnalysisMap::from_budgeted_entries(duplicate, &mut budget),
+            Err(AnalysisMapBuildError::Entries(
+                phalcom_type_meta::allocation::SortedMapEntriesError::DuplicateKey
+            ))
+        );
     }
 }

@@ -157,7 +157,7 @@ fn test_static_sequence_list_and_missing_proof_fail_closed() {
         .expect("Array constant product");
     assert!(product.is_successful(), "setup constant should reduce: {:?}", product.outcome);
 
-    let mut missing_proof = product.checked.as_ref().clone();
+    let mut missing_proof = product.checked.as_deref().expect("source checked initializer").clone();
     let mut checked_expression = missing_proof.expression.clone();
     checked_expression.sequence_literals = Arc::new(Default::default());
     missing_proof.expression = checked_expression;
@@ -183,7 +183,7 @@ fn test_static_sequence_budget_and_cancellation_do_not_publish_roots() {
 
     let mut values = phalcom_semantic::static_value::StaticValueStore::new();
     let mut budget = QueryBudget::new(0);
-    let bounded = StaticEvaluator::for_constant(product.checked.as_ref(), &mut values, &mut budget, &CancellationToken::new())
+    let bounded = StaticEvaluator::for_constant(product.checked.as_deref().expect("source checked initializer"), &mut values, &mut budget, &CancellationToken::new())
         .with_type_store(update.snapshot.store())
         .evaluate();
     assert!(matches!(bounded, StaticEvalOutcome::BudgetExceeded(_)));
@@ -192,7 +192,7 @@ fn test_static_sequence_budget_and_cancellation_do_not_publish_roots() {
     let cancellation = CancellationToken::new();
     cancellation.cancel();
     let mut cancelled_values = phalcom_semantic::static_value::StaticValueStore::new();
-    let cancelled = StaticEvaluator::for_constant(product.checked.as_ref(), &mut cancelled_values, &mut QueryBudget::default(), &cancellation)
+    let cancelled = StaticEvaluator::for_constant(product.checked.as_deref().expect("source checked initializer"), &mut cancelled_values, &mut QueryBudget::default(), &cancellation)
         .with_type_store(update.snapshot.store())
         .evaluate();
     assert_eq!(cancelled, StaticEvalOutcome::Cancelled);
@@ -705,7 +705,7 @@ fn test_constant_key_edit_republishes_only_its_annotation_consumer() {
     assert!(!Arc::ptr_eq(&value1, value2), "Value must be republished after its selected key changes");
     assert!(Arc::ptr_eq(&other1, other2), "unrelated constant must remain reusable");
 
-    let expected = value2.checked.result_type.expect("Value declared type");
+    let expected = value2.authority.result_type.expect("Value declared type");
     let TypeData::Record(row_id) = update2.snapshot.store.get(expected) else {
         panic!("Value annotation must remain a Record type")
     };
@@ -742,7 +742,7 @@ fn test_same_result_key_source_edit_revalidates_its_annotation_consumer() {
     );
     assert!(
         value2
-            .checked
+            .authority
             .dependencies
             .contains(&SemanticDependency::StaticConstant(StaticConstantId::new(module.clone(), "Key")))
     );
@@ -762,8 +762,8 @@ fn test_same_result_key_source_edit_revalidates_its_annotation_consumer() {
         update2.snapshot.static_values().get(value2.value().expect("incremental value")),
         cold.snapshot.static_values().get(cold_value.value().expect("cold value"))
     );
-    let incremental_type = value2.checked.result_type.expect("incremental Value type");
-    let cold_type = cold_value.checked.result_type.expect("cold Value type");
+    let incremental_type = value2.authority.result_type.expect("incremental Value type");
+    let cold_type = cold_value.authority.result_type.expect("cold Value type");
     let (TypeData::Record(incremental_row), TypeData::Record(cold_row)) = (update2.snapshot.store.get(incremental_type), cold.snapshot.store.get(cold_type))
     else {
         panic!("both Value annotations must form Record types")
@@ -789,7 +789,7 @@ fn test_const_to_const_dependency() {
 
     let prod_b = update.snapshot.static_constant(&id_b).expect("static constant B");
     assert!(prod_b.is_successful());
-    assert!(prod_b.checked.static_constant_reads.contains(id_a.symbol()), "B should record dependency on A");
+    assert!(prod_b.authority.static_constant_reads.contains(id_a.symbol()), "B should record dependency on A");
 
     let val_b = update.snapshot.static_values().get(prod_b.value().unwrap()).unwrap();
     assert_eq!(val_b, &StaticValueData::Int(StaticInt::Small(15)));

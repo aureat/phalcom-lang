@@ -5,9 +5,9 @@ program: PERF003
 checkpoint: PERF003.C2
 parent_plan: PERF003.C2.P7
 kind: corrective-implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 depends_on:
   - PERF003.C2.P7.PATCH0
   - PERF003.C2.P7.PATCH1
@@ -1902,7 +1902,7 @@ Verify before editing:
 | Assumption | Evidence | Response if false |
 |---|---|---|
 | PATCH1 portable BindingState/ordinal contract exists | PATCH1 handoff/live code | do not duplicate; STOP if PATCH2 cannot reference it |
-| current artifact schema can evolve safely | artifact version policy | consult before reinterpretation |
+| PATCH2 semantic-world version policy | user decision, 2026-10-16 | use semantic-world schema 3; preserve outer container schema 2 and reject semantic-world schema 2 |
 | all canonical trait surface members have stable source member ordinal | trait builder | add owner fact if straightforward |
 | generated delegation can be identified during impl contribution construction | `ImplMember::Delegation` path | add body provenance there |
 | final dispatch signature cannot universally be derived from global semantic signatures | surface census | if universal proof exists, derive instead of duplicate |
@@ -2157,7 +2157,10 @@ Do not recover it later from `impl_id.local` + AST.
 
 ## Wire
 
-Add `callable_definitions` to `SemanticWorldV2`.
+Add `callable_definitions` to `SemanticWorldV3`. Keep the outer Telosc
+container schema at 2; the semantic-world section and payload use schema 3.
+Schema-2 semantic-world payloads are intentionally rejected because they do not
+carry the accepted callable-definition authority required by PATCH2.
 
 Encode:
 
@@ -2238,7 +2241,8 @@ Encode:
 header generic signature + source
 members complete
 associated type requirements complete
-diagnostics according to canonical policy
+    full diagnostics, including callable-qualified explanation references and
+    root-cause equivalence within the canonically ordered trait-surface family
 source_member_index
 ```
 
@@ -2297,6 +2301,16 @@ Replace callable-ID-only rows with full final dispatch rows.
 
 Add conditional inherent set records.
 
+Each callable row carries its final `TypeKnowledge` and visibility. Its
+dispatch signature is reconstructed only from the canonical callable signature
+projection after export verifies that the retained dispatch signature agrees
+with that projection (apart from the separately transported final return
+knowledge). Field rows carry final knowledge and visibility. Declared field
+contract/mutability/source are optional together because some canonical native
+surface fields have no `FieldSemanticSignature`; do not fabricate those facts.
+Conditional member vector order is explicit and dense so reconstruction keeps
+candidate order.
+
 Root:
 
 ```text
@@ -2313,6 +2327,9 @@ Construct exact `DeclarationSurface`.
 Then derive `SurfaceDispatchResolver`.
 
 Register conditional sets/domains.
+
+Register each surface owner's type form from the same imported
+`DeclarationTypeTable` shell used by source publication.
 
 Do not use `TypeId(0)`.
 
@@ -3213,7 +3230,7 @@ PATCH2 cannot close unless:
 [ ] no orphan operational template
 [ ] static definition product fingerprint source/import equivalent
 
-[ ] static constant outcome census recorded
+[x] static constant outcome census recorded (11/11 canonical constants Reduced; 2026-10-16)
 [ ] canonical constant authority source-independent
 [ ] no constant re-evaluation on load
 [ ] materialization descriptor parity

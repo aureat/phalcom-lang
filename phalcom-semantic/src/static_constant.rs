@@ -103,13 +103,40 @@ pub struct StaticConstantProduct {
     pub id: StaticConstantId,
     pub declaration_range: SourceRange,
     pub initializer_range: SourceRange,
-    pub checked: Arc<CheckedStaticConstantInitializer>,
+    /// Source-backed checker products are retained only on source-built products.
+    /// Artifact-loaded products carry the same reusable facts in `authority`.
+    pub checked: Option<Arc<CheckedStaticConstantInitializer>>,
+    /// Source-independent query and semantic authority for this constant.
+    pub authority: StaticConstantAuthority,
     pub outcome: StaticEvalOutcome,
     /// Owns every node referenced by a published symbolic outcome.
     pub residuals: Option<Arc<crate::static_eval::StaticResidualStore>>,
     pub value: Option<StaticValueRef>,
     pub lkg_value: Option<StaticValueRef>,
     pub diagnostics: Arc<[SemanticDiagnostic]>,
+}
+
+/// Persistent, source-independent facts required to reuse and consume a checked constant.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StaticConstantAuthority {
+    pub input_fingerprint: InputFingerprint,
+    pub dependencies: Arc<[SemanticDependency]>,
+    pub static_constant_reads: Arc<[SymbolId]>,
+    pub record_key_static_constant_reads: Arc<[SymbolId]>,
+    pub result_type: Option<TypeId>,
+}
+
+impl StaticConstantAuthority {
+    /// Copies the persistent authority from the source check before publication.
+    pub fn from_checked(checked: &CheckedStaticConstantInitializer) -> Self {
+        Self {
+            input_fingerprint: checked.input_fingerprint,
+            dependencies: checked.dependencies.clone(),
+            static_constant_reads: checked.static_constant_reads.clone(),
+            record_key_static_constant_reads: checked.record_key_static_constant_reads.clone(),
+            result_type: checked.result_type,
+        }
+    }
 }
 
 impl StaticConstantProduct {

@@ -1,5 +1,9 @@
 use phalcom_compiler_artifact::*;
 
+fn semantic_world_schema() -> u32 {
+    phalcom_compiler_artifact::semantic::world::SEMANTIC_WORLD_SCHEMA_V3
+}
+
 fn create_sample_header() -> TeloscHeaderV2 {
     TeloscHeaderV2 {
         container_schema: TELOSC_CONTAINER_SCHEMA_V2,
@@ -30,7 +34,12 @@ fn minimal_container_round_trips() {
     let mut builder = TeloscContainerBuilder::new(header);
 
     builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, b"module-world-bytes".to_vec());
-    builder.add_section(SectionKind::SemanticWorld, 1, SectionFlags::REQUIRED, b"semantic-world-bytes".to_vec());
+    builder.add_section(
+        SectionKind::SemanticWorld,
+        semantic_world_schema(),
+        SectionFlags::REQUIRED,
+        b"semantic-world-bytes".to_vec(),
+    );
     builder.add_section(SectionKind::QueryImage, 1, SectionFlags::REQUIRED, b"query-image-bytes".to_vec());
     builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"metadata-bytes".to_vec());
 
@@ -47,6 +56,25 @@ fn minimal_container_round_trips() {
 }
 
 #[test]
+fn semantic_world_schema_v2_is_rejected_after_schema3_upgrade() {
+    let mut builder = TeloscContainerBuilder::new(create_sample_header());
+    builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, b"module".to_vec());
+    builder.add_section(SectionKind::SemanticWorld, 2, SectionFlags::REQUIRED, b"legacy-semantic".to_vec());
+    builder.add_section(SectionKind::QueryImage, 1, SectionFlags::REQUIRED, b"query".to_vec());
+    builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"metadata".to_vec());
+
+    let bytes = builder.build().expect("build container carrying legacy semantic world");
+    let error = TeloscContainerView::parse(&bytes, &ValidationLimits::default()).expect_err("schema-2 semantic world must be rejected");
+    assert!(matches!(
+        error,
+        ArtifactError::Container(ContainerError::UnsupportedSectionSchema {
+            section: SectionKind::SemanticWorld,
+            schema: 2
+        })
+    ));
+}
+
+#[test]
 fn container_directory_uses_the_shared_allocation_transaction() {
     use phalcom_type_meta::allocation::AllocationBudget;
     use std::alloc::Layout;
@@ -58,7 +86,8 @@ fn container_directory_uses_the_shared_allocation_transaction() {
         (SectionKind::QueryImage, b"query".as_slice()),
         (SectionKind::Metadata, b"metadata".as_slice()),
     ] {
-        builder.add_section(kind, 1, SectionFlags::REQUIRED, bytes.to_vec());
+        let schema = if kind == SectionKind::SemanticWorld { semantic_world_schema() } else { 1 };
+        builder.add_section(kind, schema, SectionFlags::REQUIRED, bytes.to_vec());
     }
     let bytes = builder.build().unwrap();
     let limits = ValidationLimits::default();
@@ -80,7 +109,7 @@ fn header_is_fixed_endian() {
     let header = create_sample_header();
     let mut builder = TeloscContainerBuilder::new(header);
     builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, b"m".to_vec());
-    builder.add_section(SectionKind::SemanticWorld, 1, SectionFlags::REQUIRED, b"s".to_vec());
+    builder.add_section(SectionKind::SemanticWorld, semantic_world_schema(), SectionFlags::REQUIRED, b"s".to_vec());
     builder.add_section(SectionKind::QueryImage, 1, SectionFlags::REQUIRED, b"q".to_vec());
     builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"meta".to_vec());
 
@@ -99,7 +128,8 @@ fn container_schema_v1_is_rejected_without_reinterpreting_its_header() {
         SectionKind::QueryImage,
         SectionKind::Metadata,
     ] {
-        builder.add_section(kind, 1, SectionFlags::REQUIRED, vec![kind.tag() as u8]);
+        let schema = if kind == SectionKind::SemanticWorld { semantic_world_schema() } else { 1 };
+        builder.add_section(kind, schema, SectionFlags::REQUIRED, vec![kind.tag() as u8]);
     }
     let mut bytes = builder.build().expect("build v2 container");
     bytes[8..12].copy_from_slice(&1_u32.to_le_bytes());
@@ -113,7 +143,7 @@ fn unknown_optional_section_is_skipped() {
     let header = create_sample_header();
     let mut builder = TeloscContainerBuilder::new(header);
     builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, b"m".to_vec());
-    builder.add_section(SectionKind::SemanticWorld, 1, SectionFlags::REQUIRED, b"s".to_vec());
+    builder.add_section(SectionKind::SemanticWorld, semantic_world_schema(), SectionFlags::REQUIRED, b"s".to_vec());
     builder.add_section(SectionKind::QueryImage, 1, SectionFlags::REQUIRED, b"q".to_vec());
     builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"meta".to_vec());
     builder.add_section(SectionKind::Unknown(999), 1, SectionFlags::empty(), b"future-extension".to_vec());
@@ -128,7 +158,7 @@ fn unknown_required_section_is_rejected() {
     let header = create_sample_header();
     let mut builder = TeloscContainerBuilder::new(header);
     builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, b"m".to_vec());
-    builder.add_section(SectionKind::SemanticWorld, 1, SectionFlags::REQUIRED, b"s".to_vec());
+    builder.add_section(SectionKind::SemanticWorld, semantic_world_schema(), SectionFlags::REQUIRED, b"s".to_vec());
     builder.add_section(SectionKind::QueryImage, 1, SectionFlags::REQUIRED, b"q".to_vec());
     builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"meta".to_vec());
     builder.add_section(SectionKind::Unknown(999), 1, SectionFlags::REQUIRED, b"mandatory-extension".to_vec());
@@ -147,7 +177,7 @@ fn duplicate_required_section_is_rejected() {
     let mut builder = TeloscContainerBuilder::new(header);
     builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, b"m1".to_vec());
     builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, b"m2".to_vec());
-    builder.add_section(SectionKind::SemanticWorld, 1, SectionFlags::REQUIRED, b"s".to_vec());
+    builder.add_section(SectionKind::SemanticWorld, semantic_world_schema(), SectionFlags::REQUIRED, b"s".to_vec());
     builder.add_section(SectionKind::QueryImage, 1, SectionFlags::REQUIRED, b"q".to_vec());
     builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"meta".to_vec());
 
@@ -164,7 +194,7 @@ fn overlapping_sections_are_rejected() {
     let header = create_sample_header();
     let mut builder = TeloscContainerBuilder::new(header);
     builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, b"m".to_vec());
-    builder.add_section(SectionKind::SemanticWorld, 1, SectionFlags::REQUIRED, b"s".to_vec());
+    builder.add_section(SectionKind::SemanticWorld, semantic_world_schema(), SectionFlags::REQUIRED, b"s".to_vec());
     builder.add_section(SectionKind::QueryImage, 1, SectionFlags::REQUIRED, b"q".to_vec());
     builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"meta".to_vec());
 
@@ -192,7 +222,7 @@ fn offset_overflow_is_rejected() {
     let header = create_sample_header();
     let mut builder = TeloscContainerBuilder::new(header);
     builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, b"m".to_vec());
-    builder.add_section(SectionKind::SemanticWorld, 1, SectionFlags::REQUIRED, b"s".to_vec());
+    builder.add_section(SectionKind::SemanticWorld, semantic_world_schema(), SectionFlags::REQUIRED, b"s".to_vec());
     builder.add_section(SectionKind::QueryImage, 1, SectionFlags::REQUIRED, b"q".to_vec());
     builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"meta".to_vec());
 
@@ -217,7 +247,7 @@ fn section_size_limit_is_enforced() {
     let header = create_sample_header();
     let mut builder = TeloscContainerBuilder::new(header);
     builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, vec![0u8; 100]);
-    builder.add_section(SectionKind::SemanticWorld, 1, SectionFlags::REQUIRED, b"s".to_vec());
+    builder.add_section(SectionKind::SemanticWorld, semantic_world_schema(), SectionFlags::REQUIRED, b"s".to_vec());
     builder.add_section(SectionKind::QueryImage, 1, SectionFlags::REQUIRED, b"q".to_vec());
     builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"meta".to_vec());
 
@@ -239,7 +269,7 @@ fn section_digest_mismatch_is_rejected() {
     let header = create_sample_header();
     let mut builder = TeloscContainerBuilder::new(header);
     builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, b"m".to_vec());
-    builder.add_section(SectionKind::SemanticWorld, 1, SectionFlags::REQUIRED, b"s".to_vec());
+    builder.add_section(SectionKind::SemanticWorld, semantic_world_schema(), SectionFlags::REQUIRED, b"s".to_vec());
     builder.add_section(SectionKind::QueryImage, 1, SectionFlags::REQUIRED, b"q".to_vec());
     builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"meta".to_vec());
 
@@ -263,7 +293,7 @@ fn whole_artifact_digest_is_deterministic() {
         let header = create_sample_header();
         let mut builder = TeloscContainerBuilder::new(header);
         builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, b"m".to_vec());
-        builder.add_section(SectionKind::SemanticWorld, 1, SectionFlags::REQUIRED, b"s".to_vec());
+        builder.add_section(SectionKind::SemanticWorld, semantic_world_schema(), SectionFlags::REQUIRED, b"s".to_vec());
         builder.add_section(SectionKind::QueryImage, 1, SectionFlags::REQUIRED, b"q".to_vec());
         builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"meta".to_vec());
         builder.build().expect("build")

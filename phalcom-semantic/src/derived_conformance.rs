@@ -1,3 +1,4 @@
+use crate::checker::analysis_map::AnalysisMap;
 use crate::db::key::ProductFingerprint;
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{DeclarationId, ImplId, ModuleId, TypeId};
@@ -32,8 +33,8 @@ pub struct DerivedConformanceRule {
     pub trait_ref: TraitRef,
     pub generic_signature: GenericSignature,
     pub associated_type_plan: ConformanceAssociatedTypePlan,
-    pub requirement_views: BTreeMap<TraitRequirementId, InstantiatedTraitRequirement>,
-    pub requirements: BTreeMap<TraitRequirementId, RequirementSelectionTemplate>,
+    pub requirement_views: AnalysisMap<TraitRequirementId, InstantiatedTraitRequirement>,
+    pub requirements: AnalysisMap<TraitRequirementId, RequirementSelectionTemplate>,
     pub fingerprint: ProductFingerprint,
     pub source: SemanticSourceSpan,
 }
@@ -49,6 +50,33 @@ impl DerivedConformanceRule {
         associated_type_plan: ConformanceAssociatedTypePlan,
         requirement_views: BTreeMap<TraitRequirementId, InstantiatedTraitRequirement>,
         requirements: BTreeMap<TraitRequirementId, RequirementSelectionTemplate>,
+        source: SemanticSourceSpan,
+    ) -> Self {
+        Self::from_frozen_parts(
+            impl_id,
+            source_module,
+            target_parameter,
+            target_template,
+            trait_ref,
+            generic_signature,
+            associated_type_plan,
+            requirement_views.into(),
+            requirements.into(),
+            source,
+        )
+    }
+
+    /// Builds an imported rule around already-frozen map fields.
+    pub(crate) fn from_frozen_parts(
+        impl_id: ImplId,
+        source_module: ModuleId,
+        target_parameter: TypeParameterId,
+        target_template: TypeId,
+        trait_ref: TraitRef,
+        generic_signature: GenericSignature,
+        associated_type_plan: ConformanceAssociatedTypePlan,
+        requirement_views: AnalysisMap<TraitRequirementId, InstantiatedTraitRequirement>,
+        requirements: AnalysisMap<TraitRequirementId, RequirementSelectionTemplate>,
         source: SemanticSourceSpan,
     ) -> Self {
         let mut rule = Self {
@@ -326,5 +354,67 @@ mod parent_tests {
         assert_eq!(overlay.rules_for_trait(&trait_id).len(), 1);
         assert_eq!(parent.rules_for_trait(&trait_id).len(), 1);
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| overlay.insert(canonical_rule))).is_err());
+    }
+
+    #[test]
+    fn derived_rule_fingerprint_is_independent_of_requirement_map_backing() {
+        use crate::checker::analysis_map::AnalysisMap;
+        use crate::identity::{CallableId, DispatchSide};
+        use crate::impls::RequirementSelectionTemplate;
+        use crate::types::id::TypeId;
+        use phalcom_common::selector::Selector;
+        use phalcom_type_meta::allocation::AllocationBudget;
+
+        let module = ModuleId::universe_root();
+        let trait_declaration = DeclarationId::new(module.clone(), "FrozenRuleTrait".into());
+        let impl_id = ImplId::new(module.clone(), ImplLocalId(22));
+        let requirement = TraitRequirementId::new(trait_declaration.clone(), Selector::getter("value").expect("selector"), DispatchSide::Instance);
+        let callable = CallableId::method(trait_declaration.clone(), requirement.selector.clone(), DispatchSide::Instance);
+        let selection = RequirementSelectionTemplate::TraitDefault { callable };
+        let owner = TypeParameterOwner::Impl(impl_id.clone());
+        let generic_signature = GenericSignature {
+            owner,
+            parameters: Box::new([]),
+            parameter_kinds: Box::new([]),
+            parameter_kind_shapes: Box::new([]),
+            parameter_variances: Box::new([]),
+            parameter_modes: Box::new([]),
+            constraint_shapes: Box::new([]),
+            constraints: Box::new([]),
+        };
+        let source_module = module.clone();
+        let source = SemanticSourceSpan::new(module.clone(), phalcom_common::range::SourceRange::default());
+        let source_rule = DerivedConformanceRule::new(
+            impl_id.clone(),
+            source_module.clone(),
+            TypeParameterId(0),
+            TypeId(3),
+            TraitRef::new(trait_declaration, Box::<[TypeId]>::default()),
+            generic_signature.clone(),
+            ConformanceAssociatedTypePlan::empty(impl_id.clone()),
+            BTreeMap::new(),
+            BTreeMap::from([(requirement.clone(), selection.clone())]),
+            source.clone(),
+        );
+
+        let mut budget = AllocationBudget::new(2048);
+        let mut entries = budget.vector(1).expect("map entries are charged");
+        entries.push((requirement, selection));
+        let frozen_requirements = AnalysisMap::from_budgeted_entries(entries, &mut budget).expect("sorted map and shared owner fit");
+        let frozen_rule = DerivedConformanceRule::from_frozen_parts(
+            impl_id,
+            source_module,
+            TypeParameterId(0),
+            TypeId(3),
+            source_rule.trait_ref.clone(),
+            generic_signature,
+            source_rule.associated_type_plan.clone(),
+            AnalysisMap::new(),
+            frozen_requirements,
+            source,
+        );
+
+        assert_eq!(source_rule, frozen_rule);
+        assert_eq!(source_rule.fingerprint, frozen_rule.fingerprint);
     }
 }

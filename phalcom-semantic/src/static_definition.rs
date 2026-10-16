@@ -64,11 +64,12 @@ pub enum OperationalNode {
     Constant(crate::static_value::StaticValueRef),
     ReadParameter(u32),
     ReadLocal(u32),
+    ReadStaticConstant(phalcom_modules::linker::SymbolId),
     WriteLocal(u32, Box<OperationalNode>),
     TypeForm(crate::types::id::TypeId),
     Binary { op: StaticBinaryOp, left: Box<OperationalNode>, right: Box<OperationalNode> },
     Unary { op: StaticUnaryOp, operand: Box<OperationalNode> },
-    StaticApplication { target: DeclarationId, arguments: Vec<OperationalNode> },
+    StaticApplication { application_ordinal: u32, arguments: Vec<OperationalNode> },
     StaticConstruction { target: OperationalTarget, result_type: crate::types::id::TypeId, arguments: Vec<OperationalNode> },
     MemberProjection { target: Box<OperationalNode>, member: Box<str> },
     If { condition: Box<OperationalNode>, then_branch: Box<OperationalNode>, else_branch: Option<Box<OperationalNode>> },
@@ -78,13 +79,43 @@ pub enum OperationalNode {
     Return(Option<Box<OperationalNode>>),
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanonicalCheckedStaticApplication {
+    pub id: StaticApplicationId,
+    pub source_range: SourceRange,
+    pub target: DeclarationId,
+    pub signature: StaticDefinitionSignature,
+    pub arguments: Box<[CanonicalStaticApplicationArgument]>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct OperationalTemplate {
-    pub owner: DeclarationId,
+pub enum CanonicalStaticApplicationArgument {
+    KindedTerm { parameter_index: u32, term: crate::types::id::TypeId },
+    KindedExpression { parameter_index: u32, application_ordinal: u32 },
+    Value { parameter_index: u32 },
+}
+
+/// Source-independent executable owner derived from one checked static body.
+/// The body-local application rows remain the authority for target and checked
+/// signature; operational nodes carry only their ordinal within this owner.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanonicalStaticProgram {
+    pub owner: StaticBodyId,
     pub parameter_count: u32,
     pub local_count: u32,
     pub root: OperationalNode,
+    pub applications: Arc<[CanonicalCheckedStaticApplication]>,
+    pub kinded_parameters: Arc<[u32]>,
+    pub static_constant_reads: Arc<[phalcom_modules::linker::SymbolId]>,
+    pub dependencies: Arc<[crate::checker::analysis::SemanticDependency]>,
+    pub result: StaticValueDomain,
+    pub input_fingerprint: crate::db::key::InputFingerprint,
+    pub module_binding_fingerprint: Option<crate::db::key::ProductFingerprint>,
 }
+
+/// Compatibility name for the operational root carried by existing artifact
+/// codec helpers. The canonical program is the owner, not a detached template.
+pub type OperationalTemplate = CanonicalStaticProgram;
 
 /// Body representation of a static definition.
 #[derive(Clone, Debug)]
@@ -228,6 +259,9 @@ pub struct StaticDefinitionProduct {
     pub diagnostics: Arc<[SemanticDiagnostic]>,
     /// Optimized projection for Type-valued definitions compatible with C3 alias machinery.
     pub alias_info: Option<Arc<TypeAliasInfo>>,
+    /// Source-independent executable authority derived from the checked body.
+    /// Imported products always carry this and have no source checked body.
+    pub canonical_program: Option<Arc<CanonicalStaticProgram>>,
     /// Composed snapshot view of the distinct cached ordinary-checker body.
     pub checked_body: Option<Arc<CheckedStaticBody>>,
 }
@@ -565,6 +599,7 @@ pub fn resolve_static_definition(
         definition,
         diagnostics: Arc::from(diagnostics.as_slice()),
         alias_info,
+        canonical_program: None,
         checked_body: None,
     }
 }

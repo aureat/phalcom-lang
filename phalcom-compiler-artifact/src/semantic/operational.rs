@@ -1,13 +1,10 @@
 //! Source-independent operational template DTOs for checked static definitions (`PERF003.C2.P7.T7.B`).
 
-use crate::module_world::{Decode, Wire, invalid, record, tagged};
+use crate::module_world::{Decode, Wire, invalid, tagged};
 use crate::semantic::static_value::ArtifactStaticValueId;
 use crate::semantic::type_store::ArtifactTypeId;
-use crate::{ArtifactError, BinaryReader, BinaryWriter, ValidationError, ValidationLimits};
-use phalcom_type_meta::allocation::AllocationBudget;
-use phalcom_type_meta::identity::StableDeclarationRef;
-
-pub const OPERATIONAL_TEMPLATE_SCHEMA_V1: u32 = 1;
+use crate::{ArtifactError, BinaryWriter, ValidationError, ValidationLimits};
+use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
 
 tagged!(StaticBinaryOpV1 {
     0 => Add,
@@ -50,7 +47,7 @@ tagged!(OperationalOpV1 limit max_semantic_entries_per_family {
     4 => TypeForm { ty: ArtifactTypeId },
     5 => Binary { op: StaticBinaryOpV1, left: Box<OperationalOpV1>, right: Box<OperationalOpV1> },
     6 => Unary { op: StaticUnaryOpV1, operand: Box<OperationalOpV1> },
-    7 => StaticApplication { target: StableDeclarationRef, arguments: Vec<OperationalOpV1> },
+    7 => StaticApplication { application_ordinal: u32, arguments: Vec<OperationalOpV1> },
     8 => StaticConstruction { target: OperationalTargetV1, result_type: ArtifactTypeId, arguments: Vec<OperationalOpV1> },
     9 => MemberProjection { target: Box<OperationalOpV1>, member: Box<str> },
     10 => If { condition: Box<OperationalOpV1>, then_branch: Box<OperationalOpV1>, else_branch: Option<Box<OperationalOpV1>> },
@@ -58,66 +55,10 @@ tagged!(OperationalOpV1 limit max_semantic_entries_per_family {
     12 => Tuple { elements: Vec<OperationalOpV1> },
     13 => Block { local_count: u32, statements: Vec<OperationalOpV1>, result: Option<Box<OperationalOpV1>> },
     14 => Return { value: Option<Box<OperationalOpV1>> },
+    15 => ReadStaticConstant { module: StableModuleRef, name: String },
 });
 
-record!(OperationalTemplateV1 {
-    owner: StableDeclarationRef,
-    parameter_count: u32,
-    local_count: u32,
-    root: OperationalOpV1,
-});
-
-record!(CheckedStaticDefinitionsV1 {
-    definitions: Vec<OperationalTemplateV1>,
-});
-
-impl CheckedStaticDefinitionsV1 {
-    pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
-        self.validate(&ValidationLimits::default())?;
-        let mut out = BinaryWriter::new();
-        out.write_u32(OPERATIONAL_TEMPLATE_SCHEMA_V1);
-        self.write(&mut out)?;
-        Ok(out.into_vec())
-    }
-
-    pub fn decode(bytes: &[u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {
-        if bytes.len() as u64 > limits.max_decoded_section_bytes {
-            return Err(invalid("operational template byte budget exceeded"));
-        }
-        let allocation_limit = usize::try_from(limits.max_decoded_section_bytes)
-            .map_err(|_| invalid("operational template allocation limit exceeds address space"))?;
-        let mut allocations = AllocationBudget::new(allocation_limit);
-        let mut input = Decode {
-            reader: BinaryReader::new(bytes),
-            limits: *limits,
-            allocations: &mut allocations,
-            items_left: limits.max_semantic_entries_per_family,
-            depth: 0,
-        };
-        if input.reader.read_u32()? != OPERATIONAL_TEMPLATE_SCHEMA_V1 {
-            return Err(invalid("unsupported operational template schema"));
-        }
-        let definitions = Self::read(&mut input)?;
-        if input.reader.has_remaining() {
-            return Err(invalid("trailing operational template bytes"));
-        }
-        definitions.validate(limits)?;
-        Ok(definitions)
-    }
-
-    pub fn validate(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
-        if self.definitions.len() > limits.max_semantic_entries_per_family {
-            return Err(invalid("operational template count budget exceeded"));
-        }
-        for def in &self.definitions {
-            validate_owner(&def.owner, limits)?;
-            validate_op(&def.root, def.parameter_count, def.local_count, 0, limits)?;
-        }
-        Ok(())
-    }
-}
-
-fn validate_op(
+pub(crate) fn validate_op(
     op: &OperationalOpV1,
     param_count: u32,
     local_count: u32,
@@ -129,6 +70,12 @@ fn validate_op(
     }
     match op {
         OperationalOpV1::Constant { .. } => {}
+        OperationalOpV1::ReadStaticConstant { module, name } => {
+            validate_module(module, limits)?;
+            if name.is_empty() || name.len() > limits.max_string_bytes {
+                return Err(invalid("invalid static constant identity"));
+            }
+        }
         OperationalOpV1::ReadParameter { index } => {
             if *index >= param_count {
                 return Err(invalid("operational parameter read out of range"));
@@ -153,8 +100,7 @@ fn validate_op(
         OperationalOpV1::Unary { operand, .. } => {
             validate_op(operand, param_count, local_count, depth + 1, limits)?;
         }
-        OperationalOpV1::StaticApplication { target, arguments } => {
-            validate_owner(target, limits)?;
+        OperationalOpV1::StaticApplication { arguments, .. } => {
             if arguments.len() > limits.max_semantic_entries_per_family {
                 return Err(invalid("static application argument budget exceeded"));
             }
@@ -223,6 +169,23 @@ fn validate_op(
                 validate_op(val, param_count, local_count, depth + 1, limits)?;
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_module(module: &StableModuleRef, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    let project_strings: Vec<&str> = match &module.project {
+        StableProjectRef::Builtin { namespace, version } => vec![namespace, version],
+        StableProjectRef::Package { package, version, .. } => vec![package, version],
+        StableProjectRef::SourceArtifact { logical_uri, .. } => vec![logical_uri],
+        StableProjectRef::Session { .. } => Vec::new(),
+    };
+    if project_strings.iter().any(|value| value.is_empty() || value.len() > limits.max_string_bytes)
+        || module.path.is_empty()
+        || module.path.len() > limits.max_semantic_entries_per_family
+        || module.path.iter().any(|part| part.is_empty() || part.len() > limits.max_string_bytes)
+    {
+        return Err(invalid("invalid or oversized static constant module identity"));
     }
     Ok(())
 }

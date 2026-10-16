@@ -3,8 +3,8 @@
 use crate::module_world::SpanV1;
 use crate::module_world::{Decode, Wire, invalid, record, tagged};
 use crate::semantic::aggregates::{DeclaredTypeFactV1, GenericSignatureV1, StructuralPrimaryContractsV1, TraitRefV1, TypeTermV1, UnknownReasonV1};
-use crate::semantic::operational::CheckedStaticDefinitionsV1;
-use crate::semantic::static_value::StaticValueGraphV1;
+use crate::semantic::operational::OperationalOpV1;
+use crate::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1};
 use crate::semantic::type_store::{
     ArtifactKindId, ArtifactStaticConstructorId, ArtifactStaticDomainId, ArtifactTypeId, ArtifactTypeParameterId, StaticArgumentV1, TypeGraphV1,
     TypeMemberSelectorV1,
@@ -13,10 +13,10 @@ use crate::{ArtifactError, BinaryReader, BinaryWriter, ValidationLimits};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{
     StableAssociatedStaticDomainDeclarationRef, StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableImplRef,
-    StableModuleRef, StableVariantRef,
+    StableModuleRef, StableProjectRef, StableVariantRef,
 };
 
-pub const SEMANTIC_WORLD_SCHEMA_V2: u32 = 2;
+pub const SEMANTIC_WORLD_SCHEMA_V3: u32 = 3;
 
 tagged!(ConformanceTargetV1 {
     0 => Declaration { declaration: StableDeclarationRef },
@@ -63,12 +63,16 @@ record!(WitnessPlanV1 {
     trait_ref_template: TraitRefV1,
     target_template: ArtifactTypeId,
     generic_signature: Option<GenericSignatureV1>,
-    requirements: Vec<RequirementEntryV1>,
-    associated_types: Vec<AssociatedBindingEntryV1>,
+    requirement_views: Vec<CallableRequirementViewV1>,
+    requirements: Vec<CallableRequirementSelectionEntryV1>,
+    associated_type_plan: CallableConformanceAssociatedTypePlanV1,
+    invalid_explicit_members: bool,
+    completeness: CallableConformanceCompletenessV1,
+    diagnostics: Vec<CallableEvidenceDiagnosticV1>,
+    conformance_evidence: Vec<CallableConformanceEvidenceNodeV1>,
     fingerprint: u64,
     ordered_selected_callables: Vec<StableCallableRef>,
     slot_layout_fingerprint: [u8; 32],
-    completeness: u8,
 });
 
 record!(CallableParameterV1 {
@@ -206,6 +210,42 @@ record!(CallableSignatureRecordV1 {
     raises: RaisesSpecV1,
     flow: ReturnFlowV1,
     lifecycle: NativeLifecycleSpecV1,
+});
+
+tagged!(CallableDefinitionOriginV1 {
+    0 => PrimaryDeclaration,
+    1 => InherentImpl { impl_id: StableImplRef },
+    2 => ConformanceWitness { impl_id: StableImplRef },
+});
+
+tagged!(CallableDefinitionBodyProvenanceV1 {
+    0 => SourceBody,
+    1 => GeneratedDelegation { target_field: Box<str> },
+});
+
+record!(CoveringImplParameterBindingV1 {
+    impl_parameter: ArtifactTypeParameterId,
+    declaration_parameter: ArtifactTypeParameterId,
+});
+
+record!(CoveringImplSubstitutionV1 {
+    impl_to_decl: Vec<CoveringImplParameterBindingV1>,
+    decl_to_impl: Vec<CoveringImplParameterBindingV1>,
+});
+
+record!(InherentBodyContextV1 {
+    generic_signature: Option<GenericSignatureV1>,
+    covering: Option<CoveringImplSubstitutionV1>,
+    source_target_head: ArtifactTypeId,
+});
+
+record!(CallableDefinitionRecordV1 {
+    callable: StableCallableRef,
+    origin: CallableDefinitionOriginV1,
+    source_member_index: u32,
+    signature: CallableSignatureRecordV1,
+    body_provenance: CallableDefinitionBodyProvenanceV1,
+    inherent_body_context: Option<InherentBodyContextV1>,
 });
 
 tagged!(CallableAnalysisStatusV1 {
@@ -591,6 +631,11 @@ record!(CallableDerivedConformanceRuleV1 {
     source: EnumRequirementSourceV1,
 });
 
+record!(DerivedConformanceRuleRecordV1 {
+    rule: CallableDerivedConformanceRuleV1,
+    conformance_evidence: Vec<CallableConformanceEvidenceNodeV1>,
+});
+
 tagged!(CallableNestedGenericEvidenceV1 {
     0 => Conformance { evidence: u32 },
     1 => Equivalent,
@@ -771,28 +816,85 @@ record!(EnumRequirementOwnerV1 {
     case_statuses: Vec<CaseRequirementResultV1>,
 });
 
+record!(TraitSurfaceMemberV1 {
+    requirement: CallableRequirementIdentityV1,
+    callable: StableCallableRef,
+    signature: CallableSignatureRecordV1,
+    visibility: crate::semantic::aggregates::VisibilityV1,
+    source: EnumRequirementSourceV1,
+    source_member_index: u32,
+    default_present: bool,
+    default_source: Option<EnumRequirementSourceV1>,
+});
+
+record!(TraitAssociatedTypeRequirementV1 {
+    requirement: CallableAssociatedTypeRequirementIdentityV1,
+    name: Box<str>,
+    domain: TypeMemberDomainV1,
+    source: EnumRequirementSourceV1,
+});
+
 record!(TraitSurfaceRecordV1 {
     declaration: StableDeclarationRef,
     generic_signature: Option<GenericSignatureV1>,
-    super_traits: Vec<TraitRefV1>,
-    required_callables: Vec<StableCallableRef>,
-    default_callables: Vec<StableCallableRef>,
-    associated_types: Vec<Box<str>>,
+    header_source: EnumRequirementSourceV1,
+    members: Vec<TraitSurfaceMemberV1>,
+    associated_types: Vec<TraitAssociatedTypeRequirementV1>,
+    diagnostics: Vec<CallableEvidenceDiagnosticV1>,
 });
 
 record!(FieldSignatureV1 {
     owner: StableDeclarationRef,
     name: Box<str>,
-    declared_type: DeclaredTypeFactV1,
-    mutable: bool,
+    declared_type: Option<DeclaredTypeFactV1>,
+    knowledge: TypeKnowledgeV1,
+    mutable: Option<bool>,
     side: u8,
+    visibility: crate::semantic::aggregates::VisibilityV1,
+    source: Option<SpanV1>,
+});
+
+record!(DispatchCallableFactV1 {
+    callable: StableCallableRef,
+    knowledge: TypeKnowledgeV1,
+    visibility: crate::semantic::aggregates::VisibilityV1,
 });
 
 record!(DeclarationSurfaceRecordV1 {
     declaration: StableDeclarationRef,
-    instance_callables: Vec<StableCallableRef>,
-    class_callables: Vec<StableCallableRef>,
+    instance_callables: Vec<DispatchCallableFactV1>,
+    class_callables: Vec<DispatchCallableFactV1>,
     fields: Vec<FieldSignatureV1>,
+});
+
+tagged!(InherentImplTargetV1 {
+    0 => Declaration { declaration: StableDeclarationRef },
+    1 => ExactEnumCase { variant: StableVariantRef },
+});
+
+record!(InherentImplDomainV1 {
+    impl_id: StableImplRef,
+    target: InherentImplTargetV1,
+    head_type: ArtifactTypeId,
+    generic_signature: Option<GenericSignatureV1>,
+    constraints: Vec<crate::semantic::aggregates::GenericConstraintV1>,
+});
+
+record!(ConditionalInherentMemberV1 {
+    impl_id: StableImplRef,
+    member_order: u32,
+    is_conditionally_applicable: bool,
+    callable: StableCallableRef,
+    signature: CallableSignatureRecordV1,
+    visibility: crate::semantic::aggregates::VisibilityV1,
+    source_member_index: u32,
+    is_requirement: bool,
+});
+
+record!(ConditionalInherentSetV1 {
+    target: InherentImplTargetV1,
+    domains: Vec<InherentImplDomainV1>,
+    members: Vec<ConditionalInherentMemberV1>,
 });
 
 record!(ConstructorParamFieldV1 {
@@ -861,6 +963,173 @@ record!(AssociatedStaticDomainRecordV1 {
     declaration: StableAssociatedStaticDomainDeclarationRef,
     domain: ArtifactStaticDomainId,
     constructors: Vec<ArtifactStaticConstructorId>,
+});
+
+tagged!(StaticCaseDomainV1 {
+    0 => Nominal { declaration: StableDeclarationRef },
+    1 => Associated { declaration: StableAssociatedStaticDomainDeclarationRef }
+});
+
+tagged!(StaticCaseShapeV1 {
+    0 => Singleton,
+    1 => Constructor { slots: Vec<SelectorSlotV1> }
+});
+
+record!(StaticCaseHeaderV1 {
+    selector: ExactSelectorV1,
+    shape: StaticCaseShapeV1,
+    source: SpanV1,
+});
+
+record!(StaticDomainCaseCatalogRecordV1 {
+    domain: StaticCaseDomainV1,
+    cases: Vec<StaticCaseHeaderV1>,
+});
+
+record!(StaticCaseSignatureRecordV1 {
+    domain: StaticCaseDomainV1,
+    selector: ExactSelectorV1,
+    parameter_kinds: Vec<ArtifactKindId>,
+    source: SpanV1,
+});
+
+tagged!(StaticValueDomainV1 {
+    0 => Kind { kind: ArtifactKindId },
+    1 => ValueType { ty: ArtifactTypeId },
+});
+
+record!(StaticParameterV1 {
+    name: Box<str>,
+    domain: StaticValueDomainV1,
+    mode: crate::semantic::type_store::ParameterModeV1,
+    index: u32,
+    type_parameter: Option<ArtifactTypeParameterId>,
+    source: SpanV1,
+});
+
+record!(StaticDefinitionSignatureV1 {
+    parameters: Vec<StaticParameterV1>,
+    result_domain: StaticValueDomainV1,
+    generic_signature: Option<GenericSignatureV1>,
+});
+
+tagged!(CanonicalStaticApplicationArgumentV1 {
+    0 => KindedTerm { parameter_index: u32, term: ArtifactTypeId },
+    1 => KindedExpression { parameter_index: u32, application_ordinal: u32 },
+    2 => Value { parameter_index: u32 },
+});
+
+record!(CanonicalCheckedStaticApplicationV1 {
+    ordinal: u32,
+    source: SpanV1,
+    target: StableDeclarationRef,
+    signature: StaticDefinitionSignatureV1,
+    arguments: Vec<CanonicalStaticApplicationArgumentV1>,
+});
+
+record!(StaticConstantSymbolV1 {
+    module: StableModuleRef,
+    name: Box<str>,
+});
+
+record!(StaticFieldDependencyV1 {
+    owner: StableDeclarationRef,
+    side: StableDispatchSide,
+    name: Box<str>,
+});
+
+tagged!(StaticSemanticDependencyV1 {
+    0 => DeclarationShell { owner: StableDeclarationRef },
+    1 => TraitHeader { owner: StableDeclarationRef },
+    2 => CallableSignature { callable: StableCallableRef },
+    3 => FieldSignature { field: StaticFieldDependencyV1 },
+    4 => DeclarationSurface { owner: StableDeclarationRef },
+    5 => TraitSurface { owner: StableDeclarationRef },
+    6 => ConformanceDispatch { implementation: StableImplRef },
+    7 => TraitDispatchBucket { target: ConformanceTargetV1, selector: ExactSelectorV1, side: StableDispatchSide },
+    8 => GenericConformance { subject: TypeTermV1, trait_ref: TraitRefV1 },
+    9 => HierarchyEdge { owner: StableDeclarationRef },
+    10 => LinkedInterface { module: StableModuleRef },
+    11 => DataDeclaration { owner: StableDeclarationRef },
+    12 => EnumDeclaration { owner: StableDeclarationRef },
+    13 => AssociatedSurface { owner: StableDeclarationRef },
+    14 => TypeMemberDeclaration { owner: StableDeclarationRef, selector: crate::semantic::type_store::TypeMemberSelectorV1 },
+    15 => StaticDomainCaseCatalog { domain: StaticCaseDomainV1 },
+    16 => StaticCaseSignature { domain: StaticCaseDomainV1, selector: ExactSelectorV1 },
+    17 => StaticDefinition { owner: StableDeclarationRef },
+    18 => StaticConstant { symbol: StaticConstantSymbolV1 },
+    19 => ModuleStaticBindingCatalog { module: StableModuleRef },
+    20 => ConstructorInitialization { owner: StableDeclarationRef },
+    21 => ResolvedImport { module: StableModuleRef, local_id: u32 },
+    22 => LinkedName { module: StableModuleRef, name: Box<str> },
+    23 => PublicExport { module: StableModuleRef, name: Box<str> },
+    24 => ModuleStaticBindings { module: StableModuleRef },
+});
+
+record!(CanonicalStaticProgramV1 {
+    owner: StableDeclarationRef,
+    parameter_count: u32,
+    local_count: u32,
+    root: OperationalOpV1,
+    applications: Vec<CanonicalCheckedStaticApplicationV1>,
+    kinded_parameters: Vec<u32>,
+    static_constant_reads: Vec<StaticConstantSymbolV1>,
+    dependencies: Vec<StaticSemanticDependencyV1>,
+    result: StaticValueDomainV1,
+    input_fingerprint: u64,
+    module_binding_fingerprint: Option<u64>,
+});
+
+record!(StaticDefinitionRecordV1 {
+    id: StableDeclarationRef,
+    signature: StaticDefinitionSignatureV1,
+    source: SpanV1,
+    alias_info: Option<StableDeclarationRef>,
+    canonical_program: CanonicalStaticProgramV1,
+    diagnostics: Vec<CallableEvidenceDiagnosticV1>,
+});
+
+tagged!(StaticConstantOutcomeV1 {
+    0 => Reduced { value: ArtifactStaticValueId }
+});
+
+record!(StaticConstantRecordV1 {
+    symbol: StaticConstantSymbolV1,
+    declaration_source: SpanV1,
+    initializer_source: SpanV1,
+    input_fingerprint: u64,
+    dependencies: Vec<StaticSemanticDependencyV1>,
+    static_constant_reads: Vec<StaticConstantSymbolV1>,
+    record_key_static_constant_reads: Vec<StaticConstantSymbolV1>,
+    result_type: Option<ArtifactTypeId>,
+    outcome: StaticConstantOutcomeV1,
+    lkg_value: Option<ArtifactStaticValueId>,
+    diagnostics: Vec<CallableEvidenceDiagnosticV1>,
+});
+
+tagged!(ModuleStaticBindingPhaseV1 {
+    0 => StaticConstant,
+    1 => Runtime
+});
+
+record!(ModuleStaticBindingRecordV1 {
+    symbol: StaticConstantSymbolV1,
+    source_body: StableCallableRef,
+    source_binding_ordinal: u32,
+    phase: ModuleStaticBindingPhaseV1,
+    declaration_source: SpanV1,
+    initializer_source: Option<SpanV1>,
+});
+
+record!(ModuleStaticBindingVisibleNameV1 {
+    name: Box<str>,
+    symbol: StaticConstantSymbolV1,
+});
+
+record!(ModuleStaticBindingIndexV1 {
+    module: StableModuleRef,
+    bindings: Vec<ModuleStaticBindingRecordV1>,
+    visible_names: Vec<ModuleStaticBindingVisibleNameV1>,
 });
 
 tagged!(AssociatedMemberV1 {
@@ -996,29 +1265,36 @@ record!(AssociatedSurfaceRecordV1 {
     families: Vec<AssociatedFamilyRecordV1>,
 });
 
-record!(SemanticWorldV2 {
+record!(SemanticWorldV3 {
     type_graph: TypeGraphV1,
     structural_contracts: StructuralPrimaryContractsV1,
     enum_requirements: Vec<EnumRequirementOwnerV1>,
     static_values: StaticValueGraphV1,
-    checked_definitions: CheckedStaticDefinitionsV1,
+    static_definitions: Vec<StaticDefinitionRecordV1>,
+    static_constants: Vec<StaticConstantRecordV1>,
+    module_static_bindings: Vec<ModuleStaticBindingIndexV1>,
     witness_plans: Vec<WitnessPlanV1>,
+    derived_conformance_rules: Vec<DerivedConformanceRuleRecordV1>,
     callable_signatures: Vec<CallableSignatureRecordV1>,
+    callable_definitions: Vec<CallableDefinitionRecordV1>,
     callable_analyses: Vec<CallableAnalysisRecordV1>,
     trait_surfaces: Vec<TraitSurfaceRecordV1>,
     dispatch_surfaces: Vec<DeclarationSurfaceRecordV1>,
+    conditional_inherent_sets: Vec<ConditionalInherentSetV1>,
     conformance_heads: Vec<ConformanceHeadRecordV1>,
     constructor_initializations: Vec<ConstructorInitializationRecordV1>,
     type_member_declarations: Vec<TypeMemberDeclarationRecordV1>,
     associated_static_domains: Vec<AssociatedStaticDomainRecordV1>,
+    static_case_catalogs: Vec<StaticDomainCaseCatalogRecordV1>,
+    static_case_signatures: Vec<StaticCaseSignatureRecordV1>,
     associated_surfaces: Vec<AssociatedSurfaceRecordV1>,
 });
 
-impl SemanticWorldV2 {
+impl SemanticWorldV3 {
     pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
         self.validate(&ValidationLimits::default())?;
         let mut out = BinaryWriter::new();
-        out.write_u32(SEMANTIC_WORLD_SCHEMA_V2);
+        out.write_u32(SEMANTIC_WORLD_SCHEMA_V3);
         self.write(&mut out)?;
         Ok(out.into_vec())
     }
@@ -1034,7 +1310,7 @@ impl SemanticWorldV2 {
                 items_left: limits.max_semantic_entries_per_family,
                 depth: 0,
             };
-            if input.reader.read_u32()? != SEMANTIC_WORLD_SCHEMA_V2 {
+            if input.reader.read_u32()? != SEMANTIC_WORLD_SCHEMA_V3 {
                 return Err(invalid("unsupported semantic world schema"));
             }
             let world = Self::read(&mut input)?;
@@ -1085,15 +1361,22 @@ impl SemanticWorldV2 {
         self.type_graph.validate(limits)?;
         self.structural_contracts.validate(limits)?;
         self.static_values.validate(limits)?;
-        self.checked_definitions.validate(limits)?;
         if self.witness_plans.len() > limits.max_semantic_entries_per_family
+            || self.derived_conformance_rules.len() > limits.max_semantic_entries_per_family
             || self.callable_signatures.len() > limits.max_semantic_entries_per_family
+            || self.callable_definitions.len() > limits.max_semantic_entries_per_family
             || self.callable_analyses.len() > limits.max_semantic_entries_per_family
             || self.trait_surfaces.len() > limits.max_semantic_entries_per_family
             || self.dispatch_surfaces.len() > limits.max_semantic_entries_per_family
+            || self.conditional_inherent_sets.len() > limits.max_semantic_entries_per_family
             || self.conformance_heads.len() > limits.max_semantic_entries_per_family
             || self.type_member_declarations.len() > limits.max_semantic_entries_per_family
             || self.associated_static_domains.len() > limits.max_semantic_entries_per_family
+            || self.static_case_catalogs.len() > limits.max_semantic_entries_per_family
+            || self.static_case_signatures.len() > limits.max_semantic_entries_per_family
+            || self.static_definitions.len() > limits.max_semantic_entries_per_family
+            || self.static_constants.len() > limits.max_semantic_entries_per_family
+            || self.module_static_bindings.len() > limits.max_semantic_entries_per_family
             || self.associated_surfaces.len() > limits.max_semantic_entries_per_family
             || self.enum_requirements.len() > limits.max_semantic_entries_per_family
         {
@@ -1104,6 +1387,73 @@ impl SemanticWorldV2 {
         }
         for signature in &self.callable_signatures {
             validate_callable_signature(signature, limits)?;
+        }
+        validate_static_definitions(self, limits, allocations)?;
+        validate_static_constants(self, limits)?;
+        if self.callable_definitions.windows(2).any(|pair| pair[0].callable >= pair[1].callable) {
+            return Err(invalid("callable definition owners must be unique and sorted"));
+        }
+        for definition in &self.callable_definitions {
+            validate_callable_definition(definition, &self.type_graph, limits)?;
+            if let Ok(index) = self
+                .callable_signatures
+                .binary_search_by(|signature| signature.callable.cmp(&definition.callable))
+                && self.callable_signatures[index] != definition.signature
+            {
+                return Err(invalid("callable definition signature disagrees with the canonical signature row"));
+            }
+        }
+        if self.trait_surfaces.windows(2).any(|pair| pair[0].declaration >= pair[1].declaration) {
+            return Err(invalid("trait surface owners must be unique and sorted"));
+        }
+        let mut trait_diagnostic_causes = std::collections::BTreeSet::new();
+        for surface in &self.trait_surfaces {
+            validate_trait_surface(surface, &self.callable_signatures, &self.type_graph, limits)?;
+            for diagnostic in &surface.diagnostics {
+                if let Some(cause) = diagnostic.root_cause {
+                    trait_diagnostic_causes.insert(cause);
+                }
+            }
+        }
+        if trait_diagnostic_causes
+            .iter()
+            .copied()
+            .enumerate()
+            .any(|(expected, actual)| u32::try_from(expected).ok() != Some(actual))
+        {
+            return Err(invalid("trait diagnostic cause ordinals must be dense and owner-canonical"));
+        }
+        if self.witness_plans.windows(2).any(|pair| pair[0].impl_id >= pair[1].impl_id) {
+            return Err(invalid("witness plans must be unique and sorted by implementation identity"));
+        }
+        for witness in &self.witness_plans {
+            validate_witness_plan(witness, &self.trait_surfaces, &self.callable_signatures, &self.type_graph, limits, allocations)?;
+        }
+        if self
+            .derived_conformance_rules
+            .windows(2)
+            .any(|pair| pair[0].rule.impl_id >= pair[1].rule.impl_id)
+        {
+            return Err(invalid("derived conformance rules must be unique and sorted by implementation identity"));
+        }
+        for record in &self.derived_conformance_rules {
+            validate_derived_conformance_rule(record, &self.trait_surfaces, &self.callable_signatures, &self.type_graph, limits, allocations)?;
+        }
+        if self.dispatch_surfaces.windows(2).any(|pair| pair[0].declaration >= pair[1].declaration) {
+            return Err(invalid("declaration surface owners must be unique and sorted"));
+        }
+        for surface in &self.dispatch_surfaces {
+            validate_declaration_surface(surface, &self.callable_signatures, &self.type_graph, limits)?;
+        }
+        if self
+            .conditional_inherent_sets
+            .windows(2)
+            .any(|pair| compare_inherent_targets(&pair[0].target, &pair[1].target).is_ge())
+        {
+            return Err(invalid("conditional inherent sets must be unique and target-sorted"));
+        }
+        for set in &self.conditional_inherent_sets {
+            validate_conditional_inherent_set(set, &self.callable_signatures, &self.type_graph, limits)?;
         }
         if self.enum_requirements.windows(2).any(|pair| pair[0].owner >= pair[1].owner) {
             return Err(invalid("enum requirement owners must be unique and sorted"));
@@ -1367,6 +1717,8 @@ impl SemanticWorldV2 {
         if self.callable_analyses.windows(2).any(|pair| pair[0].callable >= pair[1].callable) {
             return Err(invalid("callable analysis owners must be unique and sorted"));
         }
+        validate_module_static_bindings(self, limits)?;
+        validate_static_case_owners(self, limits, allocations)?;
         Ok(())
     }
 
@@ -1576,11 +1928,11 @@ impl SemanticWorldV2 {
                     || self
                         .trait_surfaces
                         .iter()
-                        .any(|surface| surface.required_callables.contains(callable) || surface.default_callables.contains(callable))
-                    || self
-                        .dispatch_surfaces
-                        .iter()
-                        .any(|surface| surface.instance_callables.contains(callable) || surface.class_callables.contains(callable));
+                        .any(|surface| surface.members.iter().any(|member| &member.callable == callable))
+                    || self.dispatch_surfaces.iter().any(|surface| {
+                        surface.instance_callables.iter().any(|fact| &fact.callable == callable)
+                            || surface.class_callables.iter().any(|fact| &fact.callable == callable)
+                    });
                 if signature {
                     Ok(())
                 } else {
@@ -1628,13 +1980,611 @@ impl SemanticWorldV2 {
         {
             return Err(invalid("conditional dispatch selection has an invalid or inconsistent side"));
         }
-        // SemanticWorldV2 does not serialize the inherent-implementation
-        // member table that proves this (impl, owner, callable) selection.
-        // A conformance head is not that authority, and a callable signature
-        // elsewhere cannot establish the relation. Reject until the exact
-        // selection relation is transported in the artifact.
-        Err(invalid("conditional dispatch selection has no serialized implementation-member authority"))
+        let target = match &selection.callable.owner {
+            StableCallableOwnerRef::Declaration(declaration) if declaration == &selection.declaring_owner => InherentImplTargetV1::Declaration {
+                declaration: declaration.clone(),
+            },
+            StableCallableOwnerRef::Variant(variant) if variant.owner == selection.declaring_owner => {
+                InherentImplTargetV1::ExactEnumCase { variant: variant.clone() }
+            }
+            _ => return Err(invalid("conditional dispatch selection callable does not belong to its declaring owner")),
+        };
+        if self.conditional_inherent_sets.iter().any(|set| {
+            set.target == target
+                && set.members.iter().any(|member| {
+                    member.impl_id == selection.impl_id
+                        && member.callable == selection.callable
+                        && member.signature.owner == selection.declaring_owner
+                        && member.signature.side == selection.side
+                })
+        }) {
+            Ok(())
+        } else {
+            Err(invalid("conditional dispatch selection has no serialized implementation-member authority"))
+        }
     }
+}
+
+fn compare_static_case_domain(left: &StaticCaseDomainV1, right: &StaticCaseDomainV1) -> std::cmp::Ordering {
+    use StaticCaseDomainV1 as Domain;
+    match (left, right) {
+        (Domain::Nominal { declaration: left }, Domain::Nominal { declaration: right }) => left.cmp(right),
+        (Domain::Nominal { .. }, Domain::Associated { .. }) => std::cmp::Ordering::Less,
+        (Domain::Associated { .. }, Domain::Nominal { .. }) => std::cmp::Ordering::Greater,
+        (Domain::Associated { declaration: left }, Domain::Associated { declaration: right }) => left.cmp(right),
+    }
+}
+
+fn validate_static_value_domain(domain: &StaticValueDomainV1, graph: &TypeGraphV1) -> Result<(), ArtifactError> {
+    match domain {
+        StaticValueDomainV1::Kind { kind } if usize::try_from(kind.0).map_or(true, |index| index >= graph.kinds.len()) => {
+            Err(invalid("static definition domain references an absent kind"))
+        }
+        StaticValueDomainV1::ValueType { ty } if usize::try_from(ty.0).map_or(true, |index| index >= graph.types.len()) => {
+            Err(invalid("static definition domain references an absent type"))
+        }
+        StaticValueDomainV1::Kind { .. } | StaticValueDomainV1::ValueType { .. } => Ok(()),
+    }
+}
+
+fn validate_static_definition_signature(
+    signature: &StaticDefinitionSignatureV1,
+    owner: &StableDeclarationRef,
+    graph: &TypeGraphV1,
+    limits: &ValidationLimits,
+) -> Result<(), ArtifactError> {
+    if signature.parameters.len() > limits.max_parameters {
+        return Err(invalid("static definition parameter limit exceeded"));
+    }
+    validate_static_value_domain(&signature.result_domain, graph)?;
+    let mut kinded_count = 0usize;
+    for (index, parameter) in signature.parameters.iter().enumerate() {
+        if usize::try_from(parameter.index).ok() != Some(index)
+            || parameter.name.is_empty()
+            || parameter.name.len() > limits.max_string_bytes
+            || parameter.source.start > parameter.source.end
+        {
+            return Err(invalid("static definition parameter identity or source range is invalid"));
+        }
+        validate_static_value_domain(&parameter.domain, graph)?;
+        if let Some(type_parameter) = parameter.type_parameter {
+            if usize::try_from(type_parameter.0).map_or(true, |position| position >= graph.parameters.len())
+                || !matches!(parameter.domain, StaticValueDomainV1::Kind { .. })
+            {
+                return Err(invalid("static definition parameter references an invalid kinded parameter"));
+            }
+            if signature
+                .generic_signature
+                .as_ref()
+                .map_or(true, |generic| generic.parameters.get(kinded_count) != Some(&type_parameter))
+            {
+                return Err(invalid("static definition generic signature parameter order disagrees with its signature"));
+            }
+            kinded_count += 1;
+        }
+    }
+    if let Some(signature) = &signature.generic_signature {
+        crate::semantic::aggregates::validate_signature(signature, limits)?;
+        if signature.owner != (crate::semantic::type_store::ParameterOwnerV1::Declaration { owner: owner.clone() })
+            || signature.parameters.len() != kinded_count
+            || signature
+                .parameter_kinds
+                .iter()
+                .any(|kind| usize::try_from(kind.0).map_or(true, |index| index >= graph.kinds.len()))
+        {
+            return Err(invalid("static definition generic signature disagrees with its kinded parameters"));
+        }
+    } else if kinded_count != 0 {
+        return Err(invalid("kinded static definition parameters lack a generic signature"));
+    }
+    Ok(())
+}
+
+fn validate_static_definitions(
+    world: &SemanticWorldV3,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<(), ArtifactError> {
+    for pair in world.static_definitions.windows(2) {
+        if pair[0].id >= pair[1].id {
+            return Err(invalid("static definition owners must be unique and sorted"));
+        }
+    }
+    for definition in &world.static_definitions {
+        crate::semantic::aggregates::validate_owner(&definition.id, limits)?;
+        if definition.source.start > definition.source.end
+            || definition.alias_info.as_ref().is_some_and(|alias| alias != &definition.id)
+            || definition.canonical_program.owner != definition.id
+            || definition.canonical_program.result != definition.signature.result_domain
+            || definition.canonical_program.parameter_count as usize != definition.signature.parameters.len()
+            || definition.diagnostics.len() > limits.max_semantic_entries_per_family
+        {
+            return Err(invalid("static definition owner fields disagree"));
+        }
+        validate_static_definition_signature(&definition.signature, &definition.id, &world.type_graph, limits)?;
+        let program = &definition.canonical_program;
+        crate::semantic::operational::validate_op(&program.root, program.parameter_count, program.local_count, 0, limits)?;
+        if program.applications.len() > limits.max_semantic_entries_per_family
+            || program.kinded_parameters.windows(2).any(|pair| pair[0] >= pair[1])
+            || program.kinded_parameters.iter().any(|index| *index >= program.parameter_count)
+            || program.static_constant_reads.windows(2).any(|pair| (&pair[0].module, &pair[0].name) >= (&pair[1].module, &pair[1].name))
+            || program.dependencies.len() > limits.max_semantic_entries_per_family
+        {
+            return Err(invalid("canonical static program rows are non-canonical or exceed limits"));
+        }
+        let mut kinded_position = 0usize;
+        let kinded_parameters_match = definition.signature.parameters.iter().filter(|parameter| parameter.type_parameter.is_some()).all(|parameter| {
+            let matches = program.kinded_parameters.get(kinded_position) == Some(&parameter.index);
+            kinded_position += 1;
+            matches
+        });
+        if !kinded_parameters_match || kinded_position != program.kinded_parameters.len() {
+            return Err(invalid("canonical static program kinded parameter indexes disagree with the definition signature"));
+        }
+        for (expected, application) in program.applications.iter().enumerate() {
+            if usize::try_from(application.ordinal).ok() != Some(expected)
+                || application.source.start > application.source.end
+                || application.arguments.len() != application.signature.parameters.len()
+            {
+                return Err(invalid("canonical static application row is malformed"));
+            }
+            crate::semantic::aggregates::validate_owner(&application.target, limits)?;
+            validate_static_definition_signature(&application.signature, &application.target, &world.type_graph, limits)?;
+            let target = world.static_definitions.binary_search_by(|candidate| candidate.id.cmp(&application.target)).ok()
+                .map(|index| &world.static_definitions[index])
+                .ok_or_else(|| invalid("canonical static application target has no static definition owner"))?;
+            if target.signature != application.signature {
+                return Err(invalid("canonical static application signature disagrees with its target definition"));
+            }
+            for (index, argument) in application.arguments.iter().enumerate() {
+                let parameter = &application.signature.parameters[index];
+                if parameter.index as usize != index {
+                    return Err(invalid("canonical static application parameters are not in index order"));
+                }
+                match argument {
+                    CanonicalStaticApplicationArgumentV1::KindedTerm { parameter_index, term } => {
+                        let expected_kind = match &parameter.domain {
+                            StaticValueDomainV1::Kind { kind } => *kind,
+                            StaticValueDomainV1::ValueType { .. } => {
+                                return Err(invalid("canonical static application argument disagrees with its parameter domain"));
+                            }
+                        };
+                        if *parameter_index as usize != index {
+                            return Err(invalid("canonical static application argument parameter index is invalid"));
+                        }
+                        let term_index = usize::try_from(term.0).map_err(|_| invalid("canonical static application term index exceeds address space"))?;
+                        let entry = world
+                            .type_graph
+                            .types
+                            .get(term_index)
+                            .ok_or_else(|| invalid("canonical static application term references an absent type"))?;
+                        if entry.kind != expected_kind {
+                            return Err(invalid("canonical static application term kind disagrees with its parameter"));
+                        }
+                    }
+                    CanonicalStaticApplicationArgumentV1::KindedExpression {
+                        parameter_index,
+                        application_ordinal,
+                    } => {
+                        let expected_kind = match &parameter.domain {
+                            StaticValueDomainV1::Kind { kind } => *kind,
+                            StaticValueDomainV1::ValueType { .. } => {
+                                return Err(invalid("canonical static application argument disagrees with its parameter domain"));
+                            }
+                        };
+                        if *parameter_index as usize != index {
+                            return Err(invalid("canonical static application argument parameter index is invalid"));
+                        }
+                        let child_index =
+                            usize::try_from(*application_ordinal).map_err(|_| invalid("kinded-expression application ordinal exceeds address space"))?;
+                        let child = program
+                            .applications
+                            .get(child_index)
+                            .ok_or_else(|| invalid("kinded-expression application references an absent checked row"))?;
+                        if child.signature.result_domain != (StaticValueDomainV1::Kind { kind: expected_kind }) {
+                            return Err(invalid("kinded-expression result kind disagrees with its parameter"));
+                        }
+                    }
+                    CanonicalStaticApplicationArgumentV1::Value { parameter_index }
+                        if *parameter_index as usize == index && matches!(parameter.domain, StaticValueDomainV1::ValueType { .. }) => {}
+                    CanonicalStaticApplicationArgumentV1::Value { .. } => {
+                        return Err(invalid("canonical static application argument disagrees with its parameter domain"));
+                    }
+                }
+            }
+        }
+        validate_static_application_graph(&program.applications, allocations)?;
+        if definition.alias_info.is_some()
+            && !world.structural_contracts.hierarchy_and_aliases.iter().any(|row| row.declaration == definition.id && row.aliased_type.is_some())
+        {
+            return Err(invalid("static definition alias projection lacks structural alias authority"));
+        }
+        for diagnostic in &definition.diagnostics {
+            validate_witness_diagnostic(diagnostic, &world.callable_signatures, &world.type_graph, limits)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_static_application_graph(applications: &[CanonicalCheckedStaticApplicationV1], allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+    let mut states = allocations.vector::<u8>(applications.len()).map_err(allocation_error)?;
+    states.resize(applications.len(), 0);
+    let mut stack = allocations.vector::<(usize, usize)>(applications.len()).map_err(allocation_error)?;
+
+    for root in 0..applications.len() {
+        if states[root] != 0 {
+            continue;
+        }
+        states[root] = 1;
+        stack.push((root, 0));
+        while let Some((node, next_argument)) = stack.last().copied() {
+            let arguments = &applications[node].arguments;
+            if next_argument == arguments.len() {
+                states[node] = 2;
+                stack.pop();
+                continue;
+            }
+            stack.last_mut().expect("the traversal stack is nonempty").1 += 1;
+            let CanonicalStaticApplicationArgumentV1::KindedExpression { application_ordinal, .. } = arguments[next_argument] else {
+                continue;
+            };
+            let child = usize::try_from(application_ordinal).map_err(|_| invalid("kinded-expression application ordinal exceeds address space"))?;
+            let child_state = states
+                .get(child)
+                .copied()
+                .ok_or_else(|| invalid("kinded-expression application references an absent checked row"))?;
+            match child_state {
+                0 => {
+                    states[child] = 1;
+                    stack.push((child, 0));
+                }
+                1 => return Err(invalid("canonical static application graph contains a cycle")),
+                2 => {}
+                _ => return Err(invalid("canonical static application graph has invalid traversal state")),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_static_constant_symbol(symbol: &StaticConstantSymbolV1, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    let module = &symbol.module;
+    let valid_project = match &module.project {
+        StableProjectRef::Builtin { namespace, version } => {
+            !namespace.is_empty() && namespace.len() <= limits.max_string_bytes && !version.is_empty() && version.len() <= limits.max_string_bytes
+        }
+        StableProjectRef::Package { package, version, .. } => {
+            !package.is_empty() && package.len() <= limits.max_string_bytes && !version.is_empty() && version.len() <= limits.max_string_bytes
+        }
+        StableProjectRef::SourceArtifact { logical_uri, .. } => !logical_uri.is_empty() && logical_uri.len() <= limits.max_string_bytes,
+        StableProjectRef::Session { .. } => true,
+    };
+    if !valid_project
+        || module.path.len() > limits.max_semantic_entries_per_family
+        || module.path.iter().any(|part| part.is_empty() || part.len() > limits.max_string_bytes)
+        || symbol.name.is_empty()
+        || symbol.name.len() > limits.max_string_bytes
+    {
+        return Err(invalid("static constant identity is invalid or exceeds limits"));
+    }
+    Ok(())
+}
+
+fn validate_static_constants(world: &SemanticWorldV3, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    for pair in world.static_constants.windows(2) {
+        let left = (&pair[0].symbol.module, &pair[0].symbol.name);
+        let right = (&pair[1].symbol.module, &pair[1].symbol.name);
+        if left >= right {
+            return Err(invalid("static constant owners must be unique and sorted"));
+        }
+    }
+    for constant in &world.static_constants {
+        validate_static_constant_symbol(&constant.symbol, limits)?;
+        if constant.declaration_source.start > constant.declaration_source.end
+            || constant.initializer_source.start > constant.initializer_source.end
+            || constant.dependencies.len() > limits.max_semantic_entries_per_family
+            || constant.static_constant_reads.len() > limits.max_semantic_entries_per_family
+            || constant.record_key_static_constant_reads.len() > limits.max_semantic_entries_per_family
+            || constant.diagnostics.len() > limits.max_semantic_entries_per_family
+        {
+            return Err(invalid("static constant owner fields are malformed or exceed limits"));
+        }
+        if constant
+            .result_type
+            .is_some_and(|ty| usize::try_from(ty.0).map_or(true, |index| index >= world.type_graph.types.len()))
+        {
+            return Err(invalid("static constant result type references an absent type"));
+        }
+        let reduced = match &constant.outcome {
+            StaticConstantOutcomeV1::Reduced { value } => *value,
+        };
+        if usize::try_from(reduced.0).map_or(true, |index| index >= world.static_values.values.len())
+            || constant
+                .lkg_value
+                .is_some_and(|value| usize::try_from(value.0).map_or(true, |index| index >= world.static_values.values.len()))
+        {
+            return Err(invalid("static constant value references an absent static value"));
+        }
+        for symbol in constant.static_constant_reads.iter().chain(&constant.record_key_static_constant_reads) {
+            validate_static_constant_symbol(symbol, limits)?;
+        }
+        for symbol in &constant.record_key_static_constant_reads {
+            if !constant.static_constant_reads.contains(symbol) {
+                return Err(invalid("record-key constant reads are absent from the initializer read set"));
+            }
+        }
+        for dependency in &constant.dependencies {
+            if let StaticSemanticDependencyV1::StaticConstant { symbol } = dependency {
+                validate_static_constant_symbol(symbol, limits)?;
+            }
+        }
+        for diagnostic in &constant.diagnostics {
+            validate_witness_diagnostic(diagnostic, &world.callable_signatures, &world.type_graph, limits)?;
+        }
+    }
+    for constant in &world.static_constants {
+        for symbol in constant.static_constant_reads.iter() {
+            if world
+                .static_constants
+                .binary_search_by(|candidate| (&candidate.symbol.module, &candidate.symbol.name).cmp(&(&symbol.module, &symbol.name)))
+                .is_err()
+            {
+                return Err(invalid("static constant read references an absent canonical owner"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_module_static_bindings(world: &SemanticWorldV3, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    for pair in world.module_static_bindings.windows(2) {
+        if pair[0].module >= pair[1].module {
+            return Err(invalid("module static-binding indexes must be unique and module-sorted"));
+        }
+    }
+    for index in &world.module_static_bindings {
+        if index.module.path.len() > limits.max_semantic_entries_per_family
+            || index.module.path.iter().any(|part| part.is_empty() || part.len() > limits.max_string_bytes)
+            || index.bindings.len() > limits.max_semantic_entries_per_family
+            || index.visible_names.len() > limits.max_semantic_entries_per_family
+        {
+            return Err(invalid("module static-binding index exceeds limits"));
+        }
+        for pair in index.bindings.windows(2) {
+            let left = (&pair[0].symbol.module, &pair[0].symbol.name);
+            let right = (&pair[1].symbol.module, &pair[1].symbol.name);
+            if left >= right {
+                return Err(invalid("module static-binding symbols must be unique and sorted"));
+            }
+        }
+        for binding in &index.bindings {
+            validate_static_constant_symbol(&binding.symbol, limits)?;
+            if binding.declaration_source.start > binding.declaration_source.end
+                || binding.initializer_source.as_ref().is_some_and(|source| source.start > source.end)
+            {
+                return Err(invalid("module static-binding source range is inverted"));
+            }
+            let analysis_index = world
+                .callable_analyses
+                .binary_search_by(|analysis| analysis.callable.cmp(&binding.source_body))
+                .ok()
+                .map(|position| &world.callable_analyses[position])
+                .ok_or_else(|| invalid("module static binding references an absent source body"))?;
+            let StableCallableOwnerRef::Declaration(body_owner) = &binding.source_body.owner else {
+                return Err(invalid("module static-binding source body is not a module-owned declaration body"));
+            };
+            if body_owner.module != binding.symbol.module || !matches!(analysis_index.status, CallableAnalysisStatusV1::Complete) {
+                return Err(invalid("module static-binding body owner or status disagrees with its symbol"));
+            }
+            let binding_row = analysis_index
+                .bindings
+                .get(binding.source_binding_ordinal as usize)
+                .filter(|row| row.ordinal == binding.source_binding_ordinal)
+                .ok_or_else(|| invalid("module static-binding ordinal references an absent body-local binding"))?;
+            if binding_row.name != binding.symbol.name.as_ref() {
+                return Err(invalid("module static-binding symbol disagrees with its owner-local binding"));
+            }
+            match (&binding_row.authority, &binding.phase) {
+                (
+                    CallableBindingAuthorityV1::BodyLocalSource {
+                        site_owner: CallableAnalysisSourceOwnerV1::Module { module },
+                        declaration_range,
+                        ..
+                    },
+                    ModuleStaticBindingPhaseV1::StaticConstant | ModuleStaticBindingPhaseV1::Runtime,
+                ) if module == &body_owner.module && declaration_range == &binding.declaration_source => {}
+                _ => return Err(invalid("module static-binding state is not owned by its module source binding")),
+            }
+            if matches!(binding.phase, ModuleStaticBindingPhaseV1::StaticConstant)
+                && world.static_constants.binary_search_by(|constant| {
+                    (&constant.symbol.module, &constant.symbol.name).cmp(&(&binding.symbol.module, &binding.symbol.name))
+                }).is_err()
+            {
+                return Err(invalid("static-constant module binding has no reduced static-constant owner"));
+            }
+        }
+        for pair in index.visible_names.windows(2) {
+            if pair[0].name >= pair[1].name {
+                return Err(invalid("module visible binding names must be unique and sorted"));
+            }
+        }
+        for visible in &index.visible_names {
+            if visible.name.is_empty()
+                || visible.name.len() > limits.max_string_bytes
+                || index.bindings.binary_search_by(|binding| {
+                    (&binding.symbol.module, &binding.symbol.name).cmp(&(&visible.symbol.module, &visible.symbol.name))
+                }).is_err()
+            {
+                return Err(invalid("module visible binding name references an invalid or absent symbol"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn selector_kind_order(kind: &SelectorKindV1) -> u8 {
+    match kind {
+        SelectorKindV1::Getter => 0,
+        SelectorKindV1::Setter => 1,
+        SelectorKindV1::Method => 2,
+        SelectorKindV1::SubscriptGet => 3,
+        SelectorKindV1::SubscriptSet => 4,
+    }
+}
+
+fn compare_selector_slots(left: &[SelectorSlotV1], right: &[SelectorSlotV1]) -> std::cmp::Ordering {
+    use SelectorSlotV1 as Slot;
+    left.iter()
+        .zip(right)
+        .map(|(left, right)| match (left, right) {
+            (Slot::Positional, Slot::Positional) => std::cmp::Ordering::Equal,
+            (Slot::Positional, Slot::Label { .. }) => std::cmp::Ordering::Less,
+            (Slot::Label { .. }, Slot::Positional) => std::cmp::Ordering::Greater,
+            (Slot::Label { label: left }, Slot::Label { label: right }) => left.cmp(right),
+        })
+        .find(|ordering| !ordering.is_eq())
+        .unwrap_or_else(|| left.len().cmp(&right.len()))
+}
+
+fn compare_exact_selectors(left: &ExactSelectorV1, right: &ExactSelectorV1) -> std::cmp::Ordering {
+    use TypeMemberSelectorV1 as Base;
+    let base_order = match (&left.base, &right.base) {
+        (Base::Named { name: left }, Base::Named { name: right }) => left.cmp(right),
+        (Base::Named { .. }, Base::Subscript) => std::cmp::Ordering::Less,
+        (Base::Subscript, Base::Named { .. }) => std::cmp::Ordering::Greater,
+        (Base::Subscript, Base::Subscript) => std::cmp::Ordering::Equal,
+    };
+    base_order
+        .then_with(|| selector_kind_order(&left.kind).cmp(&selector_kind_order(&right.kind)))
+        .then_with(|| compare_selector_slots(&left.slots, &right.slots))
+}
+
+fn validate_static_case_domain(world: &SemanticWorldV3, domain: &StaticCaseDomainV1) -> Result<(), ArtifactError> {
+    use crate::semantic::type_store::StaticDomainV1;
+    match domain {
+        StaticCaseDomainV1::Nominal { declaration } => {
+            if !world
+                .type_graph
+                .static_domains
+                .iter()
+                .any(|domain| matches!(domain, StaticDomainV1::Nominal { declaration: found } if found == declaration))
+            {
+                return Err(invalid("static-case catalog references a nominal domain absent from the type graph"));
+            }
+        }
+        StaticCaseDomainV1::Associated { declaration } => {
+            let record = world
+                .associated_static_domains
+                .iter()
+                .find(|record| record.declaration == *declaration)
+                .ok_or_else(|| invalid("static-case catalog references an absent associated static domain"))?;
+            if !matches!(
+                world.type_graph.static_domains.get(record.domain.0 as usize),
+                Some(StaticDomainV1::Associated { declaration: found, .. }) if found == declaration
+            ) {
+                return Err(invalid("static-case catalog associated domain disagrees with its type-graph root"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_static_case_selector(selector: &ExactSelectorV1, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    validate_selector_base(&selector.base, limits)?;
+    validate_selector_slots(&selector.slots, limits)?;
+    if !selector_kind_compatible(&selector.base, &selector.kind)
+        || matches!(selector.kind, SelectorKindV1::Getter | SelectorKindV1::Setter) && !selector.slots.is_empty()
+    {
+        return Err(invalid("static-case selector has an incompatible kind or slot shape"));
+    }
+    Ok(())
+}
+
+fn validate_static_case_owners(world: &SemanticWorldV3, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+    if world
+        .static_case_catalogs
+        .windows(2)
+        .any(|pair| !compare_static_case_domain(&pair[0].domain, &pair[1].domain).is_lt())
+    {
+        return Err(invalid("static-case catalog domains must be unique and canonically ordered"));
+    }
+    if world.static_case_signatures.windows(2).any(|pair| {
+        compare_static_case_domain(&pair[0].domain, &pair[1].domain)
+            .then_with(|| compare_exact_selectors(&pair[0].selector, &pair[1].selector))
+            .is_ge()
+    }) {
+        return Err(invalid("static-case signature owners must be unique and canonically ordered"));
+    }
+    let max_case_count = world.static_case_catalogs.iter().map(|catalog| catalog.cases.len()).max().unwrap_or(0);
+    let mut selector_order = allocations.vector::<usize>(max_case_count).map_err(allocation_error)?;
+    let mut signature_index = 0usize;
+    for catalog in &world.static_case_catalogs {
+        validate_static_case_domain(world, &catalog.domain)?;
+        if catalog.cases.len() > limits.max_semantic_entries_per_family || catalog.cases.windows(2).any(|pair| pair[0].source.start >= pair[1].source.start) {
+            return Err(invalid(
+                "static-case catalog rows must preserve unique canonical source order and stay within limits",
+            ));
+        }
+        selector_order.clear();
+        for (case_index, case) in catalog.cases.iter().enumerate() {
+            validate_static_case_selector(&case.selector, limits)?;
+            if case.source.start > case.source.end {
+                return Err(invalid("static-case source range is inverted"));
+            }
+            selector_order.push(case_index);
+            match &case.shape {
+                StaticCaseShapeV1::Singleton if !matches!(case.selector.kind, SelectorKindV1::Getter) || !case.selector.slots.is_empty() => {
+                    return Err(invalid("singleton static case must use a slot-free getter selector"));
+                }
+                StaticCaseShapeV1::Constructor { slots } => {
+                    validate_selector_slots(slots, limits)?;
+                    if !matches!(case.selector.kind, SelectorKindV1::Method) || slots != &case.selector.slots {
+                        return Err(invalid("constructor static-case shape disagrees with its method selector"));
+                    }
+                }
+                StaticCaseShapeV1::Singleton => {}
+            }
+        }
+        selector_order.sort_unstable_by(|left, right| compare_exact_selectors(&catalog.cases[*left].selector, &catalog.cases[*right].selector));
+        if selector_order
+            .windows(2)
+            .any(|pair| compare_exact_selectors(&catalog.cases[pair[0]].selector, &catalog.cases[pair[1]].selector).is_eq())
+        {
+            return Err(invalid("static-case catalog contains a duplicate case identity"));
+        }
+        while let Some(signature) = world.static_case_signatures.get(signature_index) {
+            match compare_static_case_domain(&signature.domain, &catalog.domain) {
+                std::cmp::Ordering::Less => return Err(invalid("static-case signature has no matching catalog")),
+                std::cmp::Ordering::Greater => break,
+                std::cmp::Ordering::Equal => {}
+            }
+            validate_static_case_selector(&signature.selector, limits)?;
+            if signature.source.start > signature.source.end || signature.parameter_kinds.len() > limits.max_semantic_entries_per_family {
+                return Err(invalid("static-case signature source range or parameter count is invalid"));
+            }
+            let case_position = selector_order
+                .binary_search_by(|case_index| compare_exact_selectors(&catalog.cases[*case_index].selector, &signature.selector))
+                .map_err(|_| invalid("static-case signature references a case absent from its catalog"))?;
+            let case = &catalog.cases[selector_order[case_position]];
+            let StaticCaseShapeV1::Constructor { slots } = &case.shape else {
+                return Err(invalid("singleton static case cannot own a constructor signature"));
+            };
+            if slots.len() != signature.parameter_kinds.len() {
+                return Err(invalid("static-case constructor arity disagrees with its parameter-kind signature"));
+            }
+            for kind in &signature.parameter_kinds {
+                if usize::try_from(kind.0).map_or(true, |index| index >= world.type_graph.kinds.len()) {
+                    return Err(invalid("static-case signature references an absent kind"));
+                }
+            }
+            signature_index += 1;
+        }
+    }
+    if let Some(signature) = world.static_case_signatures.get(signature_index) {
+        validate_static_case_domain(world, &signature.domain)?;
+        return Err(invalid("static-case signature has no matching catalog"));
+    }
+    Ok(())
 }
 
 fn validate_callable_block_reason(
@@ -1923,6 +2873,1342 @@ fn validate_callable_signature(signature: &CallableSignatureRecordV1, limits: &V
     }
     validate_effects(&signature.effects, limits)?;
     validate_raises(&signature.raises, limits)?;
+    Ok(())
+}
+
+fn validate_callable_definition(definition: &CallableDefinitionRecordV1, type_graph: &TypeGraphV1, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    if definition.signature.callable != definition.callable {
+        return Err(invalid("callable definition key disagrees with its complete signature"));
+    }
+    validate_callable_signature(&definition.signature, limits)?;
+
+    match (&definition.origin, &definition.inherent_body_context, &definition.body_provenance) {
+        (CallableDefinitionOriginV1::PrimaryDeclaration, None, CallableDefinitionBodyProvenanceV1::SourceBody) => {
+            if matches!(&definition.callable.owner, StableCallableOwnerRef::Conformance(_)) {
+                return Err(invalid("primary callable definition has a conformance-owned callable identity"));
+            }
+        }
+        (CallableDefinitionOriginV1::InherentImpl { impl_id }, Some(context), _) => {
+            if matches!(&definition.callable.owner, StableCallableOwnerRef::Conformance(_)) {
+                return Err(invalid("inherent callable definition has a conformance-owned callable identity"));
+            }
+            if context.source_target_head.0 as usize >= type_graph.types.len() {
+                return Err(invalid("inherent callable body context references an absent source target head"));
+            }
+            if let Some(signature) = &context.generic_signature
+                && signature.owner != (crate::semantic::type_store::ParameterOwnerV1::Impl { owner: impl_id.clone() })
+            {
+                return Err(invalid("inherent callable body generic signature has the wrong impl owner"));
+            }
+            if let Some(covering) = &context.covering {
+                validate_covering_impl_substitution(covering, impl_id, &definition.signature.owner, type_graph, limits)?;
+            }
+        }
+        (CallableDefinitionOriginV1::ConformanceWitness { impl_id }, None, CallableDefinitionBodyProvenanceV1::SourceBody) if matches!(&definition.callable.owner, StableCallableOwnerRef::Conformance(owner) if owner == impl_id) =>
+            {}
+        _ => return Err(invalid("callable definition origin, body provenance, and body context are inconsistent")),
+    }
+
+    if let CallableDefinitionBodyProvenanceV1::GeneratedDelegation { target_field } = &definition.body_provenance
+        && (target_field.is_empty() || target_field.len() > limits.max_string_bytes)
+    {
+        return Err(invalid("generated delegation target field is empty or oversized"));
+    }
+    Ok(())
+}
+
+fn validate_covering_impl_substitution(
+    covering: &CoveringImplSubstitutionV1,
+    impl_id: &StableImplRef,
+    declaration: &StableDeclarationRef,
+    type_graph: &TypeGraphV1,
+    limits: &ValidationLimits,
+) -> Result<(), ArtifactError> {
+    if covering.impl_to_decl.len() > limits.max_semantic_entries_per_family
+        || covering.decl_to_impl.len() > limits.max_semantic_entries_per_family
+        || covering.impl_to_decl.len() != covering.decl_to_impl.len()
+    {
+        return Err(invalid("covering impl substitution exceeds limits or is not a bijection"));
+    }
+    if covering.impl_to_decl.windows(2).any(|pair| pair[0].impl_parameter >= pair[1].impl_parameter)
+        || covering
+            .decl_to_impl
+            .windows(2)
+            .any(|pair| pair[0].declaration_parameter >= pair[1].declaration_parameter)
+    {
+        return Err(invalid("covering impl substitution rows must be strictly sorted and unique"));
+    }
+
+    for binding in &covering.impl_to_decl {
+        let inverse = covering
+            .decl_to_impl
+            .binary_search_by_key(&binding.declaration_parameter, |entry| entry.declaration_parameter)
+            .ok()
+            .map(|index| &covering.decl_to_impl[index]);
+        if !inverse.is_some_and(|inverse| inverse.impl_parameter == binding.impl_parameter) {
+            return Err(invalid("covering impl substitution maps are not exact inverses"));
+        }
+        let impl_parameter = type_graph
+            .parameters
+            .get(binding.impl_parameter.0 as usize)
+            .ok_or_else(|| invalid("covering impl substitution references an absent impl parameter"))?;
+        let declaration_parameter = type_graph
+            .parameters
+            .get(binding.declaration_parameter.0 as usize)
+            .ok_or_else(|| invalid("covering impl substitution references an absent declaration parameter"))?;
+        if impl_parameter.owner != (crate::semantic::type_store::ParameterOwnerV1::Impl { owner: impl_id.clone() })
+            || declaration_parameter.owner != (crate::semantic::type_store::ParameterOwnerV1::Declaration { owner: declaration.clone() })
+            || impl_parameter.kind != declaration_parameter.kind
+        {
+            return Err(invalid("covering impl substitution parameter owner or kind is invalid"));
+        }
+    }
+    for binding in &covering.decl_to_impl {
+        let forward = covering
+            .impl_to_decl
+            .binary_search_by_key(&binding.impl_parameter, |entry| entry.impl_parameter)
+            .ok()
+            .map(|index| &covering.impl_to_decl[index]);
+        if !forward.is_some_and(|forward| forward.declaration_parameter == binding.declaration_parameter) {
+            return Err(invalid("covering impl substitution maps are not exact inverses"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_trait_surface(
+    surface: &TraitSurfaceRecordV1,
+    callable_signatures: &[CallableSignatureRecordV1],
+    type_graph: &TypeGraphV1,
+    limits: &ValidationLimits,
+) -> Result<(), ArtifactError> {
+    if surface.members.len() > limits.max_semantic_entries_per_family
+        || surface.associated_types.len() > limits.max_semantic_entries_per_family
+        || surface.diagnostics.len() > limits.max_semantic_entries_per_family
+    {
+        return Err(invalid("trait surface row budget exceeded"));
+    }
+    validate_trait_source(&surface.header_source, &surface.declaration)?;
+    if let Some(signature) = &surface.generic_signature
+        && signature.owner
+            != (crate::semantic::type_store::ParameterOwnerV1::Declaration {
+                owner: surface.declaration.clone(),
+            })
+    {
+        return Err(invalid("trait header generic signature has the wrong declaration owner"));
+    }
+
+    if surface.members.windows(2).any(|pair| {
+        let previous = &pair[0].requirement;
+        let next = &pair[1].requirement;
+        (&previous.owner, &previous.selector, previous.side) >= (&next.owner, &next.selector, next.side)
+    }) {
+        return Err(invalid("trait member requirements must be unique and sorted"));
+    }
+    for member in &surface.members {
+        let expected_side = match member.callable.side {
+            StableDispatchSide::Instance => 0,
+            StableDispatchSide::Class => 1,
+        };
+        if member.requirement.owner != surface.declaration
+            || member.requirement.selector.is_empty()
+            || member.requirement.selector.len() > limits.max_string_bytes
+            || member.requirement.side != expected_side
+            || member.callable.owner != StableCallableOwnerRef::Declaration(surface.declaration.clone())
+            || member.callable.selector != member.requirement.selector
+            || member.signature.callable != member.callable
+            || member.signature.owner != surface.declaration
+            || member.signature.selector != member.requirement.selector
+            || member.signature.side != expected_side
+            || usize::try_from(member.source_member_index).map_or(true, |index| index >= limits.max_semantic_entries_per_family)
+            || member.default_present != member.default_source.is_some()
+        {
+            return Err(invalid("trait member identity, signature, source ordinal, or default state is inconsistent"));
+        }
+        validate_callable_signature(&member.signature, limits)?;
+        validate_trait_source(&member.source, &surface.declaration)?;
+        if let Some(source) = &member.default_source {
+            validate_trait_source(source, &surface.declaration)?;
+        }
+        if let Ok(index) = callable_signatures.binary_search_by(|signature| signature.callable.cmp(&member.callable))
+            && callable_signatures[index] != member.signature
+        {
+            return Err(invalid("trait member signature disagrees with the canonical callable signature row"));
+        }
+    }
+
+    if surface
+        .associated_types
+        .windows(2)
+        .any(|pair| pair[0].requirement.index >= pair[1].requirement.index)
+    {
+        return Err(invalid("trait associated-type requirements must be unique and sorted"));
+    }
+    for (index, associated) in surface.associated_types.iter().enumerate() {
+        if associated.requirement.owner != surface.declaration
+            || usize::try_from(associated.requirement.index).ok() != Some(index)
+            || associated.name.is_empty()
+            || associated.name.len() > limits.max_string_bytes
+        {
+            return Err(invalid("trait associated-type identity or name is invalid"));
+        }
+        validate_trait_source(&associated.source, &surface.declaration)?;
+        match associated.domain {
+            TypeMemberDomainV1::Kind { kind } => {
+                let index = usize::try_from(kind.0).map_err(|_| invalid("trait associated-type kind index exceeds address space"))?;
+                if index >= type_graph.kinds.len() {
+                    return Err(invalid("trait associated-type domain references an absent kind"));
+                }
+            }
+            TypeMemberDomainV1::ValueType { ty } => {
+                let index = usize::try_from(ty.0).map_err(|_| invalid("trait associated-type type index exceeds address space"))?;
+                if index >= type_graph.types.len() {
+                    return Err(invalid("trait associated-type domain references an absent type"));
+                }
+            }
+        }
+    }
+    for diagnostic in &surface.diagnostics {
+        validate_trait_surface_diagnostic(diagnostic, &surface.declaration, callable_signatures, type_graph, limits)?;
+    }
+    Ok(())
+}
+
+// `validate_trait_surface` establishes this key order before witness and
+// derived-rule validation use the lookup.
+fn find_trait_surface_member<'a>(surface: &'a TraitSurfaceRecordV1, requirement: &CallableRequirementIdentityV1) -> Option<&'a TraitSurfaceMemberV1> {
+    surface
+        .members
+        .binary_search_by(|member| {
+            (&member.requirement.owner, member.requirement.selector.as_ref(), member.requirement.side).cmp(&(
+                &requirement.owner,
+                requirement.selector.as_ref(),
+                requirement.side,
+            ))
+        })
+        .ok()
+        .map(|index| &surface.members[index])
+}
+
+fn validate_witness_plan(
+    witness: &WitnessPlanV1,
+    trait_surfaces: &[TraitSurfaceRecordV1],
+    callable_signatures: &[CallableSignatureRecordV1],
+    type_graph: &TypeGraphV1,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<(), ArtifactError> {
+    use CallableConformanceCompletenessV1 as Completeness;
+    use CallableConformanceFailureV1 as Failure;
+    use CallableRequirementSelectionV1 as Selection;
+
+    let trait_surface = trait_surfaces
+        .binary_search_by(|surface| surface.declaration.cmp(&witness.trait_ref_template.declaration))
+        .ok()
+        .map(|index| &trait_surfaces[index])
+        .ok_or_else(|| invalid("witness plan references an absent trait surface"))?;
+    let type_index = |ty: crate::semantic::type_store::ArtifactTypeId| -> Result<usize, ArtifactError> {
+        let index = usize::try_from(ty.0).map_err(|_| invalid("witness type index exceeds address space"))?;
+        if index >= type_graph.types.len() {
+            return Err(invalid("witness references an absent type"));
+        }
+        Ok(index)
+    };
+    type_index(witness.target_template)?;
+    for ty in &witness.trait_ref_template.arguments {
+        type_index(*ty)?;
+    }
+    if let Some(signature) = &witness.generic_signature {
+        if signature.parameters.len() > limits.max_semantic_entries_per_family
+            || signature.constraints.len() > limits.max_semantic_entries_per_family
+            || signature.parameters.len() != signature.parameter_modes.len()
+            || signature.owner
+                != (crate::semantic::type_store::ParameterOwnerV1::Impl {
+                    owner: witness.impl_id.clone(),
+                })
+            || signature.parameters.iter().any(|parameter| {
+                usize::try_from(parameter.0)
+                    .ok()
+                    .and_then(|index| type_graph.parameters.get(index))
+                    .is_none_or(|parameter| parameter.owner != signature.owner)
+            })
+        {
+            return Err(invalid("witness generic signature is malformed or exceeds its limits"));
+        }
+    }
+    if witness.requirement_views.len() > limits.max_semantic_entries_per_family
+        || witness.requirements.len() > limits.max_semantic_entries_per_family
+        || witness.associated_type_plan.bindings.len() > limits.max_semantic_entries_per_family
+        || witness.associated_type_plan.failures.len() > limits.max_semantic_entries_per_family
+        || witness.associated_type_plan.diagnostics.len() > limits.max_semantic_entries_per_family
+        || witness.diagnostics.len() > limits.max_semantic_entries_per_family
+        || witness.conformance_evidence.len() > limits.max_semantic_entries_per_family
+    {
+        return Err(invalid("witness plan exceeds a semantic entry limit"));
+    }
+    if witness.requirement_views.windows(2).any(|pair| {
+        (&pair[0].requirement.owner, &pair[0].requirement.selector, pair[0].requirement.side)
+            >= (&pair[1].requirement.owner, &pair[1].requirement.selector, pair[1].requirement.side)
+    }) || witness.requirements.windows(2).any(|pair| {
+        (&pair[0].requirement.owner, &pair[0].requirement.selector, pair[0].requirement.side)
+            >= (&pair[1].requirement.owner, &pair[1].requirement.selector, pair[1].requirement.side)
+    }) {
+        return Err(invalid("witness requirement views and selections must be unique and canonically ordered"));
+    }
+
+    let find_member = |requirement: &CallableRequirementIdentityV1| find_trait_surface_member(trait_surface, requirement);
+    for view in &witness.requirement_views {
+        let identity = &view.requirement;
+        if identity.owner != trait_surface.declaration
+            || identity.selector.is_empty()
+            || identity.selector.len() > limits.max_string_bytes
+            || identity.side > 1
+            || !is_canonical_requirement_selector(&identity.selector)
+        {
+            return Err(invalid("witness requirement view identity is invalid"));
+        }
+        let member = find_member(identity).ok_or_else(|| invalid("witness requirement view is absent from the imported trait surface"))?;
+        if view.callable != member.callable
+            || view.signature.callable != view.callable
+            || view.signature.owner != trait_surface.declaration
+            || view.signature.selector != identity.selector
+            || view.signature.side != identity.side
+            || view.default_callable.is_some() != member.default_present
+            || (view.default_callable.is_some() && view.default_callable.as_ref() != Some(&member.callable))
+        {
+            return Err(invalid("witness requirement view disagrees with its canonical trait member"));
+        }
+        validate_callable_signature(&view.signature, limits)?;
+        if let Some(default) = &view.default_callable
+            && callable_signatures.binary_search_by(|signature| signature.callable.cmp(default)).is_err()
+        {
+            return Err(invalid("witness requirement view references an absent default callable"));
+        }
+    }
+
+    for entry in &witness.requirements {
+        let identity = &entry.requirement;
+        if identity.owner != trait_surface.declaration
+            || identity.selector.is_empty()
+            || identity.selector.len() > limits.max_string_bytes
+            || identity.side > 1
+            || !is_canonical_requirement_selector(&identity.selector)
+        {
+            return Err(invalid("witness requirement selection identity is invalid"));
+        }
+        let member = find_member(identity).ok_or_else(|| invalid("witness selection is absent from the imported trait surface"))?;
+        validate_witness_selection(&entry.selection, identity, member, &witness.impl_id, callable_signatures, type_graph, limits, 0)?;
+    }
+
+    let associated_plan = &witness.associated_type_plan;
+    if associated_plan.impl_id != witness.impl_id
+        || associated_plan
+            .bindings
+            .windows(2)
+            .any(|pair| (&pair[0].requirement.owner, pair[0].requirement.index) >= (&pair[1].requirement.owner, pair[1].requirement.index))
+    {
+        return Err(invalid("witness associated-type plan owner or binding order is invalid"));
+    }
+    for binding in &associated_plan.bindings {
+        if binding.requirement.owner != trait_surface.declaration
+            || binding.source_impl != witness.impl_id
+            || binding.source.range.start > binding.source.range.end
+            || usize::try_from(binding.requirement.index).map_or(true, |index| index >= trait_surface.associated_types.len())
+        {
+            return Err(invalid("witness associated-type binding has an invalid owner, source, or requirement"));
+        }
+        if let CallableAssociatedTypeBindingValueV1::Type { ty } = binding.value {
+            type_index(ty)?;
+        }
+    }
+    for failure in &associated_plan.failures {
+        if failure.name.len() > limits.max_string_bytes
+            || failure.reason.len() > limits.max_string_bytes
+            || failure.source.range.start > failure.source.range.end
+            || failure.requirement.as_ref().is_some_and(|requirement| {
+                requirement.owner != trait_surface.declaration
+                    || usize::try_from(requirement.index).map_or(true, |index| index >= trait_surface.associated_types.len())
+            })
+        {
+            return Err(invalid("witness associated-type failure is malformed"));
+        }
+    }
+    for diagnostic in associated_plan.diagnostics.iter().chain(&witness.diagnostics) {
+        validate_witness_diagnostic(diagnostic, callable_signatures, type_graph, limits)?;
+    }
+    validate_witness_evidence_graph(witness, limits, allocations)?;
+
+    match &witness.completeness {
+        Completeness::Complete | Completeness::Cancelled => {}
+        Completeness::Incomplete { failures } => {
+            if failures.len() > limits.max_semantic_entries_per_family {
+                return Err(invalid("witness completeness failure count exceeds its limit"));
+            }
+            for failure in failures {
+                match failure {
+                    Failure::Behavioral { requirement, reason } => {
+                        if requirement.owner != trait_surface.declaration
+                            || requirement.selector.is_empty()
+                            || requirement.selector.len() > limits.max_string_bytes
+                            || requirement.side > 1
+                            || !is_canonical_requirement_selector(&requirement.selector)
+                            || reason.len() > limits.max_string_bytes
+                            || find_member(requirement).is_none()
+                        {
+                            return Err(invalid("behavioral witness failure has an invalid requirement"));
+                        }
+                    }
+                    Failure::AssociatedType { failure } => {
+                        if failure.name.len() > limits.max_string_bytes
+                            || failure.reason.len() > limits.max_string_bytes
+                            || failure.source.range.start > failure.source.range.end
+                            || failure.requirement.as_ref().is_some_and(|requirement| {
+                                requirement.owner != trait_surface.declaration
+                                    || usize::try_from(requirement.index).map_or(true, |index| index >= trait_surface.associated_types.len())
+                            })
+                        {
+                            return Err(invalid("associated-type witness failure is malformed"));
+                        }
+                    }
+                }
+            }
+        }
+        Completeness::Unknown { .. } => {}
+        Completeness::Blocked { reason } => validate_callable_block_reason(reason, type_graph, limits)?,
+        Completeness::Dynamic { reason } if reason.len() > limits.max_string_bytes => return Err(invalid("witness dynamic reason exceeds its string limit")),
+        Completeness::Dynamic { .. } => {}
+        Completeness::BudgetExceeded { .. } => {}
+        Completeness::InternalFailure { message } if message.len() > limits.max_string_bytes => {
+            return Err(invalid("witness internal-failure message exceeds its string limit"));
+        }
+        Completeness::InternalFailure { .. } => {}
+    }
+
+    let mut selected_index = 0usize;
+    for entry in &witness.requirements {
+        let callable = match &entry.selection {
+            Selection::ConformanceCallable { callable } | Selection::InherentCallable { callable, .. } | Selection::TraitDefault { callable } => Some(callable),
+            _ => None,
+        };
+        if let Some(callable) = callable {
+            if witness.ordered_selected_callables.get(selected_index) != Some(callable) {
+                return Err(invalid("witness selected-callable order does not match its requirement selections"));
+            }
+            selected_index += 1;
+        }
+    }
+    if selected_index != witness.ordered_selected_callables.len()
+        || compute_portable_witness_layout_fingerprint(&witness.ordered_selected_callables) != witness.slot_layout_fingerprint
+    {
+        return Err(invalid("witness selected-callable layout does not match its requirement selections"));
+    }
+    Ok(())
+}
+
+fn validate_derived_conformance_rule(
+    record: &DerivedConformanceRuleRecordV1,
+    trait_surfaces: &[TraitSurfaceRecordV1],
+    callable_signatures: &[CallableSignatureRecordV1],
+    type_graph: &TypeGraphV1,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<(), ArtifactError> {
+    let rule = &record.rule;
+    let trait_surface = trait_surfaces
+        .binary_search_by(|surface| surface.declaration.cmp(&rule.trait_ref.declaration))
+        .ok()
+        .map(|index| &trait_surfaces[index])
+        .ok_or_else(|| invalid("derived conformance rule references an absent trait surface"))?;
+    let type_index = |ty: ArtifactTypeId| -> Result<usize, ArtifactError> {
+        let index = usize::try_from(ty.0).map_err(|_| invalid("derived rule type index exceeds address space"))?;
+        if index >= type_graph.types.len() {
+            return Err(invalid("derived rule references an absent type"));
+        }
+        Ok(index)
+    };
+    if rule.source_module != rule.impl_id.module
+        || rule.source.range.start > rule.source.range.end
+        || rule.requirement_views.len() > limits.max_semantic_entries_per_family
+        || rule.requirements.len() > limits.max_semantic_entries_per_family
+        || rule.associated_type_plan.bindings.len() > limits.max_semantic_entries_per_family
+        || rule.associated_type_plan.failures.len() > limits.max_semantic_entries_per_family
+        || rule.associated_type_plan.diagnostics.len() > limits.max_semantic_entries_per_family
+        || record.conformance_evidence.len() > limits.max_semantic_entries_per_family
+    {
+        return Err(invalid("derived conformance rule is malformed or exceeds its limits"));
+    }
+    type_index(rule.target_template)?;
+    let parameter_index = usize::try_from(rule.target_parameter.0).map_err(|_| invalid("derived rule target parameter exceeds address space"))?;
+    if type_graph
+        .parameters
+        .get(parameter_index)
+        .is_none_or(|parameter| parameter.owner != crate::semantic::type_store::ParameterOwnerV1::Impl { owner: rule.impl_id.clone() })
+    {
+        return Err(invalid("derived rule target parameter is not owned by its implementation"));
+    }
+    for argument in &rule.trait_ref.arguments {
+        type_index(*argument)?;
+    }
+    let signature = &rule.generic_signature;
+    if signature.owner != (crate::semantic::type_store::ParameterOwnerV1::Impl { owner: rule.impl_id.clone() })
+        || signature.parameters.len() > limits.max_semantic_entries_per_family
+        || signature.constraints.len() > limits.max_semantic_entries_per_family
+        || signature.parameters.len() != signature.parameter_modes.len()
+        || signature.parameters.iter().any(|parameter| {
+            usize::try_from(parameter.0)
+                .ok()
+                .and_then(|index| type_graph.parameters.get(index))
+                .is_none_or(|parameter| parameter.owner != signature.owner)
+        })
+    {
+        return Err(invalid("derived rule generic signature is malformed or exceeds its limits"));
+    }
+
+    if rule.requirement_views.windows(2).any(|pair| {
+        (&pair[0].requirement.owner, &pair[0].requirement.selector, pair[0].requirement.side)
+            >= (&pair[1].requirement.owner, &pair[1].requirement.selector, pair[1].requirement.side)
+    }) || rule.requirements.windows(2).any(|pair| {
+        (&pair[0].requirement.owner, &pair[0].requirement.selector, pair[0].requirement.side)
+            >= (&pair[1].requirement.owner, &pair[1].requirement.selector, pair[1].requirement.side)
+    }) {
+        return Err(invalid("derived rule requirement owners must be unique and canonically ordered"));
+    }
+    let find_member = |requirement: &CallableRequirementIdentityV1| find_trait_surface_member(trait_surface, requirement);
+    for view in &rule.requirement_views {
+        let identity = &view.requirement;
+        if identity.owner != trait_surface.declaration
+            || identity.selector.is_empty()
+            || identity.selector.len() > limits.max_string_bytes
+            || identity.side > 1
+            || !is_canonical_requirement_selector(&identity.selector)
+        {
+            return Err(invalid("derived rule requirement view identity is invalid"));
+        }
+        let member = find_member(identity).ok_or_else(|| invalid("derived rule requirement view is absent from its trait surface"))?;
+        if view.callable != member.callable
+            || view.signature.callable != view.callable
+            || view.signature.owner != trait_surface.declaration
+            || view.signature.selector != identity.selector
+            || view.signature.side != identity.side
+            || view.default_callable.is_some() != member.default_present
+            || (view.default_callable.is_some() && view.default_callable.as_ref() != Some(&member.callable))
+        {
+            return Err(invalid("derived rule requirement view disagrees with its canonical trait member"));
+        }
+        validate_callable_signature(&view.signature, limits)?;
+    }
+    for entry in &rule.requirements {
+        let identity = &entry.requirement;
+        if identity.owner != trait_surface.declaration
+            || identity.selector.is_empty()
+            || identity.selector.len() > limits.max_string_bytes
+            || identity.side > 1
+            || !is_canonical_requirement_selector(&identity.selector)
+        {
+            return Err(invalid("derived rule requirement selection identity is invalid"));
+        }
+        let member = find_member(identity).ok_or_else(|| invalid("derived rule selection is absent from its trait surface"))?;
+        validate_witness_selection(&entry.selection, identity, member, &rule.impl_id, callable_signatures, type_graph, limits, 0)?;
+    }
+
+    let associated = &rule.associated_type_plan;
+    if associated.impl_id != rule.impl_id
+        || associated
+            .bindings
+            .windows(2)
+            .any(|pair| (&pair[0].requirement.owner, pair[0].requirement.index) >= (&pair[1].requirement.owner, pair[1].requirement.index))
+    {
+        return Err(invalid("derived rule associated-type plan owner or binding order is invalid"));
+    }
+    for binding in &associated.bindings {
+        if binding.requirement.owner != trait_surface.declaration
+            || binding.source_impl != rule.impl_id
+            || binding.source.range.start > binding.source.range.end
+            || usize::try_from(binding.requirement.index).map_or(true, |index| index >= trait_surface.associated_types.len())
+        {
+            return Err(invalid("derived rule associated-type binding has an invalid owner, source, or requirement"));
+        }
+        if let CallableAssociatedTypeBindingValueV1::Type { ty } = binding.value {
+            type_index(ty)?;
+        }
+    }
+    for failure in &associated.failures {
+        if failure.name.len() > limits.max_string_bytes
+            || failure.reason.len() > limits.max_string_bytes
+            || failure.source.range.start > failure.source.range.end
+            || failure.requirement.as_ref().is_some_and(|requirement| {
+                requirement.owner != trait_surface.declaration
+                    || usize::try_from(requirement.index).map_or(true, |index| index >= trait_surface.associated_types.len())
+            })
+        {
+            return Err(invalid("derived rule associated-type failure is malformed"));
+        }
+    }
+    for diagnostic in &associated.diagnostics {
+        validate_witness_diagnostic(diagnostic, callable_signatures, type_graph, limits)?;
+    }
+    validate_callable_evidence_graph(&rule.requirements, &record.conformance_evidence, limits, allocations)
+}
+
+fn is_canonical_requirement_selector(selector: &str) -> bool {
+    phalcom_common::selector::Selector::try_decode_exact(selector).is_ok_and(|decoded| decoded.encode() == selector)
+}
+
+fn validate_witness_selection(
+    selection: &CallableRequirementSelectionV1,
+    requirement: &CallableRequirementIdentityV1,
+    member: &TraitSurfaceMemberV1,
+    witness_impl: &StableImplRef,
+    callable_signatures: &[CallableSignatureRecordV1],
+    type_graph: &TypeGraphV1,
+    limits: &ValidationLimits,
+    depth: usize,
+) -> Result<(), ArtifactError> {
+    if depth > limits.max_recursion_depth {
+        return Err(invalid("witness selection fallback exceeds its depth limit"));
+    }
+    let callable_valid = |callable: &StableCallableRef| {
+        callable.selector == requirement.selector
+            && callable.side == member.callable.side
+            && callable_signatures.binary_search_by(|signature| signature.callable.cmp(callable)).is_ok()
+    };
+    match selection {
+        CallableRequirementSelectionV1::ConformanceCallable { callable } => {
+            if callable.owner != StableCallableOwnerRef::Conformance(witness_impl.clone()) || !callable_valid(callable) {
+                return Err(invalid("conformance witness selection references a callable owned by another implementation"));
+            }
+        }
+        CallableRequirementSelectionV1::InherentCallable { callable, .. } => {
+            if !callable_valid(callable) {
+                return Err(invalid("witness selection references an absent or mismatched callable"));
+            }
+            if let CallableRequirementSelectionV1::InherentCallable {
+                conditional_impl,
+                applicability,
+                ..
+            } = selection
+                && conditional_impl
+                    .as_ref()
+                    .is_some_and(|impl_id| applicability.as_ref().is_some_and(|row| row.impl_id != *impl_id))
+            {
+                return Err(invalid("witness inherent applicability belongs to another implementation"));
+            }
+            if let CallableRequirementSelectionV1::InherentCallable { applicability: Some(row), .. } = selection {
+                validate_witness_specialization(row, type_graph, limits)?;
+            }
+        }
+        CallableRequirementSelectionV1::TraitDefault { callable } => {
+            if !member.default_present || callable != &member.callable || !callable_valid(callable) {
+                return Err(invalid("witness trait-default selection disagrees with the trait surface"));
+            }
+        }
+        CallableRequirementSelectionV1::DataComponent { index, specialized_type, .. } => {
+            if usize::try_from(specialized_type.0).map_or(true, |index| index >= type_graph.types.len())
+                || *index >= limits.max_semantic_entries_per_family as u32
+            {
+                return Err(invalid("witness data-component selection has an invalid type or index"));
+            }
+        }
+        CallableRequirementSelectionV1::ConditionalInherent { candidate, pending, fallback } => {
+            if candidate.callable.selector != requirement.selector
+                || candidate.callable.side != member.callable.side
+                || candidate.signature.callable != candidate.callable
+                || candidate.owner != candidate.signature.owner
+                || callable_signatures
+                    .binary_search_by(|signature| signature.callable.cmp(&candidate.callable))
+                    .is_err()
+            {
+                return Err(invalid("conditional inherent witness candidate is malformed"));
+            }
+            validate_callable_signature(&candidate.signature, limits)?;
+            if let Some(applicability) = &candidate.applicability {
+                validate_witness_specialization(applicability, type_graph, limits)?;
+            }
+            if let Some(domain) = &candidate.conditional_domain {
+                if candidate.conditional_impl.as_ref() != Some(&domain.impl_id)
+                    || usize::try_from(domain.head_type.0).map_or(true, |index| index >= type_graph.types.len())
+                    || domain.constraints.len() > limits.max_semantic_entries_per_family
+                {
+                    return Err(invalid("conditional inherent witness domain is inconsistent"));
+                }
+            }
+            if let CallableConformanceCompletenessV1::Blocked { reason } = pending {
+                validate_callable_block_reason(reason, type_graph, limits)?;
+            }
+            if let Some(fallback) = fallback {
+                validate_witness_selection(fallback, requirement, member, witness_impl, callable_signatures, type_graph, limits, depth + 1)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn compute_portable_witness_layout_fingerprint(callables: &[StableCallableRef]) -> [u8; 32] {
+    let mut digest = [0u8; 32];
+    for (index, callable) in callables.iter().enumerate() {
+        for (byte_index, byte) in callable.selector.as_bytes().iter().enumerate() {
+            digest[byte_index % 32] ^= byte.wrapping_add(index as u8);
+        }
+    }
+    digest
+}
+
+fn witness_push_evidence_edge(
+    nodes: &[CallableConformanceEvidenceNodeV1],
+    edges: &mut Vec<(usize, usize)>,
+    from: usize,
+    ordinal: u32,
+    expected_kind: Option<u8>,
+) -> Result<(), ArtifactError> {
+    let index = usize::try_from(ordinal).map_err(|_| invalid("witness evidence ordinal exceeds address space"))?;
+    let node = nodes.get(index).ok_or_else(|| invalid("witness evidence reference is out of range"))?;
+    if expected_kind.is_some_and(|expected| callable_evidence_kind(node) != expected) {
+        return Err(invalid("witness evidence reference has the wrong node kind"));
+    }
+    edges.push((from, index));
+    Ok(())
+}
+
+fn validate_witness_evidence_reference(nodes: &[CallableConformanceEvidenceNodeV1], ordinal: u32, expected_kind: Option<u8>) -> Result<(), ArtifactError> {
+    let index = usize::try_from(ordinal).map_err(|_| invalid("witness evidence ordinal exceeds address space"))?;
+    let node = nodes.get(index).ok_or_else(|| invalid("witness evidence reference is out of range"))?;
+    if expected_kind.is_some_and(|expected| callable_evidence_kind(node) != expected) {
+        return Err(invalid("witness evidence reference has the wrong node kind"));
+    }
+    Ok(())
+}
+
+fn validate_witness_specialization_references(
+    nodes: &[CallableConformanceEvidenceNodeV1],
+    specialization: &CallableInherentImplSpecializationV1,
+) -> Result<(), ArtifactError> {
+    if let Some(bindings) = &specialization.conformance_provenance {
+        for binding in bindings {
+            let (ordinal, expected) = match &binding.source {
+                CallableGenericCallConformanceSourceV1::Exact { evidence } => (Some(*evidence), Some(0)),
+                CallableGenericCallConformanceSourceV1::Forwarded { .. } => (None, None),
+                CallableGenericCallConformanceSourceV1::Derived { evidence } => (Some(*evidence), Some(2)),
+                CallableGenericCallConformanceSourceV1::CompilerDerived { evidence } => (Some(*evidence), Some(3)),
+            };
+            if let Some(ordinal) = ordinal {
+                validate_witness_evidence_reference(nodes, ordinal, expected)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_witness_selection_references(
+    nodes: &[CallableConformanceEvidenceNodeV1],
+    selection: &CallableRequirementSelectionV1,
+    depth: usize,
+    limit: usize,
+) -> Result<(), ArtifactError> {
+    if depth > limit {
+        return Err(invalid("witness selection nesting exceeds its limit"));
+    }
+    match selection {
+        CallableRequirementSelectionV1::InherentCallable { applicability, .. } => {
+            if let Some(applicability) = applicability {
+                validate_witness_specialization_references(nodes, applicability)?;
+            }
+        }
+        CallableRequirementSelectionV1::ConditionalInherent { candidate, fallback, .. } => {
+            if let Some(applicability) = &candidate.applicability {
+                validate_witness_specialization_references(nodes, applicability)?;
+            }
+            if let Some(fallback) = fallback {
+                validate_witness_selection_references(nodes, fallback, depth + 1, limit)?;
+            }
+        }
+        CallableRequirementSelectionV1::ConformanceCallable { .. }
+        | CallableRequirementSelectionV1::DataComponent { .. }
+        | CallableRequirementSelectionV1::TraitDefault { .. } => {}
+    }
+    Ok(())
+}
+
+fn collect_witness_selection_evidence_edges(
+    nodes: &[CallableConformanceEvidenceNodeV1],
+    edges: &mut Vec<(usize, usize)>,
+    from: usize,
+    selection: &CallableRequirementSelectionV1,
+    depth: usize,
+    limit: usize,
+) -> Result<(), ArtifactError> {
+    if depth > limit {
+        return Err(invalid("witness selection nesting exceeds its limit"));
+    }
+    let mut collect_specialization = |specialization: &CallableInherentImplSpecializationV1| -> Result<(), ArtifactError> {
+        if let Some(bindings) = &specialization.conformance_provenance {
+            for binding in bindings {
+                let (ordinal, expected) = match &binding.source {
+                    CallableGenericCallConformanceSourceV1::Exact { evidence } => (Some(*evidence), Some(0)),
+                    CallableGenericCallConformanceSourceV1::Forwarded { .. } => (None, None),
+                    CallableGenericCallConformanceSourceV1::Derived { evidence } => (Some(*evidence), Some(2)),
+                    CallableGenericCallConformanceSourceV1::CompilerDerived { evidence } => (Some(*evidence), Some(3)),
+                };
+                if let Some(ordinal) = ordinal {
+                    witness_push_evidence_edge(nodes, edges, from, ordinal, expected)?;
+                }
+            }
+        }
+        Ok(())
+    };
+    match selection {
+        CallableRequirementSelectionV1::InherentCallable { applicability, .. } => {
+            if let Some(applicability) = applicability {
+                collect_specialization(applicability)?;
+            }
+        }
+        CallableRequirementSelectionV1::ConditionalInherent { candidate, fallback, .. } => {
+            if let Some(applicability) = &candidate.applicability {
+                collect_specialization(applicability)?;
+            }
+            if let Some(fallback) = fallback {
+                collect_witness_selection_evidence_edges(nodes, edges, from, fallback, depth + 1, limit)?;
+            }
+        }
+        CallableRequirementSelectionV1::ConformanceCallable { .. }
+        | CallableRequirementSelectionV1::DataComponent { .. }
+        | CallableRequirementSelectionV1::TraitDefault { .. } => {}
+    }
+    Ok(())
+}
+
+fn validate_witness_evidence_graph(witness: &WitnessPlanV1, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+    validate_callable_evidence_graph(&witness.requirements, &witness.conformance_evidence, limits, allocations)
+}
+
+fn validate_callable_evidence_graph(
+    requirements: &[CallableRequirementSelectionEntryV1],
+    nodes: &[CallableConformanceEvidenceNodeV1],
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<(), ArtifactError> {
+    let node_count = nodes.len();
+    let mut edge_count = 0usize;
+    for entry in requirements {
+        validate_witness_selection_references(nodes, &entry.selection, 0, limits.max_recursion_depth)?;
+    }
+    for node in nodes {
+        let additional = match node {
+            CallableConformanceEvidenceNodeV1::Exact { evidence } => {
+                let mut count = evidence.trait_header_conformance_proofs.as_ref().map_or(0, Vec::len);
+                for entry in &evidence.requirements {
+                    count = count
+                        .checked_add(count_callable_requirement_selection_edges(&entry.selection, 0, limits.max_recursion_depth)?)
+                        .ok_or_else(|| invalid("witness evidence edge count overflow"))?;
+                }
+                count
+            }
+            CallableConformanceEvidenceNodeV1::Derived { evidence } => {
+                let origin = usize::from(matches!(&evidence.origin, CallableDerivedConformanceOriginV1::ConditionalSource { .. }));
+                let nested = evidence
+                    .nested
+                    .iter()
+                    .filter(|edge| matches!(edge, CallableNestedGenericEvidenceV1::Conformance { .. }))
+                    .count();
+                let rule = match &evidence.origin {
+                    CallableDerivedConformanceOriginV1::GuardedRule { rule, .. } => {
+                        let mut count = 0usize;
+                        for entry in &rule.requirements {
+                            count = count
+                                .checked_add(count_callable_requirement_selection_edges(&entry.selection, 0, limits.max_recursion_depth)?)
+                                .ok_or_else(|| invalid("witness evidence edge count overflow"))?;
+                        }
+                        count
+                    }
+                    CallableDerivedConformanceOriginV1::ConditionalSource { .. } => 0,
+                };
+                origin
+                    .checked_add(nested)
+                    .and_then(|count| count.checked_add(rule))
+                    .ok_or_else(|| invalid("witness evidence edge count overflow"))?
+            }
+            CallableConformanceEvidenceNodeV1::Assumed { .. } | CallableConformanceEvidenceNodeV1::CompilerDerived { .. } => 0,
+        };
+        edge_count = edge_count
+            .checked_add(additional)
+            .ok_or_else(|| invalid("witness evidence edge count overflow"))?;
+    }
+    if edge_count > limits.max_semantic_entries_per_family {
+        return Err(invalid("witness evidence edge count exceeds its limit"));
+    }
+    let mut edges = allocations.vector::<(usize, usize)>(edge_count).map_err(allocation_error)?;
+    for (from, node) in nodes.iter().enumerate() {
+        match node {
+            CallableConformanceEvidenceNodeV1::Exact { evidence } => {
+                if let Some(proofs) = &evidence.trait_header_conformance_proofs {
+                    for proof in proofs {
+                        witness_push_evidence_edge(nodes, &mut edges, from, proof.evidence, None)?;
+                    }
+                }
+                for entry in &evidence.requirements {
+                    collect_witness_selection_evidence_edges(nodes, &mut edges, from, &entry.selection, 0, limits.max_recursion_depth)?;
+                }
+            }
+            CallableConformanceEvidenceNodeV1::Derived { evidence } => {
+                if let CallableDerivedConformanceOriginV1::ConditionalSource { exact_source } = evidence.origin {
+                    witness_push_evidence_edge(nodes, &mut edges, from, exact_source, Some(0))?;
+                }
+                if let CallableDerivedConformanceOriginV1::GuardedRule { rule, .. } = &evidence.origin {
+                    for entry in &rule.requirements {
+                        collect_witness_selection_evidence_edges(nodes, &mut edges, from, &entry.selection, 0, limits.max_recursion_depth)?;
+                    }
+                }
+                for nested in &evidence.nested {
+                    if let CallableNestedGenericEvidenceV1::Conformance { evidence } = nested {
+                        witness_push_evidence_edge(nodes, &mut edges, from, *evidence, None)?;
+                    }
+                }
+            }
+            CallableConformanceEvidenceNodeV1::Assumed { .. } | CallableConformanceEvidenceNodeV1::CompilerDerived { .. } => {}
+        }
+    }
+    if edges.len() != edge_count {
+        return Err(invalid("witness evidence edge accounting mismatch"));
+    }
+    edges.sort_unstable();
+    let mut offsets = allocations
+        .vector::<usize>(node_count.checked_add(1).ok_or_else(|| invalid("witness evidence node count overflow"))?)
+        .map_err(allocation_error)?;
+    offsets.resize(node_count + 1, 0);
+    let mut indegree = allocations.vector::<usize>(node_count).map_err(allocation_error)?;
+    indegree.resize(node_count, 0);
+    for &(from, to) in &edges {
+        offsets[from + 1] = offsets[from + 1]
+            .checked_add(1)
+            .ok_or_else(|| invalid("witness evidence out-degree overflow"))?;
+        indegree[to] = indegree[to].checked_add(1).ok_or_else(|| invalid("witness evidence in-degree overflow"))?;
+    }
+    for index in 1..offsets.len() {
+        offsets[index] = offsets[index]
+            .checked_add(offsets[index - 1])
+            .ok_or_else(|| invalid("witness evidence adjacency overflow"))?;
+    }
+    let mut queue = allocations.vector::<usize>(node_count).map_err(allocation_error)?;
+    let mut ready = allocations.vector::<usize>(node_count).map_err(allocation_error)?;
+    for (node, degree) in indegree.iter().enumerate() {
+        if *degree == 0 {
+            ready.push(node);
+        }
+    }
+    while let Some(node) = ready.pop() {
+        queue.push(node);
+        for &(_, target) in &edges[offsets[node]..offsets[node + 1]] {
+            indegree[target] -= 1;
+            if indegree[target] == 0 {
+                ready.push(target);
+            }
+        }
+    }
+    if queue.len() != node_count {
+        return Err(invalid("witness conformance evidence graph contains a cycle"));
+    }
+    Ok(())
+}
+
+fn validate_witness_specialization(
+    specialization: &CallableInherentImplSpecializationV1,
+    type_graph: &TypeGraphV1,
+    limits: &ValidationLimits,
+) -> Result<(), ArtifactError> {
+    for ty in [specialization.receiver, specialization.owner_view] {
+        if usize::try_from(ty.0).map_or(true, |index| index >= type_graph.types.len()) {
+            return Err(invalid("inherent specialization references an absent type"));
+        }
+    }
+    if specialization.bindings.windows(2).any(|pair| pair[0].parameter >= pair[1].parameter)
+        || specialization
+            .environment
+            .bindings
+            .windows(2)
+            .any(|pair| pair[0].parameter >= pair[1].parameter)
+    {
+        return Err(invalid("inherent specialization bindings are not canonical"));
+    }
+    for binding in &specialization.bindings {
+        if usize::try_from(binding.parameter.0).map_or(true, |index| index >= type_graph.parameters.len())
+            || usize::try_from(binding.ty.0).map_or(true, |index| index >= type_graph.types.len())
+        {
+            return Err(invalid("inherent specialization binding references an absent identity"));
+        }
+    }
+    for binding in &specialization.environment.bindings {
+        if usize::try_from(binding.parameter.0).map_or(true, |index| index >= type_graph.parameters.len()) {
+            return Err(invalid("inherent specialization environment references an absent parameter"));
+        }
+    }
+    if let Some(provenance) = &specialization.conformance_provenance {
+        if provenance.len() > limits.max_semantic_entries_per_family {
+            return Err(invalid("inherent specialization conformance provenance exceeds its limit"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_witness_diagnostic(
+    diagnostic: &CallableEvidenceDiagnosticV1,
+    callable_signatures: &[CallableSignatureRecordV1],
+    type_graph: &TypeGraphV1,
+    limits: &ValidationLimits,
+) -> Result<(), ArtifactError> {
+    if diagnostic.code.is_empty()
+        || diagnostic.code.len() > limits.max_string_bytes
+        || diagnostic.message.len() > limits.max_string_bytes
+        || diagnostic.primary.range != diagnostic.primary_range
+        || diagnostic.primary_range.start > diagnostic.primary_range.end
+        || diagnostic.labels.len() > limits.max_semantic_entries_per_family
+        || diagnostic.notes.len() > limits.max_semantic_entries_per_family
+        || diagnostic.helps.len() > limits.max_semantic_entries_per_family
+        || diagnostic.guidance.len() > limits.max_semantic_entries_per_family
+        || diagnostic.explanations.len() > limits.max_semantic_entries_per_family
+        || diagnostic.fixes.len() > limits.max_semantic_entries_per_family
+    {
+        return Err(invalid("witness diagnostic is malformed or exceeds its limits"));
+    }
+    if diagnostic
+        .notes
+        .iter()
+        .chain(&diagnostic.helps)
+        .any(|text| text.len() > limits.max_string_bytes)
+    {
+        return Err(invalid("witness diagnostic text exceeds its string limit"));
+    }
+    for label in &diagnostic.labels {
+        if label.message.len() > limits.max_string_bytes || label.source.range.start > label.source.range.end || label.range.start > label.range.end {
+            return Err(invalid("witness diagnostic label is malformed"));
+        }
+    }
+    for explanation in &diagnostic.explanations {
+        if callable_signatures
+            .binary_search_by(|signature| signature.callable.cmp(&explanation.callable))
+            .is_err()
+        {
+            return Err(invalid("witness diagnostic explanation references an absent callable"));
+        }
+    }
+    for diagnostic in [diagnostic] {
+        for guidance in &diagnostic.guidance {
+            match guidance {
+                CallableEvidenceDiagnosticGuidanceV1::ChangeAnnotation { range, ty }
+                | CallableEvidenceDiagnosticGuidanceV1::EstablishTypeEvidence { range, expected: Some(ty) } => {
+                    if range.start > range.end || usize::try_from(ty.0).map_or(true, |index| index >= type_graph.types.len()) {
+                        return Err(invalid("witness diagnostic guidance references an absent type or inverted range"));
+                    }
+                }
+                CallableEvidenceDiagnosticGuidanceV1::SupplyAssignableValue { expected } => {
+                    if usize::try_from(expected.0).map_or(true, |index| index >= type_graph.types.len()) {
+                        return Err(invalid("witness diagnostic guidance references an absent type"));
+                    }
+                }
+                CallableEvidenceDiagnosticGuidanceV1::UseCallableShape { callable } => {
+                    if callable_signatures.binary_search_by(|signature| signature.callable.cmp(callable)).is_err() {
+                        return Err(invalid("witness diagnostic guidance references an absent callable"));
+                    }
+                }
+                CallableEvidenceDiagnosticGuidanceV1::EstablishTypeEvidence { range, expected: None } if range.start > range.end => {
+                    return Err(invalid("witness diagnostic guidance range is inverted"));
+                }
+                CallableEvidenceDiagnosticGuidanceV1::EstablishTypeEvidence { .. } => {}
+                CallableEvidenceDiagnosticGuidanceV1::ResolveGenericParameter { parameter }
+                    if usize::try_from(parameter.0).map_or(true, |index| index >= type_graph.parameters.len()) =>
+                {
+                    return Err(invalid("witness diagnostic guidance references an absent parameter"));
+                }
+                CallableEvidenceDiagnosticGuidanceV1::ResolveGenericParameter { .. } => {}
+            }
+        }
+    }
+    for fix in &diagnostic.fixes {
+        if fix.message.len() > limits.max_string_bytes
+            || fix
+                .replacement
+                .as_ref()
+                .is_some_and(|replacement| replacement.text.len() > limits.max_string_bytes || replacement.range.start > replacement.range.end)
+        {
+            return Err(invalid("witness diagnostic fix is malformed"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_trait_surface_diagnostic(
+    diagnostic: &CallableEvidenceDiagnosticV1,
+    declaration: &StableDeclarationRef,
+    callable_signatures: &[CallableSignatureRecordV1],
+    type_graph: &TypeGraphV1,
+    limits: &ValidationLimits,
+) -> Result<(), ArtifactError> {
+    if diagnostic.code.is_empty()
+        || diagnostic.code.len() > limits.max_string_bytes
+        || diagnostic.message.len() > limits.max_string_bytes
+        || diagnostic.notes.len() > limits.max_semantic_entries_per_family
+        || diagnostic.helps.len() > limits.max_semantic_entries_per_family
+        || diagnostic.labels.len() > limits.max_semantic_entries_per_family
+        || diagnostic.guidance.len() > limits.max_semantic_entries_per_family
+        || diagnostic.explanations.len() > limits.max_semantic_entries_per_family
+        || diagnostic.fixes.len() > limits.max_semantic_entries_per_family
+    {
+        return Err(invalid("trait surface diagnostic exceeds limits"));
+    }
+    if diagnostic
+        .notes
+        .iter()
+        .chain(&diagnostic.helps)
+        .any(|text| text.len() > limits.max_string_bytes)
+    {
+        return Err(invalid("trait surface diagnostic text exceeds limits"));
+    }
+    validate_trait_source(&diagnostic.primary, declaration)?;
+    if diagnostic.primary_range.start > diagnostic.primary_range.end || diagnostic.primary.range != diagnostic.primary_range {
+        return Err(invalid("trait surface diagnostic primary range is inconsistent"));
+    }
+    for label in &diagnostic.labels {
+        if label.message.len() > limits.max_string_bytes || label.source.range.start > label.source.range.end || label.range.start > label.range.end {
+            return Err(invalid("trait surface diagnostic label is invalid"));
+        }
+    }
+    for fix in &diagnostic.fixes {
+        if fix.message.len() > limits.max_string_bytes
+            || fix
+                .replacement
+                .as_ref()
+                .is_some_and(|replacement| replacement.text.len() > limits.max_string_bytes || replacement.range.start > replacement.range.end)
+        {
+            return Err(invalid("trait surface diagnostic fix is invalid"));
+        }
+    }
+    for guidance in &diagnostic.guidance {
+        match guidance {
+            CallableEvidenceDiagnosticGuidanceV1::ChangeAnnotation { range, ty }
+            | CallableEvidenceDiagnosticGuidanceV1::EstablishTypeEvidence { range, expected: Some(ty) } => {
+                if range.start > range.end || usize::try_from(ty.0).map_or(true, |index| index >= type_graph.types.len()) {
+                    return Err(invalid("trait surface diagnostic guidance references an invalid type or range"));
+                }
+            }
+            CallableEvidenceDiagnosticGuidanceV1::SupplyAssignableValue { expected: ty } => {
+                if usize::try_from(ty.0).map_or(true, |index| index >= type_graph.types.len()) {
+                    return Err(invalid("trait surface diagnostic guidance references an absent type"));
+                }
+            }
+            CallableEvidenceDiagnosticGuidanceV1::EstablishTypeEvidence { range, expected: None } => {
+                if range.start > range.end {
+                    return Err(invalid("trait surface diagnostic guidance range is inverted"));
+                }
+            }
+            CallableEvidenceDiagnosticGuidanceV1::UseCallableShape { callable } => {
+                if callable_signatures.binary_search_by(|signature| signature.callable.cmp(callable)).is_err() {
+                    return Err(invalid("trait surface diagnostic guidance references an absent callable signature"));
+                }
+            }
+            CallableEvidenceDiagnosticGuidanceV1::ResolveGenericParameter { parameter } => {
+                if usize::try_from(parameter.0).map_or(true, |index| index >= type_graph.parameters.len()) {
+                    return Err(invalid("trait surface diagnostic guidance references an absent parameter"));
+                }
+            }
+        }
+    }
+    for explanation in &diagnostic.explanations {
+        if callable_signatures
+            .binary_search_by(|signature| signature.callable.cmp(&explanation.callable))
+            .is_err()
+        {
+            return Err(invalid("trait surface diagnostic explanation references an absent callable signature"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_declaration_surface(
+    surface: &DeclarationSurfaceRecordV1,
+    callable_signatures: &[CallableSignatureRecordV1],
+    type_graph: &TypeGraphV1,
+    limits: &ValidationLimits,
+) -> Result<(), ArtifactError> {
+    if surface.instance_callables.len() > limits.max_semantic_entries_per_family
+        || surface.class_callables.len() > limits.max_semantic_entries_per_family
+        || surface.fields.len() > limits.max_semantic_entries_per_family
+    {
+        return Err(invalid("declaration surface row budget exceeded"));
+    }
+    for (side, callables) in [(0, &surface.instance_callables), (1, &surface.class_callables)] {
+        if callables.windows(2).any(|pair| pair[0].callable >= pair[1].callable) {
+            return Err(invalid("declaration surface callable rows must be unique and sorted"));
+        }
+        for fact in callables {
+            if fact.callable.owner != StableCallableOwnerRef::Declaration(surface.declaration.clone())
+                || fact.callable.side != if side == 0 { StableDispatchSide::Instance } else { StableDispatchSide::Class }
+                || callable_signatures
+                    .binary_search_by(|signature| signature.callable.cmp(&fact.callable))
+                    .is_err()
+            {
+                return Err(invalid("declaration surface callable identity has no matching canonical signature"));
+            }
+            validate_dispatch_knowledge(&fact.knowledge, type_graph, limits)?;
+        }
+    }
+    if surface
+        .fields
+        .windows(2)
+        .any(|pair| (pair[0].side, &pair[0].name) >= (pair[1].side, &pair[1].name))
+    {
+        return Err(invalid("declaration surface fields must be unique and ordered by side and name"));
+    }
+    for field in &surface.fields {
+        if field.owner != surface.declaration || field.name.is_empty() || field.name.len() > limits.max_string_bytes || field.side > 1 {
+            return Err(invalid("declaration surface field identity is invalid"));
+        }
+        match (&field.declared_type, field.mutable) {
+            (Some(declared_type), Some(_)) => validate_declared_type_fact(declared_type, type_graph)?,
+            (None, None) if field.source.is_none() => {}
+            _ => return Err(invalid("declaration field surface has incomplete optional signature authority")),
+        }
+        validate_dispatch_knowledge(&field.knowledge, type_graph, limits)?;
+        if field.source.as_ref().is_some_and(|source| source.start > source.end) {
+            return Err(invalid("declaration surface field source range is inverted"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_dispatch_knowledge(knowledge: &TypeKnowledgeV1, type_graph: &TypeGraphV1, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    match knowledge {
+        TypeKnowledgeV1::Known { ty, provenance, .. } => {
+            validate_type_id(*ty, type_graph)?;
+            if provenance.ranges.len() > limits.max_semantic_entries_per_family
+                || provenance.descriptions.len() > limits.max_semantic_entries_per_family
+                || provenance.ranges.iter().any(|range| range.start > range.end)
+                || provenance.descriptions.iter().any(|description| description.len() > limits.max_string_bytes)
+            {
+                return Err(invalid("declaration surface evidence provenance is invalid"));
+            }
+        }
+        TypeKnowledgeV1::Unknown {
+            reason: UnknownReasonV1::UnresolvedName { name },
+        } if name.len() > limits.max_string_bytes => {
+            return Err(invalid("declaration surface unresolved-name reason exceeds its string limit"));
+        }
+        TypeKnowledgeV1::Unknown { .. } | TypeKnowledgeV1::Dynamic { .. } => {}
+    }
+    Ok(())
+}
+
+fn validate_declared_type_fact(fact: &DeclaredTypeFactV1, type_graph: &TypeGraphV1) -> Result<(), ArtifactError> {
+    if let crate::semantic::aggregates::DeclaredTypeStateV1::Known { term } = &fact.state {
+        validate_type_term(term, type_graph)?;
+    }
+    Ok(())
+}
+
+fn validate_type_term(term: &TypeTermV1, type_graph: &TypeGraphV1) -> Result<(), ArtifactError> {
+    if let TypeTermV1::Canonical { ty } = term {
+        validate_type_id(*ty, type_graph)?;
+    }
+    Ok(())
+}
+
+fn validate_type_id(ty: ArtifactTypeId, type_graph: &TypeGraphV1) -> Result<(), ArtifactError> {
+    if usize::try_from(ty.0).map_or(true, |index| index >= type_graph.types.len()) {
+        return Err(invalid("semantic fact references an absent canonical type"));
+    }
+    Ok(())
+}
+
+fn validate_inherent_target(target: &InherentImplTargetV1) -> Result<(), ArtifactError> {
+    match target {
+        InherentImplTargetV1::Declaration { .. } | InherentImplTargetV1::ExactEnumCase { .. } => Ok(()),
+    }
+}
+
+fn compare_inherent_targets(left: &InherentImplTargetV1, right: &InherentImplTargetV1) -> std::cmp::Ordering {
+    use InherentImplTargetV1 as Target;
+    match (left, right) {
+        (Target::Declaration { declaration: left }, Target::Declaration { declaration: right }) => left.cmp(right),
+        (Target::ExactEnumCase { variant: left }, Target::ExactEnumCase { variant: right }) => left.cmp(right),
+        (Target::Declaration { .. }, Target::ExactEnumCase { .. }) => std::cmp::Ordering::Less,
+        (Target::ExactEnumCase { .. }, Target::Declaration { .. }) => std::cmp::Ordering::Greater,
+    }
+}
+
+fn validate_conditional_inherent_set(
+    set: &ConditionalInherentSetV1,
+    callable_signatures: &[CallableSignatureRecordV1],
+    type_graph: &TypeGraphV1,
+    limits: &ValidationLimits,
+) -> Result<(), ArtifactError> {
+    if set.domains.len() > limits.max_semantic_entries_per_family || set.members.len() > limits.max_semantic_entries_per_family {
+        return Err(invalid("conditional inherent set row budget exceeded"));
+    }
+    validate_inherent_target(&set.target)?;
+    if set.domains.windows(2).any(|pair| pair[0].impl_id >= pair[1].impl_id) {
+        return Err(invalid("conditional inherent domains must be unique and impl-sorted"));
+    }
+    for domain in &set.domains {
+        if domain.target != set.target
+            || usize::try_from(domain.head_type.0).map_or(true, |index| index >= type_graph.types.len())
+            || domain.constraints.len() > limits.max_semantic_entries_per_family
+        {
+            return Err(invalid("conditional inherent domain identity, head, or constraints are invalid"));
+        }
+        if let Some(signature) = &domain.generic_signature {
+            if signature.owner != (crate::semantic::type_store::ParameterOwnerV1::Impl { owner: domain.impl_id.clone() }) {
+                return Err(invalid("conditional inherent domain generic signature has the wrong impl owner"));
+            }
+            if signature.parameters.iter().any(|parameter| {
+                usize::try_from(parameter.0)
+                    .ok()
+                    .and_then(|index| type_graph.parameters.get(index))
+                    .is_none_or(|parameter| parameter.owner != signature.owner)
+            }) {
+                return Err(invalid("conditional inherent domain generic signature references an invalid impl parameter"));
+            }
+        }
+    }
+    for (member_order, member) in set.members.iter().enumerate() {
+        let domain_index = set.domains.binary_search_by(|domain| domain.impl_id.cmp(&member.impl_id));
+        let Ok(domain_index) = domain_index else {
+            return Err(invalid("conditional inherent member references an absent impl domain"));
+        };
+        if u32::try_from(member_order).ok() != Some(member.member_order)
+            || set.domains[domain_index].target != set.target
+            || member.signature.callable != member.callable
+            || member.signature.owner
+                != match &set.target {
+                    InherentImplTargetV1::Declaration { declaration } => declaration.clone(),
+                    InherentImplTargetV1::ExactEnumCase { variant } => variant.owner.clone(),
+                }
+            || member.signature.side
+                != match member.callable.side {
+                    StableDispatchSide::Instance => 0,
+                    StableDispatchSide::Class => 1,
+                }
+            || member.source_member_index as usize >= limits.max_semantic_entries_per_family
+        {
+            return Err(invalid("conditional inherent member owner, signature, or source ordinal is invalid"));
+        }
+        let callable_owner_matches_target = match (&set.target, &member.callable.owner) {
+            (InherentImplTargetV1::Declaration { declaration }, StableCallableOwnerRef::Declaration(owner)) => declaration == owner,
+            (InherentImplTargetV1::ExactEnumCase { variant }, StableCallableOwnerRef::Variant(owner)) => variant == owner,
+            _ => false,
+        };
+        if !callable_owner_matches_target
+            || callable_signatures
+                .binary_search_by(|signature| signature.callable.cmp(&member.callable))
+                .is_err()
+        {
+            return Err(invalid("conditional inherent member callable owner has no canonical signature"));
+        }
+        validate_callable_signature(&member.signature, limits)?;
+    }
+    Ok(())
+}
+
+fn validate_trait_source(source: &EnumRequirementSourceV1, declaration: &StableDeclarationRef) -> Result<(), ArtifactError> {
+    if source.module != declaration.module || source.range.start > source.range.end {
+        return Err(invalid("trait surface source span is invalid"));
+    }
     Ok(())
 }
 

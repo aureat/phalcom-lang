@@ -1,5 +1,6 @@
 //! Canonical inherent implementation fragment analysis, target resolution, and contribution publication.
 
+use crate::checker::analysis_map::{AnalysisMap, AnalysisMapIter};
 use crate::checker::context::{CheckerControl, CheckingContext};
 use crate::checker::declaration_signature::{
     CallableSyntaxRef, DelegationError, callable_id_for_syntax, delegated_accessor_signatures, delegated_member_visibility,
@@ -590,7 +591,7 @@ pub struct AssociatedTypeBindingFailure {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConformanceAssociatedTypePlan {
     pub impl_id: ImplId,
-    pub bindings: BTreeMap<crate::traits::AssociatedTypeRequirementId, AssociatedTypeBindingTemplate>,
+    pub bindings: AnalysisMap<crate::traits::AssociatedTypeRequirementId, AssociatedTypeBindingTemplate>,
     pub failures: Box<[AssociatedTypeBindingFailure]>,
     pub diagnostics: Box<[SemanticDiagnostic]>,
     pub fingerprint: ProductFingerprint,
@@ -600,13 +601,44 @@ impl ConformanceAssociatedTypePlan {
     pub fn empty(impl_id: ImplId) -> Self {
         let mut plan = Self {
             impl_id,
-            bindings: BTreeMap::new(),
+            bindings: AnalysisMap::new(),
             failures: Box::new([]),
             diagnostics: Box::new([]),
             fingerprint: ProductFingerprint::default(),
         };
         plan.fingerprint = associated_type_plan_fingerprint(&plan);
         plan
+    }
+
+    /// Builds an imported plan around already-frozen bindings without first
+    /// creating a source-side associative container.
+    pub(crate) fn from_frozen_parts(
+        impl_id: ImplId,
+        bindings: AnalysisMap<crate::traits::AssociatedTypeRequirementId, AssociatedTypeBindingTemplate>,
+        failures: Box<[AssociatedTypeBindingFailure]>,
+        diagnostics: Box<[SemanticDiagnostic]>,
+    ) -> Self {
+        let mut plan = Self {
+            impl_id,
+            bindings,
+            failures,
+            diagnostics,
+            fingerprint: ProductFingerprint::default(),
+        };
+        plan.fingerprint = associated_type_plan_fingerprint(&plan);
+        plan
+    }
+
+    /// Builds a final associated-type plan after all proof and diagnostic
+    /// payloads have been installed. Imported callers must not mutate a
+    /// fingerprinted `empty()` plan into its final form.
+    pub(crate) fn from_parts(
+        impl_id: ImplId,
+        bindings: AnalysisMap<crate::traits::AssociatedTypeRequirementId, AssociatedTypeBindingTemplate>,
+        failures: Box<[AssociatedTypeBindingFailure]>,
+        diagnostics: Box<[SemanticDiagnostic]>,
+    ) -> Self {
+        Self::from_frozen_parts(impl_id, bindings, failures, diagnostics)
     }
 }
 
@@ -807,7 +839,7 @@ pub fn build_conformance_associated_type_plan(
 
     let mut plan = ConformanceAssociatedTypePlan {
         impl_id: impl_id.clone(),
-        bindings,
+        bindings: bindings.into(),
         failures: failures.into_boxed_slice(),
         diagnostics: diagnostics.into_boxed_slice(),
         fingerprint: ProductFingerprint::default(),
@@ -832,7 +864,7 @@ fn normalize_source_associated_bindings(
     // results are independent of source order.
     let source_plan = ConformanceAssociatedTypePlan {
         impl_id: impl_id.clone(),
-        bindings: bindings.clone(),
+        bindings: bindings.clone().into(),
         failures: Box::new([]),
         diagnostics: Box::new([]),
         fingerprint: ProductFingerprint::default(),
@@ -1009,7 +1041,7 @@ fn normalize_exact_requirement_signature(
     store: &mut TypeStore,
     trait_ref: &TraitRef,
     target: TypeId,
-    associated_types: &BTreeMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
+    associated_types: &AnalysisMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
     index: &ConformanceIndex,
     plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
     trait_surfaces: &TraitSurfaceTable,
@@ -1908,6 +1940,43 @@ pub struct ConformanceWitnessPlan {
     pub diagnostics: Box<[SemanticDiagnostic]>,
 }
 
+impl ConformanceWitnessPlan {
+    /// Constructs an imported witness only after its associated plan,
+    /// requirement views, selections, and completeness payload are complete.
+    /// The semantic fingerprint is always recomputed from those native parts.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_parts(
+        impl_id: ImplId,
+        source_module: crate::identity::ModuleId,
+        target_template: TypeId,
+        trait_ref_template: TraitRef,
+        generic_signature: Option<GenericSignature>,
+        requirement_views: BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+        requirements: BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+        associated_type_plan: ConformanceAssociatedTypePlan,
+        invalid_explicit_members: bool,
+        completeness: ConformanceCompleteness,
+        diagnostics: Box<[SemanticDiagnostic]>,
+    ) -> Self {
+        let mut plan = Self {
+            impl_id,
+            source_module,
+            target_template,
+            trait_ref_template,
+            generic_signature,
+            requirement_views,
+            requirements,
+            associated_type_plan,
+            fingerprint: ProductFingerprint::default(),
+            invalid_explicit_members,
+            completeness,
+            diagnostics,
+        };
+        plan.fingerprint = conformance_witness_plan_fingerprint(&plan);
+        plan
+    }
+}
+
 /// Exact target/TraitRef proof instantiated from a source witness plan.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConformanceEvidence {
@@ -1915,9 +1984,9 @@ pub struct ConformanceEvidence {
     pub exact_target: TypeId,
     pub exact_trait_ref: TraitRef,
     pub impl_environment: TypeEnvironment,
-    pub requirement_views: BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
-    pub requirements: BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
-    pub associated_types: BTreeMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
+    pub requirement_views: AnalysisMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+    pub requirements: AnalysisMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+    pub associated_types: AnalysisMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
     /// Trait-header constraints instantiated for this exact target and trait
     /// application, with exact associated projections normalized. The raw
     /// witness resolver records these obligations; the generic proof session
@@ -1927,8 +1996,42 @@ pub struct ConformanceEvidence {
     /// `None` marks a raw witness that has not passed the generic proof session;
     /// `Some(empty)` is a proof-complete exact witness with no conformance
     /// prerequisites.
-    pub trait_header_conformance_proofs: Option<BTreeMap<crate::generic_evidence::GenericConformanceKey, crate::generic_evidence::GenericConformanceEvidence>>,
+    pub trait_header_conformance_proofs:
+        Option<AnalysisMap<crate::generic_evidence::GenericConformanceKey, crate::generic_evidence::GenericConformanceEvidence>>,
     pub fingerprint: ProductFingerprint,
+}
+
+impl ConformanceEvidence {
+    /// Builds an imported exact-evidence owner around already-frozen maps.
+    /// The caller supplies the fingerprint reconstructed from semantic fields;
+    /// wire fingerprints are never accepted as authority.
+    pub(crate) fn from_frozen_parts(
+        source_impl: ImplId,
+        exact_target: TypeId,
+        exact_trait_ref: TraitRef,
+        impl_environment: TypeEnvironment,
+        requirement_views: AnalysisMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+        requirements: AnalysisMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+        associated_types: AnalysisMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
+        trait_header_contract: Box<[GenericConstraint]>,
+        trait_header_conformance_proofs: Option<
+            AnalysisMap<crate::generic_evidence::GenericConformanceKey, crate::generic_evidence::GenericConformanceEvidence>,
+        >,
+        fingerprint: ProductFingerprint,
+    ) -> Self {
+        Self {
+            source_impl,
+            exact_target,
+            exact_trait_ref,
+            impl_environment,
+            requirement_views,
+            requirements,
+            associated_types,
+            trait_header_contract,
+            trait_header_conformance_proofs,
+            fingerprint,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2147,7 +2250,7 @@ pub fn build_conformance_witness_plan(
                         },
                     )
                 })
-                .collect::<BTreeMap<_, _>>();
+                .collect::<AnalysisMap<_, _>>();
 
             let witness_plans_map: BTreeMap<crate::identity::ImplId, std::sync::Arc<ConformanceWitnessPlan>> = all_associated_type_plans
                 .iter()
@@ -2351,9 +2454,9 @@ fn conformance_evidence_fingerprint(
     target: TypeId,
     trait_ref: &TraitRef,
     environment: &TypeEnvironment,
-    requirement_views: &BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
-    requirements: &BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
-    associated_types: &BTreeMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
+    requirement_views: &AnalysisMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+    requirements: &AnalysisMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+    associated_types: &AnalysisMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
     trait_header_contract: &[GenericConstraint],
 ) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
@@ -2367,8 +2470,8 @@ fn conformance_evidence_fingerprint(
     row_bindings.sort_by_key(|(parameter, _)| **parameter);
     row_bindings.hash(&mut hasher);
     environment.self_binding.hash(&mut hasher);
-    format!("{:?}", requirement_views).hash(&mut hasher);
-    format!("{:?}", requirements).hash(&mut hasher);
+    format!("{:?}", requirement_views.iter().collect::<Vec<_>>()).hash(&mut hasher);
+    format!("{:?}", requirements.iter().collect::<Vec<_>>()).hash(&mut hasher);
     for (requirement, binding) in associated_types {
         requirement.hash(&mut hasher);
         binding.value.hash(&mut hasher);
@@ -2560,7 +2663,7 @@ pub fn resolve_conformance_evidence_with_surfaces(
                 },
             )
         })
-        .collect::<BTreeMap<_, _>>();
+        .collect::<AnalysisMap<_, _>>();
     for requirement in plan.associated_type_plan.bindings.keys() {
         let value = associated_types
             .get(requirement)
@@ -2589,7 +2692,11 @@ pub fn resolve_conformance_evidence_with_surfaces(
             crate::types::ProjectionNormalizationResult::Normalized(value) | crate::types::ProjectionNormalizationResult::Symbolic(value) => value,
             other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
         };
-        associated_types.get_mut(requirement).expect("associated binding remains staged").value = AssociatedTypeBindingValue::Type(value);
+        associated_types
+            .get_source_mut(requirement)
+            .expect("exact associated bindings are source mutable")
+            .expect("associated binding remains staged")
+            .value = AssociatedTypeBindingValue::Type(value);
     }
     let mut trait_header_contract = Vec::new();
     if let Some(signature) = &trait_surface.generic_signature {
@@ -2665,6 +2772,8 @@ pub fn resolve_conformance_evidence_with_surfaces(
             Err(result) => return projection_result_to_conformance_resolution(result, head.impl_id.clone()),
         };
     }
+    let requirement_views: AnalysisMap<_, _> = requirement_views.into();
+    let requirements: AnalysisMap<_, _> = requirements.into();
     let fingerprint = conformance_evidence_fingerprint(
         plan.fingerprint,
         target,
@@ -2735,15 +2844,48 @@ pub(crate) fn instantiate_conformance_requirements_with_signatures(
 
 /// Specializes a target-owned type (such as a data component declaration
 /// type) through the source or exact conformance target environment.
+pub(crate) trait TypeParameterBindingRead {
+    type Iter<'a>: Iterator<Item = (&'a TypeParameterId, &'a TypeId)>
+    where
+        Self: 'a;
+
+    fn iter_bindings(&self) -> Self::Iter<'_>;
+    fn bindings_are_empty(&self) -> bool;
+}
+
+impl TypeParameterBindingRead for HashMap<TypeParameterId, TypeId> {
+    type Iter<'a> = std::collections::hash_map::Iter<'a, TypeParameterId, TypeId>;
+
+    fn iter_bindings(&self) -> Self::Iter<'_> {
+        self.iter()
+    }
+
+    fn bindings_are_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl TypeParameterBindingRead for AnalysisMap<TypeParameterId, TypeId> {
+    type Iter<'a> = AnalysisMapIter<'a, TypeParameterId, TypeId>;
+
+    fn iter_bindings(&self) -> Self::Iter<'_> {
+        self.iter()
+    }
+
+    fn bindings_are_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
 pub(crate) fn specialize_conformance_target_type(
     store: &mut TypeStore,
     declarations: &DeclarationTypeTable,
     target: TypeId,
-    impl_bindings: &HashMap<TypeParameterId, TypeId>,
+    impl_bindings: &impl TypeParameterBindingRead,
     ty: TypeId,
 ) -> TypeId {
     let mut environment = TypeEnvironment::new();
-    for (&parameter, &binding) in impl_bindings {
+    for (&parameter, &binding) in impl_bindings.iter_bindings() {
         environment.bind_param(parameter, binding).expect("conformance environment is source mutable");
     }
     bind_target_declaration_parameters(store, declarations, target, &mut environment);
@@ -2756,10 +2898,10 @@ fn conformance_environment(
     trait_surface: &TraitSurface,
     trait_ref: &TraitRef,
     target: TypeId,
-    impl_bindings: &HashMap<TypeParameterId, TypeId>,
+    impl_bindings: &impl TypeParameterBindingRead,
 ) -> TypeEnvironment {
     let mut environment = TypeEnvironment::new();
-    for (&parameter, &binding) in impl_bindings {
+    for (&parameter, &binding) in impl_bindings.iter_bindings() {
         environment.bind_param(parameter, binding).expect("conformance environment is source mutable");
     }
     if let Some(declarations) = declarations {
@@ -2767,7 +2909,7 @@ fn conformance_environment(
     }
     if let Some(signature) = &trait_surface.generic_signature {
         for (&parameter, &argument) in signature.parameters.iter().zip(trait_ref.arguments.iter()) {
-            let argument = if impl_bindings.is_empty() {
+            let argument = if impl_bindings.bindings_are_empty() {
                 argument
             } else {
                 let substitution = environment.to_substitution();
@@ -2983,7 +3125,9 @@ impl ConformanceIndex {
     }
 
     pub fn get(&self, impl_id: &ImplId) -> Option<&ConformanceContribution> {
-        self.contributions.get(impl_id).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(impl_id)))
+        self.contributions
+            .get(impl_id)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(impl_id)))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&ImplId, &ConformanceContribution)> {
@@ -3129,7 +3273,11 @@ impl ConformanceIndex {
             if let Some(family) = nominal_conformance_family(store, target) {
                 candidates.extend(self.open_by_trait.get(trait_declaration).into_iter().flat_map(|ids| ids.iter().cloned()));
                 candidates.extend(
-                    self.by_trait_family.get(trait_declaration).and_then(|families| families.get(family)).into_iter().flat_map(|ids| ids.iter().cloned()),
+                    self.by_trait_family
+                        .get(trait_declaration)
+                        .and_then(|families| families.get(family))
+                        .into_iter()
+                        .flat_map(|ids| ids.iter().cloned()),
                 );
             } else {
                 candidates.extend(by_trait.iter().cloned());
@@ -3328,7 +3476,11 @@ mod conformance_index_partition_tests {
         );
         let trait_ref = TraitRef::new(trait_declaration, Vec::new());
         assert_matches_brute(&index, &store, &[(a, trait_ref.clone()), (b, trait_ref.clone())]);
-        assert_eq!(index.overlap_conflicts(&mut store).len(), 1, "canonical and local overlap is not silently accepted");
+        assert_eq!(
+            index.overlap_conflicts(&mut store).len(),
+            1,
+            "canonical and local overlap is not silently accepted"
+        );
         assert!(std::ptr::eq(index.get(&canonical_id).unwrap(), parent.get(&canonical_id).unwrap()));
         index.remove_source(&canonical_module);
         assert!(index.get(&canonical_id).is_some());
@@ -4348,6 +4500,7 @@ pub struct InherentMemberContribution {
     pub visibility: MemberVisibility,
     pub source_member: usize,
     pub is_requirement: bool,
+    pub body_provenance: CallableDefinitionBodyProvenance,
 }
 
 /// Canonical contribution product for an inherent impl block.
@@ -4491,6 +4644,19 @@ pub enum CallableDefinitionOrigin {
     ConformanceWitness(ImplId),
 }
 
+/// Canonical authority describing how an accepted callable body is produced.
+///
+/// Ordinary source bodies are located by their owner and member ordinal. A
+/// generated delegation additionally needs its checked target field after the
+/// source syntax that introduced it is unavailable.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CallableDefinitionBodyProvenance {
+    /// The body is supplied by the corresponding source member.
+    SourceBody,
+    /// The body is generated from an inherent delegation member.
+    GeneratedDelegation { target_field: Box<str> },
+}
+
 /// Canonical definition provenance for an accepted callable.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectiveCallableDefinition {
@@ -4498,6 +4664,8 @@ pub struct EffectiveCallableDefinition {
     pub origin: CallableDefinitionOrigin,
     pub source_member_index: usize,
     pub signature: CallableSemanticSignature,
+    /// Portable authority for how the callable body is obtained.
+    pub body_provenance: CallableDefinitionBodyProvenance,
     /// Source-only provenance for an accepted inherent implementation body.
     /// The published signature remains declaration-canonical.
     pub inherent_body_context: Option<InherentBodyContext>,
@@ -4764,6 +4932,7 @@ pub fn build_effective_surface(
                         origin: CallableDefinitionOrigin::PrimaryDeclaration,
                         source_member_index: 0,
                         signature: sem_sig.clone(),
+                        body_provenance: CallableDefinitionBodyProvenance::SourceBody,
                         inherent_body_context: None,
                     },
                 );
@@ -4876,6 +5045,7 @@ pub fn build_effective_surface(
                         origin: CallableDefinitionOrigin::InherentImpl(contribution.id.clone()),
                         source_member_index: member.source_member,
                         signature: member.signature.clone(),
+                        body_provenance: member.body_provenance.clone(),
                         inherent_body_context: Some(InherentBodyContext {
                             generic_signature: contribution.generic_signature.clone(),
                             covering: contribution.covering.clone(),
@@ -6552,6 +6722,9 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
                     visibility: delegated_member_visibility(&delegation.name, &delegation.attributes),
                     source_member: source_member_idx,
                     is_requirement: false,
+                    body_provenance: CallableDefinitionBodyProvenance::GeneratedDelegation {
+                        target_field: delegation.target_field.clone().into_boxed_str(),
+                    },
                 });
             }
             continue;
@@ -6785,6 +6958,7 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
             visibility,
             source_member: source_member_idx,
             is_requirement,
+            body_provenance: CallableDefinitionBodyProvenance::SourceBody,
         });
     }
 
@@ -6863,5 +7037,280 @@ mod completeness_tests {
         let mut state = Some(ConformanceCompleteness::Unknown(UnknownReason::NoTypeEvidence));
         super::retain_stronger_terminal_state(&mut state, ConformanceCompleteness::Blocked(BlockReason::RecursiveFixpoint));
         assert!(matches!(state, Some(ConformanceCompleteness::Blocked(_))));
+    }
+}
+
+#[cfg(test)]
+mod associated_plan_fingerprint_tests {
+    use super::{AssociatedTypeBindingTemplate, AssociatedTypeBindingValue, ConformanceAssociatedTypePlan, associated_type_plan_fingerprint};
+    use crate::checker::analysis_map::AnalysisMap;
+    use crate::identity::{DeclarationId, ImplId, ImplLocalId, ModuleId};
+    use crate::traits::AssociatedTypeRequirementId;
+    use crate::types::id::TypeId;
+    use phalcom_common::range::SourceRange;
+    use phalcom_modules::identity::{ModulePath, ResolvedProjectId};
+    use phalcom_type_meta::allocation::AllocationBudget;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn final_parts_fingerprint_includes_associated_bindings_and_matches_frozen_import() {
+        let module = ModuleId::resolved(ResolvedProjectId::from_raw(11), ModulePath::root());
+        let impl_id = ImplId::new(module.clone(), ImplLocalId(2));
+        let requirement = AssociatedTypeRequirementId::new(DeclarationId::new(module.clone(), "Trait".into()), 0);
+        let binding = AssociatedTypeBindingTemplate {
+            requirement: requirement.clone(),
+            value_template: AssociatedTypeBindingValue::Type(TypeId(7)),
+            source_impl: impl_id.clone(),
+            source: crate::diagnostic::SemanticSourceSpan::new(module, SourceRange { start: 3, end: 8 }),
+        };
+
+        let empty_fingerprint = ConformanceAssociatedTypePlan::empty(impl_id.clone()).fingerprint;
+        let source = ConformanceAssociatedTypePlan::from_parts(
+            impl_id.clone(),
+            AnalysisMap::from_source(BTreeMap::from([(requirement.clone(), binding.clone())])),
+            Box::new([]),
+            Box::new([]),
+        );
+        let mut budget = AllocationBudget::new(1024);
+        let mut entries = budget.vector(1).expect("associated binding row buffer is budgeted");
+        entries.push((requirement, binding));
+        let frozen = AnalysisMap::from_budgeted_entries(entries, &mut budget).expect("frozen associated bindings are charged");
+        let imported = ConformanceAssociatedTypePlan::from_parts(impl_id, frozen, Box::new([]), Box::new([]));
+
+        assert_ne!(
+            empty_fingerprint, source.fingerprint,
+            "installing associated bindings changes the final fingerprint"
+        );
+        assert_eq!(source.fingerprint, associated_type_plan_fingerprint(&imported));
+        assert_eq!(source.fingerprint, imported.fingerprint, "frozen storage does not affect semantic fingerprint");
+    }
+}
+
+#[cfg(test)]
+mod witness_fingerprint_representation_tests {
+    use super::{
+        ConformanceAssociatedTypePlan, ConformanceCompleteness, ConformanceWitnessPlan, InherentImplSpecialization, RequirementSelectionTemplate,
+        conformance_witness_plan_fingerprint,
+    };
+    use crate::checker::analysis_map::AnalysisMap;
+    use crate::checker::analysis_set::AnalysisSet;
+    use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ImplId, ImplLocalId, ModuleId};
+    use crate::traits::{TraitRef, TraitRequirementId};
+    use crate::types::environment::TypeEnvironment;
+    use crate::types::id::{TypeId, TypeParameterId};
+    use phalcom_common::selector::Selector;
+    use phalcom_modules::identity::{ModulePath, ResolvedProjectId};
+    use phalcom_type_meta::allocation::AllocationBudget;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    #[test]
+    fn witness_fingerprint_ignores_frozen_map_backing_in_applicability() {
+        let module = ModuleId::resolved(ResolvedProjectId::from_raw(12), ModulePath::root());
+        let implementation = ImplId::new(module.clone(), ImplLocalId(3));
+        let target = DeclarationId::new(module.clone(), "Target".into());
+        let trait_owner = DeclarationId::new(module.clone(), "Trait".into());
+        let selector = Selector::getter("value").expect("selector");
+        let requirement = TraitRequirementId::new(trait_owner.clone(), selector.clone(), DispatchSide::Instance);
+        let callable = CallableId::new(CallableOwnerId::Declaration(target), selector, DispatchSide::Instance);
+        let parameter = TypeParameterId(5);
+
+        let source_bindings = AnalysisMap::from_source(BTreeMap::from([(parameter, TypeId(8))]));
+        let source_environment = TypeEnvironment {
+            bindings: AnalysisMap::from_source(BTreeMap::from([(parameter, TypeId(8))])),
+            dynamic_bindings: AnalysisSet::from_source(BTreeSet::from([TypeParameterId(6)])),
+            row_bindings: AnalysisMap::new(),
+            self_binding: Some(TypeId(7)),
+        };
+        let source_specialization = InherentImplSpecialization {
+            impl_id: implementation.clone(),
+            receiver: TypeId(1),
+            owner_view: TypeId(2),
+            bindings: source_bindings,
+            environment: source_environment,
+            conformance_provenance: None,
+        };
+
+        let mut budget = AllocationBudget::new(4096);
+        let mut binding_entries = budget.vector(1).expect("binding row allocation is budgeted");
+        binding_entries.push((parameter, TypeId(8)));
+        let frozen_bindings = AnalysisMap::from_budgeted_entries(binding_entries, &mut budget).expect("bindings freeze");
+        let mut environment_entries = budget.vector(1).expect("environment row allocation is budgeted");
+        environment_entries.push((parameter, TypeId(8)));
+        let frozen_environment_bindings = AnalysisMap::from_budgeted_entries(environment_entries, &mut budget).expect("environment bindings freeze");
+        let mut dynamic_entries = budget.vector(1).expect("dynamic set allocation is budgeted");
+        dynamic_entries.push(TypeParameterId(6));
+        let frozen_dynamic = AnalysisSet::from_budgeted_entries(dynamic_entries, &mut budget).expect("dynamic bindings freeze");
+        let frozen_environment = TypeEnvironment {
+            bindings: frozen_environment_bindings,
+            dynamic_bindings: frozen_dynamic,
+            row_bindings: AnalysisMap::new(),
+            self_binding: Some(TypeId(7)),
+        };
+        let frozen_specialization = InherentImplSpecialization {
+            impl_id: implementation.clone(),
+            receiver: TypeId(1),
+            owner_view: TypeId(2),
+            bindings: frozen_bindings,
+            environment: frozen_environment,
+            conformance_provenance: None,
+        };
+
+        let make_plan = |specialization| {
+            ConformanceWitnessPlan::from_parts(
+                implementation.clone(),
+                module.clone(),
+                TypeId(1),
+                TraitRef::new(trait_owner.clone(), vec![TypeId(4)]),
+                None,
+                BTreeMap::new(),
+                BTreeMap::from([(
+                    requirement.clone(),
+                    RequirementSelectionTemplate::InherentCallable {
+                        callable: callable.clone(),
+                        conditional_impl: Some(implementation.clone()),
+                        applicability: Some(specialization),
+                    },
+                )]),
+                ConformanceAssociatedTypePlan::empty(implementation.clone()),
+                false,
+                ConformanceCompleteness::Complete,
+                Box::new([]),
+            )
+        };
+        let source = make_plan(source_specialization);
+        let frozen = make_plan(frozen_specialization);
+        assert_eq!(source, frozen);
+        assert_eq!(source.fingerprint, conformance_witness_plan_fingerprint(&frozen));
+    }
+}
+
+#[cfg(test)]
+mod frozen_conformance_evidence_tests {
+    use super::{
+        AssociatedTypeBindingTemplate, AssociatedTypeBindingValue, ConformanceAssociatedTypePlan, ConformanceEvidence, ExactAssociatedTypeBinding,
+        associated_type_plan_fingerprint, conformance_evidence_fingerprint,
+    };
+    use crate::checker::analysis_map::AnalysisMap;
+    use crate::identity::{DeclarationId, ImplId, ImplLocalId, ModuleId};
+    use crate::types::environment::TypeEnvironment;
+    use crate::types::id::TypeId;
+    use phalcom_common::range::SourceRange;
+    use phalcom_type_meta::allocation::AllocationBudget;
+    use std::collections::BTreeMap;
+
+    fn binding_context() -> (
+        ModuleId,
+        ImplId,
+        crate::traits::AssociatedTypeRequirementId,
+        crate::diagnostic::SemanticSourceSpan,
+    ) {
+        let module = ModuleId::universe_root();
+        let impl_id = ImplId::new(module.clone(), ImplLocalId(17));
+        let requirement = crate::traits::AssociatedTypeRequirementId::new(DeclarationId::new(module.clone(), "Trait".into()), 0);
+        let source = crate::diagnostic::SemanticSourceSpan::new(module.clone(), SourceRange::default());
+        (module, impl_id, requirement, source)
+    }
+
+    #[test]
+    fn associated_plan_fingerprint_ignores_source_or_frozen_backing() {
+        let (module, impl_id, requirement, source) = binding_context();
+        let template = AssociatedTypeBindingTemplate {
+            requirement: requirement.clone(),
+            value_template: AssociatedTypeBindingValue::Dynamic,
+            source_impl: impl_id.clone(),
+            source: source.clone(),
+        };
+        let source_bindings = AnalysisMap::from_source(BTreeMap::from([(requirement.clone(), template.clone())]));
+
+        let mut budget = AllocationBudget::new(2048);
+        let mut entries = budget.vector(1).expect("map entries are charged");
+        entries.push((requirement.clone(), template));
+        let frozen_bindings = AnalysisMap::from_budgeted_entries(entries, &mut budget).expect("sorted map and shared owner fit");
+
+        let source_plan = ConformanceAssociatedTypePlan::from_frozen_parts(impl_id.clone(), source_bindings, Box::new([]), Box::new([]));
+        let frozen_plan = ConformanceAssociatedTypePlan::from_frozen_parts(impl_id, frozen_bindings, Box::new([]), Box::new([]));
+        assert_eq!(source_plan.bindings, frozen_plan.bindings);
+        assert_eq!(
+            associated_type_plan_fingerprint(&source_plan),
+            associated_type_plan_fingerprint(&frozen_plan),
+            "product fingerprints depend on canonical entries, not backing representation"
+        );
+        assert_eq!(source_plan.fingerprint, frozen_plan.fingerprint);
+        assert_eq!(source, source_plan.bindings.get(&requirement).unwrap().source);
+        assert_eq!(module, source_plan.impl_id.module);
+    }
+
+    #[test]
+    fn exact_evidence_fingerprint_and_option_provenance_ignore_map_backing() {
+        let (module, impl_id, requirement, source) = binding_context();
+        let trait_ref = crate::traits::TraitRef::new(DeclarationId::new(module.clone(), "ExactTrait".into()), Box::<[TypeId]>::default());
+        let binding = ExactAssociatedTypeBinding {
+            requirement: requirement.clone(),
+            value: AssociatedTypeBindingValue::Dynamic,
+            source_impl: impl_id.clone(),
+            source,
+        };
+        let source_associated_types = AnalysisMap::from_source(BTreeMap::from([(requirement.clone(), binding.clone())]));
+        let source_views = AnalysisMap::new();
+        let source_requirements = AnalysisMap::new();
+        let source_environment = TypeEnvironment::new();
+        let fingerprint = conformance_evidence_fingerprint(
+            Default::default(),
+            TypeId(12),
+            &trait_ref,
+            &source_environment,
+            &source_views,
+            &source_requirements,
+            &source_associated_types,
+            &[],
+        );
+        let source_evidence = ConformanceEvidence::from_frozen_parts(
+            impl_id.clone(),
+            TypeId(12),
+            trait_ref.clone(),
+            source_environment,
+            source_views,
+            source_requirements,
+            source_associated_types,
+            Box::new([]),
+            None,
+            fingerprint,
+        );
+
+        let mut budget = AllocationBudget::new(2048);
+        let mut entries = budget.vector(1).expect("map entries are charged");
+        entries.push((requirement, binding));
+        let frozen_associated_types = AnalysisMap::from_budgeted_entries(entries, &mut budget).expect("sorted map and shared owner fit");
+        let frozen_views = AnalysisMap::new();
+        let frozen_requirements = AnalysisMap::new();
+        let frozen_environment = TypeEnvironment::new();
+        let frozen_fingerprint = conformance_evidence_fingerprint(
+            Default::default(),
+            TypeId(12),
+            &trait_ref,
+            &frozen_environment,
+            &frozen_views,
+            &frozen_requirements,
+            &frozen_associated_types,
+            &[],
+        );
+        let frozen_evidence = ConformanceEvidence::from_frozen_parts(
+            impl_id,
+            TypeId(12),
+            trait_ref,
+            frozen_environment,
+            frozen_views,
+            frozen_requirements,
+            frozen_associated_types,
+            Box::new([]),
+            None,
+            frozen_fingerprint,
+        );
+        assert_eq!(source_evidence, frozen_evidence);
+        assert_eq!(source_evidence.fingerprint, frozen_evidence.fingerprint);
+
+        let mut completed = source_evidence.clone();
+        completed.trait_header_conformance_proofs = Some(AnalysisMap::new());
+        assert_ne!(source_evidence, completed, "None and Some(empty) retain distinct proof provenance");
     }
 }

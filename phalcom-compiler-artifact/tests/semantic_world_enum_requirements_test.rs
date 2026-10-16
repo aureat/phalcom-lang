@@ -1,17 +1,20 @@
 use phalcom_compiler_artifact::module_world::SpanV1;
 use phalcom_compiler_artifact::semantic::aggregates::{
-    DeclaredTypeBasisV1, DeclaredTypeFactV1, DeclaredTypeStateV1, EnumInfoV1, PayloadKindV1, StructuralPrimaryContractsV1, UnknownReasonV1,
-    VariantInfoV1, VariantShapeV1, VariantVisibilityV1, VisibilityV1,
+    DeclaredTypeBasisV1, DeclaredTypeFactV1, DeclaredTypeStateV1, EnumInfoV1, PayloadKindV1, StructuralPrimaryContractsV1, UnknownReasonV1, VariantInfoV1,
+    VariantShapeV1, VariantVisibilityV1, VisibilityV1,
 };
-use phalcom_compiler_artifact::semantic::operational::CheckedStaticDefinitionsV1;
 use phalcom_compiler_artifact::semantic::static_value::StaticValueGraphV1;
-use phalcom_compiler_artifact::semantic::type_store::{ArtifactTypeId, ArtifactVariantTypeId, TypeGraphV1};
+use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, ArtifactVariantTypeId, KindV1, TypeGraphV1};
 use phalcom_compiler_artifact::semantic::world::{
-    CallableParameterV1, CallableSignatureRecordV1, CaseRequirementResultV1, CaseRequirementStatusV1, EffectSpecV1, EnumRequirementOwnerV1,
-    EnumRequirementRecordV1, EnumRequirementSourceV1, ImplementationKindV1, NativeLifecycleSpecV1, RaisesSpecV1, ReturnContractValidationV1,
-    ReturnFlowV1, SemanticWorldV2,
+    CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableDiagnosticSeverityV1,
+    CallableEvidenceDiagnosticLabelV1, CallableEvidenceDiagnosticV1, CallableParameterV1, CallableRequirementIdentityV1, CallableSignatureRecordV1,
+    CaseRequirementResultV1, CaseRequirementStatusV1, EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1, EnumRequirementSourceV1,
+    ImplementationKindV1, NativeLifecycleSpecV1, RaisesSpecV1, ReturnContractValidationV1, ReturnFlowV1, SemanticWorldV3, TraitAssociatedTypeRequirementV1,
+    TraitSurfaceMemberV1, TraitSurfaceRecordV1, TypeMemberDomainV1,
 };
-use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableModuleRef, StableProjectRef, StableVariantRef};
+use phalcom_type_meta::identity::{
+    StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableModuleRef, StableProjectRef, StableVariantRef,
+};
 
 fn declaration() -> StableDeclarationRef {
     StableDeclarationRef {
@@ -79,7 +82,7 @@ fn callable_signature(callable: StableCallableRef) -> CallableSignatureRecordV1 
     }
 }
 
-fn world(enum_requirements: Vec<EnumRequirementOwnerV1>) -> SemanticWorldV2 {
+fn world(enum_requirements: Vec<EnumRequirementOwnerV1>) -> SemanticWorldV3 {
     let mut callable_refs = Vec::new();
     for requirement_owner in &enum_requirements {
         callable_refs.extend(requirement_owner.requirements.iter().map(|requirement| requirement.requirement.clone()));
@@ -130,7 +133,7 @@ fn world(enum_requirements: Vec<EnumRequirementOwnerV1>) -> SemanticWorldV2 {
             })
             .collect(),
     };
-    SemanticWorldV2 {
+    SemanticWorldV3 {
         type_graph: TypeGraphV1 {
             types: vec![],
             kinds: vec![],
@@ -158,19 +161,146 @@ fn world(enum_requirements: Vec<EnumRequirementOwnerV1>) -> SemanticWorldV2 {
             pack_backings: vec![],
             packs: vec![],
         },
-        checked_definitions: CheckedStaticDefinitionsV1 { definitions: vec![] },
+        static_definitions: vec![],
+        static_constants: vec![],
+        module_static_bindings: vec![],
         witness_plans: vec![],
+        derived_conformance_rules: vec![],
         callable_signatures,
+        callable_definitions: vec![],
         callable_analyses: vec![],
         trait_surfaces: vec![],
         dispatch_surfaces: vec![],
+        conditional_inherent_sets: vec![],
         conformance_heads: vec![],
         constructor_initializations: vec![],
         type_member_declarations: vec![],
         associated_static_domains: vec![],
+        static_case_catalogs: vec![],
+        static_case_signatures: vec![],
         associated_surfaces: vec![],
         enum_requirements,
     }
+}
+
+fn callable_definition_test_world() -> SemanticWorldV3 {
+    let mut world = world(vec![]);
+    world.structural_contracts.enum_contracts.clear();
+    world.structural_contracts.variant_contracts.clear();
+    world
+}
+
+#[test]
+fn callable_definition_owner_validates_and_encodes_with_its_complete_signature() {
+    let mut world = callable_definition_test_world();
+    let callable = root_requirement("method");
+    let signature = callable_signature(callable.clone());
+    world.callable_signatures.push(signature.clone());
+    world.callable_signatures.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
+    world.callable_definitions.push(CallableDefinitionRecordV1 {
+        callable,
+        origin: CallableDefinitionOriginV1::PrimaryDeclaration,
+        source_member_index: 0,
+        signature,
+        body_provenance: CallableDefinitionBodyProvenanceV1::SourceBody,
+        inherent_body_context: None,
+    });
+
+    world.validate(&Default::default()).expect("complete callable definition should validate");
+    let encoded = world.encode().expect("complete callable definition should encode");
+    assert_eq!(&encoded[..4], &3_u32.to_le_bytes(), "semantic-world payload must use schema 3");
+}
+
+#[test]
+fn callable_definition_rejects_duplicate_owner_rows() {
+    let mut world = callable_definition_test_world();
+    let callable = root_requirement("method");
+    let signature = callable_signature(callable.clone());
+    world.callable_signatures.push(signature.clone());
+    world.callable_signatures.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
+    let definition = CallableDefinitionRecordV1 {
+        callable,
+        origin: CallableDefinitionOriginV1::PrimaryDeclaration,
+        source_member_index: 0,
+        signature,
+        body_provenance: CallableDefinitionBodyProvenanceV1::SourceBody,
+        inherent_body_context: None,
+    };
+    world.callable_definitions = vec![definition.clone(), definition];
+
+    assert!(world.validate(&Default::default()).is_err(), "duplicate definition owners must fail closed");
+}
+
+#[test]
+fn trait_surface_preserves_complete_member_and_source_ordinal() {
+    let mut world = callable_definition_test_world();
+    world.type_graph.kinds.push(KindV1::Type);
+    let callable = root_requirement("measure()");
+    let signature = callable_signature(callable.clone());
+    world.callable_signatures.push(signature.clone());
+    world.callable_signatures.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
+    let owner = declaration();
+    let diagnostic_callable = callable.clone();
+    let source = EnumRequirementSourceV1 {
+        module: owner.module.clone(),
+        range: SpanV1 { start: 4, end: 19 },
+    };
+    world.trait_surfaces.push(TraitSurfaceRecordV1 {
+        declaration: owner.clone(),
+        generic_signature: None,
+        header_source: source.clone(),
+        members: vec![TraitSurfaceMemberV1 {
+            requirement: CallableRequirementIdentityV1 {
+                owner: owner.clone(),
+                selector: callable.selector.clone(),
+                side: 0,
+            },
+            callable,
+            signature,
+            visibility: VisibilityV1::Public,
+            source: source.clone(),
+            source_member_index: 2,
+            default_present: true,
+            default_source: Some(source.clone()),
+        }],
+        associated_types: vec![TraitAssociatedTypeRequirementV1 {
+            requirement: phalcom_compiler_artifact::semantic::world::CallableAssociatedTypeRequirementIdentityV1 {
+                owner: owner.clone(),
+                index: 0,
+            },
+            name: "Item".into(),
+            domain: TypeMemberDomainV1::Kind { kind: ArtifactKindId(0) },
+            source: source.clone(),
+        }],
+        diagnostics: vec![CallableEvidenceDiagnosticV1 {
+            code: "trait.member.conflict".into(),
+            severity: CallableDiagnosticSeverityV1::Error,
+            message: "duplicate selector".into(),
+            primary: source.clone(),
+            primary_range: source.range.clone(),
+            labels: vec![CallableEvidenceDiagnosticLabelV1 {
+                source: source.clone(),
+                range: source.range.clone(),
+                message: "first selector".into(),
+            }],
+            notes: vec!["trait requirements must be unique".into()],
+            helps: vec![],
+            guidance: vec![],
+            explanations: vec![phalcom_compiler_artifact::semantic::world::CallableEvidenceExplanationRefV1 {
+                callable: diagnostic_callable,
+                ordinal: 3,
+            }],
+            fixes: vec![],
+            root_cause: Some(0),
+        }],
+    });
+
+    world.validate(&Default::default()).expect("complete trait surface should validate");
+    let encoded = world.encode().expect("complete trait surface should encode");
+    assert!(!encoded.is_empty());
+    let diagnostic = &world.trait_surfaces[0].diagnostics[0];
+    assert_eq!(diagnostic.root_cause, Some(0));
+    assert_eq!(diagnostic.explanations[0].ordinal, 3);
 }
 
 fn enum_requirement_owner() -> EnumRequirementOwnerV1 {
@@ -239,7 +369,7 @@ fn enum_requirement_owner() -> EnumRequirementOwnerV1 {
 #[test]
 fn enum_requirement_rows_round_trip_all_statuses_and_source_order() {
     let encoded = world(vec![enum_requirement_owner()]).encode().expect("valid enum requirement records encode");
-    let decoded = SemanticWorldV2::decode(&encoded, &Default::default()).expect("enum requirement records decode");
+    let decoded = SemanticWorldV3::decode(&encoded, &Default::default()).expect("enum requirement records decode");
     assert_eq!(decoded.enum_requirements, vec![enum_requirement_owner()]);
 }
 
@@ -247,7 +377,7 @@ fn enum_requirement_rows_round_trip_all_statuses_and_source_order() {
 fn semantic_world_schema_one_is_rejected() {
     let mut encoded = world(vec![enum_requirement_owner()]).encode().expect("valid semantic world encodes");
     encoded[..4].copy_from_slice(&1u32.to_le_bytes());
-    assert!(SemanticWorldV2::decode(&encoded, &Default::default()).is_err());
+    assert!(SemanticWorldV3::decode(&encoded, &Default::default()).is_err());
 }
 
 #[test]

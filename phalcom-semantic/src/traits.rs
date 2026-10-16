@@ -178,6 +178,9 @@ pub struct TraitSurfaceMember {
     pub signature: CallableSemanticSignature,
     pub visibility: MemberVisibility,
     pub source: SemanticSourceSpan,
+    /// Zero-based member position in the owning trait declaration. Generated
+    /// property accessors share the property's source member index.
+    pub source_member_index: usize,
     pub default_present: bool,
     pub default_source: Option<SemanticSourceSpan>,
 }
@@ -517,7 +520,7 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
         .map(|requirement| (requirement.name.to_string(), requirement.requirement.clone()))
         .collect::<BTreeMap<_, _>>();
 
-    for trait_member in &trait_def.members {
+    for (source_member_index, trait_member) in trait_def.members.iter().enumerate() {
         if let TraitMember::Property(property) = trait_member {
             let side = if property.attributes.iter().any(|attribute| attribute.name == "class") {
                 DispatchSide::Class
@@ -569,6 +572,7 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
                         signature,
                         visibility,
                         source: source.clone(),
+                        source_member_index,
                         default_present: false,
                         default_source: None,
                     },
@@ -644,6 +648,7 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
                 signature,
                 visibility: behavior_member_visibility(member),
                 source,
+                source_member_index,
                 default_present,
                 default_source,
             },
