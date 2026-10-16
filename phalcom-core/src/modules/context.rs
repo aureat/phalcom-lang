@@ -312,7 +312,7 @@ impl ModuleExecutionContext {
             _ => {
                 // User module compilation and materialization
                 let selection = EntrySelection::Module(self.cwd.join(id.path.to_string()));
-                if let Ok(program) = ProgramCompiler::compile_entry_selection(selection) {
+                if let Ok(program) = ProgramCompiler::compile_entry_selection_with_mode(selection, vm.compile_mode) {
                     vm.materialize_program(&program)?;
                 }
             }

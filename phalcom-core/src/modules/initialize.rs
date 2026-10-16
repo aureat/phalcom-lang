@@ -10,6 +10,7 @@ use std::sync::Arc;
 impl VM {
     /// Initializes all modules in `program` following its deterministic topological dependency-first order.
     pub fn initialize_program(&mut self, program: &CompiledProgram) -> PhResult<()> {
+        self.validate_program_compile_mode(program)?;
         for module_id in &program.initialization_order {
             self.initialize_single_module(program, module_id)?;
             self.bind_non_universe_metadata_callables(program)?;
@@ -19,6 +20,7 @@ impl VM {
 
     /// Initializes one module, ensuring all its declared runtime dependencies are Initialized first.
     pub fn initialize_single_module(&mut self, program: &CompiledProgram, id: &ModuleId) -> PhResult<()> {
+        self.validate_program_compile_mode(program)?;
         let record = self
             .module_registry
             .get(id)

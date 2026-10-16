@@ -70,8 +70,11 @@ committing and pushing the scoped consolidation implementation.
   coverage remains open.
 - **T6:** Partial, focused-tested. All three `ProgramAnalyzer` paths preserve
   `ExecutableLinkedProgram`; finalized compiler/prelude paths fail closed
-  rather than append reads. `RUSTFLAGS='' cargo check -p phalcom-core` passed.
-  The contextual-read test and two missing-mapping tests each passed 1/1.
+  rather than append reads. Mode consistency is enforced across `AnalyzedProgram`,
+  `CompiledProgram`, and `VM`: mismatched execution modes reject before module
+  allocation, lowering, or initialization. `modules_linking` passed 20/20,
+  including mode rejection/matching execution tests. Contextual-read and
+  missing-mapping fail-closed checks remain verified.
 - **T7:** Partial. CV-06 and CV-07 pass at the semantic boundary (the focused
   semantic suite passed 20/20 on the current tree). CV-03 has linker-boundary
   evidence for conservative fallback and strict generated-cycle rejection.

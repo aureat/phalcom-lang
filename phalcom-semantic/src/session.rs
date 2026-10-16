@@ -913,13 +913,25 @@ impl SemanticWorkspaceSession {
         update: WorkspaceModuleUpdate,
         cancel: &CancellationToken,
     ) -> Result<SemanticWorkspacePublication, SemanticUpdateFailure> {
-        self.update_module_workspace_with_budget_and_cancel(update, QueryBudget::default(), cancel)
+        self.update_module_workspace_with_execution_mode_and_cancel(update, crate::attribute_analysis::AttributeExecutionMode::Debug, cancel)
+    }
+
+    /// Publishes a linked workspace update with the guard policy selected by
+    /// its executable consumer. Query checking remains mode-independent.
+    pub fn update_module_workspace_with_execution_mode_and_cancel(
+        &mut self,
+        update: WorkspaceModuleUpdate,
+        execution_mode: crate::attribute_analysis::AttributeExecutionMode,
+        cancel: &CancellationToken,
+    ) -> Result<SemanticWorkspacePublication, SemanticUpdateFailure> {
+        self.update_module_workspace_with_budget_and_cancel(update, QueryBudget::default(), execution_mode, cancel)
     }
 
     fn update_module_workspace_with_budget_and_cancel(
         &mut self,
         update: WorkspaceModuleUpdate,
         budget: QueryBudget,
+        execution_mode: crate::attribute_analysis::AttributeExecutionMode,
         cancel: &CancellationToken,
     ) -> Result<SemanticWorkspacePublication, SemanticUpdateFailure> {
         let generation = self.module_session.generation();
@@ -943,7 +955,7 @@ impl SemanticWorkspaceSession {
                     module_graph_changed: update.module_graph_changed,
                     import_sites_by_module: update.sites_by_importer,
                     require_canonical_import_products: true,
-                    attribute_execution_mode: crate::attribute_analysis::AttributeExecutionMode::Debug,
+                    attribute_execution_mode: execution_mode,
                     diagnostics: update.diagnostics,
                     blocked_modules: update.blocked_modules,
                     generation,

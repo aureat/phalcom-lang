@@ -136,6 +136,19 @@ fn remap_lowering_metadata_pool(lowering: &mut crate::modules::semantic_lowering
 }
 
 impl VM {
+    /// Rejects a guard policy different from the one that finalized the read layout.
+    pub(crate) fn validate_program_compile_mode(&self, program: &CompiledProgram) -> PhResult<()> {
+        if self.compile_mode != program.compile_mode() {
+            return Err(RuntimeError::Internal(format!(
+                "program finalized for {:?} cannot execute with {:?} contract guards",
+                program.compile_mode(),
+                self.compile_mode
+            ))
+            .into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn install_semantic_metadata_bundle(
         &mut self,
         metadata_bundle: Arc<phalcom_type_meta::SemanticMetadataBundle>,
@@ -283,6 +296,7 @@ impl VM {
     /// Materializes a closed, linked compiled program into VM module objects,
     /// global layouts, linked read slots, and export tables without running initializers.
     pub fn materialize_program(&mut self, program: &CompiledProgram) -> PhResult<()> {
+        self.validate_program_compile_mode(program)?;
         // Phase 1: Allocate all module/package objects in the Prepared state (idempotent).
         for (id, compiled_mod) in &program.modules {
             if !self.module_registry.contains_key(id) {
@@ -698,6 +712,7 @@ impl VM {
 
     /// Compiles and attaches a source closure for `id` using precomputed bindings.
     pub fn compile_program_module_closure(&mut self, id: &phalcom_modules::ModuleId, source: &str, program: &CompiledProgram) -> PhResult<crate::heap::ObjRef> {
+        self.validate_program_compile_mode(program)?;
         let obj_ref = self
             .module_registry
             .get(id)

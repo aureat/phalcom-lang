@@ -55,6 +55,17 @@ impl ProgramCompilationSession {
     /// Replaces the current fixture source and compiles it through the retained
     /// module and semantic sessions.
     pub fn compile_fixture(&mut self, path: &Path, source_text: &str) -> Result<CompiledProgram, ProgramCompileError> {
+        self.compile_fixture_with_mode(path, source_text, crate::compiler::attributes::CompileMode::Debug)
+    }
+
+    /// Replaces a fixture while keeping semantic projection and VM guard mode
+    /// aligned. The compatibility linker retains its conservative read layout.
+    pub fn compile_fixture_with_mode(
+        &mut self,
+        path: &Path,
+        source_text: &str,
+        compile_mode: crate::compiler::attributes::CompileMode,
+    ) -> Result<CompiledProgram, ProgramCompileError> {
         #[cfg(any(test, feature = "test-timings"))]
         {
             self.last_fixture_timing = crate::instrumentation::FixtureTiming {
@@ -122,9 +133,11 @@ impl ProgramCompilationSession {
         }
         #[cfg(any(test, feature = "test-timings"))]
         let semantic_started = Instant::now();
-        let publication = self
-            .semantic_session
-            .update_module_workspace_with_cancel(module_update, &phalcom_semantic::db::CancellationToken::new())?;
+        let publication = self.semantic_session.update_module_workspace_with_execution_mode_and_cancel(
+            module_update,
+            super::compile::semantic_attribute_execution_mode(compile_mode),
+            &phalcom_semantic::db::CancellationToken::new(),
+        )?;
         #[cfg(any(test, feature = "test-timings"))]
         {
             self.last_fixture_timing.semantic_update = semantic_started.elapsed();
@@ -137,6 +150,7 @@ impl ProgramCompilationSession {
         let linked = Arc::new(phalcom_modules::ExecutableLinkedProgram::from_conservative_link(linked.as_ref().clone())?);
         let entry = self.fixture_module_id.clone();
         let analyzed = AnalyzedProgram {
+            compile_mode,
             project_universe: Arc::new(module_session.universe().clone()),
             linked,
             sources: publication.snapshot.sources().as_ref().clone(),
@@ -274,6 +288,26 @@ mod tests {
             .collect::<Vec<_>>();
         shape.sort();
         shape
+    }
+
+    #[test]
+    fn retained_fixture_mode_transitions_preserve_the_selected_execution_policy() {
+        use crate::compiler::attributes::CompileMode;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("mode.ph");
+        let source = "class Probe { @requires(true) @ensures(true) value() -> Int { 42 } }\n";
+        let mut session = ProgramCompilationSession::standalone().unwrap();
+        let mut entry = None;
+        for mode in [CompileMode::Debug, CompileMode::Release, CompileMode::Unchecked, CompileMode::Debug] {
+            let program = session
+                .compile_fixture_with_mode(&path, source, mode)
+                .expect("retained mode transition compiles");
+            assert_eq!(program.compile_mode(), mode);
+            if let Some(previous) = &entry {
+                assert_eq!(&program.entry, previous, "mode transitions keep the fixture identity");
+            }
+            entry = Some(program.entry);
+        }
     }
 
     #[test]

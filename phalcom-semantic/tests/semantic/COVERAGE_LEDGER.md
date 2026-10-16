@@ -478,3 +478,19 @@ baseline and passed: canonical ordinary-user execution 1/1; positive
 protocol/default execution 1/1; strict cycle rejection 1/1; fail-closed
 mapping 2/2; modules linker 25/25; modules graph 5/5; semantic phase evidence
 12/12. Those focused results do not classify the broader semantic failures.
+
+### Audited stability baseline — 2026-10-16, `2b0e41ce`
+
+The full semantic test run prior to the mode slice was re-audited:
+
+```text
+CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic -- --skip ordinary_float_horner_expression_is_stack_safe_without_realization --quiet
+  2,131 passed; 94 failed; 23 ignored; 1 filtered out; 978.92s
+```
+
+All 94 failed tests match the existing failure inventory. The pass count is
+8 higher than the prior 2,123 count because `phase_evidence` expanded from 12
+to 20 tests. The 23 ignored tests were not executed.
+
+`TypedExpression` carrier size in this build measured 1,072 bytes, exceeding
+the 760-byte upper limit (744-byte base plus two-pointer allowance).

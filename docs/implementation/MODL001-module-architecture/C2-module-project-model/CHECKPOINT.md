@@ -283,3 +283,22 @@ canonical protocol identity, and the one-way runtime edge. Its default method
 compiles and executes with result `23`; the focused core test passed 1/1 in
 139.34 seconds. This satisfies the plan's minimal split-fixture gate. The full
 Universe iteration-source migration and cutover remain explicitly deferred.
+
+### Mode consistency and program validation — 2026-10-16
+
+AnalyzedProgram and CompiledProgram now retain `CompileMode` fields, and
+CompiledProgram exposes `compile_mode()`. The VM validates the program's
+compile mode before module materialization, closure compilation, and public
+initialization. Mismatched VM modes fail closed before heap mutation or code
+emission. The interpreter and user-module context thread the VM's active mode
+into compilation.
+
+`SemanticWorkspaceSession` adds `update_module_workspace_with_execution_mode_and_cancel`
+to propagate mode choices during retained-session fixture runs, while keeping
+Debug the default.
+
+Verification on `feat/consolidation-universe`:
+- `modules_linking::finalized_compile_modes_reject_mismatched_vm_before_mutation_and_execute_matching_guards`: 1 passed (246.72s). Verifies all 6 mode mismatches reject before mutation/lowering, and matching modes execute guards.
+- `modules::compile_session::tests::retained_fixture_mode_transitions_preserve_the_selected_execution_policy`: 1 passed (3.18s).
+- Full `modules_linking` suite: 20 passed, 0 failed (322.15s).
+- Semantic `integration::phase_evidence`: 20 passed, 0 failed (23.22s). Retained Debug → Release → Unchecked → Debug transitions match cold phase products and finalized reads.

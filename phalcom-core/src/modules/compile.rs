@@ -836,6 +836,8 @@ pub struct CompiledModule {
 /// Closed compiled program passed to runtime materialization.
 #[derive(Clone, Debug)]
 pub struct CompiledProgram {
+    /// Guard mode used to finalize this program's immutable runtime requirements.
+    pub(crate) compile_mode: CompileMode,
     /// Resolved project universe shared by every linked module.
     pub project_universe: Arc<ProjectUniverse>,
     /// Original linked program plan.
@@ -848,6 +850,13 @@ pub struct CompiledProgram {
     pub initialization_order: Vec<ModuleId>,
     /// Immutable semantic metadata bundle, if retained by build profile.
     pub semantic_metadata: Option<Arc<phalcom_type_meta::SemanticMetadataBundle>>,
+}
+
+impl CompiledProgram {
+    /// Guard mode required when lowering or executing this finalized program.
+    pub fn compile_mode(&self) -> CompileMode {
+        self.compile_mode
+    }
 }
 
 /// Semantic diagnostics grouped by module.
@@ -979,6 +988,8 @@ pub enum ProgramCompileError {
 /// Fully analyzed program snapshot ready for code generation.
 #[derive(Clone, Debug)]
 pub struct AnalyzedProgram {
+    /// Guard mode used during semantic runtime-requirement projection.
+    pub(crate) compile_mode: CompileMode,
     pub project_universe: Arc<ProjectUniverse>,
     pub linked: Arc<ExecutableLinkedProgram>,
     pub semantic: Arc<phalcom_semantic::SemanticSnapshot>,
@@ -1127,7 +1138,7 @@ fn link_analyze_finalize(
     Ok((Arc::new(executable), snapshot))
 }
 
-fn semantic_attribute_execution_mode(mode: CompileMode) -> phalcom_semantic::attribute_analysis::AttributeExecutionMode {
+pub(super) fn semantic_attribute_execution_mode(mode: CompileMode) -> phalcom_semantic::attribute_analysis::AttributeExecutionMode {
     match mode {
         CompileMode::Debug => phalcom_semantic::attribute_analysis::AttributeExecutionMode::Debug,
         CompileMode::Release => phalcom_semantic::attribute_analysis::AttributeExecutionMode::Release,
@@ -1351,6 +1362,7 @@ impl ProgramAnalyzer {
                 )?;
 
                 Ok(AnalyzedProgram {
+                    compile_mode,
                     project_universe: universe,
                     linked,
                     semantic,
@@ -1472,6 +1484,7 @@ impl ProgramAnalyzer {
         )?;
 
         Ok(AnalyzedProgram {
+            compile_mode,
             project_universe: universe,
             linked,
             semantic,
@@ -1557,6 +1570,7 @@ impl ProgramAnalyzer {
         )?;
 
         Ok(AnalyzedProgram {
+            compile_mode,
             project_universe: universe,
             // Universe support modules are already canonical, bootstrapped
             // runtime state. Keep them in the linked/semantic closure, but do
@@ -2647,6 +2661,7 @@ impl ProgramCompiler {
         }
 
         Ok(CompiledProgram {
+            compile_mode: analyzed.compile_mode,
             project_universe: analyzed.project_universe.clone(),
             linked: analyzed.linked.clone(),
             modules,

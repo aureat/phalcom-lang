@@ -88,6 +88,21 @@ attempt to select the regression used the wrong qualified test name and
 selected zero tests; the corrected fully qualified filter above selected and
 passed the test.
 
+## Mode consistency slice — 2026-10-16
+
+Carried `CompileMode` through `AnalyzedProgram` and `CompiledProgram`, exposed
+`CompiledProgram::compile_mode()`, and added `VM::validate_program_compile_mode`
+checks before module allocation, closure compilation, and initialization.
+Threaded active mode through interpreter and module context entry points.
+Added `SemanticWorkspaceSession::update_module_workspace_with_execution_mode_and_cancel`
+to propagate execution mode choices into retained-session compilation.
+
+Verification:
+- `modules_linking::finalized_compile_modes_reject_mismatched_vm_before_mutation_and_execute_matching_guards`: 1 passed (246.72s)
+- `modules::compile_session::tests::retained_fixture_mode_transitions_preserve_the_selected_execution_policy`: 1 passed (3.18s)
+- `modules_linking` full suite: 20 passed (322.15s)
+- `integration::phase_evidence`: 20 passed (23.22s)
+
 ## Remaining work
 
 - Complete other T4 generated-requirement producer families.

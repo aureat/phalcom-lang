@@ -294,10 +294,12 @@ Focused current-tree evidence:
 phalcom-core modules_linking::mat_01_export_slots_populated: 1 passed
 phalcom-core modules_linking::protocol_default_to_adapter_cycle_is_only_semantic_on_adapter_side: 1 passed; execution result 23
 phalcom-core modules_linking::protocol_default_adapter_runtime_cycle_is_rejected: 1 passed
+phalcom-core modules_linking (full suite): 20 passed
 phalcom-core --lib fails_closed_without_appending: 2 passed
+phalcom-core --lib retained_fixture_mode_transitions: 1 passed
 phalcom-modules --test linker: 25 passed
 phalcom-modules --test graph: 5 passed
-phalcom-semantic --test semantic integration::phase_evidence: 12 passed
+phalcom-semantic --test semantic integration::phase_evidence: 20 passed
 ```
 
 The exact core filters were run with `-- --exact --nocapture`; all results

@@ -961,3 +961,64 @@ fn mat_06_module_import_binding_resolves_to_module() {
         RuntimeLinkedRead::StaticConstant(_) => panic!("expected Module linked read"),
     }
 }
+
+#[test]
+fn finalized_compile_modes_reject_mismatched_vm_before_mutation_and_execute_matching_guards() {
+    use phalcom_core::compiler::attributes::CompileMode;
+
+    let directory = tempfile::tempdir().expect("mode fixture directory");
+    let root = directory.path();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"mode_probe\"\nnamespace = \"mode_probe\"\nversion = \"0.1.0\"\nentry = \"mode_probe.main\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(root.join("src/package.ph"), "expose .main\nexpose .guard\n").unwrap();
+    std::fs::write(root.join("src/guard.ph"), "class Guard { @class allow() -> Bool { true } }\nexport Guard\n").unwrap();
+    std::fs::write(
+        root.join("src/main.ph"),
+        "from .guard import Guard\nclass Probe {\n  @ensures(Guard.allow())\n  @class value() -> Int { 42 }\n}\nlet answer = Probe.value()\nexport answer\n",
+    )
+    .unwrap();
+    let modes = [CompileMode::Debug, CompileMode::Release, CompileMode::Unchecked];
+    for finalized_mode in modes {
+        let analyzed =
+            ProgramAnalyzer::analyze_entry_selection_with_mode(EntrySelection::Project(root.to_path_buf()), finalized_mode).expect("mode fixture analyzes");
+        assert!(!analyzed.semantic.has_errors(), "{:?}", analyzed.semantic.all_diagnostics().collect::<Vec<_>>());
+        let program = ProgramCompiler::compile_analyzed(&analyzed).expect("mode fixture compiles");
+        assert_eq!(program.compile_mode(), finalized_mode);
+        let guard_read = program.modules[&program.entry]
+            .linked_reads
+            .iter()
+            .any(|read| matches!(read, LinkedReadSpec::Binding(symbol) if symbol.name.as_ref() == "Guard"));
+        assert_eq!(guard_read, finalized_mode == CompileMode::Debug, "only emitted postconditions require Guard");
+
+        for vm_mode in modes {
+            if vm_mode == finalized_mode {
+                continue;
+            }
+            let mut vm = VM::new_native();
+            vm.compile_mode = vm_mode;
+            let modules_before = vm.module_registry.iter().count();
+            let error = vm.run_compiled(&program).expect_err("different mode must fail before materialization");
+            assert!(error.to_string().contains("program finalized for"), "{error}");
+            assert_eq!(vm.module_registry.iter().count(), modules_before);
+            assert!(vm.module_registry.get(&program.entry).is_none());
+        }
+        let mut vm = VM::new();
+        vm.compile_mode = finalized_mode;
+        vm.materialize_program(&program).expect("matching mode materializes");
+        vm.compile_mode = modes.into_iter().find(|mode| *mode != finalized_mode).unwrap();
+        let source = program.modules[&program.entry].source_text.as_ref().unwrap();
+        assert!(vm.compile_program_module_closure(&program.entry, source, &program).is_err());
+        assert!(vm.initialize_program(&program).is_err());
+        assert!(vm.initialize_single_module(&program, &program.entry).is_err());
+        let entry_object = vm.module_registry.get(&program.entry).unwrap().object;
+        assert!(vm.heap.module(entry_object).closure.is_none());
+        vm.compile_mode = finalized_mode;
+        vm.run_compiled(&program).expect("matching guard policy executes");
+        let answer = vm.interner.intern("answer");
+        assert_eq!(vm.heap.module(entry_object).get(answer).and_then(Value::as_int), Some(42));
+    }
+}

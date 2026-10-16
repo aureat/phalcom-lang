@@ -55,7 +55,7 @@ impl Interpreter {
 
     /// Compiles and runs an entry selection.
     pub fn run_entry(&mut self, entry: EntrySelection) -> PhResult<()> {
-        let program = ProgramCompiler::compile_entry_selection(entry)?;
+        let program = ProgramCompiler::compile_entry_selection_with_mode(entry, self.vm.compile_mode)?;
         self.vm.run_compiled(&program)
     }
 }

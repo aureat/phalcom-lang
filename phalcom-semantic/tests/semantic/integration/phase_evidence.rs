@@ -502,6 +502,39 @@ fn invariant_runtime_requirements_follow_the_selected_execution_mode() {
             )
             .expect("mode-specific phase evidence finalizes")
     };
+    // Reuse query products while changing only the projection policy. Both
+    // stripping and restoring guards must agree with a cold analysis.
+    let mut retained = session_with_private_numbers_child_exposed(phalcom_semantic::identity::WorkspaceId::from_raw(924));
+    for (generation, mode, cold) in [
+        (1, phalcom_semantic::attribute_analysis::AttributeExecutionMode::Debug, &debug),
+        (2, phalcom_semantic::attribute_analysis::AttributeExecutionMode::Release, &release),
+        (3, phalcom_semantic::attribute_analysis::AttributeExecutionMode::Unchecked, &unchecked),
+        (4, phalcom_semantic::attribute_analysis::AttributeExecutionMode::Debug, &debug),
+    ] {
+        let incremental = retained
+            .update_with_budget_and_cancel(
+                SemanticWorkspaceInput::new(fixture.semantic.to_unfinalized_program(), fixture.sources.clone(), generation)
+                    .with_semantic_linked(fixture.semantic.clone())
+                    .with_attribute_execution_mode(mode),
+                QueryBudget::default(),
+                &CancellationToken::new(),
+            )
+            .expect("mode transition publishes")
+            .snapshot;
+        assert_eq!(
+            incremental.import_phase_products, cold.import_phase_products,
+            "phase evidence differs after {mode:?}"
+        );
+        assert_eq!(
+            incremental.generated_runtime_requirements, cold.generated_runtime_requirements,
+            "requirements differ after {mode:?}"
+        );
+        assert_eq!(
+            finalize(&incremental).modules[&fixture.consumer].linked_reads,
+            finalize(cold).modules[&fixture.consumer].linked_reads,
+            "finalized read layout differs after {mode:?}",
+        );
+    }
     let debug_linked = finalize(&debug);
     let release_linked = finalize(&release);
     let unchecked_linked = finalize(&unchecked);
