@@ -259,9 +259,12 @@ object target and original declaration target as distinct reads and runtime
 edges; compiler lowering emits both finalized reads; and VM execution returns
 the original source class through both paths. The same fixture checks every
 `GetLinked` in the entry initializer maps to the expected canonical target.
-The focused core test passed 1/1 in 149.59 seconds. This closes the fixture's
-CV-04 path and adds focused CV-08 evidence; CV-08's broader program/module
-coverage remains open.
+The fixture now reads the selected re-export inside a nested closure and scans
+every live closure owned by its compiled modules. Each emitted read must match
+both finalized and materialized target tables and have an ordered runtime
+dependency. The focused core test passed 1/1 in 139.17 seconds after this
+extension. This closes the fixture's CV-04 path and adds fixture-wide CV-08
+evidence; coverage across other program shapes and read producers remains open.
 
 The mutual class type-import cycle fixture now also asserts the entry import's
 exact canonical read target, compiles, and executes; the entry receives the

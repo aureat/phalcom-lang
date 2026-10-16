@@ -305,7 +305,7 @@ fn whole_module_and_reexport_reads_keep_canonical_runtime_targets() {
     std::fs::write(src_dir.join("facade.ph"), "export Exported as Alias from .source\n").unwrap();
     std::fs::write(
         src_dir.join("main.ph"),
-        "import .facade as facade\nfrom .facade import Alias\nlet module_read = facade.Alias\nlet selected_read = Alias\n",
+        "import .facade as facade\nfrom .facade import Alias\nlet module_read = facade.Alias\nlet selected_read = Alias\nlet delayed_read = || { Alias }\nlet nested_read = delayed_read()\n",
     )
     .unwrap();
 
@@ -378,7 +378,7 @@ fn whole_module_and_reexport_reads_keep_canonical_runtime_targets() {
         .module(source_object)
         .get(vm.interner.intern("Exported"))
         .expect("canonical exported class value is populated");
-    for name in ["module_read", "selected_read"] {
+    for name in ["module_read", "selected_read", "nested_read"] {
         let observed = vm
             .heap
             .module(main_object)
@@ -407,6 +407,79 @@ fn whole_module_and_reexport_reads_keep_canonical_runtime_targets() {
         std::collections::BTreeSet::from([module_target, reexport_target]),
         "each emitted GetLinked operand resolves to its exact canonical target"
     );
+
+    let mut emitted_read_count = 0;
+    let mut nested_callable_read_count = 0;
+    for handle in vm.heap.iter_handles_for_test() {
+        let phalcom_core::heap::Object::Closure(closure) = vm.heap.get(handle) else {
+            continue;
+        };
+        let owner = vm.heap.module(closure.module);
+        let Some(compiled_owner) = compiled.modules.get(&owner.id) else { continue };
+        let is_initializer = owner.closure == Some(handle);
+
+        for instruction in &closure.callable.chunk.code {
+            let Bytecode::GetLinked(index) = instruction else { continue };
+            let index = *index as usize;
+            let target = compiled_owner
+                .linked_reads
+                .get(index)
+                .unwrap_or_else(|| panic!("{} callable emits GetLinked({index}) outside its immutable finalized read layout", owner.id));
+            let runtime_target = owner
+                .linked_reads
+                .get(index)
+                .unwrap_or_else(|| panic!("{} callable emits GetLinked({index}) outside its materialized read layout", owner.id));
+
+            let dependency = match (target, runtime_target) {
+                (LinkedReadSpec::Module(expected), RuntimeLinkedRead::Module(actual)) => {
+                    let actual_id = &vm.heap.module(*actual).id;
+                    assert_eq!(actual_id, expected, "module read keeps its finalized target");
+                    expected
+                }
+                (LinkedReadSpec::Binding(expected), RuntimeLinkedRead::Binding(actual)) => {
+                    let actual_module = vm.heap.module(actual.module);
+                    assert_eq!(actual_module.id, expected.module, "binding read keeps its canonical declaration owner");
+                    let symbol = vm.interner.intern(&expected.name);
+                    assert_eq!(
+                        actual_module.name_to_slot.get(&symbol).copied(),
+                        Some(actual.slot as usize),
+                        "binding read materializes the canonical declaration slot"
+                    );
+                    &expected.module
+                }
+                _ => panic!("compiled and runtime linked-read kinds agree for {target:?}"),
+            };
+            assert!(
+                compiled
+                    .linked
+                    .graphs
+                    .runtime
+                    .edges_from(&owner.id)
+                    .iter()
+                    .any(|edge| &edge.dependency == dependency),
+                "{} read target {target:?} has a finalized runtime dependency",
+                owner.id
+            );
+            let dependency_position = compiled
+                .initialization_order
+                .iter()
+                .position(|module| module == dependency)
+                .unwrap_or_else(|| panic!("runtime dependency {dependency} is initialized by the program"));
+            let owner_position = compiled
+                .initialization_order
+                .iter()
+                .position(|module| module == &owner.id)
+                .unwrap_or_else(|| panic!("read owner {} is initialized by the program", owner.id));
+            assert!(dependency_position < owner_position, "{dependency} initializes before {}", owner.id);
+
+            emitted_read_count += 1;
+            if !is_initializer {
+                nested_callable_read_count += 1;
+            }
+        }
+    }
+    assert!(emitted_read_count >= 3, "all fixture-module GetLinked instructions are inspected");
+    assert!(nested_callable_read_count >= 1, "the imported binding read is covered inside a nested callable");
 }
 
 /// A protocol default may construct an adapter that depends on the protocol

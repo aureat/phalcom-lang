@@ -62,8 +62,10 @@ committing and pushing the scoped consolidation implementation.
   Positive source fixtures pass analysis/finalization. The CV-04 fixture now
   executes a whole-module import and selected re-export through finalized
   canonical targets and confirms both yield the original source class. It also
-  checks all entry-initializer `GetLinked` operands against the finalized
-  mapping; broader CV-08 module/function coverage remains open.
+  reads the re-export inside a nested closure and checks every `GetLinked`
+  instruction in every fixture-owned closure against finalized and runtime
+  target tables plus dependency order. Broader CV-08 program-shape and producer
+  coverage remains open.
 - **T6:** Partial, focused-tested. All three `ProgramAnalyzer` paths preserve
   `ExecutableLinkedProgram`; finalized compiler/prelude paths fail closed
   rather than append reads. `RUSTFLAGS='' cargo check -p phalcom-core` passed.
@@ -76,12 +78,13 @@ committing and pushing the scoped consolidation implementation.
   mutual type-import fixture that verifies zero reads for interface-only
   imports and the exact canonical runtime value for the entry import. CV-05's
   type-cycle execution case passes; conformance-cycle acceptance remains open.
-  CV-08 has focused entry-initializer operand-to-target evidence, while
-  all-module/nested-callable coverage remains open. CV-09's planned minimal
-  split fixture passes its phase-summary, semantic-identity, runtime-edge, and
-  default-method execution assertions; its paired runtime-cycle negative
-  fixture remains in place. The full Universe iteration-source migration and
-  cutover are explicitly deferred by the plan.
+  CV-08 now has fixture-wide initializer and nested-callable operand-to-target
+  evidence, including materialized target identity and runtime dependency
+  order; broader program-shape and producer coverage remains open. CV-09's
+  planned minimal split fixture passes its phase-summary, semantic-identity,
+  runtime-edge, and default-method execution assertions; its paired runtime-
+  cycle negative fixture remains in place. The full Universe iteration-source
+  migration and cutover are explicitly deferred by the plan.
 - **T8:** Partial. The mutual type-cycle finalization fixture passes. The
   positive protocol/default-to-adapter fixture now compiles and executes with
   result 23, and its paired runtime-cycle fixture still rejects the genuine
@@ -270,12 +273,16 @@ The initial execution probe exposed a lowering defect: class-object type-form
 reads used the canonical declaration's name as a `GetGlobal` operand instead
 of consuming the finalized external read. The compiler now routes this product
 through its canonical declaration-read helper, which uses the immutable
-finalized slot and remains fail-closed when that mapping is absent. The same
-CV-04/CV-08 focused test passed after the correction:
+finalized slot and remains fail-closed when that mapping is absent. The CV-04
+fixture now also calls a nested closure that reads the re-export. After VM
+execution, it scans every live closure owned by the fixture's compiled modules
+and verifies each `GetLinked` operand against compiled and materialized target
+tables, the canonical binding slot, a finalized runtime edge, and dependency
+initialization order:
 
 ```text
-CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::whole_module_and_reexport_reads_keep_canonical_runtime_targets -- --exact --nocapture
-  1 passed in 149.59s
+CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::whole_module_and_reexport_reads_keep_canonical_runtime_targets -- --exact
+  1 passed; 0 failed; 992 filtered out; 139.17s
 ```
 
 The type-cycle fixture now also executes. Its two mutually imported class
@@ -316,9 +323,9 @@ full iteration package migration, which remains explicitly deferred.
 2. Extend/re-audit remaining T4 attribute declaration forms and generated
    requirement families, keeping unsupported emitted expressions incomplete
    and conservative.
-3. Extend CV-08 read-target coverage across all module initializers and
-   nested callable bytecode; current entry-initializer coverage passes for the
-   whole-module/re-export fixture.
+3. Broaden CV-08 read-target coverage to other program shapes and compiler
+   read producers; every fixture-owned initializer and nested callable in the
+   whole-module/re-export source graph is currently checked.
 4. Add the remaining CV-01/02 import-use variants and the CV-05 conformance-
    cycle execution case where the plan requires cross-stage proof. CV-04's
    whole-module/re-export execution path and CV-09's minimal split fixture now
