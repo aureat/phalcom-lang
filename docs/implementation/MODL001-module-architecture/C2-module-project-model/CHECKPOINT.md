@@ -203,3 +203,36 @@ This bounded result does not close P4: T4 producer-family completeness and
 remaining T7/T8 cross-stage CVs stay open. The full semantic suite, workspace
 checks, and release certification were not run. Functional consolidation
 acceptance must not be reported as full P4 or workspace completion.
+
+### Fresh semantic stability baseline — 2026-10-16
+
+On `ce8c6777`, the full semantic integration binary excluding only the
+separately-run stack regression completed with 2,123 passed, 94 failed, 23
+ignored, and 1 filtered out (946.52 seconds). The same 94 failures in
+`phalcom-semantic/tests/semantic/COVERAGE_LEDGER.md` reproduced. The excluded
+`ordinary_float_horner_expression_is_stack_safe_without_realization` test was
+run by its fully qualified name and aborted when analysis overflowed its
+explicit 2 MiB thread stack. The `TypedExpression` size assertion also
+reproduced at 896 bytes versus a 760-byte maximum. These two findings are
+confirmed; the other 93 failed tests remain unclassified pending bounded
+oracle/implementation triage. The 23 ignored tests were not run.
+
+All seven focused functional-acceptance gates passed on this baseline. P4
+remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; the baseline does not change
+the bounded consolidation acceptance or complete T4/T7/T8 work.
+
+### P4.T4 attribute-analysis consultation — 2026-10-16
+
+The implementation review confirmed that syntax-only attribute-root collection
+cannot prove selected callable, specialization, trait-dispatch, or witness
+requirements. The approved route is an additive semantic attribute-argument
+query/product with a stable key composed from canonical owner identity,
+attribute name and occurrence, argument ordinal, and analysis context. Source
+ranges remain metadata; snapshot-local `SourceSiteId` is not a query key.
+Module-initialization attributes are analyzed with module imports/values and no
+receiver or method generics. `@requires`/`@ensures` are analyzed as separate
+receiver-shaped closures with the owning callable's receiver/generic context
+and without callable value parameters. The product feeds the existing phase
+evidence collector and records normal semantic dependencies for reuse and
+invalidation. This is within P4.T4; no plan amendment is required unless live
+checker evidence disproves the context model.

@@ -235,7 +235,7 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
         eprintln!("warning: --trace=dispatch requested but the 'vm-trace' cargo feature is not enabled");
     }
 
-    let program = match phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(selection) {
+    let program = match phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection_with_mode(selection, compile_mode) {
         Ok(program) => program,
         Err(err) => {
             // Structured diagnostics are formatted here, at the user-facing boundary; never reparse formatted errors.

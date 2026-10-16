@@ -32,6 +32,9 @@ pub struct SemanticWorkspaceInput {
     /// Production module updates require canonical import products; direct
     /// source-index compatibility callers may retain path-map fallback.
     pub require_canonical_import_products: bool,
+    /// Runtime mode used to project mode-specific attribute requirements.
+    /// Semantic diagnostics are produced in every mode.
+    pub attribute_execution_mode: crate::attribute_analysis::AttributeExecutionMode,
     pub diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
     pub blocked_modules: BTreeSet<ModuleId>,
     pub generation: u64,
@@ -66,6 +69,7 @@ impl SemanticWorkspaceInput {
             module_graph_changed: false,
             import_sites_by_module: Arc::new(BTreeMap::new()),
             require_canonical_import_products: false,
+            attribute_execution_mode: crate::attribute_analysis::AttributeExecutionMode::Debug,
             diagnostics: BTreeMap::new(),
             blocked_modules: BTreeSet::new(),
             generation,
@@ -109,6 +113,12 @@ impl SemanticWorkspaceInput {
 
     pub fn with_canonical_import_products(mut self) -> Self {
         self.require_canonical_import_products = true;
+        self
+    }
+
+    /// Sets the runtime mode used to project retained attribute semantics.
+    pub fn with_attribute_execution_mode(mut self, mode: crate::attribute_analysis::AttributeExecutionMode) -> Self {
+        self.attribute_execution_mode = mode;
         self
     }
 
@@ -178,6 +188,7 @@ pub fn try_analyze_single_module(module: ModuleId, source: Arc<str>, program: Ar
         import_products: Arc::new(BTreeMap::new()),
         import_sites_by_module: Arc::new(BTreeMap::new()),
         require_canonical_import_products: false,
+        attribute_execution_mode: crate::attribute_analysis::AttributeExecutionMode::Debug,
         diagnostics: BTreeMap::new(),
         blocked_modules: BTreeSet::new(),
         generation: 0,

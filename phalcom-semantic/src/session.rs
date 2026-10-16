@@ -943,6 +943,7 @@ impl SemanticWorkspaceSession {
                     module_graph_changed: update.module_graph_changed,
                     import_sites_by_module: update.sites_by_importer,
                     require_canonical_import_products: true,
+                    attribute_execution_mode: crate::attribute_analysis::AttributeExecutionMode::Debug,
                     diagnostics: update.diagnostics,
                     blocked_modules: update.blocked_modules,
                     generation,
@@ -993,6 +994,7 @@ impl SemanticWorkspaceSession {
                 module_graph_changed: update.module_graph_changed,
                 import_sites_by_module: update.sites_by_importer,
                 require_canonical_import_products: true,
+                attribute_execution_mode: crate::attribute_analysis::AttributeExecutionMode::Debug,
                 diagnostics: update.diagnostics,
                 blocked_modules: update.blocked_modules,
                 generation,
@@ -8573,6 +8575,98 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        let attribute_formal_inputs = FormalQueryInputs {
+            sources: &retained_sources,
+            source_resolution_input,
+            linked_component_product,
+            linked: &input.linked,
+            topology: semantic_topology.as_ref(),
+            import_products: &input.import_products,
+            hierarchy: &hierarchy,
+            base_resolver: &resolver,
+            declarations: &declarations,
+            type_aliases: &type_aliases,
+            field_signatures: Some(&field_signatures),
+            field_lifecycle: Some(&field_lifecycle),
+            constructor_initializations: Some(&constructor_initializations),
+            callable_signatures: Some(&callable_signatures),
+            data_semantics: Some(&data_semantics),
+            enum_semantics: Some(&enum_semantics),
+            associated_families: Some(&associated_surfaces_table),
+            type_member_declarations: Some(&type_member_declarations_table),
+            conformance_semantics: Some(&conformance_semantics),
+            module_values: Some(crate::module_bindings::ModuleValueEnvironment {
+                bindings: &module_static_bindings,
+                exports: &module_value_exports,
+            }),
+            semantic_linked: input.semantic_linked.as_deref(),
+        };
+        let mut attribute_analyses = BTreeMap::new();
+        if input.semantic_linked.is_some() {
+            for (module_id, parsed) in &retained_sources {
+                for site in crate::attribute_analysis::collect_supported_attribute_argument_sites(module_id, &parsed.program) {
+                    let callable = site.callable_context.clone().unwrap_or_else(|| {
+                        CallableId::new(
+                            DeclarationId::new(module_id.clone(), "<main>".into()),
+                            Selector::getter("<main>").expect("module initializer selector"),
+                            DispatchSide::Instance,
+                        )
+                    });
+                    let declared_signature = match site.callable_context.as_ref() {
+                        Some(callable) => {
+                            let Some(signature) = callable_signatures.get(callable) else {
+                                continue;
+                            };
+                            Some((callable, signature))
+                        }
+                        None => None,
+                    };
+                    let owner_generic_signature = site
+                        .callable_context
+                        .as_ref()
+                        .and_then(CallableId::try_declaration_owner)
+                        .and_then(|owner| declarations.generic_signature(owner));
+                    let body = [Statement::Expr {
+                        expr: site.expression.clone(),
+                        range: site.expression.range(),
+                    }];
+                    let body_range = site.expression.range();
+                    let query = crate::db::CallableBodyQuery {
+                        callable,
+                        body: &body,
+                        body_range,
+                        declared_signature,
+                        owner_generic_signature,
+                        receiver_value_override: None,
+                        instance_self_override: None,
+                        trait_surface: None,
+                        store: Arc::make_mut(&mut self.store),
+                        hierarchy: &hierarchy,
+                        resolver: &resolver,
+                        declarations: &declarations,
+                        dispatch: &dispatch,
+                        module: module_id.clone(),
+                        budget,
+                        cancel,
+                        formal_inputs: Some(&attribute_formal_inputs),
+                    };
+                    match crate::db::query_attribute_argument(&mut self.db, site.id.clone(), query, site.id.context) {
+                        QueryOutcome::Ready(product) => {
+                            diagnostics_map
+                                .entry(module_id.clone())
+                                .or_default()
+                                .extend(product.analysis.diagnostics.iter().cloned());
+                            attribute_analyses.insert(site.id, product);
+                        }
+                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                        QueryOutcome::Blocked(_) => {}
+                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                    }
+                }
+            }
+        }
+
         let mut semantic_diagnostic_contributions = BTreeMap::new();
         for (module_id, diagnostics) in &diagnostics_map {
             let mut semantic_diagnostics = diagnostics.clone();
@@ -8646,15 +8740,18 @@ impl SemanticWorkspaceSession {
         }
         if let Some(semantic_linked) = input.semantic_linked.as_ref() {
             let is_complete = input.blocked_modules.is_empty();
-            let (import_phase_products, generated_runtime_requirements) = crate::phase_evidence::compute_module_import_phase_products(
-                semantic_linked,
-                &input.sources,
-                snapshot_obj.source_index.as_ref(),
-                &snapshot_obj.callable_analyses,
-                Some(snapshot_obj.store.as_ref()),
-                Some(&snapshot_obj.static_constants),
-                is_complete,
-            );
+            let (import_phase_products, generated_runtime_requirements) =
+                crate::phase_evidence::compute_module_import_phase_products_with_attribute_analyses_and_mode(
+                    semantic_linked,
+                    &input.sources,
+                    snapshot_obj.source_index.as_ref(),
+                    &snapshot_obj.callable_analyses,
+                    &attribute_analyses,
+                    Some(snapshot_obj.store.as_ref()),
+                    Some(&snapshot_obj.static_constants),
+                    is_complete,
+                    input.attribute_execution_mode,
+                );
             snapshot_obj.import_phase_products = Arc::new(import_phase_products);
             snapshot_obj.generated_runtime_requirements = Arc::from(generated_runtime_requirements);
         }
@@ -10850,6 +10947,12 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         QueryKey::StaticConstant(constant) => Some(&constant.0.module),
         QueryKey::ModuleStaticBindingCatalog(module) | QueryKey::ModuleStaticBindings(module) => Some(module),
         QueryKey::CheckedStaticBody(body) => Some(&body.0.module),
+        QueryKey::AttributeArgument(argument) => Some(match &argument.owner {
+            crate::attribute_analysis::AttributeOwnerId::Module(module) => module,
+            crate::attribute_analysis::AttributeOwnerId::Declaration(declaration) => &declaration.module,
+            crate::attribute_analysis::AttributeOwnerId::Callable(callable) => callable.module(),
+            crate::attribute_analysis::AttributeOwnerId::Field(field) => &field.owner.module,
+        }),
         QueryKey::TypeMemberDeclaration(member) => Some(&member.owner.module),
         QueryKey::AssociatedStaticDomainDeclaration(domain) => Some(&domain.owner.module),
         QueryKey::StaticDomainCaseCatalog(domain) => Some(match domain {

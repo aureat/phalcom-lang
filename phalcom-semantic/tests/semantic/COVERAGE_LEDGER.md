@@ -436,3 +436,45 @@ These failures were observed before the 19 passing cases were enabled.
 - Gated golden behavior: golden::{golden_01_generic_self_chain, golden_02_flow_pattern_publication, golden_03_iterator_chain, golden_04_family_callable, golden_06_workspace_chain, golden_08_variance_recovery, golden_09_closure_flow, golden_10_mixed_pipeline, golden_11_recursive_fixed_point, golden_15_row_effect_contract}.
 - Gated incremental behavior: incremental::adts::{adt_incr_08_alias_union_contraction_updates_residual_witness, adt_incr_09_visibility_edit_invalidates_acquisition_without_shrinking_match_universe}. The first did not publish the expected match product; the second produced identical match resolution before and after the purported visibility edit.
 - Intentional child-process failure: support::regressions::fail_fast_policy_panics_only_after_recording_incident_child. Running this child directly is expected to panic; its parent test owns the process-level assertion.
+
+### Fresh stability baseline — 2026-10-16, `ce8c6777`
+
+The post-enable full semantic run is now observed rather than projected:
+
+```text
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic -- --skip ordinary_float_horner_expression_is_stack_safe_without_realization --quiet
+  2,123 passed; 94 failed; 23 ignored; 1 filtered out; 946.52s
+```
+
+The 94 named failures in the preceding inventory reproduced on `ce8c6777`.
+The 23 ignored tests were not run in this baseline; their last forced-run
+classification remains the earlier recorded evidence. A zero-test exact
+filter attempt for the stack test was discarded as non-evidence, then the
+fully qualified test was run separately:
+
+```text
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic semantic::capabilities::algebraic_realization::ordinary_float_horner_expression_is_stack_safe_without_realization -- --exact --nocapture
+  1 selected; analysis thread overflowed its explicit 2 MiB stack; test process aborted with SIGABRT
+```
+
+The size-budget failure also reproduced in the full run:
+`TypedExpression` is 896 bytes against the test's 760-byte maximum.
+
+Classification from this bounded pass:
+
+- **Confirmed compiler robustness defect:** the Horner expression analysis
+  overflows its explicitly bounded 2 MiB worker stack.
+- **Confirmed representation-budget regression:** `TypedExpression` exceeds
+  the asserted recursive-carrier budget by 136 bytes. Whether the budget or
+  representation should change still needs source-history/design review.
+- **Unresolved:** the other 93 failures in the 94-test failure set. They span
+  semantic result/diagnostic assertions and incremental recomputation/product
+  stability assertions. This run proves they reproduce, but does not by itself
+  distinguish implementation defects, stale oracles, or unsupported cases.
+  No environment-caused failure was identified.
+
+The branch's seven focused functional-acceptance gates were rerun on the same
+baseline and passed: canonical ordinary-user execution 1/1; positive
+protocol/default execution 1/1; strict cycle rejection 1/1; fail-closed
+mapping 2/2; modules linker 25/25; modules graph 5/5; semantic phase evidence
+12/12. Those focused results do not classify the broader semantic failures.

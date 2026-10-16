@@ -1,6 +1,7 @@
 //! Program-level compiler seam for closed linked module plans.
 
 use super::artifact::ModuleMaterializationPlan;
+use crate::compiler::attributes::CompileMode;
 use crate::typing::{MetadataPoolId, RuntimeCallEnvironmentRecipe, RuntimeTypeRecipe, RuntimeTypeRef};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{
@@ -1076,11 +1077,14 @@ fn link_analyze_finalize(
     sources: &BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
     runtime_modules: &BTreeSet<ModuleId>,
     generation: u64,
+    compile_mode: CompileMode,
     semantic_session: Option<&mut phalcom_semantic::SemanticWorkspaceSession>,
 ) -> Result<(Arc<ExecutableLinkedProgram>, Arc<phalcom_semantic::SemanticSnapshot>), ProgramCompileError> {
     let semantic = Arc::new(linker.link_semantic(entry.clone(), resolved)?);
-    let semantic_input =
-        phalcom_semantic::SemanticWorkspaceInput::new(semantic.to_unfinalized_program(), sources.clone(), generation).with_semantic_linked(semantic.clone());
+    let attribute_execution_mode = semantic_attribute_execution_mode(compile_mode);
+    let semantic_input = phalcom_semantic::SemanticWorkspaceInput::new(semantic.to_unfinalized_program(), sources.clone(), generation)
+        .with_semantic_linked(semantic.clone())
+        .with_attribute_execution_mode(attribute_execution_mode);
 
     let mut owned_semantic_session;
     let semantic_session = match semantic_session {
@@ -1123,10 +1127,24 @@ fn link_analyze_finalize(
     Ok((Arc::new(executable), snapshot))
 }
 
+fn semantic_attribute_execution_mode(mode: CompileMode) -> phalcom_semantic::attribute_analysis::AttributeExecutionMode {
+    match mode {
+        CompileMode::Debug => phalcom_semantic::attribute_analysis::AttributeExecutionMode::Debug,
+        CompileMode::Release => phalcom_semantic::attribute_analysis::AttributeExecutionMode::Release,
+        CompileMode::Unchecked => phalcom_semantic::attribute_analysis::AttributeExecutionMode::Unchecked,
+    }
+}
+
 impl ProgramAnalyzer {
     /// Analyzes an entry selection into an [`AnalyzedProgram`].
     pub fn analyze_entry_selection(entry: EntrySelection) -> Result<AnalyzedProgram, ProgramCompileError> {
-        Self::analyze_entry_selection_inner(entry, None)
+        Self::analyze_entry_selection_with_mode(entry, CompileMode::Debug)
+    }
+
+    /// Analyzes an entry selection using the runtime guard mode that the VM
+    /// will use when the resulting program is compiled and executed.
+    pub fn analyze_entry_selection_with_mode(entry: EntrySelection, compile_mode: CompileMode) -> Result<AnalyzedProgram, ProgramCompileError> {
+        Self::analyze_entry_selection_inner(entry, compile_mode, None)
     }
 
     /// Analyzes an entry selection using a caller-configured semantic session.
@@ -1140,11 +1158,22 @@ impl ProgramAnalyzer {
         entry: EntrySelection,
         mut semantic_session: phalcom_semantic::SemanticWorkspaceSession,
     ) -> Result<AnalyzedProgram, ProgramCompileError> {
-        Self::analyze_entry_selection_inner(entry, Some(&mut semantic_session))
+        Self::analyze_entry_selection_inner(entry, CompileMode::Debug, Some(&mut semantic_session))
+    }
+
+    /// Analyzes an entry selection with both a caller-configured semantic
+    /// session and an explicit runtime guard mode.
+    pub fn analyze_entry_selection_with_session_and_mode(
+        entry: EntrySelection,
+        mut semantic_session: phalcom_semantic::SemanticWorkspaceSession,
+        compile_mode: CompileMode,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        Self::analyze_entry_selection_inner(entry, compile_mode, Some(&mut semantic_session))
     }
 
     fn analyze_entry_selection_inner(
         entry: EntrySelection,
+        compile_mode: CompileMode,
         mut semantic_session: Option<&mut phalcom_semantic::SemanticWorkspaceSession>,
     ) -> Result<AnalyzedProgram, ProgramCompileError> {
         match entry {
@@ -1174,7 +1203,7 @@ impl ProgramAnalyzer {
                     path: entry_path,
                 };
                 let provider = FilesystemSourceProvider::new();
-                Self::discover_and_analyze(Arc::new(universe), provider, entry_id, semantic_session.as_deref_mut())
+                Self::discover_and_analyze(Arc::new(universe), provider, entry_id, compile_mode, semantic_session.as_deref_mut())
             }
             EntrySelection::Package(pkg_dir) => {
                 let canonical_pkg = pkg_dir
@@ -1197,7 +1226,7 @@ impl ProgramAnalyzer {
                     ]),
                 };
                 let provider = FilesystemSourceProvider::new();
-                Self::discover_and_analyze(Arc::new(universe), provider, entry_id, semantic_session.as_deref_mut())
+                Self::discover_and_analyze(Arc::new(universe), provider, entry_id, compile_mode, semantic_session.as_deref_mut())
             }
             EntrySelection::Module(file_path) => {
                 let canonical = file_path
@@ -1217,7 +1246,7 @@ impl ProgramAnalyzer {
                             path: module_path,
                         };
                         let provider = FilesystemSourceProvider::new();
-                        Self::discover_and_analyze(Arc::new(universe), provider, entry_id, semantic_session.as_deref_mut())
+                        Self::discover_and_analyze(Arc::new(universe), provider, entry_id, compile_mode, semantic_session.as_deref_mut())
                     }
                     EntryOwnership::StandalonePackageOwned { package_root } => {
                         let root_id = universe.load_standalone_package(&package_root, None)?;
@@ -1231,10 +1260,10 @@ impl ProgramAnalyzer {
                             path: module_path,
                         };
                         let provider = FilesystemSourceProvider::new();
-                        Self::discover_and_analyze(Arc::new(universe), provider, entry_id, semantic_session.as_deref_mut())
+                        Self::discover_and_analyze(Arc::new(universe), provider, entry_id, compile_mode, semantic_session.as_deref_mut())
                     }
-                    EntryOwnership::StandaloneModule { file } => Self::analyze_standalone_module(file, semantic_session.as_deref_mut()),
-                    EntryOwnership::Inline { .. } => Self::analyze_standalone_module(file_path, semantic_session.as_deref_mut()),
+                    EntryOwnership::StandaloneModule { file } => Self::analyze_standalone_module(file, compile_mode, semantic_session.as_deref_mut()),
+                    EntryOwnership::Inline { .. } => Self::analyze_standalone_module(file_path, compile_mode, semantic_session.as_deref_mut()),
                 }
             }
             EntrySelection::Inline(source_text) => {
@@ -1310,7 +1339,16 @@ impl ProgramAnalyzer {
                 }
                 let linker = ModuleLinker::new(universe.clone(), interfaces);
                 let runtime_modules = BTreeSet::from([entry_id.clone()]);
-                let (linked, semantic) = link_analyze_finalize(&linker, entry_id.clone(), &resolved, &sources, &runtime_modules, 0, semantic_session)?;
+                let (linked, semantic) = link_analyze_finalize(
+                    &linker,
+                    entry_id.clone(),
+                    &resolved,
+                    &sources,
+                    &runtime_modules,
+                    0,
+                    compile_mode,
+                    semantic_session,
+                )?;
 
                 Ok(AnalyzedProgram {
                     project_universe: universe,
@@ -1326,6 +1364,7 @@ impl ProgramAnalyzer {
 
     fn analyze_standalone_module(
         file_path: PathBuf,
+        compile_mode: CompileMode,
         semantic_session: Option<&mut phalcom_semantic::SemanticWorkspaceSession>,
     ) -> Result<AnalyzedProgram, ProgramCompileError> {
         let canonical = file_path
@@ -1428,6 +1467,7 @@ impl ProgramAnalyzer {
             &discovered.sources,
             &runtime_modules,
             0,
+            compile_mode,
             semantic_session,
         )?;
 
@@ -1445,6 +1485,7 @@ impl ProgramAnalyzer {
         universe: Arc<ProjectUniverse>,
         source_provider: FilesystemSourceProvider,
         entry: ModuleId,
+        compile_mode: CompileMode,
         semantic_session: Option<&mut phalcom_semantic::SemanticWorkspaceSession>,
     ) -> Result<AnalyzedProgram, ProgramCompileError> {
         let mut resolver = ModuleResolver::new(&universe, &source_provider);
@@ -1511,6 +1552,7 @@ impl ProgramAnalyzer {
             &discovered.sources,
             &runtime_modules,
             0,
+            compile_mode,
             semantic_session,
         )?;
 
@@ -2622,7 +2664,13 @@ impl ProgramCompiler {
 
     /// Compiles an entry selection by analyzing it first and compiling the analyzed result.
     pub fn compile_entry_selection(entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
-        let analyzed = ProgramAnalyzer::analyze_entry_selection(entry)?;
+        Self::compile_entry_selection_with_mode(entry, CompileMode::Debug)
+    }
+
+    /// Compiles an entry selection while projecting runtime requirements for
+    /// the selected contract guard mode.
+    pub fn compile_entry_selection_with_mode(entry: EntrySelection, compile_mode: CompileMode) -> Result<CompiledProgram, ProgramCompileError> {
+        let analyzed = ProgramAnalyzer::analyze_entry_selection_with_mode(entry, compile_mode)?;
         Self::compile_analyzed(&analyzed)
     }
 }
@@ -2668,7 +2716,8 @@ fn compile_module(
 
 #[cfg(test)]
 mod tests {
-    use super::{ProgramCompileError, RuntimeMetadataTypeOwnerCollector, SourceRange, contextual_receiver_read_requirement};
+    use super::{ProgramCompileError, RuntimeMetadataTypeOwnerCollector, SourceRange, contextual_receiver_read_requirement, semantic_attribute_execution_mode};
+    use crate::compiler::attributes::CompileMode;
     use crate::typing::RuntimeTypeRecipe;
     use phalcom_modules::{
         LinkedReadSpec, ModuleComponent, ModuleId, ModulePath, RuntimeDependencyReason, RuntimeDependencyRequirement, RuntimeRequirementProducer,
@@ -2680,6 +2729,22 @@ mod tests {
     use phalcom_semantic::types::store::{TupleTypeElement, TypeStore};
     use phalcom_semantic::types::type_lambda::ScopedTypeData;
     use std::collections::{BTreeMap, BTreeSet};
+
+    #[test]
+    fn runtime_compile_modes_map_to_semantic_attribute_projection_modes() {
+        assert_eq!(
+            semantic_attribute_execution_mode(CompileMode::Debug),
+            phalcom_semantic::attribute_analysis::AttributeExecutionMode::Debug
+        );
+        assert_eq!(
+            semantic_attribute_execution_mode(CompileMode::Release),
+            phalcom_semantic::attribute_analysis::AttributeExecutionMode::Release
+        );
+        assert_eq!(
+            semantic_attribute_execution_mode(CompileMode::Unchecked),
+            phalcom_semantic::attribute_analysis::AttributeExecutionMode::Unchecked
+        );
+    }
 
     #[test]
     fn compiler_error_keeps_semantic_publication_failure_typed() {

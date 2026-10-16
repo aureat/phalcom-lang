@@ -205,12 +205,38 @@ families and T7/T8 cross-stage CVs remain separate work. Do not reopen the
 historical metadata-export issue unless it reproduces or a required P4 gate
 directly depends on it.
 
+## Fresh stability baseline — 2026-10-16, `ce8c6777`
+
+The full semantic integration test binary, excluding only the separately-run
+stack regression, completed with 2,123 passed, 94 failed, 23 ignored, and 1
+filtered out. The named 94-failure inventory in
+`phalcom-semantic/tests/semantic/COVERAGE_LEDGER.md` reproduced. The 23
+ignored tests were not run. The separately selected
+`ordinary_float_horner_expression_is_stack_safe_without_realization` test
+overflowed its explicit 2 MiB analysis thread and aborted its test process
+with SIGABRT. `typed_expression_remains_a_lightweight_recursive_carrier`
+failed at 896 bytes versus its 760-byte budget. These two are confirmed
+findings; the remaining 93 failures are reproduced but unresolved as to
+implementation defect, oracle defect, or unsupported behavior. No
+environmental cause was established.
+
+The seven focused functional baseline gates all passed. This preserves M1
+acceptance while keeping P4 partial. Do not use the 94-test count alone to
+assign failures to P4 or to change expected behavior.
+
 ## Next work
 
-1. Close the remaining T4 generated-requirement families and establish explicit
+1. Reconcile the current failing-test inventory against the ledger, beginning
+   with failures intersecting generated requirements or incremental phase
+   products. Do not change semantic expectations without checking the owning
+   spec.
+2. Resolve the implementation contract for retaining semantic resolution
+   evidence for attribute arguments; current phase evidence uses a syntax-root
+   walk and does not have ordinary expression products for those arguments.
+3. Close the remaining T4 generated-requirement families and establish explicit
    coverage for unsupported families.
-2. Add the missing CV-01/02/04/08 cross-stage evidence, including no uncovered
+4. Add the missing CV-01/02/04/08 cross-stage evidence, including no uncovered
    `GetLinked` reads, then update this handoff and the checkpoint with the actual
    outcomes.
-3. Keep P4 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` until those acceptance gaps
+5. Keep P4 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` until those acceptance gaps
    are resolved. Do not stage, commit, or push unrelated work.

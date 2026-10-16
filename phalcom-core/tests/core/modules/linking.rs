@@ -356,7 +356,11 @@ fn protocol_default_to_adapter_cycle_is_only_semantic_on_adapter_side() {
         .module(user_module)
         .get(vm.interner.intern("result"))
         .expect("protocol default result is populated");
-    assert_eq!(result.as_int(), Some(23), "protocol default constructs the imported adapter and returns its result");
+    assert_eq!(
+        result.as_int(),
+        Some(23),
+        "protocol default constructs the imported adapter and returns its result"
+    );
 }
 
 /// The same protocol/default → adapter path still rejects a runtime edge in

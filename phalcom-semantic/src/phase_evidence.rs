@@ -372,6 +372,100 @@ fn push_callable_owner_requirement(
     });
 }
 
+fn push_invocation_target_owner_requirement(
+    importer: &ModuleId,
+    target: &crate::identity::InvocationTargetId,
+    range: phalcom_common::range::SourceRange,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+) {
+    let owner = match target {
+        crate::identity::InvocationTargetId::Behavioral(callable) => callable.module(),
+        crate::identity::InvocationTargetId::VariantConstructor(constructor) => &constructor.variant.owner.module,
+        crate::identity::InvocationTargetId::DataConstructor(constructor) => &constructor.owner.module,
+    };
+    push_callable_owner_requirement(importer, owner, range, requirements);
+}
+
+fn add_associated_resolution_owner_requirements(
+    importer: &ModuleId,
+    resolution: &crate::checker::associated::AssociatedResolution,
+    range: phalcom_common::range::SourceRange,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+) {
+    use crate::checker::associated::{AssociatedResolutionKind, SpecializedAssociatedMember};
+
+    fn add_member_owner(
+        importer: &ModuleId,
+        member: &crate::associated::AssociatedMemberId,
+        range: phalcom_common::range::SourceRange,
+        requirements: &mut Vec<RuntimeDependencyRequirement>,
+    ) {
+        let owner = match member {
+            crate::associated::AssociatedMemberId::Variant(variant) => Some(&variant.owner.module),
+            crate::associated::AssociatedMemberId::DataConstructor(constructor) => Some(&constructor.owner.module),
+            crate::associated::AssociatedMemberId::DataComponent(_)
+            | crate::associated::AssociatedMemberId::StaticDomain(_)
+            | crate::associated::AssociatedMemberId::TypeMember(_) => None,
+        };
+        if let Some(owner) = owner {
+            push_callable_owner_requirement(importer, owner, range, requirements);
+        }
+    }
+
+    fn add_specialized_member(
+        importer: &ModuleId,
+        member: &SpecializedAssociatedMember,
+        range: phalcom_common::range::SourceRange,
+        requirements: &mut Vec<RuntimeDependencyRequirement>,
+    ) {
+        add_member_owner(importer, &member.member, range, requirements);
+        if let Some(target) = &member.target {
+            push_invocation_target_owner_requirement(importer, target, range, requirements);
+        }
+    }
+
+    match &resolution.kind {
+        AssociatedResolutionKind::ExactValue { member, .. } => add_member_owner(importer, member, range, requirements),
+        AssociatedResolutionKind::ExactCallable { target, .. } | AssociatedResolutionKind::StaticInvoke { target, .. } => {
+            push_invocation_target_owner_requirement(importer, target, range, requirements);
+        }
+        AssociatedResolutionKind::Family { members, .. } => {
+            for member in members.iter() {
+                add_specialized_member(importer, member, range, requirements);
+            }
+        }
+        AssociatedResolutionKind::DynamicInvoke { candidates, .. } => {
+            for candidate in candidates.iter() {
+                add_specialized_member(importer, candidate, range, requirements);
+            }
+        }
+        AssociatedResolutionKind::DataExpansionField { .. } | AssociatedResolutionKind::StaticDomain { .. } | AssociatedResolutionKind::StaticTerm { .. } => {}
+    }
+}
+
+fn add_family_application_owner_requirements(
+    importer: &ModuleId,
+    resolution: &crate::checker::associated::FamilyApplicationResolution,
+    range: phalcom_common::range::SourceRange,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+) {
+    use crate::checker::associated::FamilyApplicationSelection;
+
+    let mut add_target = |target: &Option<crate::identity::InvocationTargetId>| {
+        if let Some(target) = target {
+            push_invocation_target_owner_requirement(importer, target, range, requirements);
+        }
+    };
+    match &resolution.selection {
+        FamilyApplicationSelection::Static { target, .. } => add_target(target),
+        FamilyApplicationSelection::Dynamic { candidates, .. } => {
+            for candidate in candidates.iter() {
+                add_target(&candidate.target);
+            }
+        }
+    }
+}
+
 fn push_binding_owner_requirement(
     importer: &ModuleId,
     declaration: &DeclarationId,
@@ -764,15 +858,265 @@ fn collect_attribute_block_roots(statements: &[Statement], roots: &mut Vec<Strin
                 collect_attribute_block_roots(&for_stmt.body, roots, complete);
                 *complete = false;
             }
-            Statement::Break { .. } | Statement::Continue { .. } => {
-                // Materialized-block control may lower to an Error trap. The
-                // current semantic product does not distinguish that case.
-                roots.push("Error".to_owned());
-                *complete = false;
-            }
+            Statement::Break { .. } | Statement::Continue { .. } => {}
             _ => *complete = false,
         }
     }
+}
+
+/// Finds loop-control statements whose target loop lives in an outer compiler
+/// function. Core emits `Error.new(...).raise()` for those materialized-block
+/// paths. Direct loop control remains a local jump and must not create an
+/// `Error` runtime dependency.
+fn collect_materialized_loop_control_trap_ranges(statements: &[Statement]) -> Vec<phalcom_common::range::SourceRange> {
+    use phalcom_common::range::SourceRange;
+
+    fn scan_pack(items: &[phalcom_ast::ast::PackItem], function_depth: usize, loop_depths: &mut Vec<usize>, traps: &mut Vec<SourceRange>) {
+        for item in items {
+            let expression = match item {
+                phalcom_ast::ast::PackItem::Positional { expr, .. }
+                | phalcom_ast::ast::PackItem::Labeled { value: expr, .. }
+                | phalcom_ast::ast::PackItem::Expand { expr, .. } => expr,
+            };
+            scan_expr(expression, function_depth, loop_depths, traps);
+        }
+    }
+
+    fn scan_statements(statements: &[Statement], function_depth: usize, loop_depths: &mut Vec<usize>, traps: &mut Vec<SourceRange>) {
+        for statement in statements {
+            #[allow(deprecated)]
+            match statement {
+                Statement::Expr { expr, .. } | Statement::Throw { expr, .. } => scan_expr(expr, function_depth, loop_depths, traps),
+                Statement::Let(binding) => {
+                    if let Some(value) = &binding.value {
+                        scan_expr(value, function_depth, loop_depths, traps);
+                    }
+                }
+                Statement::Return(return_stmt) => {
+                    if let Some(value) = &return_stmt.value {
+                        scan_expr(value, function_depth, loop_depths, traps);
+                    }
+                }
+                Statement::For(for_statement) => {
+                    for lane in &for_statement.lanes {
+                        scan_expr(&lane.iter, function_depth, loop_depths, traps);
+                    }
+                    loop_depths.push(function_depth);
+                    scan_statements(&for_statement.body, function_depth, loop_depths, traps);
+                    loop_depths.pop();
+                }
+                Statement::Break { range } | Statement::Continue { range } => {
+                    if loop_depths.last().is_some_and(|target_depth| function_depth > *target_depth) {
+                        traps.push(*range);
+                    }
+                }
+                Statement::Class(_)
+                | Statement::Data(_)
+                | Statement::Trait(_)
+                | Statement::Impl(_)
+                | Statement::TypeDefinition(_)
+                | Statement::TypeAlias(_)
+                | Statement::Export(_) => {}
+            }
+        }
+    }
+
+    fn scan_expr(expression: &Expr, function_depth: usize, loop_depths: &mut Vec<usize>, traps: &mut Vec<SourceRange>) {
+        use phalcom_ast::ast::{BracketLiteralElement, IfElseBody, MapLiteralKey, MatchArmBody, RecordLiteralEntry, SetLiteralEntry, TupleLiteralEntry};
+
+        match expression {
+            Expr::Assignment(assignment) => {
+                scan_expr(&assignment.name, function_depth, loop_depths, traps);
+                scan_expr(&assignment.value, function_depth, loop_depths, traps);
+            }
+            Expr::Range(range) => {
+                if let Some(lower) = &range.lower {
+                    scan_expr(lower, function_depth, loop_depths, traps);
+                }
+                if let Some(upper) = &range.upper {
+                    scan_expr(upper, function_depth, loop_depths, traps);
+                }
+            }
+            Expr::Unary(unary) => scan_expr(&unary.expr, function_depth, loop_depths, traps),
+            Expr::Binary(binary) => {
+                scan_expr(&binary.left, function_depth, loop_depths, traps);
+                scan_expr(&binary.right, function_depth, loop_depths, traps);
+            }
+            Expr::ComparisonChain(chain) => {
+                for operand in &chain.operands {
+                    scan_expr(operand, function_depth, loop_depths, traps);
+                }
+            }
+            Expr::IfLet(expr) => {
+                scan_expr(&expr.value, function_depth, loop_depths, traps);
+                scan_statements(&expr.then_body.body, function_depth, loop_depths, traps);
+                if let Some(else_body) = &expr.else_body {
+                    scan_statements(&else_body.body, function_depth, loop_depths, traps);
+                }
+            }
+            Expr::WhileLet(expr) => {
+                loop_depths.push(function_depth);
+                scan_expr(&expr.value, function_depth, loop_depths, traps);
+                scan_statements(&expr.body, function_depth, loop_depths, traps);
+                loop_depths.pop();
+            }
+            Expr::If(expr) => {
+                scan_expr(&expr.condition, function_depth, loop_depths, traps);
+                scan_statements(&expr.then_body.body, function_depth, loop_depths, traps);
+                if let Some(else_body) = &expr.else_body {
+                    match else_body {
+                        IfElseBody::Block(block) => scan_statements(&block.body, function_depth, loop_depths, traps),
+                        IfElseBody::ElseIf(expr) => scan_expr(expr, function_depth, loop_depths, traps),
+                    }
+                }
+            }
+            Expr::While(expr) => {
+                // The guarded `whileTrue` lowering compiles the same condition
+                // and body again in a materialized fallback closure. In that
+                // copy the while context is one function shallower, while any
+                // nested loop establishes its own target at the current depth.
+                loop_depths.push(function_depth);
+                scan_expr(&expr.condition, function_depth + 1, loop_depths, traps);
+                scan_statements(&expr.body.body, function_depth + 1, loop_depths, traps);
+                loop_depths.pop();
+            }
+            Expr::UnqualifiedCall(call) => scan_pack(&call.args, function_depth, loop_depths, traps),
+            Expr::MethodCall(call) => {
+                scan_expr(&call.object, function_depth, loop_depths, traps);
+                scan_pack(&call.args, function_depth, loop_depths, traps);
+            }
+            Expr::GetProperty(property) => scan_expr(&property.object, function_depth, loop_depths, traps),
+            Expr::SetProperty(property) => {
+                scan_expr(&property.object, function_depth, loop_depths, traps);
+                scan_expr(&property.value, function_depth, loop_depths, traps);
+            }
+            Expr::Index(index) => {
+                scan_expr(&index.object, function_depth, loop_depths, traps);
+                scan_pack(&index.args, function_depth, loop_depths, traps);
+            }
+            Expr::SetIndex(index) => {
+                scan_expr(&index.object, function_depth, loop_depths, traps);
+                scan_pack(&index.args, function_depth, loop_depths, traps);
+                scan_expr(&index.value, function_depth, loop_depths, traps);
+            }
+            Expr::Block(block) => scan_statements(&block.body, function_depth + 1, loop_depths, traps),
+            Expr::AssociatedLookup(lookup) => scan_expr(&lookup.receiver, function_depth, loop_depths, traps),
+            Expr::AssociatedInvoke(invoke) => {
+                scan_expr(&invoke.receiver, function_depth, loop_depths, traps);
+                scan_pack(&invoke.args, function_depth, loop_depths, traps);
+            }
+            Expr::CallableReference(reference) => match &reference.target {
+                phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, .. }
+                | phalcom_ast::ast::CallableReferenceTarget::Associated { receiver, .. }
+                | phalcom_ast::ast::CallableReferenceTarget::PrimaryDataConstructor { receiver, .. } => scan_expr(receiver, function_depth, loop_depths, traps),
+            },
+            Expr::TupleLiteral(tuple) => {
+                for entry in &tuple.entries {
+                    match entry {
+                        TupleLiteralEntry::Positional { expr, .. } | TupleLiteralEntry::Expand { expr, .. } => {
+                            scan_expr(expr, function_depth, loop_depths, traps)
+                        }
+                        TupleLiteralEntry::Labeled { label, value, .. } => {
+                            if let phalcom_ast::ast::ProductLabel::Computed { expr, .. } = label {
+                                scan_expr(expr, function_depth, loop_depths, traps);
+                            }
+                            scan_expr(value, function_depth, loop_depths, traps);
+                        }
+                    }
+                }
+            }
+            Expr::RecordLiteral(record) => {
+                for entry in &record.entries {
+                    match entry {
+                        RecordLiteralEntry::Field(field) => {
+                            if let phalcom_ast::ast::ProductLabel::Computed { expr, .. } = &field.label {
+                                scan_expr(expr, function_depth, loop_depths, traps);
+                            }
+                            scan_expr(&field.value, function_depth, loop_depths, traps);
+                        }
+                        RecordLiteralEntry::Expansion { expr, .. } => scan_expr(expr, function_depth, loop_depths, traps),
+                    }
+                }
+            }
+            Expr::RecordConstruction(record) => {
+                for entry in &record.entries {
+                    scan_expr(&entry.value, function_depth, loop_depths, traps);
+                }
+            }
+            Expr::MapLiteral(map) => {
+                for entry in &map.entries {
+                    match entry {
+                        phalcom_ast::ast::MapLiteralEntry::Association { key, value, .. } => {
+                            if let MapLiteralKey::Computed { expr, .. } = key {
+                                scan_expr(expr, function_depth, loop_depths, traps);
+                            }
+                            scan_expr(value, function_depth, loop_depths, traps);
+                        }
+                        phalcom_ast::ast::MapLiteralEntry::Expansion { expr, .. } => scan_expr(expr, function_depth, loop_depths, traps),
+                    }
+                }
+            }
+            Expr::SetLiteral(set) => {
+                for entry in &set.entries {
+                    match entry {
+                        SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => scan_expr(expr, function_depth, loop_depths, traps),
+                    }
+                }
+            }
+            Expr::BracketLiteral(list) => {
+                for entry in &list.elements {
+                    match entry {
+                        BracketLiteralElement::Element { expr, .. } | BracketLiteralElement::Expansion { expr, .. } => {
+                            scan_expr(expr, function_depth, loop_depths, traps)
+                        }
+                    }
+                }
+            }
+            Expr::Membership(expr) => {
+                scan_expr(&expr.left, function_depth, loop_depths, traps);
+                scan_expr(&expr.right, function_depth, loop_depths, traps);
+            }
+            Expr::IsMembership(expr) => {
+                scan_expr(&expr.left, function_depth, loop_depths, traps);
+                scan_expr(&expr.candidates, function_depth, loop_depths, traps);
+            }
+            Expr::Match(expr) => {
+                scan_expr(&expr.value, function_depth, loop_depths, traps);
+                for arm in &expr.arms {
+                    match &arm.branch {
+                        MatchArmBody::Expression(expr) => scan_expr(expr, function_depth, loop_depths, traps),
+                        MatchArmBody::Block(block) => scan_statements(&block.body, function_depth, loop_depths, traps),
+                    }
+                }
+            }
+            Expr::Char { .. }
+            | Expr::Int { .. }
+            | Expr::Float { .. }
+            | Expr::Imaginary { .. }
+            | Expr::String { .. }
+            | Expr::Boolean { .. }
+            | Expr::Var { .. }
+            | Expr::Field { .. }
+            | Expr::SelfVar { .. }
+            | Expr::SuperVar { .. }
+            | Expr::Symbol(_)
+            | Expr::Ellipsis { .. }
+            | Expr::TypeForm(_) => {}
+        }
+    }
+
+    let mut traps = Vec::new();
+    scan_statements(statements, 0, &mut Vec::new(), &mut traps);
+    traps.sort();
+    traps.dedup();
+    traps
+}
+
+fn collect_materialized_loop_control_trap_ranges_in_expr(expression: &Expr) -> Vec<phalcom_common::range::SourceRange> {
+    collect_materialized_loop_control_trap_ranges(&[Statement::Expr {
+        expr: expression.clone(),
+        range: expression.range(),
+    }])
 }
 
 /// Adds implicit runtime class roots emitted by structural pattern lowering.
@@ -852,6 +1196,11 @@ fn add_lowering_runtime_requirements(
                     roots.push((root, Default::default()));
                 }
             }
+            roots.extend(
+                collect_materialized_loop_control_trap_ranges(statements)
+                    .into_iter()
+                    .map(|range| ("Error".to_owned(), range)),
+            );
         }
     }
 
@@ -863,6 +1212,11 @@ fn add_lowering_runtime_requirements(
                 roots.push((name, Default::default()));
             }
         }
+        roots.extend(
+            collect_materialized_loop_control_trap_ranges(statements)
+                .into_iter()
+                .map(|range| ("Error".to_owned(), range)),
+        );
     }
 
     let mut roots = Vec::new();
@@ -902,6 +1256,11 @@ fn add_lowering_runtime_requirements(
                                         .into_iter()
                                         .filter(|root| root == "Error" || root == "ZipLengthMismatchError")
                                         .map(|root| (root, default.range())),
+                                );
+                                roots.extend(
+                                    collect_materialized_loop_control_trap_ranges_in_expr(default)
+                                        .into_iter()
+                                        .map(|range| ("Error".to_owned(), range)),
                                 );
                             }
                         }
@@ -1008,6 +1367,56 @@ pub fn compute_module_import_phase_products(
     static_constants: Option<&StaticConstantTable>,
     is_complete: bool,
 ) -> (BTreeMap<ModuleId, ModuleImportPhaseProduct>, Vec<RuntimeDependencyRequirement>) {
+    compute_module_import_phase_products_with_attribute_analyses(
+        semantic_linked,
+        sources,
+        source_index,
+        callable_analyses,
+        &BTreeMap::new(),
+        type_store,
+        static_constants,
+        is_complete,
+    )
+}
+
+/// Aggregates ordinary callable and attribute-argument semantic products into
+/// joined import phases and generated runtime requirements.
+pub fn compute_module_import_phase_products_with_attribute_analyses(
+    semantic_linked: &SemanticLinkedProgram,
+    sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    source_index: &SourceSemanticIndex,
+    callable_analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
+    attribute_analyses: &BTreeMap<crate::attribute_analysis::AttributeArgumentId, Arc<crate::attribute_analysis::AttributeArgumentAnalysis>>,
+    type_store: Option<&TypeStore>,
+    static_constants: Option<&StaticConstantTable>,
+    is_complete: bool,
+) -> (BTreeMap<ModuleId, ModuleImportPhaseProduct>, Vec<RuntimeDependencyRequirement>) {
+    compute_module_import_phase_products_with_attribute_analyses_and_mode(
+        semantic_linked,
+        sources,
+        source_index,
+        callable_analyses,
+        attribute_analyses,
+        type_store,
+        static_constants,
+        is_complete,
+        crate::attribute_analysis::AttributeExecutionMode::Debug,
+    )
+}
+
+/// Aggregates semantic products and projects only the attribute requirements
+/// emitted by `execution_mode` into the executable import graph.
+pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
+    semantic_linked: &SemanticLinkedProgram,
+    sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    source_index: &SourceSemanticIndex,
+    callable_analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
+    attribute_analyses: &BTreeMap<crate::attribute_analysis::AttributeArgumentId, Arc<crate::attribute_analysis::AttributeArgumentAnalysis>>,
+    type_store: Option<&TypeStore>,
+    static_constants: Option<&StaticConstantTable>,
+    is_complete: bool,
+    execution_mode: crate::attribute_analysis::AttributeExecutionMode,
+) -> (BTreeMap<ModuleId, ModuleImportPhaseProduct>, Vec<RuntimeDependencyRequirement>) {
     let mut products = BTreeMap::new();
     let mut generated_requirements = Vec::new();
     let prelude = PreludeTypeMap::shared_canonical_universe();
@@ -1029,8 +1438,17 @@ pub fn compute_module_import_phase_products(
         }
 
         // 2. Body-level uses: expressions, calls, and local type annotations.
-        for (callable_id, analysis) in callable_analyses {
-            if callable_id.module() == module_id {
+        let analyses = callable_analyses
+            .values()
+            .map(|analysis| (analysis.callable.module(), analysis.as_ref()))
+            .chain(
+                attribute_analyses
+                    .values()
+                    .filter(|product| product.id.context.is_emitted_in(execution_mode))
+                    .map(|product| (product.id.module(), product.analysis.as_ref())),
+            );
+        for (analysis_module, analysis) in analyses {
+            if analysis_module == module_id {
                 for (import_id, phase) in analysis.observed_import_phases.as_ref() {
                     observed_uses.entry(import_id.clone()).and_modify(|p| *p = p.join(*phase)).or_insert(*phase);
                 }
@@ -1161,29 +1579,50 @@ pub fn compute_module_import_phase_products(
                     }
                 }
 
+                for (expression_id, resolution) in analysis.associated_resolutions.iter() {
+                    let Some(expression) = analysis.expressions.get(expression_id) else {
+                        module_complete = false;
+                        continue;
+                    };
+                    add_associated_resolution_owner_requirements(module_id, resolution, expression.range, &mut generated_requirements);
+                }
+
                 for (expression_id, resolution) in analysis.callable_reference_resolutions.iter() {
-                    let range = analysis.expressions.get(expression_id).map(|expression| expression.range).unwrap_or_default();
-                    if let crate::checker::associated::CallableReferenceResolutionKind::BoundFamily { members, .. } = &resolution.kind {
-                        for member in members.iter() {
-                            match &member.target {
-                                crate::identity::InvocationTargetId::Behavioral(callable) => {
-                                    push_callable_owner_requirement(module_id, callable.module(), range, &mut generated_requirements);
+                    let range = analysis.expressions.get(expression_id).map(|expression| expression.range).unwrap_or_else(|| {
+                        module_complete = false;
+                        Default::default()
+                    });
+                    match &resolution.kind {
+                        crate::checker::associated::CallableReferenceResolutionKind::Associated(associated) => {
+                            add_associated_resolution_owner_requirements(module_id, associated, range, &mut generated_requirements);
+                        }
+                        crate::checker::associated::CallableReferenceResolutionKind::BoundFamily { members, .. } => {
+                            for member in members.iter() {
+                                push_invocation_target_owner_requirement(module_id, &member.target, range, &mut generated_requirements);
+                                if let Some(selection) = member.conditional.as_ref() {
+                                    push_callable_owner_requirement(module_id, &selection.impl_id.module, range, &mut generated_requirements);
                                 }
-                                crate::identity::InvocationTargetId::VariantConstructor(variant) => {
-                                    push_callable_owner_requirement(module_id, &variant.variant.owner.module, range, &mut generated_requirements);
+                                if let Some(selection) = member.conditional_capability.as_ref() {
+                                    push_callable_owner_requirement(module_id, &selection.selection.impl_id.module, range, &mut generated_requirements);
+                                    push_callable_owner_requirement(module_id, selection.selection.callable.module(), range, &mut generated_requirements);
                                 }
-                                crate::identity::InvocationTargetId::DataConstructor(constructor) => {
-                                    push_callable_owner_requirement(module_id, &constructor.owner.module, range, &mut generated_requirements);
+                                if let Some(selection) = member.trait_dispatch.as_ref() {
+                                    push_callable_owner_requirement(module_id, &selection.source_impl.module, range, &mut generated_requirements);
+                                    if let Some(callable) = selection.callable.as_ref() {
+                                        push_callable_owner_requirement(module_id, callable.module(), range, &mut generated_requirements);
+                                    }
                                 }
-                            }
-                            if let Some(selection) = member.conditional.as_ref() {
-                                push_callable_owner_requirement(module_id, &selection.impl_id.module, range, &mut generated_requirements);
-                            }
-                            if let Some(selection) = member.trait_dispatch.as_ref() {
-                                push_callable_owner_requirement(module_id, &selection.source_impl.module, range, &mut generated_requirements);
                             }
                         }
                     }
+                }
+
+                for (expression_id, resolution) in analysis.family_applications.iter() {
+                    let range = analysis.expressions.get(expression_id).map(|expression| expression.range).unwrap_or_else(|| {
+                        module_complete = false;
+                        Default::default()
+                    });
+                    add_family_application_owner_requirements(module_id, resolution, range, &mut generated_requirements);
                 }
 
                 for (expression_id, resolution) in analysis.match_resolutions.iter() {
@@ -1240,6 +1679,7 @@ pub fn compute_module_import_phase_products(
         if let Some(parsed) = sources.get(module_id) {
             add_lowering_runtime_requirements(module_id, &parsed.program, &prelude, &mut generated_requirements, &mut module_complete);
             let mut decl_type_roots = Vec::new();
+            let supported_attribute_sites = crate::attribute_analysis::collect_supported_attribute_argument_sites(module_id, &parsed.program);
 
             for stmt in &parsed.program.statements {
                 for attribute in statement_attributes(stmt) {
@@ -1260,10 +1700,41 @@ pub fn compute_module_import_phase_products(
                         }
                     }
                     if !attribute.args.is_empty() {
+                        let attribute_context = attribute.args.iter().find_map(|argument| {
+                            supported_attribute_sites
+                                .iter()
+                                .find(|site| site.id.attribute_name.as_ref() == attribute.name && site.expression.range() == argument.range())
+                                .map(|site| site.id.context)
+                        });
+                        if attribute_context.is_some_and(|context| !context.is_emitted_in(execution_mode)) {
+                            continue;
+                        }
+                        for argument in &attribute.args {
+                            for range in collect_materialized_loop_control_trap_ranges_in_expr(argument) {
+                                if !push_compiler_generated_read_requirement(module_id, "Error", range, &prelude, &mut generated_requirements) {
+                                    module_complete = false;
+                                }
+                            }
+                        }
+                        let mut uncovered = Vec::new();
+                        for argument in &attribute.args {
+                            let site = supported_attribute_sites
+                                .iter()
+                                .find(|site| site.id.attribute_name.as_ref() == attribute.name && site.expression.range() == argument.range());
+                            let covered = site.and_then(|site| attribute_analyses.get(&site.id)).is_some_and(|product| {
+                                product.analysis.status == crate::checker::CallableAnalysisStatus::Complete
+                                    && product.analysis.expressions.values().all(|expression| expression.status.is_ready())
+                            });
+                            if !covered {
+                                uncovered.push(argument);
+                            }
+                        }
+                        if uncovered.is_empty() {
+                            continue;
+                        }
                         // User-attribute arguments and builtin contract/invariant
-                        // arguments are compiled expressions, but are not ordinary
-                        // callable-analysis products. Retain all imports until
-                        // those references have canonical body evidence of their own.
+                        // arguments without a complete retained semantic product
+                        // remain conservative.
                         module_complete = false;
                         for binding in sem_mod.imports.bindings.values() {
                             observed_uses
@@ -1272,7 +1743,7 @@ pub fn compute_module_import_phase_products(
                                 .or_insert(DependencyPhase::Runtime);
                         }
                         let mut argument_roots = Vec::new();
-                        for argument in &attribute.args {
+                        for argument in uncovered {
                             collect_attribute_expr_roots(argument, &mut argument_roots, &mut module_complete);
                         }
                         for root in argument_roots {
@@ -1292,6 +1763,64 @@ pub fn compute_module_import_phase_products(
                 }
                 match stmt {
                     Statement::Class(class_def) => {
+                        if execution_mode == crate::attribute_analysis::AttributeExecutionMode::Debug {
+                            let declaration = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                            for (occurrence, (expression, range)) in class_def.invariants.iter().enumerate() {
+                                let sites = supported_attribute_sites
+                                    .iter()
+                                    .filter(|site| {
+                                        site.id.owner == crate::attribute_analysis::AttributeOwnerId::Declaration(declaration.clone())
+                                            && site.id.attribute_name.as_ref() == "invariant"
+                                            && site.id.context == crate::attribute_analysis::AttributeAnalysisContext::ClassInvariant
+                                            && site.id.occurrence == occurrence as u32
+                                    })
+                                    .collect::<Vec<_>>();
+                                // Invariants are woven only into callable bodies.
+                                // A class with no eligible receiver callable has
+                                // no runtime invariant expression to project.
+                                if sites.is_empty() {
+                                    continue;
+                                }
+                                for trap_range in collect_materialized_loop_control_trap_ranges_in_expr(expression) {
+                                    if !push_compiler_generated_read_requirement(module_id, "Error", trap_range, &prelude, &mut generated_requirements) {
+                                        module_complete = false;
+                                    }
+                                }
+                                let covered = sites.iter().all(|site| {
+                                    attribute_analyses.get(&site.id).is_some_and(|product| {
+                                        product.analysis.status == crate::checker::CallableAnalysisStatus::Complete
+                                            && product.analysis.expressions.values().all(|expression| expression.status.is_ready())
+                                    })
+                                });
+                                if !covered {
+                                    // Preserve the P4 conservative rule if any
+                                    // receiving callable lacks complete semantic
+                                    // evidence for the invariant expression.
+                                    module_complete = false;
+                                    for binding in sem_mod.imports.bindings.values() {
+                                        observed_uses
+                                            .entry(binding.id.clone())
+                                            .and_modify(|phase| *phase = phase.join(DependencyPhase::Runtime))
+                                            .or_insert(DependencyPhase::Runtime);
+                                    }
+                                    let mut roots = Vec::new();
+                                    collect_attribute_expr_roots(expression, &mut roots, &mut module_complete);
+                                    for root in roots {
+                                        if let Some(binding) = sem_mod.imports.get(&root) {
+                                            observed_uses
+                                                .entry(binding.id.clone())
+                                                .and_modify(|phase| *phase = phase.join(DependencyPhase::Runtime))
+                                                .or_insert(DependencyPhase::Runtime);
+                                            push_import_read_requirement(module_id, &binding.target, *range, source_index, &mut generated_requirements);
+                                        } else if let Some(declaration) = prelude.get(&root) {
+                                            push_declaration_read_requirement(module_id, declaration, *range, &mut generated_requirements);
+                                        } else if root == "ZipLengthMismatchError" {
+                                            push_compiler_generated_read_requirement(module_id, &root, *range, &prelude, &mut generated_requirements);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         // Superclass reference is ALWAYS Runtime (§9.3).
                         if let Some(super_ref) = class_def.superclass_ref() {
                             if let Some(binding) = sem_mod.imports.get(&super_ref.root) {

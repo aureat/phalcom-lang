@@ -186,7 +186,7 @@ fn session_with_private_numbers_child_exposed(workspace: phalcom_semantic::ident
 }
 
 #[test]
-fn cv_04_imported_value_use_is_classified_runtime() {
+fn imported_value_use_is_classified_runtime() {
     let fixture = phase_fixture(
         "class Imported {}\nexport Imported\n",
         "from .provider import Imported\nclass Consumer { read() { Imported } }\n",
@@ -199,6 +199,261 @@ fn cv_04_imported_value_use_is_classified_runtime() {
     let phase = imported_phase(&fixture, &products);
     assert_eq!(phase.phase, DependencyPhase::Runtime);
     assert!(phase.observed, "runtime expression use must be retained as observed evidence");
+}
+
+#[test]
+fn associated_and_family_selections_emit_external_callable_owner_requirements() {
+    let fixture = phase_fixture(
+        "class Imported {}\nexport Imported\n",
+        "from .provider import Imported\nclass Consumer { read() { Imported } }\n",
+        "class ExternalExtension {}\n",
+    );
+    let (mut analysis, _) = analyze_body(&fixture, "Imported");
+    let expression_id = *analysis.expressions.keys().next().expect("analyzed source expression");
+    let external_owner = DeclarationId::new(fixture.unrelated.clone(), "ExternalExtension".into());
+    let external_callable = CallableId::new(
+        external_owner.clone(),
+        Selector::method("invoke", []).expect("callable selector"),
+        DispatchSide::Class,
+    );
+    let invocation_target = phalcom_semantic::identity::InvocationTargetId::Behavioral(external_callable);
+
+    analysis.associated_resolutions = Arc::new(BTreeMap::from([(
+        expression_id,
+        phalcom_semantic::checker::associated::AssociatedResolution {
+            owner_form: phalcom_semantic::types::id::TypeId(0),
+            lookup_owner: DeclarationId::new(fixture.provider.clone(), "Imported".into()),
+            family: None,
+            kind: phalcom_semantic::checker::associated::AssociatedResolutionKind::ExactCallable {
+                member: phalcom_semantic::associated::AssociatedMemberId::DataConstructor(phalcom_semantic::identity::DataConstructorId::new(
+                    external_owner.clone(),
+                )),
+                target: invocation_target.clone(),
+                callable_type: phalcom_semantic::types::id::TypeId(0),
+            },
+        },
+    )]));
+    analysis.family_applications = Arc::new(BTreeMap::from([(
+        expression_id,
+        phalcom_semantic::checker::associated::FamilyApplicationResolution {
+            family_type: phalcom_semantic::types::id::TypeId(0),
+            kind: phalcom_semantic::checker::associated::FamilyApplicationKind::Associated,
+            selection: phalcom_semantic::checker::associated::FamilyApplicationSelection::Static {
+                operation: phalcom_semantic::types::family::FamilyOperationShape::getter(),
+                target: Some(invocation_target),
+                callable_type: phalcom_semantic::types::id::TypeId(0),
+                result_type: phalcom_semantic::types::id::TypeId(0),
+            },
+        },
+    )]));
+
+    let analyses = HashMap::from([(analysis.callable.clone(), Arc::new(analysis))]);
+    let (_, requirements) = aggregate(&fixture, &analyses);
+    assert!(requirements.iter().any(|requirement| {
+        requirement.importer == fixture.consumer
+            && requirement.dependency == fixture.unrelated
+            && requirement.provenance.producer == phalcom_modules::RuntimeRequirementProducer::CallableOwner
+            && requirement.provenance.target == phalcom_modules::RuntimeRequirementTarget::Module(fixture.unrelated.clone())
+            && requirement.read_target.is_none()
+    }));
+}
+
+#[test]
+fn analyzed_attribute_call_uses_canonical_external_callable_evidence() {
+    let first_fixture = phase_fixture(
+        "class Factory {\n  @class build() -> Int { 23 }\n}\nexport Factory\n",
+        "from .provider import Factory\n@Factory(1)\nclass Consumer {}\n",
+        "class Unchanged {}\n",
+    );
+    let changed_fixture = phase_fixture(
+        "class Factory {\n  @class build() -> Int { 23 }\n}\nexport Factory\n",
+        "from .provider import Factory\n@Factory(Factory.build())\nclass Consumer {}\n",
+        "class Unchanged {}\n",
+    );
+    assert_eq!(first_fixture.consumer, changed_fixture.consumer);
+    assert_eq!(first_fixture.provider, changed_fixture.provider);
+    let mut session = session_with_private_numbers_child_exposed(phalcom_semantic::identity::WorkspaceId::from_raw(910));
+    let first = session
+        .update_with_budget_and_cancel(
+            SemanticWorkspaceInput::new(first_fixture.semantic.to_unfinalized_program(), first_fixture.sources.clone(), 1)
+                .with_semantic_linked(first_fixture.semantic.clone()),
+            QueryBudget::default(),
+            &CancellationToken::new(),
+        )
+        .expect("initial attribute analysis update succeeds")
+        .snapshot;
+    assert!(!first.generated_runtime_requirements.iter().any(|requirement| {
+        requirement.importer == first_fixture.consumer
+            && requirement.dependency == first_fixture.provider
+            && requirement.provenance.producer == phalcom_modules::RuntimeRequirementProducer::CallableOwner
+    }));
+
+    let snapshot = session
+        .update_with_budget_and_cancel(
+            SemanticWorkspaceInput::new(changed_fixture.semantic.to_unfinalized_program(), changed_fixture.sources.clone(), 2)
+                .with_semantic_linked(changed_fixture.semantic.clone()),
+            QueryBudget::default(),
+            &CancellationToken::new(),
+        )
+        .expect("changed attribute analysis update succeeds")
+        .snapshot;
+    let import_id = changed_fixture.semantic.modules[&changed_fixture.consumer].imports.by_local_name["Factory"].clone();
+    assert_eq!(
+        snapshot.import_phase_products[&changed_fixture.consumer].coverage,
+        phalcom_modules::linker::PhaseEvidenceCoverage::Complete,
+        "a fully checked supported attribute argument should close coverage"
+    );
+    assert_eq!(
+        snapshot.import_phase_products[&changed_fixture.consumer].bindings[&import_id].phase,
+        DependencyPhase::Runtime,
+        "the attribute's selected static callable consumes the imported owner at runtime"
+    );
+    assert!(snapshot.generated_runtime_requirements.iter().any(|requirement| {
+        requirement.importer == changed_fixture.consumer
+            && requirement.dependency == changed_fixture.provider
+            && requirement.provenance.producer == phalcom_modules::RuntimeRequirementProducer::CallableOwner
+            && requirement.provenance.target == phalcom_modules::RuntimeRequirementTarget::Module(changed_fixture.provider.clone())
+    }));
+
+    let mut cold_session = session_with_private_numbers_child_exposed(phalcom_semantic::identity::WorkspaceId::from_raw(911));
+    let cold = cold_session
+        .update_with_budget_and_cancel(
+            SemanticWorkspaceInput::new(changed_fixture.semantic.to_unfinalized_program(), changed_fixture.sources.clone(), 1)
+                .with_semantic_linked(changed_fixture.semantic.clone()),
+            QueryBudget::default(),
+            &CancellationToken::new(),
+        )
+        .expect("cold analysis of changed attribute succeeds")
+        .snapshot;
+    assert_eq!(
+        snapshot.generated_runtime_requirements.as_ref(),
+        cold.generated_runtime_requirements.as_ref(),
+        "incremental generated requirements must match a cold analysis after editing an attribute argument"
+    );
+    assert_eq!(
+        snapshot.import_phase_products[&changed_fixture.consumer], cold.import_phase_products[&changed_fixture.consumer],
+        "incremental attribute phase evidence must match a cold analysis"
+    );
+}
+
+#[test]
+fn selected_external_trait_witness_emits_its_runtime_owner_requirement() {
+    let fixture = phase_fixture(
+        "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String { \"user\" } }\nexport Tagged, User\n",
+        "from .provider import Tagged, User\nclass Caller { read(user: User) -> String { user.tag } }\n",
+        "class Unchanged {}\n",
+    );
+    let mut session = session_with_private_numbers_child_exposed(phalcom_semantic::identity::WorkspaceId::from_raw(913));
+    let snapshot = session
+        .update_with_budget_and_cancel(
+            SemanticWorkspaceInput::new(fixture.semantic.to_unfinalized_program(), fixture.sources.clone(), 1).with_semantic_linked(fixture.semantic.clone()),
+            QueryBudget::default(),
+            &CancellationToken::new(),
+        )
+        .expect("trait witness analysis succeeds")
+        .snapshot;
+
+    assert!(
+        snapshot.generated_runtime_requirements.iter().any(|requirement| {
+            requirement.importer == fixture.consumer
+                && requirement.dependency == fixture.provider
+                && requirement.provenance.producer == phalcom_modules::RuntimeRequirementProducer::CallableOwner
+                && requirement.provenance.target == phalcom_modules::RuntimeRequirementTarget::Module(fixture.provider.clone())
+        }),
+        "selected witness implementation ownership must become a runtime requirement"
+    );
+    let user_import = fixture.semantic.modules[&fixture.consumer].imports.by_local_name["User"].clone();
+    assert_eq!(
+        snapshot.import_phase_products[&fixture.consumer].bindings[&user_import].phase,
+        DependencyPhase::InterfaceOnly,
+        "the parameter's nominal type stays interface-only; executable witness ownership is carried separately"
+    );
+}
+
+#[test]
+fn contract_attribute_analysis_retains_receiver_and_owner_callable_generics() {
+    let fixture = phase_fixture(
+        "class Provider {}\nexport Provider\n",
+        "class Box<T> {\n  @requires(self is T and self is U)\n  read<U>(input: U) { input }\n}\n",
+        "class Unchanged {}\n",
+    );
+    let mut session = session_with_private_numbers_child_exposed(phalcom_semantic::identity::WorkspaceId::from_raw(912));
+    let snapshot = session
+        .update_with_budget_and_cancel(
+            SemanticWorkspaceInput::new(fixture.semantic.to_unfinalized_program(), fixture.sources.clone(), 1).with_semantic_linked(fixture.semantic.clone()),
+            QueryBudget::default(),
+            &CancellationToken::new(),
+        )
+        .expect("generic contract attribute analysis succeeds")
+        .snapshot;
+
+    assert_eq!(
+        snapshot.import_phase_products[&fixture.consumer].coverage,
+        phalcom_modules::linker::PhaseEvidenceCoverage::Complete,
+        "receiver contracts should be complete when both declaration and callable binders resolve"
+    );
+    assert!(
+        !snapshot.all_diagnostics().any(|diagnostic| diagnostic.primary.module == fixture.consumer),
+        "contract analysis must resolve `self`, the class binder `T`, and the method binder `U`"
+    );
+}
+
+#[test]
+fn invariant_runtime_requirements_follow_the_selected_execution_mode() {
+    let fixture = phase_fixture(
+        "class Required {}\nclass Ensured {}\nclass InvariantValue {}\nexport Required, Ensured, InvariantValue\n",
+        "from .provider import Required, Ensured, InvariantValue\nclass Consumer {\n  @requires(self is Required)\n  required() {}\n  @ensures(self is Ensured)\n  ensured() {}\n  @invariant(self is InvariantValue)\n  invariantChecked() {}\n}\n",
+        "class Unchanged {}\n",
+    );
+    let run = |mode, workspace| {
+        let mut session = session_with_private_numbers_child_exposed(phalcom_semantic::identity::WorkspaceId::from_raw(workspace));
+        session
+            .update_with_budget_and_cancel(
+                SemanticWorkspaceInput::new(fixture.semantic.to_unfinalized_program(), fixture.sources.clone(), 1)
+                    .with_semantic_linked(fixture.semantic.clone())
+                    .with_attribute_execution_mode(mode),
+                QueryBudget::default(),
+                &CancellationToken::new(),
+            )
+            .expect("invariant semantic analysis succeeds")
+            .snapshot
+    };
+    let debug = run(phalcom_semantic::attribute_analysis::AttributeExecutionMode::Debug, 914);
+    let release = run(phalcom_semantic::attribute_analysis::AttributeExecutionMode::Release, 915);
+    let unchecked = run(phalcom_semantic::attribute_analysis::AttributeExecutionMode::Unchecked, 916);
+    let has_read = |snapshot: &phalcom_semantic::SemanticSnapshot, name: &str| {
+        let read_target = LinkedReadSpec::Binding(SymbolId {
+            module: fixture.provider.clone(),
+            name: name.into(),
+        });
+        snapshot
+            .generated_runtime_requirements
+            .iter()
+            .any(|requirement| requirement.importer == fixture.consumer && requirement.read_target == Some(read_target.clone()))
+    };
+
+    assert!(
+        has_read(&debug, "Required") && has_read(&debug, "Ensured") && has_read(&debug, "InvariantValue"),
+        "Debug emits runtime reads for all contract guards"
+    );
+    assert!(
+        has_read(&release, "Required") && !has_read(&release, "Ensured") && !has_read(&release, "InvariantValue"),
+        "Release retains preconditions and strips postconditions and invariants"
+    );
+    assert!(
+        !has_read(&unchecked, "Required") && !has_read(&unchecked, "Ensured") && !has_read(&unchecked, "InvariantValue"),
+        "Unchecked strips every contract guard"
+    );
+    assert_eq!(
+        debug.all_diagnostics().count(),
+        release.all_diagnostics().count(),
+        "mode changes requirement projection only; semantic diagnostics remain mode-independent"
+    );
+    assert_eq!(
+        debug.all_diagnostics().count(),
+        unchecked.all_diagnostics().count(),
+        "Unchecked retains the same semantic diagnostic coverage"
+    );
 }
 
 #[test]
@@ -222,7 +477,7 @@ fn cv_06_mixed_interface_and_runtime_use_joins_to_runtime() {
 }
 
 #[test]
-fn cv_05_superclass_use_emits_generated_runtime_requirement() {
+fn superclass_use_emits_generated_runtime_requirement() {
     let fixture = phase_fixture(
         "class Imported {}\nexport Imported\n",
         "from .provider import Imported\nclass Child is Imported {}\n",
@@ -365,6 +620,43 @@ fn strict_multi_lane_for_projects_canonical_zip_error_read() {
         }),
         "strict zip lowering emits a canonical ZipLengthMismatchError read"
     );
+}
+
+#[test]
+fn loop_control_error_reads_match_materialized_trap_paths() {
+    fn error_read_count(consumer_source: &str) -> usize {
+        let fixture = phase_fixture("class Provider {}\nexport Provider\n", consumer_source, "class Unchanged {}\n");
+        let (_, requirements) = aggregate(&fixture, &HashMap::new());
+        let prelude = phalcom_semantic::prelude::PreludeTypeMap::shared_canonical_universe();
+        let error = prelude.get("Error").expect("canonical Error prelude declaration");
+        requirements
+            .iter()
+            .filter(|requirement| {
+                requirement.importer == fixture.consumer
+                    && requirement.read_target
+                        == Some(LinkedReadSpec::Binding(SymbolId {
+                            module: error.module.clone(),
+                            name: error.name.clone(),
+                        }))
+            })
+            .count()
+    }
+
+    let plain_while = error_read_count("while value { nil }\n");
+    let while_break = error_read_count("while value { break }\n");
+    assert_eq!(plain_while, 0, "a while without loop control does not need the trap's Error object");
+    assert_eq!(while_break, 1, "the guarded while fallback materializes a trap for break");
+
+    let nested_for_without_control = error_read_count("for a in [1] {\n  for b in [2] {\n    throw nil\n  }\n}\n");
+    let nested_for_with_control = error_read_count("for a in [1] {\n  for b in [2] {\n    break\n  }\n}\n");
+    assert_eq!(nested_for_without_control, 2, "each for loop has its own canonical Error read");
+    assert_eq!(
+        nested_for_with_control, nested_for_without_control,
+        "direct nested-loop break adds no trap read"
+    );
+
+    let block_control = error_read_count("class Truthy { ifTrue(_ block) { return block.call() } }\nfor a in [1] {\n  Truthy.new().ifTrue || { break }\n}\n");
+    assert_eq!(block_control, 2, "a break captured by a materialized block adds the trap's Error read");
 }
 
 #[test]

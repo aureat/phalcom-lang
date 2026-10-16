@@ -61,6 +61,8 @@ pub enum QueryKey {
     CallableControl(CallableId),
     CallableTermination(CallableId),
     CallableContracts(CallableId),
+    /// Canonical semantic evidence for one executable attribute argument.
+    AttributeArgument(crate::attribute_analysis::AttributeArgumentId),
     VerificationConditions(CallableId),
     SourceStructure(ModuleId),
     SourceFormalAttachment(CallableId),

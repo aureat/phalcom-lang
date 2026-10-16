@@ -10,6 +10,7 @@ pub mod access;
 pub mod advisory;
 pub mod algebraic_semantics;
 pub mod associated;
+pub mod attribute_analysis;
 pub mod canonical_baseline;
 pub mod checker;
 pub mod contracts;

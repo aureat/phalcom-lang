@@ -63,7 +63,7 @@ pub use binding::{
     AssumptionBasis, BindingConsistency, BindingContract, BindingContractOrigin, BindingDeclarationResult, BindingReconciliation, BindingSeed,
     BindingWriteResult, reconcile_binding_contract,
 };
-pub use body::analyze_callable_body;
+pub use body::{analyze_attribute_argument, analyze_callable_body};
 pub use call::CallCheckResult;
 pub use causal::{CausalInvalidity, SuppressionCause};
 pub use context::{CheckingContext, EvaluationPhase};
