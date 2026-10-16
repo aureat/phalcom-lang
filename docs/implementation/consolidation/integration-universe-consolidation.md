@@ -1,9 +1,9 @@
 ---
 kind: integration-record
-status: BLOCKED
-completion: PARTIAL
-verification: UNVERIFIED
-date: 2026-10-14
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
+date: 2026-10-16
 ---
 
 # Integration Universe consolidation
@@ -261,3 +261,51 @@ the accepted bootstrap scope.
 **Remaining:** MODL001.C2.P4 is still IN_PROGRESS / PARTIAL / FOCUSED_TESTED;
 other T4 requirement producer families and T7/T8 cross-stage acceptance remain
 open. PERF and concurrent enum feature work remain excluded.
+
+## Functional consolidation acceptance — 2026-10-16
+
+The bounded functional acceptance in the advisory decision is met on the
+current `feat/consolidation-universe` tree. This record is `COMPLETE /
+IMPLEMENTED / FOCUSED_TESTED` for canonical bootstrap plus representative
+ordinary-user compile, finalized linking, and execution. It does not close
+`MODL001.C2.P4` or certify the workspace.
+
+The ordinary-user discriminator now explicitly imports the documented
+`universe.collections.list.List` API, constructs `List<Int>`, appends 19 and
+23, reads both values, and exports their sum (42). It also retains the existing
+canonical bootstrap, `None`/Option identity, metadata, and exact
+`SourceInitializedValue` linked-read assertions. The active production source
+provider reads `phalcom-core/core/universe/src/collections/list.ph`; that file
+was missing `export List`, despite the specification and native Universe
+catalog exposing the collection. Adding the export makes this ordinary import
+and execution succeed.
+
+The positive protocol/default-to-adapter fixture now compiles and executes,
+returning 23. Its paired runtime-cycle fixture still rejects the genuine cycle.
+Two missing-mapping regressions still prove finalized compiler/prelude paths
+fail closed without appending a read slot. The previously recorded
+`NonExportableRecordKeyDomain` lowering failure did not reproduce in the
+current positive execution discriminator; its causal relationship to the
+List export is not established.
+
+Focused current-tree evidence:
+
+```text
+phalcom-core modules_linking::mat_01_export_slots_populated: 1 passed
+phalcom-core modules_linking::protocol_default_to_adapter_cycle_is_only_semantic_on_adapter_side: 1 passed; execution result 23
+phalcom-core modules_linking::protocol_default_adapter_runtime_cycle_is_rejected: 1 passed
+phalcom-core --lib fails_closed_without_appending: 2 passed
+phalcom-modules --test linker: 25 passed
+phalcom-modules --test graph: 5 passed
+phalcom-semantic --test semantic integration::phase_evidence: 12 passed
+```
+
+The exact core filters were run with `-- --exact --nocapture`; all results
+above are from the current source tree. The full semantic suite, workspace
+checks, and release certification were not run. The historical report of 94
+semantic failures has not been reclassified by this focused work.
+
+`MODL001.C2.P4` remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. Remaining
+producer-family coverage and cross-stage CVs are still owned by that
+checkpoint. This functional milestone does not authorize PERF integration or
+a production Universe cutover.

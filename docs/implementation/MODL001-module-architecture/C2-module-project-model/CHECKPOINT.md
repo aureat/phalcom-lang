@@ -178,3 +178,28 @@ not all linked modules. The immediate `None` binding remains preserved.
 closure is not T4-family completion or T7/T8 CV/release certification.
 Workspace CI still fails in untouched AST parser snapshots, lint/format
 baseline, and VS Code E2E; do not claim workspace/release green.
+
+### Bounded consolidation functional acceptance — 2026-10-16
+
+The advisory-defined functional scope is implemented and focused-tested on
+`feat/consolidation-universe`: canonical bootstrap and native-floor identity
+regressions remain covered; an ordinary user program imports canonical
+`List<Int>`, appends and reads values, and returns 42 through finalized
+linkage; the positive protocol/default-to-adapter fixture compiles and runs
+with result 23; the paired runtime cycle remains rejected; and two missing
+mapping tests fail closed without appending reads. The ordinary-user fixture
+was enabled by adding the missing `export List` to the active production
+Universe source at `phalcom-core/core/universe/src/collections/list.ph`.
+
+Current focused results: core `mat_01_export_slots_populated` 1/1; positive
+protocol/default-to-adapter execution 1/1; paired runtime-cycle rejection
+1/1; fail-closed missing mappings 2/2; modules linker 25/25; modules graph
+5/5; semantic phase evidence 12/12. See the current consolidation record and
+P4 handoff for exact commands. The historical `NonExportableRecordKeyDomain`
+failure did not reproduce in the current positive execution check; its cause
+is unknown.
+
+This bounded result does not close P4: T4 producer-family completeness and
+remaining T7/T8 cross-stage CVs stay open. The full semantic suite, workspace
+checks, and release certification were not run. Functional consolidation
+acceptance must not be reported as full P4 or workspace completion.

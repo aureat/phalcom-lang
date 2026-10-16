@@ -34,8 +34,8 @@ source/interfaces
 
 Keep strict runtime-cycle rejection, existing import syntax, and crate ownership
 (`phalcom-modules` must not depend on `phalcom-semantic`). Preserve all
-concurrent Universe, nanoid, and modernization edits. No commit or push has
-been requested.
+concurrent Universe, nanoid, and modernization edits. The user authorized
+committing and pushing the scoped consolidation implementation.
 
 ## Current implementation state
 
@@ -67,12 +67,13 @@ before strict DAG validation. The linker integration suite passed 24/24.
   analysis/finalization, but executable compile acceptance remains open. CV-01,
   CV-02, CV-04, and CV-08 remain partial across layers; CV-09 has positive
   finalized-graph and negative-cycle evidence, with execution still open.
-- **T8:** Partial. The mutual type-cycle finalization fixture and the positive
-  protocol/default-to-adapter finalization fixture pass. The paired reverse
-  runtime-cycle fixture passes and strict rejection remains active. Lowering /
-  execution is still unverified: an attempted `ProgramCompiler::compile_analyzed`
-  reached legacy metadata export and returned `NonExportableRecordKeyDomain`.
-  This failure is not established as a clean-checkout baseline.
+- **T8:** Partial. The mutual type-cycle finalization fixture passes. The
+  positive protocol/default-to-adapter fixture now compiles and executes with
+  result 23, and its paired runtime-cycle fixture still rejects the genuine
+  cycle. A prior `ProgramCompiler::compile_analyzed` attempt returned
+  `NonExportableRecordKeyDomain`; that error did not reproduce in the current
+  execution fixture and its cause remains unestablished. T8 remains partial
+  because the broader cross-stage CV coverage is incomplete.
 
 The core fixtures need a test-only Universe source override because default
 `SemanticWorkspaceSession::new()` hits the private `numbers.capabilities` child
@@ -156,15 +157,60 @@ P4 remains \`IN_PROGRESS / PARTIAL / FOCUSED_TESTED\`. Other T4 producer
 families, CV cross-stage coverage, and executable T8 acceptance remain open.
 Workspace/release certification was deferred.
 
+## Bounded functional consolidation acceptance — 2026-10-16
+
+The advisory-defined consolidation scope is now functionally accepted on the
+current branch. The active production source provider reads
+`phalcom-core/core/universe/src/collections/list.ph`, whose `List` declaration
+was not exported even though `universe.collections.list.List` is documented
+and catalogued. Adding `export List` enabled the existing ordinary-user
+discriminator to import `List<Int>`, append 19 and 23, read both, and execute
+to result 42. That test continues to assert canonical bootstrap/native-floor
+identity and the exact finalized source-initialized linked read for
+`universe.errors.unsupported.unsupported`.
+
+The positive protocol/default-to-adapter fixture now compiles and executes
+with result 23; the paired runtime dependency cycle still fails finalization.
+The two missing compiler/prelude mapping tests still fail closed without
+late-read insertion. The previously documented `NonExportableRecordKeyDomain`
+failure is not reproduced by this current execution fixture. Its cause is
+unresolved, so no metadata architecture change is inferred.
+
+Current-tree focused results:
+
+```text
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::mat_01_export_slots_populated -- --exact --nocapture
+  1 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::protocol_default_to_adapter_cycle_is_only_semantic_on_adapter_side -- --exact --nocapture
+  1 passed; VM result 23
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::protocol_default_adapter_runtime_cycle_is_rejected -- --exact --nocapture
+  1 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib fails_closed_without_appending -- --nocapture
+  2 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-modules --test linker
+  25 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-modules --test graph
+  5 passed
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic integration::phase_evidence
+  12 passed
+```
+
+The core user-runtime and protocol tests ran on the same current source tree as
+the added export. No full semantic suite, workspace gate, or release
+certification was run. The historical 94 semantic failures are not classified
+by this work.
+
+P4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; outstanding T4 producer
+families and T7/T8 cross-stage CVs remain separate work. Do not reopen the
+historical metadata-export issue unless it reproduces or a required P4 gate
+directly depends on it.
+
 ## Next work
 
-1. Resolve or isolate the legacy metadata-export failure needed to prove the
-   positive T8 fixture through lowering and execution. Do not change metadata
-   representation speculatively; confirm ownership and scope first.
-2. Close the remaining T4 generated-requirement families and establish explicit
+1. Close the remaining T4 generated-requirement families and establish explicit
    coverage for unsupported families.
-3. Add the missing CV-01/02/04/08 cross-stage evidence, including no uncovered
+2. Add the missing CV-01/02/04/08 cross-stage evidence, including no uncovered
    `GetLinked` reads, then update this handoff and the checkpoint with the actual
    outcomes.
-4. Keep P4 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` until those acceptance gaps
+3. Keep P4 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` until those acceptance gaps
    are resolved. Do not stage, commit, or push unrelated work.

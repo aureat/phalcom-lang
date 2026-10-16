@@ -346,6 +346,17 @@ fn protocol_default_to_adapter_cycle_is_only_semantic_on_adapter_side() {
     let order = &analyzed.linked.initialization_order;
     assert!(order.iter().position(|id| id == adapter_id).unwrap() < order.iter().position(|id| id == protocol_id).unwrap());
     assert!(order.iter().position(|id| id == protocol_id).unwrap() < order.iter().position(|id| id == main_id).unwrap());
+
+    let program = ProgramCompiler::compile_analyzed(&analyzed).expect("positive protocol/default-to-adapter fixture compiles");
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("positive protocol/default-to-adapter fixture executes");
+    let user_module = vm.module_registry.get(&program.entry).expect("entry module is materialized").object;
+    let result = vm
+        .heap
+        .module(user_module)
+        .get(vm.interner.intern("result"))
+        .expect("protocol default result is populated");
+    assert_eq!(result.as_int(), Some(23), "protocol default constructs the imported adapter and returns its result");
 }
 
 /// The same protocol/default → adapter path still rejects a runtime edge in
@@ -496,7 +507,7 @@ fn mat_01_export_slots_populated() {
     std::fs::write(source_dir.join("package.ph"), "expose .main\n").expect("write package source");
     std::fs::write(
         source_dir.join("main.ph"),
-        "from universe.errors.unsupported import unsupported\nlet observed = unsupported\nexport observed\n",
+        "from universe.errors.unsupported import unsupported\nfrom universe.collections.list import List\nlet observed = unsupported\nlet values = List<Int>.new()\nvalues.append(19)\nvalues.append(23)\nlet result = values.at(0) + values.at(1)\nexport observed, result\n",
     )
     .expect("write Universe-importing user module");
     let user_program = ProgramCompiler::compile_entry_selection(EntrySelection::Project(temp.path().to_path_buf()))
@@ -560,6 +571,12 @@ fn mat_01_export_slots_populated() {
         Some(unsupported_value),
         "post-bootstrap exact proof preserves the exported Universe value in its linked read"
     );
+    let result = vm
+        .heap
+        .module(user_module)
+        .get(vm.interner.intern("result"))
+        .expect("user collection result is populated");
+    assert_eq!(result.as_int(), Some(42), "ordinary user collection operations execute against canonical List");
 }
 
 /// MAT-02 — __module__ intrinsic resolves to the module object itself
