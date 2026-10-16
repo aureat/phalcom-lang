@@ -253,10 +253,27 @@ current worktree after finalizer assertions were added. T4 remains partial:
 other attribute declaration forms and the complete producer-family matrix
 still need audit. T7/T8 cross-stage gates remain open.
 
-CV-04 now also has a focused program-level discriminator for a whole-module
+CV-04 now has an end-to-end source-project discriminator for a whole-module
 import plus a selected re-export: analysis/finalization retain the module
 object target and original declaration target as distinct reads and runtime
-edges, and `ProgramCompiler::compile_analyzed` preserves that linked layout.
-The focused core test passed 1/1 in 149.06 seconds. This improves CV-04
-evidence; its broader execution acceptance remains part of the cross-stage
-matrix.
+edges; compiler lowering emits both finalized reads; and VM execution returns
+the original source class through both paths. The same fixture checks every
+`GetLinked` in the entry initializer maps to the expected canonical target.
+The focused core test passed 1/1 in 149.59 seconds. This closes the fixture's
+CV-04 path and adds focused CV-08 evidence; CV-08's broader program/module
+coverage remains open.
+
+The mutual class type-import cycle fixture now also asserts the entry import's
+exact canonical read target, compiles, and executes; the entry receives the
+canonical `A` class while the mutually imported `A`/`B` type references keep
+their zero-slot, edge-free runtime projection. The focused core test passed
+1/1 in 140.06 seconds. This provides current CV-01/02 evidence and closes the
+type-cycle execution case for CV-05; conformance-cycle and remaining CV-08
+coverage stay open.
+
+The minimal CV-09 protocol/default-to-adapter fixture now asserts both
+mode-specific import summaries, both semantic interface edges, the single
+canonical protocol identity, and the one-way runtime edge. Its default method
+compiles and executes with result `23`; the focused core test passed 1/1 in
+139.34 seconds. This satisfies the plan's minimal split-fixture gate. The full
+Universe iteration-source migration and cutover remain explicitly deferred.

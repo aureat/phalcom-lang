@@ -59,10 +59,11 @@ committing and pushing the scoped consolidation implementation.
 - **T5:** Partial, focused-tested. Modules owns requirement transport and the
   finalizer projects canonical read slots and generated runtime edges together
   before strict DAG validation. The linker integration suite passed 24/24.
-  Positive source fixtures pass analysis/finalization. A new CV-04 fixture
-  carries a whole-module import and a selected re-export through finalization
-  and `ProgramCompiler::compile_analyzed`, asserting distinct canonical read
-  targets and runtime edges; broader execution acceptance remains open.
+  Positive source fixtures pass analysis/finalization. The CV-04 fixture now
+  executes a whole-module import and selected re-export through finalized
+  canonical targets and confirms both yield the original source class. It also
+  checks all entry-initializer `GetLinked` operands against the finalized
+  mapping; broader CV-08 module/function coverage remains open.
 - **T6:** Partial, focused-tested. All three `ProgramAnalyzer` paths preserve
   `ExecutableLinkedProgram`; finalized compiler/prelude paths fail closed
   rather than append reads. `RUSTFLAGS='' cargo check -p phalcom-core` passed.
@@ -70,12 +71,17 @@ committing and pushing the scoped consolidation implementation.
 - **T7:** Partial. CV-06 and CV-07 pass at the semantic boundary (the focused
   semantic suite passed 18/18 on the current tree). CV-03 has linker-boundary
   evidence for conservative fallback and strict generated-cycle rejection.
-  CV-04 now has program-analysis/finalizer/compiler evidence for canonical
-  whole-module and re-export targets; its broader execution matrix remains
-  open. CV-05 passes analysis/finalization in the type-cycle fixture, but
-  executable acceptance remains open. CV-01/02/08 remain partial across
-  layers; CV-09 has positive finalized-graph and negative-cycle evidence, with
-  execution on the intended Universe iteration source still open.
+  CV-04 passes an end-to-end fixture for distinct whole-module and canonical
+  re-export reads, including correct VM values. CV-01/02 now have an executed
+  mutual type-import fixture that verifies zero reads for interface-only
+  imports and the exact canonical runtime value for the entry import. CV-05's
+  type-cycle execution case passes; conformance-cycle acceptance remains open.
+  CV-08 has focused entry-initializer operand-to-target evidence, while
+  all-module/nested-callable coverage remains open. CV-09's planned minimal
+  split fixture passes its phase-summary, semantic-identity, runtime-edge, and
+  default-method execution assertions; its paired runtime-cycle negative
+  fixture remains in place. The full Universe iteration-source migration and
+  cutover are explicitly deferred by the plan.
 - **T8:** Partial. The mutual type-cycle finalization fixture passes. The
   positive protocol/default-to-adapter fixture now compiles and executes with
   result 23, and its paired runtime-cycle fixture still rejects the genuine
@@ -254,22 +260,52 @@ CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016 RUSTFLAGS='' RUSTC_WR
 ```
 
 This closes the supported class/member attribute-argument slice and refines
-the earlier mode-filtering implementation. Other attribute declaration forms,
-unsupported/incomplete emitted expressions, the rest of the T4 family matrix,
-and CV-01/02/04/08 remain open. The full semantic suite, workspace checks, and
-release certification were not run.
+the earlier mode-filtering implementation. Other attribute declaration forms
+and unsupported/incomplete emitted expressions remain open. Cross-stage CV
+coverage was partial at this point; later focused evidence below advances
+CV-01/02/04/05/08/09 without closing the broader matrix. The full semantic
+suite, workspace checks, and release certification were not run.
 
-The CV-04 focused source-project test also passed:
+The initial execution probe exposed a lowering defect: class-object type-form
+reads used the canonical declaration's name as a `GetGlobal` operand instead
+of consuming the finalized external read. The compiler now routes this product
+through its canonical declaration-read helper, which uses the immutable
+finalized slot and remains fail-closed when that mapping is absent. The same
+CV-04/CV-08 focused test passed after the correction:
 
 ```text
 CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::whole_module_and_reexport_reads_keep_canonical_runtime_targets -- --exact --nocapture
-  1 passed in 149.06s
+  1 passed in 149.59s
 ```
 
-It verifies finalized runtime edges and immutable read mappings for both the
-facade module object and the original exported declaration, and confirms
-compiler lowering retains that read layout. CV-04 still needs the wider
-execution matrix; CV-01/02/08 and CV-09 remain open at their specified stages.
+The type-cycle fixture now also executes. Its two mutually imported class
+types remain semantic-only with no linked read slots or runtime edges; the
+entry's value-position import maps exactly to the canonical `A` binding and
+returns that class at runtime:
+
+```text
+CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::semantic_type_cycle_finalizes_without_runtime_import_slots -- --exact --nocapture
+  1 passed in 140.06s
+```
+
+This establishes the current CV-01/02 type-cycle path and CV-05's type-cycle
+execution case. It does not yet cover conformance-cycle execution or finish
+the full CV-08 read audit.
+
+The minimal CV-09 split fixture also verifies that the protocol's default has
+an observed Runtime dependency on the adapter, while the adapter's conformance
+import is observed InterfaceOnly. Both semantic interface edges and the
+protocol's canonical trait identity remain present, but only the protocol to
+adapter runtime edge is emitted. The default method still compiles and
+executes with result `23`:
+
+```text
+CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::protocol_default_to_adapter_cycle_is_only_semantic_on_adapter_side -- --exact
+  1 passed; 0 failed; 992 filtered out; 139.34s
+```
+
+This meets CV-09's minimal split-fixture acceptance; it does not execute the
+full iteration package migration, which remains explicitly deferred.
 
 ## Next work
 
@@ -280,10 +316,13 @@ execution matrix; CV-01/02/08 and CV-09 remain open at their specified stages.
 2. Extend/re-audit remaining T4 attribute declaration forms and generated
    requirement families, keeping unsupported emitted expressions incomplete
    and conservative.
-3. Complete the missing CV-01/02/04/08 cross-stage evidence, including that
-   every emitted `GetLinked` read resolves through the immutable finalized
-   mapping.
-4. Reconcile the synthetic protocol/default-to-adapter fixture with the
-   intended Universe iteration source shape for CV-09.
-5. Keep P4 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` until those acceptance gaps
-   are resolved. Stage and deliver only the scoped work unit.
+3. Extend CV-08 read-target coverage across all module initializers and
+   nested callable bytecode; current entry-initializer coverage passes for the
+   whole-module/re-export fixture.
+4. Add the remaining CV-01/02 import-use variants and the CV-05 conformance-
+   cycle execution case where the plan requires cross-stage proof. CV-04's
+   whole-module/re-export execution path and CV-09's minimal split fixture now
+   pass.
+5. Keep P4 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` until the remaining T4 and
+   cross-stage acceptance gaps are resolved. Stage and deliver only the
+   scoped work unit.

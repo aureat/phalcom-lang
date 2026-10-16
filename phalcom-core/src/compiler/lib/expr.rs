@@ -1899,8 +1899,7 @@ impl<'vm> Compiler<'vm> {
                 if let Some(spec) = self.lowering().and_then(|l| l.type_form_values.get(&range)).cloned() {
                     match spec {
                         crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::ClassObject { declaration } => {
-                            let symbol = self.vm.interner.intern(&declaration.name);
-                            self.emit_global_reference(symbol, range)?;
+                            self.emit_declaration_class_reference(&declaration, range)?;
                             return Ok(());
                         }
                         crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::TypeParameter { .. } => {

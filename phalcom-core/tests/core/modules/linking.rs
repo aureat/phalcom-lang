@@ -1,3 +1,4 @@
+use phalcom_core::bytecode::Bytecode;
 use phalcom_core::modules::RuntimeLinkedRead;
 use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer, ProgramCompileError, ProgramCompiler};
 use phalcom_core::value::Value;
@@ -257,10 +258,33 @@ fn semantic_type_cycle_finalizes_without_runtime_import_slots() {
 
     let main = &analyzed.linked.modules[main_id];
     assert!(main.bindings.imports.contains_key("A"), "value-position import retains its runtime slot");
-    assert_eq!(main.linked_reads.len(), 1);
+    let imported_a = LinkedReadSpec::Binding(phalcom_modules::SymbolId {
+        module: a_id.clone(),
+        name: "A".into(),
+    });
+    assert_eq!(main.linked_reads, vec![imported_a.clone()]);
+    assert_eq!(analyzed.linked.runtime_read(main_id, &imported_a), Some(main.bindings.imports["A"]));
 
     assert!(analyzed.linked.modules.contains_key(a_id));
     assert!(analyzed.linked.modules.contains_key(b_id));
+
+    let compiled = ProgramCompiler::compile_analyzed(&analyzed).expect("acyclic executable projection compiles");
+    assert_eq!(compiled.modules[main_id].linked_reads, vec![imported_a]);
+    let mut vm = VM::new();
+    vm.run_compiled(&compiled).expect("semantic type cycle with acyclic runtime graph executes");
+    let main_object = vm.module_registry.get(main_id).expect("entry module is materialized").object;
+    let a_object = vm.module_registry.get(a_id).expect("canonical A module is materialized").object;
+    let expected = vm
+        .heap
+        .module(a_object)
+        .get(vm.interner.intern("A"))
+        .expect("canonical A class value is populated");
+    let actual = vm
+        .heap
+        .module(main_object)
+        .get(vm.interner.intern("value"))
+        .expect("entry's imported class value is populated");
+    assert_eq!(actual, expected, "the finalized read returns the canonical A class");
 }
 
 /// CV-04 — Whole-module imports and re-exported bindings retain their distinct
@@ -333,6 +357,56 @@ fn whole_module_and_reexport_reads_keep_canonical_runtime_targets() {
 
     let compiled = ProgramCompiler::compile_analyzed(&analyzed).expect("canonical finalized reads lower successfully");
     assert_eq!(compiled.modules[main_id].linked_reads, main.linked_reads);
+
+    let mut vm = VM::new();
+    let execution = vm.run_compiled(&compiled);
+    let main_object = vm.module_registry.get(main_id).expect("entry module is materialized").object;
+    let source_object = vm.module_registry.get(source_id).expect("canonical source module is materialized").object;
+    let main_runtime_reads = vm.heap.module(main_object).linked_reads.clone();
+    let main_initializer = vm.heap.module(main_object).closure.expect("entry initializer is compiled");
+    let main_code = vm.heap.closure(main_initializer).callable.chunk.code.clone();
+    assert!(
+        execution.is_ok(),
+        "whole-module and re-export reads execute: {execution:?}; compiled reads={:?}; runtime reads={main_runtime_reads:?}; bytecode={main_code:?}; source globals={:?}; source exports={:?}; facade exports={:?}",
+        compiled.modules[main_id].linked_reads,
+        vm.heap.module(source_object).name_to_slot,
+        vm.heap.module(source_object).exports,
+        vm.module_registry.get(facade_id).map(|entry| vm.heap.module(entry.object).exports.clone())
+    );
+    let exported_class = vm
+        .heap
+        .module(source_object)
+        .get(vm.interner.intern("Exported"))
+        .expect("canonical exported class value is populated");
+    for name in ["module_read", "selected_read"] {
+        let observed = vm
+            .heap
+            .module(main_object)
+            .get(vm.interner.intern(name))
+            .unwrap_or_else(|| panic!("{name} is populated"));
+        assert_eq!(observed, exported_class, "{name} resolves to the original exported class");
+    }
+
+    let initializer = vm.heap.module(main_object).closure.expect("entry initializer is compiled");
+    let code = &vm.heap.closure(initializer).callable.chunk.code;
+    let emitted_targets = code
+        .iter()
+        .filter_map(|instruction| {
+            let Bytecode::GetLinked(index) = instruction else { return None };
+            Some(
+                compiled.modules[main_id]
+                    .linked_reads
+                    .get(*index as usize)
+                    .unwrap_or_else(|| panic!("GetLinked operand {index} is covered by the finalized linked-read layout"))
+                    .clone(),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        emitted_targets,
+        std::collections::BTreeSet::from([module_target, reexport_target]),
+        "each emitted GetLinked operand resolves to its exact canonical target"
+    );
 }
 
 /// A protocol default may construct an adapter that depends on the protocol
@@ -384,6 +458,44 @@ fn protocol_default_to_adapter_cycle_is_only_semantic_on_adapter_side() {
         .keys()
         .find(|id| id.path.to_string() == "main")
         .expect("entry module is linked");
+
+    let protocol_import_phases = &analyzed.semantic.import_phase_products[protocol_id];
+    assert_eq!(protocol_import_phases.bindings.len(), 1, "the default's adapter import is retained");
+    assert!(
+        protocol_import_phases
+            .bindings
+            .values()
+            .all(|summary| { summary.observed && summary.phase == phalcom_modules::graph::DependencyPhase::Runtime })
+    );
+    let adapter_import_phases = &analyzed.semantic.import_phase_products[adapter_id];
+    assert_eq!(adapter_import_phases.bindings.len(), 1, "the adapter's protocol conformance import is retained");
+    assert!(
+        adapter_import_phases
+            .bindings
+            .values()
+            .all(|summary| { summary.observed && summary.phase == phalcom_modules::graph::DependencyPhase::InterfaceOnly })
+    );
+    let semantic_node = |id: &ModuleId| phalcom_modules::graph::SemanticNodeId::Module(id.clone());
+    assert!(
+        analyzed
+            .linked
+            .graphs
+            .semantics
+            .edges_from(&semantic_node(protocol_id))
+            .iter()
+            .any(|edge| edge.to == semantic_node(adapter_id)),
+        "protocol default retains the adapter interface identity"
+    );
+    assert!(
+        analyzed
+            .linked
+            .graphs
+            .semantics
+            .edges_from(&semantic_node(adapter_id))
+            .iter()
+            .any(|edge| edge.to == semantic_node(protocol_id)),
+        "adapter conformance retains the canonical protocol interface identity"
+    );
 
     assert!(
         analyzed
