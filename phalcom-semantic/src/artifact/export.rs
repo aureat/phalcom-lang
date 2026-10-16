@@ -895,6 +895,704 @@ fn export_callable_expression_status(
     })
 }
 
+fn export_generic_conformance_key(
+    key: &crate::generic_evidence::GenericConformanceKey,
+    types: &TypeExportContext,
+) -> Result<phalcom_compiler_artifact::semantic::world::GenericConformanceKeyV1, ArtifactError> {
+    Ok(phalcom_compiler_artifact::semantic::world::GenericConformanceKeyV1 {
+        subject: export_type_term(&key.subject, types)?,
+        trait_ref: export_trait_ref_identity(&key.trait_ref, types)?,
+    })
+}
+
+fn export_callable_requirement_identity(
+    requirement: &crate::traits::TraitRequirementId,
+) -> phalcom_compiler_artifact::semantic::world::CallableRequirementIdentityV1 {
+    phalcom_compiler_artifact::semantic::world::CallableRequirementIdentityV1 {
+        owner: to_stable_declaration(&requirement.owner),
+        selector: requirement.selector.encode().into_boxed_str(),
+        side: match requirement.side {
+            crate::identity::DispatchSide::Instance => 0,
+            crate::identity::DispatchSide::Class => 1,
+        },
+    }
+}
+
+fn export_callable_associated_type_requirement_identity(
+    requirement: &crate::traits::AssociatedTypeRequirementId,
+) -> phalcom_compiler_artifact::semantic::world::CallableAssociatedTypeRequirementIdentityV1 {
+    phalcom_compiler_artifact::semantic::world::CallableAssociatedTypeRequirementIdentityV1 {
+        owner: to_stable_declaration(&requirement.owner),
+        index: requirement.index,
+    }
+}
+
+fn export_callable_type_environment(
+    environment: &crate::types::environment::TypeEnvironment,
+    types: &TypeExportContext,
+) -> Result<phalcom_compiler_artifact::semantic::world::CallableTypeEnvironmentV1, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1;
+    use phalcom_compiler_artifact::semantic::world::CallableStaticArgumentBindingV1;
+
+    let mut bindings = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (&parameter, &ty) in &environment.bindings {
+        if !seen.insert(parameter) {
+            return Err(referential("callable conformance environment binds one parameter more than once"));
+        }
+        bindings.push(CallableStaticArgumentBindingV1 {
+            parameter: types.parameter(parameter)?,
+            argument: StaticArgumentV1::Term { term: types.ty(ty)? },
+        });
+    }
+    for &parameter in &environment.dynamic_bindings {
+        if !seen.insert(parameter) {
+            return Err(referential("callable conformance environment binds one parameter more than once"));
+        }
+        bindings.push(CallableStaticArgumentBindingV1 {
+            parameter: types.parameter(parameter)?,
+            argument: StaticArgumentV1::DynamicType,
+        });
+    }
+    for (&parameter, &row) in &environment.row_bindings {
+        if !seen.insert(parameter) {
+            return Err(referential("callable conformance environment binds one parameter more than once"));
+        }
+        bindings.push(CallableStaticArgumentBindingV1 {
+            parameter: types.parameter(parameter)?,
+            argument: StaticArgumentV1::RecordRow { row: types.row(row)? },
+        });
+    }
+    bindings.sort_unstable_by_key(|binding| binding.parameter);
+    Ok(phalcom_compiler_artifact::semantic::world::CallableTypeEnvironmentV1 {
+        bindings,
+        self_binding: environment.self_binding.map(|ty| types.ty(ty)).transpose()?,
+    })
+}
+
+fn export_callable_type_bindings(
+    bindings: impl IntoIterator<Item = (crate::types::id::TypeParameterId, crate::types::id::TypeId)>,
+    types: &TypeExportContext,
+) -> Result<Vec<phalcom_compiler_artifact::semantic::world::CallableTypeBindingV1>, ArtifactError> {
+    let mut rows = bindings
+        .into_iter()
+        .map(|(parameter, ty)| {
+            Ok(phalcom_compiler_artifact::semantic::world::CallableTypeBindingV1 {
+                parameter: types.parameter(parameter)?,
+                ty: types.ty(ty)?,
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    rows.sort_unstable_by_key(|row| row.parameter);
+    if rows.windows(2).any(|pair| pair[0].parameter == pair[1].parameter) {
+        return Err(referential("callable evidence substitution has duplicate parameters"));
+    }
+    Ok(rows)
+}
+
+fn export_callable_requirement_views(
+    views: &std::collections::BTreeMap<crate::traits::TraitRequirementId, crate::traits::InstantiatedTraitRequirement>,
+    types: &TypeExportContext,
+) -> Result<Vec<phalcom_compiler_artifact::semantic::world::CallableRequirementViewV1>, ArtifactError> {
+    views
+        .iter()
+        .map(|(requirement, view)| {
+            if &view.requirement != requirement {
+                return Err(referential("callable requirement view key disagrees with its value"));
+            }
+            Ok(phalcom_compiler_artifact::semantic::world::CallableRequirementViewV1 {
+                requirement: export_callable_requirement_identity(requirement),
+                callable: to_stable_callable(&view.callable),
+                signature: export_callable_signature(&view.signature, types)?,
+                visibility: export_visibility(view.visibility),
+                default_callable: view.default_callable.as_ref().map(to_stable_callable),
+            })
+        })
+        .collect()
+}
+
+fn export_callable_evidence_diagnostic(
+    diagnostic: &crate::diagnostic::SemanticDiagnostic,
+    ordinals: &CallableAnalysisOrdinalMap,
+    types: &TypeExportContext,
+) -> Result<phalcom_compiler_artifact::semantic::world::CallableEvidenceDiagnosticV1, ArtifactError> {
+    use crate::diagnostic::{DiagnosticGuidance, DiagnosticSeverity};
+    use phalcom_compiler_artifact::semantic::world as wire;
+
+    let span = |range: phalcom_common::range::SourceRange| -> Result<phalcom_compiler_artifact::module_world::SpanV1, ArtifactError> {
+        Ok(phalcom_compiler_artifact::module_world::SpanV1 {
+            start: u64::try_from(range.start).map_err(|_| referential("callable diagnostic range start exceeds portable range"))?,
+            end: u64::try_from(range.end).map_err(|_| referential("callable diagnostic range end exceeds portable range"))?,
+        })
+    };
+    let labels = diagnostic
+        .labels
+        .iter()
+        .map(|label| {
+            Ok(wire::CallableEvidenceDiagnosticLabelV1 {
+                source: export_source_span(&label.span)?,
+                range: span(label.range)?,
+                message: label.message.clone().into_boxed_str(),
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    let guidance = diagnostic
+        .guidance
+        .iter()
+        .map(|guidance| {
+            Ok(match guidance {
+                DiagnosticGuidance::ChangeAnnotation { range, ty } => wire::CallableEvidenceDiagnosticGuidanceV1::ChangeAnnotation {
+                    range: span(*range)?,
+                    ty: types.ty(*ty)?,
+                },
+                DiagnosticGuidance::SupplyAssignableValue { expected } => wire::CallableEvidenceDiagnosticGuidanceV1::SupplyAssignableValue {
+                    expected: types.ty(*expected)?,
+                },
+                DiagnosticGuidance::UseCallableShape { callable } => wire::CallableEvidenceDiagnosticGuidanceV1::UseCallableShape {
+                    callable: to_stable_callable(callable),
+                },
+                DiagnosticGuidance::EstablishTypeEvidence { range, expected } => wire::CallableEvidenceDiagnosticGuidanceV1::EstablishTypeEvidence {
+                    range: span(*range)?,
+                    expected: expected.map(|ty| types.ty(ty)).transpose()?,
+                },
+                DiagnosticGuidance::ResolveGenericParameter { parameter } => wire::CallableEvidenceDiagnosticGuidanceV1::ResolveGenericParameter {
+                    parameter: types.parameter(*parameter)?,
+                },
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    let explanations = diagnostic
+        .explanations
+        .iter()
+        .map(|reference| {
+            if to_stable_callable(&reference.callable) != ordinals.owner {
+                return Err(referential("evidence diagnostic references an explanation owned by another callable"));
+            }
+            let ordinal = ordinals
+                .explanations
+                .get(&reference.explanation)
+                .copied()
+                .ok_or_else(|| referential("evidence diagnostic references an absent callable explanation"))?;
+            Ok(wire::CallableEvidenceExplanationRefV1 {
+                callable: ordinals.owner.clone(),
+                ordinal,
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    let fixes = diagnostic
+        .fixes
+        .iter()
+        .map(|fix| {
+            Ok(wire::CallableEvidenceDiagnosticFixV1 {
+                message: fix.message.clone().into_boxed_str(),
+                replacement: fix
+                    .replacement
+                    .as_ref()
+                    .map(|(range, text)| {
+                        Ok::<_, ArtifactError>(wire::CallableEvidenceDiagnosticReplacementV1 {
+                            range: span(*range)?,
+                            text: text.clone().into_boxed_str(),
+                        })
+                    })
+                    .transpose()?,
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    Ok(wire::CallableEvidenceDiagnosticV1 {
+        code: diagnostic.code.as_str().into(),
+        severity: match diagnostic.severity {
+            DiagnosticSeverity::Error => wire::CallableDiagnosticSeverityV1::Error,
+            DiagnosticSeverity::Warning => wire::CallableDiagnosticSeverityV1::Warning,
+            DiagnosticSeverity::Information => wire::CallableDiagnosticSeverityV1::Information,
+            DiagnosticSeverity::Hint => wire::CallableDiagnosticSeverityV1::Hint,
+        },
+        message: diagnostic.message.clone().into_boxed_str(),
+        primary: export_source_span(&diagnostic.primary)?,
+        primary_range: span(diagnostic.primary_range)?,
+        labels,
+        notes: diagnostic.notes.iter().cloned().map(String::into_boxed_str).collect(),
+        helps: diagnostic.helps.iter().cloned().map(String::into_boxed_str).collect(),
+        guidance,
+        explanations,
+        fixes,
+        root_cause: diagnostic
+            .root_cause
+            .map(|cause| {
+                ordinals
+                    .diagnostic_causes
+                    .get(&cause)
+                    .copied()
+                    .ok_or_else(|| referential("evidence diagnostic references an absent callable diagnostic cause"))
+            })
+            .transpose()?,
+    })
+}
+
+struct CallableConformanceEvidenceExport<'a> {
+    types: &'a TypeExportContext,
+    ordinals: &'a CallableAnalysisOrdinalMap,
+    max_nodes: usize,
+    max_depth: usize,
+    active_arc_addresses: std::collections::HashSet<usize>,
+    nodes: Vec<phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1>,
+}
+
+impl CallableConformanceEvidenceExport<'_> {
+    fn push_node(&mut self, node: phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1) -> Result<u32, ArtifactError> {
+        if self.nodes.len() >= self.max_nodes {
+            return Err(referential("callable conformance evidence node limit exceeded during export"));
+        }
+        let ordinal = u32::try_from(self.nodes.len()).map_err(|_| referential("callable evidence ordinal exceeds portable range"))?;
+        self.nodes.push(node);
+        Ok(ordinal)
+    }
+
+    fn binding(
+        &mut self,
+        binding: &crate::checker::analysis::GenericCallConformanceBinding,
+        depth: usize,
+    ) -> Result<phalcom_compiler_artifact::semantic::world::CallableGenericCallConformanceBindingV1, ArtifactError> {
+        use crate::checker::analysis::GenericCallConformanceSource as Source;
+        use phalcom_compiler_artifact::semantic::world as wire;
+        if depth > self.max_depth {
+            return Err(referential("callable conformance evidence nesting limit exceeded during export"));
+        }
+        let source = match &binding.source {
+            Source::Exact { evidence } => wire::CallableGenericCallConformanceSourceV1::Exact {
+                evidence: self.evidence(&crate::generic_evidence::GenericConformanceEvidence::Exact(evidence.clone()), depth + 1)?,
+            },
+            Source::Forwarded { caller_conformance } => wire::CallableGenericCallConformanceSourceV1::Forwarded {
+                caller_conformance: export_generic_conformance_key(caller_conformance, self.types)?,
+            },
+            Source::Derived { evidence } => wire::CallableGenericCallConformanceSourceV1::Derived {
+                evidence: self.evidence(&crate::generic_evidence::GenericConformanceEvidence::Derived(evidence.clone()), depth + 1)?,
+            },
+            Source::CompilerDerived { evidence } => wire::CallableGenericCallConformanceSourceV1::CompilerDerived {
+                evidence: self.evidence(
+                    &crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence.clone()),
+                    depth + 1,
+                )?,
+            },
+        };
+        Ok(wire::CallableGenericCallConformanceBindingV1 {
+            callee_conformance: export_generic_conformance_key(&binding.callee_conformance, self.types)?,
+            source,
+        })
+    }
+
+    fn evidence(&mut self, evidence: &crate::generic_evidence::GenericConformanceEvidence, depth: usize) -> Result<u32, ArtifactError> {
+        use crate::generic_evidence::{DerivedConformanceOrigin, GenericConformanceEvidence, NestedGenericEvidence};
+        use phalcom_compiler_artifact::semantic::world as wire;
+        if depth > self.max_depth {
+            return Err(referential("callable conformance evidence nesting limit exceeded during export"));
+        }
+        match evidence {
+            GenericConformanceEvidence::Exact(exact) => {
+                let address = std::sync::Arc::as_ptr(exact) as usize;
+                if !self.active_arc_addresses.insert(address) {
+                    return Err(referential("callable conformance evidence contains a recursive Arc cycle"));
+                }
+                let result = (|| {
+                    let proofs = exact
+                        .trait_header_conformance_proofs
+                        .as_ref()
+                        .map(|proofs| {
+                            proofs
+                                .iter()
+                                .map(|(key, evidence)| {
+                                    Ok(wire::CallableGenericConformanceProofRefV1 {
+                                        key: export_generic_conformance_key(key, self.types)?,
+                                        evidence: self.evidence(evidence, depth + 1)?,
+                                    })
+                                })
+                                .collect::<Result<Vec<_>, ArtifactError>>()
+                        })
+                        .transpose()?;
+                    let requirements = exact
+                        .requirements
+                        .iter()
+                        .map(|(requirement, selection)| {
+                            Ok(wire::CallableRequirementSelectionEntryV1 {
+                                requirement: export_callable_requirement_identity(requirement),
+                                selection: self.selection(selection, depth + 1)?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, ArtifactError>>()?;
+                    let mut associated_types = Vec::with_capacity(exact.associated_types.len());
+                    for (requirement, binding) in &exact.associated_types {
+                        if &binding.requirement != requirement {
+                            return Err(referential("exact conformance associated-type key disagrees with its binding"));
+                        }
+                        associated_types.push(wire::CallableExactAssociatedTypeBindingV1 {
+                            requirement: export_callable_associated_type_requirement_identity(requirement),
+                            value: match binding.value {
+                                crate::impls::AssociatedTypeBindingValue::Type(ty) => {
+                                    wire::CallableAssociatedTypeBindingValueV1::Type { ty: self.types.ty(ty)? }
+                                }
+                                crate::impls::AssociatedTypeBindingValue::Dynamic => wire::CallableAssociatedTypeBindingValueV1::Dynamic,
+                            },
+                            source_impl: to_stable_impl(&binding.source_impl),
+                            source: export_source_span(&binding.source)?,
+                        });
+                    }
+                    let exact_wire = wire::CallableExactConformanceEvidenceV1 {
+                        source_impl: to_stable_impl(&exact.source_impl),
+                        exact_target: self.types.ty(exact.exact_target)?,
+                        exact_trait_ref: export_trait_ref_identity(&exact.exact_trait_ref, self.types)?,
+                        impl_environment: export_callable_type_environment(&exact.impl_environment, self.types)?,
+                        requirement_views: export_callable_requirement_views(&exact.requirement_views, self.types)?,
+                        requirements,
+                        associated_types,
+                        trait_header_contract: exact
+                            .trait_header_contract
+                            .iter()
+                            .map(|constraint| export_constraint(constraint, self.types))
+                            .collect::<Result<Vec<_>, _>>()?,
+                        trait_header_conformance_proofs: proofs,
+                    };
+                    self.push_node(wire::CallableConformanceEvidenceNodeV1::Exact { evidence: exact_wire })
+                })();
+                self.active_arc_addresses.remove(&address);
+                result
+            }
+            GenericConformanceEvidence::Assumed(assumed) => self.push_node(wire::CallableConformanceEvidenceNodeV1::Assumed {
+                key: export_generic_conformance_key(&assumed.key, self.types)?,
+                owner: export_parameter_owner(&assumed.owner)?,
+            }),
+            GenericConformanceEvidence::Derived(derived) => {
+                let address = std::sync::Arc::as_ptr(derived) as usize;
+                if !self.active_arc_addresses.insert(address) {
+                    return Err(referential("callable derived evidence contains a recursive Arc cycle"));
+                }
+                let result = (|| {
+                    let origin = match &derived.origin {
+                        DerivedConformanceOrigin::ConditionalSource { exact_source } => wire::CallableDerivedConformanceOriginV1::ConditionalSource {
+                            exact_source: self.evidence(&GenericConformanceEvidence::Exact(exact_source.clone()), depth + 1)?,
+                        },
+                        DerivedConformanceOrigin::GuardedRule {
+                            rule,
+                            exact_subject,
+                            exact_trait_ref,
+                        } => {
+                            let rule_wire = wire::CallableDerivedConformanceRuleV1 {
+                                impl_id: to_stable_impl(&rule.impl_id),
+                                source_module: to_stable_module(&rule.source_module),
+                                target_parameter: self.types.parameter(rule.target_parameter)?,
+                                target_template: self.types.ty(rule.target_template)?,
+                                trait_ref: export_trait_ref_identity(&rule.trait_ref, self.types)?,
+                                generic_signature: export_generic_signature(&rule.generic_signature, self.types)?,
+                                associated_type_plan: self.associated_type_plan(&rule.associated_type_plan)?,
+                                requirement_views: export_callable_requirement_views(&rule.requirement_views, self.types)?,
+                                requirements: rule
+                                    .requirements
+                                    .iter()
+                                    .map(|(requirement, selection)| {
+                                        Ok(wire::CallableRequirementSelectionEntryV1 {
+                                            requirement: export_callable_requirement_identity(requirement),
+                                            selection: self.selection(selection, depth + 1)?,
+                                        })
+                                    })
+                                    .collect::<Result<Vec<_>, ArtifactError>>()?,
+                                source: export_source_span(&rule.source)?,
+                            };
+                            wire::CallableDerivedConformanceOriginV1::GuardedRule {
+                                rule: rule_wire,
+                                exact_subject: self.types.ty(*exact_subject)?,
+                                exact_trait_ref: export_trait_ref_identity(exact_trait_ref, self.types)?,
+                            }
+                        }
+                    };
+                    let mut bindings = derived
+                        .impl_bindings
+                        .bindings()
+                        .iter()
+                        .map(|(&parameter, &ty)| (parameter, ty))
+                        .collect::<Vec<_>>();
+                    bindings.sort_unstable_by_key(|(parameter, _)| *parameter);
+                    let mut nested = Vec::with_capacity(derived.nested.len());
+                    for item in &derived.nested {
+                        nested.push(match item {
+                            NestedGenericEvidence::Conformance(evidence) => wire::CallableNestedGenericEvidenceV1::Conformance {
+                                evidence: self.evidence(evidence, depth + 1)?,
+                            },
+                            NestedGenericEvidence::Equivalent => wire::CallableNestedGenericEvidenceV1::Equivalent,
+                            NestedGenericEvidence::Subtype => wire::CallableNestedGenericEvidenceV1::Subtype,
+                        });
+                    }
+                    self.push_node(wire::CallableConformanceEvidenceNodeV1::Derived {
+                        evidence: wire::CallableDerivedConformanceEvidenceV1 {
+                            origin,
+                            impl_bindings: export_callable_type_bindings(bindings, self.types)?,
+                            nested,
+                        },
+                    })
+                })();
+                self.active_arc_addresses.remove(&address);
+                result
+            }
+            GenericConformanceEvidence::CompilerDerived(derived) => {
+                let classification = match &derived.classification {
+                    crate::structural::StructuralClassification::Unsupported => wire::CallableStructuralClassificationV1::Unsupported,
+                    crate::structural::StructuralClassification::OrderedProduct(form) => wire::CallableStructuralClassificationV1::OrderedProduct {
+                        form: match form {
+                            crate::structural::OrderedProductForm::Unit => wire::CallableOrderedProductFormV1::Unit,
+                            crate::structural::OrderedProductForm::Tuple => wire::CallableOrderedProductFormV1::Tuple,
+                            crate::structural::OrderedProductForm::TupleFromPacks => wire::CallableOrderedProductFormV1::TupleFromPacks,
+                            crate::structural::OrderedProductForm::Pack => wire::CallableOrderedProductFormV1::Pack,
+                            crate::structural::OrderedProductForm::PackFromPacks => wire::CallableOrderedProductFormV1::PackFromPacks,
+                            crate::structural::OrderedProductForm::Data { owner } => wire::CallableOrderedProductFormV1::Data {
+                                owner: to_stable_declaration(owner),
+                            },
+                        },
+                    },
+                    crate::structural::StructuralClassification::UnorderedProduct(form) => wire::CallableStructuralClassificationV1::UnorderedProduct {
+                        form: match form {
+                            crate::structural::UnorderedProductForm::Record => wire::CallableUnorderedProductFormV1::Record,
+                            crate::structural::UnorderedProductForm::Data { owner } => wire::CallableUnorderedProductFormV1::Data {
+                                owner: to_stable_declaration(owner),
+                            },
+                        },
+                    },
+                    crate::structural::StructuralClassification::Sum { owner } => wire::CallableStructuralClassificationV1::Sum {
+                        owner: to_stable_declaration(owner),
+                    },
+                };
+                let kind = match derived.kind {
+                    crate::generic_evidence::CompilerDerivedConformanceKind::Product => wire::CallableCompilerDerivedConformanceKindV1::Product,
+                    crate::generic_evidence::CompilerDerivedConformanceKind::OrderedProduct => wire::CallableCompilerDerivedConformanceKindV1::OrderedProduct,
+                    crate::generic_evidence::CompilerDerivedConformanceKind::UnorderedProduct => {
+                        wire::CallableCompilerDerivedConformanceKindV1::UnorderedProduct
+                    }
+                    crate::generic_evidence::CompilerDerivedConformanceKind::Sum => wire::CallableCompilerDerivedConformanceKindV1::Sum,
+                };
+                self.push_node(wire::CallableConformanceEvidenceNodeV1::CompilerDerived {
+                    evidence: wire::CallableCompilerDerivedConformanceEvidenceV1 {
+                        key: export_generic_conformance_key(&derived.key, self.types)?,
+                        kind,
+                        classification,
+                    },
+                })
+            }
+        }
+    }
+
+    fn selection(
+        &mut self,
+        selection: &crate::impls::RequirementSelectionTemplate,
+        depth: usize,
+    ) -> Result<phalcom_compiler_artifact::semantic::world::CallableRequirementSelectionV1, ArtifactError> {
+        use crate::impls::RequirementSelectionTemplate as Native;
+        use phalcom_compiler_artifact::semantic::world as wire;
+        if depth > self.max_depth {
+            return Err(referential("callable requirement-selection nesting limit exceeded during export"));
+        }
+        Ok(match selection {
+            Native::ConformanceCallable { callable } => wire::CallableRequirementSelectionV1::ConformanceCallable {
+                callable: to_stable_callable(callable),
+            },
+            Native::InherentCallable {
+                callable,
+                conditional_impl,
+                applicability,
+            } => wire::CallableRequirementSelectionV1::InherentCallable {
+                callable: to_stable_callable(callable),
+                conditional_impl: conditional_impl.as_ref().map(to_stable_impl),
+                applicability: applicability.as_ref().map(|value| self.inherent_specialization(value, depth + 1)).transpose()?,
+            },
+            Native::ConditionalInherent { candidate, pending, fallback } => wire::CallableRequirementSelectionV1::ConditionalInherent {
+                candidate: self.effective_inherent_witness(candidate, depth + 1)?,
+                pending: self.completeness(pending)?,
+                fallback: fallback
+                    .as_deref()
+                    .map(|selection| self.selection(selection, depth + 1).map(Box::new))
+                    .transpose()?,
+            },
+            Native::DataComponent { component, specialized_type } => wire::CallableRequirementSelectionV1::DataComponent {
+                owner: to_stable_declaration(&component.owner),
+                index: component.index,
+                specialized_type: self.types.ty(*specialized_type)?,
+            },
+            Native::TraitDefault { callable } => wire::CallableRequirementSelectionV1::TraitDefault {
+                callable: to_stable_callable(callable),
+            },
+        })
+    }
+
+    fn inherent_specialization(
+        &mut self,
+        specialization: &crate::impls::InherentImplSpecialization,
+        depth: usize,
+    ) -> Result<phalcom_compiler_artifact::semantic::world::CallableInherentImplSpecializationV1, ArtifactError> {
+        let mut bindings = specialization.bindings.iter().map(|(&parameter, &ty)| (parameter, ty)).collect::<Vec<_>>();
+        bindings.sort_unstable_by_key(|(parameter, _)| *parameter);
+        Ok(phalcom_compiler_artifact::semantic::world::CallableInherentImplSpecializationV1 {
+            impl_id: to_stable_impl(&specialization.impl_id),
+            receiver: self.types.ty(specialization.receiver)?,
+            owner_view: self.types.ty(specialization.owner_view)?,
+            bindings: export_callable_type_bindings(bindings, self.types)?,
+            environment: export_callable_type_environment(&specialization.environment, self.types)?,
+            conformance_provenance: specialization
+                .conformance_provenance
+                .as_ref()
+                .map(|bindings| bindings.iter().map(|binding| self.binding(binding, depth + 1)).collect())
+                .transpose()?,
+        })
+    }
+
+    fn effective_inherent_witness(
+        &mut self,
+        witness: &crate::impls::EffectiveInherentWitness,
+        depth: usize,
+    ) -> Result<phalcom_compiler_artifact::semantic::world::CallableEffectiveInherentWitnessV1, ArtifactError> {
+        Ok(phalcom_compiler_artifact::semantic::world::CallableEffectiveInherentWitnessV1 {
+            callable: to_stable_callable(&witness.callable),
+            signature: export_callable_signature(&witness.signature, self.types)?,
+            visibility: export_visibility(witness.visibility),
+            owner: to_stable_declaration(&witness.owner),
+            conditional_impl: witness.conditional_impl.as_ref().map(to_stable_impl),
+            applicability: witness
+                .applicability
+                .as_ref()
+                .map(|value| self.inherent_specialization(value, depth + 1))
+                .transpose()?,
+            conditional_domain: witness.conditional_domain.as_ref().map(|domain| self.inherent_domain(domain)).transpose()?,
+        })
+    }
+
+    fn inherent_domain(
+        &self,
+        domain: &crate::impls::InherentImplDomain,
+    ) -> Result<phalcom_compiler_artifact::semantic::world::CallableInherentImplDomainV1, ArtifactError> {
+        use phalcom_compiler_artifact::semantic::world::CallableInherentImplTargetV1 as Target;
+        Ok(phalcom_compiler_artifact::semantic::world::CallableInherentImplDomainV1 {
+            impl_id: to_stable_impl(&domain.impl_id),
+            target: match &domain.target {
+                crate::impls::InherentImplTarget::Declaration(declaration) => Target::Declaration {
+                    declaration: to_stable_declaration(declaration),
+                },
+                crate::impls::InherentImplTarget::ExactEnumCase(variant) => Target::ExactEnumCase {
+                    variant: to_stable_variant(variant),
+                },
+            },
+            head_type: self.types.ty(domain.head_type)?,
+            generic_signature: domain
+                .generic_signature
+                .as_ref()
+                .map(|signature| export_generic_signature(signature, self.types))
+                .transpose()?,
+            constraints: domain
+                .constraints
+                .iter()
+                .map(|constraint| export_constraint(constraint, self.types))
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+
+    fn associated_type_plan(
+        &self,
+        plan: &crate::impls::ConformanceAssociatedTypePlan,
+    ) -> Result<phalcom_compiler_artifact::semantic::world::CallableConformanceAssociatedTypePlanV1, ArtifactError> {
+        use phalcom_compiler_artifact::semantic::world as wire;
+        let mut bindings = Vec::with_capacity(plan.bindings.len());
+        for (requirement, binding) in &plan.bindings {
+            if &binding.requirement != requirement {
+                return Err(referential("associated-type plan key disagrees with its binding"));
+            }
+            bindings.push(wire::CallableAssociatedTypeBindingTemplateV1 {
+                requirement: export_callable_associated_type_requirement_identity(requirement),
+                value: match binding.value_template {
+                    crate::impls::AssociatedTypeBindingValue::Type(ty) => wire::CallableAssociatedTypeBindingValueV1::Type { ty: self.types.ty(ty)? },
+                    crate::impls::AssociatedTypeBindingValue::Dynamic => wire::CallableAssociatedTypeBindingValueV1::Dynamic,
+                },
+                source_impl: to_stable_impl(&binding.source_impl),
+                source: export_source_span(&binding.source)?,
+            });
+        }
+        let failures = plan
+            .failures
+            .iter()
+            .map(|failure| {
+                Ok(wire::CallableAssociatedTypeBindingFailureV1 {
+                    kind: match failure.kind {
+                        crate::impls::AssociatedTypeBindingFailureKind::Missing => wire::CallableAssociatedTypeBindingFailureKindV1::Missing,
+                        crate::impls::AssociatedTypeBindingFailureKind::Duplicate => wire::CallableAssociatedTypeBindingFailureKindV1::Duplicate,
+                        crate::impls::AssociatedTypeBindingFailureKind::Unknown => wire::CallableAssociatedTypeBindingFailureKindV1::Unknown,
+                        crate::impls::AssociatedTypeBindingFailureKind::Invalid => wire::CallableAssociatedTypeBindingFailureKindV1::Invalid,
+                    },
+                    name: failure.name.clone(),
+                    reason: failure.reason.clone(),
+                    source: export_source_span(&failure.source)?,
+                    requirement: failure.requirement.as_ref().map(export_callable_associated_type_requirement_identity),
+                })
+            })
+            .collect::<Result<Vec<_>, ArtifactError>>()?;
+        Ok(wire::CallableConformanceAssociatedTypePlanV1 {
+            impl_id: to_stable_impl(&plan.impl_id),
+            bindings,
+            failures,
+            diagnostics: plan
+                .diagnostics
+                .iter()
+                .map(|diagnostic| export_callable_evidence_diagnostic(diagnostic, self.ordinals, self.types))
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+
+    fn completeness(
+        &self,
+        state: &crate::impls::ConformanceCompleteness,
+    ) -> Result<phalcom_compiler_artifact::semantic::world::CallableConformanceCompletenessV1, ArtifactError> {
+        use crate::impls::ConformanceCompleteness as Native;
+        use phalcom_compiler_artifact::semantic::world as wire;
+        Ok(match state {
+            Native::Complete => wire::CallableConformanceCompletenessV1::Complete,
+            Native::Incomplete { failures } => wire::CallableConformanceCompletenessV1::Incomplete {
+                failures: failures
+                    .iter()
+                    .map(|failure| -> Result<wire::CallableConformanceFailureV1, ArtifactError> {
+                        Ok(match failure {
+                            crate::impls::ConformanceFailure::Behavioral(failure) => wire::CallableConformanceFailureV1::Behavioral {
+                                requirement: export_callable_requirement_identity(&failure.requirement),
+                                reason: failure.reason.clone(),
+                            },
+                            crate::impls::ConformanceFailure::AssociatedType(failure) => wire::CallableConformanceFailureV1::AssociatedType {
+                                failure: wire::CallableAssociatedTypeBindingFailureV1 {
+                                    kind: match failure.kind {
+                                        crate::impls::AssociatedTypeBindingFailureKind::Missing => wire::CallableAssociatedTypeBindingFailureKindV1::Missing,
+                                        crate::impls::AssociatedTypeBindingFailureKind::Duplicate => {
+                                            wire::CallableAssociatedTypeBindingFailureKindV1::Duplicate
+                                        }
+                                        crate::impls::AssociatedTypeBindingFailureKind::Unknown => wire::CallableAssociatedTypeBindingFailureKindV1::Unknown,
+                                        crate::impls::AssociatedTypeBindingFailureKind::Invalid => wire::CallableAssociatedTypeBindingFailureKindV1::Invalid,
+                                    },
+                                    name: failure.name.clone(),
+                                    reason: failure.reason.clone(),
+                                    source: export_source_span(&failure.source)?,
+                                    requirement: failure.requirement.as_ref().map(export_callable_associated_type_requirement_identity),
+                                },
+                            },
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ArtifactError>>()?,
+            },
+            Native::Unknown(reason) => wire::CallableConformanceCompletenessV1::Unknown {
+                reason: export_unknown_reason(reason),
+            },
+            Native::Blocked(reason) => wire::CallableConformanceCompletenessV1::Blocked {
+                reason: export_callable_block_reason(reason, self.types)?,
+            },
+            Native::Dynamic(obligation) => wire::CallableConformanceCompletenessV1::Dynamic {
+                reason: obligation.reason.clone().into_boxed_str(),
+            },
+            Native::Cancelled => wire::CallableConformanceCompletenessV1::Cancelled,
+            Native::BudgetExceeded(report) => wire::CallableConformanceCompletenessV1::BudgetExceeded {
+                report: export_binding_budget(report),
+            },
+            Native::InternalFailure(message) => wire::CallableConformanceCompletenessV1::InternalFailure { message: message.clone() },
+        })
+    }
+}
+
 fn export_binding_consistency(
     consistency: &crate::checker::binding::BindingConsistency,
     types: &TypeExportContext,
@@ -1222,6 +1920,7 @@ fn export_callable_analysis_record(
     analysis: &crate::checker::analysis::CallableAnalysis,
     binding_source_authorities: &std::collections::BTreeMap<crate::identity::BindingId, CallableBindingSourceAuthority>,
     types: &TypeExportContext,
+    limits: &ValidationLimits,
 ) -> Result<CallableAnalysisRecordV1, ArtifactError> {
     if analysis.callable != *callable_id {
         return Err(referential("callable analysis table key does not match its owner"));
@@ -1291,8 +1990,18 @@ fn export_callable_analysis_record(
         entry: analysis.flow_graph.entry().map(|entry| ordinals.flow_nodes[&entry]),
         exits: analysis.flow_graph.exits().iter().map(|exit| ordinals.flow_nodes[exit]).collect(),
     };
+    let mut conformance_export = CallableConformanceEvidenceExport {
+        types,
+        ordinals: &ordinals,
+        max_nodes: limits.max_semantic_entries_per_family,
+        max_depth: limits.max_recursion_depth,
+        active_arc_addresses: std::collections::HashSet::new(),
+        nodes: Vec::new(),
+    };
     let mut expressions = Vec::with_capacity(analysis.expressions.len());
-    for (expression_id, expression) in analysis.expressions.iter() {
+    let mut ordered_expressions = analysis.expressions.iter().collect::<Vec<_>>();
+    ordered_expressions.sort_unstable_by_key(|(expression_id, _)| ordinals.expressions[expression_id]);
+    for (expression_id, expression) in ordered_expressions {
         if expression.call.is_some() {
             return Err(referential("call resolution ids have no admitted portable callable owner"));
         }
@@ -1355,11 +2064,6 @@ fn export_callable_analysis_record(
                 if expression.callable.as_ref().is_some_and(|callable| callable != &specialization.callable) {
                     return Err(referential("call specialization target disagrees with its expression callable"));
                 }
-                if !specialization.conformances.is_empty() {
-                    return Err(referential(
-                        "call specialization conformance bindings lack a complete portable owner representation",
-                    ));
-                }
                 let mut bindings = specialization
                     .bindings
                     .iter()
@@ -1383,9 +2087,15 @@ fn export_callable_analysis_record(
                 if bindings.windows(2).any(|pair| pair[0].parameter == pair[1].parameter) {
                     return Err(referential("call specialization has duplicate static-argument parameters"));
                 }
+                let conformances = specialization
+                    .conformances
+                    .iter()
+                    .map(|binding| conformance_export.binding(binding, 0))
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok(CallableCallSpecializationV1 {
                     callable: to_stable_callable(&specialization.callable),
                     bindings,
+                    conformances,
                 })
             })
             .transpose()?;
@@ -1524,6 +2234,7 @@ fn export_callable_analysis_record(
         flow_graph,
         constructor_super_initializer,
         expressions,
+        conformance_evidence: conformance_export.nodes,
         bindings,
     })
 }
@@ -2368,7 +3079,13 @@ pub fn export_semantic_world(
                 return Err(referential("callable source binding lacks its canonical formal attachment"));
             }
         }
-        callable_analyses.push(export_callable_analysis_record(callable_id, analysis, &binding_source_authorities, types)?);
+        callable_analyses.push(export_callable_analysis_record(
+            callable_id,
+            analysis,
+            &binding_source_authorities,
+            types,
+            limits,
+        )?);
     }
     callable_analyses.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
 
@@ -2971,7 +3688,55 @@ mod callable_analysis_status_tests {
                 range: SourceRange { start: 30, end: 35 },
             },
         )]);
-        let record = export_callable_analysis_record(&callable, &analysis, &binding_source_authorities, &types).unwrap();
+        let compiler_key = crate::generic_evidence::GenericConformanceKey::new(
+            crate::types::parameter::TypeTerm::Canonical(blocked_subject),
+            crate::traits::TraitRef::new(
+                crate::identity::DeclarationId::new(callable.module().clone(), "CompilerTrait".into()),
+                vec![blocked_argument].into_boxed_slice(),
+            ),
+        );
+        let forwarded_callee_key = crate::generic_evidence::GenericConformanceKey::new(
+            crate::types::parameter::TypeTerm::Canonical(blocked_argument),
+            crate::traits::TraitRef::new(
+                crate::identity::DeclarationId::new(callable.module().clone(), "ForwardedTrait".into()),
+                Vec::new(),
+            ),
+        );
+        let forwarded_caller_key = crate::generic_evidence::GenericConformanceKey::new(
+            crate::types::parameter::TypeTerm::Canonical(blocked_subject),
+            crate::traits::TraitRef::new(crate::identity::DeclarationId::new(callable.module().clone(), "CallerTrait".into()), Vec::new()),
+        );
+        let call = analysis
+            .expressions
+            .get_source_mut(&expression_a)
+            .unwrap()
+            .unwrap()
+            .call_specialization
+            .as_mut()
+            .unwrap();
+        call.conformances = vec![
+            crate::checker::analysis::GenericCallConformanceBinding {
+                callee_conformance: compiler_key.clone(),
+                source: crate::checker::analysis::GenericCallConformanceSource::CompilerDerived {
+                    evidence: std::sync::Arc::new(crate::generic_evidence::CompilerDerivedConformanceEvidence {
+                        key: compiler_key,
+                        kind: crate::generic_evidence::CompilerDerivedConformanceKind::OrderedProduct,
+                        classification: crate::structural::StructuralClassification::OrderedProduct(crate::structural::OrderedProductForm::Unit),
+                    }),
+                },
+            },
+            crate::checker::analysis::GenericCallConformanceBinding {
+                callee_conformance: forwarded_callee_key,
+                source: crate::checker::analysis::GenericCallConformanceSource::Forwarded {
+                    caller_conformance: forwarded_caller_key,
+                },
+            },
+        ]
+        .into_boxed_slice();
+        let mut types = crate::types::store::artifact::TypeExportContext::new(&store);
+        super::super::roots::register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
+        types.close_graph(&store, &ValidationLimits::default()).unwrap();
+        let record = export_callable_analysis_record(&callable, &analysis, &binding_source_authorities, &types, &ValidationLimits::default()).unwrap();
         assert_eq!(record.status, PortableStatus::Blocked);
         assert_eq!(
             &record.body_source_owner,
@@ -3033,8 +3798,22 @@ mod callable_analysis_status_tests {
             call.bindings[0].argument,
             phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1::DynamicType
         ));
+        assert_eq!(call.conformances.len(), 2, "conformance binding order and count are preserved");
+        assert!(matches!(
+            call.conformances[0].source,
+            phalcom_compiler_artifact::semantic::world::CallableGenericCallConformanceSourceV1::CompilerDerived { evidence: 0 }
+        ));
+        assert!(matches!(
+            call.conformances[1].source,
+            phalcom_compiler_artifact::semantic::world::CallableGenericCallConformanceSourceV1::Forwarded { .. }
+        ));
+        assert_eq!(record.conformance_evidence.len(), 1);
+        assert!(matches!(
+            record.conformance_evidence[0],
+            phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1::CompilerDerived { .. }
+        ));
         let wrong_key = other_callable;
-        assert!(export_callable_analysis_record(&wrong_key, &analysis, &binding_source_authorities, &types).is_err());
+        assert!(export_callable_analysis_record(&wrong_key, &analysis, &binding_source_authorities, &types, &ValidationLimits::default()).is_err());
     }
 
     fn empty_callable_analysis(callable: crate::identity::CallableId) -> crate::checker::analysis::CallableAnalysis {
@@ -3114,8 +3893,8 @@ mod callable_analysis_status_tests {
         let mut types = TypeExportContext::new(&store);
         crate::artifact::roots::register_callable_analysis_roots(&mut types, &denoted, &store).unwrap();
         types.close_graph(&store, &ValidationLimits::default()).unwrap();
-        let empty_record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types).unwrap();
-        let denoted_record = export_callable_analysis_record(&callable, &denoted, &BTreeMap::new(), &types).unwrap();
+        let empty_record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &ValidationLimits::default()).unwrap();
+        let denoted_record = export_callable_analysis_record(&callable, &denoted, &BTreeMap::new(), &types, &ValidationLimits::default()).unwrap();
 
         assert_ne!(
             empty_record, denoted_record,

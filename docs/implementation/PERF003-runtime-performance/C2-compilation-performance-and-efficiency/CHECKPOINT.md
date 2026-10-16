@@ -1657,3 +1657,43 @@ verification is FOCUSED_TESTED.
   check passed with the inherited dead-code warning. This does not close
   semantic output maps, native allocations, full-load accounting, or R1.
   P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+
+- PATCH1/T5 generic call conformance evidence decision (2026-10-16; Level 2):
+  adopt a complete callable-local conformance-evidence graph owned by
+  `CallableAnalysis`; do not add a semantic-world global evidence owner. The
+  graph has Exact, Assumed, Derived, and CompilerDerived nodes. Top-level
+  specialization bindings preserve their ordered callee keys and Exact,
+  Forwarded, Derived, or CompilerDerived sources; nested evidence and
+  conditional-inherent provenance refer to callable-local graph nodes. Nodes
+  are finite, acyclic, bounded, deterministic, and use local ordinals only as
+  transport identity. Preserve all equality-significant native fields,
+  including full requirement selections/views, environments, associated-type
+  plans, optional proof/provenance states, nested evidence, and structural
+  classifications. Import relocates roots and reconstructs without semantic
+  queries or source lookup. Evidence fingerprints must be recomputed from
+  relocation-invariant logical identities after import (FP-GE-01). Keep
+  semantic-world schema 2 and both callable-analysis fail-closed guards until
+  GE-1..GE-12 and the final PATCH1 owner-parity gate pass; global allocation
+  guards remain PATCH3-owned. PATCH1 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+
+- PATCH1/T5 implementation evidence and allocation-representation consultation
+  (2026-10-16): schema-2 callable-local evidence DTOs now cover Exact, Assumed,
+  Derived, and CompilerDerived nodes, deterministic ordered call bindings,
+  owner-local references, and bounded cycle/kind validation. Export preserves
+  all four graph node payloads. The focused importer currently reconstructs
+  Forwarded and CompilerDerived bindings with relocated keys and charged
+  `Arc` ownership; Exact and Derived remain explicitly fail-closed. Focused
+  semantic export, semantic import relocation, and compiler-artifact graph
+  validation each passed 1/1; `cargo check -p phalcom-semantic` passed with
+  dead-code warnings while callable-owner assembly remains incomplete. Exact
+  and Derived reconstruction reaches ordinary `BTreeMap` fields in shared
+  conformance products, while the accepted allocation ledger only exposes
+  charged contiguous/frozen storage. The PATCH1 plan forbids shadow maps and
+  guessed tree-node debits and requires keeping global allocation guards.
+  Consultation packet:
+  `P7-R1/PERF003.C2.P7.PATCH1-T5-allocation-representation-incident.md`.
+  Stop T5 Exact/Derived materialization until the architect chooses whether
+  shared conformance products gain source/frozen budgeted map wrappers or that
+  migration is split into a separately numbered prerequisite. No callable
+  guard was removed. P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED; P8 remains
+  blocked.

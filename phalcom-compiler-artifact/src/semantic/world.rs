@@ -377,6 +377,309 @@ record!(CallableStaticArgumentBindingV1 {
 record!(CallableCallSpecializationV1 {
     callable: StableCallableRef,
     bindings: Vec<CallableStaticArgumentBindingV1>,
+    conformances: Vec<CallableGenericCallConformanceBindingV1>,
+});
+
+record!(GenericConformanceKeyV1 {
+    subject: TypeTermV1,
+    trait_ref: TraitRefV1,
+});
+
+record!(CallableGenericCallConformanceBindingV1 {
+    callee_conformance: GenericConformanceKeyV1,
+    source: CallableGenericCallConformanceSourceV1,
+});
+
+tagged!(CallableGenericCallConformanceSourceV1 {
+    0 => Exact { evidence: u32 },
+    1 => Forwarded { caller_conformance: GenericConformanceKeyV1 },
+    2 => Derived { evidence: u32 },
+    3 => CompilerDerived { evidence: u32 },
+});
+
+// Evidence ordinals are local to one CallableAnalysisRecordV1 and are never
+// semantic identities. Recursive proof edges are represented as ordinals so
+// the validator can bound and reject cyclic graphs before native construction.
+tagged!(CallableConformanceEvidenceNodeV1 {
+    0 => Exact { evidence: CallableExactConformanceEvidenceV1 },
+    1 => Assumed { key: GenericConformanceKeyV1, owner: crate::semantic::type_store::ParameterOwnerV1 },
+    2 => Derived { evidence: CallableDerivedConformanceEvidenceV1 },
+    3 => CompilerDerived { evidence: CallableCompilerDerivedConformanceEvidenceV1 },
+});
+
+record!(CallableExactConformanceEvidenceV1 {
+    source_impl: StableImplRef,
+    exact_target: ArtifactTypeId,
+    exact_trait_ref: TraitRefV1,
+    impl_environment: CallableTypeEnvironmentV1,
+    requirement_views: Vec<CallableRequirementViewV1>,
+    requirements: Vec<CallableRequirementSelectionEntryV1>,
+    associated_types: Vec<CallableExactAssociatedTypeBindingV1>,
+    trait_header_contract: Vec<crate::semantic::aggregates::GenericConstraintV1>,
+    trait_header_conformance_proofs: Option<Vec<CallableGenericConformanceProofRefV1>>,
+});
+
+record!(CallableTypeEnvironmentV1 {
+    bindings: Vec<CallableStaticArgumentBindingV1>,
+    self_binding: Option<ArtifactTypeId>,
+});
+
+record!(CallableGenericConformanceProofRefV1 {
+    key: GenericConformanceKeyV1,
+    evidence: u32,
+});
+
+record!(CallableRequirementIdentityV1 {
+    owner: StableDeclarationRef,
+    selector: Box<str>,
+    side: u8,
+});
+
+record!(CallableAssociatedTypeRequirementIdentityV1 {
+    owner: StableDeclarationRef,
+    index: u32,
+});
+
+record!(CallableRequirementViewV1 {
+    requirement: CallableRequirementIdentityV1,
+    callable: StableCallableRef,
+    signature: CallableSignatureRecordV1,
+    visibility: crate::semantic::aggregates::VisibilityV1,
+    default_callable: Option<StableCallableRef>,
+});
+
+record!(CallableRequirementSelectionEntryV1 {
+    requirement: CallableRequirementIdentityV1,
+    selection: CallableRequirementSelectionV1,
+});
+
+tagged!(CallableRequirementSelectionV1 {
+    0 => ConformanceCallable { callable: StableCallableRef },
+    1 => InherentCallable {
+        callable: StableCallableRef,
+        conditional_impl: Option<StableImplRef>,
+        applicability: Option<CallableInherentImplSpecializationV1>
+    },
+    2 => ConditionalInherent {
+        candidate: CallableEffectiveInherentWitnessV1,
+        pending: CallableConformanceCompletenessV1,
+        fallback: Option<Box<CallableRequirementSelectionV1>>
+    },
+    3 => DataComponent { owner: StableDeclarationRef, index: u32, specialized_type: ArtifactTypeId },
+    4 => TraitDefault { callable: StableCallableRef },
+});
+
+record!(CallableInherentImplSpecializationV1 {
+    impl_id: StableImplRef,
+    receiver: ArtifactTypeId,
+    owner_view: ArtifactTypeId,
+    bindings: Vec<CallableTypeBindingV1>,
+    environment: CallableTypeEnvironmentV1,
+    conformance_provenance: Option<Vec<CallableGenericCallConformanceBindingV1>>,
+});
+
+record!(CallableTypeBindingV1 {
+    parameter: ArtifactTypeParameterId,
+    ty: ArtifactTypeId,
+});
+
+record!(CallableEffectiveInherentWitnessV1 {
+    callable: StableCallableRef,
+    signature: CallableSignatureRecordV1,
+    visibility: crate::semantic::aggregates::VisibilityV1,
+    owner: StableDeclarationRef,
+    conditional_impl: Option<StableImplRef>,
+    applicability: Option<CallableInherentImplSpecializationV1>,
+    conditional_domain: Option<CallableInherentImplDomainV1>,
+});
+
+record!(CallableInherentImplDomainV1 {
+    impl_id: StableImplRef,
+    target: CallableInherentImplTargetV1,
+    head_type: ArtifactTypeId,
+    generic_signature: Option<crate::semantic::aggregates::GenericSignatureV1>,
+    constraints: Vec<crate::semantic::aggregates::GenericConstraintV1>,
+});
+
+tagged!(CallableInherentImplTargetV1 {
+    0 => Declaration { declaration: StableDeclarationRef },
+    1 => ExactEnumCase { variant: StableVariantRef },
+});
+
+record!(CallableExactAssociatedTypeBindingV1 {
+    requirement: CallableAssociatedTypeRequirementIdentityV1,
+    value: CallableAssociatedTypeBindingValueV1,
+    source_impl: StableImplRef,
+    source: EnumRequirementSourceV1,
+});
+
+record!(CallableAssociatedTypeBindingTemplateV1 {
+    requirement: CallableAssociatedTypeRequirementIdentityV1,
+    value: CallableAssociatedTypeBindingValueV1,
+    source_impl: StableImplRef,
+    source: EnumRequirementSourceV1,
+});
+
+tagged!(CallableAssociatedTypeBindingValueV1 {
+    0 => Type { ty: ArtifactTypeId },
+    1 => Dynamic,
+});
+
+record!(CallableAssociatedTypeBindingFailureV1 {
+    kind: CallableAssociatedTypeBindingFailureKindV1,
+    name: Box<str>,
+    reason: Box<str>,
+    source: EnumRequirementSourceV1,
+    requirement: Option<CallableAssociatedTypeRequirementIdentityV1>,
+});
+
+tagged!(CallableAssociatedTypeBindingFailureKindV1 {
+    0 => Missing,
+    1 => Duplicate,
+    2 => Unknown,
+    3 => Invalid,
+});
+
+record!(CallableConformanceAssociatedTypePlanV1 {
+    impl_id: StableImplRef,
+    bindings: Vec<CallableAssociatedTypeBindingTemplateV1>,
+    failures: Vec<CallableAssociatedTypeBindingFailureV1>,
+    diagnostics: Vec<CallableEvidenceDiagnosticV1>,
+});
+
+tagged!(CallableConformanceCompletenessV1 {
+    0 => Complete,
+    1 => Incomplete { failures: Vec<CallableConformanceFailureV1> },
+    2 => Unknown { reason: crate::semantic::aggregates::UnknownReasonV1 },
+    3 => Blocked { reason: CallableBlockReasonV1 },
+    4 => Dynamic { reason: Box<str> },
+    5 => Cancelled,
+    6 => BudgetExceeded { report: CallableBudgetReportV1 },
+    7 => InternalFailure { message: Box<str> },
+});
+
+tagged!(CallableConformanceFailureV1 {
+    0 => Behavioral { requirement: CallableRequirementIdentityV1, reason: Box<str> },
+    1 => AssociatedType { failure: CallableAssociatedTypeBindingFailureV1 },
+});
+
+record!(CallableDerivedConformanceEvidenceV1 {
+    origin: CallableDerivedConformanceOriginV1,
+    impl_bindings: Vec<CallableTypeBindingV1>,
+    nested: Vec<CallableNestedGenericEvidenceV1>,
+});
+
+tagged!(CallableDerivedConformanceOriginV1 {
+    0 => ConditionalSource { exact_source: u32 },
+    1 => GuardedRule {
+        rule: CallableDerivedConformanceRuleV1,
+        exact_subject: ArtifactTypeId,
+        exact_trait_ref: TraitRefV1
+    },
+});
+
+record!(CallableDerivedConformanceRuleV1 {
+    impl_id: StableImplRef,
+    source_module: StableModuleRef,
+    target_parameter: ArtifactTypeParameterId,
+    target_template: ArtifactTypeId,
+    trait_ref: TraitRefV1,
+    generic_signature: crate::semantic::aggregates::GenericSignatureV1,
+    associated_type_plan: CallableConformanceAssociatedTypePlanV1,
+    requirement_views: Vec<CallableRequirementViewV1>,
+    requirements: Vec<CallableRequirementSelectionEntryV1>,
+    source: EnumRequirementSourceV1,
+});
+
+tagged!(CallableNestedGenericEvidenceV1 {
+    0 => Conformance { evidence: u32 },
+    1 => Equivalent,
+    2 => Subtype,
+});
+
+record!(CallableCompilerDerivedConformanceEvidenceV1 {
+    key: GenericConformanceKeyV1,
+    kind: CallableCompilerDerivedConformanceKindV1,
+    classification: CallableStructuralClassificationV1,
+});
+
+tagged!(CallableCompilerDerivedConformanceKindV1 {
+    0 => Product,
+    1 => OrderedProduct,
+    2 => UnorderedProduct,
+    3 => Sum,
+});
+
+tagged!(CallableStructuralClassificationV1 {
+    0 => Unsupported,
+    1 => OrderedProduct { form: CallableOrderedProductFormV1 },
+    2 => UnorderedProduct { form: CallableUnorderedProductFormV1 },
+    3 => Sum { owner: StableDeclarationRef },
+});
+
+tagged!(CallableOrderedProductFormV1 {
+    0 => Unit,
+    1 => Tuple,
+    2 => TupleFromPacks,
+    3 => Pack,
+    4 => PackFromPacks,
+    5 => Data { owner: StableDeclarationRef },
+});
+
+tagged!(CallableUnorderedProductFormV1 {
+    0 => Record,
+    1 => Data { owner: StableDeclarationRef },
+});
+
+record!(CallableEvidenceDiagnosticV1 {
+    code: Box<str>,
+    severity: CallableDiagnosticSeverityV1,
+    message: Box<str>,
+    primary: EnumRequirementSourceV1,
+    primary_range: SpanV1,
+    labels: Vec<CallableEvidenceDiagnosticLabelV1>,
+    notes: Vec<Box<str>>,
+    helps: Vec<Box<str>>,
+    guidance: Vec<CallableEvidenceDiagnosticGuidanceV1>,
+    explanations: Vec<CallableEvidenceExplanationRefV1>,
+    fixes: Vec<CallableEvidenceDiagnosticFixV1>,
+    root_cause: Option<u32>,
+});
+
+tagged!(CallableDiagnosticSeverityV1 {
+    0 => Error,
+    1 => Warning,
+    2 => Information,
+    3 => Hint,
+});
+
+record!(CallableEvidenceDiagnosticLabelV1 {
+    source: EnumRequirementSourceV1,
+    range: SpanV1,
+    message: Box<str>,
+});
+
+tagged!(CallableEvidenceDiagnosticGuidanceV1 {
+    0 => ChangeAnnotation { range: SpanV1, ty: ArtifactTypeId },
+    1 => SupplyAssignableValue { expected: ArtifactTypeId },
+    2 => UseCallableShape { callable: StableCallableRef },
+    3 => EstablishTypeEvidence { range: SpanV1, expected: Option<ArtifactTypeId> },
+    4 => ResolveGenericParameter { parameter: ArtifactTypeParameterId },
+});
+
+record!(CallableEvidenceExplanationRefV1 {
+    callable: StableCallableRef,
+    ordinal: u32,
+});
+
+record!(CallableEvidenceDiagnosticFixV1 {
+    message: Box<str>,
+    replacement: Option<CallableEvidenceDiagnosticReplacementV1>,
+});
+
+record!(CallableEvidenceDiagnosticReplacementV1 {
+    range: SpanV1,
+    text: Box<str>,
 });
 
 tagged!(CallableFlowNodeKindV1 {
@@ -431,6 +734,7 @@ record!(CallableAnalysisRecordV1 {
     flow_graph: CallableFlowGraphV1,
     constructor_super_initializer: Option<ConstructorSuperInitializerV1>,
     expressions: Vec<CallableExpressionRowV1>,
+    conformance_evidence: Vec<CallableConformanceEvidenceNodeV1>,
     bindings: Vec<CallableBindingRowV1>,
 });
 
@@ -1725,6 +2029,7 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
         if record.expressions.len() > limits.max_semantic_entries_per_family || record.bindings.len() > limits.max_semantic_entries_per_family {
             return Err(invalid("callable expression or binding rows exceed their owner-local limit"));
         }
+        validate_callable_conformance_evidence_graph(record, limits, allocations)?;
         if record.expressions.iter().enumerate().any(|(index, row)| row.ordinal as usize != index)
             || record.bindings.iter().enumerate().any(|(index, row)| row.ordinal as usize != index)
         {
@@ -1787,14 +2092,324 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
             .filter_map(|expression| expression.call_specialization.as_ref())
             .try_fold(0usize, |total, call| total.checked_add(call.bindings.len()))
             .ok_or_else(|| invalid("callable specialization binding count overflow"))?;
+        let specialization_conformances = record
+            .expressions
+            .iter()
+            .filter_map(|expression| expression.call_specialization.as_ref())
+            .try_fold(0usize, |total, call| total.checked_add(call.conformances.len()))
+            .ok_or_else(|| invalid("callable specialization conformance count overflow"))?;
         let nested_rows = nested_rows
             .checked_add(specialization_bindings)
+            .and_then(|total| total.checked_add(specialization_conformances))
+            .and_then(|total| total.checked_add(record.conformance_evidence.len()))
             .ok_or_else(|| invalid("callable nested row count overflow"))?;
         if nested_rows > limits.max_semantic_entries_per_family {
             return Err(invalid("callable nested row budget exceeded"));
         }
         Ok(())
     }
+}
+
+fn callable_evidence_kind(node: &CallableConformanceEvidenceNodeV1) -> u8 {
+    match node {
+        CallableConformanceEvidenceNodeV1::Exact { .. } => 0,
+        CallableConformanceEvidenceNodeV1::Assumed { .. } => 1,
+        CallableConformanceEvidenceNodeV1::Derived { .. } => 2,
+        CallableConformanceEvidenceNodeV1::CompilerDerived { .. } => 3,
+    }
+}
+
+fn validate_callable_evidence_reference(record: &CallableAnalysisRecordV1, ordinal: u32, expected_kind: Option<u8>) -> Result<usize, ArtifactError> {
+    let index = usize::try_from(ordinal).map_err(|_| invalid("callable conformance evidence ordinal exceeds address space"))?;
+    let node = record
+        .conformance_evidence
+        .get(index)
+        .ok_or_else(|| invalid("callable conformance evidence reference is out of range"))?;
+    if expected_kind.is_some_and(|expected| callable_evidence_kind(node) != expected) {
+        return Err(invalid("callable conformance evidence reference has the wrong node kind"));
+    }
+    Ok(index)
+}
+
+fn count_callable_evidence_binding_edges(binding: &CallableGenericCallConformanceBindingV1) -> usize {
+    usize::from(matches!(
+        &binding.source,
+        CallableGenericCallConformanceSourceV1::Exact { .. }
+            | CallableGenericCallConformanceSourceV1::Derived { .. }
+            | CallableGenericCallConformanceSourceV1::CompilerDerived { .. }
+    ))
+}
+
+fn count_callable_specialization_edges(specialization: &CallableInherentImplSpecializationV1) -> Result<usize, ArtifactError> {
+    let mut count = 0usize;
+    if let Some(bindings) = &specialization.conformance_provenance {
+        for binding in bindings {
+            count = count
+                .checked_add(count_callable_evidence_binding_edges(binding))
+                .ok_or_else(|| invalid("callable evidence edge count overflow"))?;
+        }
+    }
+    Ok(count)
+}
+
+fn count_callable_requirement_selection_edges(selection: &CallableRequirementSelectionV1, depth: usize, limit: usize) -> Result<usize, ArtifactError> {
+    if depth > limit {
+        return Err(invalid("callable requirement selection nesting limit exceeded"));
+    }
+    match selection {
+        CallableRequirementSelectionV1::ConformanceCallable { .. }
+        | CallableRequirementSelectionV1::DataComponent { .. }
+        | CallableRequirementSelectionV1::TraitDefault { .. } => Ok(0),
+        CallableRequirementSelectionV1::InherentCallable { applicability, .. } => applicability
+            .as_ref()
+            .map(count_callable_specialization_edges)
+            .transpose()
+            .map(|count| count.unwrap_or(0)),
+        CallableRequirementSelectionV1::ConditionalInherent { candidate, fallback, .. } => {
+            let own = candidate
+                .applicability
+                .as_ref()
+                .map(count_callable_specialization_edges)
+                .transpose()?
+                .unwrap_or(0);
+            let fallback = fallback
+                .as_deref()
+                .map(|nested| count_callable_requirement_selection_edges(nested, depth + 1, limit))
+                .transpose()?
+                .unwrap_or(0);
+            own.checked_add(fallback).ok_or_else(|| invalid("callable evidence edge count overflow"))
+        }
+    }
+}
+
+fn count_callable_evidence_edges(record: &CallableAnalysisRecordV1, limit: usize) -> Result<usize, ArtifactError> {
+    let mut count = 0usize;
+    for node in &record.conformance_evidence {
+        let edges = match node {
+            CallableConformanceEvidenceNodeV1::Exact { evidence } => {
+                let proofs = evidence.trait_header_conformance_proofs.as_ref().map_or(0, Vec::len);
+                let mut requirement_edges = 0usize;
+                for entry in &evidence.requirements {
+                    requirement_edges = requirement_edges
+                        .checked_add(count_callable_requirement_selection_edges(&entry.selection, 0, limit)?)
+                        .ok_or_else(|| invalid("callable evidence edge count overflow"))?;
+                }
+                proofs.checked_add(requirement_edges)
+            }
+            CallableConformanceEvidenceNodeV1::Derived { evidence } => {
+                let origin = usize::from(matches!(&evidence.origin, CallableDerivedConformanceOriginV1::ConditionalSource { .. }));
+                let nested = evidence
+                    .nested
+                    .iter()
+                    .filter(|item| matches!(item, CallableNestedGenericEvidenceV1::Conformance { .. }))
+                    .count();
+                let rule_requirements = match &evidence.origin {
+                    CallableDerivedConformanceOriginV1::GuardedRule { rule, .. } => {
+                        let mut count = 0usize;
+                        for entry in &rule.requirements {
+                            count = count
+                                .checked_add(count_callable_requirement_selection_edges(&entry.selection, 0, limit)?)
+                                .ok_or_else(|| invalid("callable evidence edge count overflow"))?;
+                        }
+                        count
+                    }
+                    CallableDerivedConformanceOriginV1::ConditionalSource { .. } => 0,
+                };
+                origin.checked_add(nested).and_then(|value| value.checked_add(rule_requirements))
+            }
+            CallableConformanceEvidenceNodeV1::Assumed { .. } | CallableConformanceEvidenceNodeV1::CompilerDerived { .. } => Some(0),
+        }
+        .ok_or_else(|| invalid("callable evidence edge count overflow"))?;
+        count = count.checked_add(edges).ok_or_else(|| invalid("callable evidence edge count overflow"))?;
+    }
+    Ok(count)
+}
+
+fn push_callable_evidence_edge(
+    record: &CallableAnalysisRecordV1,
+    edges: &mut Vec<(usize, usize)>,
+    from: usize,
+    ordinal: u32,
+    expected_kind: Option<u8>,
+) -> Result<(), ArtifactError> {
+    let to = validate_callable_evidence_reference(record, ordinal, expected_kind)?;
+    edges.push((from, to));
+    Ok(())
+}
+
+fn collect_callable_binding_edges(
+    record: &CallableAnalysisRecordV1,
+    edges: &mut Vec<(usize, usize)>,
+    from: usize,
+    binding: &CallableGenericCallConformanceBindingV1,
+) -> Result<(), ArtifactError> {
+    use CallableGenericCallConformanceSourceV1 as Source;
+    let (ordinal, expected) = match &binding.source {
+        Source::Exact { evidence } => (Some(*evidence), Some(0)),
+        Source::Forwarded { .. } => (None, None),
+        Source::Derived { evidence } => (Some(*evidence), Some(2)),
+        Source::CompilerDerived { evidence } => (Some(*evidence), Some(3)),
+    };
+    if let Some(ordinal) = ordinal {
+        push_callable_evidence_edge(record, edges, from, ordinal, expected)?;
+    }
+    Ok(())
+}
+
+fn collect_callable_specialization_edges(
+    record: &CallableAnalysisRecordV1,
+    edges: &mut Vec<(usize, usize)>,
+    from: usize,
+    specialization: &CallableInherentImplSpecializationV1,
+) -> Result<(), ArtifactError> {
+    if let Some(bindings) = &specialization.conformance_provenance {
+        for binding in bindings {
+            collect_callable_binding_edges(record, edges, from, binding)?;
+        }
+    }
+    Ok(())
+}
+
+fn collect_callable_requirement_selection_edges(
+    record: &CallableAnalysisRecordV1,
+    edges: &mut Vec<(usize, usize)>,
+    from: usize,
+    selection: &CallableRequirementSelectionV1,
+    depth: usize,
+    limit: usize,
+) -> Result<(), ArtifactError> {
+    if depth > limit {
+        return Err(invalid("callable requirement selection nesting limit exceeded"));
+    }
+    match selection {
+        CallableRequirementSelectionV1::InherentCallable { applicability, .. } => {
+            if let Some(applicability) = applicability {
+                collect_callable_specialization_edges(record, edges, from, applicability)?;
+            }
+        }
+        CallableRequirementSelectionV1::ConditionalInherent { candidate, fallback, .. } => {
+            if let Some(applicability) = &candidate.applicability {
+                collect_callable_specialization_edges(record, edges, from, applicability)?;
+            }
+            if let Some(fallback) = fallback {
+                collect_callable_requirement_selection_edges(record, edges, from, fallback, depth + 1, limit)?;
+            }
+        }
+        CallableRequirementSelectionV1::ConformanceCallable { .. }
+        | CallableRequirementSelectionV1::DataComponent { .. }
+        | CallableRequirementSelectionV1::TraitDefault { .. } => {}
+    }
+    Ok(())
+}
+
+fn collect_callable_evidence_edges(record: &CallableAnalysisRecordV1, edges: &mut Vec<(usize, usize)>, limit: usize) -> Result<(), ArtifactError> {
+    for (from, node) in record.conformance_evidence.iter().enumerate() {
+        match node {
+            CallableConformanceEvidenceNodeV1::Exact { evidence } => {
+                if let Some(proofs) = &evidence.trait_header_conformance_proofs {
+                    for proof in proofs {
+                        push_callable_evidence_edge(record, edges, from, proof.evidence, None)?;
+                    }
+                }
+                for requirement in &evidence.requirements {
+                    collect_callable_requirement_selection_edges(record, edges, from, &requirement.selection, 0, limit)?;
+                }
+            }
+            CallableConformanceEvidenceNodeV1::Assumed { .. } | CallableConformanceEvidenceNodeV1::CompilerDerived { .. } => {}
+            CallableConformanceEvidenceNodeV1::Derived { evidence } => {
+                match &evidence.origin {
+                    CallableDerivedConformanceOriginV1::ConditionalSource { exact_source } => {
+                        push_callable_evidence_edge(record, edges, from, *exact_source, Some(0))?;
+                    }
+                    CallableDerivedConformanceOriginV1::GuardedRule { rule, .. } => {
+                        for requirement in &rule.requirements {
+                            collect_callable_requirement_selection_edges(record, edges, from, &requirement.selection, 0, limit)?;
+                        }
+                    }
+                }
+                for nested in &evidence.nested {
+                    if let CallableNestedGenericEvidenceV1::Conformance { evidence } = nested {
+                        push_callable_evidence_edge(record, edges, from, *evidence, None)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_callable_conformance_evidence_graph(
+    record: &CallableAnalysisRecordV1,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<(), ArtifactError> {
+    let node_count = record.conformance_evidence.len();
+    if node_count > limits.max_semantic_entries_per_family {
+        return Err(invalid("callable conformance evidence node count exceeds its owner-local limit"));
+    }
+    for expression in &record.expressions {
+        let Some(specialization) = &expression.call_specialization else { continue };
+        for binding in &specialization.conformances {
+            use CallableGenericCallConformanceSourceV1 as Source;
+            let expected = match &binding.source {
+                Source::Exact { evidence } => Some((*evidence, 0)),
+                Source::Forwarded { .. } => None,
+                Source::Derived { evidence } => Some((*evidence, 2)),
+                Source::CompilerDerived { evidence } => Some((*evidence, 3)),
+            };
+            if let Some((ordinal, kind)) = expected {
+                validate_callable_evidence_reference(record, ordinal, Some(kind))?;
+            }
+        }
+    }
+    let edge_count = count_callable_evidence_edges(record, limits.max_recursion_depth)?;
+    if edge_count > limits.max_semantic_entries_per_family {
+        return Err(invalid("callable conformance evidence edge count exceeds its owner-local limit"));
+    }
+    let mut edges = allocations.vector::<(usize, usize)>(edge_count).map_err(allocation_error)?;
+    collect_callable_evidence_edges(record, &mut edges, limits.max_recursion_depth)?;
+    if edges.len() != edge_count {
+        return Err(invalid("callable conformance evidence edge accounting mismatch"));
+    }
+    edges.sort_unstable();
+
+    let mut offsets = allocations
+        .vector::<usize>(node_count.checked_add(1).ok_or_else(|| invalid("callable evidence node count overflow"))?)
+        .map_err(allocation_error)?;
+    offsets.resize(node_count + 1, 0);
+    let mut indegree = allocations.vector::<usize>(node_count).map_err(allocation_error)?;
+    indegree.resize(node_count, 0);
+    for &(from, to) in &edges {
+        offsets[from + 1] = offsets[from + 1]
+            .checked_add(1)
+            .ok_or_else(|| invalid("callable evidence out-degree overflow"))?;
+        indegree[to] = indegree[to].checked_add(1).ok_or_else(|| invalid("callable evidence in-degree overflow"))?;
+    }
+    for index in 1..offsets.len() {
+        offsets[index] = offsets[index]
+            .checked_add(offsets[index - 1])
+            .ok_or_else(|| invalid("callable evidence adjacency overflow"))?;
+    }
+    let mut queue = allocations.vector::<usize>(node_count).map_err(allocation_error)?;
+    let mut ready = allocations.vector::<usize>(node_count).map_err(allocation_error)?;
+    for (node, degree) in indegree.iter().enumerate() {
+        if *degree == 0 {
+            ready.push(node);
+        }
+    }
+    while let Some(node) = ready.pop() {
+        queue.push(node);
+        for &(_, target) in &edges[offsets[node]..offsets[node + 1]] {
+            indegree[target] -= 1;
+            if indegree[target] == 0 {
+                ready.push(target);
+            }
+        }
+    }
+    if queue.len() != node_count {
+        return Err(invalid("callable conformance evidence graph contains a cycle"));
+    }
+    Ok(())
 }
 
 fn allocation_error(error: AllocationError) -> ArtifactError {

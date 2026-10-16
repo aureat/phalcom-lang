@@ -5,10 +5,14 @@ use phalcom_compiler_artifact::semantic::static_value::StaticValueGraphV1;
 use phalcom_compiler_artifact::semantic::type_store::TypeGraphV1;
 use phalcom_compiler_artifact::semantic::world::{
     CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1,
-    CallableBindingRowV1, CallableCausalInvalidityV1, CallableExpressionRowV1, CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1,
-    CallableFlowNodeKindV1, CallableFlowNodeV1, CallableInitializationStateV1, ConstructorSuperInitializerV1, SemanticWorldV2, TypeKnowledgeV1,
+    CallableBindingRowV1, CallableCallSpecializationV1, CallableCausalInvalidityV1, CallableConformanceEvidenceNodeV1, CallableExactConformanceEvidenceV1,
+    CallableExpressionRowV1, CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1, CallableFlowNodeV1,
+    CallableGenericCallConformanceBindingV1, CallableGenericCallConformanceSourceV1, CallableGenericConformanceProofRefV1, CallableInitializationStateV1,
+    CallableTypeEnvironmentV1, ConstructorSuperInitializerV1, GenericConformanceKeyV1, SemanticWorldV2, TypeKnowledgeV1,
 };
-use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableModuleRef, StableProjectRef};
+use phalcom_type_meta::identity::{
+    StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableImplRef, StableModuleRef, StableProjectRef,
+};
 
 fn callable() -> StableCallableRef {
     StableCallableRef {
@@ -58,6 +62,18 @@ fn expression_row(ordinal: u32) -> CallableExpressionRowV1 {
     }
 }
 
+fn generic_conformance_key() -> GenericConformanceKeyV1 {
+    GenericConformanceKeyV1 {
+        subject: phalcom_compiler_artifact::semantic::aggregates::TypeTermV1::Canonical {
+            ty: phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId(0),
+        },
+        trait_ref: phalcom_compiler_artifact::semantic::aggregates::TraitRefV1 {
+            declaration: owner_ref(),
+            arguments: vec![phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId(0)],
+        },
+    }
+}
+
 #[test]
 fn callable_expression_binding_links_must_close_over_the_owner() {
     let mut valid = world(CallableAnalysisStatusV1::Complete);
@@ -76,6 +92,49 @@ fn callable_expression_binding_links_must_close_over_the_owner() {
     let mut inverted_range = valid;
     inverted_range.callable_analyses[0].expressions[0].range = SpanV1 { start: 2, end: 1 };
     assert!(inverted_range.validate(&Default::default()).is_err());
+}
+
+#[test]
+fn callable_conformance_references_are_kind_checked_and_graph_cycles_fail_closed() {
+    let key = generic_conformance_key();
+    let mut wrong_kind = world(CallableAnalysisStatusV1::Complete);
+    wrong_kind.callable_analyses[0].conformance_evidence = vec![CallableConformanceEvidenceNodeV1::Assumed {
+        key: key.clone(),
+        owner: phalcom_compiler_artifact::semantic::type_store::ParameterOwnerV1::Callable { owner: callable() },
+    }];
+    let mut expression = expression_row(0);
+    expression.call_specialization = Some(CallableCallSpecializationV1 {
+        callable: callable(),
+        bindings: vec![],
+        conformances: vec![CallableGenericCallConformanceBindingV1 {
+            callee_conformance: key.clone(),
+            source: CallableGenericCallConformanceSourceV1::Exact { evidence: 0 },
+        }],
+    });
+    wrong_kind.callable_analyses[0].expressions.push(expression);
+    assert!(wrong_kind.validate(&Default::default()).is_err(), "Exact sources must reference Exact nodes");
+
+    let mut cyclic = world(CallableAnalysisStatusV1::Complete);
+    cyclic.callable_analyses[0].conformance_evidence = vec![CallableConformanceEvidenceNodeV1::Exact {
+        evidence: CallableExactConformanceEvidenceV1 {
+            source_impl: StableImplRef {
+                module: owner_ref().module,
+                local_id: 0,
+            },
+            exact_target: phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId(0),
+            exact_trait_ref: key.trait_ref.clone(),
+            impl_environment: CallableTypeEnvironmentV1 {
+                bindings: vec![],
+                self_binding: None,
+            },
+            requirement_views: vec![],
+            requirements: vec![],
+            associated_types: vec![],
+            trait_header_contract: vec![],
+            trait_header_conformance_proofs: Some(vec![CallableGenericConformanceProofRefV1 { key, evidence: 0 }]),
+        },
+    }];
+    assert!(cyclic.validate(&Default::default()).is_err(), "self-referential evidence is not a finite proof");
 }
 
 fn body_local_binding_row(ordinal: u32) -> CallableBindingRowV1 {
@@ -159,6 +218,7 @@ fn world(status: CallableAnalysisStatusV1) -> SemanticWorldV2 {
                 initializer: callable(),
             }),
             expressions: vec![],
+            conformance_evidence: vec![],
             bindings: vec![CallableBindingRowV1 {
                 ordinal: 0,
                 name: "shared".into(),
@@ -346,6 +406,7 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
         call_specialization: Some(CallableCallSpecializationV1 {
             callable: callable(),
             bindings: vec![],
+            conformances: vec![],
         }),
     }];
     let mut earlier_owner = two_owners.callable_analyses[0].clone();
@@ -373,6 +434,7 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
             call_specialization: Some(CallableCallSpecializationV1 {
                 callable: callable(),
                 bindings: vec![],
+                conformances: vec![],
             }),
         },
         CallableExpressionRowV1 {
@@ -391,6 +453,7 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
             call_specialization: Some(CallableCallSpecializationV1 {
                 callable: callable(),
                 bindings: vec![],
+                conformances: vec![],
             }),
         },
     ];
@@ -444,6 +507,7 @@ fn explicit_dynamic_call_argument_round_trips_without_a_type_node() {
                 parameter: ArtifactTypeParameterId(0),
                 argument: StaticArgumentV1::DynamicType,
             }],
+            conformances: vec![],
         }),
     }];
 
@@ -503,6 +567,7 @@ fn call_specialization_rejects_unowned_ordinals_duplicate_bindings_and_wrong_dyn
                     argument: StaticArgumentV1::DynamicType,
                 },
             ],
+            conformances: vec![],
         }),
     }];
     assert!(image.validate(&Default::default()).is_err(), "duplicate parameter bindings must fail");
@@ -536,6 +601,7 @@ fn call_specialization_rejects_unowned_ordinals_duplicate_bindings_and_wrong_dyn
                 parameter: ArtifactTypeParameterId(0),
                 argument: StaticArgumentV1::DynamicType,
             }],
+            conformances: vec![],
         }),
     }];
     assert!(wrong_kind.validate(&Default::default()).is_err(), "Dynamic requires a proper-type parameter");

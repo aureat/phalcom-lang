@@ -2458,6 +2458,25 @@ Any generic evidence source lacks a stable portable owner/provenance representat
 
 Only if a new durable portable generic-evidence interface is established.
 
+### Approved generic-evidence architecture amendment — 2026-10-16
+
+Decision: generic call conformance evidence remains owned by `CallableAnalysis`;
+PATCH1 must not introduce a global semantic-world evidence owner. Add a
+deterministic callable-local evidence arena with Exact, Assumed, Derived, and
+CompilerDerived nodes and owner-local references from ordered call-specialization
+conformance bindings. Preserve every native equality-significant field in each
+admitted node and nested product, including complete
+`RequirementSelectionTemplate` variants, `None` versus `Some` provenance,
+exact trait-header proofs, Derived rules/substitutions/nested evidence, and
+structural classifications. Import must be bounded, reject cycles and malformed
+references before construction, relocate all roots, and reconstruct solely from
+the wire without query execution or source lookup. Treat stored fingerprints as
+derived state. Prove relocation-invariant conformance evidence fingerprints from
+normalized logical identities before claiming fresh-store parity. Keep schema 2
+and all existing callable guards until the GE-1..GE-12 gate and final PATCH1
+owner-parity gate pass. The full architect decision is retained in the
+2026-10-16 PATCH1/T5 entry in `CHECKPOINT.md`.
+
 ---
 
 # T6 — Transport flow boundaries and all callable resolution families
