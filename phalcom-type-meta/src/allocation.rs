@@ -192,6 +192,15 @@ pub enum SortedMapEntriesError {
     OutOfOrder,
 }
 
+/// Error returned when an already allocated set buffer is not strictly ordered.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum SortedSetEntriesError {
+    #[error("duplicate element in sorted set entries")]
+    DuplicateElement,
+    #[error("sorted set entries are out of order")]
+    OutOfOrder,
+}
+
 /// Immutable ordered map backed by one explicitly charged contiguous buffer.
 #[derive(Debug, Eq, PartialEq)]
 pub struct BudgetedSortedMap<K, V> {
@@ -302,6 +311,18 @@ pub struct BudgetedSortedSet<K> {
 }
 
 impl<K: Ord> BudgetedSortedSet<K> {
+    /// Takes ownership of a pre-budgeted, strictly ordered element buffer.
+    pub fn from_sorted_entries(entries: Vec<K>) -> Result<Self, SortedSetEntriesError> {
+        for pair in entries.windows(2) {
+            match pair[0].cmp(&pair[1]) {
+                std::cmp::Ordering::Less => {}
+                std::cmp::Ordering::Equal => return Err(SortedSetEntriesError::DuplicateElement),
+                std::cmp::Ordering::Greater => return Err(SortedSetEntriesError::OutOfOrder),
+            }
+        }
+        Ok(Self { entries })
+    }
+
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -319,6 +340,11 @@ impl<K: Ord> BudgetedSortedSet<K> {
 
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &K> {
         self.entries.iter()
+    }
+
+    /// Exposes the ordered backing slice for zero-allocation owner adapters.
+    pub fn as_entries(&self) -> &[K] {
+        &self.entries
     }
 
     pub fn range<Q, R>(&self, bounds: R) -> impl Iterator<Item = &K>

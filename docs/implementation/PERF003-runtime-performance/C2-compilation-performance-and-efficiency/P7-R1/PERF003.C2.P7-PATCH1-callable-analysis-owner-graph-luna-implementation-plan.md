@@ -5,15 +5,15 @@ program: PERF003
 checkpoint: PERF003.C2
 parent_plan: PERF003.C2.P7
 kind: corrective-implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 depends_on:
   - PERF003.C2.P7.PATCH0
 follows: PERF003.C2.P7.PATCH0
 supersedes: null
 target_branch: perf/universe-characterization
-prepared_against_revision: 21a54705c33dae95ee9c77d86789b4911635e6b0
+prepared_against_revision: dbde1d8cacba40067223ca7230b79580bff9c164
 audit_baseline_revision: 2939e9d41640dc1eca3fbbc9b8e20529ab05ef6a
 executor_profile: GPT-5.6 Luna High / Extra High
 ---

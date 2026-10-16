@@ -1412,11 +1412,17 @@ fn specialize_data_constructor_target(
             };
             match argument {
                 crate::types::store::StaticArgument::Term(ty) => {
-                    environment.bind_param(parameter, *ty);
+                    environment
+                        .bind_param(parameter, *ty)
+                        .expect("expression specialization environment is source mutable");
                     fixed_generics.push((parameter, *ty));
                 }
-                crate::types::store::StaticArgument::RecordRow(row) => environment.bind_row(parameter, *row),
-                crate::types::store::StaticArgument::DynamicType => environment.bind_dynamic(parameter),
+                crate::types::store::StaticArgument::RecordRow(row) => environment
+                    .bind_row(parameter, *row)
+                    .expect("expression specialization environment is source mutable"),
+                crate::types::store::StaticArgument::DynamicType => environment
+                    .bind_dynamic(parameter)
+                    .expect("expression specialization environment is source mutable"),
             }
         }
     }
@@ -2588,11 +2594,15 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 ) {
                     match arg {
                         crate::types::store::StaticArgument::Term(ty) => {
-                            env.bind_param(param_id, ty);
+                            env.bind_param(param_id, ty).expect("expression specialization environment is source mutable");
                             fixed_generics.push((param_id, ty));
                         }
-                        crate::types::store::StaticArgument::RecordRow(row) => env.bind_row(param_id, row),
-                        crate::types::store::StaticArgument::DynamicType => env.bind_dynamic(param_id),
+                        crate::types::store::StaticArgument::RecordRow(row) => {
+                            env.bind_row(param_id, row).expect("expression specialization environment is source mutable")
+                        }
+                        crate::types::store::StaticArgument::DynamicType => {
+                            env.bind_dynamic(param_id).expect("expression specialization environment is source mutable")
+                        }
                     }
                 }
             }
@@ -2671,11 +2681,15 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 ) {
                     match arg {
                         crate::types::store::StaticArgument::Term(ty) => {
-                            env.bind_param(param_id, ty);
+                            env.bind_param(param_id, ty).expect("expression specialization environment is source mutable");
                             fixed_generics.push((param_id, ty));
                         }
-                        crate::types::store::StaticArgument::RecordRow(row) => env.bind_row(param_id, row),
-                        crate::types::store::StaticArgument::DynamicType => env.bind_dynamic(param_id),
+                        crate::types::store::StaticArgument::RecordRow(row) => {
+                            env.bind_row(param_id, row).expect("expression specialization environment is source mutable")
+                        }
+                        crate::types::store::StaticArgument::DynamicType => {
+                            env.bind_dynamic(param_id).expect("expression specialization environment is source mutable")
+                        }
                     }
                 }
             }
@@ -3029,7 +3043,9 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
                     if let TypeKnowledge::Known(evidence) = &typed.knowledge {
                         let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), *range);
                         if let Some(resolution) = resolution {
-                            ctx.positional_expansions.insert(resolution.source_expression, resolution);
+                            ctx.positional_expansions
+                                .insert_source(resolution.source_expression, resolution)
+                                .expect("checking context positional expansions are source mutable");
                         } else {
                             crate::checker::iteration::record_known_invalid_positional_expansion(ctx, typed.expression_id, evidence.ty(), *range);
                         }
@@ -6152,7 +6168,8 @@ fn pattern_common_proof(
     let mut proof = first.clone();
     proof
         .bindings
-        .retain(|parameter, ty| alternatives.iter().all(|alternative| alternative.bindings.get(parameter) == Some(ty)));
+        .retain_source(|parameter, ty| alternatives.iter().all(|alternative| alternative.bindings.get(parameter) == Some(ty)))
+        .expect("new GADT branch proofs use source-mutable maps");
     proof.equalities = proof
         .equalities
         .iter()

@@ -96,7 +96,7 @@ pub(crate) fn open_variant_case(
     }
     match crate::checker::gadt_proof::solve_local_case_proof_against_local(store, &proof, &subject.local, &case_instantiation, control) {
         crate::checker::gadt_proof::LocalCaseProof::Reachable { bindings, equalities } => {
-            proof.local_bindings = bindings;
+            proof.local_bindings = bindings.into();
             proof.local_equalities = equalities;
         }
         crate::checker::gadt_proof::LocalCaseProof::Refuted => return VariantOpenOutcome::Refuted,

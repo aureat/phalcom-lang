@@ -1,5 +1,6 @@
 //! Formal expression and callable analysis product models (Spec 04.5).
 
+use super::analysis_map::AnalysisMap;
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::incident::InternalSemanticIncident;
 use crate::diagnostic::SemanticDiagnostic;
@@ -12,7 +13,9 @@ use crate::types::evidence::{DynamicReason, TypeKnowledge};
 use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::outcome::{BlockReason, BudgetReport};
 use phalcom_common::range::SourceRange;
-use std::collections::BTreeMap;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
+use std::collections::{BTreeSet, HashMap};
+use std::ops::Range;
 use std::sync::Arc;
 
 /// Analysis outcome status for a single expression.
@@ -296,7 +299,7 @@ pub enum ForIterationRequirementResolution {
 }
 
 /// Deterministic index of canonical semantic `for` lane resolutions.
-pub type ForIterationLaneResolutionIndex = BTreeMap<ExpressionId, ForIterationLaneResolution>;
+pub type ForIterationLaneResolutionIndex = AnalysisMap<ExpressionId, ForIterationLaneResolution>;
 
 pub use crate::checker::static_iteration::{StaticIterationItemDomain, StaticIterationLaneResolution, StaticIterationLaneResolutionIndex, StaticIterationMode};
 
@@ -313,7 +316,7 @@ pub struct PositionalExpansionIterationResolution {
 }
 
 /// Deterministic index of canonical semantic positional expansion resolutions.
-pub type PositionalExpansionIterationResolutionIndex = BTreeMap<ExpressionId, PositionalExpansionIterationResolution>;
+pub type PositionalExpansionIterationResolutionIndex = AnalysisMap<ExpressionId, PositionalExpansionIterationResolution>;
 
 /// A statically known positional expansion source for which canonical
 /// Iterable/Iterator evidence was not available. Lowering consumes this
@@ -325,7 +328,7 @@ pub struct KnownInvalidPositionalExpansion {
     pub source_type: TypeId,
 }
 
-pub type KnownInvalidPositionalExpansionIndex = BTreeMap<ExpressionId, KnownInvalidPositionalExpansion>;
+pub type KnownInvalidPositionalExpansionIndex = AnalysisMap<ExpressionId, KnownInvalidPositionalExpansion>;
 
 /// Binding flow state tracking persistent declared constraint vs. current path knowledge.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -442,8 +445,8 @@ pub struct FlowFieldSummary {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FlowStateSummary {
-    pub bindings: BTreeMap<BindingId, FlowBindingSummary>,
-    pub fields: BTreeMap<FieldId, FlowFieldSummary>,
+    pub bindings: AnalysisMap<BindingId, FlowBindingSummary>,
+    pub fields: AnalysisMap<FieldId, FlowFieldSummary>,
     pub fact_count: usize,
 }
 
@@ -513,10 +516,10 @@ pub fn normal_return_summary(store: &mut crate::types::store::TypeStore, exits: 
 }
 
 /// Index of expression analysis products within a body.
-pub type ExpressionAnalysisIndex = BTreeMap<ExpressionId, ExpressionAnalysis>;
+pub type ExpressionAnalysisIndex = AnalysisMap<ExpressionId, ExpressionAnalysis>;
 
 /// Index of binding states within a body.
-pub type BindingAnalysisIndex = BTreeMap<BindingId, BindingState>;
+pub type BindingAnalysisIndex = AnalysisMap<BindingId, BindingState>;
 
 /// Storage authority for one binding handle retained by a callable analysis.
 ///
@@ -537,7 +540,7 @@ pub enum CallableBindingOrigin {
 }
 
 /// Storage-origin map keyed by body-local analysis handles.
-pub type CallableBindingOriginIndex = BTreeMap<BindingId, CallableBindingOrigin>;
+pub type CallableBindingOriginIndex = AnalysisMap<BindingId, CallableBindingOrigin>;
 
 use crate::identity::{DeclarationId, ModuleId};
 
@@ -654,7 +657,7 @@ pub struct SequenceLiteralResolution {
     pub extent: Option<TypeId>,
     pub construction: SequenceConstructionPlan,
     /// Intrinsic positional execution lanes whose cardinality is proved.
-    pub exact_expansions: BTreeMap<SourceRange, SequenceExpansionResolution>,
+    pub exact_expansions: AnalysisMap<SourceRange, SequenceExpansionResolution>,
 }
 
 /// Proof-preserving positional spread for dimensioned sequence construction.
@@ -666,7 +669,7 @@ pub enum SequenceExpansionResolution {
     VectorStorage { extent: TypeId },
 }
 
-pub type SequenceLiteralResolutionIndex = BTreeMap<ExpressionId, SequenceLiteralResolution>;
+pub type SequenceLiteralResolutionIndex = AnalysisMap<ExpressionId, SequenceLiteralResolution>;
 
 #[derive(Clone, Debug)]
 pub struct CallableAnalysis {
@@ -716,80 +719,277 @@ pub struct CallableAnalysis {
     pub status: CallableAnalysisStatus,
 }
 
-/// Secondary module-indexed table of callable analyses.
-/// Provides O(1) module-bounded iteration for compiler lowering while
-/// preserving fast ID lookups and familiar map-like query methods.
-#[derive(Clone, Debug, Default)]
+/// A frozen callable table's rows are grouped by module and ordered by
+/// callable identity within each module. The module index stores charged row
+/// ranges, so module iteration never scans unrelated callables or allocates a
+/// shadow lookup table.
+#[derive(Clone, Debug)]
+struct FrozenCallableAnalysisTable {
+    rows: Arc<Vec<(CallableId, Arc<CallableAnalysis>)>>,
+    module_ranges: AnalysisMap<crate::identity::ModuleId, Range<usize>>,
+}
+
+#[derive(Clone, Debug)]
+struct SourceCallableAnalysisTable {
+    by_id: HashMap<CallableId, Arc<CallableAnalysis>>,
+    by_module: HashMap<crate::identity::ModuleId, BTreeSet<CallableId>>,
+}
+
+#[derive(Clone, Debug)]
+enum CallableAnalysisTableStorage {
+    Source(SourceCallableAnalysisTable),
+    Frozen(FrozenCallableAnalysisTable),
+}
+
+/// Failure while creating the immutable imported callable-table backing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CallableAnalysisTableBuildError {
+    /// Two rows use the same stable callable identity.
+    DuplicateCallable,
+    /// A charged buffer or shared owner exceeded the load allocation budget.
+    Allocation(AllocationError),
+    /// Construction of the charged module-range index failed.
+    ModuleIndex(crate::checker::analysis_map::AnalysisMapBuildError),
+}
+
+/// Error returned when a source mutation is attempted on an imported table.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FrozenCallableAnalysisTableMutation;
+
+/// Module-indexed table of callable analyses. Source checking uses mutable
+/// hash/tree indexes; artifact import uses charged immutable sorted rows.
+#[derive(Clone, Debug)]
 pub struct CallableAnalysisTable {
-    by_id: std::collections::HashMap<CallableId, Arc<CallableAnalysis>>,
-    by_module: std::collections::HashMap<crate::identity::ModuleId, std::collections::BTreeSet<CallableId>>,
+    storage: CallableAnalysisTableStorage,
+}
+
+impl Default for CallableAnalysisTable {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CallableAnalysisTable {
+    /// Creates an empty source-side callable table.
     pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn insert(&mut self, callable: CallableId, analysis: Arc<CallableAnalysis>) {
-        self.by_module.entry(callable.owner.module().clone()).or_default().insert(callable.clone());
-        self.by_id.insert(callable, analysis);
-    }
-
-    pub fn remove(&mut self, callable: &CallableId) -> Option<Arc<CallableAnalysis>> {
-        if let Some(set) = self.by_module.get_mut(callable.owner.module()) {
-            set.remove(callable);
+        Self {
+            storage: CallableAnalysisTableStorage::Source(SourceCallableAnalysisTable {
+                by_id: HashMap::new(),
+                by_module: HashMap::new(),
+            }),
         }
-        self.by_id.remove(callable)
     }
 
-    pub fn retain(&mut self, mut predicate: impl FnMut(&CallableId, &mut Arc<CallableAnalysis>) -> bool) {
-        let by_module = &mut self.by_module;
-        self.by_id.retain(|callable, analysis| {
+    /// Takes ownership of rows whose vector storage was already charged to
+    /// `allocations`, then builds the immutable module ranges against that
+    /// same transaction ledger.
+    pub fn from_budgeted_entries(
+        mut rows: Vec<(CallableId, Arc<CallableAnalysis>)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, CallableAnalysisTableBuildError> {
+        rows.sort_unstable_by(|left, right| left.0.owner.module().cmp(right.0.owner.module()).then_with(|| left.0.cmp(&right.0)));
+        if rows.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(CallableAnalysisTableBuildError::DuplicateCallable);
+        }
+
+        let module_count = rows.windows(2).filter(|pair| pair[0].0.owner.module() != pair[1].0.owner.module()).count() + usize::from(!rows.is_empty());
+        let mut module_ranges = allocations.vector(module_count).map_err(CallableAnalysisTableBuildError::Allocation)?;
+        let mut start = 0;
+        while start < rows.len() {
+            let module = rows[start].0.owner.module().clone();
+            let mut end = start + 1;
+            while end < rows.len() && rows[end].0.owner.module() == &module {
+                end += 1;
+            }
+            module_ranges.push((module, start..end));
+            start = end;
+        }
+        let module_ranges = AnalysisMap::from_budgeted_entries(module_ranges, allocations).map_err(CallableAnalysisTableBuildError::ModuleIndex)?;
+        let rows = allocations.arc(rows).map_err(CallableAnalysisTableBuildError::Allocation)?;
+
+        Ok(Self {
+            storage: CallableAnalysisTableStorage::Frozen(FrozenCallableAnalysisTable { rows, module_ranges }),
+        })
+    }
+
+    /// Inserts or replaces a source-side callable analysis.
+    pub fn insert_source(
+        &mut self,
+        callable: CallableId,
+        analysis: Arc<CallableAnalysis>,
+    ) -> Result<Option<Arc<CallableAnalysis>>, FrozenCallableAnalysisTableMutation> {
+        let CallableAnalysisTableStorage::Source(source) = &mut self.storage else {
+            return Err(FrozenCallableAnalysisTableMutation);
+        };
+        source.by_module.entry(callable.owner.module().clone()).or_default().insert(callable.clone());
+        Ok(source.by_id.insert(callable, analysis))
+    }
+
+    /// Removes one source-side callable analysis.
+    pub fn remove_source(&mut self, callable: &CallableId) -> Result<Option<Arc<CallableAnalysis>>, FrozenCallableAnalysisTableMutation> {
+        let CallableAnalysisTableStorage::Source(source) = &mut self.storage else {
+            return Err(FrozenCallableAnalysisTableMutation);
+        };
+        if let Some(ids) = source.by_module.get_mut(callable.owner.module()) {
+            ids.remove(callable);
+            if ids.is_empty() {
+                source.by_module.remove(callable.owner.module());
+            }
+        }
+        Ok(source.by_id.remove(callable))
+    }
+
+    /// Removes source-side entries that do not satisfy `predicate`.
+    pub fn retain_source(
+        &mut self,
+        mut predicate: impl FnMut(&CallableId, &mut Arc<CallableAnalysis>) -> bool,
+    ) -> Result<(), FrozenCallableAnalysisTableMutation> {
+        let CallableAnalysisTableStorage::Source(source) = &mut self.storage else {
+            return Err(FrozenCallableAnalysisTableMutation);
+        };
+        let by_module = &mut source.by_module;
+        source.by_id.retain(|callable, analysis| {
             let keep = predicate(callable, analysis);
             if !keep {
-                if let Some(set) = by_module.get_mut(callable.owner.module()) {
-                    set.remove(callable);
+                if let Some(ids) = by_module.get_mut(callable.owner.module()) {
+                    ids.remove(callable);
                 }
             }
             keep
         });
+        source.by_module.retain(|_, ids| !ids.is_empty());
+        Ok(())
     }
 
+    /// Looks up a callable analysis by stable identity.
     pub fn get(&self, callable: &CallableId) -> Option<&Arc<CallableAnalysis>> {
-        self.by_id.get(callable)
+        match &self.storage {
+            CallableAnalysisTableStorage::Source(source) => source.by_id.get(callable),
+            CallableAnalysisTableStorage::Frozen(frozen) => {
+                let range = frozen.module_ranges.get(callable.owner.module())?;
+                let rows = &frozen.rows[range.clone()];
+                rows.binary_search_by(|(candidate, _)| candidate.cmp(callable)).ok().map(|index| &rows[index].1)
+            }
+        }
     }
 
+    /// Returns whether the table contains `callable`.
     pub fn contains_key(&self, callable: &CallableId) -> bool {
-        self.by_id.contains_key(callable)
+        self.get(callable).is_some()
     }
 
+    /// Returns the number of callable analyses.
     pub fn len(&self) -> usize {
-        self.by_id.len()
+        match &self.storage {
+            CallableAnalysisTableStorage::Source(source) => source.by_id.len(),
+            CallableAnalysisTableStorage::Frozen(frozen) => frozen.rows.len(),
+        }
     }
 
+    /// Returns whether the table has no callable analyses.
     pub fn is_empty(&self) -> bool {
-        self.by_id.is_empty()
+        self.len() == 0
     }
 
-    pub fn keys(&self) -> std::collections::hash_map::Keys<'_, CallableId, Arc<CallableAnalysis>> {
-        self.by_id.keys()
+    /// Iterates stable callable identities.
+    pub fn keys(&self) -> impl ExactSizeIterator<Item = &CallableId> {
+        self.iter().map(|(callable, _)| callable)
     }
 
-    pub fn values(&self) -> std::collections::hash_map::Values<'_, CallableId, Arc<CallableAnalysis>> {
-        self.by_id.values()
+    /// Iterates callable analysis owners.
+    pub fn values(&self) -> impl ExactSizeIterator<Item = &Arc<CallableAnalysis>> {
+        self.iter().map(|(_, analysis)| analysis)
     }
 
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, CallableId, Arc<CallableAnalysis>> {
-        self.by_id.iter()
+    /// Iterates all callable owners in the backing representation's order.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&CallableId, &Arc<CallableAnalysis>)> {
+        CallableAnalysisIter::new(&self.storage)
     }
 
-    /// Iterates only the callable analyses belonging to the specified module.
-    /// This is an O(callables in module) operation instead of O(all callables).
+    /// Iterates only this module's rows. Imported iteration is a direct slice
+    /// traversal over its charged module range.
     pub fn iter_module<'a>(&'a self, module: &'a crate::identity::ModuleId) -> impl Iterator<Item = (&'a CallableId, &'a Arc<CallableAnalysis>)> {
-        self.by_module
-            .get(module)
-            .into_iter()
-            .flat_map(move |ids| ids.iter().filter_map(move |id| self.by_id.get(id).map(|analysis| (id, analysis))))
+        CallableAnalysisModuleIter::new(&self.storage, module)
+    }
+}
+
+enum CallableAnalysisIter<'a> {
+    Source(std::collections::hash_map::Iter<'a, CallableId, Arc<CallableAnalysis>>),
+    Frozen(std::slice::Iter<'a, (CallableId, Arc<CallableAnalysis>)>),
+}
+
+impl<'a> CallableAnalysisIter<'a> {
+    fn new(storage: &'a CallableAnalysisTableStorage) -> Self {
+        match storage {
+            CallableAnalysisTableStorage::Source(source) => Self::Source(source.by_id.iter()),
+            CallableAnalysisTableStorage::Frozen(frozen) => Self::Frozen(frozen.rows.iter()),
+        }
+    }
+}
+
+impl<'a> Iterator for CallableAnalysisIter<'a> {
+    type Item = (&'a CallableId, &'a Arc<CallableAnalysis>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Source(iter) => iter.next(),
+            Self::Frozen(iter) => iter.next().map(|(callable, analysis)| (callable, analysis)),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.len();
+        (len, Some(len))
+    }
+}
+
+impl ExactSizeIterator for CallableAnalysisIter<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Source(iter) => iter.len(),
+            Self::Frozen(iter) => iter.len(),
+        }
+    }
+}
+
+enum CallableAnalysisModuleIter<'a> {
+    Source {
+        ids: std::collections::btree_set::Iter<'a, CallableId>,
+        by_id: &'a HashMap<CallableId, Arc<CallableAnalysis>>,
+    },
+    Frozen(std::slice::Iter<'a, (CallableId, Arc<CallableAnalysis>)>),
+    Empty,
+}
+
+impl<'a> CallableAnalysisModuleIter<'a> {
+    fn new(storage: &'a CallableAnalysisTableStorage, module: &crate::identity::ModuleId) -> Self {
+        match storage {
+            CallableAnalysisTableStorage::Source(source) => source
+                .by_module
+                .get(module)
+                .map(|ids| Self::Source {
+                    ids: ids.iter(),
+                    by_id: &source.by_id,
+                })
+                .unwrap_or(Self::Empty),
+            CallableAnalysisTableStorage::Frozen(frozen) => frozen
+                .module_ranges
+                .get(module)
+                .map(|range| Self::Frozen(frozen.rows[range.clone()].iter()))
+                .unwrap_or(Self::Empty),
+        }
+    }
+}
+
+impl<'a> Iterator for CallableAnalysisModuleIter<'a> {
+    type Item = (&'a CallableId, &'a Arc<CallableAnalysis>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Source { ids, by_id } => ids.next().and_then(|callable| by_id.get(callable).map(|analysis| (callable, analysis))),
+            Self::Frozen(iter) => iter.next().map(|(callable, analysis)| (callable, analysis)),
+            Self::Empty => None,
+        }
     }
 }
 
@@ -801,21 +1001,156 @@ impl std::ops::Index<&CallableId> for CallableAnalysisTable {
     }
 }
 
-impl std::ops::Deref for CallableAnalysisTable {
-    type Target = std::collections::HashMap<CallableId, Arc<CallableAnalysis>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.by_id
-    }
-}
-
-impl From<std::collections::HashMap<CallableId, Arc<CallableAnalysis>>> for CallableAnalysisTable {
+impl From<HashMap<CallableId, Arc<CallableAnalysis>>> for CallableAnalysisTable {
     fn from(map: std::collections::HashMap<CallableId, Arc<CallableAnalysis>>) -> Self {
-        let mut by_module = std::collections::HashMap::<crate::identity::ModuleId, std::collections::BTreeSet<CallableId>>::new();
+        let mut by_module = HashMap::<crate::identity::ModuleId, BTreeSet<CallableId>>::new();
         for id in map.keys() {
             by_module.entry(id.owner.module().clone()).or_default().insert(id.clone());
         }
-        Self { by_id: map, by_module }
+        Self {
+            storage: CallableAnalysisTableStorage::Source(SourceCallableAnalysisTable { by_id: map, by_module }),
+        }
+    }
+}
+
+#[cfg(test)]
+mod callable_analysis_table_tests {
+    use super::{
+        BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, CallableAnalysisTable, CallableBindingOriginIndex, ExpressionAnalysisIndex, FlowStateSummary,
+        SequenceLiteralResolutionIndex,
+    };
+    use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ModuleId, ModulePath, ResolvedProjectId};
+    use crate::signature::ReturnContractValidation;
+    use phalcom_common::range::SourceRange;
+    use phalcom_common::selector::Selector;
+    use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    fn module(project: u32) -> ModuleId {
+        ModuleId::resolved(ResolvedProjectId::from_raw(project), ModulePath::root())
+    }
+
+    fn callable(module: ModuleId, name: &str) -> CallableId {
+        CallableId::new(
+            CallableOwnerId::Declaration(DeclarationId::new(module, "CallableTableTest".into())),
+            Selector::getter(name).expect("test selector is valid"),
+            DispatchSide::Instance,
+        )
+    }
+
+    fn analysis(callable: CallableId) -> Arc<CallableAnalysis> {
+        Arc::new(CallableAnalysis {
+            callable,
+            body_range: SourceRange { start: 0, end: 0 },
+            body_source_owner: None,
+            expressions: ExpressionAnalysisIndex::new(),
+            bindings: super::BindingAnalysisIndex::new(),
+            binding_origins: CallableBindingOriginIndex::new(),
+            for_iteration_lanes: Arc::new(super::ForIterationLaneResolutionIndex::new()),
+            positional_expansions: Arc::new(super::PositionalExpansionIterationResolutionIndex::new()),
+            known_invalid_positional_expansions: Arc::new(super::KnownInvalidPositionalExpansionIndex::new()),
+            sequence_literals: Arc::new(SequenceLiteralResolutionIndex::new()),
+            associated_resolutions: Arc::new(crate::checker::associated::AssociatedResolutionIndex::new()),
+            callable_reference_resolutions: Arc::new(crate::checker::associated::CallableReferenceResolutionIndex::new()),
+            family_applications: Arc::new(crate::checker::associated::FamilyApplicationResolutionIndex::new()),
+            match_resolutions: Arc::new(crate::match_semantics::MatchResolutionIndex::new()),
+            pattern_site_resolutions: Arc::new(crate::match_semantics::PatternSiteResolutionIndex::new()),
+            flow_graph: Arc::new(crate::checker::flow::graph::FlowGraph::default()),
+            entry_flow: FlowStateSummary::default(),
+            exits: BodyExitFacts::default(),
+            return_validation: ReturnContractValidation::NotApplicable,
+            diagnostics: Arc::from([]),
+            internal_incidents: Arc::from([]),
+            explanations: Arc::new(crate::explain::ExplanationArena::new()),
+            return_explanation: None,
+            dependencies: Arc::from([]),
+            semantic_dependencies: Arc::from([]),
+            constructor_super_initializer: None,
+            dependency_fingerprint: crate::db::ProductFingerprint(0),
+            status: CallableAnalysisStatus::Complete,
+        })
+    }
+
+    fn table_rows() -> Vec<(CallableId, Arc<CallableAnalysis>)> {
+        [callable(module(2), "z"), callable(module(1), "b"), callable(module(1), "a")]
+            .into_iter()
+            .map(|id| (id.clone(), analysis(id)))
+            .collect()
+    }
+
+    #[test]
+    fn source_and_frozen_callable_tables_have_lookup_and_module_iteration_parity() {
+        let rows = table_rows();
+        let mut source_map = HashMap::new();
+        for (callable, analysis) in rows.iter().cloned() {
+            source_map.insert(callable, analysis);
+        }
+        let source = CallableAnalysisTable::from(source_map);
+        let mut allocations = AllocationBudget::new(4096);
+        let mut frozen_rows = allocations.vector(rows.len()).unwrap();
+        frozen_rows.extend(rows);
+        let frozen = CallableAnalysisTable::from_budgeted_entries(frozen_rows, &mut allocations).unwrap();
+
+        assert_eq!(source.len(), 3);
+        assert_eq!(frozen.len(), 3);
+        for callable in source.keys() {
+            assert!(frozen.contains_key(callable));
+            assert_eq!(source.get(callable).unwrap().callable, frozen.get(callable).unwrap().callable);
+        }
+        for module in [module(1), module(2), module(3)] {
+            let source_ids = source.iter_module(&module).map(|(id, _)| id.clone()).collect::<Vec<_>>();
+            let frozen_ids = frozen.iter_module(&module).map(|(id, _)| id.clone()).collect::<Vec<_>>();
+            assert_eq!(source_ids, frozen_ids);
+            assert_eq!(frozen_ids.iter().filter(|id| id.owner.module() == &module).count(), frozen_ids.len());
+        }
+    }
+
+    #[test]
+    fn frozen_callable_table_rejects_source_mutation_and_source_clone_isolated() {
+        let rows = table_rows();
+        let mut allocations = AllocationBudget::new(4096);
+        let mut frozen_rows = allocations.vector(rows.len()).unwrap();
+        frozen_rows.extend(rows.clone());
+        let mut frozen = CallableAnalysisTable::from_budgeted_entries(frozen_rows, &mut allocations).unwrap();
+        let candidate = rows[0].0.clone();
+        assert!(matches!(
+            frozen.insert_source(candidate.clone(), analysis(candidate.clone())),
+            Err(super::FrozenCallableAnalysisTableMutation)
+        ));
+        assert!(matches!(frozen.remove_source(&candidate), Err(super::FrozenCallableAnalysisTableMutation)));
+        assert_eq!(frozen.retain_source(|_, _| true), Err(super::FrozenCallableAnalysisTableMutation));
+
+        let mut source = CallableAnalysisTable::from(rows.into_iter().collect::<HashMap<_, _>>());
+        let mut clone = source.clone();
+        assert!(source.remove_source(&candidate).unwrap().is_some());
+        assert!(!source.contains_key(&candidate));
+        assert!(clone.contains_key(&candidate));
+        assert!(clone.remove_source(&candidate).unwrap().is_some());
+    }
+
+    #[test]
+    fn frozen_callable_table_charges_rows_and_module_index_at_exact_fit() {
+        fn build(budget: &mut AllocationBudget) -> Result<CallableAnalysisTable, super::CallableAnalysisTableBuildError> {
+            let mut rows = budget.vector(3).map_err(super::CallableAnalysisTableBuildError::Allocation)?;
+            rows.extend(table_rows());
+            CallableAnalysisTable::from_budgeted_entries(rows, budget)
+        }
+
+        let mut probe = AllocationBudget::new(16 * 1024);
+        let _table = build(&mut probe).unwrap();
+        let exact = probe.requested();
+        assert!(exact > 0);
+
+        let mut fits = AllocationBudget::new(exact);
+        assert_eq!(build(&mut fits).unwrap().len(), 3);
+        assert_eq!(fits.requested(), exact);
+
+        let mut short = AllocationBudget::new(exact - 1);
+        assert!(matches!(
+            build(&mut short),
+            Err(super::CallableAnalysisTableBuildError::Allocation(AllocationError::Exhausted))
+        ));
     }
 }
 

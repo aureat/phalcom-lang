@@ -2602,7 +2602,7 @@ mod tests {
         let projection = store.associated_projection(self_type, TraitRef::new(owner, Vec::<TypeId>::new().into_boxed_slice()), requirement.clone());
         let nested = store.tuple(vec![TupleTypeElement::unlabeled(projection)].into_boxed_slice());
         let mut environment = TypeEnvironment::new();
-        environment.bind_self(subject);
+        environment.bind_self(subject).expect("type projection environment is source mutable");
         let materialized = TypeView::new(nested, environment).materialize(&mut store);
         let TypeData::Tuple(elements) = store.get(materialized) else {
             panic!("expected tuple")

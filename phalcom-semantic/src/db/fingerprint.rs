@@ -3480,16 +3480,19 @@ mod tests {
 
         let make_summary = |validity: FieldContractValidity, causal: CausalInvalidity| {
             let mut summary = FlowStateSummary::default();
-            summary.fields.insert(
-                field.clone(),
-                FlowFieldSummary {
-                    contract: contract.clone(),
-                    current: current.clone(),
-                    initialization: FieldInitialization::DefinitelyInitialized,
-                    validity,
-                    causal_invalidity: causal,
-                },
-            );
+            summary
+                .fields
+                .insert_source(
+                    field.clone(),
+                    FlowFieldSummary {
+                        contract: contract.clone(),
+                        current: current.clone(),
+                        initialization: FieldInitialization::DefinitelyInitialized,
+                        validity,
+                        causal_invalidity: causal,
+                    },
+                )
+                .unwrap();
             let mut hasher = DefaultHasher::new();
             hash_flow_summary(&summary, &mut hasher);
             hasher.finish()

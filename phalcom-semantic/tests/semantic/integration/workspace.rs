@@ -1088,7 +1088,7 @@ fn workspace_generic_class_and_callable_signature_publication() {
         .form(&phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int))
         .expect("Int declaration form");
     let mut environment = TypeEnvironment::new();
-    environment.bind_param(box_parameter, int);
+    environment.bind_param(box_parameter, int).unwrap();
     let mut store = (*analysis.snapshot.store).clone();
     let specialized = TypeView::new(template.supertype, environment).materialize(&mut store);
     let TypeData::Applied { arguments, .. } = store.get(specialized) else {

@@ -1,3 +1,4 @@
+use crate::checker::analysis_map::AnalysisMap;
 use crate::checker::context::CheckingContext;
 use crate::checker::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
@@ -9,7 +10,7 @@ use crate::types::id::TypeId;
 use crate::types::row::RecordRowTail;
 use crate::types::store::{TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// The semantic mode of static structural iteration.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -77,7 +78,7 @@ pub struct StaticIterationLaneResolution {
 }
 
 /// Map from loop source expression to its static structural iteration lane resolution.
-pub type StaticIterationLaneResolutionIndex = BTreeMap<ExpressionId, StaticIterationLaneResolution>;
+pub type StaticIterationLaneResolutionIndex = AnalysisMap<ExpressionId, StaticIterationLaneResolution>;
 
 /// Resolves a static structural iteration lane for a `for` loop in static evaluation phase.
 pub fn resolve_static_iteration_lane(

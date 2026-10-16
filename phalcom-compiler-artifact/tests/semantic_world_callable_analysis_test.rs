@@ -213,10 +213,58 @@ fn callable_analysis_owner_and_constructor_range_are_validated() {
 }
 
 #[test]
+fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
+    use phalcom_compiler_artifact::semantic::world::CallableCallSpecializationV1;
+
+    let mut two_owners = world(CallableAnalysisStatusV1::Complete);
+    two_owners.callable_analyses[0].expression_count = 1;
+    two_owners.callable_analyses[0].call_specializations = vec![CallableCallSpecializationV1 {
+        expression_ordinal: 0,
+        callable: callable(),
+        bindings: vec![],
+    }];
+    let mut earlier_owner = two_owners.callable_analyses[0].clone();
+    earlier_owner.callable.selector = "aaa".into();
+    two_owners.callable_analyses.insert(0, earlier_owner);
+    two_owners
+        .validate(&Default::default())
+        .expect("ordinal zero belongs independently to each callable record");
+
+    let mut duplicate_expression_ordinal = world(CallableAnalysisStatusV1::Complete);
+    duplicate_expression_ordinal.callable_analyses[0].expression_count = 1;
+    duplicate_expression_ordinal.callable_analyses[0].call_specializations = vec![
+        CallableCallSpecializationV1 {
+            expression_ordinal: 0,
+            callable: callable(),
+            bindings: vec![],
+        },
+        CallableCallSpecializationV1 {
+            expression_ordinal: 0,
+            callable: callable(),
+            bindings: vec![],
+        },
+    ];
+    assert!(
+        duplicate_expression_ordinal.validate(&Default::default()).is_err(),
+        "duplicate ordinals in one callable family must be rejected"
+    );
+
+    let mut wrong_family = world(CallableAnalysisStatusV1::Complete);
+    wrong_family.callable_analyses[0].expression_count = 4;
+    wrong_family.callable_analyses[0].formal_bindings = vec![phalcom_compiler_artifact::semantic::world::CallableBindingSourceAttachmentV1 {
+        binding_ordinal: 2,
+        range: SpanV1 { start: 1, end: 2 },
+    }];
+    assert!(
+        wrong_family.validate(&Default::default()).is_err(),
+        "a valid expression ordinal cannot stand in for an absent binding ordinal"
+    );
+}
+
+#[test]
 fn explicit_dynamic_call_argument_round_trips_without_a_type_node() {
     use phalcom_compiler_artifact::semantic::type_store::{
-        ArtifactKindId, ArtifactTypeParameterId, KindV1, ParameterModeV1, ParameterOwnerV1, ParameterV1, VarianceV1,
-        StaticArgumentV1,
+        ArtifactKindId, ArtifactTypeParameterId, KindV1, ParameterModeV1, ParameterOwnerV1, ParameterV1, StaticArgumentV1, VarianceV1,
     };
     use phalcom_compiler_artifact::semantic::world::{CallableCallSpecializationV1, CallableStaticArgumentBindingV1};
 

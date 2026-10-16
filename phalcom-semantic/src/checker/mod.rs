@@ -1,6 +1,8 @@
 pub mod algebraic_declaration;
 pub(crate) mod algebraic_realization;
 pub mod analysis;
+pub mod analysis_map;
+pub mod analysis_set;
 pub mod annotation_elaboration;
 pub mod associated;
 pub mod binding;
@@ -53,6 +55,8 @@ pub use analysis::{
     RealizationEvaluationPlan, SequenceConstructionPlan, SequenceExpansionResolution, SequenceLiteralFamily, SequenceLiteralResolution,
     SequenceLiteralResolutionIndex,
 };
+pub use analysis_map::{AnalysisMap, AnalysisMapBuildError, AnalysisMapIter, FrozenAnalysisMapMutation};
+pub use analysis_set::{AnalysisSet, AnalysisSetBuildError, AnalysisSetIter, FrozenAnalysisSetMutation};
 pub use annotation_elaboration::{AnnotationElaboration, InferenceHoleOrigin, annotation_contains_inference_hole, elaborate_annotation};
 pub use associated::{
     AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,

@@ -2744,7 +2744,7 @@ pub(crate) fn specialize_conformance_target_type(
 ) -> TypeId {
     let mut environment = TypeEnvironment::new();
     for (&parameter, &binding) in impl_bindings {
-        environment.bind_param(parameter, binding);
+        environment.bind_param(parameter, binding).expect("conformance environment is source mutable");
     }
     bind_target_declaration_parameters(store, declarations, target, &mut environment);
     crate::types::environment::TypeView::new(ty, environment).materialize(store)
@@ -2760,7 +2760,7 @@ fn conformance_environment(
 ) -> TypeEnvironment {
     let mut environment = TypeEnvironment::new();
     for (&parameter, &binding) in impl_bindings {
-        environment.bind_param(parameter, binding);
+        environment.bind_param(parameter, binding).expect("conformance environment is source mutable");
     }
     if let Some(declarations) = declarations {
         bind_target_declaration_parameters(store, declarations, target, &mut environment);
@@ -2773,10 +2773,10 @@ fn conformance_environment(
                 let substitution = environment.to_substitution();
                 substitution.apply(store, argument)
             };
-            environment.bind_param(parameter, argument);
+            environment.bind_param(parameter, argument).expect("conformance environment is source mutable");
         }
     }
-    environment.bind_self(target);
+    environment.bind_self(target).expect("conformance environment is source mutable");
     environment
 }
 
@@ -2796,7 +2796,9 @@ fn bind_target_declaration_parameters(store: &mut TypeStore, declarations: &Decl
     let substitution = environment.to_substitution();
     for (&parameter, argument) in signature.parameters.iter().zip(arguments.iter()) {
         if let Some(argument) = argument.as_type_id() {
-            environment.bind_param(parameter, substitution.apply(store, argument));
+            environment
+                .bind_param(parameter, substitution.apply(store, argument))
+                .expect("conformance environment is source mutable");
         }
     }
 }
@@ -2843,13 +2845,19 @@ fn specialize_inherent_applicability(
     let bindings = applicability.bindings.iter().map(|(&parameter, &ty)| (parameter, materialize(ty))).collect();
     let mut specialized_environment = TypeEnvironment::new();
     for (&parameter, &ty) in &applicability.environment.bindings {
-        specialized_environment.bind_param(parameter, materialize(ty));
+        specialized_environment
+            .bind_param(parameter, materialize(ty))
+            .expect("specialized conformance environment is source mutable");
     }
     for (&parameter, &row) in &applicability.environment.row_bindings {
-        specialized_environment.bind_row(parameter, row);
+        specialized_environment
+            .bind_row(parameter, row)
+            .expect("specialized conformance environment is source mutable");
     }
     if let Some(self_binding) = applicability.environment.self_binding {
-        specialized_environment.bind_self(materialize(self_binding));
+        specialized_environment
+            .bind_self(materialize(self_binding))
+            .expect("specialized conformance environment is source mutable");
     }
     InherentImplSpecialization {
         impl_id: applicability.impl_id.clone(),
@@ -3299,11 +3307,25 @@ mod conformance_index_partition_tests {
         let local_id = implementation(&local_module, 2);
         let other_id = implementation(&local_module, 3);
         let mut parent = ConformanceIndex::new();
-        parent.insert_with_store(&store, contribution(canonical_id.clone(), trait_declaration.clone(), ConformanceTarget::Declaration(family_a.clone()), a));
+        parent.insert_with_store(
+            &store,
+            contribution(
+                canonical_id.clone(),
+                trait_declaration.clone(),
+                ConformanceTarget::Declaration(family_a.clone()),
+                a,
+            ),
+        );
         let parent = Arc::new(parent);
         let mut index = ConformanceIndex::with_parent(parent.clone());
-        index.insert_with_store(&store, contribution(local_id.clone(), trait_declaration.clone(), ConformanceTarget::Declaration(family_a.clone()), a));
-        index.insert_with_store(&store, contribution(other_id.clone(), trait_declaration.clone(), ConformanceTarget::Declaration(family_b), b));
+        index.insert_with_store(
+            &store,
+            contribution(local_id.clone(), trait_declaration.clone(), ConformanceTarget::Declaration(family_a.clone()), a),
+        );
+        index.insert_with_store(
+            &store,
+            contribution(other_id.clone(), trait_declaration.clone(), ConformanceTarget::Declaration(family_b), b),
+        );
         let trait_ref = TraitRef::new(trait_declaration, Vec::new());
         assert_matches_brute(&index, &store, &[(a, trait_ref.clone()), (b, trait_ref.clone())]);
         assert_eq!(index.overlap_conflicts(&mut store).len(), 1, "canonical and local overlap is not silently accepted");
@@ -3313,10 +3335,15 @@ mod conformance_index_partition_tests {
         index.remove_source(&local_module);
         assert_matches_brute(&index, &store, &[(a, trait_ref.clone())]);
         assert_eq!(index.local_len(), 0);
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            index.insert_with_store(&store, contribution(canonical_id, trait_ref.declaration, ConformanceTarget::Declaration(family_a), a));
-        }))
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                index.insert_with_store(
+                    &store,
+                    contribution(canonical_id, trait_ref.declaration, ConformanceTarget::Declaration(family_a), a),
+                );
+            }))
+            .is_err()
+        );
     }
 
     #[test]
@@ -4415,7 +4442,7 @@ pub struct InherentImplSpecialization {
     pub impl_id: ImplId,
     pub receiver: TypeId,
     pub owner_view: TypeId,
-    pub bindings: HashMap<TypeParameterId, TypeId>,
+    pub bindings: crate::checker::analysis_map::AnalysisMap<TypeParameterId, TypeId>,
     pub environment: TypeEnvironment,
     /// Provenance for every conformance constraint in the selected impl
     /// signature. `None` means applicability was checked without an evidence
@@ -5292,15 +5319,15 @@ pub fn check_impl_domain_applicability(
 
     let mut env = TypeEnvironment::new();
     for (&p, &t) in &bindings {
-        env.bind_param(p, t);
+        env.bind_param(p, t).expect("conditional applicability environment is source mutable");
     }
-    env.bind_self(owner_view);
+    env.bind_self(owner_view).expect("conditional applicability environment is source mutable");
 
     ImplApplicabilityResult::Applicable(InherentImplSpecialization {
         impl_id: domain.impl_id.clone(),
         receiver,
         owner_view,
-        bindings,
+        bindings: bindings.into(),
         environment: env,
         conformance_provenance: None,
     })

@@ -5,6 +5,7 @@
 //! selector; exact target matching and P2 conformance evidence remain the
 //! authority for deciding whether a candidate is usable.
 
+use crate::checker::analysis_map::AnalysisMap;
 use crate::db::ProductFingerprint;
 use crate::declarations::DeclarationTypeTable;
 use crate::generic_evidence::{GenericConformanceEvidence, GenericConformanceKey, GenericConformanceProof, GenericEvidenceEnvironment};
@@ -211,7 +212,7 @@ pub struct TraitEvidencedMemberCandidate {
     pub evidence_fingerprint: ProductFingerprint,
     pub selection: RequirementSelectionTemplate,
     pub signature: CallableSemanticSignature,
-    pub requirement_targets: BTreeMap<TraitRequirementId, RequirementSelectionTemplate>,
+    pub requirement_targets: AnalysisMap<TraitRequirementId, RequirementSelectionTemplate>,
     pub convergence: TraitDispatchConvergenceKey,
 }
 
@@ -248,7 +249,7 @@ pub struct TraitDispatchSelection {
     /// guarded rule substitution and nested conformance evidence.
     pub evidence: GenericConformanceEvidence,
     pub selection: RequirementSelectionTemplate,
-    pub requirement_targets: BTreeMap<TraitRequirementId, RequirementSelectionTemplate>,
+    pub requirement_targets: AnalysisMap<TraitRequirementId, RequirementSelectionTemplate>,
 }
 
 /// Assumed trait dispatch selection produced from a generic direct conformance bound.
@@ -470,9 +471,9 @@ fn candidate_from_proof(
             crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { exact_subject, .. } => {
                 let mut environment = crate::types::environment::TypeEnvironment::new();
                 for (&param, &ty) in derived.impl_bindings.bindings() {
-                    environment.bind_param(param, ty);
+                    environment.bind_param(param, ty).expect("derived dispatch environment is source mutable");
                 }
-                environment.bind_self(*exact_subject);
+                environment.bind_self(*exact_subject).expect("derived dispatch environment is source mutable");
                 let mut sig = requirement.signature.clone();
                 sig.parameters = sig
                     .parameters
@@ -523,7 +524,7 @@ fn candidate_from_proof(
         evidence_fingerprint,
         selection,
         signature,
-        requirement_targets,
+        requirement_targets: requirement_targets.into(),
         convergence,
     })
 }

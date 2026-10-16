@@ -1,5 +1,6 @@
 //! Formal match and recursive pattern semantic product models (Part 05.1).
 
+use crate::checker::analysis_map::AnalysisMap;
 use crate::identity::{BindingId, DeclarationId, ExpressionId, VariantFamilyId, VariantFieldId, VariantId};
 use crate::types::TypeConstraint;
 use crate::types::evidence::TypeKnowledge;
@@ -9,10 +10,9 @@ use crate::types::rigid::{LocalConstraint, LocalType};
 use phalcom_ast::ast::MapPatternKey;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorPattern};
-use std::collections::BTreeMap;
 
 /// Index of match expression analysis products within a callable body.
-pub type MatchResolutionIndex = BTreeMap<ExpressionId, MatchResolution>;
+pub type MatchResolutionIndex = AnalysisMap<ExpressionId, MatchResolution>;
 
 /// Kind of executable pattern site outside `match`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -48,7 +48,7 @@ pub struct PatternSiteResolution {
 }
 
 /// Index of non-match executable pattern site resolutions within a callable body.
-pub type PatternSiteResolutionIndex = BTreeMap<PatternSiteKey, PatternSiteResolution>;
+pub type PatternSiteResolutionIndex = AnalysisMap<PatternSiteKey, PatternSiteResolution>;
 
 /// Comprehensive semantic analysis product for a `match` expression.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -173,9 +173,9 @@ pub struct ResolvedMapEntryPattern {
 /// GADT branch proof environment containing type parameter substitutions and established equalities.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct BranchProofEnvironment {
-    pub bindings: BTreeMap<TypeParameterId, TypeId>,
+    pub bindings: AnalysisMap<TypeParameterId, TypeId>,
     pub equalities: Box<[TypeConstraint]>,
-    pub local_bindings: BTreeMap<TypeParameterId, LocalType>,
+    pub local_bindings: AnalysisMap<TypeParameterId, LocalType>,
     pub local_equalities: Box<[LocalConstraint]>,
 }
 

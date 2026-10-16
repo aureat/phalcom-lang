@@ -2803,7 +2803,7 @@ fn cv12_to_cv14_knowledge_bearing_use_site_materialization() {
     let param_ty = env.store.parameter_form(param_id);
 
     let mut environment = phalcom_semantic::types::environment::TypeEnvironment::new();
-    environment.bind_dynamic(param_id);
+    environment.bind_dynamic(param_id).unwrap();
 
     // CV-12: Bare T [T := Dynamic] -> TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape)
     let bare_view = phalcom_semantic::types::environment::TypeView::new(param_ty, environment.clone());

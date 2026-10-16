@@ -1638,7 +1638,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                     family: literal.family,
                     construction: literal.construction,
                     extent: literal.extent,
-                    exact_expansions: literal.exact_expansions.clone(),
+                    exact_expansions: literal.exact_expansions.iter().map(|(range, resolution)| (*range, *resolution)).collect(),
                     expected_extent: literal.extent.and_then(|extent| match snapshot.store.get(extent) {
                         TypeData::ConstInt(value) => u32::try_from(value.to_bigint()).ok(),
                         _ => None,
@@ -1994,7 +1994,7 @@ fn project_for_iteration_requirement(
                     evidence_fingerprint: exact.fingerprint,
                     evidence: evidence.clone(),
                     selection,
-                    requirement_targets: exact.requirements.clone(),
+                    requirement_targets: exact.requirements.clone().into(),
                 };
                 crate::perf_counter!(telos_observability::PerfCounter::CompilerTraitRequirementSlotsLookedUp, 1);
                 let surface = snapshot
@@ -2067,7 +2067,7 @@ fn project_for_iteration_requirement(
                     evidence_fingerprint,
                     evidence: evidence.clone(),
                     selection,
-                    requirement_targets: derived.requirements().clone(),
+                    requirement_targets: derived.requirements().clone().into(),
                 };
                 crate::perf_counter!(telos_observability::PerfCounter::CompilerTraitRequirementSlotsLookedUp, 1);
                 let surface = snapshot

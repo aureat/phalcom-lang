@@ -770,11 +770,11 @@ impl<'a> CheckingContext<'a> {
             expressions: ExpressionAnalysisIndex::new(),
             checked_static_applications: Vec::new(),
             checked_static_constructions: BTreeMap::new(),
-            for_iteration_lanes: BTreeMap::new(),
-            static_iteration_lanes: BTreeMap::new(),
-            positional_expansions: BTreeMap::new(),
-            known_invalid_positional_expansions: BTreeMap::new(),
-            sequence_literals: BTreeMap::new(),
+            for_iteration_lanes: Default::default(),
+            static_iteration_lanes: Default::default(),
+            positional_expansions: Default::default(),
+            known_invalid_positional_expansions: Default::default(),
+            sequence_literals: Default::default(),
             sequence_publication: Default::default(),
             call_publication_owners: BTreeMap::new(),
             deferred_applications: BTreeMap::new(),
@@ -891,11 +891,11 @@ impl<'a> CheckingContext<'a> {
             expressions: ExpressionAnalysisIndex::new(),
             checked_static_applications: Vec::new(),
             checked_static_constructions: BTreeMap::new(),
-            for_iteration_lanes: BTreeMap::new(),
-            static_iteration_lanes: BTreeMap::new(),
-            positional_expansions: BTreeMap::new(),
-            known_invalid_positional_expansions: BTreeMap::new(),
-            sequence_literals: BTreeMap::new(),
+            for_iteration_lanes: Default::default(),
+            static_iteration_lanes: Default::default(),
+            positional_expansions: Default::default(),
+            known_invalid_positional_expansions: Default::default(),
+            sequence_literals: Default::default(),
             sequence_publication: Default::default(),
             call_publication_owners: BTreeMap::new(),
             deferred_applications: BTreeMap::new(),
@@ -1477,7 +1477,9 @@ impl<'a> CheckingContext<'a> {
 
     pub(crate) fn reject_sequence_expression(&mut self, expression: ExpressionId) {
         self.sequence_publication.discard_expression(expression);
-        self.sequence_literals.remove(&expression);
+        self.sequence_literals
+            .remove_source(&expression)
+            .expect("checking context sequence products are source mutable");
     }
 
     pub(crate) fn reject_all_sequence_products(&mut self) {
@@ -1509,7 +1511,11 @@ impl<'a> CheckingContext<'a> {
                         requirements.range,
                     ));
                 }
-                if let Some(expression) = self.expressions.get_mut(&requirements.expression) {
+                if let Some(expression) = self
+                    .expressions
+                    .get_source_mut(&requirements.expression)
+                    .expect("checking context expression products are source mutable")
+                {
                     expression.status = status.clone();
                 }
                 self.record_terminal_status(status.clone());
@@ -2011,7 +2017,11 @@ impl<'a> CheckingContext<'a> {
 
         if let Some(owner) = owner {
             if let Some(status) = status.clone() {
-                if let Some(analysis) = self.expressions.get_mut(&owner) {
+                if let Some(analysis) = self
+                    .expressions
+                    .get_source_mut(&owner)
+                    .expect("checking context expression products are source mutable")
+                {
                     analysis.status = status;
                     if let Some(cause) = cause {
                         analysis.causal_invalidity = analysis.causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
@@ -2157,7 +2167,9 @@ impl<'a> CheckingContext<'a> {
         analysis.binding_read = typed.binding_read;
         analysis.binding_write = typed.binding_write;
 
-        self.expressions.insert(id, analysis.clone());
+        self.expressions
+            .insert_source(id, analysis.clone())
+            .expect("checking context expression products are source mutable");
         analysis
     }
 
@@ -2167,7 +2179,11 @@ impl<'a> CheckingContext<'a> {
         let Some(id) = typed.expression_id else {
             return;
         };
-        let Some(analysis) = self.expressions.get_mut(&id) else {
+        let Some(analysis) = self
+            .expressions
+            .get_source_mut(&id)
+            .expect("checking context expression products are source mutable")
+        else {
             return;
         };
 
@@ -2371,10 +2387,7 @@ impl<'a> CheckingContext<'a> {
             );
             let mut dependencies = Vec::with_capacity(2);
             if import.is_some() {
-                dependencies.push(crate::checker::analysis::SemanticDependency::LinkedName(
-                    self.current_module.clone(),
-                    name,
-                ));
+                dependencies.push(crate::checker::analysis::SemanticDependency::LinkedName(self.current_module.clone(), name));
             }
             dependencies.push(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
             self.module_binding_dependencies.insert(*binding, dependencies);
@@ -3298,11 +3311,11 @@ impl<'a> CheckingContext<'a> {
             let mut type_env = crate::types::environment::TypeEnvironment::default();
             // The proven subject may be a rigid caller parameter. Trait
             // `Self` denotes that subject for either requirement side.
-            type_env.bind_self(receiver);
+            type_env.bind_self(receiver).expect("dispatch type environment is source mutable");
             if let Some(generics) = &surface.generic_signature {
                 for (idx, &param) in generics.parameters.iter().enumerate() {
                     if let Some(&arg) = conformance_key.trait_ref.arguments.get(idx) {
-                        type_env.bind_param(param, arg);
+                        type_env.bind_param(param, arg).expect("dispatch type environment is source mutable");
                     }
                 }
             }
@@ -3643,7 +3656,7 @@ impl<'a> CheckingContext<'a> {
                                         let unspecialized_return = signature.return_type.clone();
                                         let mut environment = receiver_spec.environment;
                                         for (&p, &t) in &capability.applicability.bindings {
-                                            environment.bind_param(p, t);
+                                            environment.bind_param(p, t).expect("conditional dispatch environment is source mutable");
                                         }
                                         let env = environment.clone();
                                         let specialize_type = |ctx: &mut Self, ty| {
@@ -4008,7 +4021,9 @@ impl<'a> CheckingContext<'a> {
         evidence: Vec<crate::explain::EvidenceRef>,
         parents: Vec<crate::identity::ExplanationId>,
     ) -> crate::identity::ExplanationId {
-        self.explanations.alloc_full(step, rule, status, origin, evidence, parents)
+        self.explanations
+            .alloc_full(step, rule, status, origin, evidence, parents)
+            .expect("checking context explanation arena is source mutable")
     }
 
     /// Legacy compatibility query. Suppression is now carried by the owning
@@ -4050,23 +4065,29 @@ impl<'a> CheckingContext<'a> {
             .unwrap_or_else(|| std::sync::Arc::new(crate::checker::flow::graph::FlowGraph::default()));
 
         let return_summary = crate::checker::analysis::normal_return_summary(self.store, &normal_returns);
-        let return_explanation = Some(self.explanations.alloc(
-            crate::explain::ExplanationStep::CallableReturnSummary {
-                callable: callable.clone(),
-                returns: normal_returns.iter().map(|exit| exit.knowledge.clone()).collect::<Vec<_>>().into_boxed_slice(),
-                result: return_summary.clone(),
-            },
-            return_summary.status().unwrap_or(crate::types::evidence::EvidenceStatus::Assumed),
-            return_summary.origin().unwrap_or(crate::types::evidence::EvidenceOrigin::Flow),
-            Vec::new(),
-        ));
+        let return_explanation = Some(
+            self.explanations
+                .alloc(
+                    crate::explain::ExplanationStep::CallableReturnSummary {
+                        callable: callable.clone(),
+                        returns: normal_returns.iter().map(|exit| exit.knowledge.clone()).collect::<Vec<_>>().into_boxed_slice(),
+                        result: return_summary.clone(),
+                    },
+                    return_summary.status().unwrap_or(crate::types::evidence::EvidenceStatus::Assumed),
+                    return_summary.origin().unwrap_or(crate::types::evidence::EvidenceOrigin::Flow),
+                    Vec::new(),
+                )
+                .expect("checking context explanation arena is source mutable"),
+        );
         let exits = crate::checker::analysis::BodyExitFacts {
             normal_returns,
             throws: self.throw_exit_flows,
             unreachable: false,
         };
-        let mut bindings = self.binding_history;
-        bindings.extend(self.flow.bindings);
+        let mut bindings: crate::checker::analysis::BindingAnalysisIndex = self.binding_history.into();
+        bindings
+            .extend_source(self.flow.bindings)
+            .expect("checking context binding products are source mutable");
         let binding_origins = bindings
             .keys()
             .map(|binding| {
@@ -4078,7 +4099,7 @@ impl<'a> CheckingContext<'a> {
                         .unwrap_or(crate::checker::analysis::CallableBindingOrigin::BodyLocal),
                 )
             })
-            .collect();
+            .collect::<crate::checker::analysis::CallableBindingOriginIndex>();
 
         crate::checker::analysis::CallableAnalysis {
             callable,
@@ -4113,24 +4134,34 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn record_associated_resolution(&mut self, expr_id: ExpressionId, resolution: crate::checker::associated::AssociatedResolution) {
-        self.associated_resolutions.insert(expr_id, resolution);
+        self.associated_resolutions
+            .insert_source(expr_id, resolution)
+            .expect("checking context associated resolutions are source mutable");
     }
 
     pub fn record_callable_reference_resolution(&mut self, expr_id: ExpressionId, resolution: crate::checker::associated::CallableReferenceResolution) {
-        self.callable_reference_resolutions.insert(expr_id, resolution);
+        self.callable_reference_resolutions
+            .insert_source(expr_id, resolution)
+            .expect("checking context callable references are source mutable");
     }
 
     pub fn record_family_application(&mut self, expr_id: ExpressionId, resolution: crate::checker::associated::FamilyApplicationResolution) {
-        self.family_applications.insert(expr_id, resolution);
+        self.family_applications
+            .insert_source(expr_id, resolution)
+            .expect("checking context family applications are source mutable");
     }
 
     pub fn record_match_resolution(&mut self, expr_id: ExpressionId, resolution: crate::match_semantics::MatchResolution) {
-        self.match_resolutions.insert(expr_id, resolution);
+        self.match_resolutions
+            .insert_source(expr_id, resolution)
+            .expect("checking context match resolutions are source mutable");
     }
 
     pub fn record_pattern_site_resolution(&mut self, resolution: crate::match_semantics::PatternSiteResolution) {
         let key = crate::match_semantics::PatternSiteKey::new(resolution.kind, resolution.range);
-        self.pattern_site_resolutions.insert(key, resolution);
+        self.pattern_site_resolutions
+            .insert_source(key, resolution)
+            .expect("checking context pattern resolutions are source mutable");
     }
 
     pub fn record_proof_predicate(&mut self, resolution: crate::checker::proof_predicate::ProofPredicateResolution) {

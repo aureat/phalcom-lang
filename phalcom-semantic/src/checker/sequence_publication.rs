@@ -160,7 +160,9 @@ impl SequencePublication {
             if let Some((resolution, _)) = self.pending.remove(&expression)
                 && accepted
             {
-                committed.insert(expression, resolution);
+                committed
+                    .insert_source(expression, resolution)
+                    .expect("checker sequence products are source mutable");
             }
         }
     }
@@ -280,7 +282,7 @@ mod tests {
     #[test]
     fn conjunction_waits_for_all_owners_and_rejection_preserves_independent_products() {
         let mut publication = SequencePublication::default();
-        let mut committed = BTreeMap::new();
+        let mut committed = SequenceLiteralResolutionIndex::new();
         publication.register(owner(1), None);
         publication.register(owner(2), Some(owner(1)));
         publication.stage(resolution(1), [owner(1), owner(2)].into_iter().collect(), &mut committed);
@@ -295,7 +297,7 @@ mod tests {
     #[test]
     fn terminal_receipts_cover_late_candidates_and_missing_owners_fail_closed() {
         let mut publication = SequencePublication::default();
-        let mut committed = BTreeMap::new();
+        let mut committed = SequenceLiteralResolutionIndex::new();
         publication.register(owner(1), None);
         publication.locally_ready(owner(1), &mut committed);
         publication.dispose(owner(1).0, &mut committed);
@@ -308,11 +310,12 @@ mod tests {
     #[test]
     fn probe_rejection_and_context_disposal_cannot_publish_parent_candidates() {
         let mut publication = SequencePublication::default();
-        let mut committed = BTreeMap::new();
+        let mut committed = SequenceLiteralResolutionIndex::new();
         publication.register(owner(1), None);
         publication.stage(resolution(1), [owner(1)].into_iter().collect(), &mut committed);
         let mut probe = publication.probe();
-        probe.reject(owner(1), &mut BTreeMap::new());
+        let mut probe_committed = SequenceLiteralResolutionIndex::new();
+        probe.reject(owner(1), &mut probe_committed);
         assert!(publication.has_pending());
         publication.locally_ready(owner(1), &mut committed);
         assert_eq!(committed.len(), 1);

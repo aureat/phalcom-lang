@@ -690,7 +690,9 @@ fn analyze_application_argument_owned(
         if let TypeKnowledge::Known(evidence) = &typed.knowledge {
             let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), range);
             if let Some(resolution) = resolution {
-                ctx.positional_expansions.insert(resolution.source_expression, resolution);
+                ctx.positional_expansions
+                    .insert_source(resolution.source_expression, resolution)
+                    .expect("checking context positional expansions are source mutable");
             } else {
                 crate::checker::iteration::record_known_invalid_positional_expansion(ctx, typed.expression_id, evidence.ty(), range);
             }
@@ -3802,9 +3804,7 @@ fn generic_constraint_depends_on_dynamic(
     let type_depends = |ty| instantiation.dynamic_bindings().any(|parameter| store.contains_type_parameter(ty, parameter));
     match constraint {
         GenericConstraint::Conforms { subject, trait_ref } => term_depends(subject) || trait_ref.arguments.iter().copied().any(type_depends),
-        GenericConstraint::Equivalent { left, right } | GenericConstraint::Subtype { lower: left, upper: right } => {
-            term_depends(left) || term_depends(right)
-        }
+        GenericConstraint::Equivalent { left, right } | GenericConstraint::Subtype { lower: left, upper: right } => term_depends(left) || term_depends(right),
     }
 }
 

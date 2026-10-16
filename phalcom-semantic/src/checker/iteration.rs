@@ -367,12 +367,14 @@ pub(crate) fn record_known_invalid_positional_expansion(
     if matches!(ctx.store.get(source_type), TypeData::Unit | TypeData::Tuple(_)) {
         return;
     }
-    ctx.known_invalid_positional_expansions.insert(
-        source_expression,
-        crate::checker::analysis::KnownInvalidPositionalExpansion {
+    ctx.known_invalid_positional_expansions
+        .insert_source(
             source_expression,
-            source_range,
-            source_type,
-        },
-    );
+            crate::checker::analysis::KnownInvalidPositionalExpansion {
+                source_expression,
+                source_range,
+                source_type,
+            },
+        )
+        .expect("checking context invalid positional expansions are source mutable");
 }

@@ -946,7 +946,7 @@ fn trait_requirement_view_specializes_trait_parameter_without_rewriting_callable
     let member = surface.members.values().next().expect("trait requirement");
     let parameter = surface.generic_signature.as_ref().expect("generic trait signature").parameters[0];
     let mut environment = TypeEnvironment::new();
-    environment.bind_param(parameter, marker);
+    environment.bind_param(parameter, marker).unwrap();
     let mut store = (*output.snapshot.store).clone();
     let view = member.instantiate(&mut store, &environment);
     assert_eq!(view.signature.declared_return.canonical_type(), Some(marker));

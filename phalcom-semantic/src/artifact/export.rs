@@ -251,7 +251,9 @@ fn export_type_knowledge(knowledge: &TypeKnowledge, types: &TypeExportContext) -
                 descriptions: evidence.provenance().descriptions.iter().map(|description| description.clone().into_boxed_str()).collect(),
             },
         },
-        TypeKnowledge::Unknown(reason) => TypeKnowledgeV1::Unknown { reason: export_unknown_reason(reason) },
+        TypeKnowledge::Unknown(reason) => TypeKnowledgeV1::Unknown {
+            reason: export_unknown_reason(reason),
+        },
         TypeKnowledge::Dynamic(reason) => TypeKnowledgeV1::Dynamic {
             reason: match export_dynamic_reason(reason) {
                 DynamicReasonV1::ExplicitEscape => DynamicReasonV1::ExplicitEscape,
@@ -661,18 +663,18 @@ use crate::static_value::StaticExportContext;
 use phalcom_compiler_artifact::query::{DependencyEvidenceEntryV1, PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1};
 use phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1;
 use phalcom_compiler_artifact::semantic::world::{
-    AssociatedBindingEntryV1, AssociatedBindingValueV1, AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedStaticDomainRecordV1,
-    AssociatedSurfaceRecordV1, CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableSignatureRecordV1, ConformanceHeadRecordV1,
-    CaseRequirementResultV1, CaseRequirementStatusV1, ConformanceTargetV1, ConstructorInitializationRecordV1, ConstructorParamFieldV1,
-    DeclarationSurfaceRecordV1, EnumRequirementOwnerV1, EnumRequirementRecordV1, EnumRequirementSourceV1, FieldSignatureV1, IntrinsicTypeOperationV1,
-    CallableParameterV1 as PortableCallableParameter, EffectSpecV1, EvidenceOriginV1, EvidenceSetV1, EvidenceStatusV1, ImplementationKindV1,
-    LabeledParameterSpecV1, NativeEffectV1, NativeLifecycleSpecV1, NativeSurfaceIdV1, ParameterContractV1, ParameterTupleSpecV1, RaisesSpecV1,
-    RestParameterSpecV1, RestValueContractV1, ReturnContractValidationV1, ReturnFlowV1, TypeExprSpecV1, TypeKnowledgeV1, RequirementEntryV1,
-    RequirementSelectionV1, SemanticWorldV2, TraitSurfaceRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
-    TypeMemberParameterV1, WitnessPlanV1, AssociatedFamilyIdentityV1, AssociatedValueDenotationV1, BehavioralFamilyDenotationV1,
-    BehavioralFamilySpecV1, CallableBindingDenotationV1, CallableExpressionDenotationV1, CapturedAssociatedMemberV1,
-    CapturedBehavioralMemberV1, ConditionalDispatchSelectionV1, ExactSelectorV1, FamilyOperationShapeV1, InvocationTargetV1,
-    SelectorKindPatternV1, SelectorKindV1, SelectorPatternSpecV1, SelectorSlotV1, SemanticDenotationV1,
+    AssociatedBindingEntryV1, AssociatedBindingValueV1, AssociatedFamilyIdentityV1, AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1,
+    AssociatedStaticDomainRecordV1, AssociatedSurfaceRecordV1, AssociatedValueDenotationV1, BehavioralFamilyDenotationV1, BehavioralFamilySpecV1,
+    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingDenotationV1, CallableExpressionDenotationV1,
+    CallableParameterV1 as PortableCallableParameter, CallableSignatureRecordV1, CapturedAssociatedMemberV1, CapturedBehavioralMemberV1,
+    CaseRequirementResultV1, CaseRequirementStatusV1, ConditionalDispatchSelectionV1, ConformanceHeadRecordV1, ConformanceTargetV1,
+    ConstructorInitializationRecordV1, ConstructorParamFieldV1, DeclarationSurfaceRecordV1, EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1,
+    EnumRequirementSourceV1, EvidenceOriginV1, EvidenceSetV1, EvidenceStatusV1, ExactSelectorV1, FamilyOperationShapeV1, FieldSignatureV1,
+    ImplementationKindV1, IntrinsicTypeOperationV1, InvocationTargetV1, LabeledParameterSpecV1, NativeEffectV1, NativeLifecycleSpecV1, NativeSurfaceIdV1,
+    ParameterContractV1, ParameterTupleSpecV1, RaisesSpecV1, RequirementEntryV1, RequirementSelectionV1, RestParameterSpecV1, RestValueContractV1,
+    ReturnContractValidationV1, ReturnFlowV1, SelectorKindPatternV1, SelectorKindV1, SelectorPatternSpecV1, SelectorSlotV1, SemanticDenotationV1,
+    SemanticWorldV2, TraitSurfaceRecordV1, TypeExprSpecV1, TypeKnowledgeV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
+    TypeMemberParameterV1, WitnessPlanV1,
 };
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{StableAssociatedStaticDomainDeclarationRef, StableCallableRef};
@@ -875,14 +877,14 @@ impl CallableAnalysisOrdinalMap {
         for node in analysis.flow_graph.nodes() {
             if node.predecessors.windows(2).any(|pair| pair[0] >= pair[1])
                 || node.successors.windows(2).any(|pair| pair[0] >= pair[1])
-                || node.predecessors.iter().any(|edge| {
-                    !flow_edges.contains_key(edge)
-                        || analysis.flow_graph.edge(edge).is_none_or(|flow_edge| flow_edge.target != node.id)
-                })
-                || node.successors.iter().any(|edge| {
-                    !flow_edges.contains_key(edge)
-                        || analysis.flow_graph.edge(edge).is_none_or(|flow_edge| flow_edge.source != node.id)
-                })
+                || node
+                    .predecessors
+                    .iter()
+                    .any(|edge| !flow_edges.contains_key(edge) || analysis.flow_graph.edge(edge).is_none_or(|flow_edge| flow_edge.target != node.id))
+                || node
+                    .successors
+                    .iter()
+                    .any(|edge| !flow_edges.contains_key(edge) || analysis.flow_graph.edge(edge).is_none_or(|flow_edge| flow_edge.source != node.id))
             {
                 return Err(referential("callable flow node references an absent edge"));
             }
@@ -1039,9 +1041,7 @@ fn export_callable_analysis_record(
         .iter()
         .map(|(binding, origin)| {
             let origin = match origin {
-                crate::checker::analysis::CallableBindingOrigin::BodyLocal => {
-                    phalcom_compiler_artifact::semantic::world::CallableBindingOriginV1::BodyLocal
-                }
+                crate::checker::analysis::CallableBindingOrigin::BodyLocal => phalcom_compiler_artifact::semantic::world::CallableBindingOriginV1::BodyLocal,
                 crate::checker::analysis::CallableBindingOrigin::ModuleValue { symbol, import } => {
                     phalcom_compiler_artifact::semantic::world::CallableBindingOriginV1::ModuleValue {
                         module: to_stable_module(&symbol.module),
@@ -1066,7 +1066,9 @@ fn export_callable_analysis_record(
             return Err(referential("call specialization target disagrees with its expression callable"));
         }
         if !specialization.conformances.is_empty() {
-            return Err(referential("call specialization conformance bindings lack a complete portable owner representation"));
+            return Err(referential(
+                "call specialization conformance bindings lack a complete portable owner representation",
+            ));
         }
         let mut bindings = specialization
             .bindings
@@ -1079,9 +1081,7 @@ fn export_callable_analysis_record(
                     crate::types::store::StaticArgument::RecordRow(row) => {
                         phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1::RecordRow { row: types.row(*row)? }
                     }
-                    crate::types::store::StaticArgument::DynamicType => {
-                        phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1::DynamicType
-                    }
+                    crate::types::store::StaticArgument::DynamicType => phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1::DynamicType,
                 };
                 Ok(phalcom_compiler_artifact::semantic::world::CallableStaticArgumentBindingV1 {
                     parameter: types.parameter(*parameter)?,
@@ -1277,12 +1277,12 @@ fn export_return_validation(validation: crate::signature::ReturnContractValidati
     match validation {
         crate::signature::ReturnContractValidation::NotApplicable => ReturnContractValidationV1::NotApplicable,
         crate::signature::ReturnContractValidation::Unchecked => ReturnContractValidationV1::Unchecked,
-        crate::signature::ReturnContractValidation::Satisfied(EvidenceStatus::Established) => {
-            ReturnContractValidationV1::Satisfied { status: EvidenceStatusV1::Established }
-        }
-        crate::signature::ReturnContractValidation::Satisfied(EvidenceStatus::Assumed) => {
-            ReturnContractValidationV1::Satisfied { status: EvidenceStatusV1::Assumed }
-        }
+        crate::signature::ReturnContractValidation::Satisfied(EvidenceStatus::Established) => ReturnContractValidationV1::Satisfied {
+            status: EvidenceStatusV1::Established,
+        },
+        crate::signature::ReturnContractValidation::Satisfied(EvidenceStatus::Assumed) => ReturnContractValidationV1::Satisfied {
+            status: EvidenceStatusV1::Assumed,
+        },
         crate::signature::ReturnContractValidation::Refuted => ReturnContractValidationV1::Refuted,
         crate::signature::ReturnContractValidation::Blocked => ReturnContractValidationV1::Blocked,
         crate::signature::ReturnContractValidation::DynamicBoundary => ReturnContractValidationV1::DynamicBoundary,
@@ -1615,7 +1615,9 @@ fn export_selector_kind(kind: phalcom_common::selector::SelectorKind) -> Selecto
 fn export_selector_slot(slot: &phalcom_common::selector::SelectorSlot) -> SelectorSlotV1 {
     match slot {
         phalcom_common::selector::SelectorSlot::Positional => SelectorSlotV1::Positional,
-        phalcom_common::selector::SelectorSlot::Label(label) => SelectorSlotV1::Label { label: label.clone().into_boxed_str() },
+        phalcom_common::selector::SelectorSlot::Label(label) => SelectorSlotV1::Label {
+            label: label.clone().into_boxed_str(),
+        },
     }
 }
 
@@ -1642,7 +1644,9 @@ fn export_selector_pattern(pattern: &phalcom_common::selector::SelectorPattern) 
             Native::AnyNamed => SelectorKindPatternV1::AnyNamed,
             Native::NamedAccessors => SelectorKindPatternV1::NamedAccessors,
             Native::AnySubscript => SelectorKindPatternV1::AnySubscript,
-            Native::Exact(kind) => SelectorKindPatternV1::Exact { kind: export_selector_kind(kind) },
+            Native::Exact(kind) => SelectorKindPatternV1::Exact {
+                kind: export_selector_kind(kind),
+            },
         },
         prefix: pattern.prefix.iter().map(export_selector_slot).collect(),
         suffix: pattern.suffix.iter().map(export_selector_slot).collect(),
@@ -1684,7 +1688,9 @@ pub(super) fn export_semantic_denotation(
     Ok(match denotation {
         SemanticDenotation::TypeForm(ty) => SemanticDenotationV1::TypeForm { ty: types.ty(*ty)? },
         SemanticDenotation::Kind(kind) => SemanticDenotationV1::Kind { kind: types.kind(*kind)? },
-        SemanticDenotation::StaticDomain(domain) => SemanticDenotationV1::StaticDomain { domain: types.domain(*domain)? },
+        SemanticDenotation::StaticDomain(domain) => SemanticDenotationV1::StaticDomain {
+            domain: types.domain(*domain)?,
+        },
         SemanticDenotation::StaticTerm(term) => SemanticDenotationV1::StaticTerm { term: types.ty(*term)? },
         SemanticDenotation::StaticApplication(_) => {
             return Err(referential("checked static-application rows are not retained by a portable callable body"));
@@ -2402,37 +2408,47 @@ mod callable_analysis_status_tests {
 
         let expression_a = crate::identity::ExpressionId::new(crate::identity::BodyId(8), crate::identity::LocalExpressionId(7));
         let expression_b = crate::identity::ExpressionId::new(crate::identity::BodyId(8), crate::identity::LocalExpressionId(2));
-        analysis.expressions.insert(
-            expression_a,
-            crate::checker::analysis::ExpressionAnalysis::ready(
+        analysis
+            .expressions
+            .insert_source(
                 expression_a,
-                SourceRange { start: 20, end: 21 },
-                crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
-            ),
-        );
-        analysis.expressions.insert(
-            expression_b,
-            crate::checker::analysis::ExpressionAnalysis::ready(
+                crate::checker::analysis::ExpressionAnalysis::ready(
+                    expression_a,
+                    SourceRange { start: 20, end: 21 },
+                    crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
+                ),
+            )
+            .unwrap();
+        analysis
+            .expressions
+            .insert_source(
                 expression_b,
-                SourceRange { start: 20, end: 21 },
-                crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
-            ),
-        );
+                crate::checker::analysis::ExpressionAnalysis::ready(
+                    expression_b,
+                    SourceRange { start: 20, end: 21 },
+                    crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
+                ),
+            )
+            .unwrap();
         let binding = crate::identity::BindingId(19);
-        analysis.bindings.insert(
-            binding,
-            crate::checker::analysis::BindingState::new(
+        analysis
+            .bindings
+            .insert_source(
                 binding,
-                "local",
-                SourceRange { start: 30, end: 35 },
-                None,
-                crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
-                true,
-            ),
-        );
+                crate::checker::analysis::BindingState::new(
+                    binding,
+                    "local",
+                    SourceRange { start: 30, end: 35 },
+                    None,
+                    crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
+                    true,
+                ),
+            )
+            .unwrap();
         analysis
             .binding_origins
-            .insert(binding, crate::checker::analysis::CallableBindingOrigin::BodyLocal);
+            .insert_source(binding, crate::checker::analysis::CallableBindingOrigin::BodyLocal)
+            .unwrap();
 
         let mut store = crate::types::store::TypeStore::new();
         let parameter = store.intern_type_parameter(crate::types::parameter::TypeParameterData::new(
@@ -2441,7 +2457,7 @@ mod callable_analysis_status_tests {
             "T",
             crate::types::id::KindId::TYPE,
         ));
-        let call_expression = analysis.expressions.get_mut(&expression_a).unwrap();
+        let call_expression = analysis.expressions.get_source_mut(&expression_a).unwrap().unwrap();
         call_expression.callable = Some(callable.clone());
         call_expression.call_specialization = Some(crate::checker::analysis::CallSpecialization {
             callable: callable.clone(),
@@ -2458,9 +2474,7 @@ mod callable_analysis_status_tests {
                 parameter_only_lineage,
                 phalcom_compiler_artifact::semantic::type_store::CanonicalTypeRootKey {
                     family_tag: phalcom_compiler_artifact::semantic::type_store::CanonicalRootFamilyTag::CallableAnalysis,
-                    owner: phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Callable(
-                        to_stable_callable(&callable),
-                    ),
+                    owner: phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Callable(to_stable_callable(&callable)),
                     product_subkey: 100,
                 },
                 parameter,
@@ -2479,7 +2493,22 @@ mod callable_analysis_status_tests {
         assert_eq!(ordinals.expressions.get(&expression_a), Some(&1));
         assert_eq!(ordinals.bindings.get(&binding), Some(&0));
 
+        let mut allocation_history_permuted = analysis.clone();
+        allocation_history_permuted.expressions = analysis.expressions.iter().rev().map(|(id, expression)| (*id, expression.clone())).collect();
+        let permuted_ordinals = CallableAnalysisOrdinalMap::new(&callable, &allocation_history_permuted)
+            .expect("reordered insertion history keeps the same callable-local coordinate map");
+        assert_eq!(permuted_ordinals.expressions, ordinals.expressions);
+        assert_eq!(permuted_ordinals.bindings, ordinals.bindings);
+        assert_eq!(permuted_ordinals.flow_nodes, ordinals.flow_nodes);
+        assert_eq!(permuted_ordinals.flow_edges, ordinals.flow_edges);
+        assert_eq!(permuted_ordinals.explanations, ordinals.explanations);
+        assert_eq!(permuted_ordinals.diagnostic_causes, ordinals.diagnostic_causes);
+
         let other_callable = CallableId::method(owner.clone(), Selector::getter("other").unwrap(), DispatchSide::Class);
+        assert!(
+            CallableAnalysisOrdinalMap::new(&other_callable, &analysis).is_err(),
+            "an owner cannot reuse another callable's ordinal context"
+        );
         let mut other_analysis = analysis.clone();
         other_analysis.callable = other_callable.clone();
         let other_ordinals = CallableAnalysisOrdinalMap::new(&other_callable, &other_analysis).expect("other callable has its own local coordinate space");
@@ -2487,7 +2516,7 @@ mod callable_analysis_status_tests {
         assert_ne!(ordinals.owner, other_ordinals.owner);
 
         let mut unowned_call = analysis.clone();
-        unowned_call.expressions.get_mut(&expression_a).unwrap().call = Some(crate::identity::CallResolutionId(4));
+        unowned_call.expressions.get_source_mut(&expression_a).unwrap().unwrap().call = Some(crate::identity::CallResolutionId(4));
         assert!(CallableAnalysisOrdinalMap::new(&callable, &unowned_call).is_err());
 
         let mut unowned_predicate = analysis.clone();
@@ -2595,19 +2624,22 @@ mod callable_analysis_status_tests {
         let callable = CallableId::method(owner.clone(), Selector::getter("factory").unwrap(), DispatchSide::Class);
         let expression_id = ExpressionId::new(BodyId(11), LocalExpressionId(4));
         let mut source = empty_callable_analysis(callable.clone());
-        source.expressions.insert(
-            expression_id,
-            ExpressionAnalysis::ready(
+        source
+            .expressions
+            .insert_source(
                 expression_id,
-                SourceRange { start: 9, end: 13 },
-                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
-            ),
-        );
+                ExpressionAnalysis::ready(
+                    expression_id,
+                    SourceRange { start: 9, end: 13 },
+                    TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                ),
+            )
+            .unwrap();
         let mut denoted = source.clone();
         let denotation_owner = DeclarationId::new(owner.module.clone(), "DenotationOnly".into());
         let mut store = TypeStore::new();
         let denotation_type = store.nominal_type(denotation_owner);
-        denoted.expressions.get_mut(&expression_id).unwrap().denotation = Some(SemanticDenotation::TypeForm(denotation_type));
+        denoted.expressions.get_source_mut(&expression_id).unwrap().unwrap().denotation = Some(SemanticDenotation::TypeForm(denotation_type));
 
         let mut types = TypeExportContext::new(&store);
         crate::artifact::roots::register_callable_analysis_roots(&mut types, &denoted).unwrap();

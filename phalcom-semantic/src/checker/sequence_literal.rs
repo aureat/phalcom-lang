@@ -4,10 +4,10 @@
 //! Runtime-sized iteration never establishes a static Vector dimension.
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use super::analysis::{SequenceConstructionPlan, SequenceExpansionResolution, SequenceLiteralFamily, SequenceLiteralResolution};
+use super::analysis_map::AnalysisMap;
 use super::annotation_elaboration::{AnnotationElaboration, elaborate_annotation};
 use super::context::{CheckingContext, EvaluationPhase};
 use super::expected::{ExpectationOrigin, ExpectedType, canonical_collection_arguments, inference_origin_matches};
@@ -221,7 +221,7 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
         };
         let mut operands = Vec::new();
         let mut element_types = Vec::new();
-        let mut exact_expansions = BTreeMap::new();
+        let mut exact_expansions = AnalysisMap::new();
         let mut concrete_count = BigInt::from(0);
         let mut symbolic_extent = None;
         let mut valid = true;
@@ -270,7 +270,9 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
                             let (resolution, _) = super::iteration::resolve_positional_expansion(ctx, typed.expression_id, source_ty, *range);
                             if let Some(resolution) = resolution {
                                 items.push(resolution.item_type);
-                                ctx.positional_expansions.insert(resolution.source_expression, resolution);
+                                ctx.positional_expansions
+                                    .insert_source(resolution.source_expression, resolution)
+                                    .expect("checking context positional expansions are source mutable");
                             } else if let Some(arguments) = canonical_collection_arguments(ctx.store, source_ty, &ctx.core_ids.array, 1)
                                 .or_else(|| canonical_collection_arguments(ctx.store, source_ty, &ctx.core_ids.list, 1))
                             {
@@ -302,7 +304,9 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
                             _ if symbolic_extent.is_none() => symbolic_extent = Some(extent),
                             _ => valid = false,
                         }
-                        exact_expansions.insert(*range, exact);
+                        exact_expansions
+                            .insert_source(*range, exact)
+                            .expect("new sequence literal expansion maps are source mutable");
                     }
                     if !items.is_empty() {
                         let item = ctx.store.union(&items);

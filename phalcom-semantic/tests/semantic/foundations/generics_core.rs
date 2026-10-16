@@ -138,8 +138,8 @@ fn gate_01_5_c_lazy_view_and_eager_materialization_equivalence() {
 
     // Environment: { A -> Int, B -> String }
     let mut env = TypeEnvironment::new();
-    env.bind_param(p_a, int_ty);
-    env.bind_param(p_b, str_ty);
+    env.bind_param(p_a, int_ty).unwrap();
+    env.bind_param(p_b, str_ty).unwrap();
 
     // Eager substitution
     let subst = env.to_substitution();

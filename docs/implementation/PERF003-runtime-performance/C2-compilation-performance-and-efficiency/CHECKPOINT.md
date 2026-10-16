@@ -6,12 +6,12 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
 latest_completed_plan_verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P7
+active_plan: PERF003.C2.P7.PATCH1
 latest_completed_plan: PERF003.C2.P6
 next_plan: PERF003.C2.P7
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: 3ca30fca
-latest_tested_revision: 69c618c8
+execution_tree_head: dbde1d8c
+latest_tested_revision: dbde1d8c
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
 
@@ -153,8 +153,161 @@ inherited failures: `associated_family_capture_round_trips_subset_and_optional_t
 fails conditional-dispatch implementation-member-authority validation. No
 artifact or allocation code changed. PATCH0 is COMPLETE / IMPLEMENTED /
 FOCUSED_TESTED, and PATCH1's `PATCH0_callable_fingerprint` prerequisite is
-SATISFIED; PATCH1 remains otherwise unstarted. P7 remains IN_PROGRESS / PARTIAL /
+SATISFIED; PATCH1 T0 is now complete and T1 is next. P7 remains IN_PROGRESS / PARTIAL /
 UNVERIFIED and P8 remains blocked.
+
+## PATCH1 takeover and T0 census — 2026-10-15
+
+PATCH1 is active. The live branch is `perf/universe-characterization` at
+`dbde1d8cacba40067223ca7230b79580bff9c164`, equal to
+`origin/perf/universe-characterization`; the worktree was clean before T0.
+PATCH0's fingerprint prerequisite is SATISFIED. Live ownership matches the
+plan: `CheckedStaticBody` remains the sole checked `StaticApplication` row
+owner; PATCH1 leaves that denotation fail-closed and does not copy rows into
+`CallableAnalysis`. The approved enum-requirement loaded backing remains the
+budgeted vector wrapper.
+
+T0 focused baseline:
+
+- `cargo test -p phalcom-semantic --lib callable_analysis -- --test-threads=1`
+  selected 19 and passed 19, including the broadened callable root tests.
+- `cargo test -p phalcom-compiler-artifact --test
+  semantic_world_callable_analysis_test -- --test-threads=1` selected 9; 4
+  passed and the same 5 inherited failures remain: four
+  `Allocation(UnaccountedBoundary)` cases and the conditional-dispatch
+  implementation-member-authority case recorded above.
+- PATCH0 fingerprint discriminator evidence remains the focused 23/23 run in
+  the PATCH0 handoff. Live code still hashes binding writes, family
+  applications, all associated-resolution variants, and nested callable
+  references through the shared associated-resolution helper.
+- The normal semantic integration fingerprint filter is blocked before test
+  selection by the inherited stale `local_len()` call at
+  `phalcom-semantic/tests/semantic/integration/canonical_image.rs:203`. No
+  PATCH1 code is implicated.
+
+Current `CallableAnalysis` field matrix. “Guarded” means the semantic-world
+importer rejects every nonempty callable-analysis table before materialization;
+the standalone flow and denotation helpers do not constitute a complete owner
+importer. Current validation covers only the portable subset and its local
+references; complete validation and import remain absent.
+
+| Native field | Artifact disposition | Current wire | Root status | Current validator | Importer | Native storage | Allocation status | Compiler/query consumers | Parity test |
+|---|---|---|---|---|---|---|---|---|---|
+| `callable` | stable owner identity | `callable` | identity only | table key/stable ref checked | guarded | outer table key | source `HashMap`; frozen owner absent | lookup, lowering, fingerprint | owner/codec test only |
+| `body_range` | portable span | `body_range` | none | span shape only | guarded | scalar | no owner allocation | formal projection, diagnostics | none |
+| `body_source_owner` | owner-qualified source namespace | `body_source_owner` | identity only | variant/ref partial | guarded | `Option<SourceOwner>` | no owner allocation | source/formal attachment | none |
+| `expressions` | complete expression rows/local refs | `expression_count`, denotations, partial call specialization | knowledge, denotation, call arguments, dispatch/context roots | count/ordinal and denotation links only | guarded | `BTreeMap<ExpressionId, ExpressionAnalysis>` | source tree nodes; import absent | core lowering, presentation, fingerprint | root tests only |
+| `bindings` | complete binding rows | denotations and range-only formal rows | contract, current knowledge, denotation | map key and subset attachment checks | guarded | `BTreeMap<BindingId, BindingState>` | source tree nodes; import absent | lowering, formal projection, presentation | no full parity |
+| `binding_origins` | authority folded into binding rows | `binding_origins` | identity only | exact key-set check | guarded | `BTreeMap<BindingId, CallableBindingOrigin>` | source tree nodes; import absent | core binding storage choice | owner test only |
+| `for_iteration_lanes` | complete evidence-backed lane rows | absent | source/item/iterator types, evidence, signatures | none | guarded | `Arc<BTreeMap<ExpressionId, _>>` | source tree nodes; import absent | lowering | root test only |
+| `positional_expansions` | complete expansion rows | absent | source/item/iterator types, evidence, signatures | none | guarded | `Arc<BTreeMap<ExpressionId, _>>` | source tree nodes; import absent | lowering | root test only |
+| `known_invalid_positional_expansions` | explicit invalidity rows | absent | source type | none | guarded | `Arc<BTreeMap<ExpressionId, _>>` | source tree nodes; import absent | fail-closed lowering | root test only |
+| `sequence_literals` | complete literal/nested expansion rows | absent | result/element/extent types | none | guarded | outer `Arc<BTreeMap>` plus nested `BTreeMap<SourceRange, _>` | source allocations; import absent | lowering, fingerprint | root test only |
+| `associated_resolutions` | every selected resolution variant | absent from callable rows | owner/member/result/family types | none | guarded | `Arc<BTreeMap<ExpressionId, _>>` | source tree nodes; import absent | lowering, source index, fingerprint | root tests only |
+| `callable_reference_resolutions` | complete bound/associated capture | absent from callable rows | family/member/callable types and nested captures | none | guarded | `Arc<BTreeMap<ExpressionId, _>>` | source tree nodes; import absent | lowering, fingerprint | root tests only |
+| `family_applications` | complete static/dynamic selection | absent from callable rows | family/member/result types | none | guarded | `Arc<BTreeMap<ExpressionId, _>>` | source tree nodes; import absent | lowering, fingerprint | root tests only |
+| `match_resolutions` | complete match/proof/coverage rows | absent | recursive pattern, proof, coverage types | none | guarded | `Arc<BTreeMap<ExpressionId, _>>`; nested branch-proof maps | source tree nodes; import absent | core lowering, fingerprint | root test only |
+| `pattern_site_resolutions` | complete non-match pattern rows | absent | recursive pattern and subject types | none | guarded | `Arc<BTreeMap<PatternSiteKey, _>>`; nested branch-proof maps | source tree nodes; import absent | core lowering | root test only |
+| `flow_graph` | complete owner-local graph | nodes, edges, entry, exits | no type roots | endpoint/entry/exit closure partial | standalone frozen importer only | source/frozen dual graph | frozen node/edge/adjacency path budgeted; owner import guarded | lowering, fingerprint | current codec case is an inherited allocation failure |
+| `entry_flow` | complete entry summary | absent | binding/field knowledge and contracts | none | guarded | `FlowStateSummary` with two `BTreeMap`s | source tree nodes; import absent | flow readers, fingerprint | root test only |
+| `exits` | normal, throw, unreachable facts | `exits_unreachable` only | exit knowledge and nested flow summaries | unreachable bit plus ordinal checks | guarded | vectors and two flow-summary maps per summary | source vectors/maps; import absent | flow readers, fingerprint | no full parity |
+| `return_validation` | complete return-contract result | absent | none | none | guarded | enum/scalar | no owner allocation | publication and fingerprint | none |
+| `diagnostics` | complete payload and local cause links | absent | guidance types/parameters | source-export cause checks only | guarded | `Arc<[SemanticDiagnostic]>` | source slice; import absent | diagnostics/presentation | no full parity |
+| `internal_incidents` | explicit rows or canonical rejection | absent; nonempty rejected | none | nonempty canonical owner rejected | guarded | `Arc<[InternalSemanticIncident]>` | source slice; import absent | snapshot publication | rejection only |
+| `explanations` | complete explanation DAG | absent | steps/rules/evidence types | source-export DAG/cause checks only | guarded | arena `BTreeMap<ExplanationId, _>` plus nested vectors | source tree nodes; import absent | explanation reader, fingerprint | no full parity |
+| `return_explanation` | local explanation ordinal | absent | identity only | source owner ref checked | guarded | `Option<ExplanationId>` | no owner allocation | presentation/explanation | none |
+| `dependencies` | exact callable dependency identities | absent | identity only | direct-result subset checked | guarded | `Arc<[CallableId]>` | source slice; import absent | termination/query invalidation/fingerprint | no full parity |
+| `semantic_dependencies` | exact semantic dependency identities/evidence | absent | generic-conformance type roots | root closure only for generic evidence | guarded | `Arc<[SemanticDependency]>` | source slice; import absent | query invalidation | no full parity |
+| `constructor_super_initializer` | selected target and call range | portable target/range | identity only | target/range partial | guarded | optional record | no owner allocation | core lowering | owner/codec test only |
+| `dependency_fingerprint` | recompute after relocation | absent | none | no cross-store equality check | guarded | fixed fingerprint scalar | no owner allocation | incremental query reuse | PATCH0 contract only; no relocated parity |
+| `status` | preserve status and publishability | `status` | identity only | portable enum/canonical incident rules partial | guarded | enum | no owner allocation | snapshot/canonical publication | status codec case inherits allocation failure |
+
+Source-side map/set allocation census: outer
+`CallableAnalysisTable.by_id` (`HashMap`) and `.by_module` (`HashMap` of
+`BTreeSet`); the twelve top-level body indexes shown above; nested
+`FlowStateSummary.bindings`/`fields`, sequence `exact_expansions`, explanation
+`nodes`, match/pattern `BranchProofEnvironment.bindings` and `local_bindings`,
+and trait-dispatch selection `requirement_targets`. Transitive conditional and
+generic evidence may own `TypeEnvironment` HashMaps/HashSet and
+`TypeSubstitution` bindings. The current semantic importer reconstructs none of
+these callable-owned allocations because it stops at the completeness guard;
+the existing `FlowGraph` and denotation functions are standalone budgeted
+seams, not a callable materializer.
+
+`CallableAnalysisTable::Deref<Target = HashMap<...>>` has no identified
+production consumer that requires a HashMap-only operation. Production uses are
+through the explicit `get`, `contains_key`, `keys`, `values`, `iter`, and
+`iter_module` methods in `diagnostic.rs`, `snapshot.rs`, `canonical_image.rs`,
+`artifact/{roots,export}.rs`, `session.rs`, and
+`phalcom-core/src/modules/{compile,semantic_lowering,canonical_universe}.rs`.
+Keep the separate `Index` implementation in view while removing representation
+leakage; compile the listed consumers in T1.
+
+## PATCH1 T1 frozen callable owner storage — 2026-10-16
+
+T1 establishes one source/frozen read contract for maps and sets reachable from
+callable owners. `AnalysisMap` and `AnalysisSet` keep mutable source backing and
+accept charged sorted entry vectors for shared immutable backing. Flow summary
+maps, sequence expansion maps, resolution indexes, branch-proof environments,
+trait-dispatch selection maps, and value-owned `TypeEnvironment` maps/sets use
+these wrappers. `InherentImplSpecialization.bindings` uses `AnalysisMap` too.
+`TypeSubstitution` inside its existing shared `Arc` remains owned by that
+canonical shared conformance evidence and is not copied into a callable-local
+owner.
+
+`CallableAnalysisTable` now has explicit read/source-mutation methods and no
+`Deref<HashMap<...>>`. Its source representation retains the existing hash ID
+index and module `BTreeSet` index. Its imported representation is one charged
+sorted row vector plus a charged frozen module-to-row-range map; module
+iteration scans only that module's rows. `ExplanationArena` likewise supports
+source allocation and a charged frozen sorted-node table. Frozen mutation
+attempts return typed errors. `CheckedStaticBody` remains the only checked
+`StaticApplication` row owner; the callable denotation remains fail-closed.
+
+Focused T1 evidence already completed:
+
+- semantic library check — PASS (existing `import_callable_call_specializations`
+  dead-code warning remains);
+- core library check — PASS;
+- callable-analysis unit filter after nested environment changes — 22 selected,
+  22 passed (includes callable-table and flow tests);
+- `analysis_map` — 5 passed; `analysis_set` — 3 passed;
+- explanation arena — 2 passed; type environment — 2 passed;
+- sequence publication — 3 passed; flow-summary fingerprint discriminator —
+  1 passed;
+- changed-Rust-file formatting and `git diff --check` — PASS.
+
+No artifact round trip, semantic integration suite, source-denied compilation,
+determinism gate, or P5/P6 acceptance gate ran during T1. The known semantic
+integration `local_len()` compile blocker and five inherited callable artifact
+failures remain unchanged.
+
+## PATCH1 T2 callable-local ordinal model — 2026-10-16
+
+Callable wire validation now runs through a `CallableAnalysisOrdinalContext`
+created for one `CallableAnalysisRecordV1`. Its expression, binding, and flow
+node checks are family-specific and resolve only against that record; a local
+number reused by another callable therefore has no cross-owner meaning. The
+context validates row ordering/uniqueness, each current local reference, flow
+graph bounds/entry/exit closure, and duplicate exits. PATCH1 T3 must extend this
+same context when complete wire row families are introduced; the current schema
+still has no wire expression, binding, explanation, or diagnostic-cause rows.
+
+T2 evidence:
+
+- semantic callable export/ordinal discriminator — 1 passed, including reversed
+  map construction history and owner-key mismatch;
+- artifact local-ordinal discriminator — 1 passed, including independent
+  ordinal-zero reuse across two callable owners, duplicate rejection, and
+  expression-vs-binding family separation;
+- the directly affected flow codec test was re-run and still fails at decode
+  with the previously recorded `Allocation(UnaccountedBoundary)` failure; this
+  is the inherited artifact validation allocation boundary, not a changed
+  ordinal assertion;
+- `git diff --check` — PASS.
+
+T3 is next. The final root closure and rich wire record remain unimplemented;
+P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED and P8 remains blocked.
 
 ## 0. Checkpoint state
 
@@ -165,21 +318,17 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
 latest_completed_plan_verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P7
+active_plan: PERF003.C2.P7.PATCH1
 latest_completed_plan: PERF003.C2.P6
-next_plan: PERF003.C2.P7
+next_plan: PERF003.C2.P7.PATCH1
 next_action: >
-  Continue full CallableAnalysis wire/export/import/materialization and compiler
-  binding/site/target projection. Extend the still-partial callable type-root
-  census before closing the shared graph. Keep checked StaticApplication rows
-  owned by CheckedStaticBody; design a portable owner-held row and operational
-  operand reference without fabricating source ExpressionIds, then cross-validate
-  them before transport. Keep it fail-closed until that seam and its validation
-  are complete. Close
-  remaining primary/witness/query owners and allocation accounting, then run
-  named P7 parity, source-denied, determinism, and P5/P6 gates. Keep P7
-  IN_PROGRESS / PARTIAL / UNVERIFIED and P8 blocked until all required rows and
-  acceptance gates pass.
+  PATCH1 T0 and T1 are complete: the PATCH0 fingerprint prerequisite is
+  satisfied; focused callable-analysis, frozen owner, semantic library, and core
+  library evidence is recorded below. T2 establishes the owner-local ordinal
+  validation context; continue T3–T10 in plan order. Keep checked StaticApplication
+  rows owned by CheckedStaticBody; PATCH1 leaves their denotation fail-closed.
+  Preserve the budgeted enum-requirement wrapper. Keep P7 IN_PROGRESS / PARTIAL /
+  UNVERIFIED and P8 blocked until all P7 rows and acceptance gates pass.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.

@@ -323,7 +323,10 @@ fn analyze_static_expression_with_demands_at(
         let message = format!("runtime binding is not accessible in a static constant initializer (binding {binding:?})");
         let diagnostic = SemanticDiagnostic::error_in(context.current_module.clone(), DiagnosticCode::TypeOnlyRuntimeValue, message, range);
         if let Some(cause) = context.emit_diagnostic(diagnostic)
-            && let Some(expression) = context.expressions.get_mut(&expression_id)
+            && let Some(expression) = context
+                .expressions
+                .get_source_mut(&expression_id)
+                .expect("checking context expression products are source mutable")
         {
             expression.status = AnalysisStatus::Invalid(cause);
             expression.causal_invalidity = expression.causal_invalidity.join(CausalInvalidity::One(cause));
@@ -494,9 +497,13 @@ fn analyze_static_expression_with_demands_at(
         .map(|(expr, res)| (*expr, res.clone()))
         .collect();
 
-    let mut bindings: BindingAnalysisIndex = context.binding_history.clone();
-    bindings.extend(context.flow.bindings.clone());
-    bindings.retain(|binding, _| binding.0 >= first_body_binding || readable.contains(binding));
+    let mut bindings: BindingAnalysisIndex = context.binding_history.clone().into();
+    bindings
+        .extend_source(context.flow.bindings.clone())
+        .expect("new static-body binding maps are source mutable");
+    bindings
+        .retain_source(|binding, _| binding.0 >= first_body_binding || readable.contains(binding))
+        .expect("new static-body binding maps are source mutable");
     let mut local_ids = bindings
         .keys()
         .copied()
@@ -748,7 +755,10 @@ fn analyze_static_body_inner(
         let message = format!("runtime binding is not accessible in a static definition body (binding {binding:?})");
         let diagnostic = SemanticDiagnostic::error_in(context.current_module.clone(), DiagnosticCode::TypeOnlyRuntimeValue, message, range);
         if let Some(cause) = context.emit_diagnostic(diagnostic)
-            && let Some(expression) = context.expressions.get_mut(&expression_id)
+            && let Some(expression) = context
+                .expressions
+                .get_source_mut(&expression_id)
+                .expect("checking context expression products are source mutable")
         {
             expression.status = AnalysisStatus::Invalid(cause);
             expression.causal_invalidity = expression.causal_invalidity.join(CausalInvalidity::One(cause));
@@ -777,29 +787,34 @@ fn analyze_static_body_inner(
     let dependencies: Arc<[SemanticDependency]> = context.semantic_dependencies_snapshot().into_iter().collect::<Vec<_>>().into();
     let associated_resolutions = context
         .associated_resolutions
-        .into_iter()
+        .iter()
         .filter(|(expression, _)| expressions.contains_key(expression))
+        .map(|(expression, resolution)| (*expression, resolution.clone()))
         .collect();
     let sequence_literals: crate::checker::analysis::SequenceLiteralResolutionIndex = context
         .sequence_literals
-        .into_iter()
+        .iter()
         .filter(|(expression, _)| expressions.contains_key(expression))
+        .map(|(expression, resolution)| (*expression, resolution.clone()))
         .collect();
     let match_resolutions: crate::match_semantics::MatchResolutionIndex = context
         .match_resolutions
-        .into_iter()
+        .iter()
         .filter(|(expression, _)| expressions.contains_key(expression))
+        .map(|(expression, resolution)| (*expression, resolution.clone()))
         .collect();
     let body_range = definition.body.range();
     let pattern_site_resolutions: crate::match_semantics::PatternSiteResolutionIndex = context
         .pattern_site_resolutions
-        .into_iter()
+        .iter()
         .filter(|(key, _)| body_range.contains_range(&key.range))
+        .map(|(key, resolution)| (*key, resolution.clone()))
         .collect();
     let static_iteration_lanes: crate::checker::static_iteration::StaticIterationLaneResolutionIndex = context
         .static_iteration_lanes
-        .into_iter()
+        .iter()
         .filter(|(expression, _)| expressions.contains_key(expression))
+        .map(|(expression, resolution)| (*expression, resolution.clone()))
         .collect();
     let proof_predicates: crate::checker::proof_predicate::ProofPredicateResolutionIndex = context
         .proof_predicates
@@ -807,9 +822,13 @@ fn analyze_static_body_inner(
         .filter(|(expression, _)| expressions.contains_key(expression))
         .collect();
 
-    let mut bindings: BindingAnalysisIndex = context.binding_history.clone();
-    bindings.extend(context.flow.bindings.clone());
-    bindings.retain(|binding, _| binding.0 >= first_body_binding || statically_readable_bindings.contains(binding));
+    let mut bindings: BindingAnalysisIndex = context.binding_history.clone().into();
+    bindings
+        .extend_source(context.flow.bindings.clone())
+        .expect("new static-body binding maps are source mutable");
+    bindings
+        .retain_source(|binding, _| binding.0 >= first_body_binding || statically_readable_bindings.contains(binding))
+        .expect("new static-body binding maps are source mutable");
     let mut local_ids = bindings
         .keys()
         .copied()
@@ -1133,7 +1152,7 @@ mod tests {
         let analysis =
             crate::checker::analysis::ExpressionAnalysis::ready(expression, SourceRange::default(), TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
                 .with_denotation(Some(crate::types::denotation::SemanticDenotation::TypeForm(projection)));
-        let expressions = BTreeMap::from([(expression, analysis)]);
+        let expressions = crate::checker::analysis::ExpressionAnalysisIndex::from([(expression, analysis)]);
 
         let projections = checked_member_projection_index(&context, &expressions);
         let checked = projections.get(&expression).expect("canonical structural projection site");

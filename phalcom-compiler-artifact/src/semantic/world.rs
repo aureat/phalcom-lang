@@ -802,73 +802,13 @@ impl SemanticWorldV2 {
             if analysis.body_range.start > analysis.body_range.end {
                 return Err(invalid("callable body source range is inverted"));
             }
-            if analysis.flow_graph.nodes.len() > limits.max_semantic_entries_per_family
-                || analysis.flow_graph.edges.len() > limits.max_semantic_entries_per_family
-                || analysis.flow_graph.entry.is_some_and(|entry| entry as usize >= analysis.flow_graph.nodes.len())
-                || analysis.flow_graph.exits.len() > analysis.flow_graph.nodes.len()
-            {
-                return Err(invalid("callable flow graph exceeds its owner-local limits or has an invalid entry/exit"));
-            }
-            if analysis.flow_graph.exits.iter().any(|exit| *exit as usize >= analysis.flow_graph.nodes.len())
-                || analysis.flow_graph.edges.iter().any(|edge| {
-                    edge.source as usize >= analysis.flow_graph.nodes.len() || edge.target as usize >= analysis.flow_graph.nodes.len()
-                })
-            {
-                return Err(invalid("callable flow graph contains a dangling node reference"));
-            }
-            if let Some(entry) = analysis.flow_graph.entry
-                && !matches!(&analysis.flow_graph.nodes[entry as usize].kind, CallableFlowNodeKindV1::Entry)
-            {
-                return Err(invalid("callable flow graph entry ordinal does not identify an entry node"));
-            }
-            if analysis.flow_graph.exits.iter().any(|exit| {
-                !matches!(
-                    &analysis.flow_graph.nodes[*exit as usize].kind,
-                    CallableFlowNodeKindV1::Exit | CallableFlowNodeKindV1::Throw
-                )
-            }) {
-                return Err(invalid("callable flow graph exit ordinal does not identify an exit or throw node"));
-            }
-            if !analysis.flow_graph.exits.is_empty() {
-                let mut seen = allocations.vector::<u8>(analysis.flow_graph.nodes.len()).map_err(allocation_error)?;
-                seen.resize(analysis.flow_graph.nodes.len(), 0);
-                for exit in &analysis.flow_graph.exits {
-                    let slot = &mut seen[*exit as usize];
-                    if *slot != 0 {
-                        return Err(invalid("callable flow graph contains a duplicate exit"));
-                    }
-                    *slot = 1;
-                }
-            }
+            CallableAnalysisOrdinalContext::new(analysis).validate(limits, allocations)?;
             if analysis
                 .constructor_super_initializer
                 .as_ref()
                 .is_some_and(|initializer| initializer.call_range.start > initializer.call_range.end)
             {
                 return Err(invalid("constructor super-initializer range is inverted"));
-            }
-            if analysis.formal_bindings.len() > limits.max_semantic_entries_per_family
-                || analysis.binding_origins.len() > limits.max_semantic_entries_per_family
-                || analysis.expression_denotations.len() > limits.max_semantic_entries_per_family
-                || analysis.binding_denotations.len() > limits.max_semantic_entries_per_family
-                || analysis.call_specializations.len() > limits.max_semantic_entries_per_family
-                || analysis.binding_origins.iter().enumerate().any(|(index, origin)| origin.binding_ordinal as usize != index)
-                || analysis.formal_bindings.windows(2).any(|pair| pair[0].binding_ordinal >= pair[1].binding_ordinal)
-                || analysis
-                    .expression_denotations
-                    .windows(2)
-                    .any(|pair| pair[0].expression_ordinal >= pair[1].expression_ordinal)
-                || analysis
-                    .binding_denotations
-                    .windows(2)
-                    .any(|pair| pair[0].binding_ordinal >= pair[1].binding_ordinal)
-                || analysis.call_specializations.windows(2).any(|pair| pair[0].expression_ordinal >= pair[1].expression_ordinal)
-                || analysis.expression_denotations.iter().any(|entry| entry.expression_ordinal >= analysis.expression_count)
-                || analysis.binding_denotations.iter().any(|entry| entry.binding_ordinal as usize >= analysis.binding_origins.len())
-                || analysis.call_specializations.iter().any(|call| call.expression_ordinal >= analysis.expression_count)
-                || analysis.formal_bindings.iter().any(|attachment| attachment.range.start > attachment.range.end)
-            {
-                return Err(invalid("callable binding origins or formal attachments are invalid or unsorted"));
             }
             for call in &analysis.call_specializations {
                 if call.bindings.len() > limits.max_semantic_entries_per_family
@@ -1518,6 +1458,109 @@ fn validate_type_expr(ty: &TypeExprSpecV1, limits: &ValidationLimits, depth: usi
             }
             Ok(())
         }
+    }
+}
+
+/// Validation context for one callable record's local ordinal coordinate
+/// space. Equal ordinal values in different records remain unrelated.
+struct CallableAnalysisOrdinalContext<'a> {
+    record: &'a CallableAnalysisRecordV1,
+}
+
+impl<'a> CallableAnalysisOrdinalContext<'a> {
+    fn new(record: &'a CallableAnalysisRecordV1) -> Self {
+        Self { record }
+    }
+
+    fn has_expression(&self, ordinal: u32) -> bool {
+        ordinal < self.record.expression_count
+    }
+
+    fn has_binding(&self, ordinal: u32) -> bool {
+        (ordinal as usize) < self.record.binding_origins.len()
+    }
+
+    fn has_flow_node(&self, ordinal: u32) -> bool {
+        (ordinal as usize) < self.record.flow_graph.nodes.len()
+    }
+
+    fn validate(&self, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+        let record = self.record;
+        if record.flow_graph.nodes.len() > limits.max_semantic_entries_per_family
+            || record.flow_graph.edges.len() > limits.max_semantic_entries_per_family
+            || record.flow_graph.entry.is_some_and(|entry| !self.has_flow_node(entry))
+            || record.flow_graph.exits.len() > record.flow_graph.nodes.len()
+        {
+            return Err(invalid("callable flow graph exceeds its owner-local limits or has an invalid entry/exit"));
+        }
+        if record.flow_graph.exits.iter().any(|exit| !self.has_flow_node(*exit))
+            || record
+                .flow_graph
+                .edges
+                .iter()
+                .any(|edge| !self.has_flow_node(edge.source) || !self.has_flow_node(edge.target))
+        {
+            return Err(invalid("callable flow graph contains a dangling node reference"));
+        }
+        if let Some(entry) = record.flow_graph.entry
+            && !matches!(&record.flow_graph.nodes[entry as usize].kind, CallableFlowNodeKindV1::Entry)
+        {
+            return Err(invalid("callable flow graph entry ordinal does not identify an entry node"));
+        }
+        if record.flow_graph.exits.iter().any(|exit| {
+            !matches!(
+                &record.flow_graph.nodes[*exit as usize].kind,
+                CallableFlowNodeKindV1::Exit | CallableFlowNodeKindV1::Throw
+            )
+        }) {
+            return Err(invalid("callable flow graph exit ordinal does not identify an exit or throw node"));
+        }
+        if !record.flow_graph.exits.is_empty() {
+            let mut seen = allocations.vector::<u8>(record.flow_graph.nodes.len()).map_err(allocation_error)?;
+            seen.resize(record.flow_graph.nodes.len(), 0);
+            for exit in &record.flow_graph.exits {
+                let slot = &mut seen[*exit as usize];
+                if *slot != 0 {
+                    return Err(invalid("callable flow graph contains a duplicate exit"));
+                }
+                *slot = 1;
+            }
+        }
+
+        if record.formal_bindings.len() > limits.max_semantic_entries_per_family
+            || record.binding_origins.len() > limits.max_semantic_entries_per_family
+            || record.expression_denotations.len() > limits.max_semantic_entries_per_family
+            || record.binding_denotations.len() > limits.max_semantic_entries_per_family
+            || record.call_specializations.len() > limits.max_semantic_entries_per_family
+            || record
+                .binding_origins
+                .iter()
+                .enumerate()
+                .any(|(index, origin)| origin.binding_ordinal as usize != index)
+            || record.formal_bindings.windows(2).any(|pair| pair[0].binding_ordinal >= pair[1].binding_ordinal)
+            || record
+                .expression_denotations
+                .windows(2)
+                .any(|pair| pair[0].expression_ordinal >= pair[1].expression_ordinal)
+            || record
+                .binding_denotations
+                .windows(2)
+                .any(|pair| pair[0].binding_ordinal >= pair[1].binding_ordinal)
+            || record
+                .call_specializations
+                .windows(2)
+                .any(|pair| pair[0].expression_ordinal >= pair[1].expression_ordinal)
+            || record.expression_denotations.iter().any(|entry| !self.has_expression(entry.expression_ordinal))
+            || record.binding_denotations.iter().any(|entry| !self.has_binding(entry.binding_ordinal))
+            || record.call_specializations.iter().any(|call| !self.has_expression(call.expression_ordinal))
+            || record
+                .formal_bindings
+                .iter()
+                .any(|attachment| !self.has_binding(attachment.binding_ordinal) || attachment.range.start > attachment.range.end)
+        {
+            return Err(invalid("callable binding origins or formal attachments are invalid or unsorted"));
+        }
+        Ok(())
     }
 }
 

@@ -411,7 +411,9 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                             let premise = CallPremise::from_typed(ctx, &iter_typed);
                             let (resolution, result) = resolve_for_iteration_lane(ctx, &premise, iter_typed.expression_id, evidence.ty(), lane.iter.range());
                             if let Some(resolution) = resolution {
-                                ctx.for_iteration_lanes.insert(resolution.source_expression, resolution);
+                                ctx.for_iteration_lanes
+                                    .insert_source(resolution.source_expression, resolution)
+                                    .expect("checking context iteration lanes are source mutable");
                             }
                             if !result.status.is_ready() {
                                 ctx.record_call_status(result.status.clone());
@@ -433,7 +435,9 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                                     static_exact_items = Some(items.clone());
                                 }
                             }
-                            ctx.static_iteration_lanes.insert(resolution.source_expression, resolution);
+                            ctx.static_iteration_lanes
+                                .insert_source(resolution.source_expression, resolution)
+                                .expect("checking context static iteration lanes are source mutable");
                             (elem_knowledge, crate::checker::causal::CausalInvalidity::Clean)
                         } else {
                             (TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause), iter_typed.causal_invalidity)

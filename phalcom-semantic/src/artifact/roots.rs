@@ -1299,15 +1299,18 @@ mod tests {
         let denotation_only_type = store.nominal_type(owner);
         let expression_id = ExpressionId::new(BodyId(4), LocalExpressionId(2));
         let mut analysis = callable_analysis(callable);
-        analysis.expressions.insert(
-            expression_id,
-            ExpressionAnalysis::ready(
+        analysis
+            .expressions
+            .insert_source(
                 expression_id,
-                SourceRange { start: 1, end: 2 },
-                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                ExpressionAnalysis::ready(
+                    expression_id,
+                    SourceRange { start: 1, end: 2 },
+                    TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                )
+                .with_denotation(Some(SemanticDenotation::TypeForm(denotation_only_type))),
             )
-            .with_denotation(Some(SemanticDenotation::TypeForm(denotation_only_type))),
-        );
+            .unwrap();
 
         let mut types = TypeExportContext::new(&store);
         register_callable_analysis_roots(&mut types, &analysis).unwrap();
@@ -1327,14 +1330,17 @@ mod tests {
         let expression_type = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "ExpressionKnowledgeRoot".into()));
         let expression_id = ExpressionId::new(BodyId(7), LocalExpressionId(3));
         let mut analysis = callable_analysis(callable);
-        analysis.expressions.insert(
-            expression_id,
-            ExpressionAnalysis::ready(
+        analysis
+            .expressions
+            .insert_source(
                 expression_id,
-                SourceRange { start: 2, end: 5 },
-                TypeKnowledge::established(expression_type, EvidenceOrigin::Flow),
-            ),
-        );
+                ExpressionAnalysis::ready(
+                    expression_id,
+                    SourceRange { start: 2, end: 5 },
+                    TypeKnowledge::established(expression_type, EvidenceOrigin::Flow),
+                ),
+            )
+            .unwrap();
 
         let mut types = TypeExportContext::new(&store);
         register_callable_analysis_roots(&mut types, &analysis).unwrap();
@@ -1356,23 +1362,26 @@ mod tests {
         let binding = BindingId(12);
         let range = SourceRange { start: 1, end: 5 };
         let mut analysis = callable_analysis(callable);
-        analysis.bindings.insert(
-            binding,
-            crate::checker::analysis::BindingState::new_with_contract(
+        analysis
+            .bindings
+            .insert_source(
                 binding,
-                "value",
-                range,
-                Some(crate::checker::binding::BindingContract {
-                    ty: contract_type,
-                    origin: crate::checker::binding::BindingContractOrigin::SourceAnnotation,
-                    source: Some(range),
-                }),
-                TypeKnowledge::established(current_type, EvidenceOrigin::Flow),
-                None,
-                false,
-                crate::checker::flow::InitializationState::DefinitelyInitialized,
-            ),
-        );
+                crate::checker::analysis::BindingState::new_with_contract(
+                    binding,
+                    "value",
+                    range,
+                    Some(crate::checker::binding::BindingContract {
+                        ty: contract_type,
+                        origin: crate::checker::binding::BindingContractOrigin::SourceAnnotation,
+                        source: Some(range),
+                    }),
+                    TypeKnowledge::established(current_type, EvidenceOrigin::Flow),
+                    None,
+                    false,
+                    crate::checker::flow::InitializationState::DefinitelyInitialized,
+                ),
+            )
+            .unwrap();
 
         let mut types = TypeExportContext::new(&store);
         register_callable_analysis_roots(&mut types, &analysis).unwrap();
@@ -2186,7 +2195,7 @@ mod tests {
         });
 
         let mut analysis = callable_analysis(callable);
-        analysis.expressions.insert(expression_id, expression);
+        analysis.expressions.insert_source(expression_id, expression).unwrap();
         let mut types = TypeExportContext::new(&store);
         register_callable_analysis_roots(&mut types, &analysis).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
@@ -2232,20 +2241,22 @@ mod tests {
             crate::traits::TraitRef::new(declaration("DependencyTraitRoot"), vec![dependency_trait_argument].into_boxed_slice()),
         );
         let mut arena = crate::explain::ExplanationArena::new();
-        arena.alloc_full(
-            ExplanationStep::Subtyping {
-                actual: explanation_actual,
-                expected: explanation_expected,
-                proven: false,
-            },
-            DerivationRule::GenericInstantiation {
-                type_args: vec![explanation_rule_type],
-            },
-            EvidenceStatus::Established,
-            EvidenceOrigin::Flow,
-            vec![EvidenceRef::TypeId(explanation_evidence_type)],
-            Vec::new(),
-        );
+        arena
+            .alloc_full(
+                ExplanationStep::Subtyping {
+                    actual: explanation_actual,
+                    expected: explanation_expected,
+                    proven: false,
+                },
+                DerivationRule::GenericInstantiation {
+                    type_args: vec![explanation_rule_type],
+                },
+                EvidenceStatus::Established,
+                EvidenceOrigin::Flow,
+                vec![EvidenceRef::TypeId(explanation_evidence_type)],
+                Vec::new(),
+            )
+            .expect("test explanation arena is source mutable");
         let mut diagnostic = SemanticDiagnostic::error_in(
             owner.module.clone(),
             DiagnosticCode::ApplicationTooManyArguments,
@@ -2328,18 +2339,21 @@ mod tests {
         ];
         for (ordinal, denotation) in denotations.into_iter().enumerate() {
             let expression_id = ExpressionId::new(BodyId(6), LocalExpressionId(ordinal as u32));
-            analysis.expressions.insert(
-                expression_id,
-                ExpressionAnalysis::ready(
+            analysis
+                .expressions
+                .insert_source(
                     expression_id,
-                    SourceRange {
-                        start: ordinal,
-                        end: ordinal + 1,
-                    },
-                    TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                    ExpressionAnalysis::ready(
+                        expression_id,
+                        SourceRange {
+                            start: ordinal,
+                            end: ordinal + 1,
+                        },
+                        TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                    )
+                    .with_denotation(Some(denotation)),
                 )
-                .with_denotation(Some(denotation)),
-            );
+                .unwrap();
         }
 
         let mut types = TypeExportContext::new(&store);
@@ -2361,18 +2375,21 @@ mod tests {
         let callable = CallableId::method(owner.clone(), Selector::getter("factory").unwrap(), DispatchSide::Class);
         let mut analysis = callable_analysis(callable);
         let expression_id = ExpressionId::new(BodyId(5), LocalExpressionId(1));
-        analysis.expressions.insert(
-            expression_id,
-            ExpressionAnalysis::ready(
+        analysis
+            .expressions
+            .insert_source(
                 expression_id,
-                SourceRange { start: 3, end: 7 },
-                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                ExpressionAnalysis::ready(
+                    expression_id,
+                    SourceRange { start: 3, end: 7 },
+                    TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                )
+                .with_denotation(Some(SemanticDenotation::StaticApplication(crate::static_definition::StaticApplicationId {
+                    body: crate::static_definition::StaticBodyId(owner),
+                    ordinal: 0,
+                }))),
             )
-            .with_denotation(Some(SemanticDenotation::StaticApplication(crate::static_definition::StaticApplicationId {
-                body: crate::static_definition::StaticBodyId(owner),
-                ordinal: 0,
-            }))),
-        );
+            .unwrap();
 
         let mut types = TypeExportContext::new(&TypeStore::new());
         assert!(

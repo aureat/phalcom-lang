@@ -5,15 +5,23 @@ use super::instantiation::{GenericInstantiation, RowMaterializationMode, TypeMat
 use super::row::RecordRowField;
 use super::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use super::substitution::TypeSubstitution;
+use crate::checker::analysis_map::{AnalysisMap, FrozenAnalysisMapMutation};
+use crate::checker::analysis_set::{AnalysisSet, FrozenAnalysisSetMutation};
 use crate::identity::CallableId;
-use std::collections::{HashMap, HashSet};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrozenTypeEnvironmentMutation {
+    Bindings,
+    DynamicBindings,
+    RowBindings,
+}
 
 /// An environment mapping type parameters and `Self` bindings for lazy specialization.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TypeEnvironment {
-    pub bindings: HashMap<TypeParameterId, TypeId>,
-    pub dynamic_bindings: HashSet<TypeParameterId>,
-    pub row_bindings: HashMap<TypeParameterId, RecordRowId>,
+    pub bindings: AnalysisMap<TypeParameterId, TypeId>,
+    pub dynamic_bindings: AnalysisSet<TypeParameterId>,
+    pub row_bindings: AnalysisMap<TypeParameterId, RecordRowId>,
     pub self_binding: Option<TypeId>,
 }
 
@@ -22,26 +30,63 @@ impl TypeEnvironment {
         Self::default()
     }
 
-    pub fn bind_param(&mut self, param: TypeParameterId, ty: TypeId) {
-        self.dynamic_bindings.remove(&param);
-        self.row_bindings.remove(&param);
-        self.bindings.insert(param, ty);
+    fn ensure_source_mutable(&self) -> Result<(), FrozenTypeEnvironmentMutation> {
+        if self.bindings.is_frozen() {
+            return Err(FrozenTypeEnvironmentMutation::Bindings);
+        }
+        if self.dynamic_bindings.is_frozen() {
+            return Err(FrozenTypeEnvironmentMutation::DynamicBindings);
+        }
+        if self.row_bindings.is_frozen() {
+            return Err(FrozenTypeEnvironmentMutation::RowBindings);
+        }
+        Ok(())
     }
 
-    pub fn bind_dynamic(&mut self, param: TypeParameterId) {
-        self.bindings.remove(&param);
-        self.row_bindings.remove(&param);
-        self.dynamic_bindings.insert(param);
+    pub fn bind_param(&mut self, param: TypeParameterId, ty: TypeId) -> Result<(), FrozenTypeEnvironmentMutation> {
+        self.ensure_source_mutable()?;
+        self.dynamic_bindings
+            .remove_source(&param)
+            .map_err(|FrozenAnalysisSetMutation| FrozenTypeEnvironmentMutation::DynamicBindings)?;
+        self.row_bindings
+            .remove_source(&param)
+            .map_err(|FrozenAnalysisMapMutation| FrozenTypeEnvironmentMutation::RowBindings)?;
+        self.bindings
+            .insert_source(param, ty)
+            .map_err(|FrozenAnalysisMapMutation| FrozenTypeEnvironmentMutation::Bindings)?;
+        Ok(())
+    }
+
+    pub fn bind_dynamic(&mut self, param: TypeParameterId) -> Result<(), FrozenTypeEnvironmentMutation> {
+        self.ensure_source_mutable()?;
+        self.bindings
+            .remove_source(&param)
+            .map_err(|FrozenAnalysisMapMutation| FrozenTypeEnvironmentMutation::Bindings)?;
+        self.row_bindings
+            .remove_source(&param)
+            .map_err(|FrozenAnalysisMapMutation| FrozenTypeEnvironmentMutation::RowBindings)?;
+        self.dynamic_bindings
+            .insert_source(param)
+            .map_err(|FrozenAnalysisSetMutation| FrozenTypeEnvironmentMutation::DynamicBindings)?;
+        Ok(())
     }
 
     pub fn is_dynamic(&self, param: TypeParameterId) -> bool {
         self.dynamic_bindings.contains(&param)
     }
 
-    pub fn bind_row(&mut self, param: TypeParameterId, row: RecordRowId) {
-        self.bindings.remove(&param);
-        self.dynamic_bindings.remove(&param);
-        self.row_bindings.insert(param, row);
+    pub fn bind_row(&mut self, param: TypeParameterId, row: RecordRowId) -> Result<(), FrozenTypeEnvironmentMutation> {
+        self.ensure_source_mutable()?;
+        self.bindings
+            .remove_source(&param)
+            .map_err(|FrozenAnalysisMapMutation| FrozenTypeEnvironmentMutation::Bindings)?;
+        self.dynamic_bindings
+            .remove_source(&param)
+            .map_err(|FrozenAnalysisSetMutation| FrozenTypeEnvironmentMutation::DynamicBindings)?;
+        self.row_bindings
+            .insert_source(param, row)
+            .map_err(|FrozenAnalysisMapMutation| FrozenTypeEnvironmentMutation::RowBindings)?;
+        Ok(())
     }
 
     /// Returns the one canonical argument category bound to `param`, if any.
@@ -54,8 +99,10 @@ impl TypeEnvironment {
             .or_else(|| self.row_bindings.get(&param).copied().map(super::store::StaticArgument::RecordRow))
     }
 
-    pub fn bind_self(&mut self, ty: TypeId) {
+    pub fn bind_self(&mut self, ty: TypeId) -> Result<(), FrozenTypeEnvironmentMutation> {
+        self.ensure_source_mutable()?;
         self.self_binding = Some(ty);
+        Ok(())
     }
 
     pub fn get_param(&self, param: TypeParameterId) -> Option<TypeId> {
@@ -390,4 +437,48 @@ pub struct SpecializedCallableView {
 pub struct SpecializedMemberView {
     pub callable: Option<CallableId>,
     pub environment: TypeEnvironment,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FrozenTypeEnvironmentMutation, TypeEnvironment};
+    use crate::checker::analysis_map::AnalysisMap;
+    use crate::checker::analysis_set::AnalysisSet;
+    use crate::types::id::{RecordRowId, TypeId, TypeParameterId};
+    use phalcom_type_meta::allocation::AllocationBudget;
+
+    #[test]
+    fn source_environment_bindings_preserve_single_argument_category() {
+        let parameter = TypeParameterId(1);
+        let mut environment = TypeEnvironment::new();
+        environment.bind_param(parameter, TypeId(2)).unwrap();
+        assert_eq!(environment.argument(parameter), Some(crate::types::store::StaticArgument::Term(TypeId(2))));
+        environment.bind_dynamic(parameter).unwrap();
+        assert_eq!(environment.argument(parameter), Some(crate::types::store::StaticArgument::DynamicType));
+        environment.bind_row(parameter, RecordRowId(3)).unwrap();
+        assert_eq!(
+            environment.argument(parameter),
+            Some(crate::types::store::StaticArgument::RecordRow(RecordRowId(3)))
+        );
+    }
+
+    #[test]
+    fn a_frozen_nested_environment_collection_rejects_binding_without_partial_mutation() {
+        let parameter = TypeParameterId(1);
+        let mut allocations = AllocationBudget::new(4096);
+        let mut entries = allocations.vector(1).unwrap();
+        entries.push(parameter);
+        let dynamic_bindings = AnalysisSet::from_budgeted_entries(entries, &mut allocations).unwrap();
+        let mut environment = TypeEnvironment {
+            bindings: AnalysisMap::from([(parameter, TypeId(2))]),
+            dynamic_bindings,
+            row_bindings: AnalysisMap::new(),
+            self_binding: None,
+        };
+
+        assert_eq!(environment.bind_dynamic(parameter), Err(FrozenTypeEnvironmentMutation::DynamicBindings));
+        assert_eq!(environment.argument(parameter), Some(crate::types::store::StaticArgument::Term(TypeId(2))));
+        assert_eq!(environment.bind_self(TypeId(4)), Err(FrozenTypeEnvironmentMutation::DynamicBindings));
+        assert_eq!(environment.get_self(), None);
+    }
 }
