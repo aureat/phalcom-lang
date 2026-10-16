@@ -1357,6 +1357,47 @@ The loaded artifact sets `source_checked_body = None`.
 
 If changing the owner this way conflicts materially with current P7/P8 contracts, STOP AND CONSULT.
 
+### Adopted T7/T12 evaluator clarification — 2026-10-16
+
+The architect decision for `INC-PATCH2-T7-T12-STATIC-EVAL` selects
+source-independent canonical static execution in PATCH2; G4/G6 are not deferred.
+The persistent executable frame is the pair:
+
+```text
+StaticDefinition.signature + CanonicalStaticProgram
+```
+
+`StaticBodyId` remains the durable body owner and qualifies body-local
+application ordinals. `CheckedStaticBody` remains source-side checking,
+incremental-recomputation, and diagnostic authority. A canonical program is
+derived once from it and becomes definition execution authority after
+canonicalization/import.
+
+This clarification supersedes the tentative source-map fields in the concept
+sketch above. Do not add `parameter_bindings`, `local_slots`,
+`static_constant_bindings`, `ExpressionId` maps, or `BindingId` maps to the
+canonical program or its wire representation. Operational parameter indexes,
+local slots, stable static-constant symbols, and body-qualified application
+ordinals are the execution layout. Validate them against the definition
+signature and canonical program before execution. The signature remains the
+authority for parameter domains, kinded `TypeParameterId`s, and result domain;
+`kinded_parameters` is a sorted compact lane projection validated against that
+signature.
+
+The evaluator must have a first-class canonical definition frame. Its arguments
+are ordinal-aligned `StaticArgument`s and its locals are sized by
+`CanonicalStaticProgram.local_count`. Source evaluation may retain a
+`CheckedStaticBody` path as a differential/auxiliary path, but production
+definition execution must use the canonical program when present. Imported
+execution and nested calls require `canonical_program`; missing `checked_body`
+is normal. Canonical `ReadParameter` and local accesses must not synthesize or
+fall back to `BindingId(index)`.
+
+No schema expansion is authorized for frame maps. Preserve fail-closed guards
+until canonical-frame validation, source/canonical and fresh-store evaluation
+parity, source-denied execution, fingerprint parity, and malformed-layout
+checks pass. Global PATCH3 allocation guards remain unchanged.
+
 ---
 
 # 6.15 Checked static applications

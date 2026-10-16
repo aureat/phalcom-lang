@@ -14,6 +14,10 @@ pub enum StaticEvalError {
     UnboundBinding(BindingId),
     #[error("static binding {0:?} was read before initialization")]
     UninitializedBinding(BindingId),
+    #[error("canonical static local slot {slot} is out of range")]
+    InvalidLocalSlot { slot: u32 },
+    #[error("canonical static local slot {slot} was read before initialization")]
+    UninitializedLocalSlot { slot: u32 },
     #[error("static integer literal is malformed")]
     InvalidIntegerLiteral,
     #[error("static argument {index} does not match the checked parameter kind")]

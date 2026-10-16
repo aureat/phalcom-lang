@@ -2096,14 +2096,15 @@ fn validate_static_definitions(
             || definition.alias_info.as_ref().is_some_and(|alias| alias != &definition.id)
             || definition.canonical_program.owner != definition.id
             || definition.canonical_program.result != definition.signature.result_domain
-            || definition.canonical_program.parameter_count as usize != definition.signature.parameters.len()
+            || usize::try_from(definition.canonical_program.parameter_count).ok() != Some(definition.signature.parameters.len())
+            || usize::try_from(definition.canonical_program.local_count).map_or(true, |count| count > limits.max_semantic_entries_per_family)
             || definition.diagnostics.len() > limits.max_semantic_entries_per_family
         {
             return Err(invalid("static definition owner fields disagree"));
         }
         validate_static_definition_signature(&definition.signature, &definition.id, &world.type_graph, limits)?;
         let program = &definition.canonical_program;
-        crate::semantic::operational::validate_op(&program.root, program.parameter_count, program.local_count, 0, limits)?;
+        crate::semantic::operational::validate_op(&program.root, program.parameter_count, program.local_count, &program.applications, 0, limits)?;
         if program.applications.len() > limits.max_semantic_entries_per_family
             || program.kinded_parameters.windows(2).any(|pair| pair[0] >= pair[1])
             || program.kinded_parameters.iter().any(|index| *index >= program.parameter_count)

@@ -10,16 +10,16 @@ active_plan: PERF003.C2.P7.PATCH2
 latest_completed_plan: PERF003.C2.P6
 next_plan: PERF003.C2.P7.PATCH2
 next_action: >
-  Obtain the architect decision for INC-PATCH2-T7-T12-STATIC-EVAL before editing
-  the source-free static evaluator path. Then resume G4/G6 source-denial and
-  evaluator parity work, alongside independent remaining G1-G8 owner-parity and
+  Run the source-free canonical evaluator regression and complete the
+  source/canonical, fresh-store, source-denied, fingerprint, and malformed-layout
+  gates. Then continue the remaining independent G1-G8 owner-parity and
   malformed-wire gates. T7-T10 owner transport and T11-T13 assembly/root work
   are implemented, but no gate is promoted from compilation alone. Keep the
   semantic importer partial until PATCH6 promotion, and preserve PATCH1
   callable/Exact/Derived plus PATCH3 allocation guards until their named
   acceptance gates pass.
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: dbde1d8c
+execution_tree_head: 2d0b51ee
 latest_tested_revision: dbde1d8c
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
@@ -1991,25 +1991,48 @@ fresh-process, determinism, and P5/P6 acceptance gaps remain. PATCH2 stays
 IN_PROGRESS / PARTIAL; P7 stays IN_PROGRESS / PARTIAL / UNVERIFIED; P8 remains
 blocked.
 
-## PATCH2 T7/T12 source-free static execution consultation hold — 2026-10-16
+## PATCH2 T7/T12 static evaluator architecture decision — 2026-10-16
 
-`INC-PATCH2-T7-T12-STATIC-EVAL` is awaiting an architect decision before any
-change to the evaluator's imported-program execution model. PATCH2 §6.14 and
-T7/T12 with G4/G6 require imported canonical static programs to be executable
-without source checked bodies. The live importer constructs each imported
-static definition with `canonical_program: Some(program)` and
-`checked_body: None`. The current evaluator still requires
-`CheckedStaticBody`: its public definition constructor takes that type, and
-operational static-application execution rejects a target whose
-`StaticDefinitionProduct.checked_body` is absent with `UnsupportedExpression`;
-frame loading also reads body-owned parameter/kinded-parameter/local layout.
+`INC-PATCH2-T7-T12-STATIC-EVAL` is resolved by the architect's supplied
+decision: PATCH2 must implement source-independent canonical static execution;
+G4/G6 are not deferred. The executable frame is
+`StaticDefinition.signature + CanonicalStaticProgram`. `StaticBodyId` remains
+the durable application-row owner. `CheckedStaticBody` remains source-side
+checking/recomputation/diagnostic authority, while the canonical program is the
+persistent execution authority after canonicalization and import.
 
-The pending decision is whether PATCH2 should make the canonical program a
-sufficient source-independent evaluator frame while preserving the established
-`StaticBodyId`-qualified checked-application owner, or whether the plan's
-source-free execution obligation must be clarified/amended and deferred. No
-evaluator code or fail-closed guard was changed for this incident. No
-source-denied evaluator reproduction or differential was run; the failure path
-is established by the live code checks above. Compilation evidence does not
-close G4/G6. Continue only on independent work while this evaluator fork is
-pending.
+Do not add the checked body's `parameter_bindings`, `local_slots`,
+`static_constant_bindings`, `BindingId`, or `ExpressionId` maps to the
+canonical program or wire. Parameter indexes, local slots, stable static
+constant symbols, and body-qualified application ordinals are canonical IR
+layout. The signature owns parameter domains, kinded `TypeParameterId`s, and
+result domain; `kinded_parameters` remains only a sorted projection validated
+against the signature. Canonical frames use ordinal-aligned arguments and
+`local_count`-sized locals. Canonical parameter reads must not use the
+`BindingId(index)` fallback. Imported target execution requires its canonical
+program; `checked_body: None` is normal.
+
+The PATCH2 plan now records this clarification, superseding its tentative
+source-map field sketch. No wire schema expansion is authorized.
+
+Implementation continuation on 2026-10-16 adds a first-class canonical
+evaluator frame and constructor, switches source-built definition evaluation to
+that frame when a canonical program is present, and resolves nested operational
+applications from the current program's `(StaticBodyId, ordinal)` rows. The
+frame reads value/kinded parameters by signature ordinal, uses exactly
+`local_count` local slots, emits slot-oriented canonical-local errors, and
+requires a target canonical program even when its checked body is absent.
+Artifact validation now bounds `local_count` and checks operational
+application ordinals and argument nodes against their checked rows. A
+source-free evaluator regression was added for static constants, value and
+kinded parameters, nested kinded applications, and mutable local slots.
+
+`RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' cargo check
+-p phalcom-semantic --lib --offline` passed on the final source edits, with
+existing dead-code warnings for guarded PATCH1 importer seams. The scoped
+`rustfmt --check` and `git diff --check` also pass. The semantic integration
+`--no-run` attempt is blocked by inherited compile errors across unrelated
+integration fixtures, so the new regression remains unexecuted and
+unverified. No source-denied, fresh-store, source/canonical differential,
+fingerprint, or malformed-layout runtime gate has passed. Static guards remain
+active; PATCH2, P7, and P8 status are unchanged.

@@ -11,6 +11,7 @@ use phalcom_semantic::{
     SemanticWorkspaceSession,
     db::{CancellationToken, QueryBudget},
     identity::DeclarationId,
+    static_definition::StaticDefinitionTable,
     static_eval::{StaticEvalError, StaticEvalOutcome, StaticEvaluator},
     static_value::{StaticValueData, StaticValueStore},
 };
@@ -599,6 +600,55 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
         module_bindings.get(&base).expect("canonical const symbol").phase,
         phalcom_semantic::module_bindings::ModuleBindingPhase::StaticConstant
     );
+}
+
+#[test]
+fn canonical_static_definition_frames_execute_without_checked_bodies() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            "const base: Int = 2\nconst seven: Int = 7\ntype ReadBase: Int = base\ntype Identity<N: Int>: Int { N }\ntype AppliedValue: Int = Identity<seven>\ntype MutableLocal: Int { let mut value = 1\n value = 2\n value }\ntype ForwardKind<T: Type, N: Int>: Type = T\ntype KindConsumer<T: Type>: Int { 11 }\ntype AppliedKind: Int = KindConsumer<ForwardKind<Int, seven>>\n",
+        )
+        .analyze();
+
+    let mut source_free_definitions = StaticDefinitionTable::new();
+    for (_, product) in fixture.analysis.snapshot.static_definitions().iter() {
+        let mut imported = (**product).clone();
+        imported.checked_body = None;
+        source_free_definitions.insert(Arc::new(imported));
+    }
+
+    let evaluate = |name: &str, values: &mut StaticValueStore| {
+        let product = source_free_definitions
+            .get(&fixture.decl("main", name))
+            .expect("canonical static definition product");
+        let program = product.canonical_program.as_deref().expect("canonical static program");
+        StaticEvaluator::for_canonical_definition(
+            &product.definition,
+            program,
+            values,
+            &mut QueryBudget::default(),
+            &CancellationToken::new(),
+            &[],
+        )
+        .with_static_definitions(&source_free_definitions)
+        .with_static_constants(fixture.analysis.snapshot.static_constants())
+        .with_type_store(fixture.analysis.snapshot.store())
+        .evaluate()
+    };
+
+    for (name, expected) in [("ReadBase", 2), ("AppliedValue", 7), ("MutableLocal", 2), ("AppliedKind", 11)] {
+        let mut values = (**fixture.analysis.snapshot.static_values()).clone();
+        let outcome = evaluate(name, &mut values);
+        let StaticEvalOutcome::Reduced(value) = outcome else {
+            panic!("source-free canonical program {name} should reduce, got {outcome:?}");
+        };
+        assert_eq!(
+            values.get(value).unwrap(),
+            &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(expected)),
+            "source-free canonical program {name}"
+        );
+    }
 }
 
 #[test]
