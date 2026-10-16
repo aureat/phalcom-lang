@@ -1472,6 +1472,99 @@ impl CallableConformanceEvidenceExport<'_> {
         })
     }
 
+    fn conditional_capability(
+        &mut self,
+        capability: &crate::dispatch::ConditionalSelectedCallCapability,
+        depth: usize,
+    ) -> Result<phalcom_compiler_artifact::semantic::world::CallableConditionalSelectedCallCapabilityV1, ArtifactError> {
+        if capability.selection.impl_id != capability.applicability.impl_id {
+            return Err(referential("conditional call capability applicability belongs to another implementation"));
+        }
+        Ok(phalcom_compiler_artifact::semantic::world::CallableConditionalSelectedCallCapabilityV1 {
+            selection: export_conditional_dispatch_selection(&capability.selection),
+            applicability: self.inherent_specialization(&capability.applicability, depth + 1)?,
+        })
+    }
+
+    fn trait_dispatch_site(
+        &mut self,
+        site: &crate::trait_dispatch::TraitDispatchSite,
+        depth: usize,
+    ) -> Result<phalcom_compiler_artifact::semantic::world::CallableTraitDispatchSiteV1, ArtifactError> {
+        use crate::trait_dispatch::TraitDispatchSite;
+        use phalcom_compiler_artifact::semantic::world as wire;
+
+        Ok(match site {
+            TraitDispatchSite::AbstractRequirement { requirement } => wire::CallableTraitDispatchSiteV1::AbstractRequirement {
+                requirement: export_callable_requirement_identity(requirement),
+            },
+            TraitDispatchSite::Assumed(selection) => wire::CallableTraitDispatchSiteV1::Assumed {
+                conformance: export_generic_conformance_key(&selection.conformance, self.types)?,
+                requirement: export_callable_requirement_identity(&selection.requirement),
+                signature: export_callable_signature(&selection.signature, self.types)?,
+            },
+            TraitDispatchSite::Evidenced(selection) => wire::CallableTraitDispatchSiteV1::Evidenced {
+                selection: self.trait_dispatch_selection(selection, depth + 1)?,
+            },
+        })
+    }
+
+    fn trait_dispatch_selection(
+        &mut self,
+        selection: &crate::trait_dispatch::TraitDispatchSelection,
+        depth: usize,
+    ) -> Result<phalcom_compiler_artifact::semantic::world::CallableTraitDispatchSelectionV1, ArtifactError> {
+        use phalcom_compiler_artifact::semantic::world as wire;
+        let expected_fingerprint = crate::db::fingerprint::generic_conformance_evidence_fingerprint(&selection.evidence);
+        if selection.evidence_fingerprint != expected_fingerprint {
+            return Err(referential("trait dispatch selection carries a stale evidence fingerprint"));
+        }
+        let mut requirement_targets = Vec::with_capacity(selection.requirement_targets.len());
+        for (requirement, target) in &selection.requirement_targets {
+            requirement_targets.push(wire::CallableRequirementSelectionEntryV1 {
+                requirement: export_callable_requirement_identity(requirement),
+                selection: self.selection(target, depth + 1)?,
+            });
+        }
+        Ok(wire::CallableTraitDispatchSelectionV1 {
+            source_impl: to_stable_impl(&selection.source_impl),
+            exact_target: self.types.ty(selection.exact_target)?,
+            exact_trait_ref: export_trait_ref_identity(&selection.exact_trait_ref, self.types)?,
+            requirement: export_callable_requirement_identity(&selection.requirement),
+            callable: selection.callable.as_ref().map(to_stable_callable),
+            signature: export_callable_signature(&selection.signature, self.types)?,
+            evidence: self.evidence(&selection.evidence, depth + 1)?,
+            selection: self.selection(&selection.selection, depth + 1)?,
+            requirement_targets,
+        })
+    }
+
+    fn for_iteration_requirement(
+        &mut self,
+        requirement: &crate::checker::analysis::ForIterationRequirementResolution,
+        depth: usize,
+    ) -> Result<phalcom_compiler_artifact::semantic::world::CallableForIterationRequirementV1, ArtifactError> {
+        use crate::checker::analysis::ForIterationRequirementResolution as Native;
+        use phalcom_compiler_artifact::semantic::world::CallableForIterationRequirementV1 as Portable;
+        Ok(match requirement {
+            Native::Evidence {
+                conformance,
+                evidence,
+                requirement,
+                signature,
+            } => Portable::Evidence {
+                conformance: export_generic_conformance_key(conformance, self.types)?,
+                evidence: self.evidence(evidence, depth + 1)?,
+                requirement: export_callable_requirement_identity(requirement),
+                signature: export_callable_signature(signature, self.types)?,
+            },
+            Native::AbstractRequirement { requirement, signature } => Portable::AbstractRequirement {
+                requirement: export_callable_requirement_identity(requirement),
+                signature: export_callable_signature(signature, self.types)?,
+            },
+        })
+    }
+
     fn effective_inherent_witness(
         &mut self,
         witness: &crate::impls::EffectiveInherentWitness,
@@ -1678,6 +1771,111 @@ fn export_binding_consistency(
             report: export_binding_budget(report),
         },
         BindingConsistency::InternalFailure(message) => CallableBindingConsistencyV1::InternalFailure { message: message.clone() },
+    })
+}
+
+fn export_callable_binding_contract(
+    contract: &crate::checker::binding::BindingContract,
+    types: &TypeExportContext,
+) -> Result<phalcom_compiler_artifact::semantic::world::CallableBindingContractV1, ArtifactError> {
+    use crate::checker::binding::BindingContractOrigin;
+    use phalcom_compiler_artifact::semantic::world::CallableBindingContractOriginV1 as PortableOrigin;
+    Ok(phalcom_compiler_artifact::semantic::world::CallableBindingContractV1 {
+        ty: types.ty(contract.ty)?,
+        origin: match contract.origin {
+            BindingContractOrigin::SourceAnnotation => PortableOrigin::SourceAnnotation,
+            BindingContractOrigin::InferredInitializer => PortableOrigin::InferredInitializer,
+            BindingContractOrigin::CallableParameter => PortableOrigin::CallableParameter,
+            BindingContractOrigin::ContextualBlockParameter => PortableOrigin::ContextualBlockParameter,
+            BindingContractOrigin::PatternBinding => PortableOrigin::PatternBinding,
+            BindingContractOrigin::StaticParameter => PortableOrigin::StaticParameter,
+        },
+        source: contract.source.map(export_source_range).transpose()?,
+    })
+}
+
+fn export_callable_causal_invalidity(
+    invalidity: crate::checker::causal::CausalInvalidity,
+    ordinals: &CallableAnalysisOrdinalMap,
+) -> Result<CallableCausalInvalidityV1, ArtifactError> {
+    Ok(match invalidity {
+        crate::checker::causal::CausalInvalidity::Clean => CallableCausalInvalidityV1::Clean,
+        crate::checker::causal::CausalInvalidity::One(cause) => CallableCausalInvalidityV1::One {
+            cause: *ordinals
+                .diagnostic_causes
+                .get(&cause)
+                .ok_or_else(|| referential("callable fact references an absent diagnostic cause"))?,
+        },
+        crate::checker::causal::CausalInvalidity::Multiple => CallableCausalInvalidityV1::Multiple,
+    })
+}
+
+fn export_callable_flow_state(
+    flow: &crate::checker::analysis::FlowStateSummary,
+    ordinals: &CallableAnalysisOrdinalMap,
+    types: &TypeExportContext,
+) -> Result<phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::world as wire;
+    let mut bindings = Vec::with_capacity(flow.bindings.len());
+    for (binding, summary) in &flow.bindings {
+        bindings.push(wire::CallableFlowBindingSummaryV1 {
+            binding: *ordinals
+                .bindings
+                .get(binding)
+                .ok_or_else(|| referential("callable flow summary references an absent binding"))?,
+            knowledge: export_type_knowledge(&summary.knowledge, types)?,
+            contract: summary
+                .contract
+                .as_ref()
+                .map(|contract| export_callable_binding_contract(contract, types))
+                .transpose()?,
+            consistency: export_binding_consistency(&summary.consistency, types)?,
+            mutable: summary.mutable,
+            initialization: match summary.initialization {
+                crate::checker::flow::InitializationState::Uninitialized => wire::CallableInitializationStateV1::Uninitialized,
+                crate::checker::flow::InitializationState::MaybeInitialized => wire::CallableInitializationStateV1::MaybeInitialized,
+                crate::checker::flow::InitializationState::DefinitelyInitialized => wire::CallableInitializationStateV1::DefinitelyInitialized,
+            },
+        });
+    }
+    bindings.sort_unstable_by_key(|binding| binding.binding);
+    let mut fields = Vec::with_capacity(flow.fields.len());
+    for (field, summary) in &flow.fields {
+        fields.push(wire::CallableFlowFieldSummaryV1 {
+            field: wire::StaticFieldDependencyV1 {
+                owner: to_stable_declaration(&field.owner),
+                side: to_stable_dispatch_side(field.side),
+                name: field.name.clone(),
+            },
+            contract: export_type_knowledge(&summary.contract, types)?,
+            current: export_type_knowledge(&summary.current, types)?,
+            initialization: match summary.initialization {
+                crate::checker::flow::InitializationState::Uninitialized => wire::CallableInitializationStateV1::Uninitialized,
+                crate::checker::flow::InitializationState::MaybeInitialized => wire::CallableInitializationStateV1::MaybeInitialized,
+                crate::checker::flow::InitializationState::DefinitelyInitialized => wire::CallableInitializationStateV1::DefinitelyInitialized,
+            },
+            validity: match &summary.validity {
+                crate::checker::flow::FieldContractValidity::Unchecked => wire::CallableFieldContractValidityV1::Unchecked,
+                crate::checker::flow::FieldContractValidity::Validated => wire::CallableFieldContractValidityV1::Validated,
+                crate::checker::flow::FieldContractValidity::Assumed => wire::CallableFieldContractValidityV1::Assumed,
+                crate::checker::flow::FieldContractValidity::Refuted => wire::CallableFieldContractValidityV1::Refuted,
+                crate::checker::flow::FieldContractValidity::Blocked(reason) => wire::CallableFieldContractValidityV1::Blocked {
+                    reason: export_callable_block_reason(reason, types)?,
+                },
+                crate::checker::flow::FieldContractValidity::DynamicBoundary(obligation) => wire::CallableFieldContractValidityV1::DynamicBoundary {
+                    reason: obligation.reason.clone().into_boxed_str(),
+                },
+            },
+            causal_invalidity: export_callable_causal_invalidity(summary.causal_invalidity, ordinals)?,
+        });
+    }
+    fields.sort_unstable_by(|left, right| {
+        (&left.field.owner, left.field.side, &left.field.name).cmp(&(&right.field.owner, right.field.side, &right.field.name))
+    });
+    Ok(wire::CallableFlowStateSummaryV1 {
+        bindings,
+        fields,
+        fact_count: u64::try_from(flow.fact_count).map_err(|_| referential("callable flow fact count exceeds portable range"))?,
     })
 }
 
@@ -2040,6 +2238,12 @@ fn export_callable_analysis_record(
         if expression.call.is_some() {
             return Err(referential("call resolution ids have no admitted portable callable owner"));
         }
+        if expression.trait_dispatch_candidates.is_some() {
+            return Err(referential("trait dispatch candidate sets have no admitted portable callable owner"));
+        }
+        if expression.contextual_realization.is_some() {
+            return Err(referential("contextual realization has no admitted portable callable owner"));
+        }
         let status = export_callable_expression_status(&expression.status, &ordinals, types)?;
         let range = phalcom_compiler_artifact::module_world::SpanV1 {
             start: u64::try_from(expression.range.start).map_err(|_| referential("callable expression range start exceeds portable range"))?,
@@ -2134,14 +2338,41 @@ fn export_callable_analysis_record(
                 })
             })
             .transpose()?;
+        let conditional_capability = expression
+            .conditional_capability
+            .as_ref()
+            .map(|capability| {
+                if expression.conditional_dispatch.as_ref() != Some(&capability.selection) {
+                    return Err(referential("conditional call capability disagrees with its expression dispatch selection"));
+                }
+                conformance_export.conditional_capability(capability, 0)
+            })
+            .transpose()?;
+        let trait_dispatch = expression
+            .trait_dispatch
+            .as_ref()
+            .map(|site| conformance_export.trait_dispatch_site(site, 0))
+            .transpose()?;
         expressions.push(CallableExpressionRowV1 {
             ordinal: ordinals.expressions[expression_id],
             range,
             knowledge,
             callable: expression.callable.as_ref().map(to_stable_callable),
             conditional_dispatch: expression.conditional_dispatch.as_ref().map(export_conditional_dispatch_selection),
+            conditional_capability,
+            trait_dispatch,
             status,
             causal_invalidity,
+            explanation: expression
+                .explanation
+                .map(|explanation| {
+                    ordinals
+                        .explanations
+                        .get(&explanation)
+                        .copied()
+                        .ok_or_else(|| referential("callable expression references an absent explanation"))
+                })
+                .transpose()?,
             binding_read_safety,
             binding_read,
             binding_write,
@@ -2238,6 +2469,232 @@ fn export_callable_analysis_record(
         });
     }
     bindings.sort_unstable_by_key(|binding| binding.ordinal);
+
+    use phalcom_compiler_artifact::semantic::world as wire;
+    let unsupported_family_counts = wire::CallableAnalysisUnsupportedFamilyCountsV1 {
+        trait_dispatch_candidates: u32::try_from(
+            analysis.expressions.values().filter(|expression| expression.trait_dispatch_candidates.is_some()).count(),
+        )
+        .map_err(|_| referential("trait dispatch candidate count exceeds portable range"))?,
+        contextual_realizations: u32::try_from(
+            analysis.expressions.values().filter(|expression| expression.contextual_realization.is_some()).count(),
+        )
+        .map_err(|_| referential("contextual realization count exceeds portable range"))?,
+        positional_expansions: u32::try_from(analysis.positional_expansions.len())
+            .map_err(|_| referential("positional expansion count exceeds portable range"))?,
+        known_invalid_positional_expansions: u32::try_from(analysis.known_invalid_positional_expansions.len())
+            .map_err(|_| referential("invalid positional expansion count exceeds portable range"))?,
+        family_applications: u32::try_from(analysis.family_applications.len())
+            .map_err(|_| referential("family application count exceeds portable range"))?,
+    };
+    if unsupported_family_counts.trait_dispatch_candidates != 0
+        || unsupported_family_counts.contextual_realizations != 0
+        || unsupported_family_counts.positional_expansions != 0
+        || unsupported_family_counts.known_invalid_positional_expansions != 0
+        || unsupported_family_counts.family_applications != 0
+    {
+        return Err(referential("callable analysis contains a nonempty family outside the admitted portable profile"));
+    }
+
+    let mut for_iteration_lanes = Vec::with_capacity(analysis.for_iteration_lanes.len());
+    for (expression, lane) in analysis.for_iteration_lanes.iter() {
+        if expression != &lane.source_expression {
+            return Err(referential("for-iteration lane key disagrees with its source expression"));
+        }
+        let expression = *ordinals
+            .expressions
+            .get(expression)
+            .ok_or_else(|| referential("for-iteration lane references an absent owner-local expression"))?;
+        for_iteration_lanes.push(wire::CallableForIterationLaneV1 {
+            expression,
+            source_range: export_source_range(lane.source_range)?,
+            source_type: types.ty(lane.source_type)?,
+            item_type: types.ty(lane.item_type)?,
+            iterator_type: types.ty(lane.iterator_type)?,
+            iterator: conformance_export.for_iteration_requirement(&lane.iterator, 0)?,
+            next: conformance_export.for_iteration_requirement(&lane.next, 0)?,
+        });
+    }
+    for_iteration_lanes.sort_unstable_by_key(|lane| lane.expression);
+
+    let mut sequence_literals = Vec::with_capacity(analysis.sequence_literals.len());
+    for (expression, literal) in analysis.sequence_literals.iter() {
+        if expression != &literal.source_expression {
+            return Err(referential("sequence literal key disagrees with its source expression"));
+        }
+        let expression = *ordinals
+            .expressions
+            .get(expression)
+            .ok_or_else(|| referential("sequence literal references an absent owner-local expression"))?;
+        let construction = match literal.construction {
+            crate::checker::analysis::SequenceConstructionPlan::Fixed { element_count } => wire::CallableSequenceConstructionV1::Fixed {
+                element_count: u64::try_from(element_count).map_err(|_| referential("sequence element count exceeds portable range"))?,
+            },
+            crate::checker::analysis::SequenceConstructionPlan::Expanded => wire::CallableSequenceConstructionV1::Expanded,
+            crate::checker::analysis::SequenceConstructionPlan::VectorIdentitySpread { source_range, extent } => {
+                wire::CallableSequenceConstructionV1::VectorIdentitySpread {
+                    source_range: export_source_range(source_range)?,
+                    extent: types.ty(extent)?,
+                }
+            }
+        };
+        let exact_expansions = literal
+            .exact_expansions
+            .iter()
+            .map(|(range, expansion)| {
+                Ok(wire::CallableSequenceExpansionEntryV1 {
+                    source_range: export_source_range(*range)?,
+                    expansion: match expansion {
+                        crate::checker::analysis::SequenceExpansionResolution::TuplePositionals { extent } => {
+                            wire::CallableSequenceExpansionV1::TuplePositionals { extent: types.ty(*extent)? }
+                        }
+                        crate::checker::analysis::SequenceExpansionResolution::VectorStorage { extent } => {
+                            wire::CallableSequenceExpansionV1::VectorStorage { extent: types.ty(*extent)? }
+                        }
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>, ArtifactError>>()?;
+        sequence_literals.push(wire::CallableSequenceLiteralV1 {
+            expression,
+            source_range: export_source_range(literal.source_range)?,
+            family: match literal.family {
+                crate::checker::analysis::SequenceLiteralFamily::List => wire::CallableSequenceFamilyV1::List,
+                crate::checker::analysis::SequenceLiteralFamily::Array => wire::CallableSequenceFamilyV1::Array,
+                crate::checker::analysis::SequenceLiteralFamily::Vector => wire::CallableSequenceFamilyV1::Vector,
+            },
+            result_type: types.ty(literal.result_type)?,
+            element_type: types.ty(literal.element_type)?,
+            extent: literal.extent.map(|extent| types.ty(extent)).transpose()?,
+            construction,
+            exact_expansions,
+        });
+    }
+    sequence_literals.sort_unstable_by_key(|literal| literal.expression);
+
+    let mut associated_resolutions = Vec::with_capacity(analysis.associated_resolutions.len());
+    for (expression, resolution) in analysis.associated_resolutions.iter() {
+        let expression = *ordinals
+            .expressions
+            .get(expression)
+            .ok_or_else(|| referential("associated resolution references an absent owner-local expression"))?;
+        let family = resolution.family.as_ref().map(|family| wire::AssociatedFamilyIdentityV1 {
+            owner: to_stable_declaration(&family.owner),
+            selector: export_associated_selector(&family.base),
+        });
+        let kind = match &resolution.kind {
+            crate::checker::associated::AssociatedResolutionKind::ExactValue { member, value_type } => {
+                wire::CallableAssociatedResolutionKindV1::ExactValue {
+                    member: export_associated_member(member),
+                    value_type: types.ty(*value_type)?,
+                }
+            }
+            crate::checker::associated::AssociatedResolutionKind::StaticInvoke {
+                member,
+                target,
+                result_type,
+                argument_mapping,
+            } => wire::CallableAssociatedResolutionKindV1::StaticInvoke {
+                member: export_associated_member(member),
+                target: export_invocation_target(target),
+                result_type: types.ty(*result_type)?,
+                argument_mapping: argument_mapping.as_ref().map(|mapping| mapping.to_vec()),
+            },
+            _ => return Err(referential("associated resolution variant is outside the admitted portable profile")),
+        };
+        associated_resolutions.push(wire::CallableAssociatedResolutionV1 {
+            expression,
+            owner_form: types.ty(resolution.owner_form)?,
+            lookup_owner: to_stable_declaration(&resolution.lookup_owner),
+            family,
+            kind,
+        });
+    }
+    associated_resolutions.sort_unstable_by_key(|resolution| resolution.expression);
+
+    let mut callable_reference_resolutions = Vec::with_capacity(analysis.callable_reference_resolutions.len());
+    for (expression, resolution) in analysis.callable_reference_resolutions.iter() {
+        let expression = *ordinals
+            .expressions
+            .get(expression)
+            .ok_or_else(|| referential("callable reference resolution references an absent owner-local expression"))?;
+        let crate::checker::associated::CallableReferenceResolutionKind::BoundFamily {
+            family_type,
+            spec,
+            members,
+        } = &resolution.kind
+        else {
+            return Err(referential("associated callable-reference resolution is outside the admitted portable profile"));
+        };
+        let spec = match spec {
+            crate::checker::associated::BehavioralFamilySpec::Exact(selector) => wire::BehavioralFamilySpecV1::Exact {
+                selector: export_exact_selector(selector),
+            },
+            crate::checker::associated::BehavioralFamilySpec::Pattern(pattern) => wire::BehavioralFamilySpecV1::Pattern {
+                pattern: export_selector_pattern(pattern),
+            },
+        };
+        let mut portable_members = Vec::with_capacity(members.len());
+        for member in members.iter() {
+            let conditional_capability = member
+                .conditional_capability
+                .as_ref()
+                .map(|capability| {
+                    if member.conditional.as_ref() != Some(&capability.selection) {
+                        return Err(referential("bound behavioral capability disagrees with its conditional selection"));
+                    }
+                    conformance_export.conditional_capability(capability, 0)
+                })
+                .transpose()?;
+            portable_members.push(wire::CallableBoundBehavioralMemberV1 {
+                operation: export_family_operation_shape(&member.operation),
+                member_kind: match member.member_kind {
+                    crate::types::family::FamilyMemberTypeKind::Value => wire::CallableFamilyMemberKindV1::Value,
+                    crate::types::family::FamilyMemberTypeKind::Callable => wire::CallableFamilyMemberKindV1::Callable,
+                },
+                target: export_invocation_target(&member.target),
+                callable_type: types.ty(member.callable_type)?,
+                conditional: member.conditional.as_ref().map(export_conditional_dispatch_selection),
+                conditional_capability,
+                trait_dispatch: member
+                    .trait_dispatch
+                    .as_ref()
+                    .map(|selection| conformance_export.trait_dispatch_selection(selection, 0))
+                    .transpose()?,
+            });
+        }
+        callable_reference_resolutions.push(wire::CallableReferenceResolutionV1 {
+            expression,
+            family_type: types.ty(*family_type)?,
+            spec,
+            members: portable_members,
+        });
+    }
+    callable_reference_resolutions.sort_unstable_by_key(|resolution| resolution.expression);
+
+    let entry_flow = export_callable_flow_state(&analysis.entry_flow, &ordinals, types)?;
+    let normal_returns = analysis
+        .exits
+        .normal_returns
+        .iter()
+        .map(|exit| {
+            Ok(wire::CallableNormalReturnV1 {
+                knowledge: export_type_knowledge(&exit.knowledge, types)?,
+                flow: export_callable_flow_state(&exit.flow, &ordinals, types)?,
+                status: export_callable_expression_status(&exit.status, &ordinals, types)?,
+                causal_invalidity: export_callable_causal_invalidity(exit.causal_invalidity, &ordinals)?,
+                direct_result_dependency: exit.direct_result_dependency.as_ref().map(to_stable_callable),
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    let throws = analysis
+        .exits
+        .throws
+        .iter()
+        .map(|flow| export_callable_flow_state(flow, &ordinals, types))
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    let return_validation = export_return_validation(analysis.return_validation);
+
     let constructor_super_initializer = analysis
         .constructor_super_initializer
         .as_ref()
@@ -2272,6 +2729,15 @@ fn export_callable_analysis_record(
         expressions,
         conformance_evidence: conformance_export.nodes,
         bindings,
+        unsupported_family_counts,
+        for_iteration_lanes,
+        sequence_literals,
+        associated_resolutions,
+        callable_reference_resolutions,
+        entry_flow,
+        normal_returns,
+        throws,
+        return_validation,
     })
 }
 
@@ -4662,6 +5128,160 @@ mod callable_analysis_status_tests {
         assert_ne!(
             empty_record, denoted_record,
             "a denotation is owned expression data and must be represented in the callable-analysis record"
+        );
+    }
+
+    #[test]
+    fn callable_analysis_record_preserves_expression_dispatch_authority() {
+        use crate::checker::analysis::{ExpressionAnalysis, GenericCallConformanceBinding, GenericCallConformanceSource};
+        use crate::generic_evidence::{CompilerDerivedConformanceEvidence, CompilerDerivedConformanceKind, GenericConformanceEvidence, GenericConformanceKey};
+        use crate::identity::{BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, ImplId, ImplLocalId, LocalExpressionId, ModuleId};
+        use crate::trait_dispatch::{TraitDispatchSelection, TraitDispatchSite};
+        use crate::types::evidence::{TypeKnowledge, UnknownReason};
+        use crate::types::parameter::TypeTerm;
+        use crate::types::store::TypeStore;
+        use crate::types::store::artifact::TypeExportContext;
+        use phalcom_common::range::SourceRange;
+        use phalcom_common::selector::Selector;
+
+        let owner = DeclarationId::new(ModuleId::universe_root(), "DispatchOwner".into());
+        let trait_owner = DeclarationId::new(ModuleId::universe_root(), "DispatchTrait".into());
+        let callable = CallableId::method(owner.clone(), Selector::getter("dispatch").unwrap(), DispatchSide::Class);
+        let requirement = crate::traits::TraitRequirementId {
+            owner: trait_owner.clone(),
+            selector: callable.selector.clone(),
+            side: DispatchSide::Class,
+        };
+        let expression_id = ExpressionId::new(BodyId(12), LocalExpressionId(4));
+        let mut source = empty_callable_analysis(callable.clone());
+        source
+            .expressions
+            .insert_source(
+                expression_id,
+                ExpressionAnalysis::ready(
+                    expression_id,
+                    SourceRange { start: 5, end: 8 },
+                    TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                ),
+            )
+            .unwrap();
+
+        let mut store = TypeStore::new();
+        let receiver = store.nominal_type(DeclarationId::new(owner.module.clone(), "Receiver".into()));
+        let owner_view = store.nominal_type(owner.clone());
+        let trait_argument = store.nominal_type(DeclarationId::new(owner.module.clone(), "TraitArgument".into()));
+        let result_type = store.nominal_type(DeclarationId::new(owner.module.clone(), "Result".into()));
+        let trait_ref = crate::traits::TraitRef::new(trait_owner, vec![trait_argument].into_boxed_slice());
+        let evidence_key = GenericConformanceKey::new(TypeTerm::Canonical(receiver), trait_ref.clone());
+        let evidence = GenericConformanceEvidence::CompilerDerived(std::sync::Arc::new(CompilerDerivedConformanceEvidence {
+            key: evidence_key.clone(),
+            kind: CompilerDerivedConformanceKind::OrderedProduct,
+            classification: crate::structural::StructuralClassification::OrderedProduct(crate::structural::OrderedProductForm::Tuple),
+        }));
+        let impl_id = ImplId::new(owner.module.clone(), ImplLocalId(1));
+        let signature = crate::signature::CallableSemanticSignature {
+            callable: callable.clone(),
+            owner: owner.clone(),
+            side: DispatchSide::Class,
+            selector: callable.selector.clone(),
+            generics: None,
+            parameters: Box::default(),
+            declared_return: crate::declaration_type::DeclaredTypeFact::known(
+                TypeTerm::Canonical(result_type),
+                crate::declaration_type::DeclaredTypeBasis::SourceAnnotation,
+            ),
+            return_validation: crate::signature::ReturnContractValidation::NotApplicable,
+            inferred_return: None,
+            source: None,
+            implementation: phalcom_common::modifier::ImplementationKind::Phalcom,
+            native_id: None,
+            effects: phalcom_native_meta::EffectSpec::Unknown,
+            raises: phalcom_native_meta::RaisesSpec::Unknown,
+            flow: phalcom_native_meta::ReturnFlowSpec::Value,
+            lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
+        };
+        let selection = crate::dispatch::ConditionalDispatchSelection {
+            impl_id: impl_id.clone(),
+            callable: callable.clone(),
+            declaring_owner: owner.clone(),
+            side: DispatchSide::Class,
+        };
+
+        let mut enriched = source.clone();
+        source.expressions.get_source_mut(&expression_id).unwrap().unwrap().conditional_dispatch = Some(selection.clone());
+        let expression = enriched.expressions.get_source_mut(&expression_id).unwrap().unwrap();
+        expression.conditional_dispatch = Some(selection.clone());
+        expression.conditional_capability = Some(crate::dispatch::ConditionalSelectedCallCapability {
+            selection,
+            applicability: crate::impls::InherentImplSpecialization {
+                impl_id: impl_id.clone(),
+                receiver,
+                owner_view,
+                bindings: Default::default(),
+                environment: Default::default(),
+                conformance_provenance: Some(
+                    vec![GenericCallConformanceBinding {
+                        callee_conformance: evidence_key,
+                        source: GenericCallConformanceSource::CompilerDerived {
+                            evidence: match &evidence {
+                                GenericConformanceEvidence::CompilerDerived(evidence) => evidence.clone(),
+                                _ => unreachable!(),
+                            },
+                        },
+                    }]
+                    .into_boxed_slice(),
+                ),
+            },
+        });
+        expression.trait_dispatch = Some(TraitDispatchSite::Evidenced(TraitDispatchSelection {
+            source_impl: impl_id,
+            exact_target: receiver,
+            exact_trait_ref: trait_ref,
+            requirement: requirement.clone(),
+            callable: Some(callable.clone()),
+            signature,
+            evidence_fingerprint: crate::db::fingerprint::generic_conformance_evidence_fingerprint(&evidence),
+            evidence,
+            selection: crate::impls::RequirementSelectionTemplate::ConformanceCallable {
+                callable: callable.clone(),
+            },
+            requirement_targets: Default::default(),
+        }));
+
+        let mut types = TypeExportContext::new(&store);
+        crate::artifact::roots::register_callable_analysis_roots(&mut types, &enriched, &store).unwrap();
+        types.close_graph(&store, &ValidationLimits::default()).unwrap();
+        let source_record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &ValidationLimits::default()).unwrap();
+        let enriched_record = export_callable_analysis_record(&callable, &enriched, &BTreeMap::new(), &types, &ValidationLimits::default()).unwrap();
+
+        assert_ne!(
+            source_record, enriched_record,
+            "conditional execution capability and trait dispatch are owned expression authority"
+        );
+
+        let graph = types.project_graph(&store, &ValidationLimits::default()).unwrap();
+        let (imported_store, relocation) = TypeStore::import_type_graph(&graph, &ValidationLimits::default()).unwrap();
+        let mut allocations = phalcom_type_meta::allocation::AllocationBudget::new(1024 * 1024);
+        let imported = crate::artifact::import::import_callable_expression_dispatch_authority(
+            &enriched_record,
+            &relocation,
+            &imported_store,
+            &BTreeMap::new(),
+            &mut allocations,
+            ValidationLimits::default().max_recursion_depth,
+        )
+        .unwrap();
+        let imported = &imported[0];
+        let capability = imported.conditional_capability.as_ref().expect("conditional capability");
+        assert_eq!(capability.selection.impl_id, capability.applicability.impl_id);
+        assert_eq!(capability.applicability.receiver, relocation.ty(types.ty(receiver).unwrap()).unwrap());
+        let crate::trait_dispatch::TraitDispatchSite::Evidenced(selection) = imported.trait_dispatch.as_ref().expect("trait dispatch") else {
+            panic!("expected evidenced trait dispatch")
+        };
+        assert_eq!(selection.requirement, requirement);
+        assert_eq!(
+            selection.evidence_fingerprint,
+            crate::db::fingerprint::generic_conformance_evidence_fingerprint(&selection.evidence)
         );
     }
 }

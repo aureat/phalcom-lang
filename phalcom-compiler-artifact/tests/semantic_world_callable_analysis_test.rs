@@ -3,12 +3,14 @@ use phalcom_compiler_artifact::semantic::aggregates::{StructuralPrimaryContracts
 use phalcom_compiler_artifact::semantic::static_value::StaticValueGraphV1;
 use phalcom_compiler_artifact::semantic::type_store::TypeGraphV1;
 use phalcom_compiler_artifact::semantic::world::{
-    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1,
+    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableAnalysisUnsupportedFamilyCountsV1,
+    CallableBindingAuthorityV1, CallableBindingConsistencyV1,
     CallableBindingRowV1, CallableCallSpecializationV1, CallableCausalInvalidityV1, CallableConformanceEvidenceNodeV1, CallableExactConformanceEvidenceV1,
     CallableExpressionRowV1, CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1, CallableFlowNodeV1,
+    CallableFlowStateSummaryV1,
     CallableGenericCallConformanceBindingV1, CallableGenericCallConformanceSourceV1, CallableGenericConformanceProofRefV1, CallableInitializationStateV1,
     CallableTypeEnvironmentV1, ConstructorSuperInitializerV1, EvidenceOriginV1, EvidenceSetV1, EvidenceStatusV1, GenericConformanceKeyV1, SemanticWorldV3,
-    TypeKnowledgeV1,
+    ReturnContractValidationV1, TypeKnowledgeV1,
 };
 use phalcom_type_meta::identity::{
     StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableImplRef, StableModuleRef, StableProjectRef,
@@ -53,7 +55,10 @@ fn expression_row(ordinal: u32) -> CallableExpressionRowV1 {
         },
         callable: None,
         conditional_dispatch: None,
+        conditional_capability: None,
+        trait_dispatch: None,
         causal_invalidity: CallableCausalInvalidityV1::Clean,
+        explanation: None,
         binding_read_safety: None,
         binding_read: None,
         binding_write: None,
@@ -224,6 +229,25 @@ fn world(status: CallableAnalysisStatusV1) -> SemanticWorldV3 {
             }),
             expressions: vec![],
             conformance_evidence: vec![],
+            unsupported_family_counts: CallableAnalysisUnsupportedFamilyCountsV1 {
+                trait_dispatch_candidates: 0,
+                contextual_realizations: 0,
+                positional_expansions: 0,
+                known_invalid_positional_expansions: 0,
+                family_applications: 0,
+            },
+            for_iteration_lanes: vec![],
+            sequence_literals: vec![],
+            associated_resolutions: vec![],
+            callable_reference_resolutions: vec![],
+            entry_flow: CallableFlowStateSummaryV1 {
+                bindings: vec![],
+                fields: vec![],
+                fact_count: 0,
+            },
+            normal_returns: vec![],
+            throws: vec![],
+            return_validation: ReturnContractValidationV1::NotApplicable,
             bindings: vec![CallableBindingRowV1 {
                 ordinal: 0,
                 name: "shared".into(),

@@ -401,13 +401,188 @@ record!(CallableExpressionRowV1 {
     knowledge: TypeKnowledgeV1,
     callable: Option<StableCallableRef>,
     conditional_dispatch: Option<ConditionalDispatchSelectionV1>,
+    conditional_capability: Option<CallableConditionalSelectedCallCapabilityV1>,
+    trait_dispatch: Option<CallableTraitDispatchSiteV1>,
     status: CallableExpressionStatusV1,
     causal_invalidity: CallableCausalInvalidityV1,
+    explanation: Option<u32>,
     binding_read_safety: Option<CallableBindingReadSafetyV1>,
     binding_read: Option<u32>,
     binding_write: Option<u32>,
     denotation: Option<SemanticDenotationV1>,
     call_specialization: Option<CallableCallSpecializationV1>,
+});
+
+record!(CallableConditionalSelectedCallCapabilityV1 {
+    selection: ConditionalDispatchSelectionV1,
+    applicability: CallableInherentImplSpecializationV1,
+});
+
+tagged!(CallableTraitDispatchSiteV1 {
+    0 => AbstractRequirement { requirement: CallableRequirementIdentityV1 },
+    1 => Evidenced { selection: CallableTraitDispatchSelectionV1 },
+    2 => Assumed {
+        conformance: GenericConformanceKeyV1,
+        requirement: CallableRequirementIdentityV1,
+        signature: CallableSignatureRecordV1
+    },
+});
+
+record!(CallableTraitDispatchSelectionV1 {
+    source_impl: StableImplRef,
+    exact_target: ArtifactTypeId,
+    exact_trait_ref: TraitRefV1,
+    requirement: CallableRequirementIdentityV1,
+    callable: Option<StableCallableRef>,
+    signature: CallableSignatureRecordV1,
+    evidence: u32,
+    selection: CallableRequirementSelectionV1,
+    requirement_targets: Vec<CallableRequirementSelectionEntryV1>,
+});
+
+record!(CallableAnalysisUnsupportedFamilyCountsV1 {
+    trait_dispatch_candidates: u32,
+    contextual_realizations: u32,
+    positional_expansions: u32,
+    known_invalid_positional_expansions: u32,
+    family_applications: u32,
+});
+
+tagged!(CallableForIterationRequirementV1 {
+    0 => Evidence {
+        conformance: GenericConformanceKeyV1,
+        evidence: u32,
+        requirement: CallableRequirementIdentityV1,
+        signature: CallableSignatureRecordV1
+    },
+    1 => AbstractRequirement {
+        requirement: CallableRequirementIdentityV1,
+        signature: CallableSignatureRecordV1
+    },
+});
+
+record!(CallableForIterationLaneV1 {
+    expression: u32,
+    source_range: SpanV1,
+    source_type: ArtifactTypeId,
+    item_type: ArtifactTypeId,
+    iterator_type: ArtifactTypeId,
+    iterator: CallableForIterationRequirementV1,
+    next: CallableForIterationRequirementV1,
+});
+
+tagged!(CallableSequenceFamilyV1 {
+    0 => List,
+    1 => Array,
+    2 => Vector,
+});
+
+tagged!(CallableSequenceConstructionV1 {
+    0 => Fixed { element_count: u64 },
+    1 => Expanded,
+    2 => VectorIdentitySpread { source_range: SpanV1, extent: ArtifactTypeId },
+});
+
+tagged!(CallableSequenceExpansionV1 {
+    0 => TuplePositionals { extent: ArtifactTypeId },
+    1 => VectorStorage { extent: ArtifactTypeId },
+});
+
+record!(CallableSequenceExpansionEntryV1 {
+    source_range: SpanV1,
+    expansion: CallableSequenceExpansionV1,
+});
+
+record!(CallableSequenceLiteralV1 {
+    expression: u32,
+    source_range: SpanV1,
+    family: CallableSequenceFamilyV1,
+    result_type: ArtifactTypeId,
+    element_type: ArtifactTypeId,
+    extent: Option<ArtifactTypeId>,
+    construction: CallableSequenceConstructionV1,
+    exact_expansions: Vec<CallableSequenceExpansionEntryV1>,
+});
+
+record!(CallableAssociatedResolutionV1 {
+    expression: u32,
+    owner_form: ArtifactTypeId,
+    lookup_owner: StableDeclarationRef,
+    family: Option<AssociatedFamilyIdentityV1>,
+    kind: CallableAssociatedResolutionKindV1,
+});
+
+tagged!(CallableAssociatedResolutionKindV1 {
+    0 => ExactValue { member: AssociatedMemberV1, value_type: ArtifactTypeId },
+    1 => StaticInvoke {
+        member: AssociatedMemberV1,
+        target: InvocationTargetV1,
+        result_type: ArtifactTypeId,
+        argument_mapping: Option<Vec<u32>>
+    },
+});
+
+tagged!(CallableFamilyMemberKindV1 {
+    0 => Value,
+    1 => Callable,
+});
+
+record!(CallableBoundBehavioralMemberV1 {
+    operation: FamilyOperationShapeV1,
+    member_kind: CallableFamilyMemberKindV1,
+    target: InvocationTargetV1,
+    callable_type: ArtifactTypeId,
+    conditional: Option<ConditionalDispatchSelectionV1>,
+    conditional_capability: Option<CallableConditionalSelectedCallCapabilityV1>,
+    trait_dispatch: Option<CallableTraitDispatchSelectionV1>,
+});
+
+record!(CallableReferenceResolutionV1 {
+    expression: u32,
+    family_type: ArtifactTypeId,
+    spec: BehavioralFamilySpecV1,
+    members: Vec<CallableBoundBehavioralMemberV1>,
+});
+
+record!(CallableFlowBindingSummaryV1 {
+    binding: u32,
+    knowledge: TypeKnowledgeV1,
+    contract: Option<CallableBindingContractV1>,
+    consistency: CallableBindingConsistencyV1,
+    mutable: bool,
+    initialization: CallableInitializationStateV1,
+});
+
+tagged!(CallableFieldContractValidityV1 {
+    0 => Unchecked,
+    1 => Validated,
+    2 => Assumed,
+    3 => Refuted,
+    4 => Blocked { reason: CallableBlockReasonV1 },
+    5 => DynamicBoundary { reason: Box<str> },
+});
+
+record!(CallableFlowFieldSummaryV1 {
+    field: StaticFieldDependencyV1,
+    contract: TypeKnowledgeV1,
+    current: TypeKnowledgeV1,
+    initialization: CallableInitializationStateV1,
+    validity: CallableFieldContractValidityV1,
+    causal_invalidity: CallableCausalInvalidityV1,
+});
+
+record!(CallableFlowStateSummaryV1 {
+    bindings: Vec<CallableFlowBindingSummaryV1>,
+    fields: Vec<CallableFlowFieldSummaryV1>,
+    fact_count: u64,
+});
+
+record!(CallableNormalReturnV1 {
+    knowledge: TypeKnowledgeV1,
+    flow: CallableFlowStateSummaryV1,
+    status: CallableExpressionStatusV1,
+    causal_invalidity: CallableCausalInvalidityV1,
+    direct_result_dependency: Option<StableCallableRef>,
 });
 
 record!(CallableStaticArgumentBindingV1 {
@@ -782,6 +957,15 @@ record!(CallableAnalysisRecordV1 {
     expressions: Vec<CallableExpressionRowV1>,
     conformance_evidence: Vec<CallableConformanceEvidenceNodeV1>,
     bindings: Vec<CallableBindingRowV1>,
+    unsupported_family_counts: CallableAnalysisUnsupportedFamilyCountsV1,
+    for_iteration_lanes: Vec<CallableForIterationLaneV1>,
+    sequence_literals: Vec<CallableSequenceLiteralV1>,
+    associated_resolutions: Vec<CallableAssociatedResolutionV1>,
+    callable_reference_resolutions: Vec<CallableReferenceResolutionV1>,
+    entry_flow: CallableFlowStateSummaryV1,
+    normal_returns: Vec<CallableNormalReturnV1>,
+    throws: Vec<CallableFlowStateSummaryV1>,
+    return_validation: ReturnContractValidationV1,
 });
 
 record!(EnumRequirementSourceV1 {
@@ -1579,6 +1763,61 @@ impl SemanticWorldV3 {
                 if let Some(selection) = &expression.conditional_dispatch {
                     self.validate_conditional_dispatch_selection(selection)?;
                 }
+                if let Some(capability) = &expression.conditional_capability {
+                    self.validate_conditional_dispatch_selection(&capability.selection)?;
+                    if expression.conditional_dispatch.as_ref() != Some(&capability.selection)
+                        || capability.selection.impl_id != capability.applicability.impl_id
+                    {
+                        return Err(invalid("conditional call capability disagrees with its expression selection or implementation"));
+                    }
+                    validate_witness_specialization(&capability.applicability, &self.type_graph, limits)?;
+                }
+                if let Some(site) = &expression.trait_dispatch {
+                    let validate_requirement = |requirement: &CallableRequirementIdentityV1| {
+                        if requirement.selector.is_empty()
+                            || requirement.selector.len() > limits.max_string_bytes
+                            || requirement.side > 1
+                            || !is_canonical_requirement_selector(&requirement.selector)
+                        {
+                            return Err(invalid("callable trait-dispatch requirement identity is invalid"));
+                        }
+                        Ok(())
+                    };
+                    match site {
+                        CallableTraitDispatchSiteV1::AbstractRequirement { requirement } => validate_requirement(requirement)?,
+                        CallableTraitDispatchSiteV1::Assumed {
+                            conformance,
+                            requirement,
+                            signature,
+                        } => {
+                            validate_requirement(requirement)?;
+                            if conformance.trait_ref.declaration != requirement.owner {
+                                return Err(invalid("assumed trait dispatch requirement belongs to another trait"));
+                            }
+                            validate_callable_signature(signature, limits)?;
+                        }
+                        CallableTraitDispatchSiteV1::Evidenced { selection } => {
+                            validate_requirement(&selection.requirement)?;
+                            if selection.exact_target.0 as usize >= self.type_graph.types.len()
+                                || selection.exact_trait_ref.declaration != selection.requirement.owner
+                                || selection.requirement_targets.len() > limits.max_semantic_entries_per_family
+                                || selection.requirement_targets.windows(2).any(|pair| {
+                                    (&pair[0].requirement.owner, &pair[0].requirement.selector, pair[0].requirement.side)
+                                        >= (&pair[1].requirement.owner, &pair[1].requirement.selector, pair[1].requirement.side)
+                                })
+                            {
+                                return Err(invalid("evidenced trait dispatch identity or requirement targets are invalid"));
+                            }
+                            for argument in &selection.exact_trait_ref.arguments {
+                                self.validate_denotation_type(*argument)?;
+                            }
+                            validate_callable_signature(&selection.signature, limits)?;
+                            for target in &selection.requirement_targets {
+                                validate_requirement(&target.requirement)?;
+                            }
+                        }
+                    }
+                }
                 let Some(call) = &expression.call_specialization else {
                     continue;
                 };
@@ -1632,6 +1871,135 @@ impl SemanticWorldV3 {
                         }
                     }
                 }
+            }
+            for lane in &analysis.for_iteration_lanes {
+                if lane.source_range.start > lane.source_range.end {
+                    return Err(invalid("for-iteration lane source range is inverted"));
+                }
+                for ty in [lane.source_type, lane.item_type, lane.iterator_type] {
+                    self.validate_denotation_type(ty)?;
+                }
+                for requirement in [&lane.iterator, &lane.next] {
+                    match requirement {
+                        CallableForIterationRequirementV1::Evidence {
+                            conformance,
+                            requirement,
+                            signature,
+                            ..
+                        } => {
+                            if conformance.trait_ref.declaration != requirement.owner {
+                                return Err(invalid("for-iteration evidence requirement belongs to another trait"));
+                            }
+                            validate_callable_signature(signature, limits)?;
+                        }
+                        CallableForIterationRequirementV1::AbstractRequirement { requirement, signature } => {
+                            if requirement.selector.is_empty() || !is_canonical_requirement_selector(&requirement.selector) {
+                                return Err(invalid("for-iteration abstract requirement selector is invalid"));
+                            }
+                            validate_callable_signature(signature, limits)?;
+                        }
+                    }
+                }
+            }
+            for literal in &analysis.sequence_literals {
+                if literal.source_range.start > literal.source_range.end {
+                    return Err(invalid("sequence literal source range is inverted"));
+                }
+                for ty in [Some(literal.result_type), Some(literal.element_type), literal.extent].into_iter().flatten() {
+                    self.validate_denotation_type(ty)?;
+                }
+                if let CallableSequenceConstructionV1::VectorIdentitySpread { source_range, extent } = &literal.construction {
+                    if source_range.start > source_range.end {
+                        return Err(invalid("sequence identity-spread range is inverted"));
+                    }
+                    self.validate_denotation_type(*extent)?;
+                }
+                for expansion in &literal.exact_expansions {
+                    if expansion.source_range.start > expansion.source_range.end {
+                        return Err(invalid("sequence expansion range is inverted"));
+                    }
+                    let extent = match expansion.expansion {
+                        CallableSequenceExpansionV1::TuplePositionals { extent }
+                        | CallableSequenceExpansionV1::VectorStorage { extent } => extent,
+                    };
+                    self.validate_denotation_type(extent)?;
+                }
+            }
+            for resolution in &analysis.associated_resolutions {
+                self.validate_denotation_type(resolution.owner_form)?;
+                if resolution.family.as_ref().is_some_and(|family| family.owner != resolution.lookup_owner) {
+                    return Err(invalid("associated resolution family belongs to another lookup owner"));
+                }
+                match &resolution.kind {
+                    CallableAssociatedResolutionKindV1::ExactValue { member, value_type } => {
+                        self.validate_associated_member_owner(&resolution.lookup_owner, member)?;
+                        self.validate_denotation_type(*value_type)?;
+                    }
+                    CallableAssociatedResolutionKindV1::StaticInvoke {
+                        member,
+                        target,
+                        result_type,
+                        argument_mapping,
+                    } => {
+                        self.validate_associated_member_owner(&resolution.lookup_owner, member)?;
+                        if !self.invocation_target_matches_associated_member(target, member)
+                            || argument_mapping.as_ref().is_some_and(|mapping| mapping.len() > limits.max_semantic_entries_per_family)
+                        {
+                            return Err(invalid("associated static invocation target or argument mapping is invalid"));
+                        }
+                        self.validate_denotation_type(*result_type)?;
+                    }
+                }
+            }
+            for resolution in &analysis.callable_reference_resolutions {
+                self.validate_denotation_type(resolution.family_type)?;
+                if resolution.members.len() > limits.max_semantic_entries_per_family {
+                    return Err(invalid("callable reference member count exceeds its owner-local limit"));
+                }
+                match &resolution.spec {
+                    BehavioralFamilySpecV1::Exact { selector } => validate_static_case_selector(selector, limits)?,
+                    BehavioralFamilySpecV1::Pattern { pattern } => {
+                        validate_selector_base(&pattern.base, limits)?;
+                        validate_selector_slots(&pattern.prefix, limits)?;
+                        validate_selector_slots(&pattern.suffix, limits)?;
+                    }
+                }
+                for member in &resolution.members {
+                    validate_selector_slots(&member.operation.slots, limits)?;
+                    self.validate_denotation_type(member.callable_type)?;
+                    if let Some(conditional) = &member.conditional {
+                        self.validate_conditional_dispatch_selection(conditional)?;
+                    }
+                    if let Some(capability) = &member.conditional_capability {
+                        self.validate_conditional_dispatch_selection(&capability.selection)?;
+                        if member.conditional.as_ref() != Some(&capability.selection)
+                            || capability.selection.impl_id != capability.applicability.impl_id
+                        {
+                            return Err(invalid("bound behavioral capability disagrees with its conditional selection"));
+                        }
+                        validate_witness_specialization(&capability.applicability, &self.type_graph, limits)?;
+                    }
+                    if let Some(selection) = &member.trait_dispatch {
+                        self.validate_denotation_type(selection.exact_target)?;
+                        for argument in &selection.exact_trait_ref.arguments {
+                            self.validate_denotation_type(*argument)?;
+                        }
+                        validate_callable_signature(&selection.signature, limits)?;
+                    }
+                }
+            }
+            self.validate_callable_flow_state(analysis, &analysis.entry_flow, limits)?;
+            for exit in &analysis.normal_returns {
+                self.validate_callable_flow_state(analysis, &exit.flow, limits)?;
+                if let CallableExpressionStatusV1::Blocked { reason } = &exit.status {
+                    validate_callable_block_reason(reason, &self.type_graph, limits)?;
+                }
+                if let TypeKnowledgeV1::Known { ty, .. } = &exit.knowledge {
+                    self.validate_denotation_type(*ty)?;
+                }
+            }
+            for flow in &analysis.throws {
+                self.validate_callable_flow_state(analysis, flow, limits)?;
             }
             for binding in &analysis.bindings {
                 if binding.range.start > binding.range.end {
@@ -1723,6 +2091,55 @@ impl SemanticWorldV3 {
         }
         validate_module_static_bindings(self, limits)?;
         validate_static_case_owners(self, limits, allocations)?;
+        Ok(())
+    }
+
+    fn validate_callable_flow_state(
+        &self,
+        analysis: &CallableAnalysisRecordV1,
+        flow: &CallableFlowStateSummaryV1,
+        limits: &ValidationLimits,
+    ) -> Result<(), ArtifactError> {
+        if flow.bindings.len() > limits.max_semantic_entries_per_family
+            || flow.fields.len() > limits.max_semantic_entries_per_family
+            || flow.fact_count > limits.max_semantic_entries_per_family as u64
+            || flow.bindings.windows(2).any(|pair| pair[0].binding >= pair[1].binding)
+            || flow.bindings.iter().any(|binding| binding.binding as usize >= analysis.bindings.len())
+            || flow.fields.windows(2).any(|pair| {
+                (&pair[0].field.owner, pair[0].field.side, &pair[0].field.name)
+                    >= (&pair[1].field.owner, pair[1].field.side, &pair[1].field.name)
+            })
+        {
+            return Err(invalid("callable flow summary is unsorted, dangling, or exceeds its limit"));
+        }
+        for binding in &flow.bindings {
+            if let TypeKnowledgeV1::Known { ty, .. } = &binding.knowledge {
+                self.validate_denotation_type(*ty)?;
+            }
+            if let Some(contract) = &binding.contract {
+                self.validate_denotation_type(contract.ty)?;
+            }
+            if let CallableBindingConsistencyV1::Blocked { reason } = &binding.consistency {
+                validate_callable_block_reason(reason, &self.type_graph, limits)?;
+            }
+        }
+        for field in &flow.fields {
+            if field.field.name.is_empty() || field.field.name.len() > limits.max_string_bytes {
+                return Err(invalid("callable flow field identity is invalid"));
+            }
+            for knowledge in [&field.contract, &field.current] {
+                if let TypeKnowledgeV1::Known { ty, .. } = knowledge {
+                    self.validate_denotation_type(*ty)?;
+                }
+            }
+            match &field.validity {
+                CallableFieldContractValidityV1::Blocked { reason } => validate_callable_block_reason(reason, &self.type_graph, limits)?,
+                CallableFieldContractValidityV1::DynamicBoundary { reason } if reason.len() > limits.max_string_bytes => {
+                    return Err(invalid("callable flow field dynamic-boundary text exceeds its limit"));
+                }
+                _ => {}
+            }
+        }
         Ok(())
     }
 
@@ -4320,6 +4737,38 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
         if record.expressions.len() > limits.max_semantic_entries_per_family || record.bindings.len() > limits.max_semantic_entries_per_family {
             return Err(invalid("callable expression or binding rows exceed their owner-local limit"));
         }
+        let unsupported = &record.unsupported_family_counts;
+        if unsupported.trait_dispatch_candidates != 0
+            || unsupported.contextual_realizations != 0
+            || unsupported.positional_expansions != 0
+            || unsupported.known_invalid_positional_expansions != 0
+            || unsupported.family_applications != 0
+        {
+            return Err(invalid("callable analysis contains a nonempty family outside the admitted portable profile"));
+        }
+        for rows in [
+            record.for_iteration_lanes.len(),
+            record.sequence_literals.len(),
+            record.associated_resolutions.len(),
+            record.callable_reference_resolutions.len(),
+            record.normal_returns.len(),
+            record.throws.len(),
+        ] {
+            if rows > limits.max_semantic_entries_per_family {
+                return Err(invalid("callable resolution family exceeds its owner-local limit"));
+            }
+        }
+        if record.for_iteration_lanes.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
+            || record.sequence_literals.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
+            || record.associated_resolutions.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
+            || record.callable_reference_resolutions.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
+            || record.for_iteration_lanes.iter().any(|row| row.expression as usize >= record.expressions.len())
+            || record.sequence_literals.iter().any(|row| row.expression as usize >= record.expressions.len())
+            || record.associated_resolutions.iter().any(|row| row.expression as usize >= record.expressions.len())
+            || record.callable_reference_resolutions.iter().any(|row| row.expression as usize >= record.expressions.len())
+        {
+            return Err(invalid("callable resolution rows are not sorted or reference an absent expression"));
+        }
         validate_callable_conformance_evidence_graph(record, limits, allocations)?;
         if record.expressions.iter().enumerate().any(|(index, row)| row.ordinal as usize != index)
             || record.bindings.iter().enumerate().any(|(index, row)| row.ordinal as usize != index)
@@ -4373,6 +4822,14 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
             record.flow_graph.nodes.len(),
             record.flow_graph.edges.len(),
             record.flow_graph.exits.len(),
+            record.for_iteration_lanes.len(),
+            record.sequence_literals.len(),
+            record.associated_resolutions.len(),
+            record.callable_reference_resolutions.len(),
+            record.entry_flow.bindings.len(),
+            record.entry_flow.fields.len(),
+            record.normal_returns.len(),
+            record.throws.len(),
         ]
         .into_iter()
         .try_fold(0usize, usize::checked_add)
@@ -4389,9 +4846,56 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
             .filter_map(|expression| expression.call_specialization.as_ref())
             .try_fold(0usize, |total, call| total.checked_add(call.conformances.len()))
             .ok_or_else(|| invalid("callable specialization conformance count overflow"))?;
+        let dispatch_rows = record
+            .expressions
+            .iter()
+            .try_fold(0usize, |total, expression| {
+                let capability = expression.conditional_capability.as_ref().map_or(0, |capability| {
+                    capability
+                        .applicability
+                        .bindings
+                        .len()
+                        .saturating_add(capability.applicability.conformance_provenance.as_ref().map_or(0, Vec::len))
+                });
+                let trait_rows = match &expression.trait_dispatch {
+                    Some(CallableTraitDispatchSiteV1::Evidenced { selection }) => selection.requirement_targets.len(),
+                    _ => 0,
+                };
+                total.checked_add(capability)?.checked_add(trait_rows)
+            })
+            .ok_or_else(|| invalid("callable dispatch row count overflow"))?;
+        let resolution_rows = record
+            .sequence_literals
+            .iter()
+            .try_fold(0usize, |total, literal| total.checked_add(literal.exact_expansions.len()))
+            .and_then(|total| {
+                record.associated_resolutions.iter().try_fold(total, |total, resolution| match &resolution.kind {
+                    CallableAssociatedResolutionKindV1::StaticInvoke { argument_mapping, .. } => {
+                        total.checked_add(argument_mapping.as_ref().map_or(0, Vec::len))
+                    }
+                    CallableAssociatedResolutionKindV1::ExactValue { .. } => Some(total),
+                })
+            })
+            .and_then(|total| {
+                record
+                    .callable_reference_resolutions
+                    .iter()
+                    .try_fold(total, |total, resolution| total.checked_add(resolution.members.len()))
+            })
+            .ok_or_else(|| invalid("callable resolution nested row count overflow"))?;
+        let boundary_rows = std::iter::once(&record.entry_flow)
+            .chain(record.normal_returns.iter().map(|exit| &exit.flow))
+            .chain(record.throws.iter())
+            .try_fold(0usize, |total, flow| {
+                total.checked_add(flow.bindings.len())?.checked_add(flow.fields.len())
+            })
+            .ok_or_else(|| invalid("callable flow-boundary row count overflow"))?;
         let nested_rows = nested_rows
             .checked_add(specialization_bindings)
             .and_then(|total| total.checked_add(specialization_conformances))
+            .and_then(|total| total.checked_add(dispatch_rows))
+            .and_then(|total| total.checked_add(resolution_rows))
+            .and_then(|total| total.checked_add(boundary_rows))
             .and_then(|total| total.checked_add(record.conformance_evidence.len()))
             .ok_or_else(|| invalid("callable nested row count overflow"))?;
         if nested_rows > limits.max_semantic_entries_per_family {
@@ -4420,6 +4924,68 @@ fn validate_callable_evidence_reference(record: &CallableAnalysisRecordV1, ordin
         return Err(invalid("callable conformance evidence reference has the wrong node kind"));
     }
     Ok(index)
+}
+
+fn validate_callable_binding_evidence_reference(
+    record: &CallableAnalysisRecordV1,
+    binding: &CallableGenericCallConformanceBindingV1,
+) -> Result<(), ArtifactError> {
+    use CallableGenericCallConformanceSourceV1 as Source;
+    match &binding.source {
+        Source::Exact { evidence } => {
+            validate_callable_evidence_reference(record, *evidence, Some(0))?;
+        }
+        Source::Forwarded { .. } => {}
+        Source::Derived { evidence } => {
+            validate_callable_evidence_reference(record, *evidence, Some(2))?;
+        }
+        Source::CompilerDerived { evidence } => {
+            validate_callable_evidence_reference(record, *evidence, Some(3))?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_callable_specialization_evidence_references(
+    record: &CallableAnalysisRecordV1,
+    specialization: &CallableInherentImplSpecializationV1,
+) -> Result<(), ArtifactError> {
+    if let Some(bindings) = &specialization.conformance_provenance {
+        for binding in bindings {
+            validate_callable_binding_evidence_reference(record, binding)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_callable_selection_evidence_references(
+    record: &CallableAnalysisRecordV1,
+    selection: &CallableRequirementSelectionV1,
+    depth: usize,
+    limit: usize,
+) -> Result<(), ArtifactError> {
+    if depth > limit {
+        return Err(invalid("callable requirement selection nesting limit exceeded"));
+    }
+    match selection {
+        CallableRequirementSelectionV1::InherentCallable { applicability, .. } => {
+            if let Some(applicability) = applicability {
+                validate_callable_specialization_evidence_references(record, applicability)?;
+            }
+        }
+        CallableRequirementSelectionV1::ConditionalInherent { candidate, fallback, .. } => {
+            if let Some(applicability) = &candidate.applicability {
+                validate_callable_specialization_evidence_references(record, applicability)?;
+            }
+            if let Some(fallback) = fallback {
+                validate_callable_selection_evidence_references(record, fallback, depth + 1, limit)?;
+            }
+        }
+        CallableRequirementSelectionV1::ConformanceCallable { .. }
+        | CallableRequirementSelectionV1::DataComponent { .. }
+        | CallableRequirementSelectionV1::TraitDefault { .. } => {}
+    }
+    Ok(())
 }
 
 fn count_callable_evidence_binding_edges(binding: &CallableGenericCallConformanceBindingV1) -> usize {
@@ -4639,17 +5205,40 @@ fn validate_callable_conformance_evidence_graph(
         return Err(invalid("callable conformance evidence node count exceeds its owner-local limit"));
     }
     for expression in &record.expressions {
-        let Some(specialization) = &expression.call_specialization else { continue };
-        for binding in &specialization.conformances {
-            use CallableGenericCallConformanceSourceV1 as Source;
-            let expected = match &binding.source {
-                Source::Exact { evidence } => Some((*evidence, 0)),
-                Source::Forwarded { .. } => None,
-                Source::Derived { evidence } => Some((*evidence, 2)),
-                Source::CompilerDerived { evidence } => Some((*evidence, 3)),
-            };
-            if let Some((ordinal, kind)) = expected {
-                validate_callable_evidence_reference(record, ordinal, Some(kind))?;
+        if let Some(specialization) = &expression.call_specialization {
+            for binding in &specialization.conformances {
+                validate_callable_binding_evidence_reference(record, binding)?;
+            }
+        }
+        if let Some(capability) = &expression.conditional_capability {
+            validate_callable_specialization_evidence_references(record, &capability.applicability)?;
+        }
+        if let Some(CallableTraitDispatchSiteV1::Evidenced { selection }) = &expression.trait_dispatch {
+            validate_callable_evidence_reference(record, selection.evidence, None)?;
+            validate_callable_selection_evidence_references(record, &selection.selection, 0, limits.max_recursion_depth)?;
+            for target in &selection.requirement_targets {
+                validate_callable_selection_evidence_references(record, &target.selection, 0, limits.max_recursion_depth)?;
+            }
+        }
+    }
+    for lane in &record.for_iteration_lanes {
+        for requirement in [&lane.iterator, &lane.next] {
+            if let CallableForIterationRequirementV1::Evidence { evidence, .. } = requirement {
+                validate_callable_evidence_reference(record, *evidence, None)?;
+            }
+        }
+    }
+    for resolution in &record.callable_reference_resolutions {
+        for member in &resolution.members {
+            if let Some(capability) = &member.conditional_capability {
+                validate_callable_specialization_evidence_references(record, &capability.applicability)?;
+            }
+            if let Some(selection) = &member.trait_dispatch {
+                validate_callable_evidence_reference(record, selection.evidence, None)?;
+                validate_callable_selection_evidence_references(record, &selection.selection, 0, limits.max_recursion_depth)?;
+                for target in &selection.requirement_targets {
+                    validate_callable_selection_evidence_references(record, &target.selection, 0, limits.max_recursion_depth)?;
+                }
             }
         }
     }

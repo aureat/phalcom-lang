@@ -49,6 +49,290 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
         .map(|(callable, analysis)| (callable.clone(), analysis.internal_incidents.clone(), analysis.status.clone()))
         .collect::<Vec<_>>();
     assert!(internal_incidents.is_empty(), "canonical callable internal incidents: {internal_incidents:#?}");
+    let callable_authority_counts = [
+        ("expressions", semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.expressions.len()).sum()),
+        (
+            "expression.call",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .flat_map(|(_, analysis)| analysis.expressions.values())
+                .filter(|expression| expression.call.is_some())
+                .count(),
+        ),
+        (
+            "expression.conditional_capability",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .flat_map(|(_, analysis)| analysis.expressions.values())
+                .filter(|expression| expression.conditional_capability.is_some())
+                .count(),
+        ),
+        (
+            "expression.trait_dispatch",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .flat_map(|(_, analysis)| analysis.expressions.values())
+                .filter(|expression| expression.trait_dispatch.is_some())
+                .count(),
+        ),
+        (
+            "expression.trait_dispatch_candidates",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .flat_map(|(_, analysis)| analysis.expressions.values())
+                .filter(|expression| expression.trait_dispatch_candidates.is_some())
+                .count(),
+        ),
+        (
+            "expression.contextual_realization",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .flat_map(|(_, analysis)| analysis.expressions.values())
+                .filter(|expression| expression.contextual_realization.is_some())
+                .count(),
+        ),
+        (
+            "expression.explanation",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .flat_map(|(_, analysis)| analysis.expressions.values())
+                .filter(|expression| expression.explanation.is_some())
+                .count(),
+        ),
+        (
+            "for_iteration_lanes",
+            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.for_iteration_lanes.len()).sum(),
+        ),
+        (
+            "positional_expansions",
+            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.positional_expansions.len()).sum(),
+        ),
+        (
+            "known_invalid_positional_expansions",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.known_invalid_positional_expansions.len())
+                .sum(),
+        ),
+        (
+            "sequence_literals",
+            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.sequence_literals.len()).sum(),
+        ),
+        (
+            "associated_resolutions",
+            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.associated_resolutions.len()).sum(),
+        ),
+        (
+            "callable_reference_resolutions",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.callable_reference_resolutions.len())
+                .sum(),
+        ),
+        (
+            "family_applications",
+            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.family_applications.len()).sum(),
+        ),
+        (
+            "match_resolutions",
+            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.match_resolutions.len()).sum(),
+        ),
+        (
+            "pattern_site_resolutions",
+            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.pattern_site_resolutions.len()).sum(),
+        ),
+        (
+            "entry_flow_facts",
+            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.entry_flow.fact_count).sum(),
+        ),
+        (
+            "normal_returns",
+            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.exits.normal_returns.len()).sum(),
+        ),
+        ("throws", semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.exits.throws.len()).sum()),
+        ("diagnostics", semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.diagnostics.len()).sum()),
+        ("explanations", semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.explanations.len()).sum()),
+        ("dependencies", semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.dependencies.len()).sum()),
+        (
+            "semantic_dependencies",
+            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.semantic_dependencies.len()).sum(),
+        ),
+    ];
+    eprintln!("canonical callable authority counts: {callable_authority_counts:#?}");
+    let mut associated_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
+    let mut callable_reference_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
+    let mut trait_dispatch_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
+    let mut explanation_rules = std::collections::BTreeMap::<&'static str, usize>::new();
+    let mut explanation_evidence = std::collections::BTreeMap::<&'static str, usize>::new();
+    let mut pattern_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
+    let mut pattern_space_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
+    let mut exhaustiveness_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
+    let mut branch_proof_counts = [0usize; 4];
+    fn count_pattern(pattern: &phalcom_semantic::match_semantics::PatternResolution, counts: &mut std::collections::BTreeMap<&'static str, usize>) {
+        use phalcom_semantic::match_semantics::PatternResolution;
+        let kind = match pattern {
+            PatternResolution::Wildcard => "wildcard",
+            PatternResolution::Char(_) => "char",
+            PatternResolution::Binding { .. } => "binding",
+            PatternResolution::Variant(variant) => {
+                for candidate in variant.candidates.iter() {
+                    for field in candidate.fields.iter() {
+                        count_pattern(&field.child, counts);
+                    }
+                }
+                "variant"
+            }
+            PatternResolution::Or(pattern) => {
+                for alternative in pattern.alternatives.iter() {
+                    count_pattern(alternative, counts);
+                }
+                "or"
+            }
+            PatternResolution::Tuple(items) => {
+                for item in items.iter() {
+                    count_pattern(item, counts);
+                }
+                "tuple"
+            }
+            PatternResolution::List(list) => {
+                for item in list.prefix.iter() {
+                    count_pattern(item, counts);
+                }
+                if let Some(rest) = &list.rest {
+                    count_pattern(rest, counts);
+                }
+                "list"
+            }
+            PatternResolution::Record(fields) => {
+                for field in fields.iter() {
+                    count_pattern(&field.child, counts);
+                }
+                "record"
+            }
+            PatternResolution::Map(entries) => {
+                for entry in entries.iter() {
+                    count_pattern(&entry.child, counts);
+                }
+                "map"
+            }
+        };
+        *counts.entry(kind).or_default() += 1;
+    }
+    fn count_space(space: &phalcom_semantic::match_semantics::PatternSpaceSummary, counts: &mut std::collections::BTreeMap<&'static str, usize>) {
+        use phalcom_semantic::match_semantics::PatternSpaceSummary;
+        let kind = match space {
+            PatternSpaceSummary::Empty => "empty",
+            PatternSpaceSummary::Char(_) => "char",
+            PatternSpaceSummary::Blocked(_) => "blocked",
+            PatternSpaceSummary::Opaque(_) => "opaque",
+            PatternSpaceSummary::Union(items) => {
+                for item in items.iter() {
+                    count_space(item, counts);
+                }
+                "union"
+            }
+            PatternSpaceSummary::Variant { fields, .. } => {
+                for field in fields.iter() {
+                    count_space(field, counts);
+                }
+                "variant"
+            }
+            PatternSpaceSummary::Tuple(items) => {
+                for item in items.iter() {
+                    count_space(item, counts);
+                }
+                "tuple"
+            }
+            PatternSpaceSummary::List => "list",
+        };
+        *counts.entry(kind).or_default() += 1;
+    }
+    for (_, analysis) in semantic_snapshot.callable_analyses.iter() {
+        for resolution in analysis.associated_resolutions.values() {
+            let kind = match &resolution.kind {
+                phalcom_semantic::checker::associated::AssociatedResolutionKind::ExactValue { .. } => "exact_value",
+                phalcom_semantic::checker::associated::AssociatedResolutionKind::DataExpansionField { .. } => "data_expansion_field",
+                phalcom_semantic::checker::associated::AssociatedResolutionKind::ExactCallable { .. } => "exact_callable",
+                phalcom_semantic::checker::associated::AssociatedResolutionKind::Family { .. } => "family",
+                phalcom_semantic::checker::associated::AssociatedResolutionKind::StaticInvoke { .. } => "static_invoke",
+                phalcom_semantic::checker::associated::AssociatedResolutionKind::StaticDomain { .. } => "static_domain",
+                phalcom_semantic::checker::associated::AssociatedResolutionKind::StaticTerm { .. } => "static_term",
+                phalcom_semantic::checker::associated::AssociatedResolutionKind::DynamicInvoke { .. } => "dynamic_invoke",
+            };
+            *associated_kinds.entry(kind).or_default() += 1;
+        }
+        for resolution in analysis.callable_reference_resolutions.values() {
+            let kind = match &resolution.kind {
+                phalcom_semantic::checker::associated::CallableReferenceResolutionKind::BoundFamily { .. } => "bound_family",
+                phalcom_semantic::checker::associated::CallableReferenceResolutionKind::Associated(_) => "associated",
+            };
+            *callable_reference_kinds.entry(kind).or_default() += 1;
+        }
+        for expression in analysis.expressions.values() {
+            if let Some(site) = &expression.trait_dispatch {
+                let kind = match site {
+                    phalcom_semantic::trait_dispatch::TraitDispatchSite::AbstractRequirement { .. } => "abstract",
+                    phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(_) => "evidenced",
+                    phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(_) => "assumed",
+                };
+                *trait_dispatch_kinds.entry(kind).or_default() += 1;
+            }
+        }
+        for (_, node) in analysis.explanations.iter() {
+            *explanation_rules.entry(node.rule.as_str()).or_default() += 1;
+            for evidence in &node.evidence {
+                let kind = match evidence {
+                    phalcom_semantic::explain::node::EvidenceRef::SourceSpan(_) => "source_span",
+                    phalcom_semantic::explain::node::EvidenceRef::TypeId(_) => "type",
+                    phalcom_semantic::explain::node::EvidenceRef::CallResolution(_) => "call_resolution",
+                    phalcom_semantic::explain::node::EvidenceRef::BindingVersion { .. } => "binding_version",
+                    phalcom_semantic::explain::node::EvidenceRef::Suppressed { .. } => "suppressed",
+                };
+                *explanation_evidence.entry(kind).or_default() += 1;
+            }
+        }
+        for resolution in analysis.match_resolutions.values() {
+            count_space(&resolution.initial_space, &mut pattern_space_kinds);
+            for arm in resolution.arms.iter() {
+                count_pattern(&arm.pattern, &mut pattern_kinds);
+                count_space(&arm.reachable_space, &mut pattern_space_kinds);
+                count_space(&arm.residual_after, &mut pattern_space_kinds);
+                branch_proof_counts[0] += arm.proof.bindings.len();
+                branch_proof_counts[1] += arm.proof.equalities.len();
+                branch_proof_counts[2] += arm.proof.local_bindings.len();
+                branch_proof_counts[3] += arm.proof.local_equalities.len();
+                if !arm.proof.local_bindings.is_empty() || !arm.proof.local_equalities.is_empty() {
+                    eprintln!("canonical nonempty local branch proof: {:#?}", arm.proof);
+                }
+            }
+            let kind = match &resolution.exhaustiveness {
+                phalcom_semantic::match_semantics::ExhaustivenessResult::Proven => "proven",
+                phalcom_semantic::match_semantics::ExhaustivenessResult::Missing(_) => "missing",
+                phalcom_semantic::match_semantics::ExhaustivenessResult::Blocked(_) => "blocked",
+            };
+            *exhaustiveness_kinds.entry(kind).or_default() += 1;
+        }
+        for resolution in analysis.pattern_site_resolutions.values() {
+            count_pattern(&resolution.pattern, &mut pattern_kinds);
+        }
+    }
+    eprintln!("canonical associated kinds: {associated_kinds:#?}");
+    eprintln!("canonical callable reference kinds: {callable_reference_kinds:#?}");
+    eprintln!("canonical trait dispatch kinds: {trait_dispatch_kinds:#?}");
+    eprintln!("canonical explanation rules: {explanation_rules:#?}");
+    eprintln!("canonical explanation evidence: {explanation_evidence:#?}");
+    eprintln!("canonical pattern kinds: {pattern_kinds:#?}");
+    eprintln!("canonical pattern space kinds: {pattern_space_kinds:#?}");
+    eprintln!("canonical exhaustiveness kinds: {exhaustiveness_kinds:#?}");
+    eprintln!("canonical branch proof counts [bindings, equalities, local bindings, local equalities]: {branch_proof_counts:?}");
     let program = canonical_universe_program().expect("canonical universe program must compile");
     let view = program.compiler_image_view().expect("compiler image view must be present");
     let limits = ValidationLimits::default();

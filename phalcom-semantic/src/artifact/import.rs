@@ -1650,6 +1650,134 @@ pub(crate) fn import_callable_expression_facts(
     Ok(output)
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ImportedCallableExpressionDispatchAuthority {
+    pub ordinal: u32,
+    pub conditional_capability: Option<crate::dispatch::ConditionalSelectedCallCapability>,
+    pub trait_dispatch: Option<crate::trait_dispatch::TraitDispatchSite>,
+    pub explanation: Option<ExplanationId>,
+}
+
+pub(crate) fn import_callable_expression_dispatch_authority(
+    record: &phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1,
+    relocation: &TypeRelocation,
+    store: &TypeStore,
+    source_plan_fingerprints: &BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+    allocations: &mut AllocationBudget,
+    max_depth: usize,
+) -> Result<Vec<ImportedCallableExpressionDispatchAuthority>, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::world::CallableTraitDispatchSiteV1 as PortableTraitDispatch;
+
+    let mut child = allocations.child(allocations.remaining());
+    let mut importer = CallableEvidenceImporter::new(
+        record.conformance_evidence.len(),
+        relocation,
+        store,
+        source_plan_fingerprints,
+        &mut child,
+        max_depth,
+    )?;
+    let mut output = importer
+        .allocations
+        .vector::<ImportedCallableExpressionDispatchAuthority>(record.expressions.len())
+        .map_err(allocation_error)?;
+    for (index, expression) in record.expressions.iter().enumerate() {
+        if expression.ordinal as usize != index {
+            return Err(referential("callable expression rows are not dense and ordinal-sorted"));
+        }
+        let conditional_capability = expression
+            .conditional_capability
+            .as_ref()
+            .map(|capability| -> Result<_, ArtifactError> {
+                if expression.conditional_dispatch.as_ref() != Some(&capability.selection)
+                    || capability.selection.impl_id != capability.applicability.impl_id
+                {
+                    return Err(referential("conditional call capability disagrees with its expression selection or implementation"));
+                }
+                Ok(crate::dispatch::ConditionalSelectedCallCapability {
+                    selection: import_conditional_dispatch_selection(&capability.selection, importer.allocations)?,
+                    applicability: import_callable_inherent_specialization(
+                        &capability.applicability,
+                        &record.conformance_evidence,
+                        &mut importer,
+                    )?,
+                })
+            })
+            .transpose()?;
+        let trait_dispatch = expression
+            .trait_dispatch
+            .as_ref()
+            .map(|site| -> Result<_, ArtifactError> {
+                Ok(match site {
+                    PortableTraitDispatch::AbstractRequirement { requirement } => crate::trait_dispatch::TraitDispatchSite::AbstractRequirement {
+                        requirement: import_callable_requirement_identity(requirement)?,
+                    },
+                    PortableTraitDispatch::Assumed {
+                        conformance,
+                        requirement,
+                        signature,
+                    } => crate::trait_dispatch::TraitDispatchSite::Assumed(crate::trait_dispatch::AssumedTraitDispatchSelection {
+                        conformance: import_generic_conformance_key_with_allocation_budget(conformance, relocation, importer.allocations)?,
+                        requirement: import_callable_requirement_identity(requirement)?,
+                        signature: import_callable_signature(signature, relocation, store, importer.allocations)?,
+                    }),
+                    PortableTraitDispatch::Evidenced { selection } => {
+                        let evidence = importer.evidence(&record.conformance_evidence, selection.evidence, 0)?;
+                        let evidence_fingerprint = crate::db::fingerprint::generic_conformance_evidence_fingerprint(&evidence);
+                        let mut targets = importer
+                            .allocations
+                            .vector::<(crate::traits::TraitRequirementId, crate::impls::RequirementSelectionTemplate)>(
+                                selection.requirement_targets.len(),
+                            )
+                            .map_err(allocation_error)?;
+                        for target in &selection.requirement_targets {
+                            targets.push((
+                                import_callable_requirement_identity(&target.requirement)?,
+                                import_callable_requirement_selection(&target.selection, &record.conformance_evidence, &mut importer, 0)?,
+                            ));
+                        }
+                        let requirement_targets = import_analysis_map(
+                            targets,
+                            importer.allocations,
+                            "trait dispatch requirement targets are not canonical",
+                        )?;
+                        crate::trait_dispatch::TraitDispatchSite::Evidenced(crate::trait_dispatch::TraitDispatchSelection {
+                            source_impl: from_stable_impl(&selection.source_impl).map_err(referential)?,
+                            exact_target: relocation.ty(selection.exact_target)?,
+                            exact_trait_ref: import_trait_ref_identity(&selection.exact_trait_ref, relocation, importer.allocations)?,
+                            requirement: import_callable_requirement_identity(&selection.requirement)?,
+                            callable: selection
+                                .callable
+                                .as_ref()
+                                .map(|callable| import_stable_callable_with_allocation_budget(callable, importer.allocations))
+                                .transpose()?,
+                            signature: import_callable_signature(&selection.signature, relocation, store, importer.allocations)?,
+                            evidence_fingerprint,
+                            evidence,
+                            selection: import_callable_requirement_selection(
+                                &selection.selection,
+                                &record.conformance_evidence,
+                                &mut importer,
+                                0,
+                            )?,
+                            requirement_targets,
+                        })
+                    }
+                })
+            })
+            .transpose()?;
+        output.push(ImportedCallableExpressionDispatchAuthority {
+            ordinal: expression.ordinal,
+            conditional_capability,
+            trait_dispatch,
+            explanation: expression.explanation.map(ExplanationId),
+        });
+    }
+    drop(importer);
+    allocations.commit_child(child).map_err(allocation_error)?;
+    Ok(output)
+}
+
 fn import_unknown_reason_with_allocation_budget(reason: &UnknownReasonV1, allocations: &mut AllocationBudget) -> Result<UnknownReason, ArtifactError> {
     Ok(match reason {
         UnknownReasonV1::NoTypeEvidence => UnknownReason::NoTypeEvidence,
@@ -4899,7 +5027,10 @@ mod tests {
                     },
                     callable: None,
                     conditional_dispatch: None,
+                    conditional_capability: None,
+                    trait_dispatch: None,
                     causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                    explanation: None,
                     binding_read_safety: None,
                     binding_read: None,
                     binding_write: None,
@@ -4915,7 +5046,10 @@ mod tests {
                     },
                     callable: None,
                     conditional_dispatch: None,
+                    conditional_capability: None,
+                    trait_dispatch: None,
                     causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                    explanation: None,
                     binding_read_safety: None,
                     binding_read: None,
                     binding_write: None,
@@ -4931,7 +5065,10 @@ mod tests {
                     },
                     callable: None,
                     conditional_dispatch: None,
+                    conditional_capability: None,
+                    trait_dispatch: None,
                     causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                    explanation: None,
                     binding_read_safety: None,
                     binding_read: None,
                     binding_write: None,
@@ -4941,6 +5078,25 @@ mod tests {
                 },
             ],
             conformance_evidence: vec![],
+            unsupported_family_counts: phalcom_compiler_artifact::semantic::world::CallableAnalysisUnsupportedFamilyCountsV1 {
+                trait_dispatch_candidates: 0,
+                contextual_realizations: 0,
+                positional_expansions: 0,
+                known_invalid_positional_expansions: 0,
+                family_applications: 0,
+            },
+            for_iteration_lanes: vec![],
+            sequence_literals: vec![],
+            associated_resolutions: vec![],
+            callable_reference_resolutions: vec![],
+            entry_flow: phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1 {
+                bindings: vec![],
+                fields: vec![],
+                fact_count: 0,
+            },
+            normal_returns: vec![],
+            throws: vec![],
+            return_validation: phalcom_compiler_artifact::semantic::world::ReturnContractValidationV1::NotApplicable,
             bindings: vec![
                 make_binding_row(
                     0,
@@ -5103,7 +5259,10 @@ mod tests {
                     declaring_owner: stable_declaration.clone(),
                     side: 0,
                 }),
+                conditional_capability: None,
+                trait_dispatch: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::One { cause: 7 },
+                explanation: None,
                 binding_read_safety: Some(phalcom_compiler_artifact::semantic::world::CallableBindingReadSafetyV1::RuntimeCheckRequired),
                 binding_read: Some(0),
                 binding_write: Some(0),
@@ -5122,6 +5281,25 @@ mod tests {
                 call_specialization: None,
             }],
             conformance_evidence: vec![],
+            unsupported_family_counts: phalcom_compiler_artifact::semantic::world::CallableAnalysisUnsupportedFamilyCountsV1 {
+                trait_dispatch_candidates: 0,
+                contextual_realizations: 0,
+                positional_expansions: 0,
+                known_invalid_positional_expansions: 0,
+                family_applications: 0,
+            },
+            for_iteration_lanes: vec![],
+            sequence_literals: vec![],
+            associated_resolutions: vec![],
+            callable_reference_resolutions: vec![],
+            entry_flow: phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1 {
+                bindings: vec![],
+                fields: vec![],
+                fact_count: 0,
+            },
+            normal_returns: vec![],
+            throws: vec![],
+            return_validation: phalcom_compiler_artifact::semantic::world::ReturnContractValidationV1::NotApplicable,
             bindings: vec![CallableBindingRowV1 {
                 ordinal: 0,
                 name: "text".into(),
@@ -5493,7 +5671,10 @@ mod tests {
                 },
                 callable: None,
                 conditional_dispatch: None,
+                conditional_capability: None,
+                trait_dispatch: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                explanation: None,
                 binding_read_safety: None,
                 binding_read: None,
                 binding_write: None,
@@ -5509,7 +5690,10 @@ mod tests {
                 },
                 callable: None,
                 conditional_dispatch: None,
+                conditional_capability: None,
+                trait_dispatch: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                explanation: None,
                 binding_read_safety: None,
                 binding_read: None,
                 binding_write: None,
@@ -5525,7 +5709,10 @@ mod tests {
                 },
                 callable: None,
                 conditional_dispatch: None,
+                conditional_capability: None,
+                trait_dispatch: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                explanation: None,
                 binding_read_safety: None,
                 binding_read: None,
                 binding_write: None,
@@ -5541,7 +5728,10 @@ mod tests {
                 },
                 callable: None,
                 conditional_dispatch: None,
+                conditional_capability: None,
+                trait_dispatch: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                explanation: None,
                 binding_read_safety: None,
                 binding_read: None,
                 binding_write: None,
@@ -5985,6 +6175,25 @@ mod tests {
             constructor_super_initializer: None,
             expressions: Vec::new(),
             conformance_evidence: Vec::new(),
+            unsupported_family_counts: phalcom_compiler_artifact::semantic::world::CallableAnalysisUnsupportedFamilyCountsV1 {
+                trait_dispatch_candidates: 0,
+                contextual_realizations: 0,
+                positional_expansions: 0,
+                known_invalid_positional_expansions: 0,
+                family_applications: 0,
+            },
+            for_iteration_lanes: Vec::new(),
+            sequence_literals: Vec::new(),
+            associated_resolutions: Vec::new(),
+            callable_reference_resolutions: Vec::new(),
+            entry_flow: phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1 {
+                bindings: Vec::new(),
+                fields: Vec::new(),
+                fact_count: 0,
+            },
+            normal_returns: Vec::new(),
+            throws: Vec::new(),
+            return_validation: phalcom_compiler_artifact::semantic::world::ReturnContractValidationV1::NotApplicable,
             bindings: Vec::new(),
         };
 
