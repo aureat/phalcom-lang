@@ -1486,6 +1486,9 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
 
     fn validate(&self, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
         let record = self.record;
+        if record.expression_count as usize > limits.max_semantic_entries_per_family {
+            return Err(invalid("callable expression count exceeds its owner-local limit"));
+        }
         if record.flow_graph.nodes.len() > limits.max_semantic_entries_per_family
             || record.flow_graph.edges.len() > limits.max_semantic_entries_per_family
             || record.flow_graph.entry.is_some_and(|entry| !self.has_flow_node(entry))
@@ -1559,6 +1562,32 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
                 .any(|attachment| !self.has_binding(attachment.binding_ordinal) || attachment.range.start > attachment.range.end)
         {
             return Err(invalid("callable binding origins or formal attachments are invalid or unsorted"));
+        }
+
+        let nested_rows = [
+            record.expression_count as usize,
+            record.binding_origins.len(),
+            record.flow_graph.nodes.len(),
+            record.flow_graph.edges.len(),
+            record.flow_graph.exits.len(),
+            record.formal_bindings.len(),
+            record.expression_denotations.len(),
+            record.binding_denotations.len(),
+            record.call_specializations.len(),
+        ]
+        .into_iter()
+        .try_fold(0usize, usize::checked_add)
+        .ok_or_else(|| invalid("callable nested row count overflow"))?;
+        let specialization_bindings = record
+            .call_specializations
+            .iter()
+            .try_fold(0usize, |total, call| total.checked_add(call.bindings.len()))
+            .ok_or_else(|| invalid("callable specialization binding count overflow"))?;
+        let nested_rows = nested_rows
+            .checked_add(specialization_bindings)
+            .ok_or_else(|| invalid("callable nested row count overflow"))?;
+        if nested_rows > limits.max_semantic_entries_per_family {
+            return Err(invalid("callable nested row budget exceeded"));
         }
         Ok(())
     }

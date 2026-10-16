@@ -306,8 +306,31 @@ T2 evidence:
   ordinal assertion;
 - `git diff --check` — PASS.
 
-T3 is next. The final root closure and rich wire record remain unimplemented;
+T3 is active. The final root closure and rich wire record remain unimplemented;
 P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED and P8 remains blocked.
+
+## PATCH1 T3 bounded callable validation — 2026-10-16
+
+The accepted Telosc artifact specification defines semantic-world schema 2 as
+the complete callable-analysis owner graph and rejects schema 1. That resolves
+PATCH1's versioning verify-first assumption: implement the specified schema 2
+contract; do not introduce a new schema version for this correction.
+
+T3 has started with an owner-local expression-count bound and checked cumulative
+row accounting across the currently encoded callable families and nested call
+specialization bindings. The focused validator discriminator passed 1/1. The
+callable-analysis artifact target then selected 11 tests: 6 passed and 5 retained
+the recorded inherited failures (four decode paths stop at
+`Allocation(UnaccountedBoundary)`; conditional behavioral capture lacks
+serialized implementation-member authority). The callable-analysis semantic
+filter passed 22/22. This is preflight hardening only: the sparse record still
+lacks complete expression/binding rows, the other owner families, and final root
+reconciliation. Keep the public decoder allocation guard active.
+
+Next action: continue T3 by replacing the sparse record with the schema-2
+owner-centric rows, extend owner-local closure/limits to those rows, and
+reconcile roots against the completed wire fields. P7 remains IN_PROGRESS /
+PARTIAL / UNVERIFIED; P8 remains blocked.
 
 ## 0. Checkpoint state
 
@@ -325,7 +348,9 @@ next_action: >
   PATCH1 T0 and T1 are complete: the PATCH0 fingerprint prerequisite is
   satisfied; focused callable-analysis, frozen owner, semantic library, and core
   library evidence is recorded below. T2 establishes the owner-local ordinal
-  validation context; continue T3–T10 in plan order. Keep checked StaticApplication
+  validation context; T3 has begun with count/cumulative-row preflight hardening,
+  but the wire record remains incomplete. Continue T3–T10 in plan order. Keep
+  checked StaticApplication
   rows owned by CheckedStaticBody; PATCH1 leaves their denotation fail-closed.
   Preserve the budgeted enum-requirement wrapper. Keep P7 IN_PROGRESS / PARTIAL /
   UNVERIFIED and P8 blocked until all P7 rows and acceptance gates pass.

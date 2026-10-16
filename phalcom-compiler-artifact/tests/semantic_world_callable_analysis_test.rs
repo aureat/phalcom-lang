@@ -213,6 +213,43 @@ fn callable_analysis_owner_and_constructor_range_are_validated() {
 }
 
 #[test]
+fn callable_analysis_owner_local_families_obey_individual_and_cumulative_limits() {
+    let mut oversized_expressions = world(CallableAnalysisStatusV1::Complete);
+    oversized_expressions.callable_analyses[0].expression_count = 1_000_001;
+    let error = oversized_expressions
+        .validate(&Default::default())
+        .expect_err("expression count must be bounded before ordinal use");
+    assert!(error.to_string().contains("expression count exceeds its owner-local limit"));
+
+    let mut oversized_total = world(CallableAnalysisStatusV1::Complete);
+    let analysis = &mut oversized_total.callable_analyses[0];
+    analysis.flow_graph.nodes = vec![
+        CallableFlowNodeV1 {
+            kind: CallableFlowNodeKindV1::Entry,
+            range: SpanV1 { start: 0, end: 0 },
+        },
+        CallableFlowNodeV1 {
+            kind: CallableFlowNodeKindV1::Exit,
+            range: SpanV1 { start: 8, end: 8 },
+        },
+    ];
+    analysis.flow_graph.edges = vec![CallableFlowEdgeV1 {
+        source: 0,
+        target: 1,
+        kind: CallableFlowEdgeKindV1::Return,
+    }];
+    analysis.flow_graph.entry = Some(0);
+    analysis.flow_graph.exits = vec![1];
+
+    let mut limits = phalcom_compiler_artifact::ValidationLimits::default();
+    limits.max_semantic_entries_per_family = 4;
+    let error = oversized_total
+        .validate(&limits)
+        .expect_err("nested families must share the callable owner budget");
+    assert!(error.to_string().contains("callable nested row budget exceeded"));
+}
+
+#[test]
 fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
     use phalcom_compiler_artifact::semantic::world::CallableCallSpecializationV1;
 
