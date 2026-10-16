@@ -46,27 +46,36 @@ committing and pushing the scoped consolidation implementation.
   `RuntimeDependencyRequirement`s. Producers cover superclass, class-object /
   type-form, contextual realization, structural pattern, runtime attributes,
   nested-loop Error/Zip, and source-derived callable/witness/type/static roots.
-  User-attribute constructors and simple argument roots are projected, but
-  nonempty attribute arguments leave module coverage incomplete; exact
-  generated callable/witness reads for unsupported expression forms are not
-  closed. Break/continue trap ownership also remains incomplete. The focused
-  phase-evidence integration suite passed 12/12; the complete ruling family
-  matrix is not yet covered.
+  A retained semantic query now covers supported class and class-member
+  attribute arguments, including receiver/generic contract contexts and
+  per-callable invariant contexts. Selected callable and witness requirements
+  are derived from those products. Break/continue trap ownership is modeled
+  against materialized loop-control paths. Core propagates Debug/Release/
+  Unchecked so stripped attribute uses remain observed but interface-only;
+  finalizer assertions verify mode-specific read slots. Unsupported attribute
+  declaration forms and the complete ruling family matrix remain open. The
+  current semantic `phase_evidence` integration suite passed 18/18 after the
+  finalizer assertions were added.
 - **T5:** Partial, focused-tested. Modules owns requirement transport and the
   finalizer projects canonical read slots and generated runtime edges together
-before strict DAG validation. The linker integration suite passed 24/24.
-  Positive source fixtures pass analysis/finalization; CV-01/02/04 still lack
-  full source-to-compiled cross-stage proofs.
+  before strict DAG validation. The linker integration suite passed 24/24.
+  Positive source fixtures pass analysis/finalization. A new CV-04 fixture
+  carries a whole-module import and a selected re-export through finalization
+  and `ProgramCompiler::compile_analyzed`, asserting distinct canonical read
+  targets and runtime edges; broader execution acceptance remains open.
 - **T6:** Partial, focused-tested. All three `ProgramAnalyzer` paths preserve
   `ExecutableLinkedProgram`; finalized compiler/prelude paths fail closed
   rather than append reads. `RUSTFLAGS='' cargo check -p phalcom-core` passed.
   The contextual-read test and two missing-mapping tests each passed 1/1.
 - **T7:** Partial. CV-06 and CV-07 pass at the semantic boundary (the focused
-  semantic suite passed 12/12). CV-03 has linker-boundary evidence for
-  conservative fallback and strict generated-cycle rejection. CV-05 passes
-  analysis/finalization, but executable compile acceptance remains open. CV-01,
-  CV-02, CV-04, and CV-08 remain partial across layers; CV-09 has positive
-  finalized-graph and negative-cycle evidence, with execution still open.
+  semantic suite passed 18/18 on the current tree). CV-03 has linker-boundary
+  evidence for conservative fallback and strict generated-cycle rejection.
+  CV-04 now has program-analysis/finalizer/compiler evidence for canonical
+  whole-module and re-export targets; its broader execution matrix remains
+  open. CV-05 passes analysis/finalization in the type-cycle fixture, but
+  executable acceptance remains open. CV-01/02/08 remain partial across
+  layers; CV-09 has positive finalized-graph and negative-cycle evidence, with
+  execution on the intended Universe iteration source still open.
 - **T8:** Partial. The mutual type-cycle finalization fixture passes. The
   positive protocol/default-to-adapter fixture now compiles and executes with
   result 23, and its paired runtime-cycle fixture still rejects the genuine
@@ -224,19 +233,57 @@ The seven focused functional baseline gates all passed. This preserves M1
 acceptance while keeping P4 partial. Do not use the 94-test count alone to
 assign failures to P4 or to change expected behavior.
 
+## P4.T4 attribute evidence and mode projection — 2026-10-16
+
+The user selected mode-specific requirement projection. `SemanticWorkspaceInput`
+now carries the compile mode, and the core entry-selection path passes
+Debug/Release/Unchecked to semantic phase projection. A fully analyzed import
+used only by a stripped `@ensures` or `@invariant` is retained as observed
+`InterfaceOnly`; an emitted `@requires` remains `Runtime` in Release, and an
+ordinary emitted body use still joins to `Runtime`. This preserves the P4 rule
+that genuinely unobserved or unsupported selective imports remain Runtime.
+
+The mode regression checks semantic diagnostics remain mode-independent,
+generated requirements match emitted guards, and executable finalization
+allocates the expected immutable linked-read slots for each mode. It passed
+along with the complete directly affected phase-evidence module:
+
+```text
+CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic integration::phase_evidence -- --nocapture
+  18 passed; 0 failed
+```
+
+This closes the supported class/member attribute-argument slice and refines
+the earlier mode-filtering implementation. Other attribute declaration forms,
+unsupported/incomplete emitted expressions, the rest of the T4 family matrix,
+and CV-01/02/04/08 remain open. The full semantic suite, workspace checks, and
+release certification were not run.
+
+The CV-04 focused source-project test also passed:
+
+```text
+CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::whole_module_and_reexport_reads_keep_canonical_runtime_targets -- --exact --nocapture
+  1 passed in 149.06s
+```
+
+It verifies finalized runtime edges and immutable read mappings for both the
+facade module object and the original exported declaration, and confirms
+compiler lowering retains that read layout. CV-04 still needs the wider
+execution matrix; CV-01/02/08 and CV-09 remain open at their specified stages.
+
 ## Next work
 
 1. Reconcile the current failing-test inventory against the ledger, beginning
    with failures intersecting generated requirements or incremental phase
    products. Do not change semantic expectations without checking the owning
    spec.
-2. Resolve the implementation contract for retaining semantic resolution
-   evidence for attribute arguments; current phase evidence uses a syntax-root
-   walk and does not have ordinary expression products for those arguments.
-3. Close the remaining T4 generated-requirement families and establish explicit
-   coverage for unsupported families.
-4. Add the missing CV-01/02/04/08 cross-stage evidence, including no uncovered
-   `GetLinked` reads, then update this handoff and the checkpoint with the actual
-   outcomes.
+2. Extend/re-audit remaining T4 attribute declaration forms and generated
+   requirement families, keeping unsupported emitted expressions incomplete
+   and conservative.
+3. Complete the missing CV-01/02/04/08 cross-stage evidence, including that
+   every emitted `GetLinked` read resolves through the immutable finalized
+   mapping.
+4. Reconcile the synthetic protocol/default-to-adapter fixture with the
+   intended Universe iteration source shape for CV-09.
 5. Keep P4 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` until those acceptance gaps
-   are resolved. Do not stage, commit, or push unrelated work.
+   are resolved. Stage and deliver only the scoped work unit.

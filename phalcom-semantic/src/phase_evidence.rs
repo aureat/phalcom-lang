@@ -1437,6 +1437,25 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
             }
         }
 
+        // Attribute expressions are semantically checked in every mode, but
+        // stripped contracts and invariants do not contribute executable
+        // reads. Retain their import observations as interface-only so a
+        // complete mode-specific product does not mistake them for unused
+        // selective imports (which remain Runtime by the P4 conservative
+        // rule). Any emitted body use below still joins to Runtime.
+        for product in attribute_analyses
+            .values()
+            .filter(|product| !product.id.context.is_emitted_in(execution_mode))
+            .filter(|product| product.id.module() == module_id)
+        {
+            for import_id in product.analysis.observed_import_phases.keys() {
+                observed_uses
+                    .entry(import_id.clone())
+                    .and_modify(|phase| *phase = phase.join(DependencyPhase::InterfaceOnly))
+                    .or_insert(DependencyPhase::InterfaceOnly);
+            }
+        }
+
         // 2. Body-level uses: expressions, calls, and local type annotations.
         let analyses = callable_analyses
             .values()

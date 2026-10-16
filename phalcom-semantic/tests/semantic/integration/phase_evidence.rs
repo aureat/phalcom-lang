@@ -401,8 +401,8 @@ fn contract_attribute_analysis_retains_receiver_and_owner_callable_generics() {
 #[test]
 fn invariant_runtime_requirements_follow_the_selected_execution_mode() {
     let fixture = phase_fixture(
-        "class Required {}\nclass Ensured {}\nclass InvariantValue {}\nexport Required, Ensured, InvariantValue\n",
-        "from .provider import Required, Ensured, InvariantValue\nclass Consumer {\n  @requires(self is Required)\n  required() {}\n  @ensures(self is Ensured)\n  ensured() {}\n  @invariant(self is InvariantValue)\n  invariantChecked() {}\n}\n",
+        "class Required {}\nclass Ensured {}\nclass InvariantValue {}\nclass BodyUsed {}\nexport Required, Ensured, InvariantValue, BodyUsed\n",
+        "from .provider import Required, Ensured, InvariantValue, BodyUsed\nclass Consumer {\n  @requires(self is Required)\n  required() {}\n  @ensures(self is Ensured)\n  ensured() {}\n  @invariant(self is InvariantValue)\n  invariantChecked() {}\n  bodyUse() { BodyUsed }\n}\n",
         "class Unchanged {}\n",
     );
     let run = |mode, workspace| {
@@ -431,6 +431,10 @@ fn invariant_runtime_requirements_follow_the_selected_execution_mode() {
             .iter()
             .any(|requirement| requirement.importer == fixture.consumer && requirement.read_target == Some(read_target.clone()))
     };
+    let import_phase = |snapshot: &phalcom_semantic::SemanticSnapshot, name: &str| {
+        let binding = fixture.semantic.modules[&fixture.consumer].imports.by_local_name[name].clone();
+        snapshot.import_phase_products[&fixture.consumer].bindings[&binding].clone()
+    };
 
     assert!(
         has_read(&debug, "Required") && has_read(&debug, "Ensured") && has_read(&debug, "InvariantValue"),
@@ -444,6 +448,79 @@ fn invariant_runtime_requirements_follow_the_selected_execution_mode() {
         !has_read(&unchecked, "Required") && !has_read(&unchecked, "Ensured") && !has_read(&unchecked, "InvariantValue"),
         "Unchecked strips every contract guard"
     );
+    assert_eq!(
+        import_phase(&debug, "Ensured"),
+        ImportPhaseSummary {
+            phase: DependencyPhase::Runtime,
+            observed: true
+        }
+    );
+    assert_eq!(
+        import_phase(&release, "Ensured"),
+        ImportPhaseSummary {
+            phase: DependencyPhase::InterfaceOnly,
+            observed: true
+        }
+    );
+    assert_eq!(
+        import_phase(&release, "InvariantValue"),
+        ImportPhaseSummary {
+            phase: DependencyPhase::InterfaceOnly,
+            observed: true
+        }
+    );
+    assert_eq!(
+        import_phase(&unchecked, "Required"),
+        ImportPhaseSummary {
+            phase: DependencyPhase::InterfaceOnly,
+            observed: true
+        }
+    );
+    assert_eq!(
+        import_phase(&unchecked, "InvariantValue"),
+        ImportPhaseSummary {
+            phase: DependencyPhase::InterfaceOnly,
+            observed: true
+        }
+    );
+    for snapshot in [&debug, &release, &unchecked] {
+        assert_eq!(
+            import_phase(snapshot, "BodyUsed"),
+            ImportPhaseSummary {
+                phase: DependencyPhase::Runtime,
+                observed: true
+            },
+            "an emitted body use remains Runtime in every compile mode"
+        );
+    }
+    let finalize = |snapshot: &phalcom_semantic::SemanticSnapshot| {
+        ModuleLinker::new(fixture.semantic.universe.clone(), BTreeMap::new())
+            .finalize_executable_with_requirements(
+                (*fixture.semantic).clone(),
+                &snapshot.import_phase_products,
+                &snapshot.generated_runtime_requirements,
+            )
+            .expect("mode-specific phase evidence finalizes")
+    };
+    let debug_linked = finalize(&debug);
+    let release_linked = finalize(&release);
+    let unchecked_linked = finalize(&unchecked);
+    let read_target = |name: &str| {
+        LinkedReadSpec::Binding(SymbolId {
+            module: fixture.provider.clone(),
+            name: name.into(),
+        })
+    };
+    assert!(debug_linked.runtime_read(&fixture.consumer, &read_target("Ensured")).is_some());
+    assert!(debug_linked.runtime_read(&fixture.consumer, &read_target("BodyUsed")).is_some());
+    assert!(release_linked.runtime_read(&fixture.consumer, &read_target("Required")).is_some());
+    assert!(release_linked.runtime_read(&fixture.consumer, &read_target("BodyUsed")).is_some());
+    assert!(release_linked.runtime_read(&fixture.consumer, &read_target("Ensured")).is_none());
+    assert!(release_linked.runtime_read(&fixture.consumer, &read_target("InvariantValue")).is_none());
+    assert!(unchecked_linked.runtime_read(&fixture.consumer, &read_target("Required")).is_none());
+    assert!(unchecked_linked.runtime_read(&fixture.consumer, &read_target("BodyUsed")).is_some());
+    assert!(unchecked_linked.runtime_read(&fixture.consumer, &read_target("Ensured")).is_none());
+    assert!(unchecked_linked.runtime_read(&fixture.consumer, &read_target("InvariantValue")).is_none());
     assert_eq!(
         debug.all_diagnostics().count(),
         release.all_diagnostics().count(),

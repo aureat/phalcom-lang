@@ -263,6 +263,78 @@ fn semantic_type_cycle_finalizes_without_runtime_import_slots() {
     assert!(analyzed.linked.modules.contains_key(b_id));
 }
 
+/// CV-04 — Whole-module imports and re-exported bindings retain their distinct
+/// runtime targets through phase-aware finalization and compiler lowering.
+#[test]
+fn whole_module_and_reexport_reads_keep_canonical_runtime_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let src_dir = root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"phase_reexports\"\nnamespace = \"phase_reexports\"\nversion = \"0.1.0\"\nentry = \"phase_reexports.main\"\n",
+    )
+    .unwrap();
+    std::fs::write(src_dir.join("package.ph"), "expose .source\nexpose .facade\nexpose .main\n").unwrap();
+    std::fs::write(src_dir.join("source.ph"), "class Exported {}\nexport Exported\n").unwrap();
+    std::fs::write(src_dir.join("facade.ph"), "export Exported as Alias from .source\n").unwrap();
+    std::fs::write(
+        src_dir.join("main.ph"),
+        "import .facade as facade\nfrom .facade import Alias\nlet module_read = facade.Alias\nlet selected_read = Alias\n",
+    )
+    .unwrap();
+
+    let analyzed = ProgramAnalyzer::analyze_entry_selection_with_session(
+        EntrySelection::Project(root.to_path_buf()),
+        semantic_session_with_private_numbers_child_exposed(),
+    )
+    .expect("whole-module and re-export reads should finalize");
+    let module_id = |name: &str| {
+        analyzed
+            .linked
+            .modules
+            .keys()
+            .find(|id| id.path.to_string() == name)
+            .unwrap_or_else(|| panic!("module {name} is linked"))
+    };
+    let source_id = module_id("source");
+    let facade_id = module_id("facade");
+    let main_id = module_id("main");
+    let module_target = LinkedReadSpec::Module(facade_id.clone());
+    let reexport_target = LinkedReadSpec::Binding(phalcom_modules::SymbolId {
+        module: source_id.clone(),
+        name: "Exported".into(),
+    });
+    let main = &analyzed.linked.modules[main_id];
+    assert_eq!(main.linked_reads.len(), 2);
+    assert_eq!(analyzed.linked.runtime_read(main_id, &module_target), Some(main.bindings.imports["facade"]));
+    assert_eq!(analyzed.linked.runtime_read(main_id, &reexport_target), Some(main.bindings.imports["Alias"]));
+    assert!(
+        analyzed
+            .linked
+            .graphs
+            .runtime
+            .edges_from(main_id)
+            .iter()
+            .any(|edge| edge.dependency == *facade_id),
+        "whole-module import keeps its authored module dependency"
+    );
+    assert!(
+        analyzed
+            .linked
+            .graphs
+            .runtime
+            .edges_from(main_id)
+            .iter()
+            .any(|edge| edge.dependency == *source_id),
+        "re-exported selected binding keeps its canonical owner dependency"
+    );
+
+    let compiled = ProgramCompiler::compile_analyzed(&analyzed).expect("canonical finalized reads lower successfully");
+    assert_eq!(compiled.modules[main_id].linked_reads, main.linked_reads);
+}
+
 /// A protocol default may construct an adapter that depends on the protocol
 /// only for conformance. The finalized runtime edge stays one-way.
 #[test]

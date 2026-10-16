@@ -236,3 +236,27 @@ and without callable value parameters. The product feeds the existing phase
 evidence collector and records normal semantic dependencies for reuse and
 invalidation. This is within P4.T4; no plan amendment is required unless live
 checker evidence disproves the context model.
+
+The user selected **mode-specific runtime requirement projection**. The
+implementation now retains semantic argument products for supported class and
+class-member attribute sites, derives selected callable and witness
+requirements from those products, and classifies stripped contract/invariant
+uses as observed `InterfaceOnly` in the selected compile mode. Emitted uses
+still join to `Runtime`; unsupported or incomplete emitted sites retain the
+conservative incomplete/runtime fallback. Core passes Debug/Release/Unchecked
+through semantic analysis into finalization. A focused regression verifies
+the generated requirements, per-import phases, and finalized linked-read
+slots.
+
+The directly affected semantic `phase_evidence` module passed 18/18 on the
+current worktree after finalizer assertions were added. T4 remains partial:
+other attribute declaration forms and the complete producer-family matrix
+still need audit. T7/T8 cross-stage gates remain open.
+
+CV-04 now also has a focused program-level discriminator for a whole-module
+import plus a selected re-export: analysis/finalization retain the module
+object target and original declaration target as distinct reads and runtime
+edges, and `ProgramCompiler::compile_analyzed` preserves that linked layout.
+The focused core test passed 1/1 in 149.06 seconds. This improves CV-04
+evidence; its broader execution acceptance remains part of the cross-stage
+matrix.
