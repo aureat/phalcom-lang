@@ -346,9 +346,10 @@ conformance evidence has a root walker and the future wire contract retains
 these bindings. Added one shared call-conformance root walker for callee keys
 and Exact, Forwarded, Derived, and CompilerDerived sources; both expression
 call specializations and existing inherent-implementation provenance use it.
-The new forwarded-source regression failed before the fix because its
-canonical subject type was absent from the closed graph, then passed after the
-fix. The complete callable-analysis semantic filter passed 23/23.
+The call-specialization regression initially failed on its forwarded source
+because the canonical subject type was absent from the closed graph. It now
+exercises all four source variants, and the complete callable-analysis
+semantic filter passed 23/23.
 
 This closes the discovered source-root gap only. The owner-centric schema,
 complete field census against its final rows, and rich wire validation remain

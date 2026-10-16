@@ -1839,9 +1839,13 @@ mod tests {
     }
 
     #[test]
-    fn callable_analysis_call_conformance_roots_forwarded_subject_and_trait_arguments() {
+    fn callable_analysis_call_conformance_roots_all_source_variants() {
         use crate::checker::analysis::{CallSpecialization, ExpressionAnalysis, GenericCallConformanceBinding, GenericCallConformanceSource};
-        use crate::generic_evidence::GenericConformanceKey;
+        use crate::generic_evidence::{
+            CompilerDerivedConformanceEvidence, CompilerDerivedConformanceKind, DerivedConformanceEvidence, DerivedConformanceOrigin, GenericConformanceKey,
+        };
+        use crate::impls::ConformanceEvidence;
+        use crate::types::environment::TypeEnvironment;
         use crate::types::parameter::TypeTerm;
 
         let owner = DeclarationId::new(ModuleId::universe_root(), "CallConformanceRootOwner".into());
@@ -1851,6 +1855,12 @@ mod tests {
         let callee_argument = store.nominal_type(DeclarationId::new(owner.module.clone(), "CalleeTraitArgumentRoot".into()));
         let caller_subject = store.nominal_type(DeclarationId::new(owner.module.clone(), "CallerSubjectRoot".into()));
         let caller_argument = store.nominal_type(DeclarationId::new(owner.module.clone(), "CallerTraitArgumentRoot".into()));
+        let exact_target = store.nominal_type(DeclarationId::new(owner.module.clone(), "ExactEvidenceTargetRoot".into()));
+        let exact_argument = store.nominal_type(DeclarationId::new(owner.module.clone(), "ExactEvidenceTraitArgumentRoot".into()));
+        let derived_target = store.nominal_type(DeclarationId::new(owner.module.clone(), "DerivedEvidenceTargetRoot".into()));
+        let derived_argument = store.nominal_type(DeclarationId::new(owner.module.clone(), "DerivedEvidenceTraitArgumentRoot".into()));
+        let compiler_subject = store.nominal_type(DeclarationId::new(owner.module.clone(), "CompilerDerivedSubjectRoot".into()));
+        let compiler_argument = store.nominal_type(DeclarationId::new(owner.module.clone(), "CompilerDerivedTraitArgumentRoot".into()));
         let trait_owner = |name: &str| DeclarationId::new(owner.module.clone(), name.into());
         let conformance_key = |subject, trait_owner: DeclarationId, argument| {
             GenericConformanceKey::new(
@@ -1860,6 +1870,36 @@ mod tests {
         };
         let callee_conformance = conformance_key(callee_subject, trait_owner("CalleeTraitRoot"), callee_argument);
         let caller_conformance = conformance_key(caller_subject, trait_owner("CallerTraitRoot"), caller_argument);
+        let exact_evidence = Arc::new(ConformanceEvidence {
+            source_impl: crate::identity::ImplId::new(owner.module.clone(), ImplLocalId(41)),
+            exact_target,
+            exact_trait_ref: crate::traits::TraitRef::new(trait_owner("ExactEvidenceTraitRoot"), vec![exact_argument].into_boxed_slice()),
+            impl_environment: TypeEnvironment::new(),
+            requirement_views: Default::default(),
+            requirements: Default::default(),
+            associated_types: Default::default(),
+            trait_header_contract: Box::new([]),
+            trait_header_conformance_proofs: Some(Default::default()),
+            fingerprint: crate::db::ProductFingerprint::default(),
+        });
+        let derived_source = Arc::new(ConformanceEvidence {
+            source_impl: crate::identity::ImplId::new(owner.module.clone(), ImplLocalId(42)),
+            exact_target: derived_target,
+            exact_trait_ref: crate::traits::TraitRef::new(trait_owner("DerivedEvidenceTraitRoot"), vec![derived_argument].into_boxed_slice()),
+            impl_environment: TypeEnvironment::new(),
+            requirement_views: Default::default(),
+            requirements: Default::default(),
+            associated_types: Default::default(),
+            trait_header_contract: Box::new([]),
+            trait_header_conformance_proofs: Some(Default::default()),
+            fingerprint: crate::db::ProductFingerprint::default(),
+        });
+        let derived_evidence = Arc::new(DerivedConformanceEvidence {
+            origin: DerivedConformanceOrigin::ConditionalSource { exact_source: derived_source },
+            impl_bindings: Default::default(),
+            nested: Box::new([]),
+        });
+        let compiler_key = conformance_key(compiler_subject, trait_owner("CompilerDerivedTraitRoot"), compiler_argument);
 
         let expression_id = ExpressionId::new(BodyId(42), LocalExpressionId(3));
         let mut expression = ExpressionAnalysis::ready(
@@ -1870,10 +1910,30 @@ mod tests {
         expression.call_specialization = Some(CallSpecialization {
             callable: callable.clone(),
             bindings: Box::new([]),
-            conformances: vec![GenericCallConformanceBinding {
-                callee_conformance,
-                source: GenericCallConformanceSource::Forwarded { caller_conformance },
-            }]
+            conformances: vec![
+                GenericCallConformanceBinding {
+                    callee_conformance: callee_conformance.clone(),
+                    source: GenericCallConformanceSource::Exact { evidence: exact_evidence },
+                },
+                GenericCallConformanceBinding {
+                    callee_conformance: callee_conformance.clone(),
+                    source: GenericCallConformanceSource::Forwarded { caller_conformance },
+                },
+                GenericCallConformanceBinding {
+                    callee_conformance: callee_conformance.clone(),
+                    source: GenericCallConformanceSource::Derived { evidence: derived_evidence },
+                },
+                GenericCallConformanceBinding {
+                    callee_conformance,
+                    source: GenericCallConformanceSource::CompilerDerived {
+                        evidence: Arc::new(CompilerDerivedConformanceEvidence {
+                            key: compiler_key,
+                            kind: CompilerDerivedConformanceKind::Product,
+                            classification: crate::structural::StructuralClassification::Unsupported,
+                        }),
+                    },
+                },
+            ]
             .into_boxed_slice(),
         });
 
@@ -1883,8 +1943,19 @@ mod tests {
         register_callable_analysis_roots(&mut types, &analysis).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
-        for ty in [callee_subject, callee_argument, caller_subject, caller_argument] {
-            assert!(types.ty(ty).is_ok(), "call conformance keys and forwarded evidence must root {ty:?}");
+        for ty in [
+            callee_subject,
+            callee_argument,
+            caller_subject,
+            caller_argument,
+            exact_target,
+            exact_argument,
+            derived_target,
+            derived_argument,
+            compiler_subject,
+            compiler_argument,
+        ] {
+            assert!(types.ty(ty).is_ok(), "call conformance keys and evidence sources must root {ty:?}");
         }
     }
 
