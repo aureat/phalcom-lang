@@ -16,7 +16,7 @@ use crate::identity::{
     CallableId, CallableOwnerId, DataComponentId, DataConstructorId, DeclarationId, DispatchSide, VariantConstructorId, VariantFieldId, VariantId,
 };
 use crate::metadata::stable_identity::{
-    from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_impl, from_stable_module, from_stable_variant,
+    from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_field, from_stable_impl, from_stable_module, from_stable_variant,
 };
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::case_environment::CaseTypeEnvironment;
@@ -34,7 +34,7 @@ use phalcom_compiler_artifact::semantic::aggregates::*;
 use phalcom_compiler_artifact::semantic::type_store::{ParameterModeV1, ParameterOwnerV1, SelfRoleV1, VarianceV1};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
-use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef};
+use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableFieldRef};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -82,6 +82,71 @@ pub fn import_type_term(term: &TypeTermV1, relocation: &TypeRelocation) -> Resul
             side: from_stable_dispatch_side(term.side),
             role: import_self_role(&term.role),
         }),
+    })
+}
+
+fn import_trait_ref_identity(
+    trait_ref: &TraitRefV1,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::traits::TraitRef, ArtifactError> {
+    let mut arguments = allocations
+        .vector::<crate::types::id::TypeId>(trait_ref.arguments.len())
+        .map_err(allocation_error)?;
+    for argument in &trait_ref.arguments {
+        arguments.push(relocation.ty(*argument)?);
+    }
+    Ok(crate::traits::TraitRef::new(
+        from_stable_declaration(&trait_ref.declaration).map_err(referential)?,
+        arguments.into_boxed_slice(),
+    ))
+}
+
+pub fn import_callable_query_owner(
+    owner: &phalcom_compiler_artifact::semantic::world::CallableQueryOwnerV1,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::db::QueryKey, ArtifactError> {
+    use crate::db::QueryKey;
+    use crate::trait_dispatch::{TraitDispatchBucketKey, TraitDispatchTargetFamily};
+    use phalcom_compiler_artifact::semantic::world::{CallableQueryOwnerV1 as Portable, ConformanceTargetV1};
+
+    Ok(match owner {
+        Portable::CallableSignature { callable } => QueryKey::CallableSignature(from_stable_callable(callable).map_err(referential)?),
+        Portable::FieldSignature { field } => QueryKey::FieldSignature(
+            from_stable_field(&StableFieldRef {
+                owner: field.owner.clone(),
+                side: field.side,
+                name: field.name.clone(),
+            })
+            .map_err(referential)?,
+        ),
+        Portable::GenericConformance { subject, trait_ref } => QueryKey::GenericConformance(crate::generic_evidence::GenericConformanceKey::new(
+            import_type_term(subject, relocation)?,
+            import_trait_ref_identity(trait_ref, relocation, allocations)?,
+        )),
+        Portable::TraitDispatchBucket { target_family, selector, side } => {
+            let target_family = match target_family {
+                ConformanceTargetV1::Declaration { declaration } => {
+                    TraitDispatchTargetFamily::Declaration(from_stable_declaration(declaration).map_err(referential)?)
+                }
+                ConformanceTargetV1::ExactEnumCase { variant } => TraitDispatchTargetFamily::ExactEnumCase(from_stable_variant(variant).map_err(referential)?),
+            };
+            let base = import_selector_base_with_allocation_budget(&selector.base, allocations)?;
+            let mut slots = allocations
+                .vector::<phalcom_common::selector::SelectorSlot>(selector.slots.len())
+                .map_err(allocation_error)?;
+            for slot in &selector.slots {
+                slots.push(import_selector_slot_with_allocation_budget(slot, allocations)?);
+            }
+            let selector = phalcom_common::selector::Selector::new(base, import_selector_kind(&selector.kind), slots.into_boxed_slice())
+                .map_err(|_| referential("callable query-owner selector is invalid"))?;
+            QueryKey::TraitDispatchBucket(TraitDispatchBucketKey {
+                target_family,
+                selector,
+                side: from_stable_dispatch_side(*side),
+            })
+        }
     })
 }
 
@@ -2738,6 +2803,80 @@ mod tests {
     fn owner() -> DeclarationId {
         let path = ModulePath::from_components(vec![ModuleComponent::from_identifier("artifact_parity").unwrap()]);
         DeclarationId::new(ModuleId::universe(path), "Packet".into())
+    }
+
+    #[test]
+    fn callable_query_owner_identity_round_trips_every_admitted_key_kind() {
+        use crate::db::QueryKey;
+        use crate::generic_evidence::GenericConformanceKey;
+        use crate::identity::{CallableId, DispatchSide, FieldId, VariantId};
+        use crate::trait_dispatch::{TraitDispatchBucketKey, TraitDispatchTargetFamily};
+        use crate::traits::TraitRef;
+        use crate::types::parameter::{SelfRole, SelfTypeTerm, TypeTerm};
+        use phalcom_common::selector::{Selector, SelectorSlot};
+
+        let declaration = owner();
+        let callable = CallableId::method(
+            declaration.clone(),
+            Selector::method("dispatch", [SelectorSlot::Label("payload".into())]).unwrap(),
+            DispatchSide::Instance,
+        );
+        let keys = [
+            QueryKey::CallableSignature(callable),
+            QueryKey::FieldSignature(FieldId::new(declaration.clone(), "cached", DispatchSide::Class)),
+            QueryKey::GenericConformance(GenericConformanceKey::new(
+                TypeTerm::SelfType(SelfTypeTerm {
+                    owner: declaration.clone(),
+                    side: DispatchSide::Instance,
+                    role: SelfRole::ReceiverValue,
+                }),
+                TraitRef::new(declaration.clone(), Box::<[_]>::default()),
+            )),
+            QueryKey::TraitDispatchBucket(TraitDispatchBucketKey {
+                target_family: TraitDispatchTargetFamily::ExactEnumCase(VariantId::new(declaration.clone(), Selector::getter("case").unwrap())),
+                selector: Selector::method("perform", [SelectorSlot::Label("value".into())]).unwrap(),
+                side: DispatchSide::Class,
+            }),
+            QueryKey::TraitDispatchBucket(TraitDispatchBucketKey {
+                target_family: TraitDispatchTargetFamily::Declaration(declaration.clone()),
+                selector: Selector::getter("perform").unwrap(),
+                side: DispatchSide::Instance,
+            }),
+        ];
+
+        let store = TypeStore::new();
+        let types = TypeExportContext::new(&store);
+        let relocation = TypeRelocation {
+            store_id: store.id(),
+            types: Vec::new(),
+            kinds: Vec::new(),
+            parameters: Vec::new(),
+            rows: Vec::new(),
+            families: Vec::new(),
+            variants: Vec::new(),
+            domains: Vec::new(),
+            constructors: Vec::new(),
+            scoped: Vec::new(),
+            lambdas: Vec::new(),
+        };
+
+        for key in keys {
+            let portable = crate::artifact::export::export_callable_query_owner(&key, &types).unwrap();
+            let mut allocations = AllocationBudget::new(1 << 20);
+            let restored = import_callable_query_owner(&portable, &relocation, &mut allocations).unwrap();
+            assert_eq!(restored, key);
+        }
+
+        let malformed = QueryKey::GenericConformance(GenericConformanceKey::new(
+            TypeTerm::Infer(crate::types::id::InferVarId(7)),
+            TraitRef::new(declaration, Box::<[_]>::default()),
+        ));
+        assert!(crate::artifact::export::export_callable_query_owner(&malformed, &types).is_err());
+
+        let unsupported = QueryKey::ParsedModule(crate::identity::ModuleId::universe(crate::identity::ModulePath::from_components(vec![
+            crate::identity::ModuleComponent::from_identifier("query_owner_reject").unwrap(),
+        ])));
+        assert!(crate::artifact::export::export_callable_query_owner(&unsupported, &types).is_err());
     }
 
     fn signature(callable: crate::identity::CallableId, owner: &DeclarationId) -> CallableSemanticSignature {

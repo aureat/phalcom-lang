@@ -440,6 +440,27 @@ architect additionally requires portable `GenericConformance` and
 `TraitDispatchBucket` support. Other variants remain typed fail-closed unless a
 future live producer census changes.
 
+### PATCH1 query-owner progress — 2026-10-16
+
+QO-1 now defines `CallableQueryOwnerV1` inside semantic-world callable DTOs,
+separate from the shared query-image wire. The four admitted variants preserve
+stable callable/field identities, the full generic subject and ordered trait
+arguments, and every `TraitDispatchBucketKey` field, including declaration or
+exact-case target family, exact selector, and dispatch side. Export/import
+adapters reject unclassified query kinds and reject `TypeTerm::Infer`.
+
+QO-3 now traverses query-owner payloads in expression status, binding
+consistency, flow binding/field summaries, blocked variant-pattern resolution,
+pattern-space/exhaustiveness results, relation outcomes, and blocked
+explanation steps. Generic-conformance subject and trait-argument types are
+registered before graph closure; unsupported query kinds fail during root
+registration. Focused regressions passed for the admitted owner kinds
+(including both dispatch target families), unsupported/inference rejection,
+and the field-exhaustive blocked-owner root paths. QO-2's required whole-record
+preflight and QO-4 through QO-9 remain open because T4/T5 have not yet placed
+these DTOs into complete binding/expression rows. No callable guards were
+removed.
+
 ## 0. Checkpoint state
 
 ```yaml
@@ -460,9 +481,11 @@ next_action: >
   call-conformance root path, but the complete owner graph and rich validation
   remain incomplete. The T4/T5 query-owner hold is resolved by
   PATCH1-ADR-QUERY-OWNER and plan §12.4. QO-0's 45-variant source census is
-  complete and recorded in plan §12.4. Next implement QO-1's closed typed owner
-  representation for `CallableSignature`, `FieldSignature`, `GenericConformance`,
-  and `TraitDispatchBucket`. Then continue QO-2 through QO-9;
+  complete and recorded in plan §12.4. QO-1's closed owner DTO/adapters and
+  QO-3's callable blocked-owner root closure are implemented with focused
+  regressions. Next integrate these identities into the complete T4/T5 binding
+  and expression rows, enforce whole-record QO-2 preflight, then continue QO-4
+  through QO-9;
   retain typed fail-closed behavior and keep all callable/global guards until
   their named gates pass. Keep
   checked StaticApplication

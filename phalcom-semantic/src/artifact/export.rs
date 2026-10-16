@@ -76,6 +76,59 @@ pub fn export_type_term(term: &TypeTerm, types: &TypeExportContext) -> Result<Ty
     }
 }
 
+fn export_trait_ref_identity(trait_ref: &crate::traits::TraitRef, types: &TypeExportContext) -> Result<TraitRefV1, ArtifactError> {
+    Ok(TraitRefV1 {
+        declaration: to_stable_declaration(&trait_ref.declaration),
+        arguments: trait_ref.arguments.iter().map(|&argument| types.ty(argument)).collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
+pub fn export_callable_query_owner(
+    key: &crate::db::QueryKey,
+    types: &TypeExportContext,
+) -> Result<phalcom_compiler_artifact::semantic::world::CallableQueryOwnerV1, ArtifactError> {
+    use crate::db::QueryKey;
+    use phalcom_compiler_artifact::semantic::world::{CallableFieldRefV1, CallableQueryOwnerV1 as Portable, ConformanceTargetV1};
+
+    Ok(match key {
+        QueryKey::CallableSignature(callable) => Portable::CallableSignature {
+            callable: to_stable_callable(callable),
+        },
+        QueryKey::FieldSignature(field) => {
+            let field = to_stable_field(field);
+            Portable::FieldSignature {
+                field: CallableFieldRefV1 {
+                    owner: field.owner,
+                    side: field.side,
+                    name: field.name,
+                },
+            }
+        }
+        QueryKey::GenericConformance(key) => Portable::GenericConformance {
+            subject: export_type_term(&key.subject, types)?,
+            trait_ref: export_trait_ref_identity(&key.trait_ref, types)?,
+        },
+        QueryKey::TraitDispatchBucket(key) => Portable::TraitDispatchBucket {
+            target_family: match &key.target_family {
+                crate::trait_dispatch::TraitDispatchTargetFamily::Declaration(declaration) => ConformanceTargetV1::Declaration {
+                    declaration: to_stable_declaration(declaration),
+                },
+                crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(variant) => ConformanceTargetV1::ExactEnumCase {
+                    variant: to_stable_variant(variant),
+                },
+            },
+            selector: export_exact_selector(&key.selector),
+            side: to_stable_dispatch_side(key.side),
+        },
+        unsupported => {
+            return Err(referential(format!(
+                "query owner kind {} is not admitted in callable semantic artifacts",
+                unsupported.kind().as_str()
+            )));
+        }
+    })
+}
+
 pub fn export_constraint(constraint: &GenericConstraint, types: &TypeExportContext) -> Result<GenericConstraintV1, ArtifactError> {
     Ok(match constraint {
         GenericConstraint::Subtype { lower, upper } => GenericConstraintV1::Subtype {

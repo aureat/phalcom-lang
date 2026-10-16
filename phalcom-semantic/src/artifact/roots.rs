@@ -41,6 +41,9 @@ pub(super) fn register_callable_analysis_roots(
     );
     for expression in analysis.expressions.values() {
         roots.knowledge(&expression.knowledge)?;
+        if let crate::checker::analysis::AnalysisStatus::Blocked(reason) = &expression.status {
+            roots.block_reason(reason)?;
+        }
         if let Some(denotation) = &expression.denotation {
             roots.denotation(denotation)?;
         }
@@ -83,6 +86,7 @@ pub(super) fn register_callable_analysis_roots(
             roots.ty(contract.ty)?;
         }
         roots.knowledge(&binding.current)?;
+        roots.binding_consistency(&binding.consistency)?;
         if let Some(denotation) = &binding.denotation {
             roots.denotation(denotation)?;
         }
@@ -203,6 +207,7 @@ impl<'a> Roots<'a> {
     fn flow_state(&mut self, flow: &crate::checker::analysis::FlowStateSummary) -> Result<(), ArtifactError> {
         for binding in flow.bindings.values() {
             self.knowledge(&binding.knowledge)?;
+            self.binding_consistency(&binding.consistency)?;
             if let Some(contract) = &binding.contract {
                 self.ty(contract.ty)?;
             }
@@ -210,6 +215,31 @@ impl<'a> Roots<'a> {
         for field in flow.fields.values() {
             self.knowledge(&field.contract)?;
             self.knowledge(&field.current)?;
+            if let crate::checker::flow::FieldContractValidity::Blocked(reason) = &field.validity {
+                self.block_reason(reason)?;
+            }
+        }
+        Ok(())
+    }
+    fn binding_consistency(&mut self, consistency: &crate::checker::binding::BindingConsistency) -> Result<(), ArtifactError> {
+        if let crate::checker::binding::BindingConsistency::Blocked(reason) = consistency {
+            self.block_reason(reason)?;
+        }
+        Ok(())
+    }
+    fn block_reason(&mut self, reason: &crate::types::outcome::BlockReason) -> Result<(), ArtifactError> {
+        if let crate::types::outcome::BlockReason::UnavailableSemanticOwner(owner) = reason {
+            match owner {
+                crate::db::QueryKey::CallableSignature(_) | crate::db::QueryKey::FieldSignature(_) | crate::db::QueryKey::TraitDispatchBucket(_) => {}
+                crate::db::QueryKey::GenericConformance(key) => self.generic_conformance_key(key)?,
+                unsupported => {
+                    return Err(ValidationError::ReferentialIntegrity(format!(
+                        "callable block reason contains unsupported query owner kind {}",
+                        unsupported.kind().as_str()
+                    ))
+                    .into());
+                }
+            }
         }
         Ok(())
     }
@@ -428,6 +458,9 @@ impl<'a> Roots<'a> {
             PatternResolution::Wildcard | PatternResolution::Char(_) => Ok(()),
             PatternResolution::Binding { knowledge, .. } => self.knowledge(knowledge),
             PatternResolution::Variant(variant) => {
+                if let Some(reason) = &variant.blocked {
+                    self.block_reason(reason)?;
+                }
                 for candidate in variant.candidates.iter() {
                     self.ty(candidate.exact_case)?;
                     self.branch_proof(&candidate.proof)?;
@@ -601,16 +634,21 @@ impl<'a> Roots<'a> {
                 }
                 Ok(())
             }
-            PatternSpaceSummary::Empty | PatternSpaceSummary::Char(_) | PatternSpaceSummary::Blocked(_) | PatternSpaceSummary::List => Ok(()),
+            PatternSpaceSummary::Blocked(reason) => self.block_reason(reason),
+            PatternSpaceSummary::Empty | PatternSpaceSummary::Char(_) | PatternSpaceSummary::List => Ok(()),
         }
     }
     fn exhaustiveness(&mut self, result: &crate::match_semantics::ExhaustivenessResult) -> Result<(), ArtifactError> {
-        if let crate::match_semantics::ExhaustivenessResult::Missing(witnesses) = result {
-            for witness in witnesses.iter() {
-                self.coverage_witness(witness)?;
+        match result {
+            crate::match_semantics::ExhaustivenessResult::Missing(witnesses) => {
+                for witness in witnesses.iter() {
+                    self.coverage_witness(witness)?;
+                }
+                Ok(())
             }
+            crate::match_semantics::ExhaustivenessResult::Blocked(reason) => self.block_reason(reason),
+            crate::match_semantics::ExhaustivenessResult::Proven => Ok(()),
         }
-        Ok(())
     }
     fn coverage_witness(&mut self, witness: &crate::match_semantics::CoverageWitness) -> Result<(), ArtifactError> {
         use crate::match_semantics::CoverageWitness;
@@ -643,13 +681,19 @@ impl<'a> Roots<'a> {
             ExplanationStep::ExpressionResult { knowledge, .. }
             | ExplanationStep::BindingRead { knowledge, .. }
             | ExplanationStep::ProductComponent { result: knowledge, .. } => self.knowledge(knowledge),
-            ExplanationStep::BindingContract { actual, contract, .. } => {
+            ExplanationStep::BindingContract {
+                actual, contract, consistency, ..
+            } => {
                 self.knowledge(actual)?;
+                self.binding_consistency(consistency)?;
                 self.ty(*contract)
             }
             ExplanationStep::TypeRequirement { expected, .. } => self.ty(*expected),
-            ExplanationStep::TypeRelation { actual, expected, .. } => {
+            ExplanationStep::TypeRelation { actual, expected, outcome } => {
                 self.knowledge(actual)?;
+                if let crate::types::outcome::RelationOutcome::Blocked(reason) = outcome {
+                    self.block_reason(reason)?;
+                }
                 self.ty(*expected)
             }
             ExplanationStep::CallableSelection { receiver, .. } | ExplanationStep::UnionArm { receiver, .. } => self.ty(*receiver),
@@ -716,8 +760,8 @@ impl<'a> Roots<'a> {
             ExplanationStep::CallShape { .. }
             | ExplanationStep::CallableKind { .. }
             | ExplanationStep::UnknownBoundary { .. }
-            | ExplanationStep::DynamicBoundary { .. }
-            | ExplanationStep::InternalBlocked { .. } => Ok(()),
+            | ExplanationStep::DynamicBoundary { .. } => Ok(()),
+            ExplanationStep::InternalBlocked { reason } => self.block_reason(reason),
         }
     }
     fn diagnostic_guidance(&mut self, guidance: &crate::diagnostic::DiagnosticGuidance) -> Result<(), ArtifactError> {
@@ -1294,6 +1338,139 @@ mod tests {
             flow: phalcom_native_meta::ReturnFlowSpec::Value,
             lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
         }
+    }
+
+    #[test]
+    fn callable_blocked_query_owner_roots_cover_expression_binding_flow_pattern_and_explanation_paths() {
+        use crate::checker::analysis::{AnalysisStatus, BindingState, FlowBindingSummary, FlowFieldSummary};
+        use crate::explain::node::{DerivationRule, EvidenceRef, ExplanationStep};
+        use crate::generic_evidence::GenericConformanceKey;
+        use crate::match_semantics::{
+            ExhaustivenessResult, MatchResolution, PatternResolution, PatternSpaceSummary, ResolvedVariantPattern, VariantSelectorConstraint,
+        };
+        use crate::types::outcome::BlockReason;
+        use crate::types::parameter::TypeTerm;
+
+        let callable_owner = DeclarationId::new(ModuleId::universe_root(), "BlockedOwnerRoot".into());
+        let callable = CallableId::method(callable_owner.clone(), Selector::getter("factory").unwrap(), DispatchSide::Class);
+        let mut store = TypeStore::new();
+        let subject = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "BlockedSubjectRoot".into()));
+        let argument = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "BlockedTraitArgumentRoot".into()));
+        let key = crate::db::QueryKey::GenericConformance(GenericConformanceKey::new(
+            TypeTerm::Canonical(subject),
+            crate::traits::TraitRef::new(
+                DeclarationId::new(ModuleId::universe_root(), "BlockedTraitRoot".into()),
+                vec![argument].into_boxed_slice(),
+            ),
+        ));
+        let reason = BlockReason::UnavailableSemanticOwner(key);
+        let blocked = || reason.clone();
+        let expression_id = ExpressionId::new(BodyId(8), LocalExpressionId(0));
+        let mut analysis = callable_analysis(callable);
+
+        let mut expression = ExpressionAnalysis::ready(
+            expression_id,
+            SourceRange { start: 1, end: 2 },
+            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+        );
+        expression.status = AnalysisStatus::Blocked(blocked());
+        analysis.expressions.insert_source(expression_id, expression).unwrap();
+
+        let binding_id = BindingId(4);
+        let mut binding = BindingState::new(
+            binding_id,
+            "local",
+            SourceRange { start: 3, end: 4 },
+            None,
+            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+            false,
+        );
+        binding.consistency = crate::checker::binding::BindingConsistency::Blocked(blocked());
+        analysis.bindings.insert_source(binding_id, binding).unwrap();
+
+        analysis
+            .entry_flow
+            .bindings
+            .insert_source(
+                binding_id,
+                FlowBindingSummary {
+                    knowledge: TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                    contract: None,
+                    consistency: crate::checker::binding::BindingConsistency::Blocked(blocked()),
+                    mutable: false,
+                    initialization: crate::checker::flow::InitializationState::DefinitelyInitialized,
+                },
+            )
+            .unwrap();
+        let field = FieldId::new(callable_owner.clone(), "field", DispatchSide::Instance);
+        analysis
+            .entry_flow
+            .fields
+            .insert_source(
+                field,
+                FlowFieldSummary {
+                    contract: TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                    current: TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                    initialization: crate::checker::flow::FieldInitialization::DefinitelyInitialized,
+                    validity: crate::checker::flow::FieldContractValidity::Blocked(blocked()),
+                    causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
+                },
+            )
+            .unwrap();
+
+        let variant = ResolvedVariantPattern {
+            owner: None,
+            family: None,
+            owner_candidates: Box::new([]),
+            selector: VariantSelectorConstraint::WholeFamily,
+            candidates: Box::new([]),
+            blocked: Some(blocked()),
+        };
+        let mut match_resolutions = crate::checker::analysis_map::AnalysisMap::default();
+        match_resolutions
+            .insert_source(
+                expression_id,
+                MatchResolution {
+                    expression: expression_id,
+                    scrutinee: TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                    initial_space: PatternSpaceSummary::Blocked(blocked()),
+                    arms: vec![crate::match_semantics::MatchArmResolution {
+                        arm_index: 0,
+                        pattern: PatternResolution::Variant(variant),
+                        reachable_space: PatternSpaceSummary::Empty,
+                        residual_after: PatternSpaceSummary::Empty,
+                        bindings: Box::new([]),
+                        proof: Default::default(),
+                        usefulness: crate::match_semantics::PatternUsefulness::Useful,
+                        branch_result: TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                    }]
+                    .into_boxed_slice(),
+                    result: TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                    exhaustiveness: ExhaustivenessResult::Blocked(blocked()),
+                },
+            )
+            .unwrap();
+        analysis.match_resolutions = Arc::new(match_resolutions);
+
+        let mut explanations = crate::explain::ExplanationArena::new();
+        explanations
+            .alloc_full(
+                ExplanationStep::InternalBlocked { reason: blocked() },
+                DerivationRule::InternalBlocked,
+                EvidenceStatus::Established,
+                EvidenceOrigin::Flow,
+                vec![EvidenceRef::TypeId(subject), EvidenceRef::TypeId(argument)],
+                Vec::new(),
+            )
+            .unwrap();
+        analysis.explanations = Arc::new(explanations);
+
+        let mut types = TypeExportContext::new(&store);
+        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
+
+        assert!(types.ty(subject).is_ok(), "generic blocked-owner subject must be rooted");
+        assert!(types.ty(argument).is_ok(), "generic blocked-owner trait argument must be rooted");
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 use crate::module_world::SpanV1;
 use crate::module_world::{Decode, Wire, invalid, record, tagged};
-use crate::semantic::aggregates::{DeclaredTypeFactV1, GenericSignatureV1, StructuralPrimaryContractsV1, TraitRefV1};
+use crate::semantic::aggregates::{DeclaredTypeFactV1, GenericSignatureV1, StructuralPrimaryContractsV1, TraitRefV1, TypeTermV1};
 use crate::semantic::operational::CheckedStaticDefinitionsV1;
 use crate::semantic::static_value::StaticValueGraphV1;
 use crate::semantic::type_store::{
@@ -214,6 +214,22 @@ tagged!(CallableAnalysisStatusV1 {
     2 => Blocked,
     3 => Cancelled,
     4 => BudgetExceeded,
+});
+
+// Query identities nested in callable facts have a callable-local portable
+// contract. This is intentionally separate from the shared query-image wire:
+// it serializes only owner identity, not cached query state or dependencies.
+record!(CallableFieldRefV1 {
+    owner: StableDeclarationRef,
+    side: StableDispatchSide,
+    name: Box<str>,
+});
+
+tagged!(CallableQueryOwnerV1 {
+    0 => CallableSignature { callable: StableCallableRef },
+    1 => FieldSignature { field: CallableFieldRefV1 },
+    2 => GenericConformance { subject: TypeTermV1, trait_ref: TraitRefV1 },
+    3 => TraitDispatchBucket { target_family: ConformanceTargetV1, selector: ExactSelectorV1, side: StableDispatchSide },
 });
 
 record!(ConstructorSuperInitializerV1 {
