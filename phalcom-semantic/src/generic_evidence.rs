@@ -898,7 +898,7 @@ fn complete_exact_conformance_evidence(evidence: Arc<ConformanceEvidence>, conte
         Err(proof) => return proof,
     };
     let mut completed = (*evidence).clone();
-    completed.trait_header_conformance_proofs = Some(trait_header_conformance_proofs);
+    completed.trait_header_conformance_proofs = Some(trait_header_conformance_proofs.into());
     GenericConformanceProof::Proven(GenericConformanceEvidence::Exact(Arc::new(completed)))
 }
 

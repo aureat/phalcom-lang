@@ -1,6 +1,7 @@
 //! Canonical inherent implementation fragment analysis, target resolution, and contribution publication.
 
 use crate::checker::context::{CheckerControl, CheckingContext};
+use crate::checker::analysis_map::{AnalysisMap, AnalysisMapIter};
 use crate::checker::declaration_signature::{
     CallableSyntaxRef, DelegationError, callable_id_for_syntax, delegated_accessor_signatures, delegated_member_visibility,
     semantic_signature_for_syntax_with_resolver,
@@ -2748,15 +2749,48 @@ pub(crate) fn instantiate_conformance_requirements_with_signatures(
 
 /// Specializes a target-owned type (such as a data component declaration
 /// type) through the source or exact conformance target environment.
+pub(crate) trait TypeParameterBindingRead {
+    type Iter<'a>: Iterator<Item = (&'a TypeParameterId, &'a TypeId)>
+    where
+        Self: 'a;
+
+    fn iter_bindings(&self) -> Self::Iter<'_>;
+    fn bindings_are_empty(&self) -> bool;
+}
+
+impl TypeParameterBindingRead for HashMap<TypeParameterId, TypeId> {
+    type Iter<'a> = std::collections::hash_map::Iter<'a, TypeParameterId, TypeId>;
+
+    fn iter_bindings(&self) -> Self::Iter<'_> {
+        self.iter()
+    }
+
+    fn bindings_are_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl TypeParameterBindingRead for AnalysisMap<TypeParameterId, TypeId> {
+    type Iter<'a> = AnalysisMapIter<'a, TypeParameterId, TypeId>;
+
+    fn iter_bindings(&self) -> Self::Iter<'_> {
+        self.iter()
+    }
+
+    fn bindings_are_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
 pub(crate) fn specialize_conformance_target_type(
     store: &mut TypeStore,
     declarations: &DeclarationTypeTable,
     target: TypeId,
-    impl_bindings: &HashMap<TypeParameterId, TypeId>,
+    impl_bindings: &impl TypeParameterBindingRead,
     ty: TypeId,
 ) -> TypeId {
     let mut environment = TypeEnvironment::new();
-    for (&parameter, &binding) in impl_bindings {
+    for (&parameter, &binding) in impl_bindings.iter_bindings() {
         environment.bind_param(parameter, binding);
     }
     bind_target_declaration_parameters(store, declarations, target, &mut environment);
@@ -2769,10 +2803,10 @@ fn conformance_environment(
     trait_surface: &TraitSurface,
     trait_ref: &TraitRef,
     target: TypeId,
-    impl_bindings: &HashMap<TypeParameterId, TypeId>,
+    impl_bindings: &impl TypeParameterBindingRead,
 ) -> TypeEnvironment {
     let mut environment = TypeEnvironment::new();
-    for (&parameter, &binding) in impl_bindings {
+    for (&parameter, &binding) in impl_bindings.iter_bindings() {
         environment.bind_param(parameter, binding);
     }
     if let Some(declarations) = declarations {
@@ -2780,7 +2814,7 @@ fn conformance_environment(
     }
     if let Some(signature) = &trait_surface.generic_signature {
         for (&parameter, &argument) in signature.parameters.iter().zip(trait_ref.arguments.iter()) {
-            let argument = if impl_bindings.is_empty() {
+            let argument = if impl_bindings.bindings_are_empty() {
                 argument
             } else {
                 let substitution = environment.to_substitution();
