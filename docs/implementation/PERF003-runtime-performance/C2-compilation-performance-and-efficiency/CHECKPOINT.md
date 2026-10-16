@@ -355,6 +355,38 @@ This closes the discovered source-root gap only. The owner-centric schema,
 complete field census against its final rows, and rich wire validation remain
 open; the decoder and callable coverage guards remain active.
 
+## PATCH1 T3 owner-centric expression and binding rows — partial — 2026-10-16
+
+The callable wire record now carries dense `expressions` and `bindings` rows.
+Expression denotations and call specializations are nested under expression
+rows; binding denotations, the current storage-origin classification, and the
+existing range attachment are nested under binding rows. Export orders both
+vectors by the single callable-local ordinal map. The sparse expression count,
+denotation tables, specialization table, and separate origin/attachment
+side-tables were removed. Validation bounds both dense families, requires the
+exact dense ordinal range, and includes their rows plus nested specialization
+bindings in the checked owner-local total.
+
+Focused evidence:
+
+- `semantic_world_callable_analysis_test`: 6 passed, 5 failed. Four decoder
+  cases still stop at the intentionally active
+  `Allocation(UnaccountedBoundary)` guard; conditional behavioral capture still
+  lacks serialized implementation-member authority, as previously recorded.
+  The new dense-row bounds/ordinal checks and nested specialization validation
+  passed.
+- Exact callable call-conformance root test: 1 passed.
+- Compiling the semantic library unit-test target succeeded as part of that
+  focused root run, including the migrated export/import fixtures.
+- Changed-file formatting and `git diff --check` passed.
+
+This is only the owner-centric row foundation. T4 still must transport full
+`BindingState` and exact source-site attachment identity; T5 must transport the
+complete expression contract and generic conformance evidence; T6/T7 still own
+the remaining callable families. The public decoder and callable coverage
+guards remain active. P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED; P8 remains
+blocked.
+
 ## 0. Checkpoint state
 
 ```yaml
@@ -371,8 +403,9 @@ next_action: >
   PATCH1 T0 and T1 are complete: the PATCH0 fingerprint prerequisite is
   satisfied; focused callable-analysis, frozen owner, semantic library, and core
   library evidence is recorded below. T2 establishes the owner-local ordinal
-  validation context; T3 has begun with count/cumulative-row preflight hardening,
-  but the wire record remains incomplete. Continue T3–T10 in plan order. Keep
+  validation context; T3 has dense expression/binding rows and the discovered
+  call-conformance root path, but the complete owner graph and rich validation
+  remain incomplete. Continue T3–T10 in plan order. Keep
   checked StaticApplication
   rows owned by CheckedStaticBody; PATCH1 leaves their denotation fail-closed.
   Preserve the budgeted enum-requirement wrapper. Keep P7 IN_PROGRESS / PARTIAL /

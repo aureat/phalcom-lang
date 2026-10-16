@@ -4,8 +4,8 @@ use phalcom_compiler_artifact::semantic::operational::CheckedStaticDefinitionsV1
 use phalcom_compiler_artifact::semantic::static_value::StaticValueGraphV1;
 use phalcom_compiler_artifact::semantic::type_store::TypeGraphV1;
 use phalcom_compiler_artifact::semantic::world::{
-    CallableAnalysisRecordV1, CallableAnalysisStatusV1, CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1,
-    CallableFlowNodeV1, ConstructorSuperInitializerV1, SemanticWorldV2,
+    CallableAnalysisRecordV1, CallableAnalysisStatusV1, CallableBindingOriginV1, CallableBindingRowV1, CallableExpressionRowV1, CallableFlowEdgeKindV1,
+    CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1, CallableFlowNodeV1, ConstructorSuperInitializerV1, SemanticWorldV2,
 };
 use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableModuleRef, StableProjectRef};
 
@@ -36,6 +36,23 @@ fn owner_ref() -> StableDeclarationRef {
             path: vec!["test".into()].into_boxed_slice(),
         },
         path: vec!["Owner".into()].into_boxed_slice(),
+    }
+}
+
+fn expression_row(ordinal: u32) -> CallableExpressionRowV1 {
+    CallableExpressionRowV1 {
+        ordinal,
+        denotation: None,
+        call_specialization: None,
+    }
+}
+
+fn body_local_binding_row(ordinal: u32) -> CallableBindingRowV1 {
+    CallableBindingRowV1 {
+        ordinal,
+        denotation: None,
+        formal_attachment: None,
+        origin: CallableBindingOriginV1::BodyLocal,
     }
 }
 
@@ -94,14 +111,12 @@ fn world(status: CallableAnalysisStatusV1) -> SemanticWorldV2 {
                 call_range: SpanV1 { start: 7, end: 9 },
                 initializer: callable(),
             }),
-            expression_count: 0,
-            expression_denotations: vec![],
-            binding_denotations: vec![],
-            call_specializations: vec![],
-            formal_bindings: vec![],
-            binding_origins: vec![phalcom_compiler_artifact::semantic::world::CallableBindingOriginEntryV1 {
-                binding_ordinal: 0,
-                origin: phalcom_compiler_artifact::semantic::world::CallableBindingOriginV1::ModuleValue {
+            expressions: vec![],
+            bindings: vec![CallableBindingRowV1 {
+                ordinal: 0,
+                denotation: None,
+                formal_attachment: None,
+                origin: CallableBindingOriginV1::ModuleValue {
                     module: StableModuleRef {
                         project: StableProjectRef::Builtin {
                             namespace: "universe".into(),
@@ -140,8 +155,8 @@ fn callable_analysis_status_is_preserved_by_semantic_world_codec() {
         assert_eq!(decoded.callable_analyses[0].callable, callable());
         assert!(decoded.callable_analyses[0].exits_unreachable);
         assert!(matches!(
-            decoded.callable_analyses[0].binding_origins[0].origin,
-            phalcom_compiler_artifact::semantic::world::CallableBindingOriginV1::ModuleValue { import_binding: Some(2), .. }
+            decoded.callable_analyses[0].bindings[0].origin,
+            CallableBindingOriginV1::ModuleValue { import_binding: Some(2), .. }
         ));
         assert_eq!(
             decoded.callable_analyses[0]
@@ -215,11 +230,13 @@ fn callable_analysis_owner_and_constructor_range_are_validated() {
 #[test]
 fn callable_analysis_owner_local_families_obey_individual_and_cumulative_limits() {
     let mut oversized_expressions = world(CallableAnalysisStatusV1::Complete);
-    oversized_expressions.callable_analyses[0].expression_count = 1_000_001;
+    oversized_expressions.callable_analyses[0].expressions = vec![expression_row(0), expression_row(1)];
+    let mut zero_expression_limit = phalcom_compiler_artifact::ValidationLimits::default();
+    zero_expression_limit.max_semantic_entries_per_family = 1;
     let error = oversized_expressions
-        .validate(&Default::default())
-        .expect_err("expression count must be bounded before ordinal use");
-    assert!(error.to_string().contains("expression count exceeds its owner-local limit"));
+        .validate(&zero_expression_limit)
+        .expect_err("dense expression rows must be bounded before ordinal use");
+    assert!(error.to_string().contains("callable expression or binding rows exceed their owner-local limit"));
 
     let mut oversized_total = world(CallableAnalysisStatusV1::Complete);
     let analysis = &mut oversized_total.callable_analyses[0];
@@ -254,11 +271,13 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
     use phalcom_compiler_artifact::semantic::world::CallableCallSpecializationV1;
 
     let mut two_owners = world(CallableAnalysisStatusV1::Complete);
-    two_owners.callable_analyses[0].expression_count = 1;
-    two_owners.callable_analyses[0].call_specializations = vec![CallableCallSpecializationV1 {
-        expression_ordinal: 0,
-        callable: callable(),
-        bindings: vec![],
+    two_owners.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
+        ordinal: 0,
+        denotation: None,
+        call_specialization: Some(CallableCallSpecializationV1 {
+            callable: callable(),
+            bindings: vec![],
+        }),
     }];
     let mut earlier_owner = two_owners.callable_analyses[0].clone();
     earlier_owner.callable.selector = "aaa".into();
@@ -268,17 +287,22 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
         .expect("ordinal zero belongs independently to each callable record");
 
     let mut duplicate_expression_ordinal = world(CallableAnalysisStatusV1::Complete);
-    duplicate_expression_ordinal.callable_analyses[0].expression_count = 1;
-    duplicate_expression_ordinal.callable_analyses[0].call_specializations = vec![
-        CallableCallSpecializationV1 {
-            expression_ordinal: 0,
-            callable: callable(),
-            bindings: vec![],
+    duplicate_expression_ordinal.callable_analyses[0].expressions = vec![
+        CallableExpressionRowV1 {
+            ordinal: 0,
+            denotation: None,
+            call_specialization: Some(CallableCallSpecializationV1 {
+                callable: callable(),
+                bindings: vec![],
+            }),
         },
-        CallableCallSpecializationV1 {
-            expression_ordinal: 0,
-            callable: callable(),
-            bindings: vec![],
+        CallableExpressionRowV1 {
+            ordinal: 0,
+            denotation: None,
+            call_specialization: Some(CallableCallSpecializationV1 {
+                callable: callable(),
+                bindings: vec![],
+            }),
         },
     ];
     assert!(
@@ -287,11 +311,8 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
     );
 
     let mut wrong_family = world(CallableAnalysisStatusV1::Complete);
-    wrong_family.callable_analyses[0].expression_count = 4;
-    wrong_family.callable_analyses[0].formal_bindings = vec![phalcom_compiler_artifact::semantic::world::CallableBindingSourceAttachmentV1 {
-        binding_ordinal: 2,
-        range: SpanV1 { start: 1, end: 2 },
-    }];
+    wrong_family.callable_analyses[0].expressions = (0..4).map(expression_row).collect();
+    wrong_family.callable_analyses[0].bindings = vec![body_local_binding_row(0), body_local_binding_row(2)];
     assert!(
         wrong_family.validate(&Default::default()).is_err(),
         "a valid expression ordinal cannot stand in for an absent binding ordinal"
@@ -315,21 +336,28 @@ fn explicit_dynamic_call_argument_round_trips_without_a_type_node() {
         variance: VarianceV1::Invariant,
         mode: ParameterModeV1::Single,
     }];
-    image.callable_analyses[0].expression_count = 1;
-    image.callable_analyses[0].call_specializations = vec![CallableCallSpecializationV1 {
-        expression_ordinal: 0,
-        callable: callable(),
-        bindings: vec![CallableStaticArgumentBindingV1 {
-            parameter: ArtifactTypeParameterId(0),
-            argument: StaticArgumentV1::DynamicType,
-        }],
+    image.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
+        ordinal: 0,
+        denotation: None,
+        call_specialization: Some(CallableCallSpecializationV1 {
+            callable: callable(),
+            bindings: vec![CallableStaticArgumentBindingV1 {
+                parameter: ArtifactTypeParameterId(0),
+                argument: StaticArgumentV1::DynamicType,
+            }],
+        }),
     }];
 
     let encoded = image.encode().expect("explicit Dynamic is a valid call argument");
     let decoded = SemanticWorldV2::decode(&encoded, &Default::default()).expect("call argument decodes");
     assert_eq!(decoded.type_graph.types.len(), 0, "Dynamic has no proper type node");
     assert!(matches!(
-        decoded.callable_analyses[0].call_specializations[0].bindings[0].argument,
+        decoded.callable_analyses[0].expressions[0]
+            .call_specialization
+            .as_ref()
+            .expect("call specialization is nested under its expression")
+            .bindings[0]
+            .argument,
         StaticArgumentV1::DynamicType
     ));
 }
@@ -337,8 +365,7 @@ fn explicit_dynamic_call_argument_round_trips_without_a_type_node() {
 #[test]
 fn call_specialization_rejects_unowned_ordinals_duplicate_bindings_and_wrong_dynamic_kind() {
     use phalcom_compiler_artifact::semantic::type_store::{
-        ArtifactKindId, ArtifactTypeParameterId, KindV1, ParameterModeV1, ParameterOwnerV1, ParameterV1, VarianceV1,
-        StaticArgumentV1,
+        ArtifactKindId, ArtifactTypeParameterId, KindV1, ParameterModeV1, ParameterOwnerV1, ParameterV1, StaticArgumentV1, VarianceV1,
     };
     use phalcom_compiler_artifact::semantic::world::{CallableCallSpecializationV1, CallableStaticArgumentBindingV1};
 
@@ -352,20 +379,22 @@ fn call_specialization_rejects_unowned_ordinals_duplicate_bindings_and_wrong_dyn
         variance: VarianceV1::Invariant,
         mode: ParameterModeV1::Single,
     }];
-    image.callable_analyses[0].expression_count = 1;
-    image.callable_analyses[0].call_specializations = vec![CallableCallSpecializationV1 {
-        expression_ordinal: 0,
-        callable: callable(),
-        bindings: vec![
-            CallableStaticArgumentBindingV1 {
-                parameter: ArtifactTypeParameterId(0),
-                argument: StaticArgumentV1::DynamicType,
-            },
-            CallableStaticArgumentBindingV1 {
-                parameter: ArtifactTypeParameterId(0),
-                argument: StaticArgumentV1::DynamicType,
-            },
-        ],
+    image.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
+        ordinal: 0,
+        denotation: None,
+        call_specialization: Some(CallableCallSpecializationV1 {
+            callable: callable(),
+            bindings: vec![
+                CallableStaticArgumentBindingV1 {
+                    parameter: ArtifactTypeParameterId(0),
+                    argument: StaticArgumentV1::DynamicType,
+                },
+                CallableStaticArgumentBindingV1 {
+                    parameter: ArtifactTypeParameterId(0),
+                    argument: StaticArgumentV1::DynamicType,
+                },
+            ],
+        }),
     }];
     assert!(image.validate(&Default::default()).is_err(), "duplicate parameter bindings must fail");
 
@@ -379,24 +408,25 @@ fn call_specialization_rejects_unowned_ordinals_duplicate_bindings_and_wrong_dyn
         variance: VarianceV1::Invariant,
         mode: ParameterModeV1::Single,
     }];
-    wrong_kind.callable_analyses[0].expression_count = 1;
-    wrong_kind.callable_analyses[0].call_specializations = vec![CallableCallSpecializationV1 {
-        expression_ordinal: 0,
-        callable: callable(),
-        bindings: vec![CallableStaticArgumentBindingV1 {
-            parameter: ArtifactTypeParameterId(0),
-            argument: StaticArgumentV1::DynamicType,
-        }],
+    wrong_kind.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
+        ordinal: 0,
+        denotation: None,
+        call_specialization: Some(CallableCallSpecializationV1 {
+            callable: callable(),
+            bindings: vec![CallableStaticArgumentBindingV1 {
+                parameter: ArtifactTypeParameterId(0),
+                argument: StaticArgumentV1::DynamicType,
+            }],
+        }),
     }];
     assert!(wrong_kind.validate(&Default::default()).is_err(), "Dynamic requires a proper-type parameter");
 
     let mut bad_ordinal = world(CallableAnalysisStatusV1::Complete);
-    bad_ordinal.callable_analyses[0].call_specializations = vec![CallableCallSpecializationV1 {
-        expression_ordinal: 0,
-        callable: callable(),
-        bindings: vec![],
-    }];
-    assert!(bad_ordinal.validate(&Default::default()).is_err(), "call references an absent owner-local expression ordinal");
+    bad_ordinal.callable_analyses[0].expressions = vec![expression_row(1)];
+    assert!(
+        bad_ordinal.validate(&Default::default()).is_err(),
+        "expression rows must form the dense owner-local ordinal range"
+    );
 }
 
 #[test]
@@ -404,7 +434,7 @@ fn associated_denotation_rejects_member_from_wrong_declaration_owner() {
     use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1, TypeEntryV1, TypeV1};
     use phalcom_compiler_artifact::semantic::world::{
         AssociatedFamilyIdentityV1, AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1,
-        AssociatedValueDenotationV1, CallableExpressionDenotationV1, FamilyOperationShapeV1, SemanticDenotationV1, SelectorKindV1,
+        AssociatedValueDenotationV1, FamilyOperationShapeV1, SelectorKindV1, SemanticDenotationV1,
     };
 
     let lookup_owner = owner_ref();
@@ -416,9 +446,7 @@ fn associated_denotation_rejects_member_from_wrong_declaration_owner() {
         owner: foreign_owner,
         selector: "Ready".into(),
     };
-    let member = AssociatedMemberV1::Variant {
-        variant: foreign_variant,
-    };
+    let member = AssociatedMemberV1::Variant { variant: foreign_variant };
 
     let mut image = world(CallableAnalysisStatusV1::Complete);
     image.type_graph.kinds = vec![KindV1::Type];
@@ -436,10 +464,9 @@ fn associated_denotation_rejects_member_from_wrong_declaration_owner() {
             members: vec![member.clone()],
         }],
     }];
-    image.callable_analyses[0].expression_count = 1;
-    image.callable_analyses[0].expression_denotations = vec![CallableExpressionDenotationV1 {
-        expression_ordinal: 0,
-        denotation: SemanticDenotationV1::AssociatedValue {
+    image.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
+        ordinal: 0,
+        denotation: Some(SemanticDenotationV1::AssociatedValue {
             value: AssociatedValueDenotationV1::Family {
                 owner_form: phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId(0),
                 lookup_owner: lookup_owner.clone(),
@@ -456,7 +483,8 @@ fn associated_denotation_rejects_member_from_wrong_declaration_owner() {
                     target: None,
                 }],
             },
-        },
+        }),
+        call_specialization: None,
     }];
 
     let error = image
@@ -469,8 +497,8 @@ fn associated_denotation_rejects_member_from_wrong_declaration_owner() {
 fn associated_denotation_rejects_member_without_primary_owner_authority() {
     use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1, TypeEntryV1, TypeV1};
     use phalcom_compiler_artifact::semantic::world::{
-        AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1, AssociatedValueDenotationV1,
-        CallableExpressionDenotationV1, SemanticDenotationV1,
+        AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1, AssociatedValueDenotationV1, CallableExpressionRowV1,
+        SemanticDenotationV1,
     };
 
     let owner = owner_ref();
@@ -478,9 +506,7 @@ fn associated_denotation_rejects_member_without_primary_owner_authority() {
     image.type_graph.kinds = vec![KindV1::Type];
     image.type_graph.types = vec![TypeEntryV1 {
         kind: ArtifactKindId(0),
-        form: TypeV1::Nominal {
-            declaration: owner.clone(),
-        },
+        form: TypeV1::Nominal { declaration: owner.clone() },
     }];
     image.associated_surfaces = vec![AssociatedSurfaceRecordV1 {
         owner: owner.clone(),
@@ -495,10 +521,9 @@ fn associated_denotation_rejects_member_without_primary_owner_authority() {
             }],
         }],
     }];
-    image.callable_analyses[0].expression_count = 1;
-    image.callable_analyses[0].expression_denotations = vec![CallableExpressionDenotationV1 {
-        expression_ordinal: 0,
-        denotation: SemanticDenotationV1::AssociatedValue {
+    image.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
+        ordinal: 0,
+        denotation: Some(SemanticDenotationV1::AssociatedValue {
             value: AssociatedValueDenotationV1::Exact {
                 owner_form: phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId(0),
                 lookup_owner: owner,
@@ -510,7 +535,8 @@ fn associated_denotation_rejects_member_without_primary_owner_authority() {
                 },
                 target: None,
             },
-        },
+        }),
+        call_specialization: None,
     }];
 
     let error = image
@@ -527,8 +553,8 @@ fn associated_family_capture_round_trips_subset_and_optional_targets() {
     use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, ArtifactVariantTypeId, KindV1, TypeEntryV1, TypeV1};
     use phalcom_compiler_artifact::semantic::world::{
         AssociatedFamilyIdentityV1, AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1,
-        AssociatedValueDenotationV1, CallableExpressionDenotationV1, CapturedAssociatedMemberV1, EnumRequirementOwnerV1, FamilyOperationShapeV1,
-        SemanticDenotationV1, SelectorKindV1, SelectorSlotV1,
+        AssociatedValueDenotationV1, CallableExpressionRowV1, CapturedAssociatedMemberV1, EnumRequirementOwnerV1, FamilyOperationShapeV1, SelectorKindV1,
+        SelectorSlotV1, SemanticDenotationV1,
     };
 
     let owner = owner_ref();
@@ -551,9 +577,7 @@ fn associated_family_capture_round_trips_subset_and_optional_targets() {
     image.type_graph.kinds = vec![KindV1::Type];
     image.type_graph.types = vec![TypeEntryV1 {
         kind: ArtifactKindId(0),
-        form: TypeV1::Nominal {
-            declaration: owner.clone(),
-        },
+        form: TypeV1::Nominal { declaration: owner.clone() },
     }];
     image.structural_contracts.enum_contracts.push(EnumInfoV1 {
         owner: owner.clone(),
@@ -619,13 +643,10 @@ fn associated_family_capture_round_trips_subset_and_optional_targets() {
                     variant: variant_failed.clone(),
                 },
                 variant_member.clone(),
-                AssociatedMemberV1::Variant {
-                    variant: variant_unselected,
-                },
+                AssociatedMemberV1::Variant { variant: variant_unselected },
             ],
         }],
     }];
-    image.callable_analyses[0].expression_count = 1;
     let source_denotation = SemanticDenotationV1::AssociatedValue {
         value: AssociatedValueDenotationV1::Family {
             owner_form: ArtifactTypeId(0),
@@ -642,9 +663,7 @@ fn associated_family_capture_round_trips_subset_and_optional_targets() {
                         kind: SelectorKindV1::Getter,
                         slots: vec![],
                     },
-                    member: AssociatedMemberV1::Variant {
-                        variant: variant_failed,
-                    },
+                    member: AssociatedMemberV1::Variant { variant: variant_failed },
                     target: None,
                 },
                 CapturedAssociatedMemberV1 {
@@ -653,44 +672,44 @@ fn associated_family_capture_round_trips_subset_and_optional_targets() {
                         slots: vec![SelectorSlotV1::Positional],
                     },
                     member: variant_member,
-                    target: Some(phalcom_compiler_artifact::semantic::world::InvocationTargetV1::VariantConstructor {
-                        variant: variant_ready,
-                    }),
+                    target: Some(phalcom_compiler_artifact::semantic::world::InvocationTargetV1::VariantConstructor { variant: variant_ready }),
                 },
             ],
         },
     };
-    image.callable_analyses[0].expression_denotations = vec![CallableExpressionDenotationV1 {
-        expression_ordinal: 0,
-        denotation: source_denotation.clone(),
+    image.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
+        ordinal: 0,
+        denotation: Some(source_denotation.clone()),
+        call_specialization: None,
     }];
 
     let encoded = image.encode().expect("valid checker-captured subset should encode");
     let decoded = SemanticWorldV2::decode(&encoded, &Default::default()).expect("captured subset should validate and decode");
-    assert_eq!(decoded.callable_analyses[0].expression_denotations[0].denotation, source_denotation);
+    assert_eq!(decoded.callable_analyses[0].expressions[0].denotation.as_ref(), Some(&source_denotation));
 }
 
 #[test]
 fn behavioral_family_capture_round_trips_conditional_and_unconditional_targets() {
-    use phalcom_compiler_artifact::semantic::aggregates::{TraitRefV1};
-    use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeV1, TypeMemberSelectorV1};
+    use phalcom_compiler_artifact::semantic::aggregates::TraitRefV1;
+    use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeMemberSelectorV1, TypeV1};
     use phalcom_compiler_artifact::semantic::world::{
-        BehavioralFamilyDenotationV1, BehavioralFamilySpecV1, CallableExpressionDenotationV1, CapturedBehavioralMemberV1,
-        ConditionalDispatchSelectionV1, ConformanceHeadRecordV1, ConformanceTargetV1, DeclarationSurfaceRecordV1, ExactSelectorV1,
-        FamilyOperationShapeV1, SemanticDenotationV1, SelectorKindV1, SelectorSlotV1,
+        BehavioralFamilyDenotationV1, BehavioralFamilySpecV1, CallableExpressionRowV1, CapturedBehavioralMemberV1, ConditionalDispatchSelectionV1,
+        ConformanceHeadRecordV1, ConformanceTargetV1, DeclarationSurfaceRecordV1, ExactSelectorV1, FamilyOperationShapeV1, SelectorKindV1, SelectorSlotV1,
+        SemanticDenotationV1,
     };
 
     let owner = owner_ref();
     let callable = callable();
     let module = owner.module.clone();
-    let impl_id = phalcom_type_meta::identity::StableImplRef { module: module.clone(), local_id: 7 };
+    let impl_id = phalcom_type_meta::identity::StableImplRef {
+        module: module.clone(),
+        local_id: 7,
+    };
     let operation = FamilyOperationShapeV1 {
         kind: SelectorKindV1::Method,
         slots: vec![SelectorSlotV1::Positional],
     };
-    let target = phalcom_compiler_artifact::semantic::world::InvocationTargetV1::Behavioral {
-        callable: callable.clone(),
-    };
+    let target = phalcom_compiler_artifact::semantic::world::InvocationTargetV1::Behavioral { callable: callable.clone() };
     let selection = ConditionalDispatchSelectionV1 {
         impl_id: impl_id.clone(),
         callable: callable.clone(),
@@ -701,9 +720,7 @@ fn behavioral_family_capture_round_trips_conditional_and_unconditional_targets()
     image.type_graph.kinds = vec![KindV1::Type];
     image.type_graph.types = vec![TypeEntryV1 {
         kind: ArtifactKindId(0),
-        form: TypeV1::Nominal {
-            declaration: owner.clone(),
-        },
+        form: TypeV1::Nominal { declaration: owner.clone() },
     }];
     image.dispatch_surfaces = vec![DeclarationSurfaceRecordV1 {
         declaration: owner.clone(),
@@ -714,9 +731,7 @@ fn behavioral_family_capture_round_trips_conditional_and_unconditional_targets()
     image.conformance_heads = vec![ConformanceHeadRecordV1 {
         impl_id: impl_id.clone(),
         source_module: module.clone(),
-        target: ConformanceTargetV1::Declaration {
-            declaration: owner.clone(),
-        },
+        target: ConformanceTargetV1::Declaration { declaration: owner.clone() },
         target_type: ArtifactTypeId(0),
         trait_ref: TraitRefV1 {
             declaration: owner.clone(),
@@ -726,7 +741,6 @@ fn behavioral_family_capture_round_trips_conditional_and_unconditional_targets()
         authorized: true,
         eligible: true,
     }];
-    image.callable_analyses[0].expression_count = 1;
     let denotation = SemanticDenotationV1::BehavioralFamily {
         family: BehavioralFamilyDenotationV1 {
             receiver_type: ArtifactTypeId(0),
@@ -752,12 +766,13 @@ fn behavioral_family_capture_round_trips_conditional_and_unconditional_targets()
             ],
         },
     };
-    image.callable_analyses[0].expression_denotations = vec![CallableExpressionDenotationV1 {
-        expression_ordinal: 0,
-        denotation: denotation.clone(),
+    image.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
+        ordinal: 0,
+        denotation: Some(denotation.clone()),
+        call_specialization: None,
     }];
 
     let encoded = image.encode().expect("valid captured behavioral targets should encode");
     let decoded = SemanticWorldV2::decode(&encoded, &Default::default()).expect("behavioral capture should validate and decode");
-    assert_eq!(decoded.callable_analyses[0].expression_denotations[0].denotation, denotation);
+    assert_eq!(decoded.callable_analyses[0].expressions[0].denotation.as_ref(), Some(&denotation));
 }

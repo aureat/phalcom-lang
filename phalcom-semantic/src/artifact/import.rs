@@ -805,21 +805,21 @@ fn import_exact_callable(callable: &StableCallableRef) -> Result<CallableId, Art
 /// selected call specializations. The complete callable-analysis importer must
 /// attach these owner-local ordinals to its reconstructed expression rows.
 pub(crate) fn import_callable_call_specializations(
-    expression_count: u32,
-    records: &[phalcom_compiler_artifact::semantic::world::CallableCallSpecializationV1],
+    expressions: &[phalcom_compiler_artifact::semantic::world::CallableExpressionRowV1],
     relocation: &TypeRelocation,
     allocations: &mut AllocationBudget,
 ) -> Result<Vec<(u32, crate::checker::analysis::CallSpecialization)>, ArtifactError> {
     use phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1;
     let mut output = allocations
-        .vector::<(u32, crate::checker::analysis::CallSpecialization)>(records.len())
+        .vector::<(u32, crate::checker::analysis::CallSpecialization)>(expressions.len())
         .map_err(allocation_error)?;
-    let mut previous_ordinal = None;
-    for record in records {
-        if record.expression_ordinal >= expression_count || previous_ordinal.is_some_and(|previous| previous >= record.expression_ordinal) {
-            return Err(referential("call specialization expression ordinals are absent, duplicated, or unsorted"));
+    for (index, expression) in expressions.iter().enumerate() {
+        if expression.ordinal as usize != index {
+            return Err(referential("callable expression rows are not dense and ordinal-sorted"));
         }
-        previous_ordinal = Some(record.expression_ordinal);
+        let Some(record) = &expression.call_specialization else {
+            continue;
+        };
         let callable = import_exact_callable(&record.callable)?;
         let mut bindings = allocations
             .vector::<(crate::types::id::TypeParameterId, crate::types::store::StaticArgument)>(record.bindings.len())
@@ -837,7 +837,7 @@ pub(crate) fn import_callable_call_specializations(
             bindings.push((parameter, argument));
         }
         output.push((
-            record.expression_ordinal,
+            expression.ordinal,
             crate::checker::analysis::CallSpecialization {
                 callable,
                 bindings: bindings.into_boxed_slice(),
@@ -1659,22 +1659,26 @@ pub fn import_callable_denotations(
 ) -> Result<ImportedCallableDenotations, ArtifactError> {
     let mut child = allocations.child(allocations.remaining());
     let mut expressions = child
-        .vector::<(u32, crate::types::denotation::SemanticDenotation)>(record.expression_denotations.len())
+        .vector::<(u32, crate::types::denotation::SemanticDenotation)>(record.expressions.len())
         .map_err(allocation_error)?;
-    for denotation in &record.expression_denotations {
-        expressions.push((
-            denotation.expression_ordinal,
-            import_semantic_denotation_inner(&denotation.denotation, relocation, &mut child)?,
-        ));
+    for (index, expression) in record.expressions.iter().enumerate() {
+        if expression.ordinal as usize != index {
+            return Err(referential("callable expression rows are not dense and ordinal-sorted"));
+        }
+        if let Some(denotation) = &expression.denotation {
+            expressions.push((expression.ordinal, import_semantic_denotation_inner(denotation, relocation, &mut child)?));
+        }
     }
     let mut bindings = child
-        .vector::<(u32, crate::types::denotation::SemanticDenotation)>(record.binding_denotations.len())
+        .vector::<(u32, crate::types::denotation::SemanticDenotation)>(record.bindings.len())
         .map_err(allocation_error)?;
-    for denotation in &record.binding_denotations {
-        bindings.push((
-            denotation.binding_ordinal,
-            import_semantic_denotation_inner(&denotation.denotation, relocation, &mut child)?,
-        ));
+    for (index, binding) in record.bindings.iter().enumerate() {
+        if binding.ordinal as usize != index {
+            return Err(referential("callable binding rows are not dense and ordinal-sorted"));
+        }
+        if let Some(denotation) = &binding.denotation {
+            bindings.push((binding.ordinal, import_semantic_denotation_inner(denotation, relocation, &mut child)?));
+        }
     }
     let imported = ImportedCallableDenotations { expressions, bindings };
     allocations.commit_child(child).map_err(allocation_error)?;
@@ -2588,8 +2592,8 @@ mod tests {
         use phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId;
         use phalcom_compiler_artifact::semantic::world::{
             AssociatedFamilyIdentityV1, AssociatedMemberV1, AssociatedValueDenotationV1, CallableAnalysisRecordV1, CallableAnalysisStatusV1,
-            CallableBindingDenotationV1, CallableBindingOriginEntryV1, CallableBindingOriginV1, CallableExpressionDenotationV1, CallableFlowGraphV1,
-            FamilyOperationShapeV1, InvocationTargetV1, SelectorKindV1, SelectorSlotV1, SemanticDenotationV1,
+            CallableBindingOriginV1, CallableBindingRowV1, CallableExpressionRowV1, CallableFlowGraphV1, FamilyOperationShapeV1, InvocationTargetV1,
+            SelectorKindV1, SelectorSlotV1, SemanticDenotationV1,
         };
 
         let owner = owner();
@@ -2609,15 +2613,27 @@ mod tests {
                 exits: Vec::new(),
             },
             constructor_super_initializer: None,
-            expression_count: 3,
-            expression_denotations: vec![CallableExpressionDenotationV1 {
-                expression_ordinal: 2,
-                denotation: SemanticDenotationV1::TypeForm { ty: ArtifactTypeId(0) },
-            }],
-            binding_denotations: vec![
-                CallableBindingDenotationV1 {
-                    binding_ordinal: 0,
-                    denotation: SemanticDenotationV1::AssociatedValue {
+            expressions: vec![
+                CallableExpressionRowV1 {
+                    ordinal: 0,
+                    denotation: None,
+                    call_specialization: None,
+                },
+                CallableExpressionRowV1 {
+                    ordinal: 1,
+                    denotation: None,
+                    call_specialization: None,
+                },
+                CallableExpressionRowV1 {
+                    ordinal: 2,
+                    denotation: Some(SemanticDenotationV1::TypeForm { ty: ArtifactTypeId(0) }),
+                    call_specialization: None,
+                },
+            ],
+            bindings: vec![
+                CallableBindingRowV1 {
+                    ordinal: 0,
+                    denotation: Some(SemanticDenotationV1::AssociatedValue {
                         value: AssociatedValueDenotationV1::Exact {
                             owner_form: ArtifactTypeId(0),
                             lookup_owner: stable_owner.clone(),
@@ -2626,11 +2642,13 @@ mod tests {
                             },
                             target: None,
                         },
-                    },
+                    }),
+                    formal_attachment: None,
+                    origin: CallableBindingOriginV1::BodyLocal,
                 },
-                CallableBindingDenotationV1 {
-                    binding_ordinal: 1,
-                    denotation: SemanticDenotationV1::AssociatedValue {
+                CallableBindingRowV1 {
+                    ordinal: 1,
+                    denotation: Some(SemanticDenotationV1::AssociatedValue {
                         value: AssociatedValueDenotationV1::Family {
                             owner_form: ArtifactTypeId(0),
                             lookup_owner: stable_owner.clone(),
@@ -2647,18 +2665,8 @@ mod tests {
                                 target: Some(InvocationTargetV1::DataConstructor { owner: stable_owner.clone() }),
                             }],
                         },
-                    },
-                },
-            ],
-            call_specializations: Vec::new(),
-            formal_bindings: Vec::new(),
-            binding_origins: vec![
-                CallableBindingOriginEntryV1 {
-                    binding_ordinal: 0,
-                    origin: CallableBindingOriginV1::BodyLocal,
-                },
-                CallableBindingOriginEntryV1 {
-                    binding_ordinal: 1,
+                    }),
+                    formal_attachment: None,
                     origin: CallableBindingOriginV1::BodyLocal,
                 },
             ],
@@ -2713,16 +2721,14 @@ mod tests {
         assert!(matches!(error, ArtifactError::Allocation(AllocationError::Exhausted)));
         assert_eq!(insufficient.requested(), 0, "a rejected owner graph does not debit the caller");
 
-        record.binding_origins.push(CallableBindingOriginEntryV1 {
-            binding_ordinal: 2,
-            origin: CallableBindingOriginV1::BodyLocal,
-        });
-        record.binding_denotations.push(CallableBindingDenotationV1 {
-            binding_ordinal: 2,
-            denotation: SemanticDenotationV1::StaticApplication {
+        record.bindings.push(CallableBindingRowV1 {
+            ordinal: 2,
+            denotation: Some(SemanticDenotationV1::StaticApplication {
                 body: stable_owner,
                 ordinal: 0,
-            },
+            }),
+            formal_attachment: None,
+            origin: CallableBindingOriginV1::BodyLocal,
         });
         let mut rejected = AllocationBudget::new(1 << 20);
         assert!(import_callable_denotations(&record, &relocation, &mut rejected).is_err());
@@ -2759,7 +2765,7 @@ mod tests {
     fn typed_call_specialization_arguments_survive_relocation() {
         use crate::types::store::artifact::TypeRelocation;
         use phalcom_compiler_artifact::semantic::type_store::{ArtifactRecordRowId, ArtifactTypeId, ArtifactTypeParameterId, StaticArgumentV1};
-        use phalcom_compiler_artifact::semantic::world::{CallableCallSpecializationV1, CallableStaticArgumentBindingV1};
+        use phalcom_compiler_artifact::semantic::world::{CallableCallSpecializationV1, CallableExpressionRowV1, CallableStaticArgumentBindingV1};
 
         let owner = owner();
         let callable = crate::identity::CallableId::new(
@@ -2767,24 +2773,44 @@ mod tests {
             Selector::method("ping", []).unwrap(),
             crate::identity::DispatchSide::Instance,
         );
-        let record = CallableCallSpecializationV1 {
-            expression_ordinal: 3,
-            callable: crate::metadata::stable_identity::to_stable_callable(&callable),
-            bindings: vec![
-                CallableStaticArgumentBindingV1 {
-                    parameter: ArtifactTypeParameterId(0),
-                    argument: StaticArgumentV1::DynamicType,
-                },
-                CallableStaticArgumentBindingV1 {
-                    parameter: ArtifactTypeParameterId(1),
-                    argument: StaticArgumentV1::Term { term: ArtifactTypeId(0) },
-                },
-                CallableStaticArgumentBindingV1 {
-                    parameter: ArtifactTypeParameterId(2),
-                    argument: StaticArgumentV1::RecordRow { row: ArtifactRecordRowId(0) },
-                },
-            ],
-        };
+        let expressions = vec![
+            CallableExpressionRowV1 {
+                ordinal: 0,
+                denotation: None,
+                call_specialization: None,
+            },
+            CallableExpressionRowV1 {
+                ordinal: 1,
+                denotation: None,
+                call_specialization: None,
+            },
+            CallableExpressionRowV1 {
+                ordinal: 2,
+                denotation: None,
+                call_specialization: None,
+            },
+            CallableExpressionRowV1 {
+                ordinal: 3,
+                denotation: None,
+                call_specialization: Some(CallableCallSpecializationV1 {
+                    callable: crate::metadata::stable_identity::to_stable_callable(&callable),
+                    bindings: vec![
+                        CallableStaticArgumentBindingV1 {
+                            parameter: ArtifactTypeParameterId(0),
+                            argument: StaticArgumentV1::DynamicType,
+                        },
+                        CallableStaticArgumentBindingV1 {
+                            parameter: ArtifactTypeParameterId(1),
+                            argument: StaticArgumentV1::Term { term: ArtifactTypeId(0) },
+                        },
+                        CallableStaticArgumentBindingV1 {
+                            parameter: ArtifactTypeParameterId(2),
+                            argument: StaticArgumentV1::RecordRow { row: ArtifactRecordRowId(0) },
+                        },
+                    ],
+                }),
+            },
+        ];
         let relocated_parameters = [
             crate::types::id::TypeParameterId(71),
             crate::types::id::TypeParameterId(72),
@@ -2806,7 +2832,7 @@ mod tests {
             lambdas: vec![],
         };
         let mut allocations = AllocationBudget::new(1024);
-        let restored = import_callable_call_specializations(4, &[record], &relocation, &mut allocations).unwrap();
+        let restored = import_callable_call_specializations(&expressions, &relocation, &mut allocations).unwrap();
         assert_eq!(restored[0].0, 3);
         assert_eq!(restored[0].1.callable, callable);
         assert_eq!(
@@ -2817,7 +2843,7 @@ mod tests {
                 (relocated_parameters[2], crate::types::store::StaticArgument::RecordRow(relocated_row)),
             ]
         );
-        assert!(import_callable_call_specializations(3, &[], &relocation, &mut allocations).is_ok());
+        assert!(import_callable_call_specializations(&[], &relocation, &mut allocations).is_ok());
     }
 
     #[test]
@@ -3078,12 +3104,8 @@ mod tests {
                 exits: Vec::new(),
             },
             constructor_super_initializer: None,
-            expression_count: 0,
-            expression_denotations: Vec::new(),
-            binding_denotations: Vec::new(),
-            call_specializations: Vec::new(),
-            formal_bindings: Vec::new(),
-            binding_origins: Vec::new(),
+            expressions: Vec::new(),
+            bindings: Vec::new(),
         };
 
         let error = ensure_complete_callable_analysis_payload(&[record]).expect_err("partial analysis payload must fail closed");

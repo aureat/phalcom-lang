@@ -6,8 +6,8 @@ use crate::semantic::aggregates::{DeclaredTypeFactV1, GenericSignatureV1, Struct
 use crate::semantic::operational::CheckedStaticDefinitionsV1;
 use crate::semantic::static_value::StaticValueGraphV1;
 use crate::semantic::type_store::{
-    ArtifactKindId, ArtifactStaticConstructorId, ArtifactStaticDomainId, ArtifactTypeId, ArtifactTypeParameterId, StaticArgumentV1,
-    TypeGraphV1, TypeMemberSelectorV1,
+    ArtifactKindId, ArtifactStaticConstructorId, ArtifactStaticDomainId, ArtifactTypeId, ArtifactTypeParameterId, StaticArgumentV1, TypeGraphV1,
+    TypeMemberSelectorV1,
 };
 use crate::{ArtifactError, BinaryReader, BinaryWriter, ValidationLimits};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
@@ -226,19 +226,24 @@ tagged!(CallableAnalysisSourceOwnerV1 {
     1 => Callable { callable: StableCallableRef },
 });
 
-record!(CallableBindingSourceAttachmentV1 {
-    binding_ordinal: u32,
-    range: SpanV1,
-});
+record!(CallableBindingSourceAttachmentV1 { range: SpanV1 });
 
 tagged!(CallableBindingOriginV1 {
     0 => BodyLocal,
     1 => ModuleValue { module: StableModuleRef, name: String, import_binding: Option<u32> },
 });
 
-record!(CallableBindingOriginEntryV1 {
-    binding_ordinal: u32,
+record!(CallableBindingRowV1 {
+    ordinal: u32,
+    denotation: Option<SemanticDenotationV1>,
+    formal_attachment: Option<CallableBindingSourceAttachmentV1>,
     origin: CallableBindingOriginV1,
+});
+
+record!(CallableExpressionRowV1 {
+    ordinal: u32,
+    denotation: Option<SemanticDenotationV1>,
+    call_specialization: Option<CallableCallSpecializationV1>,
 });
 
 record!(CallableStaticArgumentBindingV1 {
@@ -247,7 +252,6 @@ record!(CallableStaticArgumentBindingV1 {
 });
 
 record!(CallableCallSpecializationV1 {
-    expression_ordinal: u32,
     callable: StableCallableRef,
     bindings: Vec<CallableStaticArgumentBindingV1>,
 });
@@ -303,22 +307,8 @@ record!(CallableAnalysisRecordV1 {
     exits_unreachable: bool,
     flow_graph: CallableFlowGraphV1,
     constructor_super_initializer: Option<ConstructorSuperInitializerV1>,
-    expression_count: u32,
-    expression_denotations: Vec<CallableExpressionDenotationV1>,
-    binding_denotations: Vec<CallableBindingDenotationV1>,
-    call_specializations: Vec<CallableCallSpecializationV1>,
-    formal_bindings: Vec<CallableBindingSourceAttachmentV1>,
-    binding_origins: Vec<CallableBindingOriginEntryV1>,
-});
-
-record!(CallableExpressionDenotationV1 {
-    expression_ordinal: u32,
-    denotation: SemanticDenotationV1,
-});
-
-record!(CallableBindingDenotationV1 {
-    binding_ordinal: u32,
-    denotation: SemanticDenotationV1,
+    expressions: Vec<CallableExpressionRowV1>,
+    bindings: Vec<CallableBindingRowV1>,
 });
 
 record!(EnumRequirementSourceV1 {
@@ -653,11 +643,7 @@ impl SemanticWorldV2 {
     /// Validates semantic references against the caller's load transaction.
     /// Returns `UnaccountedBoundary` until every component validator charges
     /// its scratch allocations to that transaction.
-    pub fn validate_with_allocation_budget(
-        &self,
-        limits: &ValidationLimits,
-        transaction: &mut AllocationBudget,
-    ) -> Result<(), ArtifactError> {
+    pub fn validate_with_allocation_budget(&self, limits: &ValidationLimits, transaction: &mut AllocationBudget) -> Result<(), ArtifactError> {
         // Several component validators still allocate scratch that is not
         // charged through AllocationBudget. Fail before entering them so a
         // semantic decoder cannot commit a partially accounted section.
@@ -703,9 +689,7 @@ impl SemanticWorldV2 {
                 return Err(invalid("enum requirement owner ordering disagrees with enum contracts"));
             }
 
-            if owner.requirements.len() > limits.max_semantic_entries_per_family
-                || owner.case_statuses.len() > limits.max_semantic_entries_per_family
-            {
+            if owner.requirements.len() > limits.max_semantic_entries_per_family || owner.case_statuses.len() > limits.max_semantic_entries_per_family {
                 return Err(invalid("enum requirement row budget exceeded"));
             }
 
@@ -740,7 +724,9 @@ impl SemanticWorldV2 {
                 {
                     return Err(invalid("enum requirement disagrees with its callable signature identity"));
                 }
-                if let Ok(index) = self.callable_signatures.binary_search_by(|signature| signature.callable.cmp(&requirement.requirement))
+                if let Ok(index) = self
+                    .callable_signatures
+                    .binary_search_by(|signature| signature.callable.cmp(&requirement.requirement))
                     && self.callable_signatures[index] != requirement.signature
                 {
                     return Err(invalid("enum requirement signature disagrees with its ordinary callable owner row"));
@@ -774,8 +760,9 @@ impl SemanticWorldV2 {
                         return Err(invalid("enum requirement case status has a mismatched requirement order"));
                     }
                     let implementation = match &result.status {
-                        CaseRequirementStatusV1::Satisfied { implementation }
-                        | CaseRequirementStatusV1::Incompatible { implementation } => Some(implementation),
+                        CaseRequirementStatusV1::Satisfied { implementation } | CaseRequirementStatusV1::Incompatible { implementation } => {
+                            Some(implementation)
+                        }
                         CaseRequirementStatusV1::Missing | CaseRequirementStatusV1::Blocked => None,
                     };
                     if let Some(implementation) = implementation {
@@ -810,10 +797,11 @@ impl SemanticWorldV2 {
             {
                 return Err(invalid("constructor super-initializer range is inverted"));
             }
-            for call in &analysis.call_specializations {
-                if call.bindings.len() > limits.max_semantic_entries_per_family
-                    || call.bindings.windows(2).any(|pair| pair[0].parameter >= pair[1].parameter)
-                {
+            for expression in &analysis.expressions {
+                let Some(call) = &expression.call_specialization else {
+                    continue;
+                };
+                if call.bindings.len() > limits.max_semantic_entries_per_family || call.bindings.windows(2).any(|pair| pair[0].parameter >= pair[1].parameter) {
                     return Err(invalid("call specialization bindings are invalid or unsorted"));
                 }
                 for binding in &call.bindings {
@@ -828,10 +816,7 @@ impl SemanticWorldV2 {
                         .get(parameter.kind.0 as usize)
                         .ok_or_else(|| invalid("call specialization parameter has an absent kind"))?;
                     let parameter_owner_matches_call = match (&parameter.owner, &call.callable.owner) {
-                        (
-                            crate::semantic::type_store::ParameterOwnerV1::Callable { owner: parameter_owner },
-                            _,
-                        ) => parameter_owner == &call.callable,
+                        (crate::semantic::type_store::ParameterOwnerV1::Callable { owner: parameter_owner }, _) => parameter_owner == &call.callable,
                         (
                             crate::semantic::type_store::ParameterOwnerV1::Declaration { owner: parameter_owner },
                             StableCallableOwnerRef::Declaration(call_owner),
@@ -840,10 +825,9 @@ impl SemanticWorldV2 {
                             crate::semantic::type_store::ParameterOwnerV1::Declaration { owner: parameter_owner },
                             StableCallableOwnerRef::Variant(call_owner),
                         ) => parameter_owner == &call_owner.owner,
-                        (
-                            crate::semantic::type_store::ParameterOwnerV1::Impl { owner: parameter_owner },
-                            StableCallableOwnerRef::Conformance(call_owner),
-                        ) => parameter_owner == call_owner,
+                        (crate::semantic::type_store::ParameterOwnerV1::Impl { owner: parameter_owner }, StableCallableOwnerRef::Conformance(call_owner)) => {
+                            parameter_owner == call_owner
+                        }
                         _ => false,
                     };
                     if !parameter_owner_matches_call {
@@ -868,26 +852,23 @@ impl SemanticWorldV2 {
                     }
                 }
             }
-            for attachment in &analysis.formal_bindings {
-                if !matches!(
-                    analysis.binding_origins.get(attachment.binding_ordinal as usize).map(|entry| &entry.origin),
-                    Some(CallableBindingOriginV1::BodyLocal)
-                ) {
+            for binding in &analysis.bindings {
+                if binding.formal_attachment.is_some() && !matches!(&binding.origin, CallableBindingOriginV1::BodyLocal) {
                     return Err(invalid("module-value binding cannot have a callable-local source attachment"));
                 }
-            }
-            for entry in &analysis.binding_origins {
-                if let CallableBindingOriginV1::ModuleValue { name, .. } = &entry.origin
+                if let CallableBindingOriginV1::ModuleValue { name, .. } = &binding.origin
                     && (name.is_empty() || name.len() > limits.max_string_bytes)
                 {
                     return Err(invalid("module-value binding symbol name is invalid"));
                 }
+                if let Some(denotation) = &binding.denotation {
+                    self.validate_callable_denotation(denotation, limits)?;
+                }
             }
-            for entry in &analysis.expression_denotations {
-                self.validate_callable_denotation(&entry.denotation, limits)?;
-            }
-            for entry in &analysis.binding_denotations {
-                self.validate_callable_denotation(&entry.denotation, limits)?;
+            for expression in &analysis.expressions {
+                if let Some(denotation) = &expression.denotation {
+                    self.validate_callable_denotation(denotation, limits)?;
+                }
             }
         }
         if self.callable_analyses.windows(2).any(|pair| pair[0].callable >= pair[1].callable) {
@@ -908,9 +889,7 @@ impl SemanticWorldV2 {
                     .ok_or_else(|| invalid("static-domain denotation references an absent domain"))?;
                 match domain_data {
                     crate::semantic::type_store::StaticDomainV1::ConstInt => Ok(()),
-                    crate::semantic::type_store::StaticDomainV1::Nominal { declaration } => {
-                        self.validate_declaration_reference(declaration)
-                    }
+                    crate::semantic::type_store::StaticDomainV1::Nominal { declaration } => self.validate_declaration_reference(declaration),
                     crate::semantic::type_store::StaticDomainV1::Associated { declaration, .. } => {
                         let record = self
                             .associated_static_domains
@@ -941,9 +920,7 @@ impl SemanticWorldV2 {
                     Err(invalid("static-term denotation does not have a static-domain kind"))
                 }
             }
-            SemanticDenotationV1::StaticApplication { .. } => Err(invalid(
-                "static-application denotation has no retained checked-body application row",
-            )),
+            SemanticDenotationV1::StaticApplication { .. } => Err(invalid("static-application denotation has no retained checked-body application row")),
             SemanticDenotationV1::AssociatedValue { value } => match value {
                 AssociatedValueDenotationV1::Exact {
                     owner_form,
@@ -1010,8 +987,7 @@ impl SemanticWorldV2 {
                     self.validate_invocation_target(&member.target)?;
                     if let Some(conditional) = &member.conditional {
                         self.validate_conditional_dispatch_selection(conditional)?;
-                        if !matches!(&member.target, InvocationTargetV1::Behavioral { callable } if callable == &conditional.callable)
-                        {
+                        if !matches!(&member.target, InvocationTargetV1::Behavioral { callable } if callable == &conditional.callable) {
                             return Err(invalid("behavioral-family conditional selection disagrees with its captured target"));
                         }
                     }
@@ -1071,26 +1047,15 @@ impl SemanticWorldV2 {
             return Err(invalid("associated member owner disagrees with its lookup owner"));
         }
         let has_primary_owner_authority = match member {
-            AssociatedMemberV1::Variant { variant } => self
-                .structural_contracts
-                .variant_contracts
-                .iter()
-                .any(|contract| contract.variant == *variant),
-            AssociatedMemberV1::DataConstructor { owner } => self
-                .structural_contracts
-                .data_contracts
-                .iter()
-                .any(|contract| contract.owner == *owner),
+            AssociatedMemberV1::Variant { variant } => self.structural_contracts.variant_contracts.iter().any(|contract| contract.variant == *variant),
+            AssociatedMemberV1::DataConstructor { owner } => self.structural_contracts.data_contracts.iter().any(|contract| contract.owner == *owner),
             AssociatedMemberV1::DataComponent { owner, index } => self
                 .structural_contracts
                 .data_contracts
                 .iter()
                 .find(|contract| contract.owner == *owner)
                 .is_some_and(|contract| (*index as usize) < contract.components.len()),
-            AssociatedMemberV1::StaticDomain { declaration } => self
-                .associated_static_domains
-                .iter()
-                .any(|contract| contract.declaration == *declaration),
+            AssociatedMemberV1::StaticDomain { declaration } => self.associated_static_domains.iter().any(|contract| contract.declaration == *declaration),
             AssociatedMemberV1::TypeMember { owner, selector } => self
                 .type_member_declarations
                 .iter()
@@ -1111,13 +1076,18 @@ impl SemanticWorldV2 {
         match target {
             InvocationTargetV1::Behavioral { callable } => {
                 let signature = self.callable_signatures.iter().any(|row| &row.callable == callable)
-                    || self.enum_requirements.iter().any(|owner| owner.requirements.iter().any(|row| &row.requirement == callable))
-                    || self.trait_surfaces.iter().any(|surface| {
-                        surface.required_callables.contains(callable) || surface.default_callables.contains(callable)
-                    })
-                    || self.dispatch_surfaces.iter().any(|surface| {
-                        surface.instance_callables.contains(callable) || surface.class_callables.contains(callable)
-                    });
+                    || self
+                        .enum_requirements
+                        .iter()
+                        .any(|owner| owner.requirements.iter().any(|row| &row.requirement == callable))
+                    || self
+                        .trait_surfaces
+                        .iter()
+                        .any(|surface| surface.required_callables.contains(callable) || surface.default_callables.contains(callable))
+                    || self
+                        .dispatch_surfaces
+                        .iter()
+                        .any(|surface| surface.instance_callables.contains(callable) || surface.class_callables.contains(callable));
                 if signature {
                     Ok(())
                 } else {
@@ -1125,7 +1095,12 @@ impl SemanticWorldV2 {
                 }
             }
             InvocationTargetV1::VariantConstructor { variant } => {
-                if self.structural_contracts.variant_contracts.iter().any(|row| &row.variant == variant && row.constructor.is_some()) {
+                if self
+                    .structural_contracts
+                    .variant_contracts
+                    .iter()
+                    .any(|row| &row.variant == variant && row.constructor.is_some())
+                {
                     Ok(())
                 } else {
                     Err(invalid("variant-constructor target has no exact variant constructor authority"))
@@ -1150,7 +1125,14 @@ impl SemanticWorldV2 {
     }
 
     fn validate_conditional_dispatch_selection(&self, selection: &ConditionalDispatchSelectionV1) -> Result<(), ArtifactError> {
-        if selection.side > 1 || selection.callable.side != if selection.side == 0 { StableDispatchSide::Instance } else { StableDispatchSide::Class } {
+        if selection.side > 1
+            || selection.callable.side
+                != if selection.side == 0 {
+                    StableDispatchSide::Instance
+                } else {
+                    StableDispatchSide::Class
+                }
+        {
             return Err(invalid("conditional dispatch selection has an invalid or inconsistent side"));
         }
         // SemanticWorldV2 does not serialize the inherent-implementation
@@ -1165,9 +1147,7 @@ impl SemanticWorldV2 {
 fn associated_member_owner(member: &AssociatedMemberV1) -> &StableDeclarationRef {
     match member {
         AssociatedMemberV1::Variant { variant } => &variant.owner,
-        AssociatedMemberV1::DataConstructor { owner }
-        | AssociatedMemberV1::DataComponent { owner, .. }
-        | AssociatedMemberV1::TypeMember { owner, .. } => owner,
+        AssociatedMemberV1::DataConstructor { owner } | AssociatedMemberV1::DataComponent { owner, .. } | AssociatedMemberV1::TypeMember { owner, .. } => owner,
         AssociatedMemberV1::StaticDomain { declaration } => &declaration.owner,
     }
 }
@@ -1204,8 +1184,10 @@ fn validate_selector_slots(slots: &[SelectorSlotV1], limits: &ValidationLimits) 
 fn selector_kind_compatible(base: &TypeMemberSelectorV1, kind: &SelectorKindV1) -> bool {
     matches!(
         (base, kind),
-        (TypeMemberSelectorV1::Named { .. }, SelectorKindV1::Getter | SelectorKindV1::Setter | SelectorKindV1::Method)
-            | (TypeMemberSelectorV1::Subscript, SelectorKindV1::SubscriptGet | SelectorKindV1::SubscriptSet)
+        (
+            TypeMemberSelectorV1::Named { .. },
+            SelectorKindV1::Getter | SelectorKindV1::Setter | SelectorKindV1::Method
+        ) | (TypeMemberSelectorV1::Subscript, SelectorKindV1::SubscriptGet | SelectorKindV1::SubscriptSet)
     )
 }
 
@@ -1247,8 +1229,9 @@ fn validate_behavioral_family_spec(spec: &BehavioralFamilySpecV1, limits: &Valid
                 || (!pattern.has_gap && !matches!(pattern.kind, SelectorKindPatternV1::NamedAccessors))
                 || matches!(
                     pattern.kind,
-                    SelectorKindPatternV1::Exact { kind: SelectorKindV1::Getter | SelectorKindV1::Setter }
-                        | SelectorKindPatternV1::NamedAccessors
+                    SelectorKindPatternV1::Exact {
+                        kind: SelectorKindV1::Getter | SelectorKindV1::Setter
+                    } | SelectorKindPatternV1::NamedAccessors
                 ) && (!pattern.prefix.is_empty() || !pattern.suffix.is_empty())
             {
                 return Err(invalid("behavioral selector-pattern specification is structurally invalid"));
@@ -1263,10 +1246,7 @@ fn behavioral_spec_matches_operation(spec: &BehavioralFamilySpecV1, operation: &
         BehavioralFamilySpecV1::Exact { selector } => selector.kind == operation.kind && selector.slots == operation.slots,
         BehavioralFamilySpecV1::Pattern { pattern } => {
             let kind_matches = match &pattern.kind {
-                SelectorKindPatternV1::AnyNamed => matches!(
-                    operation.kind,
-                    SelectorKindV1::Getter | SelectorKindV1::Setter | SelectorKindV1::Method
-                ),
+                SelectorKindPatternV1::AnyNamed => matches!(operation.kind, SelectorKindV1::Getter | SelectorKindV1::Setter | SelectorKindV1::Method),
                 SelectorKindPatternV1::NamedAccessors => matches!(operation.kind, SelectorKindV1::Getter | SelectorKindV1::Setter),
                 SelectorKindPatternV1::AnySubscript => matches!(operation.kind, SelectorKindV1::SubscriptGet | SelectorKindV1::SubscriptSet),
                 SelectorKindPatternV1::Exact { kind } => *kind == operation.kind,
@@ -1415,7 +1395,9 @@ fn validate_type_expr(ty: &TypeExprSpecV1, limits: &ValidationLimits, depth: usi
     }
     match ty {
         TypeExprSpecV1::Unknown | TypeExprSpecV1::Never | TypeExprSpecV1::SelfType => Ok(()),
-        TypeExprSpecV1::Universe { owner } if owner.is_empty() || owner.len() > limits.max_string_bytes => Err(invalid("native universe type owner is invalid")),
+        TypeExprSpecV1::Universe { owner } if owner.is_empty() || owner.len() > limits.max_string_bytes => {
+            Err(invalid("native universe type owner is invalid"))
+        }
         TypeExprSpecV1::Universe { .. } => Ok(()),
         TypeExprSpecV1::Parameter { name } if name.is_empty() || name.len() > limits.max_string_bytes => Err(invalid("native type parameter name is invalid")),
         TypeExprSpecV1::Parameter { .. } => Ok(()),
@@ -1441,7 +1423,10 @@ fn validate_type_expr(ty: &TypeExprSpecV1, limits: &ValidationLimits, depth: usi
         TypeExprSpecV1::Tuple { tuple } => {
             if tuple.positional.len() > limits.max_semantic_entries_per_family
                 || tuple.labeled.len() > limits.max_semantic_entries_per_family
-                || tuple.labeled.iter().any(|parameter| parameter.label.is_empty() || parameter.label.len() > limits.max_string_bytes)
+                || tuple
+                    .labeled
+                    .iter()
+                    .any(|parameter| parameter.label.is_empty() || parameter.label.len() > limits.max_string_bytes)
             {
                 return Err(invalid("native tuple parameter count or label exceeds limits"));
             }
@@ -1472,22 +1457,19 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
         Self { record }
     }
 
-    fn has_expression(&self, ordinal: u32) -> bool {
-        ordinal < self.record.expression_count
-    }
-
-    fn has_binding(&self, ordinal: u32) -> bool {
-        (ordinal as usize) < self.record.binding_origins.len()
-    }
-
     fn has_flow_node(&self, ordinal: u32) -> bool {
         (ordinal as usize) < self.record.flow_graph.nodes.len()
     }
 
     fn validate(&self, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
         let record = self.record;
-        if record.expression_count as usize > limits.max_semantic_entries_per_family {
-            return Err(invalid("callable expression count exceeds its owner-local limit"));
+        if record.expressions.len() > limits.max_semantic_entries_per_family || record.bindings.len() > limits.max_semantic_entries_per_family {
+            return Err(invalid("callable expression or binding rows exceed their owner-local limit"));
+        }
+        if record.expressions.iter().enumerate().any(|(index, row)| row.ordinal as usize != index)
+            || record.bindings.iter().enumerate().any(|(index, row)| row.ordinal as usize != index)
+        {
+            return Err(invalid("callable expression or binding rows are not dense and ordinal-sorted"));
         }
         if record.flow_graph.nodes.len() > limits.max_semantic_entries_per_family
             || record.flow_graph.edges.len() > limits.max_semantic_entries_per_family
@@ -1530,57 +1512,29 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
             }
         }
 
-        if record.formal_bindings.len() > limits.max_semantic_entries_per_family
-            || record.binding_origins.len() > limits.max_semantic_entries_per_family
-            || record.expression_denotations.len() > limits.max_semantic_entries_per_family
-            || record.binding_denotations.len() > limits.max_semantic_entries_per_family
-            || record.call_specializations.len() > limits.max_semantic_entries_per_family
-            || record
-                .binding_origins
-                .iter()
-                .enumerate()
-                .any(|(index, origin)| origin.binding_ordinal as usize != index)
-            || record.formal_bindings.windows(2).any(|pair| pair[0].binding_ordinal >= pair[1].binding_ordinal)
-            || record
-                .expression_denotations
-                .windows(2)
-                .any(|pair| pair[0].expression_ordinal >= pair[1].expression_ordinal)
-            || record
-                .binding_denotations
-                .windows(2)
-                .any(|pair| pair[0].binding_ordinal >= pair[1].binding_ordinal)
-            || record
-                .call_specializations
-                .windows(2)
-                .any(|pair| pair[0].expression_ordinal >= pair[1].expression_ordinal)
-            || record.expression_denotations.iter().any(|entry| !self.has_expression(entry.expression_ordinal))
-            || record.binding_denotations.iter().any(|entry| !self.has_binding(entry.binding_ordinal))
-            || record.call_specializations.iter().any(|call| !self.has_expression(call.expression_ordinal))
-            || record
-                .formal_bindings
-                .iter()
-                .any(|attachment| !self.has_binding(attachment.binding_ordinal) || attachment.range.start > attachment.range.end)
-        {
-            return Err(invalid("callable binding origins or formal attachments are invalid or unsorted"));
+        if record.bindings.iter().any(|binding| {
+            binding
+                .formal_attachment
+                .as_ref()
+                .is_some_and(|attachment| attachment.range.start > attachment.range.end)
+        }) {
+            return Err(invalid("callable binding formal attachment range is inverted"));
         }
 
         let nested_rows = [
-            record.expression_count as usize,
-            record.binding_origins.len(),
+            record.expressions.len(),
+            record.bindings.len(),
             record.flow_graph.nodes.len(),
             record.flow_graph.edges.len(),
             record.flow_graph.exits.len(),
-            record.formal_bindings.len(),
-            record.expression_denotations.len(),
-            record.binding_denotations.len(),
-            record.call_specializations.len(),
         ]
         .into_iter()
         .try_fold(0usize, usize::checked_add)
         .ok_or_else(|| invalid("callable nested row count overflow"))?;
         let specialization_bindings = record
-            .call_specializations
+            .expressions
             .iter()
+            .filter_map(|expression| expression.call_specialization.as_ref())
             .try_fold(0usize, |total, call| total.checked_add(call.bindings.len()))
             .ok_or_else(|| invalid("callable specialization binding count overflow"))?;
         let nested_rows = nested_rows
