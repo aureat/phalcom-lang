@@ -59,6 +59,9 @@ pub(super) fn register_callable_analysis_roots(
                     crate::types::store::StaticArgument::DynamicType => {}
                 }
             }
+            for conformance in specialization.conformances.iter() {
+                roots.generic_call_conformance_binding(conformance)?;
+            }
         }
         if let Some(capability) = &expression.conditional_capability {
             roots.inherent_impl_specialization(&capability.applicability)?;
@@ -229,6 +232,22 @@ impl<'a> Roots<'a> {
     fn generic_conformance_key(&mut self, key: &crate::generic_evidence::GenericConformanceKey) -> Result<(), ArtifactError> {
         self.term(&key.subject)?;
         self.trait_ref(&key.trait_ref)
+    }
+    fn generic_call_conformance_binding(&mut self, binding: &crate::checker::analysis::GenericCallConformanceBinding) -> Result<(), ArtifactError> {
+        use crate::checker::analysis::GenericCallConformanceSource;
+        self.generic_conformance_key(&binding.callee_conformance)?;
+        match &binding.source {
+            GenericCallConformanceSource::Exact { evidence } => {
+                self.generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::Exact(evidence.clone()))
+            }
+            GenericCallConformanceSource::Forwarded { caller_conformance } => self.generic_conformance_key(caller_conformance),
+            GenericCallConformanceSource::Derived { evidence } => {
+                self.generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::Derived(evidence.clone()))
+            }
+            GenericCallConformanceSource::CompilerDerived { evidence } => {
+                self.generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence.clone()))
+            }
+        }
     }
     fn type_environment(&mut self, environment: &crate::types::environment::TypeEnvironment) -> Result<(), ArtifactError> {
         let mut bindings = environment.bindings.iter().collect::<Vec<_>>();
@@ -831,21 +850,7 @@ impl<'a> Roots<'a> {
         }
         if let Some(provenance) = &specialization.conformance_provenance {
             for binding in provenance.iter() {
-                self.generic_conformance_key(&binding.callee_conformance)?;
-                match &binding.source {
-                    crate::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
-                        self.generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::Exact(evidence.clone()))?;
-                    }
-                    crate::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance } => {
-                        self.generic_conformance_key(caller_conformance)?;
-                    }
-                    crate::checker::analysis::GenericCallConformanceSource::Derived { evidence } => {
-                        self.generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::Derived(evidence.clone()))?;
-                    }
-                    crate::checker::analysis::GenericCallConformanceSource::CompilerDerived { evidence } => {
-                        self.generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence.clone()))?;
-                    }
-                }
+                self.generic_call_conformance_binding(binding)?;
             }
         }
         Ok(())
@@ -1831,6 +1836,56 @@ mod tests {
             assert!(types.ty(ty).is_ok(), "generic evidence must root nested type {ty:?}");
         }
         assert!(types.parameter(parameter).is_ok(), "derived evidence must root its rule parameter");
+    }
+
+    #[test]
+    fn callable_analysis_call_conformance_roots_forwarded_subject_and_trait_arguments() {
+        use crate::checker::analysis::{CallSpecialization, ExpressionAnalysis, GenericCallConformanceBinding, GenericCallConformanceSource};
+        use crate::generic_evidence::GenericConformanceKey;
+        use crate::types::parameter::TypeTerm;
+
+        let owner = DeclarationId::new(ModuleId::universe_root(), "CallConformanceRootOwner".into());
+        let callable = CallableId::method(owner.clone(), Selector::getter("factory").unwrap(), DispatchSide::Class);
+        let mut store = TypeStore::new();
+        let callee_subject = store.nominal_type(DeclarationId::new(owner.module.clone(), "CalleeSubjectRoot".into()));
+        let callee_argument = store.nominal_type(DeclarationId::new(owner.module.clone(), "CalleeTraitArgumentRoot".into()));
+        let caller_subject = store.nominal_type(DeclarationId::new(owner.module.clone(), "CallerSubjectRoot".into()));
+        let caller_argument = store.nominal_type(DeclarationId::new(owner.module.clone(), "CallerTraitArgumentRoot".into()));
+        let trait_owner = |name: &str| DeclarationId::new(owner.module.clone(), name.into());
+        let conformance_key = |subject, trait_owner: DeclarationId, argument| {
+            GenericConformanceKey::new(
+                TypeTerm::Canonical(subject),
+                crate::traits::TraitRef::new(trait_owner, vec![argument].into_boxed_slice()),
+            )
+        };
+        let callee_conformance = conformance_key(callee_subject, trait_owner("CalleeTraitRoot"), callee_argument);
+        let caller_conformance = conformance_key(caller_subject, trait_owner("CallerTraitRoot"), caller_argument);
+
+        let expression_id = ExpressionId::new(BodyId(42), LocalExpressionId(3));
+        let mut expression = ExpressionAnalysis::ready(
+            expression_id,
+            SourceRange { start: 5, end: 12 },
+            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+        );
+        expression.call_specialization = Some(CallSpecialization {
+            callable: callable.clone(),
+            bindings: Box::new([]),
+            conformances: vec![GenericCallConformanceBinding {
+                callee_conformance,
+                source: GenericCallConformanceSource::Forwarded { caller_conformance },
+            }]
+            .into_boxed_slice(),
+        });
+
+        let mut analysis = callable_analysis(callable);
+        analysis.expressions.insert_source(expression_id, expression).unwrap();
+        let mut types = TypeExportContext::new(&store);
+        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
+
+        for ty in [callee_subject, callee_argument, caller_subject, caller_argument] {
+            assert!(types.ty(ty).is_ok(), "call conformance keys and forwarded evidence must root {ty:?}");
+        }
     }
 
     #[test]

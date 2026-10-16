@@ -338,6 +338,22 @@ owner-centric rows, extend owner-local closure/limits to those rows, and
 reconcile roots against the completed wire fields. P7 remains IN_PROGRESS /
 PARTIAL / UNVERIFIED; P8 remains blocked.
 
+## PATCH1 T3 call-conformance root closure — 2026-10-16
+
+The final root census found one missing path: `CallSpecialization.conformances`
+was not traversed by `register_callable_analysis_roots`, even though generic
+conformance evidence has a root walker and the future wire contract retains
+these bindings. Added one shared call-conformance root walker for callee keys
+and Exact, Forwarded, Derived, and CompilerDerived sources; both expression
+call specializations and existing inherent-implementation provenance use it.
+The new forwarded-source regression failed before the fix because its
+canonical subject type was absent from the closed graph, then passed after the
+fix. The complete callable-analysis semantic filter passed 23/23.
+
+This closes the discovered source-root gap only. The owner-centric schema,
+complete field census against its final rows, and rich wire validation remain
+open; the decoder and callable coverage guards remain active.
+
 ## 0. Checkpoint state
 
 ```yaml
