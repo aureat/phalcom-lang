@@ -458,8 +458,52 @@ registration. Focused regressions passed for the admitted owner kinds
 (including both dispatch target families), unsupported/inference rejection,
 and the field-exhaustive blocked-owner root paths. QO-2's required whole-record
 preflight and QO-4 through QO-9 remain open because T4/T5 have not yet placed
-these DTOs into complete binding/expression rows. No callable guards were
-removed.
+these DTOs into complete binding/expression rows. Binding consistency and
+expression blocked status now retain portable owner identities, but the full
+T4/T5 owner records, preflight, relocation fingerprint, and integrated parity
+gates remain incomplete. No callable guards were removed.
+
+### PATCH1 expression owner slice — partial — 2026-10-16
+
+The callable expression wire now preserves source range, `TypeKnowledge`,
+selected callable, causal invalidity, binding read/write ordinals, read-safety,
+and the previously added exact expression status. Import reconstructs these
+facts under a child allocation transaction and validates dense rows, local
+binding closure, and source ranges. A nonempty `CallResolutionId` remains a
+precise typed export rejection because the live tree has no accepted portable
+resolution owner; no production constructor currently publishes one.
+
+Focused evidence: `cargo test -p phalcom-semantic --lib callable_ --
+--test-threads=1` passed 40 tests, including exact-fit and one-byte-short
+expression-fact import. The callable artifact integration target selected 12:
+7 passed and the same 5 previously recorded failures remain (four
+`Allocation(UnaccountedBoundary)` failures and one conditional-dispatch
+implementation-member-authority failure). The new expression-link closure test
+passed. These results do not complete T5 or remove callable guards. Remaining
+T5 work includes explanation ownership, accepted generic conformance evidence,
+all expression resolution families, causal/explanation cross-reference
+validation, and complete materialization/parity.
+
+### PATCH1 T5 generic-conformance evidence consultation hold — 2026-10-16
+
+Implementation stopped before changing generic-call evidence representation.
+The active plan requires Exact, Forwarded, Derived, and CompilerDerived
+`GenericCallConformanceBinding` sources to round-trip exactly. The current
+`CallableCallSpecializationV1` carries only selected callable and static
+argument bindings. Existing `ConformanceHeadRecordV1` and `WitnessPlanV1` do
+not contain the full instantiated proof payload. Native Exact/Derived sources
+retain environments, selected requirement maps, associated bindings, nested
+proofs, substitutions, and fingerprints; core lowering consumes Exact
+requirement selections and Derived impl bindings from these products. The
+portable owner shape must therefore be decided before implementation.
+
+The query-owner ADR does not settle this separate evidence-transport boundary.
+Callable conformance export remains fail-closed and all callable guards remain
+active. The next action is to obtain an architectural decision on whether
+PATCH1 should encode the complete evidence payload locally or reference an
+existing canonical artifact owner, and to specify the exact preserved fields,
+stable identities, relocation, and fingerprint contract. Do not reconstruct
+evidence by re-querying semantics or dropping the conformance array.
 
 ## 0. Checkpoint state
 
@@ -483,8 +527,12 @@ next_action: >
   PATCH1-ADR-QUERY-OWNER and plan §12.4. QO-0's 45-variant source census is
   complete and recorded in plan §12.4. QO-1's closed owner DTO/adapters and
   QO-3's callable blocked-owner root closure are implemented with focused
-  regressions. Next integrate these identities into the complete T4/T5 binding
-  and expression rows, enforce whole-record QO-2 preflight, then continue QO-4
+  regressions. T4 binding rows and the initial T5 expression status/basic-fact
+  slice now retain the admitted owner identities, but T4/T5 remain partial.
+  T5 is stopped at the generic-conformance evidence representation decision
+  recorded above; resolve that boundary before encoding Exact, Forwarded,
+  Derived, or CompilerDerived sources. Then complete remaining expression and
+  binding owner graphs, enforce whole-record QO-2 preflight, and continue QO-4
   through QO-9;
   retain typed fail-closed behavior and keep all callable/global guards until
   their named gates pass. Keep
