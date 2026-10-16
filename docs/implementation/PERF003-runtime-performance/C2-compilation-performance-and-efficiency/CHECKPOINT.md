@@ -387,6 +387,34 @@ the remaining callable families. The public decoder and callable coverage
 guards remain active. P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED; P8 remains
 blocked.
 
+## PATCH1 T4 consultation hold — 2026-10-16
+
+T4 source inspection found a portable-owner gap before implementation; no T4
+code changes were made. The required full `BindingConsistency` includes
+`Blocked(BlockReason::UnavailableSemanticOwner(QueryKey))`. `QueryKey` includes
+`GenericConformance(GenericConformanceKey)` and `TraitDispatchBucket` variants;
+the generic key carries `TypeTerm` and `TraitRef` identities. The current shared
+query artifact codec intentionally enumerates only a subset of query kinds and
+cannot currently encode those owners. Callable root registration also does not
+yet register type roots reachable through binding consistency. The current
+product fingerprint hashes the complete blocked owner key.
+
+This engages PATCH1 INV-01 and INV-04: the binding owner cannot drop this state
+or project store-local identities before their roots are closed. The plan's T4
+full-`BindingState` requirement and T3 root-reconciliation requirement do not
+specify whether to add a callable-local relocatable query-key schema, extend the
+shared query codec/root closure, or explicitly reject this consistency case.
+T5 also requires exact `AnalysisStatus::Blocked` transport, which carries the
+same `BlockReason`. Architect decision is required before changing either DTO
+or its root contract. T4 and dependent full-status transport are paused before
+edits. This checkpoint-only update records the consultation hold; no T4
+implementation changes are present.
+
+Decision requested: choose the owner and scope for lossless portable encoding
+of `UnavailableSemanticOwner(QueryKey)` nested in binding consistency, including
+the `GenericConformance` type/parameter roots; if the approved choice is
+fail-closed disposition, specify its PATCH1 acceptance and guard-removal effect.
+
 ## 0. Checkpoint state
 
 ```yaml
@@ -405,7 +433,9 @@ next_action: >
   library evidence is recorded below. T2 establishes the owner-local ordinal
   validation context; T3 has dense expression/binding rows and the discovered
   call-conformance root path, but the complete owner graph and rich validation
-  remain incomplete. Continue T3–T10 in plan order. Keep
+  remain incomplete. T4 is paused before edits for the binding-consistency
+  query-owner decision recorded above; resume T4 after that decision and plan
+  amendment/clarification. Keep
   checked StaticApplication
   rows owned by CheckedStaticBody; PATCH1 leaves their denotation fail-closed.
   Preserve the budgeted enum-requirement wrapper. Keep P7 IN_PROGRESS / PARTIAL /
