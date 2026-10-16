@@ -13,7 +13,9 @@ use crate::associated::AssociatedMemberId;
 use crate::checker::CallableAnalysis;
 use crate::checker::associated::AssociatedResolutionKind;
 use crate::db::ProductFingerprint;
-use crate::identity::{BindingId, CallableId, CallableParameterId, DeclarationId, ExpressionId, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId};
+use crate::identity::{
+    BindingId, CallableId, CallableParameterId, DeclarationId, ExpressionId, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId,
+};
 use crate::source_index::interval::{RangeEntry, RangeIndex};
 
 pub mod builder;
@@ -180,10 +182,8 @@ impl CallableSourceAttachment {
         // callable source shard. Module shards also contain imports, top-level
         // declarations, and nested lexical scopes, so their site count/order
         // cannot identify a checker binding.
-        let current_bindings = (matches!(source_owner, SourceOwner::Callable(_))
-            && rebase_ranges
-            && current_bindings.len() == states.len())
-        .then_some(current_bindings);
+        let current_bindings =
+            (matches!(source_owner, SourceOwner::Callable(_)) && rebase_ranges && current_bindings.len() == states.len()).then_some(current_bindings);
         for (offset, state) in states.into_iter().enumerate() {
             if let Some(parameter) = &state.parameter {
                 if let Some(site) = scopes
@@ -210,9 +210,7 @@ impl CallableSourceAttachment {
                     .bindings
                     .values()
                     .filter(|binding| {
-                        &binding.declaration_site.owner == source_owner
-                            && binding.declaration_range == state.range
-                            && binding.name.as_ref() == state.name
+                        &binding.declaration_site.owner == source_owner && binding.declaration_range == state.range && binding.name.as_ref() == state.name
                     })
                     .map(|binding| binding.declaration_site.clone())
                     .collect::<Vec<_>>();
@@ -235,9 +233,7 @@ impl CallableSourceAttachment {
                 .bindings
                 .values()
                 .filter(|binding| {
-                    binding.name.as_ref() == state.name
-                        && binding.declaration_range == state.range
-                        && binding.declaration_site.owner == *source_owner
+                    binding.name.as_ref() == state.name && binding.declaration_range == state.range && binding.declaration_site.owner == *source_owner
                 })
                 .map(|binding| binding.declaration_site.clone())
                 .collect::<Vec<_>>();
@@ -390,12 +386,8 @@ impl ModuleSourceIndex {
             let source_owner = context
                 .and_then(|context| context.body_source_owners.get(&analysis.callable))
                 .unwrap_or(&default_owner);
-            let (attachment, mut attachment_incidents) = CallableSourceAttachment::from_analysis_with_source_owner(
-                analysis.callable.clone(),
-                source_owner,
-                &structure,
-                analysis,
-            );
+            let (attachment, mut attachment_incidents) =
+                CallableSourceAttachment::from_analysis_with_source_owner(analysis.callable.clone(), source_owner, &structure, analysis);
             attachments.insert(analysis.callable.clone(), Arc::new(attachment));
             incidents.append(&mut attachment_incidents);
         }
@@ -1001,12 +993,8 @@ impl SourceSemanticIndex {
             self.replace_module_incidents(module.clone(), [error.clone()]);
             return Err(Box::new(error));
         };
-        let (attachment, incidents) = CallableSourceAttachment::from_analysis_with_source_owner(
-            analysis.callable.clone(),
-            source_owner,
-            &module_index.structure,
-            analysis,
-        );
+        let (attachment, incidents) =
+            CallableSourceAttachment::from_analysis_with_source_owner(analysis.callable.clone(), source_owner, &module_index.structure, analysis);
         let mut attachments = module_index.attachments.clone();
         attachments.insert(analysis.callable.clone(), Arc::new(attachment));
         let updated_shard = Arc::new(ModuleSourceIndex::from_structure_and_attachments(
@@ -1111,6 +1099,15 @@ impl SourceSemanticIndex {
             .is_some_and(|source| source.parameter_sites.contains_key(parameter))
     }
 
+    /// Returns whether a source-owned callable record has a declaration site
+    /// for `parameter`. `None` means the source owner itself is unavailable;
+    /// callers must not treat that as evidence of a generated parameter.
+    pub fn parameter_source_site_is_indexed(&self, source_callable: &CallableId, parameter: &CallableParameterId) -> Option<bool> {
+        let module = self.modules.get(source_callable.module())?;
+        let source = module.structure.callable_sources.get(source_callable)?;
+        Some(source.parameter_sites.contains_key(parameter))
+    }
+
     /// Returns the canonical source site attached to one formal expression.
     pub fn source_site_for_expression(&self, callable: &CallableId, expression: ExpressionId) -> Option<&SourceSite> {
         let attachment = self.formal_attachment(callable)?;
@@ -1164,7 +1161,22 @@ impl SourceSemanticIndex {
 
 #[cfg(test)]
 mod tests {
-    use super::SourceIndexUpdateStats;
+    use super::{SourceIndexUpdateStats, *};
+    use crate::checker::analysis::BindingState;
+    use crate::checker::analysis::{BindingAnalysisIndex, CallableBindingOriginIndex};
+    use crate::checker::analysis::{CallableAnalysis, CallableAnalysisStatus, FlowStateSummary};
+    use crate::checker::analysis_map::AnalysisMap;
+    use crate::checker::flow::graph::FlowGraph;
+    use crate::explain::ExplanationArena;
+    use crate::identity::{CallableId, DeclarationId, DispatchSide, SourceOwner};
+    use crate::types::evidence::{TypeKnowledge, UnknownReason};
+    use crate::{ModuleId, ReturnContractValidation};
+    use phalcom_ast::parser::parse;
+    use phalcom_common::range::SourceRange;
+    use phalcom_common::selector::Selector;
+    use phalcom_modules::source::ModuleKind;
+    use std::collections::{BTreeMap, HashMap};
+    use std::sync::Arc;
 
     #[test]
     fn scan_counter_recorders_are_observable_without_scanning() {
@@ -1175,5 +1187,117 @@ mod tests {
         assert_eq!(stats.source_workspace_scan_units, 3);
         assert_eq!(stats.reference_workspace_scan_units, 5);
         assert_eq!(stats.formal_workspace_scan_units, 7);
+    }
+
+    #[test]
+    fn same_local_binding_ordinal_keeps_distinct_module_lambda_sites_and_source_free_projection() {
+        let source: Arc<str> = Arc::from("import universe.numbers\nclass Packet {}\nlet first = |text| text\nlet second = |text| text\n");
+        let parsed = parse(&source, 0);
+        assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+        let module = ModuleId::universe_root();
+        let context = SourceIndexContext::default();
+        let scopes = build_source_scope_index(module.clone(), &parsed.program, &context);
+        let unit = Arc::new(crate::source::ParsedModuleUnit::new(
+            module.clone(),
+            ModuleKind::Module,
+            None,
+            source.clone(),
+            Arc::new(parsed.program),
+        ));
+        let programs = BTreeMap::from([(module.clone(), unit)]);
+        let mut source_index =
+            SourceSemanticIndex::from_scope_indices_with_programs_and_context(BTreeMap::from([(module.clone(), scopes)]), &programs, Some(&context));
+        let starts = [source.find("|text|").unwrap() + 1, source.rfind("|text|").unwrap() + 1];
+        let ranges = starts.map(|start| SourceRange::new(start, start + "text".len()));
+
+        let make_analysis = |name: &str, range: SourceRange| {
+            let callable = CallableId::new(
+                DeclarationId::new(module.clone(), name.into()),
+                Selector::getter("invoke").unwrap(),
+                DispatchSide::Instance,
+            );
+            let binding = crate::identity::BindingId(0);
+            let mut bindings = BindingAnalysisIndex::new();
+            bindings
+                .insert_source(
+                    binding,
+                    BindingState::new(binding, "text", range, None, TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence), false),
+                )
+                .unwrap();
+            let mut binding_origins = CallableBindingOriginIndex::new();
+            binding_origins
+                .insert_source(binding, crate::checker::analysis::CallableBindingOrigin::BodyLocal)
+                .unwrap();
+            CallableAnalysis {
+                callable,
+                body_range: SourceRange::new(0, source.len()),
+                body_source_owner: Some(SourceOwner::Module(module.clone())),
+                expressions: AnalysisMap::new(),
+                bindings,
+                binding_origins,
+                for_iteration_lanes: Arc::new(AnalysisMap::new()),
+                positional_expansions: Arc::new(AnalysisMap::new()),
+                known_invalid_positional_expansions: Arc::new(AnalysisMap::new()),
+                sequence_literals: Arc::new(AnalysisMap::new()),
+                associated_resolutions: Arc::new(AnalysisMap::new()),
+                callable_reference_resolutions: Arc::new(AnalysisMap::new()),
+                family_applications: Arc::new(AnalysisMap::new()),
+                match_resolutions: Arc::new(AnalysisMap::new()),
+                pattern_site_resolutions: Arc::new(AnalysisMap::new()),
+                flow_graph: Arc::new(FlowGraph::default()),
+                entry_flow: FlowStateSummary::default(),
+                exits: Default::default(),
+                return_validation: ReturnContractValidation::NotApplicable,
+                diagnostics: Arc::from([]),
+                internal_incidents: Arc::from([]),
+                explanations: Arc::new(ExplanationArena::default()),
+                return_explanation: None,
+                dependencies: Arc::from([]),
+                semantic_dependencies: Arc::from([]),
+                constructor_super_initializer: None,
+                dependency_fingerprint: crate::db::ProductFingerprint::new(1),
+                status: CallableAnalysisStatus::Complete,
+            }
+        };
+
+        let first = make_analysis("FirstLambda", ranges[0]);
+        let second = make_analysis("SecondLambda", ranges[1]);
+        assert_eq!(first.bindings.keys().next(), second.bindings.keys().next(), "binding ordinals are owner-local");
+        for analysis in [&first, &second] {
+            source_index
+                .attach_formal_analysis_with_source_owner(&module, analysis, &SourceOwner::Module(module.clone()))
+                .expect("each lambda binding attaches to its exact module-owned source site");
+        }
+        let first_site = source_index
+            .source_site_for_binding(&first.callable, crate::identity::BindingId(0))
+            .unwrap()
+            .id
+            .clone();
+        let second_site = source_index
+            .source_site_for_binding(&second.callable, crate::identity::BindingId(0))
+            .unwrap()
+            .id
+            .clone();
+        assert_ne!(first_site, second_site, "same local ordinal and name must not alias distinct source sites");
+        assert_eq!(source_index.source_site(&first_site).unwrap().range, ranges[0]);
+        assert_eq!(source_index.source_site(&second_site).unwrap().range, ranges[1]);
+
+        let analyses = HashMap::from([
+            (first.callable.clone(), Arc::new(first.clone())),
+            (second.callable.clone(), Arc::new(second.clone())),
+        ]);
+        let binding_ranges = BTreeMap::from([
+            (first.callable.clone(), BTreeMap::from([(crate::identity::BindingId(0), ranges[0])])),
+            (second.callable.clone(), BTreeMap::from([(crate::identity::BindingId(0), ranges[1])])),
+        ]);
+        let source_free = crate::presentation::FormalSemanticProjection::from_callable_analyses_with_binding_ranges(&analyses, &binding_ranges);
+        assert_eq!(
+            source_free.binding_attachment_range(&first.callable, crate::identity::BindingId(0)),
+            Some(ranges[0])
+        );
+        assert_eq!(
+            source_free.binding_attachment_range(&second.callable, crate::identity::BindingId(0)),
+            Some(ranges[1])
+        );
     }
 }

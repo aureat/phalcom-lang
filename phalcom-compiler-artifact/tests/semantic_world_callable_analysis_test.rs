@@ -4,8 +4,9 @@ use phalcom_compiler_artifact::semantic::operational::CheckedStaticDefinitionsV1
 use phalcom_compiler_artifact::semantic::static_value::StaticValueGraphV1;
 use phalcom_compiler_artifact::semantic::type_store::TypeGraphV1;
 use phalcom_compiler_artifact::semantic::world::{
-    CallableAnalysisRecordV1, CallableAnalysisStatusV1, CallableBindingOriginV1, CallableBindingRowV1, CallableExpressionRowV1, CallableFlowEdgeKindV1,
-    CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1, CallableFlowNodeV1, ConstructorSuperInitializerV1, SemanticWorldV2,
+    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1,
+    CallableBindingRowV1, CallableCausalInvalidityV1, CallableExpressionRowV1, CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1,
+    CallableFlowNodeKindV1, CallableFlowNodeV1, CallableInitializationStateV1, ConstructorSuperInitializerV1, SemanticWorldV2, TypeKnowledgeV1,
 };
 use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableModuleRef, StableProjectRef};
 
@@ -42,17 +43,63 @@ fn owner_ref() -> StableDeclarationRef {
 fn expression_row(ordinal: u32) -> CallableExpressionRowV1 {
     CallableExpressionRowV1 {
         ordinal,
+        range: SpanV1 { start: 0, end: 0 },
+        knowledge: TypeKnowledgeV1::Unknown {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+        },
+        callable: None,
+        causal_invalidity: CallableCausalInvalidityV1::Clean,
+        binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
+        status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
         denotation: None,
         call_specialization: None,
     }
 }
 
+#[test]
+fn callable_expression_binding_links_must_close_over_the_owner() {
+    let mut valid = world(CallableAnalysisStatusV1::Complete);
+    let mut row = expression_row(0);
+    row.binding_read = Some(0);
+    row.binding_write = Some(0);
+    valid.callable_analyses[0].expressions.push(row);
+    valid
+        .validate(&Default::default())
+        .expect("expression binding links resolve within their callable owner");
+
+    let mut absent_binding = valid.clone();
+    absent_binding.callable_analyses[0].expressions[0].binding_write = Some(1);
+    assert!(absent_binding.validate(&Default::default()).is_err());
+
+    let mut inverted_range = valid;
+    inverted_range.callable_analyses[0].expressions[0].range = SpanV1 { start: 2, end: 1 };
+    assert!(inverted_range.validate(&Default::default()).is_err());
+}
+
 fn body_local_binding_row(ordinal: u32) -> CallableBindingRowV1 {
     CallableBindingRowV1 {
         ordinal,
+        name: format!("binding_{ordinal}"),
+        parameter: None,
+        range: SpanV1 { start: 0, end: 1 },
+        contract: None,
+        current: TypeKnowledgeV1::Unknown {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+        },
         denotation: None,
-        formal_attachment: None,
-        origin: CallableBindingOriginV1::BodyLocal,
+        consistency: CallableBindingConsistencyV1::Unconstrained,
+        causal_invalidity: CallableCausalInvalidityV1::Clean,
+        mutable: false,
+        initialization: CallableInitializationStateV1::DefinitelyInitialized,
+        version: 0,
+        explanation: None,
+        authority: CallableBindingAuthorityV1::BodyLocalSource {
+            site_owner: CallableAnalysisSourceOwnerV1::Module { module: owner_ref().module },
+            site_local: ordinal,
+            declaration_range: SpanV1 { start: 0, end: 1 },
+        },
     }
 }
 
@@ -114,9 +161,21 @@ fn world(status: CallableAnalysisStatusV1) -> SemanticWorldV2 {
             expressions: vec![],
             bindings: vec![CallableBindingRowV1 {
                 ordinal: 0,
+                name: "shared".into(),
+                parameter: None,
+                range: SpanV1 { start: 0, end: 1 },
+                contract: None,
+                current: TypeKnowledgeV1::Unknown {
+                    reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+                },
                 denotation: None,
-                formal_attachment: None,
-                origin: CallableBindingOriginV1::ModuleValue {
+                consistency: CallableBindingConsistencyV1::Unconstrained,
+                causal_invalidity: CallableCausalInvalidityV1::Clean,
+                mutable: false,
+                initialization: CallableInitializationStateV1::DefinitelyInitialized,
+                version: 0,
+                explanation: None,
+                authority: CallableBindingAuthorityV1::ModuleValue {
                     module: StableModuleRef {
                         project: StableProjectRef::Builtin {
                             namespace: "universe".into(),
@@ -155,8 +214,8 @@ fn callable_analysis_status_is_preserved_by_semantic_world_codec() {
         assert_eq!(decoded.callable_analyses[0].callable, callable());
         assert!(decoded.callable_analyses[0].exits_unreachable);
         assert!(matches!(
-            decoded.callable_analyses[0].bindings[0].origin,
-            CallableBindingOriginV1::ModuleValue { import_binding: Some(2), .. }
+            decoded.callable_analyses[0].bindings[0].authority,
+            CallableBindingAuthorityV1::ModuleValue { import_binding: Some(2), .. }
         ));
         assert_eq!(
             decoded.callable_analyses[0]
@@ -273,6 +332,16 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
     let mut two_owners = world(CallableAnalysisStatusV1::Complete);
     two_owners.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
         ordinal: 0,
+        range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+        knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+        },
+        callable: None,
+        causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
+        status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
         denotation: None,
         call_specialization: Some(CallableCallSpecializationV1 {
             callable: callable(),
@@ -290,6 +359,16 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
     duplicate_expression_ordinal.callable_analyses[0].expressions = vec![
         CallableExpressionRowV1 {
             ordinal: 0,
+            range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+            knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+                reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+            },
+            callable: None,
+            causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+            binding_read_safety: None,
+            binding_read: None,
+            binding_write: None,
+            status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
             denotation: None,
             call_specialization: Some(CallableCallSpecializationV1 {
                 callable: callable(),
@@ -298,6 +377,16 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
         },
         CallableExpressionRowV1 {
             ordinal: 0,
+            range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+            knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+                reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+            },
+            callable: None,
+            causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+            binding_read_safety: None,
+            binding_read: None,
+            binding_write: None,
+            status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
             denotation: None,
             call_specialization: Some(CallableCallSpecializationV1 {
                 callable: callable(),
@@ -338,6 +427,16 @@ fn explicit_dynamic_call_argument_round_trips_without_a_type_node() {
     }];
     image.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
         ordinal: 0,
+        range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+        knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+        },
+        callable: None,
+        causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
+        status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
         denotation: None,
         call_specialization: Some(CallableCallSpecializationV1 {
             callable: callable(),
@@ -381,6 +480,16 @@ fn call_specialization_rejects_unowned_ordinals_duplicate_bindings_and_wrong_dyn
     }];
     image.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
         ordinal: 0,
+        range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+        knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+        },
+        callable: None,
+        causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
+        status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
         denotation: None,
         call_specialization: Some(CallableCallSpecializationV1 {
             callable: callable(),
@@ -410,6 +519,16 @@ fn call_specialization_rejects_unowned_ordinals_duplicate_bindings_and_wrong_dyn
     }];
     wrong_kind.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
         ordinal: 0,
+        range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+        knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+        },
+        callable: None,
+        causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
+        status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
         denotation: None,
         call_specialization: Some(CallableCallSpecializationV1 {
             callable: callable(),
@@ -466,6 +585,16 @@ fn associated_denotation_rejects_member_from_wrong_declaration_owner() {
     }];
     image.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
         ordinal: 0,
+        range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+        knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+        },
+        callable: None,
+        causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
+        status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
         denotation: Some(SemanticDenotationV1::AssociatedValue {
             value: AssociatedValueDenotationV1::Family {
                 owner_form: phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId(0),
@@ -523,6 +652,16 @@ fn associated_denotation_rejects_member_without_primary_owner_authority() {
     }];
     image.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
         ordinal: 0,
+        range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+        knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+        },
+        callable: None,
+        causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
+        status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
         denotation: Some(SemanticDenotationV1::AssociatedValue {
             value: AssociatedValueDenotationV1::Exact {
                 owner_form: phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId(0),
@@ -679,6 +818,16 @@ fn associated_family_capture_round_trips_subset_and_optional_targets() {
     };
     image.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
         ordinal: 0,
+        range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+        knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+        },
+        callable: None,
+        causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
+        status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
         denotation: Some(source_denotation.clone()),
         call_specialization: None,
     }];
@@ -768,6 +917,16 @@ fn behavioral_family_capture_round_trips_conditional_and_unconditional_targets()
     };
     image.callable_analyses[0].expressions = vec![CallableExpressionRowV1 {
         ordinal: 0,
+        range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+        knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+        },
+        callable: None,
+        causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
+        status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
         denotation: Some(denotation.clone()),
         call_specialization: None,
     }];

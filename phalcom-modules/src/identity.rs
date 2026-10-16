@@ -177,6 +177,26 @@ impl ModuleComponent {
         Ok(Self(s.into()))
     }
 
+    /// Wraps an already-owned identifier without allocating.
+    ///
+    /// This is useful at budgeted import boundaries that allocate the string
+    /// with their own fallible allocator before constructing the semantic ID.
+    /// Invalid input is returned unchanged so validation does not need to
+    /// allocate an error string.
+    pub fn from_owned_identifier(identifier: Box<str>) -> Result<Self, Box<str>> {
+        let mut chars = identifier.chars();
+        let Some(first) = chars.next() else {
+            return Err(identifier);
+        };
+        if !first.is_ascii_lowercase() && first != '_' {
+            return Err(identifier);
+        }
+        if chars.any(|c| !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '_') {
+            return Err(identifier);
+        }
+        Ok(Self(identifier))
+    }
+
     /// Canonical physical spelling used for source discovery.
     pub fn to_kebab(&self) -> String {
         self.0.replace('_', "-")

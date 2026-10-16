@@ -14,6 +14,7 @@ struct Roots<'a> {
     owner: StableOwnerRef,
     family: Family,
     ordinal: u32,
+    store: Option<&'a crate::types::store::TypeStore>,
 }
 
 pub(super) fn register_callable_signature_roots(
@@ -33,17 +34,17 @@ pub(super) fn register_callable_signature_roots(
 pub(super) fn register_callable_analysis_roots(
     types: &mut TypeExportContext,
     analysis: &crate::checker::analysis::CallableAnalysis,
+    store: &crate::types::store::TypeStore,
 ) -> Result<(), ArtifactError> {
     let mut roots = Roots::new(
         types,
         StableOwnerRef::Callable(to_stable_callable(&analysis.callable)),
         Family::CallableAnalysis,
     );
+    roots.store = Some(store);
     for expression in analysis.expressions.values() {
         roots.knowledge(&expression.knowledge)?;
-        if let crate::checker::analysis::AnalysisStatus::Blocked(reason) = &expression.status {
-            roots.block_reason(reason)?;
-        }
+        roots.analysis_status(&expression.status)?;
         if let Some(denotation) = &expression.denotation {
             roots.denotation(denotation)?;
         }
@@ -94,6 +95,7 @@ pub(super) fn register_callable_analysis_roots(
     roots.flow_state(&analysis.entry_flow)?;
     for exit in &analysis.exits.normal_returns {
         roots.knowledge(&exit.knowledge)?;
+        roots.analysis_status(&exit.status)?;
         roots.flow_state(&exit.flow)?;
     }
     for exit in &analysis.exits.throws {
@@ -170,7 +172,13 @@ impl<'a> Roots<'a> {
         Self::new_with_ordinal(types, owner, family, 100)
     }
     fn new_with_ordinal(types: &'a mut TypeExportContext, owner: StableOwnerRef, family: Family, ordinal: u32) -> Self {
-        Self { types, owner, family, ordinal }
+        Self {
+            types,
+            owner,
+            family,
+            ordinal,
+            store: None,
+        }
     }
     fn key(&mut self) -> Result<CanonicalTypeRootKey, ArtifactError> {
         let ordinal = self.ordinal;
@@ -227,11 +235,26 @@ impl<'a> Roots<'a> {
         }
         Ok(())
     }
+    fn analysis_status(&mut self, status: &crate::checker::analysis::AnalysisStatus) -> Result<(), ArtifactError> {
+        if let crate::checker::analysis::AnalysisStatus::Blocked(reason) = status {
+            self.block_reason(reason)?;
+        }
+        Ok(())
+    }
     fn block_reason(&mut self, reason: &crate::types::outcome::BlockReason) -> Result<(), ArtifactError> {
         if let crate::types::outcome::BlockReason::UnavailableSemanticOwner(owner) = reason {
             match owner {
-                crate::db::QueryKey::CallableSignature(_) | crate::db::QueryKey::FieldSignature(_) | crate::db::QueryKey::TraitDispatchBucket(_) => {}
+                crate::db::QueryKey::CallableSignature(_) | crate::db::QueryKey::FieldSignature(_) => {}
                 crate::db::QueryKey::GenericConformance(key) => self.generic_conformance_key(key)?,
+                crate::db::QueryKey::TraitDispatchBucket(key) => {
+                    if let crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(variant) = &key.target_family {
+                        let variant_type = self.store.and_then(|store| store.variant_type_id(variant)).ok_or_else(|| {
+                            ValidationError::ReferentialIntegrity("callable trait-dispatch query owner references an uninterned exact-case identity".into())
+                        })?;
+                        let root = self.key()?;
+                        self.types.register_variant_root(self.types.expected_lineage(), root, variant_type)?;
+                    }
+                }
                 unsupported => {
                     return Err(ValidationError::ReferentialIntegrity(format!(
                         "callable block reason contains unsupported query owner kind {}",
@@ -1149,7 +1172,7 @@ pub fn register_semantic_world_roots(
         if id != &analysis.callable {
             return Err(ArtifactError::LimitExceeded("callable analysis table key disagrees with its owner".into()));
         }
-        register_callable_analysis_roots(types, analysis)?;
+        register_callable_analysis_roots(types, analysis, &snapshot.store)?;
     }
     for (_owner, requirements) in snapshot.enum_requirements.requirements.iter() {
         for requirement in requirements.iter() {
@@ -1270,7 +1293,9 @@ pub fn register_semantic_world_roots(
 mod tests {
     use super::{Family, Roots, StableOwnerRef, register_callable_analysis_roots, to_stable_declaration};
     use crate::checker::analysis::{BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowStateSummary};
-    use crate::identity::{BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, FieldId, ImplLocalId, LocalExpressionId, ModuleId};
+    use crate::identity::{
+        BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, FieldId, ImplLocalId, LocalExpressionId, ModuleId, VariantId,
+    };
     use crate::types::denotation::SemanticDenotation;
     use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
     use crate::types::store::TypeStore;
@@ -1365,6 +1390,15 @@ mod tests {
         ));
         let reason = BlockReason::UnavailableSemanticOwner(key);
         let blocked = || reason.clone();
+        let exit_subject = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "BlockedExitSubjectRoot".into()));
+        let exit_argument = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "BlockedExitTraitArgumentRoot".into()));
+        let exit_reason = BlockReason::UnavailableSemanticOwner(crate::db::QueryKey::GenericConformance(GenericConformanceKey::new(
+            TypeTerm::Canonical(exit_subject),
+            crate::traits::TraitRef::new(
+                DeclarationId::new(ModuleId::universe_root(), "BlockedExitTraitRoot".into()),
+                vec![exit_argument].into_boxed_slice(),
+            ),
+        )));
         let expression_id = ExpressionId::new(BodyId(8), LocalExpressionId(0));
         let mut analysis = callable_analysis(callable);
 
@@ -1385,8 +1419,24 @@ mod tests {
             TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
             false,
         );
-        binding.consistency = crate::checker::binding::BindingConsistency::Blocked(blocked());
+        let exact_case = VariantId::new(callable_owner.clone(), Selector::getter("BlockedCase").unwrap());
+        let exact_case_type = store.intern_variant_identity(exact_case.clone());
+        binding.consistency = crate::checker::binding::BindingConsistency::Blocked(BlockReason::UnavailableSemanticOwner(
+            crate::db::QueryKey::TraitDispatchBucket(crate::trait_dispatch::TraitDispatchBucketKey {
+                target_family: crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(exact_case),
+                selector: Selector::getter("blocked").unwrap(),
+                side: DispatchSide::Instance,
+            }),
+        ));
         analysis.bindings.insert_source(binding_id, binding).unwrap();
+
+        analysis.exits.normal_returns.push(crate::checker::analysis::NormalReturnFact {
+            knowledge: TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+            flow: FlowStateSummary::default(),
+            status: crate::checker::analysis::AnalysisStatus::Blocked(exit_reason),
+            causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
+            direct_result_dependency: None,
+        });
 
         analysis
             .entry_flow
@@ -1466,11 +1516,14 @@ mod tests {
         analysis.explanations = Arc::new(explanations);
 
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         assert!(types.ty(subject).is_ok(), "generic blocked-owner subject must be rooted");
         assert!(types.ty(argument).is_ok(), "generic blocked-owner trait argument must be rooted");
+        assert!(types.ty(exit_subject).is_ok(), "normal-return blocked-owner subject must be rooted");
+        assert!(types.ty(exit_argument).is_ok(), "normal-return blocked-owner trait argument must be rooted");
+        assert!(types.variant(exact_case_type).is_ok(), "exact-case dispatch owner identity must be rooted");
     }
 
     #[test]
@@ -1495,7 +1548,7 @@ mod tests {
             .unwrap();
 
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         assert!(
@@ -1525,7 +1578,7 @@ mod tests {
             .unwrap();
 
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         assert!(
@@ -1566,7 +1619,7 @@ mod tests {
             .unwrap();
 
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         assert!(types.ty(contract_type).is_ok(), "binding contracts must be roots");
@@ -1626,7 +1679,7 @@ mod tests {
         });
 
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         assert!(types.ty(entry_type).is_ok(), "normal-exit knowledge must be rooted");
@@ -1689,7 +1742,7 @@ mod tests {
         );
 
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         assert!(types.ty(result_type).is_ok(), "sequence result types must be rooted");
@@ -1732,7 +1785,7 @@ mod tests {
         );
 
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         assert!(types.ty(owner_form).is_ok(), "associated lookup owner forms must be rooted");
@@ -1784,7 +1837,7 @@ mod tests {
         );
 
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         assert!(types.ty(reference_family_type).is_ok(), "bound callable-reference family types must be rooted");
@@ -1891,7 +1944,7 @@ mod tests {
         );
 
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         for ty in [
@@ -2117,7 +2170,7 @@ mod tests {
         let mut analysis = callable_analysis(callable);
         analysis.expressions.insert_source(expression_id, expression).unwrap();
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         for ty in [
@@ -2356,7 +2409,7 @@ mod tests {
         );
 
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         for ty in [
@@ -2500,7 +2553,7 @@ mod tests {
         let mut analysis = callable_analysis(callable);
         analysis.expressions.insert_source(expression_id, expression).unwrap();
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         for ty in [
@@ -2576,7 +2629,7 @@ mod tests {
         analysis.semantic_dependencies = Arc::from([crate::checker::analysis::SemanticDependency::GenericConformance(key)]);
 
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         for ty in [
@@ -2660,7 +2713,7 @@ mod tests {
         }
 
         let mut types = TypeExportContext::new(&store);
-        register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
         assert!(types.ty(type_form).is_ok(), "TypeForm references are roots");
@@ -2694,10 +2747,40 @@ mod tests {
             )
             .unwrap();
 
-        let mut types = TypeExportContext::new(&TypeStore::new());
+        let store = TypeStore::new();
+        let mut types = TypeExportContext::new(&store);
         assert!(
-            register_callable_analysis_roots(&mut types, &analysis).is_err(),
+            register_callable_analysis_roots(&mut types, &analysis, &store).is_err(),
             "static applications stay blocked until checked rows have a retained, body-qualified owner"
+        );
+    }
+
+    #[test]
+    fn callable_blocked_exact_case_query_owner_rejects_missing_store_identity() {
+        let owner = DeclarationId::new(ModuleId::universe_root(), "MissingVariantRoot".into());
+        let callable = CallableId::method(owner.clone(), Selector::getter("factory").unwrap(), DispatchSide::Class);
+        let expression_id = ExpressionId::new(BodyId(9), LocalExpressionId(0));
+        let mut analysis = callable_analysis(callable);
+        let variant = VariantId::new(owner, Selector::getter("Absent").unwrap());
+        let mut expression = ExpressionAnalysis::ready(
+            expression_id,
+            SourceRange { start: 0, end: 1 },
+            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+        );
+        expression.status = crate::checker::analysis::AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnavailableSemanticOwner(
+            crate::db::QueryKey::TraitDispatchBucket(crate::trait_dispatch::TraitDispatchBucketKey {
+                target_family: crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(variant),
+                selector: Selector::getter("blocked").unwrap(),
+                side: DispatchSide::Instance,
+            }),
+        ));
+        analysis.expressions.insert_source(expression_id, expression).unwrap();
+
+        let store = TypeStore::new();
+        let mut types = TypeExportContext::new(&store);
+        assert!(
+            register_callable_analysis_roots(&mut types, &analysis, &store).is_err(),
+            "a stable query identity absent from the source type store cannot be fabricated during export"
         );
     }
 }

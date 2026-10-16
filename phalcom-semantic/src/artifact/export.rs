@@ -723,16 +723,19 @@ use phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1;
 use phalcom_compiler_artifact::semantic::world::{
     AssociatedBindingEntryV1, AssociatedBindingValueV1, AssociatedFamilyIdentityV1, AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1,
     AssociatedStaticDomainRecordV1, AssociatedSurfaceRecordV1, AssociatedValueDenotationV1, BehavioralFamilyDenotationV1, BehavioralFamilySpecV1,
-    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingOriginV1, CallableBindingRowV1,
-    CallableBindingSourceAttachmentV1, CallableCallSpecializationV1, CallableExpressionRowV1, CallableParameterV1 as PortableCallableParameter,
-    CallableSignatureRecordV1, CallableStaticArgumentBindingV1, CapturedAssociatedMemberV1, CapturedBehavioralMemberV1, CaseRequirementResultV1,
-    CaseRequirementStatusV1, ConditionalDispatchSelectionV1, ConformanceHeadRecordV1, ConformanceTargetV1, ConstructorInitializationRecordV1,
-    ConstructorParamFieldV1, DeclarationSurfaceRecordV1, EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1, EnumRequirementSourceV1,
-    EvidenceOriginV1, EvidenceSetV1, EvidenceStatusV1, ExactSelectorV1, FamilyOperationShapeV1, FieldSignatureV1, ImplementationKindV1,
-    IntrinsicTypeOperationV1, InvocationTargetV1, LabeledParameterSpecV1, NativeEffectV1, NativeLifecycleSpecV1, NativeSurfaceIdV1, ParameterContractV1,
-    ParameterTupleSpecV1, RaisesSpecV1, RequirementEntryV1, RequirementSelectionV1, RestParameterSpecV1, RestValueContractV1, ReturnContractValidationV1,
-    ReturnFlowV1, SelectorKindPatternV1, SelectorKindV1, SelectorPatternSpecV1, SelectorSlotV1, SemanticDenotationV1, SemanticWorldV2, TraitSurfaceRecordV1,
-    TypeExprSpecV1, TypeKnowledgeV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1, TypeMemberParameterV1, WitnessPlanV1,
+    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingAssumptionBasisV1, CallableBindingAuthorityV1,
+    CallableBindingConsistencyV1, CallableBindingContractOriginV1, CallableBindingRowV1, CallableBlockReasonV1, CallableBudgetKindV1, CallableBudgetReportV1,
+    CallableCallSpecializationV1, CallableCausalInvalidityV1, CallableExpressionRowV1, CallableExpressionStatusV1, CallableGeneratedBindingReasonV1,
+    CallableInitializationStateV1, CallableParameterIdentityV1, CallableParameterV1 as PortableCallableParameter, CallableRefutationReasonV1,
+    CallableSignatureRecordV1, CallableStaticArgumentBindingV1, CallableSuppressionCauseV1, CapturedAssociatedMemberV1, CapturedBehavioralMemberV1,
+    CaseRequirementResultV1, CaseRequirementStatusV1, ConditionalDispatchSelectionV1, ConformanceHeadRecordV1, ConformanceTargetV1,
+    ConstructorInitializationRecordV1, ConstructorParamFieldV1, DeclarationSurfaceRecordV1, EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1,
+    EnumRequirementSourceV1, EvidenceOriginV1, EvidenceSetV1, EvidenceStatusV1, ExactSelectorV1, FamilyOperationShapeV1, FieldSignatureV1,
+    ImplementationKindV1, IntrinsicTypeOperationV1, InvocationTargetV1, LabeledParameterSpecV1, NativeEffectV1, NativeLifecycleSpecV1, NativeSurfaceIdV1,
+    ParameterContractV1, ParameterTupleSpecV1, RaisesSpecV1, RequirementEntryV1, RequirementSelectionV1, RestParameterSpecV1, RestValueContractV1,
+    ReturnContractValidationV1, ReturnFlowV1, SelectorKindPatternV1, SelectorKindV1, SelectorPatternSpecV1, SelectorSlotV1, SemanticDenotationV1,
+    SemanticWorldV2, TraitSurfaceRecordV1, TypeExprSpecV1, TypeKnowledgeV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
+    TypeMemberParameterV1, WitnessPlanV1,
 };
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{StableAssociatedStaticDomainDeclarationRef, StableCallableRef};
@@ -748,6 +751,202 @@ fn export_callable_analysis_status(status: crate::checker::analysis::CallableAna
         crate::checker::analysis::CallableAnalysisStatus::InternalFailure(_) => {
             return Err(referential("internal callable-analysis incidents have no portable artifact identity"));
         }
+    })
+}
+
+#[derive(Clone, Debug)]
+enum CallableBindingSourceAuthority {
+    Source {
+        site: crate::identity::SourceSiteId,
+        range: phalcom_common::range::SourceRange,
+    },
+    GeneratedReceiver,
+}
+
+fn export_binding_authority(
+    origin: &crate::checker::analysis::CallableBindingOrigin,
+    source: Option<&CallableBindingSourceAuthority>,
+) -> Result<CallableBindingAuthorityV1, ArtifactError> {
+    use crate::identity::SourceOwner;
+
+    match (origin, source) {
+        (crate::checker::analysis::CallableBindingOrigin::BodyLocal, Some(CallableBindingSourceAuthority::Source { site, range })) => {
+            let site_owner = match &site.owner {
+                SourceOwner::Module(module) => CallableAnalysisSourceOwnerV1::Module {
+                    module: to_stable_module(module),
+                },
+                SourceOwner::Callable(callable) => CallableAnalysisSourceOwnerV1::Callable {
+                    callable: to_stable_callable(callable),
+                },
+            };
+            Ok(CallableBindingAuthorityV1::BodyLocalSource {
+                site_owner,
+                site_local: site.local.0,
+                declaration_range: phalcom_compiler_artifact::module_world::SpanV1 {
+                    start: u64::try_from(range.start).map_err(|_| referential("binding declaration start exceeds portable range"))?,
+                    end: u64::try_from(range.end).map_err(|_| referential("binding declaration end exceeds portable range"))?,
+                },
+            })
+        }
+        (crate::checker::analysis::CallableBindingOrigin::BodyLocal, Some(CallableBindingSourceAuthority::GeneratedReceiver)) => {
+            Ok(CallableBindingAuthorityV1::BodyLocalGenerated {
+                reason: CallableGeneratedBindingReasonV1::ImplicitReceiver,
+            })
+        }
+        (crate::checker::analysis::CallableBindingOrigin::BodyLocal, None) => {
+            Err(referential("callable body-local binding lacks exact source or generated authority"))
+        }
+        (crate::checker::analysis::CallableBindingOrigin::ModuleValue { symbol, import }, None) => Ok(CallableBindingAuthorityV1::ModuleValue {
+            module: to_stable_module(&symbol.module),
+            name: symbol.name.to_string(),
+            import_binding: import.map(|id| id.0),
+        }),
+        (crate::checker::analysis::CallableBindingOrigin::ModuleValue { .. }, Some(_)) => {
+            Err(referential("module-value binding cannot acquire callable-local source authority"))
+        }
+    }
+}
+
+fn export_binding_budget(report: &crate::types::outcome::BudgetReport) -> CallableBudgetReportV1 {
+    CallableBudgetReportV1 {
+        kind: match report.kind {
+            crate::types::outcome::BudgetKind::Steps => CallableBudgetKindV1::Steps,
+            crate::types::outcome::BudgetKind::RelationPairs => CallableBudgetKindV1::RelationPairs,
+            crate::types::outcome::BudgetKind::SccIterations => CallableBudgetKindV1::SccIterations,
+            crate::types::outcome::BudgetKind::TypeDepth => CallableBudgetKindV1::TypeDepth,
+            crate::types::outcome::BudgetKind::DiagnosticNotes => CallableBudgetKindV1::DiagnosticNotes,
+            crate::types::outcome::BudgetKind::ResidualNodes => CallableBudgetKindV1::ResidualNodes,
+        },
+        limit: report.limit,
+        used: report.used,
+    }
+}
+
+fn export_callable_block_reason(reason: &crate::types::outcome::BlockReason, types: &TypeExportContext) -> Result<CallableBlockReasonV1, ArtifactError> {
+    use crate::types::outcome::BlockReason;
+    Ok(match reason {
+        BlockReason::UnknownType(reason) => CallableBlockReasonV1::UnknownType {
+            reason: export_unknown_reason(reason),
+        },
+        BlockReason::UnresolvedDependency(module) => CallableBlockReasonV1::UnresolvedDependency {
+            project_source: module
+                .project
+                .source
+                .0
+                .to_str()
+                .ok_or_else(|| referential("unresolved dependency project path is not portable UTF-8"))?
+                .into(),
+            module_path: module.path.components().iter().map(|part| part.to_string().into_boxed_str()).collect(),
+        },
+        BlockReason::InvalidAnnotation(code) => CallableBlockReasonV1::InvalidAnnotation {
+            diagnostic_code: code.as_str().into(),
+        },
+        BlockReason::RecursiveFixpoint => CallableBlockReasonV1::RecursiveFixpoint,
+        BlockReason::InferenceDidNotConverge => CallableBlockReasonV1::InferenceDidNotConverge,
+        BlockReason::OpaqueNative(message) => CallableBlockReasonV1::OpaqueNative { message: message.clone() },
+        BlockReason::ReflectionBoundary => CallableBlockReasonV1::ReflectionBoundary,
+        BlockReason::UnavailableSemanticOwner(owner) => CallableBlockReasonV1::UnavailableSemanticOwner {
+            owner: export_callable_query_owner(owner, types)?,
+        },
+        BlockReason::BudgetExceeded(report) => CallableBlockReasonV1::BudgetExceeded {
+            report: export_binding_budget(report),
+        },
+        BlockReason::SuppressedDependency => CallableBlockReasonV1::SuppressedDependency,
+    })
+}
+
+fn export_callable_expression_status(
+    status: &crate::checker::analysis::AnalysisStatus,
+    ordinals: &CallableAnalysisOrdinalMap,
+    types: &TypeExportContext,
+) -> Result<CallableExpressionStatusV1, ArtifactError> {
+    use crate::checker::analysis::AnalysisStatus;
+
+    Ok(match status {
+        AnalysisStatus::Ready => CallableExpressionStatusV1::Ready,
+        AnalysisStatus::Invalid(cause) => CallableExpressionStatusV1::Invalid {
+            cause: *ordinals
+                .diagnostic_causes
+                .get(cause)
+                .ok_or_else(|| referential("callable expression status references an absent diagnostic cause"))?,
+        },
+        AnalysisStatus::Suppressed(crate::checker::causal::SuppressionCause::One(cause)) => CallableExpressionStatusV1::Suppressed {
+            cause: CallableSuppressionCauseV1::One {
+                cause: *ordinals
+                    .diagnostic_causes
+                    .get(cause)
+                    .ok_or_else(|| referential("callable expression suppression references an absent diagnostic cause"))?,
+            },
+        },
+        AnalysisStatus::Suppressed(crate::checker::causal::SuppressionCause::Multiple) => CallableExpressionStatusV1::Suppressed {
+            cause: CallableSuppressionCauseV1::Multiple,
+        },
+        AnalysisStatus::Blocked(reason) => CallableExpressionStatusV1::Blocked {
+            reason: export_callable_block_reason(reason, types)?,
+        },
+        AnalysisStatus::DynamicBoundary(reason) => CallableExpressionStatusV1::DynamicBoundary {
+            reason: export_dynamic_reason(reason),
+        },
+        AnalysisStatus::Cancelled => CallableExpressionStatusV1::Cancelled,
+        AnalysisStatus::BudgetExceeded(report) => CallableExpressionStatusV1::BudgetExceeded {
+            report: export_binding_budget(report),
+        },
+        AnalysisStatus::InternalFailure(_) => return Err(referential("expression internal incident has no canonical artifact owner")),
+    })
+}
+
+fn export_binding_consistency(
+    consistency: &crate::checker::binding::BindingConsistency,
+    types: &TypeExportContext,
+) -> Result<CallableBindingConsistencyV1, ArtifactError> {
+    use crate::checker::binding::{AssumptionBasis, BindingConsistency};
+    Ok(match consistency {
+        BindingConsistency::Unconstrained => CallableBindingConsistencyV1::Unconstrained,
+        BindingConsistency::Validated => CallableBindingConsistencyV1::Validated,
+        BindingConsistency::Assumed { basis } => CallableBindingConsistencyV1::Assumed {
+            basis: match basis {
+                AssumptionBasis::MissingValueEvidence(reason) => CallableBindingAssumptionBasisV1::MissingValueEvidence {
+                    reason: export_unknown_reason(reason),
+                },
+                AssumptionBasis::CallableParameterContract => CallableBindingAssumptionBasisV1::CallableParameterContract,
+                AssumptionBasis::ContextualParameterContract => CallableBindingAssumptionBasisV1::ContextualParameterContract,
+                AssumptionBasis::DerivedEvidence(origin) => CallableBindingAssumptionBasisV1::DerivedEvidence {
+                    origin: match origin {
+                        EvidenceOrigin::Syntax => EvidenceOriginV1::Syntax,
+                        EvidenceOrigin::DeclarationSemantics => EvidenceOriginV1::DeclarationSemantics,
+                        EvidenceOrigin::ConstructorSemantics => EvidenceOriginV1::ConstructorSemantics,
+                        EvidenceOrigin::CallableSignature => EvidenceOriginV1::CallableSignature,
+                        EvidenceOrigin::NativeSignature => EvidenceOriginV1::NativeSignature,
+                        EvidenceOrigin::DeveloperAnnotation => EvidenceOriginV1::DeveloperAnnotation,
+                        EvidenceOrigin::GenericInference => EvidenceOriginV1::GenericInference,
+                        EvidenceOrigin::Flow => EvidenceOriginV1::Flow,
+                        EvidenceOrigin::FieldLifecycle => EvidenceOriginV1::FieldLifecycle,
+                        EvidenceOrigin::ContextualDerivation => EvidenceOriginV1::ContextualDerivation,
+                        EvidenceOrigin::PatternDecomposition => EvidenceOriginV1::PatternDecomposition,
+                    },
+                },
+            },
+        },
+        BindingConsistency::Refuted { actual, expected, reason } => CallableBindingConsistencyV1::Refuted {
+            actual: types.ty(*actual)?,
+            expected: types.ty(*expected)?,
+            reason: match reason {
+                crate::types::relation::RefutationReason::IncompatibleNominal => CallableRefutationReasonV1::IncompatibleNominal,
+                crate::types::relation::RefutationReason::TypeMismatch => CallableRefutationReasonV1::TypeMismatch,
+                crate::types::relation::RefutationReason::UnionMemberMismatch => CallableRefutationReasonV1::UnionMemberMismatch,
+            },
+        },
+        BindingConsistency::DynamicBoundary { obligation } => CallableBindingConsistencyV1::DynamicBoundary {
+            reason: obligation.reason.clone().into_boxed_str(),
+        },
+        BindingConsistency::Blocked(reason) => CallableBindingConsistencyV1::Blocked {
+            reason: export_callable_block_reason(reason, types)?,
+        },
+        BindingConsistency::Cancelled => CallableBindingConsistencyV1::Cancelled,
+        BindingConsistency::BudgetExceeded(report) => CallableBindingConsistencyV1::BudgetExceeded {
+            report: export_binding_budget(report),
+        },
+        BindingConsistency::InternalFailure(message) => CallableBindingConsistencyV1::InternalFailure { message: message.clone() },
     })
 }
 
@@ -1021,7 +1220,7 @@ impl CallableAnalysisOrdinalMap {
 fn export_callable_analysis_record(
     callable_id: &crate::identity::CallableId,
     analysis: &crate::checker::analysis::CallableAnalysis,
-    binding_source_ranges: &std::collections::BTreeMap<crate::identity::BindingId, phalcom_common::range::SourceRange>,
+    binding_source_authorities: &std::collections::BTreeMap<crate::identity::BindingId, CallableBindingSourceAuthority>,
     types: &TypeExportContext,
 ) -> Result<CallableAnalysisRecordV1, ArtifactError> {
     if analysis.callable != *callable_id {
@@ -1034,8 +1233,8 @@ fn export_callable_analysis_record(
     {
         return Err(referential("callable binding storage-origin map is incomplete or contains a foreign binding"));
     }
-    if binding_source_ranges.keys().any(|binding| !ordinals.bindings.contains_key(binding)) {
-        return Err(referential("callable formal binding attachment references an absent owner-local binding"));
+    if binding_source_authorities.keys().any(|binding| !ordinals.bindings.contains_key(binding)) {
+        return Err(referential("callable source authority references an absent owner-local binding"));
     }
     let flow_nodes = analysis
         .flow_graph
@@ -1094,6 +1293,56 @@ fn export_callable_analysis_record(
     };
     let mut expressions = Vec::with_capacity(analysis.expressions.len());
     for (expression_id, expression) in analysis.expressions.iter() {
+        if expression.call.is_some() {
+            return Err(referential("call resolution ids have no admitted portable callable owner"));
+        }
+        let status = export_callable_expression_status(&expression.status, &ordinals, types)?;
+        let range = phalcom_compiler_artifact::module_world::SpanV1 {
+            start: u64::try_from(expression.range.start).map_err(|_| referential("callable expression range start exceeds portable range"))?,
+            end: u64::try_from(expression.range.end).map_err(|_| referential("callable expression range end exceeds portable range"))?,
+        };
+        let knowledge = export_type_knowledge(&expression.knowledge, types)?;
+        let causal_invalidity = match expression.causal_invalidity {
+            crate::checker::causal::CausalInvalidity::Clean => CallableCausalInvalidityV1::Clean,
+            crate::checker::causal::CausalInvalidity::One(cause) => CallableCausalInvalidityV1::One {
+                cause: *ordinals
+                    .diagnostic_causes
+                    .get(&cause)
+                    .ok_or_else(|| referential("callable expression causal state references an absent diagnostic cause"))?,
+            },
+            crate::checker::causal::CausalInvalidity::Multiple => CallableCausalInvalidityV1::Multiple,
+        };
+        let binding_read_safety = expression.binding_read_safety.map(|safety| match safety {
+            crate::checker::flow::BindingReadSafety::ProvenInitialized => {
+                phalcom_compiler_artifact::semantic::world::CallableBindingReadSafetyV1::ProvenInitialized
+            }
+            crate::checker::flow::BindingReadSafety::DefinitelyUninitialized => {
+                phalcom_compiler_artifact::semantic::world::CallableBindingReadSafetyV1::DefinitelyUninitialized
+            }
+            crate::checker::flow::BindingReadSafety::RuntimeCheckRequired => {
+                phalcom_compiler_artifact::semantic::world::CallableBindingReadSafetyV1::RuntimeCheckRequired
+            }
+        });
+        let binding_read = expression
+            .binding_read
+            .map(|binding| {
+                ordinals
+                    .bindings
+                    .get(&binding)
+                    .copied()
+                    .ok_or_else(|| referential("callable expression reads an absent owner-local binding"))
+            })
+            .transpose()?;
+        let binding_write = expression
+            .binding_write
+            .map(|binding| {
+                ordinals
+                    .bindings
+                    .get(&binding)
+                    .copied()
+                    .ok_or_else(|| referential("callable expression writes an absent owner-local binding"))
+            })
+            .transpose()?;
         let denotation = expression
             .denotation
             .as_ref()
@@ -1142,6 +1391,14 @@ fn export_callable_analysis_record(
             .transpose()?;
         expressions.push(CallableExpressionRowV1 {
             ordinal: ordinals.expressions[expression_id],
+            range,
+            knowledge,
+            callable: expression.callable.as_ref().map(to_stable_callable),
+            status,
+            causal_invalidity,
+            binding_read_safety,
+            binding_read,
+            binding_write,
             denotation,
             call_specialization,
         });
@@ -1151,38 +1408,87 @@ fn export_callable_analysis_record(
     let mut bindings = Vec::with_capacity(analysis.bindings.len());
     for (binding_id, state) in analysis.bindings.iter() {
         let origin = match analysis.binding_origins.get(binding_id) {
-            Some(crate::checker::analysis::CallableBindingOrigin::BodyLocal) => CallableBindingOriginV1::BodyLocal,
-            Some(crate::checker::analysis::CallableBindingOrigin::ModuleValue { symbol, import }) => CallableBindingOriginV1::ModuleValue {
-                module: to_stable_module(&symbol.module),
-                name: symbol.name.to_string(),
-                import_binding: import.map(|id| id.0),
-            },
+            Some(origin) => origin,
             None => return Err(referential("callable binding is missing its storage origin")),
         };
-        let formal_attachment = binding_source_ranges
-            .get(binding_id)
-            .map(|range| -> Result<_, ArtifactError> {
-                if !matches!(&origin, CallableBindingOriginV1::BodyLocal) {
-                    return Err(referential("module-value binding must not acquire a callable-local source declaration"));
-                }
-                Ok(CallableBindingSourceAttachmentV1 {
-                    range: phalcom_compiler_artifact::module_world::SpanV1 {
-                        start: u64::try_from(range.start).map_err(|_| referential("formal binding source start exceeds portable range"))?,
-                        end: u64::try_from(range.end).map_err(|_| referential("formal binding source end exceeds portable range"))?,
-                    },
-                })
-            })
-            .transpose()?;
         let denotation = state
             .denotation
             .as_ref()
             .map(|denotation| export_semantic_denotation(denotation, types))
             .transpose()?;
+        let range = phalcom_compiler_artifact::module_world::SpanV1 {
+            start: u64::try_from(state.range.start).map_err(|_| referential("callable binding range start exceeds portable range"))?,
+            end: u64::try_from(state.range.end).map_err(|_| referential("callable binding range end exceeds portable range"))?,
+        };
+        let contract = state
+            .contract
+            .as_ref()
+            .map(|contract| -> Result<_, ArtifactError> {
+                let source = contract
+                    .source
+                    .map(|source| -> Result<_, ArtifactError> {
+                        Ok(phalcom_compiler_artifact::module_world::SpanV1 {
+                            start: u64::try_from(source.start).map_err(|_| referential("callable binding contract source start exceeds portable range"))?,
+                            end: u64::try_from(source.end).map_err(|_| referential("callable binding contract source end exceeds portable range"))?,
+                        })
+                    })
+                    .transpose()?;
+                Ok(phalcom_compiler_artifact::semantic::world::CallableBindingContractV1 {
+                    ty: types.ty(contract.ty)?,
+                    origin: match contract.origin {
+                        crate::checker::binding::BindingContractOrigin::SourceAnnotation => CallableBindingContractOriginV1::SourceAnnotation,
+                        crate::checker::binding::BindingContractOrigin::InferredInitializer => CallableBindingContractOriginV1::InferredInitializer,
+                        crate::checker::binding::BindingContractOrigin::CallableParameter => CallableBindingContractOriginV1::CallableParameter,
+                        crate::checker::binding::BindingContractOrigin::ContextualBlockParameter => CallableBindingContractOriginV1::ContextualBlockParameter,
+                        crate::checker::binding::BindingContractOrigin::PatternBinding => CallableBindingContractOriginV1::PatternBinding,
+                        crate::checker::binding::BindingContractOrigin::StaticParameter => CallableBindingContractOriginV1::StaticParameter,
+                    },
+                    source,
+                })
+            })
+            .transpose()?;
+        let causal_invalidity = match state.causal_invalidity {
+            crate::checker::causal::CausalInvalidity::Clean => CallableCausalInvalidityV1::Clean,
+            crate::checker::causal::CausalInvalidity::One(cause) => CallableCausalInvalidityV1::One {
+                cause: *ordinals
+                    .diagnostic_causes
+                    .get(&cause)
+                    .ok_or_else(|| referential("callable binding causal state references an absent diagnostic cause"))?,
+            },
+            crate::checker::causal::CausalInvalidity::Multiple => CallableCausalInvalidityV1::Multiple,
+        };
+        let authority = export_binding_authority(origin, binding_source_authorities.get(binding_id))?;
         bindings.push(CallableBindingRowV1 {
             ordinal: ordinals.bindings[binding_id],
+            name: state.name.clone(),
+            parameter: state.parameter.as_ref().map(|parameter| CallableParameterIdentityV1 {
+                callable: to_stable_callable(&parameter.callable),
+                index: parameter.index,
+            }),
+            range,
+            contract,
+            current: export_type_knowledge(&state.current, types)?,
             denotation,
-            formal_attachment,
-            origin,
+            consistency: export_binding_consistency(&state.consistency, types)?,
+            causal_invalidity,
+            mutable: state.mutable,
+            initialization: match state.initialization {
+                crate::checker::flow::InitializationState::Uninitialized => CallableInitializationStateV1::Uninitialized,
+                crate::checker::flow::InitializationState::MaybeInitialized => CallableInitializationStateV1::MaybeInitialized,
+                crate::checker::flow::InitializationState::DefinitelyInitialized => CallableInitializationStateV1::DefinitelyInitialized,
+            },
+            version: state.version,
+            explanation: state
+                .explanation
+                .map(|explanation| {
+                    ordinals
+                        .explanations
+                        .get(&explanation)
+                        .copied()
+                        .ok_or_else(|| referential("callable binding references an absent explanation"))
+                })
+                .transpose()?,
+            authority,
         });
     }
     bindings.sort_unstable_by_key(|binding| binding.ordinal);
@@ -2036,7 +2342,7 @@ pub fn export_semantic_world(
     let mut callable_analyses = Vec::new();
     for (callable_id, analysis) in snapshot.callable_analyses.iter() {
         let source_callable = snapshot.callable_signatures.id_for_body(callable_id).unwrap_or_else(|| callable_id.clone());
-        let mut binding_source_ranges = std::collections::BTreeMap::new();
+        let mut binding_source_authorities = std::collections::BTreeMap::new();
         for (binding, state) in &analysis.bindings {
             match analysis.binding_origins.get(binding) {
                 Some(crate::checker::analysis::CallableBindingOrigin::ModuleValue { .. }) if state.parameter.is_none() => continue,
@@ -2047,19 +2353,22 @@ pub fn export_semantic_world(
                 None => return Err(referential("callable binding lacks its explicit storage origin")),
             }
             if let Some(site) = snapshot.source_index.source_site_for_binding(callable_id, *binding) {
-                binding_source_ranges.insert(*binding, site.range);
-            } else if state
-                .parameter
-                .as_ref()
-                .is_some_and(|parameter| !snapshot.source_index.has_parameter_source_site(&source_callable, parameter))
+                binding_source_authorities.insert(
+                    *binding,
+                    CallableBindingSourceAuthority::Source {
+                        site: site.id.clone(),
+                        range: site.range,
+                    },
+                );
+            } else if let Some(parameter) = state.parameter.as_ref()
+                && snapshot.source_index.parameter_source_site_is_indexed(&source_callable, parameter) == Some(false)
             {
-                // Implicit receiver facts have no source declaration token;
-                // retain their semantic binding row without inventing a site.
+                binding_source_authorities.insert(*binding, CallableBindingSourceAuthority::GeneratedReceiver);
             } else {
                 return Err(referential("callable source binding lacks its canonical formal attachment"));
             }
         }
-        callable_analyses.push(export_callable_analysis_record(callable_id, analysis, &binding_source_ranges, types)?);
+        callable_analyses.push(export_callable_analysis_record(callable_id, analysis, &binding_source_authorities, types)?);
     }
     callable_analyses.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
 
@@ -2413,7 +2722,7 @@ mod callable_analysis_status_tests {
         use crate::signature::ReturnContractValidation;
         use phalcom_common::range::SourceRange;
         use phalcom_common::selector::Selector;
-        use phalcom_compiler_artifact::semantic::world::CallableAnalysisStatusV1 as PortableStatus;
+        use phalcom_compiler_artifact::semantic::world::{CallableAnalysisStatusV1 as PortableStatus, CallableExpressionStatusV1 as ExpressionStatus};
 
         let owner = crate::identity::DeclarationId::new(
             crate::identity::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
@@ -2535,25 +2844,53 @@ mod callable_analysis_status_tests {
             "T",
             crate::types::id::KindId::TYPE,
         ));
+        let blocked_subject = store.nominal_type(crate::identity::DeclarationId::new(callable.module().clone(), "BlockedSubject".into()));
+        let blocked_argument = store.nominal_type(crate::identity::DeclarationId::new(callable.module().clone(), "BlockedArgument".into()));
         let call_expression = analysis.expressions.get_source_mut(&expression_a).unwrap().unwrap();
         call_expression.callable = Some(callable.clone());
+        call_expression.knowledge = crate::types::evidence::TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape);
+        call_expression.binding_read = Some(binding);
+        call_expression.binding_write = Some(binding);
+        call_expression.binding_read_safety = Some(crate::checker::flow::BindingReadSafety::RuntimeCheckRequired);
+        call_expression.status = crate::checker::analysis::AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnavailableSemanticOwner(
+            crate::db::QueryKey::GenericConformance(crate::generic_evidence::GenericConformanceKey::new(
+                crate::types::parameter::TypeTerm::Canonical(blocked_subject),
+                crate::traits::TraitRef::new(
+                    crate::identity::DeclarationId::new(callable.module().clone(), "BlockedTrait".into()),
+                    vec![blocked_argument].into_boxed_slice(),
+                ),
+            )),
+        ));
         call_expression.call_specialization = Some(crate::checker::analysis::CallSpecialization {
             callable: callable.clone(),
             bindings: Box::new([(parameter, crate::types::store::StaticArgument::DynamicType)]),
             conformances: Box::default(),
         });
         let mut types = crate::types::store::artifact::TypeExportContext::new(&store);
-        super::super::roots::register_callable_analysis_roots(&mut types, &analysis).unwrap();
+        super::super::roots::register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &ValidationLimits::default()).unwrap();
         let mut parameter_only = crate::types::store::artifact::TypeExportContext::new(&store);
         let parameter_only_lineage = parameter_only.expected_lineage();
+        for (product_subkey, ty) in [(100, blocked_subject), (101, blocked_argument)] {
+            parameter_only
+                .register_type_root(
+                    parameter_only_lineage,
+                    phalcom_compiler_artifact::semantic::type_store::CanonicalTypeRootKey {
+                        family_tag: phalcom_compiler_artifact::semantic::type_store::CanonicalRootFamilyTag::CallableAnalysis,
+                        owner: phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Callable(to_stable_callable(&callable)),
+                        product_subkey,
+                    },
+                    ty,
+                )
+                .unwrap();
+        }
         parameter_only
             .register_parameter_root(
                 parameter_only_lineage,
                 phalcom_compiler_artifact::semantic::type_store::CanonicalTypeRootKey {
                     family_tag: phalcom_compiler_artifact::semantic::type_store::CanonicalRootFamilyTag::CallableAnalysis,
                     owner: phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Callable(to_stable_callable(&callable)),
-                    product_subkey: 100,
+                    product_subkey: 102,
                 },
                 parameter,
             )
@@ -2562,7 +2899,7 @@ mod callable_analysis_status_tests {
         assert_eq!(
             types.project_graph(&store, &ValidationLimits::default()).unwrap(),
             parameter_only.project_graph(&store, &ValidationLimits::default()).unwrap(),
-            "Dynamic adds no proper-type root beyond the parameter's own canonical form"
+            "the blocked query owner roots its types, while Dynamic adds no further proper-type root"
         );
 
         let ordinals = CallableAnalysisOrdinalMap::new(&callable, &analysis).expect("well-formed body owner map");
@@ -2624,8 +2961,17 @@ mod callable_analysis_status_tests {
         unowned_predicate.flow_graph = std::sync::Arc::new(flow);
         assert!(CallableAnalysisOrdinalMap::new(&callable, &unowned_predicate).is_err());
 
-        let binding_ranges = std::collections::BTreeMap::from([(binding, SourceRange { start: 3, end: 7 })]);
-        let record = export_callable_analysis_record(&callable, &analysis, &binding_ranges, &types).unwrap();
+        let binding_source_authorities = std::collections::BTreeMap::from([(
+            binding,
+            CallableBindingSourceAuthority::Source {
+                site: crate::identity::SourceSiteId {
+                    owner: crate::identity::SourceOwner::Module(callable.module().clone()),
+                    local: crate::identity::SourceSiteLocalId(3),
+                },
+                range: SourceRange { start: 30, end: 35 },
+            },
+        )]);
+        let record = export_callable_analysis_record(&callable, &analysis, &binding_source_authorities, &types).unwrap();
         assert_eq!(record.status, PortableStatus::Blocked);
         assert_eq!(
             &record.body_source_owner,
@@ -2638,12 +2984,47 @@ mod callable_analysis_status_tests {
         assert_eq!(constructor_call.call_range.start, 7);
         assert_eq!(constructor_call.call_range.end, 9);
         assert_eq!(constructor_call.initializer, to_stable_callable(&initializer));
+        let binding_row = record.bindings.first().expect("portable binding row");
+        assert_eq!(binding_row.name, "local");
+        assert_eq!(binding_row.range.start, 30);
+        assert_eq!(binding_row.range.end, 35);
         assert!(matches!(
-            record.bindings.first().map(|entry| &entry.origin),
-            Some(phalcom_compiler_artifact::semantic::world::CallableBindingOriginV1::BodyLocal)
+            &binding_row.authority,
+            CallableBindingAuthorityV1::BodyLocalSource {
+                site_owner: CallableAnalysisSourceOwnerV1::Module { module },
+                site_local: 3,
+                declaration_range: phalcom_compiler_artifact::module_world::SpanV1 { start: 30, end: 35 },
+            } if module == &to_stable_module(callable.module())
         ));
         assert_eq!(record.expressions.len(), 2);
-        let call = record.expressions[ordinals.expressions[&expression_a] as usize]
+        let expression_row = &record.expressions[ordinals.expressions[&expression_a] as usize];
+        assert_eq!(expression_row.range.start, 20);
+        assert_eq!(expression_row.range.end, 21);
+        assert!(matches!(
+            &expression_row.knowledge,
+            phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Dynamic {
+                reason: phalcom_compiler_artifact::semantic::aggregates::DynamicReasonV1::ExplicitEscape,
+            }
+        ));
+        assert_eq!(expression_row.callable, Some(to_stable_callable(&callable)));
+        assert_eq!(
+            expression_row.binding_read_safety,
+            Some(phalcom_compiler_artifact::semantic::world::CallableBindingReadSafetyV1::RuntimeCheckRequired)
+        );
+        assert_eq!(expression_row.binding_read, Some(0));
+        assert_eq!(expression_row.binding_write, Some(0));
+        assert!(matches!(
+            &expression_row.status,
+            ExpressionStatus::Blocked {
+                reason: CallableBlockReasonV1::UnavailableSemanticOwner {
+                    owner: phalcom_compiler_artifact::semantic::world::CallableQueryOwnerV1::GenericConformance {
+                        subject: phalcom_compiler_artifact::semantic::aggregates::TypeTermV1::Canonical { .. },
+                        trait_ref: _,
+                    }
+                }
+            }
+        ));
+        let call = expression_row
             .call_specialization
             .as_ref()
             .expect("expression row owns its call specialization");
@@ -2653,7 +3034,7 @@ mod callable_analysis_status_tests {
             phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1::DynamicType
         ));
         let wrong_key = other_callable;
-        assert!(export_callable_analysis_record(&wrong_key, &analysis, &binding_ranges, &types).is_err());
+        assert!(export_callable_analysis_record(&wrong_key, &analysis, &binding_source_authorities, &types).is_err());
     }
 
     fn empty_callable_analysis(callable: crate::identity::CallableId) -> crate::checker::analysis::CallableAnalysis {
@@ -2731,7 +3112,7 @@ mod callable_analysis_status_tests {
         denoted.expressions.get_source_mut(&expression_id).unwrap().unwrap().denotation = Some(SemanticDenotation::TypeForm(denotation_type));
 
         let mut types = TypeExportContext::new(&store);
-        crate::artifact::roots::register_callable_analysis_roots(&mut types, &denoted).unwrap();
+        crate::artifact::roots::register_callable_analysis_roots(&mut types, &denoted, &store).unwrap();
         types.close_graph(&store, &ValidationLimits::default()).unwrap();
         let empty_record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types).unwrap();
         let denoted_record = export_callable_analysis_record(&callable, &denoted, &BTreeMap::new(), &types).unwrap();

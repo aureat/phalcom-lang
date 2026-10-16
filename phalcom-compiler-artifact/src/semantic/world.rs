@@ -2,7 +2,7 @@
 
 use crate::module_world::SpanV1;
 use crate::module_world::{Decode, Wire, invalid, record, tagged};
-use crate::semantic::aggregates::{DeclaredTypeFactV1, GenericSignatureV1, StructuralPrimaryContractsV1, TraitRefV1, TypeTermV1};
+use crate::semantic::aggregates::{DeclaredTypeFactV1, GenericSignatureV1, StructuralPrimaryContractsV1, TraitRefV1, TypeTermV1, UnknownReasonV1};
 use crate::semantic::operational::CheckedStaticDefinitionsV1;
 use crate::semantic::static_value::StaticValueGraphV1;
 use crate::semantic::type_store::{
@@ -216,6 +216,25 @@ tagged!(CallableAnalysisStatusV1 {
     4 => BudgetExceeded,
 });
 
+tagged!(CallableSuppressionCauseV1 { 0 => One { cause: u32 }, 1 => Multiple });
+
+// InternalFailure remains ineligible while its incident owner has no callable wire row.
+tagged!(CallableExpressionStatusV1 {
+    0 => Ready,
+    1 => Invalid { cause: u32 },
+    2 => Suppressed { cause: CallableSuppressionCauseV1 },
+    3 => Blocked { reason: CallableBlockReasonV1 },
+    4 => DynamicBoundary { reason: crate::semantic::aggregates::DynamicReasonV1 },
+    5 => Cancelled,
+    6 => BudgetExceeded { report: CallableBudgetReportV1 },
+});
+
+tagged!(CallableBindingReadSafetyV1 {
+    0 => ProvenInitialized,
+    1 => DefinitelyUninitialized,
+    2 => RuntimeCheckRequired,
+});
+
 // Query identities nested in callable facts have a callable-local portable
 // contract. This is intentionally separate from the shared query-image wire:
 // it serializes only owner identity, not cached query state or dependencies.
@@ -232,6 +251,83 @@ tagged!(CallableQueryOwnerV1 {
     3 => TraitDispatchBucket { target_family: ConformanceTargetV1, selector: ExactSelectorV1, side: StableDispatchSide },
 });
 
+tagged!(CallableBudgetKindV1 {
+    0 => Steps,
+    1 => RelationPairs,
+    2 => SccIterations,
+    3 => TypeDepth,
+    4 => DiagnosticNotes,
+    5 => ResidualNodes,
+});
+
+record!(CallableBudgetReportV1 {
+    kind: CallableBudgetKindV1,
+    limit: u64,
+    used: u64
+});
+
+tagged!(CallableBlockReasonV1 {
+    0 => UnknownType { reason: UnknownReasonV1 },
+    1 => UnresolvedDependency { project_source: Box<str>, module_path: Vec<Box<str>> },
+    2 => InvalidAnnotation { diagnostic_code: Box<str> },
+    3 => RecursiveFixpoint,
+    4 => InferenceDidNotConverge,
+    5 => OpaqueNative { message: Box<str> },
+    6 => ReflectionBoundary,
+    7 => UnavailableSemanticOwner { owner: CallableQueryOwnerV1 },
+    8 => BudgetExceeded { report: CallableBudgetReportV1 },
+    9 => SuppressedDependency,
+});
+
+tagged!(CallableBindingAssumptionBasisV1 {
+    0 => MissingValueEvidence { reason: UnknownReasonV1 },
+    1 => CallableParameterContract,
+    2 => ContextualParameterContract,
+    3 => DerivedEvidence { origin: EvidenceOriginV1 },
+});
+
+tagged!(CallableRefutationReasonV1 { 0 => IncompatibleNominal, 1 => TypeMismatch, 2 => UnionMemberMismatch });
+
+tagged!(CallableBindingConsistencyV1 {
+    0 => Unconstrained,
+    1 => Validated,
+    2 => Assumed { basis: CallableBindingAssumptionBasisV1 },
+    3 => Refuted { actual: ArtifactTypeId, expected: ArtifactTypeId, reason: CallableRefutationReasonV1 },
+    4 => DynamicBoundary { reason: Box<str> },
+    5 => Blocked { reason: CallableBlockReasonV1 },
+    6 => Cancelled,
+    7 => BudgetExceeded { report: CallableBudgetReportV1 },
+    8 => InternalFailure { message: Box<str> },
+});
+
+tagged!(CallableBindingContractOriginV1 {
+    0 => SourceAnnotation,
+    1 => InferredInitializer,
+    2 => CallableParameter,
+    3 => ContextualBlockParameter,
+    4 => PatternBinding,
+    5 => StaticParameter,
+});
+
+record!(CallableBindingContractV1 { ty: ArtifactTypeId, origin: CallableBindingContractOriginV1, source: Option<SpanV1> });
+
+tagged!(CallableCausalInvalidityV1 { 0 => Clean, 1 => One { cause: u32 }, 2 => Multiple });
+
+tagged!(CallableInitializationStateV1 { 0 => Uninitialized, 1 => MaybeInitialized, 2 => DefinitelyInitialized });
+
+record!(CallableParameterIdentityV1 {
+    callable: StableCallableRef,
+    index: u32
+});
+
+tagged!(CallableGeneratedBindingReasonV1 { 0 => ImplicitReceiver });
+
+tagged!(CallableBindingAuthorityV1 {
+    0 => BodyLocalSource { site_owner: CallableAnalysisSourceOwnerV1, site_local: u32, declaration_range: SpanV1 },
+    1 => BodyLocalGenerated { reason: CallableGeneratedBindingReasonV1 },
+    2 => ModuleValue { module: StableModuleRef, name: String, import_binding: Option<u32> },
+});
+
 record!(ConstructorSuperInitializerV1 {
     call_range: SpanV1,
     initializer: StableCallableRef,
@@ -242,22 +338,33 @@ tagged!(CallableAnalysisSourceOwnerV1 {
     1 => Callable { callable: StableCallableRef },
 });
 
-record!(CallableBindingSourceAttachmentV1 { range: SpanV1 });
-
-tagged!(CallableBindingOriginV1 {
-    0 => BodyLocal,
-    1 => ModuleValue { module: StableModuleRef, name: String, import_binding: Option<u32> },
-});
-
 record!(CallableBindingRowV1 {
     ordinal: u32,
+    name: String,
+    parameter: Option<CallableParameterIdentityV1>,
+    range: SpanV1,
+    contract: Option<CallableBindingContractV1>,
+    current: TypeKnowledgeV1,
     denotation: Option<SemanticDenotationV1>,
-    formal_attachment: Option<CallableBindingSourceAttachmentV1>,
-    origin: CallableBindingOriginV1,
+    consistency: CallableBindingConsistencyV1,
+    causal_invalidity: CallableCausalInvalidityV1,
+    mutable: bool,
+    initialization: CallableInitializationStateV1,
+    version: u32,
+    explanation: Option<u32>,
+    authority: CallableBindingAuthorityV1,
 });
 
 record!(CallableExpressionRowV1 {
     ordinal: u32,
+    range: SpanV1,
+    knowledge: TypeKnowledgeV1,
+    callable: Option<StableCallableRef>,
+    status: CallableExpressionStatusV1,
+    causal_invalidity: CallableCausalInvalidityV1,
+    binding_read_safety: Option<CallableBindingReadSafetyV1>,
+    binding_read: Option<u32>,
+    binding_write: Option<u32>,
     denotation: Option<SemanticDenotationV1>,
     call_specialization: Option<CallableCallSpecializationV1>,
 });
@@ -869,19 +976,85 @@ impl SemanticWorldV2 {
                 }
             }
             for binding in &analysis.bindings {
-                if binding.formal_attachment.is_some() && !matches!(&binding.origin, CallableBindingOriginV1::BodyLocal) {
-                    return Err(invalid("module-value binding cannot have a callable-local source attachment"));
+                if binding.range.start > binding.range.end {
+                    return Err(invalid("callable binding range is inverted"));
                 }
-                if let CallableBindingOriginV1::ModuleValue { name, .. } = &binding.origin
-                    && (name.is_empty() || name.len() > limits.max_string_bytes)
-                {
-                    return Err(invalid("module-value binding symbol name is invalid"));
+                if let Some(contract) = &binding.contract {
+                    self.validate_denotation_type(contract.ty)?;
+                    if contract.source.as_ref().is_some_and(|source| source.start > source.end) {
+                        return Err(invalid("callable binding contract source range is inverted"));
+                    }
+                }
+                if let TypeKnowledgeV1::Known { ty, provenance, .. } = &binding.current {
+                    self.validate_denotation_type(*ty)?;
+                    if provenance.ranges.iter().any(|range| range.start > range.end)
+                        || provenance.ranges.len() > limits.max_semantic_entries_per_family
+                        || provenance.descriptions.len() > limits.max_semantic_entries_per_family
+                        || provenance.descriptions.iter().any(|description| description.len() > limits.max_string_bytes)
+                    {
+                        return Err(invalid("callable binding evidence provenance is invalid or exceeds its owner-local limit"));
+                    }
+                }
+                match &binding.consistency {
+                    CallableBindingConsistencyV1::Refuted { actual, expected, .. } => {
+                        self.validate_denotation_type(*actual)?;
+                        self.validate_denotation_type(*expected)?;
+                    }
+                    CallableBindingConsistencyV1::DynamicBoundary { reason } | CallableBindingConsistencyV1::InternalFailure { message: reason }
+                        if reason.len() > limits.max_string_bytes =>
+                    {
+                        return Err(invalid("callable binding consistency text exceeds its string limit"));
+                    }
+                    CallableBindingConsistencyV1::Blocked { reason } => validate_callable_block_reason(reason, &self.type_graph, limits)?,
+                    _ => {}
+                }
+                match &binding.authority {
+                    CallableBindingAuthorityV1::BodyLocalSource { declaration_range, .. } if declaration_range.start > declaration_range.end => {
+                        return Err(invalid("callable binding source declaration range is inverted"));
+                    }
+                    CallableBindingAuthorityV1::ModuleValue { name, .. } if name.is_empty() || name.len() > limits.max_string_bytes => {
+                        return Err(invalid("module-value binding symbol name is invalid"));
+                    }
+                    _ => {}
                 }
                 if let Some(denotation) = &binding.denotation {
                     self.validate_callable_denotation(denotation, limits)?;
                 }
             }
             for expression in &analysis.expressions {
+                if expression.range.start > expression.range.end {
+                    return Err(invalid("callable expression source range is inverted"));
+                }
+                for binding in [expression.binding_read, expression.binding_write].into_iter().flatten() {
+                    if binding as usize >= analysis.bindings.len() {
+                        return Err(invalid("callable expression references an absent binding ordinal"));
+                    }
+                }
+                if let TypeKnowledgeV1::Known { ty, provenance, .. } = &expression.knowledge {
+                    self.validate_denotation_type(*ty)?;
+                    if provenance.ranges.iter().any(|range| range.start > range.end)
+                        || provenance.ranges.len() > limits.max_semantic_entries_per_family
+                        || provenance.descriptions.len() > limits.max_semantic_entries_per_family
+                        || provenance.descriptions.iter().any(|description| description.len() > limits.max_string_bytes)
+                    {
+                        return Err(invalid("callable expression evidence provenance is invalid or exceeds its owner-local limit"));
+                    }
+                }
+                if let CallableCausalInvalidityV1::One { cause } = &expression.causal_invalidity
+                    && *cause as usize >= limits.max_semantic_entries_per_family
+                {
+                    return Err(invalid("callable expression causal cause exceeds its owner-local limit"));
+                }
+                match &expression.status {
+                    CallableExpressionStatusV1::Invalid { cause }
+                    | CallableExpressionStatusV1::Suppressed {
+                        cause: CallableSuppressionCauseV1::One { cause },
+                    } if *cause as usize >= limits.max_semantic_entries_per_family => {
+                        return Err(invalid("callable expression cause ordinal exceeds its owner-local limit"));
+                    }
+                    CallableExpressionStatusV1::Blocked { reason } => validate_callable_block_reason(reason, &self.type_graph, limits)?,
+                    _ => {}
+                }
                 if let Some(denotation) = &expression.denotation {
                     self.validate_callable_denotation(denotation, limits)?;
                 }
@@ -1157,6 +1330,76 @@ impl SemanticWorldV2 {
         // elsewhere cannot establish the relation. Reject until the exact
         // selection relation is transported in the artifact.
         Err(invalid("conditional dispatch selection has no serialized implementation-member authority"))
+    }
+}
+
+fn validate_callable_block_reason(
+    reason: &CallableBlockReasonV1,
+    type_graph: &crate::semantic::type_store::TypeGraphV1,
+    limits: &ValidationLimits,
+) -> Result<(), ArtifactError> {
+    use crate::semantic::aggregates::TypeTermV1;
+
+    match reason {
+        CallableBlockReasonV1::UnknownType { .. }
+        | CallableBlockReasonV1::RecursiveFixpoint
+        | CallableBlockReasonV1::InferenceDidNotConverge
+        | CallableBlockReasonV1::ReflectionBoundary
+        | CallableBlockReasonV1::SuppressedDependency => Ok(()),
+        CallableBlockReasonV1::UnresolvedDependency { project_source, module_path } => {
+            if project_source.is_empty()
+                || project_source.len() > limits.max_string_bytes
+                || module_path.len() > limits.max_semantic_entries_per_family
+                || module_path.iter().any(|part| part.is_empty() || part.len() > limits.max_string_bytes)
+            {
+                return Err(invalid("callable unresolved-dependency identity is invalid or exceeds its limits"));
+            }
+            Ok(())
+        }
+        CallableBlockReasonV1::InvalidAnnotation { diagnostic_code } if diagnostic_code.is_empty() || diagnostic_code.len() > limits.max_string_bytes => {
+            Err(invalid("callable invalid-annotation diagnostic code is invalid"))
+        }
+        CallableBlockReasonV1::InvalidAnnotation { .. } => Ok(()),
+        CallableBlockReasonV1::OpaqueNative { message } if message.len() > limits.max_string_bytes => {
+            Err(invalid("callable opaque-native reason exceeds its string limit"))
+        }
+        CallableBlockReasonV1::OpaqueNative { .. } => Ok(()),
+        CallableBlockReasonV1::BudgetExceeded { .. } => Ok(()),
+        CallableBlockReasonV1::UnavailableSemanticOwner { owner } => match owner {
+            CallableQueryOwnerV1::GenericConformance { subject, trait_ref } => {
+                if let TypeTermV1::Canonical { ty } = subject
+                    && ty.0 as usize >= type_graph.types.len()
+                {
+                    return Err(invalid("callable generic-conformance owner references an absent type"));
+                }
+                if trait_ref.arguments.iter().any(|argument| argument.0 as usize >= type_graph.types.len()) {
+                    return Err(invalid("callable generic-conformance owner references an absent trait argument type"));
+                }
+                Ok(())
+            }
+            CallableQueryOwnerV1::TraitDispatchBucket { target_family, selector, .. } => {
+                if let ConformanceTargetV1::ExactEnumCase { variant } = target_family
+                    && !type_graph.variants.contains(variant)
+                {
+                    return Err(invalid("callable trait-dispatch owner references an absent exact-case identity"));
+                }
+                let base_too_long = matches!(
+                    &selector.base,
+                    crate::semantic::type_store::TypeMemberSelectorV1::Named { name } if name.len() > limits.max_string_bytes
+                );
+                if selector.slots.len() > limits.max_semantic_entries_per_family
+                    || base_too_long
+                    || selector
+                        .slots
+                        .iter()
+                        .any(|slot| matches!(slot, SelectorSlotV1::Label { label } if label.len() > limits.max_string_bytes))
+                {
+                    return Err(invalid("callable trait-dispatch owner selector exceeds its limits"));
+                }
+                Ok(())
+            }
+            CallableQueryOwnerV1::CallableSignature { .. } | CallableQueryOwnerV1::FieldSignature { .. } => Ok(()),
+        },
     }
 }
 
@@ -1526,15 +1769,6 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
                 }
                 *slot = 1;
             }
-        }
-
-        if record.bindings.iter().any(|binding| {
-            binding
-                .formal_attachment
-                .as_ref()
-                .is_some_and(|attachment| attachment.range.start > attachment.range.end)
-        }) {
-            return Err(invalid("callable binding formal attachment range is inverted"));
         }
 
         let nested_rows = [

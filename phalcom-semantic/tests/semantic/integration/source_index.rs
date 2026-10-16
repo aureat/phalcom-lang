@@ -352,8 +352,7 @@ fn constructor_body_bindings_attach_through_the_canonical_declaration_owner() {
     );
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
-    let result = phalcom_semantic::analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program))
-        .expect("constructor fixture should analyze");
+    let result = phalcom_semantic::analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("constructor fixture should analyze");
 
     let declaration = DeclarationId::new(module, "Widget".into());
     let selector = Selector::method("new", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap();
@@ -709,7 +708,9 @@ fn imported_binding_reads_target_the_canonical_remote_symbol() {
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
     let importer = ModuleId::universe_root();
-    let math = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("math").expect("math module path") ]));
+    let math = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("math").expect("math module path"),
+    ]));
     let symbol = phalcom_modules::linker::SymbolId {
         module: math.clone(),
         name: "value".into(),
@@ -1143,9 +1144,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
         status: CallableAnalysisStatus::Complete,
     };
 
-    index
-        .attach_formal_analysis(&module, &analysis, &callable)
-        .expect("unique formal attachment");
+    index.attach_formal_analysis(&module, &analysis, &callable).expect("unique formal attachment");
     let attachment = index
         .module(&module)
         .expect("module shard")
@@ -1200,26 +1199,14 @@ fn module_body_closure_parameters_attach_to_exact_module_sites_by_analysis_owner
         Arc::new(parsed.program),
     ));
     let programs = BTreeMap::from([(module.clone(), unit)]);
-    let mut index = SourceSemanticIndex::from_scope_indices_with_programs_and_context(
-        BTreeMap::from([(module.clone(), scopes)]),
-        &programs,
-        Some(&context),
-    );
+    let mut index = SourceSemanticIndex::from_scope_indices_with_programs_and_context(BTreeMap::from([(module.clone(), scopes)]), &programs, Some(&context));
 
-    let parameter_ranges = [source.find("|text|").unwrap() + 1, source.rfind("|text|").unwrap() + 1]
-        .map(|start| SourceRange::new(start, start + "text".len()));
-    let read_ranges = [source.find("| text").unwrap() + 2, source.rfind("| text").unwrap() + 2]
-        .map(|start| SourceRange::new(start, start + "text".len()));
+    let parameter_ranges = [source.find("|text|").unwrap() + 1, source.rfind("|text|").unwrap() + 1].map(|start| SourceRange::new(start, start + "text".len()));
+    let read_ranges = [source.find("| text").unwrap() + 2, source.rfind("| text").unwrap() + 2].map(|start| SourceRange::new(start, start + "text".len()));
     let binding_ids = [phalcom_semantic::identity::BindingId(0), phalcom_semantic::identity::BindingId(1)];
     let expression_ids = [
-        phalcom_semantic::identity::ExpressionId::new(
-            phalcom_semantic::identity::BodyId(71),
-            phalcom_semantic::identity::LocalExpressionId(0),
-        ),
-        phalcom_semantic::identity::ExpressionId::new(
-            phalcom_semantic::identity::BodyId(71),
-            phalcom_semantic::identity::LocalExpressionId(1),
-        ),
+        phalcom_semantic::identity::ExpressionId::new(phalcom_semantic::identity::BodyId(71), phalcom_semantic::identity::LocalExpressionId(0)),
+        phalcom_semantic::identity::ExpressionId::new(phalcom_semantic::identity::BodyId(71), phalcom_semantic::identity::LocalExpressionId(1)),
     ];
     let bindings = binding_ids
         .iter()
@@ -1227,14 +1214,7 @@ fn module_body_closure_parameters_attach_to_exact_module_sites_by_analysis_owner
         .map(|(binding, range)| {
             (
                 *binding,
-                BindingState::new(
-                    *binding,
-                    "text",
-                    range,
-                    None,
-                    TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
-                    true,
-                ),
+                BindingState::new(*binding, "text", range, None, TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence), true),
             )
         })
         .collect::<BTreeMap<_, _>>();
@@ -1333,8 +1313,8 @@ fn published_module_body_analysis_attaches_bindings_through_source_index() {
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
     let module = ModuleId::universe_root();
-    let result = phalcom_semantic::analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program))
-        .expect("module closure fixture should analyze");
+    let result =
+        phalcom_semantic::analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("module closure fixture should analyze");
     let main = result
         .snapshot
         .callable_analyses
@@ -1353,11 +1333,12 @@ fn published_module_body_analysis_attaches_bindings_through_source_index() {
         });
     let source_index = &result.snapshot.source_index;
     let module_index = source_index.module(&module).expect("published source module");
-    let attachment = module_index
-        .attachments
-        .get(&main.callable)
-        .expect("module-body analysis attachment");
-    for binding in main.bindings.values().filter(|binding| main.binding_origins.get(&binding.binding) == Some(&CallableBindingOrigin::BodyLocal)) {
+    let attachment = module_index.attachments.get(&main.callable).expect("module-body analysis attachment");
+    for binding in main
+        .bindings
+        .values()
+        .filter(|binding| main.binding_origins.get(&binding.binding) == Some(&CallableBindingOrigin::BodyLocal))
+    {
         assert!(
             attachment.formal_bindings.contains_key(&binding.binding),
             "body-local `{}` at {:?} should attach to its exact source declaration",
@@ -1396,8 +1377,8 @@ fn universe_numbers_runtime_binding_attaches_to_its_module_source_site() {
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
     let module = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("numbers").unwrap()]));
-    let result = phalcom_semantic::analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program))
-        .expect("Universe numbers source should analyze");
+    let result =
+        phalcom_semantic::analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("Universe numbers source should analyze");
     let main = result
         .snapshot
         .callable_analyses
@@ -1407,7 +1388,9 @@ fn universe_numbers_runtime_binding_attaches_to_its_module_source_site() {
     let binding = main.bindings.values().find(|binding| binding.name == "i").expect("numbers i binding");
     assert!(matches!(main.binding_origins.get(&binding.binding), Some(CallableBindingOrigin::BodyLocal)));
     let source_index = &result.snapshot.source_index;
-    let site = source_index.source_site_for_binding(&main.callable, binding.binding).expect("numbers i source attachment");
+    let site = source_index
+        .source_site_for_binding(&main.callable, binding.binding)
+        .expect("numbers i source attachment");
     assert_eq!(site.id.owner, SourceOwner::Module(module));
     assert_eq!(site.range, binding.range);
 }
@@ -1494,9 +1477,8 @@ fn source_index_keeps_same_named_impl_callables_distinct_by_target() {
 #[test]
 fn callable_binding_origins_preserve_shared_module_values_and_local_shadowing() {
     let module = ModuleId::universe_root();
-    let source: Arc<str> = Arc::from(
-        "let shared = 1\nclass Reader { @class first() { shared } @class second() { shared } @class shadow() { let shared = 2; shared } }\n",
-    );
+    let source: Arc<str> =
+        Arc::from("let shared = 1\nclass Reader { @class first() { shared } @class second() { shared } @class shadow() { let shared = 2; shared } }\n");
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
     let result = phalcom_semantic::analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("module fixture should analyze");
@@ -1521,8 +1503,18 @@ fn callable_binding_origins_preserve_shared_module_values_and_local_shadowing() 
         let ambient = module_bindings[0];
         assert_eq!(analysis.bindings[&ambient].name, "shared");
         assert!(result.snapshot.source_index.source_site_for_binding(&callable, ambient).is_none());
-        let read = analysis.expressions.values().find(|expression| expression.binding_read == Some(ambient)).expect("module read retains its exact binding handle");
-        assert_eq!(analysis.binding_origins.get(&ambient), Some(&CallableBindingOrigin::ModuleValue { symbol: symbol.clone(), import: None }));
+        let read = analysis
+            .expressions
+            .values()
+            .find(|expression| expression.binding_read == Some(ambient))
+            .expect("module read retains its exact binding handle");
+        assert_eq!(
+            analysis.binding_origins.get(&ambient),
+            Some(&CallableBindingOrigin::ModuleValue {
+                symbol: symbol.clone(),
+                import: None
+            })
+        );
         assert_eq!(read.range.len(), "shared".len());
     }
 
@@ -1536,11 +1528,13 @@ fn callable_binding_origins_preserve_shared_module_values_and_local_shadowing() 
     let local = analysis
         .binding_origins
         .iter()
-        .find_map(|(binding, origin)| {
-            (matches!(origin, CallableBindingOrigin::BodyLocal) && analysis.bindings[binding].name == "shared").then_some(*binding)
-        })
+        .find_map(|(binding, origin)| (matches!(origin, CallableBindingOrigin::BodyLocal) && analysis.bindings[binding].name == "shared").then_some(*binding))
         .expect("shadowing local has body-local storage");
-    let read = analysis.expressions.values().find(|expression| expression.binding_read == Some(local)).expect("read resolves to the shadowing local");
+    let read = analysis
+        .expressions
+        .values()
+        .find(|expression| expression.binding_read == Some(local))
+        .expect("read resolves to the shadowing local");
     assert_ne!(ambient, local);
     assert_eq!(analysis.binding_origins.get(&local), Some(&CallableBindingOrigin::BodyLocal));
     assert!(result.snapshot.source_index.source_site_for_binding(&shadow, local).is_some());

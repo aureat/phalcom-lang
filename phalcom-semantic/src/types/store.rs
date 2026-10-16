@@ -2186,6 +2186,11 @@ impl TypeStore {
         &self.variant_identities[id.index()]
     }
 
+    /// Returns the store-local handle for an already-interned stable variant identity.
+    pub fn variant_type_id(&self, variant: &VariantId) -> Option<VariantTypeId> {
+        self.variant_identity_to_id.get(variant).copied()
+    }
+
     /// Returns nominal origin declaration of `ty` if it is a nominal type or applied generic nominal type.
     pub fn nominal_origin_declaration(&self, ty: TypeId) -> Option<&DeclarationId> {
         match self.get(ty) {

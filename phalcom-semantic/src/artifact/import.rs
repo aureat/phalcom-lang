@@ -6,17 +6,18 @@ use crate::data_semantics::{
 };
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::declarations::{DeclarationTypeBinding, DeclarationTypeInfo, DeclarationTypeTable};
-use crate::diagnostic::SemanticSourceSpan;
+use crate::diagnostic::{DiagnosticCode, SemanticSourceSpan};
 use crate::enum_requirements::{CaseRequirementResult, CaseRequirementStatus, EnumRequirement, EnumRequirementId, EnumRequirementRows, EnumRequirementTable};
 use crate::enum_semantics::{
     AlgebraicCasePayloadKind, EnumInfo, EnumSemanticTable, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo,
     VariantShape, VariantVisibility,
 };
 use crate::identity::{
-    CallableId, CallableOwnerId, DataComponentId, DataConstructorId, DeclarationId, DispatchSide, VariantConstructorId, VariantFieldId, VariantId,
+    BindingId, CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DataConstructorId, DeclarationId, DiagnosticCauseId, DispatchSide,
+    ExplanationId, SourceOwner, SourceSiteId, SourceSiteLocalId, VariantConstructorId, VariantFieldId, VariantId,
 };
 use crate::metadata::stable_identity::{
-    from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_field, from_stable_impl, from_stable_module, from_stable_variant,
+    from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_impl, from_stable_module, from_stable_project, from_stable_variant,
 };
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::case_environment::CaseTypeEnvironment;
@@ -34,7 +35,7 @@ use phalcom_compiler_artifact::semantic::aggregates::*;
 use phalcom_compiler_artifact::semantic::type_store::{ParameterModeV1, ParameterOwnerV1, SelfRoleV1, VarianceV1};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
-use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableFieldRef};
+use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -97,9 +98,214 @@ fn import_trait_ref_identity(
         arguments.push(relocation.ty(*argument)?);
     }
     Ok(crate::traits::TraitRef::new(
-        from_stable_declaration(&trait_ref.declaration).map_err(referential)?,
+        import_stable_declaration_with_allocation_budget(&trait_ref.declaration, allocations)?,
         arguments.into_boxed_slice(),
     ))
+}
+
+fn import_stable_module_with_allocation_budget(
+    stable: &phalcom_type_meta::identity::StableModuleRef,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::identity::ModuleId, ArtifactError> {
+    let project = from_stable_project(&stable.project).map_err(referential)?;
+    let mut components = allocations
+        .vector::<crate::identity::ModuleComponent>(stable.path.len())
+        .map_err(allocation_error)?;
+    for component in stable.path.iter() {
+        let component = allocations.boxed_str(component).map_err(allocation_error)?;
+        components.push(
+            crate::identity::ModuleComponent::from_owned_identifier(component)
+                .map_err(|_| referential("callable owner module identity has an invalid path component"))?,
+        );
+    }
+    Ok(crate::identity::ModuleId {
+        project,
+        path: crate::identity::ModulePath::from_components(components.into_boxed_slice()),
+    })
+}
+
+fn import_stable_declaration_with_allocation_budget(
+    stable: &phalcom_type_meta::identity::StableDeclarationRef,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::identity::DeclarationId, ArtifactError> {
+    if stable.path.len() != 1 {
+        return Err(referential("callable owner declaration identity must contain exactly one declaration name"));
+    }
+    let module = import_stable_module_with_allocation_budget(&stable.module, allocations)?;
+    let name = allocations.boxed_str(&stable.path[0]).map_err(allocation_error)?;
+    Ok(crate::identity::DeclarationId::new(module, name))
+}
+
+fn import_stable_selector_with_allocation_budget(text: &str, allocations: &mut AllocationBudget) -> Result<phalcom_common::selector::Selector, ArtifactError> {
+    use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorSlot};
+
+    if text.is_empty() {
+        return Err(referential("callable owner selector is empty"));
+    }
+    let (base, kind, slots_text) = if let Some(rest) = text.strip_prefix('[') {
+        if let Some(inner) = rest.strip_suffix("]=(_)") {
+            (None, SelectorKind::SubscriptSet, Some(inner))
+        } else if let Some(inner) = rest.strip_suffix(']') {
+            (None, SelectorKind::SubscriptGet, Some(inner))
+        } else {
+            return Err(referential("callable owner subscript selector is malformed"));
+        }
+    } else if let Some(open) = text.find('(') {
+        if open == 0 || !text.ends_with(')') {
+            return Err(referential("callable owner selector is malformed"));
+        }
+        let head = &text[..open];
+        let inner = &text[open + 1..text.len() - 1];
+        if inner == "_" && head.ends_with('=') && head.chars().any(|character| character.is_alphanumeric() || character == '_') {
+            let name = head
+                .strip_suffix('=')
+                .ok_or_else(|| referential("callable owner setter selector is malformed"))?;
+            (Some(name), SelectorKind::Setter, None)
+        } else {
+            let name = head.strip_prefix("init ").unwrap_or(head);
+            if name != head {
+                return Err(referential("callable owner selector is not in canonical encoding"));
+            }
+            (Some(name), SelectorKind::Method, Some(inner))
+        }
+    } else {
+        (Some(text), SelectorKind::Getter, None)
+    };
+
+    let base = match base {
+        Some(name) => SelectorBase::Named(allocations.string(name).map_err(allocation_error)?),
+        None => SelectorBase::Subscript,
+    };
+    let Some(slots_text) = slots_text else {
+        return Selector::new(base, kind, Box::new([])).map_err(|_| referential("callable owner selector is invalid"));
+    };
+    if slots_text.trim().is_empty() && !slots_text.is_empty() {
+        return Err(referential("callable owner selector is not in canonical encoding"));
+    }
+    let mut slots = if slots_text.trim().is_empty() {
+        Vec::new()
+    } else {
+        let count = slots_text.split(',').count();
+        allocations.vector::<SelectorSlot>(count).map_err(allocation_error)?
+    };
+    if !slots_text.trim().is_empty() {
+        for raw_slot in slots_text.split(',') {
+            let slot = raw_slot.trim();
+            if slot.is_empty() {
+                return Err(referential("callable owner selector contains an empty slot"));
+            }
+            if raw_slot != slot {
+                return Err(referential("callable owner selector is not in canonical encoding"));
+            }
+            if matches!(slot, "_" | "*" | "**" | "***") {
+                if slot != "_" {
+                    return Err(referential("callable owner selector is not in canonical encoding"));
+                }
+                slots.push(SelectorSlot::Positional);
+            } else if let Some(hex) = slot.strip_prefix('~') {
+                if hex.is_empty() || hex.len() % 2 != 0 || hex.bytes().any(|byte| byte.is_ascii_uppercase()) {
+                    return Err(referential("callable owner selector contains an invalid encoded label"));
+                }
+                let mut bytes = allocations.vector::<u8>(hex.len() / 2).map_err(allocation_error)?;
+                for pair in hex.as_bytes().chunks_exact(2) {
+                    let high = (pair[0] as char)
+                        .to_digit(16)
+                        .ok_or_else(|| referential("callable owner selector contains an invalid encoded label"))?;
+                    let low = (pair[1] as char)
+                        .to_digit(16)
+                        .ok_or_else(|| referential("callable owner selector contains an invalid encoded label"))?;
+                    bytes.push((high * 16 + low) as u8);
+                }
+                let label = String::from_utf8(bytes).map_err(|_| referential("callable owner selector label is not UTF-8"))?;
+                if is_canonical_unescaped_selector_label(&label) {
+                    return Err(referential("callable owner selector is not in canonical encoding"));
+                }
+                slots.push(SelectorSlot::Label(label));
+            } else {
+                if !is_canonical_unescaped_selector_label(slot) {
+                    return Err(referential("callable owner selector contains an unescaped label"));
+                }
+                slots.push(SelectorSlot::Label(allocations.string(slot).map_err(allocation_error)?));
+            }
+        }
+    }
+    Selector::new(base, kind, slots.into_boxed_slice()).map_err(|_| referential("callable owner selector is invalid"))
+}
+
+fn is_canonical_unescaped_selector_label(label: &str) -> bool {
+    !label.is_empty()
+        && !label.starts_with('~')
+        && !matches!(label, "_" | "*" | "**" | "***")
+        && label.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'_' | b'?' | b'!' | b'+' | b'-' | b'*' | b'/' | b'<' | b'>' | b'=' | b'&' | b'|' | b'^' | b'~' | b'%'
+                )
+        })
+}
+
+fn import_stable_variant_with_allocation_budget(
+    stable: &phalcom_type_meta::identity::StableVariantRef,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::identity::VariantId, ArtifactError> {
+    let owner = import_stable_declaration_with_allocation_budget(&stable.owner, allocations)?;
+    let selector = import_stable_selector_with_allocation_budget(&stable.selector, allocations)?;
+    Ok(crate::identity::VariantId::new(owner, selector))
+}
+
+fn import_stable_impl_with_allocation_budget(
+    stable: &phalcom_type_meta::identity::StableImplRef,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::identity::ImplId, ArtifactError> {
+    Ok(crate::identity::ImplId::new(
+        import_stable_module_with_allocation_budget(&stable.module, allocations)?,
+        crate::identity::ImplLocalId(stable.local_id),
+    ))
+}
+
+fn import_stable_callable_with_allocation_budget(stable: &StableCallableRef, allocations: &mut AllocationBudget) -> Result<CallableId, ArtifactError> {
+    let owner = match &stable.owner {
+        StableCallableOwnerRef::Declaration(owner) => CallableOwnerId::Declaration(import_stable_declaration_with_allocation_budget(owner, allocations)?),
+        StableCallableOwnerRef::Variant(variant) => CallableOwnerId::Variant(import_stable_variant_with_allocation_budget(variant, allocations)?),
+        StableCallableOwnerRef::Conformance(implementation) => {
+            CallableOwnerId::Conformance(import_stable_impl_with_allocation_budget(implementation, allocations)?)
+        }
+    };
+    let selector = import_stable_selector_with_allocation_budget(&stable.selector, allocations)?;
+    Ok(CallableId {
+        owner,
+        selector,
+        side: from_stable_dispatch_side(stable.side),
+    })
+}
+
+fn import_stable_field_identity_with_allocation_budget(
+    owner: &phalcom_type_meta::identity::StableDeclarationRef,
+    side: phalcom_type_meta::identity::StableDispatchSide,
+    name: &str,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::identity::FieldId, ArtifactError> {
+    Ok(crate::identity::FieldId::new(
+        import_stable_declaration_with_allocation_budget(owner, allocations)?,
+        allocations.boxed_str(name).map_err(allocation_error)?,
+        from_stable_dispatch_side(side),
+    ))
+}
+
+fn import_type_term_with_allocation_budget(
+    term: &TypeTermV1,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<TypeTerm, ArtifactError> {
+    Ok(match term {
+        TypeTermV1::Canonical { ty } => TypeTerm::Canonical(relocation.ty(*ty)?),
+        TypeTermV1::SelfType { term } => TypeTerm::SelfType(SelfTypeTerm {
+            owner: import_stable_declaration_with_allocation_budget(&term.owner, allocations)?,
+            side: from_stable_dispatch_side(term.side),
+            role: import_self_role(&term.role),
+        }),
+    })
 }
 
 pub fn import_callable_query_owner(
@@ -111,33 +317,34 @@ pub fn import_callable_query_owner(
     use crate::trait_dispatch::{TraitDispatchBucketKey, TraitDispatchTargetFamily};
     use phalcom_compiler_artifact::semantic::world::{CallableQueryOwnerV1 as Portable, ConformanceTargetV1};
 
-    Ok(match owner {
-        Portable::CallableSignature { callable } => QueryKey::CallableSignature(from_stable_callable(callable).map_err(referential)?),
-        Portable::FieldSignature { field } => QueryKey::FieldSignature(
-            from_stable_field(&StableFieldRef {
-                owner: field.owner.clone(),
-                side: field.side,
-                name: field.name.clone(),
-            })
-            .map_err(referential)?,
-        ),
+    let mut child = allocations.child(allocations.remaining());
+    let imported = match owner {
+        Portable::CallableSignature { callable } => QueryKey::CallableSignature(import_stable_callable_with_allocation_budget(callable, &mut child)?),
+        Portable::FieldSignature { field } => QueryKey::FieldSignature(import_stable_field_identity_with_allocation_budget(
+            &field.owner,
+            field.side,
+            &field.name,
+            &mut child,
+        )?),
         Portable::GenericConformance { subject, trait_ref } => QueryKey::GenericConformance(crate::generic_evidence::GenericConformanceKey::new(
-            import_type_term(subject, relocation)?,
-            import_trait_ref_identity(trait_ref, relocation, allocations)?,
+            import_type_term_with_allocation_budget(subject, relocation, &mut child)?,
+            import_trait_ref_identity(trait_ref, relocation, &mut child)?,
         )),
         Portable::TraitDispatchBucket { target_family, selector, side } => {
             let target_family = match target_family {
                 ConformanceTargetV1::Declaration { declaration } => {
-                    TraitDispatchTargetFamily::Declaration(from_stable_declaration(declaration).map_err(referential)?)
+                    TraitDispatchTargetFamily::Declaration(import_stable_declaration_with_allocation_budget(declaration, &mut child)?)
                 }
-                ConformanceTargetV1::ExactEnumCase { variant } => TraitDispatchTargetFamily::ExactEnumCase(from_stable_variant(variant).map_err(referential)?),
+                ConformanceTargetV1::ExactEnumCase { variant } => {
+                    TraitDispatchTargetFamily::ExactEnumCase(import_stable_variant_with_allocation_budget(variant, &mut child)?)
+                }
             };
-            let base = import_selector_base_with_allocation_budget(&selector.base, allocations)?;
-            let mut slots = allocations
+            let base = import_selector_base_with_allocation_budget(&selector.base, &mut child)?;
+            let mut slots = child
                 .vector::<phalcom_common::selector::SelectorSlot>(selector.slots.len())
                 .map_err(allocation_error)?;
             for slot in &selector.slots {
-                slots.push(import_selector_slot_with_allocation_budget(slot, allocations)?);
+                slots.push(import_selector_slot_with_allocation_budget(slot, &mut child)?);
             }
             let selector = phalcom_common::selector::Selector::new(base, import_selector_kind(&selector.kind), slots.into_boxed_slice())
                 .map_err(|_| referential("callable query-owner selector is invalid"))?;
@@ -147,7 +354,9 @@ pub fn import_callable_query_owner(
                 side: from_stable_dispatch_side(*side),
             })
         }
-    })
+    };
+    allocations.commit_child(child).map_err(allocation_error)?;
+    Ok(imported)
 }
 
 pub fn import_constraint(constraint: &GenericConstraintV1, relocation: &TypeRelocation) -> Result<GenericConstraint, ArtifactError> {
@@ -875,7 +1084,8 @@ pub(crate) fn import_callable_call_specializations(
     allocations: &mut AllocationBudget,
 ) -> Result<Vec<(u32, crate::checker::analysis::CallSpecialization)>, ArtifactError> {
     use phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1;
-    let mut output = allocations
+    let mut child = allocations.child(allocations.remaining());
+    let mut output = child
         .vector::<(u32, crate::checker::analysis::CallSpecialization)>(expressions.len())
         .map_err(allocation_error)?;
     for (index, expression) in expressions.iter().enumerate() {
@@ -885,8 +1095,8 @@ pub(crate) fn import_callable_call_specializations(
         let Some(record) = &expression.call_specialization else {
             continue;
         };
-        let callable = import_exact_callable(&record.callable)?;
-        let mut bindings = allocations
+        let callable = import_stable_callable_with_allocation_budget(&record.callable, &mut child)?;
+        let mut bindings = child
             .vector::<(crate::types::id::TypeParameterId, crate::types::store::StaticArgument)>(record.bindings.len())
             .map_err(allocation_error)?;
         for binding in &record.bindings {
@@ -910,6 +1120,130 @@ pub(crate) fn import_callable_call_specializations(
             },
         ));
     }
+    allocations.commit_child(child).map_err(allocation_error)?;
+    Ok(output)
+}
+
+/// Reconstructs expression statuses, retaining blocked query-owner identities
+/// under the same callable-local ordinal used by the row.
+pub(crate) fn import_callable_expression_statuses(
+    expressions: &[phalcom_compiler_artifact::semantic::world::CallableExpressionRowV1],
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<Vec<(u32, crate::checker::analysis::AnalysisStatus)>, ArtifactError> {
+    use crate::checker::analysis::AnalysisStatus;
+    use crate::checker::causal::SuppressionCause;
+    use phalcom_compiler_artifact::semantic::aggregates::DynamicReasonV1;
+    use phalcom_compiler_artifact::semantic::world::{CallableExpressionStatusV1 as Portable, CallableSuppressionCauseV1};
+
+    let mut child = allocations.child(allocations.remaining());
+    let mut output = child.vector::<(u32, AnalysisStatus)>(expressions.len()).map_err(allocation_error)?;
+    for (index, expression) in expressions.iter().enumerate() {
+        if expression.ordinal as usize != index {
+            return Err(referential("callable expression rows are not dense and ordinal-sorted"));
+        }
+        let status = match &expression.status {
+            Portable::Ready => AnalysisStatus::Ready,
+            Portable::Invalid { cause } => AnalysisStatus::Invalid(DiagnosticCauseId(*cause)),
+            Portable::Suppressed { cause } => AnalysisStatus::Suppressed(match cause {
+                CallableSuppressionCauseV1::One { cause } => SuppressionCause::One(DiagnosticCauseId(*cause)),
+                CallableSuppressionCauseV1::Multiple => SuppressionCause::Multiple,
+            }),
+            Portable::Blocked { reason } => AnalysisStatus::Blocked(import_callable_block_reason(reason, relocation, &mut child)?),
+            Portable::DynamicBoundary { reason } => AnalysisStatus::DynamicBoundary(match reason {
+                DynamicReasonV1::ExplicitEscape => DynamicReason::ExplicitEscape,
+                DynamicReasonV1::DynamicRestPack => DynamicReason::DynamicRestPack,
+                DynamicReasonV1::RuntimeReflection => DynamicReason::RuntimeReflection,
+            }),
+            Portable::Cancelled => AnalysisStatus::Cancelled,
+            Portable::BudgetExceeded { report } => AnalysisStatus::BudgetExceeded(import_callable_binding_budget(report)),
+        };
+        output.push((expression.ordinal, status));
+    }
+    allocations.commit_child(child).map_err(allocation_error)?;
+    Ok(output)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ImportedCallableExpressionFacts {
+    pub ordinal: u32,
+    pub range: phalcom_common::range::SourceRange,
+    pub knowledge: crate::types::evidence::TypeKnowledge,
+    pub callable: Option<CallableId>,
+    pub causal_invalidity: crate::checker::causal::CausalInvalidity,
+    pub binding_read_safety: Option<crate::checker::flow::BindingReadSafety>,
+    /// Owner-local binding ordinal; the complete callable materializer resolves
+    /// this only after validating the record's binding table.
+    pub binding_read: Option<u32>,
+    /// Owner-local binding ordinal; the complete callable materializer resolves
+    /// this only after validating the record's binding table.
+    pub binding_write: Option<u32>,
+}
+
+/// Reconstructs the relocatable, non-resolution portion of each callable
+/// expression row. Local binding links remain ordinals until the complete
+/// owner importer builds its reverse binding table.
+pub(crate) fn import_callable_expression_facts(
+    record: &phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<Vec<ImportedCallableExpressionFacts>, ArtifactError> {
+    use crate::checker::causal::CausalInvalidity;
+    use crate::checker::flow::BindingReadSafety;
+    use phalcom_compiler_artifact::semantic::world::{CallableBindingReadSafetyV1 as PortableSafety, CallableCausalInvalidityV1};
+
+    if record.bindings.iter().enumerate().any(|(index, binding)| binding.ordinal as usize != index) {
+        return Err(referential("callable bindings are not dense and ordinal-sorted"));
+    }
+
+    let mut child = allocations.child(allocations.remaining());
+    let mut output = child
+        .vector::<ImportedCallableExpressionFacts>(record.expressions.len())
+        .map_err(allocation_error)?;
+    for (index, expression) in record.expressions.iter().enumerate() {
+        if expression.ordinal as usize != index {
+            return Err(referential("callable expression rows are not dense and ordinal-sorted"));
+        }
+        if expression.range.start > expression.range.end {
+            return Err(referential("callable expression source range is inverted"));
+        }
+        for binding in [expression.binding_read, expression.binding_write].into_iter().flatten() {
+            if binding as usize >= record.bindings.len() {
+                return Err(referential("callable expression references an absent owner-local binding"));
+            }
+        }
+        let range = phalcom_common::range::SourceRange {
+            start: usize::try_from(expression.range.start).map_err(|_| referential("callable expression range start exceeds address space"))?,
+            end: usize::try_from(expression.range.end).map_err(|_| referential("callable expression range end exceeds address space"))?,
+        };
+        let knowledge = import_type_knowledge_with_allocation_budget(&expression.knowledge, relocation, &mut child)?;
+        let callable = expression
+            .callable
+            .as_ref()
+            .map(|callable| import_stable_callable_with_allocation_budget(callable, &mut child))
+            .transpose()?;
+        let causal_invalidity = match expression.causal_invalidity {
+            CallableCausalInvalidityV1::Clean => CausalInvalidity::Clean,
+            CallableCausalInvalidityV1::One { cause } => CausalInvalidity::One(DiagnosticCauseId(cause)),
+            CallableCausalInvalidityV1::Multiple => CausalInvalidity::Multiple,
+        };
+        let binding_read_safety = expression.binding_read_safety.as_ref().map(|safety| match safety {
+            PortableSafety::ProvenInitialized => BindingReadSafety::ProvenInitialized,
+            PortableSafety::DefinitelyUninitialized => BindingReadSafety::DefinitelyUninitialized,
+            PortableSafety::RuntimeCheckRequired => BindingReadSafety::RuntimeCheckRequired,
+        });
+        output.push(ImportedCallableExpressionFacts {
+            ordinal: expression.ordinal,
+            range,
+            knowledge,
+            callable,
+            causal_invalidity,
+            binding_read_safety,
+            binding_read: expression.binding_read,
+            binding_write: expression.binding_write,
+        });
+    }
+    allocations.commit_child(child).map_err(allocation_error)?;
     Ok(output)
 }
 
@@ -1543,29 +1877,33 @@ fn import_behavioral_family_spec_with_allocation_budget(
 
 fn import_invocation_target(
     target: &phalcom_compiler_artifact::semantic::world::InvocationTargetV1,
+    allocations: &mut AllocationBudget,
 ) -> Result<crate::identity::InvocationTargetId, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world::InvocationTargetV1 as Portable;
     Ok(match target {
-        Portable::Behavioral { callable } => crate::identity::InvocationTargetId::Behavioral(from_stable_callable(callable).map_err(referential)?),
-        Portable::VariantConstructor { variant } => {
-            crate::identity::InvocationTargetId::VariantConstructor(VariantConstructorId::new(from_stable_variant(variant).map_err(referential)?))
+        Portable::Behavioral { callable } => {
+            crate::identity::InvocationTargetId::Behavioral(import_stable_callable_with_allocation_budget(callable, allocations)?)
         }
+        Portable::VariantConstructor { variant } => crate::identity::InvocationTargetId::VariantConstructor(VariantConstructorId::new(
+            import_stable_variant_with_allocation_budget(variant, allocations)?,
+        )),
         Portable::DataConstructor { owner } => {
-            crate::identity::InvocationTargetId::DataConstructor(DataConstructorId::new(from_stable_declaration(owner).map_err(referential)?))
+            crate::identity::InvocationTargetId::DataConstructor(DataConstructorId::new(import_stable_declaration_with_allocation_budget(owner, allocations)?))
         }
     })
 }
 
 fn import_conditional_dispatch_selection(
     selection: &phalcom_compiler_artifact::semantic::world::ConditionalDispatchSelectionV1,
+    allocations: &mut AllocationBudget,
 ) -> Result<crate::dispatch::ConditionalDispatchSelection, ArtifactError> {
     if selection.side > 1 {
         return Err(referential("conditional dispatch selection side is invalid"));
     }
     Ok(crate::dispatch::ConditionalDispatchSelection {
-        impl_id: from_stable_impl(&selection.impl_id).map_err(referential)?,
-        callable: from_stable_callable(&selection.callable).map_err(referential)?,
-        declaring_owner: from_stable_declaration(&selection.declaring_owner).map_err(referential)?,
+        impl_id: import_stable_impl_with_allocation_budget(&selection.impl_id, allocations)?,
+        callable: import_stable_callable_with_allocation_budget(&selection.callable, allocations)?,
+        declaring_owner: import_stable_declaration_with_allocation_budget(&selection.declaring_owner, allocations)?,
         side: if selection.side == 0 { DispatchSide::Instance } else { DispatchSide::Class },
     })
 }
@@ -1576,21 +1914,22 @@ fn import_associated_member_with_allocation_budget(
 ) -> Result<crate::associated::AssociatedMemberId, ArtifactError> {
     use AssociatedMemberV1 as Portable;
     Ok(match member {
-        Portable::Variant { variant } => crate::associated::AssociatedMemberId::Variant(from_stable_variant(variant).map_err(referential)?),
-        Portable::DataConstructor { owner } => {
-            crate::associated::AssociatedMemberId::DataConstructor(DataConstructorId::new(from_stable_declaration(owner).map_err(referential)?))
-        }
-        Portable::DataComponent { owner, index } => {
-            crate::associated::AssociatedMemberId::DataComponent(DataComponentId::new(from_stable_declaration(owner).map_err(referential)?, *index))
-        }
+        Portable::Variant { variant } => crate::associated::AssociatedMemberId::Variant(import_stable_variant_with_allocation_budget(variant, allocations)?),
+        Portable::DataConstructor { owner } => crate::associated::AssociatedMemberId::DataConstructor(DataConstructorId::new(
+            import_stable_declaration_with_allocation_budget(owner, allocations)?,
+        )),
+        Portable::DataComponent { owner, index } => crate::associated::AssociatedMemberId::DataComponent(DataComponentId::new(
+            import_stable_declaration_with_allocation_budget(owner, allocations)?,
+            *index,
+        )),
         Portable::StaticDomain { declaration } => {
             crate::associated::AssociatedMemberId::StaticDomain(crate::identity::AssociatedStaticDomainDeclarationId::new(
-                from_stable_declaration(&declaration.owner).map_err(referential)?,
+                import_stable_declaration_with_allocation_budget(&declaration.owner, allocations)?,
                 allocations.boxed_str(&declaration.name).map_err(allocation_error)?,
             ))
         }
         Portable::TypeMember { owner, selector } => crate::associated::AssociatedMemberId::TypeMember(crate::types::type_member::TypeMemberDeclarationId::new(
-            from_stable_declaration(owner).map_err(referential)?,
+            import_stable_declaration_with_allocation_budget(owner, allocations)?,
             import_type_member_selector_with_allocation_budget(selector, allocations)?,
         )),
     })
@@ -1638,10 +1977,10 @@ fn import_semantic_denotation_inner(
                     member,
                     target,
                 } => {
-                    let target = target.as_ref().map(import_invocation_target).transpose()?;
+                    let target = target.as_ref().map(|target| import_invocation_target(target, allocations)).transpose()?;
                     AssociatedValueDenotation::Exact {
                         owner_form: relocation.ty(*owner_form)?,
-                        lookup_owner: from_stable_declaration(lookup_owner).map_err(referential)?,
+                        lookup_owner: import_stable_declaration_with_allocation_budget(lookup_owner, allocations)?,
                         member: import_associated_member_with_allocation_budget(member, allocations)?,
                         target: allocations.boxed(target).map_err(allocation_error)?,
                     }
@@ -1657,14 +1996,14 @@ fn import_semantic_denotation_inner(
                         captured.push(CapturedAssociatedMember {
                             operation: import_family_operation_shape_with_allocation_budget(&member.operation, allocations)?,
                             member: import_associated_member_with_allocation_budget(&member.member, allocations)?,
-                            target: member.target.as_ref().map(import_invocation_target).transpose()?,
+                            target: member.target.as_ref().map(|target| import_invocation_target(target, allocations)).transpose()?,
                         });
                     }
-                    let family_owner = from_stable_declaration(&family.owner).map_err(referential)?;
+                    let family_owner = import_stable_declaration_with_allocation_budget(&family.owner, allocations)?;
                     let family_base = import_associated_selector_with_allocation_budget(&family.selector, allocations)?;
                     AssociatedValueDenotation::Family {
                         owner_form: relocation.ty(*owner_form)?,
-                        lookup_owner: from_stable_declaration(lookup_owner).map_err(referential)?,
+                        lookup_owner: import_stable_declaration_with_allocation_budget(lookup_owner, allocations)?,
                         family: crate::identity::AssociatedFamilyId::new(family_owner, family_base),
                         members: budgeted_arc_slice(captured, allocations)?,
                     }
@@ -1677,8 +2016,12 @@ fn import_semantic_denotation_inner(
             for member in &family.members {
                 members.push(CapturedBehavioralMember {
                     operation: import_family_operation_shape_with_allocation_budget(&member.operation, allocations)?,
-                    target: import_invocation_target(&member.target)?,
-                    conditional: member.conditional.as_ref().map(import_conditional_dispatch_selection).transpose()?,
+                    target: import_invocation_target(&member.target, allocations)?,
+                    conditional: member
+                        .conditional
+                        .as_ref()
+                        .map(|selection| import_conditional_dispatch_selection(selection, allocations))
+                        .transpose()?,
                 });
             }
             let family = BehavioralFamilyDenotation {
@@ -1746,6 +2089,327 @@ pub fn import_callable_denotations(
         }
     }
     let imported = ImportedCallableDenotations { expressions, bindings };
+    allocations.commit_child(child).map_err(allocation_error)?;
+    Ok(imported)
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum ImportedCallableBindingSourceAuthority {
+    Source(SourceSiteId),
+    Generated(phalcom_compiler_artifact::semantic::world::CallableGeneratedBindingReasonV1),
+    ModuleValue,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct ImportedCallableBindingRow {
+    pub state: crate::checker::analysis::BindingState,
+    pub storage_origin: crate::checker::analysis::CallableBindingOrigin,
+    pub source_authority: ImportedCallableBindingSourceAuthority,
+    pub formal_range: Option<SourceRange>,
+}
+
+fn import_callable_binding_budget(report: &phalcom_compiler_artifact::semantic::world::CallableBudgetReportV1) -> crate::types::outcome::BudgetReport {
+    use phalcom_compiler_artifact::semantic::world::CallableBudgetKindV1 as Kind;
+    crate::types::outcome::BudgetReport::new(
+        match report.kind {
+            Kind::Steps => crate::types::outcome::BudgetKind::Steps,
+            Kind::RelationPairs => crate::types::outcome::BudgetKind::RelationPairs,
+            Kind::SccIterations => crate::types::outcome::BudgetKind::SccIterations,
+            Kind::TypeDepth => crate::types::outcome::BudgetKind::TypeDepth,
+            Kind::DiagnosticNotes => crate::types::outcome::BudgetKind::DiagnosticNotes,
+            Kind::ResidualNodes => crate::types::outcome::BudgetKind::ResidualNodes,
+        },
+        report.limit,
+        report.used,
+    )
+}
+
+fn import_callable_block_reason(
+    reason: &phalcom_compiler_artifact::semantic::world::CallableBlockReasonV1,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::types::outcome::BlockReason, ArtifactError> {
+    use crate::types::outcome::BlockReason;
+    use phalcom_compiler_artifact::semantic::world::CallableBlockReasonV1 as Portable;
+    Ok(match reason {
+        Portable::UnknownType { reason } => BlockReason::UnknownType(import_unknown_reason_with_allocation_budget(reason, allocations)?),
+        Portable::UnresolvedDependency { project_source, module_path } => {
+            let project_source = allocations.string(project_source).map_err(allocation_error)?;
+            let mut components = allocations
+                .vector::<phalcom_modules::ModuleComponent>(module_path.len())
+                .map_err(allocation_error)?;
+            for component in module_path {
+                let component = allocations.boxed_str(component).map_err(allocation_error)?;
+                components.push(
+                    phalcom_modules::ModuleComponent::from_owned_identifier(component)
+                        .map_err(|_| referential("callable unresolved-dependency module path contains an invalid component"))?,
+                );
+            }
+            BlockReason::UnresolvedDependency(crate::identity::StableModuleKey::new(
+                phalcom_modules::StableProjectKey::from_path(std::path::PathBuf::from(project_source)),
+                phalcom_modules::ModulePath::from_components(components.into_boxed_slice()),
+            ))
+        }
+        Portable::InvalidAnnotation { diagnostic_code } => BlockReason::InvalidAnnotation(
+            DiagnosticCode::from_stable_code(diagnostic_code).ok_or_else(|| referential("callable blocked reason has an unknown diagnostic code"))?,
+        ),
+        Portable::RecursiveFixpoint => BlockReason::RecursiveFixpoint,
+        Portable::InferenceDidNotConverge => BlockReason::InferenceDidNotConverge,
+        Portable::OpaqueNative { message } => BlockReason::OpaqueNative(allocations.boxed_str(message).map_err(allocation_error)?),
+        Portable::ReflectionBoundary => BlockReason::ReflectionBoundary,
+        Portable::UnavailableSemanticOwner { owner } => BlockReason::UnavailableSemanticOwner(import_callable_query_owner(owner, relocation, allocations)?),
+        Portable::BudgetExceeded { report } => BlockReason::BudgetExceeded(import_callable_binding_budget(report)),
+        Portable::SuppressedDependency => BlockReason::SuppressedDependency,
+    })
+}
+
+fn import_callable_binding_consistency(
+    consistency: &phalcom_compiler_artifact::semantic::world::CallableBindingConsistencyV1,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::checker::binding::BindingConsistency, ArtifactError> {
+    use crate::checker::binding::{AssumptionBasis, BindingConsistency};
+    use phalcom_compiler_artifact::semantic::world::{CallableBindingAssumptionBasisV1 as Assumption, CallableBindingConsistencyV1 as Portable};
+    Ok(match consistency {
+        Portable::Unconstrained => BindingConsistency::Unconstrained,
+        Portable::Validated => BindingConsistency::Validated,
+        Portable::Assumed { basis } => BindingConsistency::Assumed {
+            basis: match basis {
+                Assumption::MissingValueEvidence { reason } => {
+                    AssumptionBasis::MissingValueEvidence(import_unknown_reason_with_allocation_budget(reason, allocations)?)
+                }
+                Assumption::CallableParameterContract => AssumptionBasis::CallableParameterContract,
+                Assumption::ContextualParameterContract => AssumptionBasis::ContextualParameterContract,
+                Assumption::DerivedEvidence { origin } => AssumptionBasis::DerivedEvidence(match origin {
+                    phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::Syntax => crate::types::evidence::EvidenceOrigin::Syntax,
+                    phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::DeclarationSemantics => {
+                        crate::types::evidence::EvidenceOrigin::DeclarationSemantics
+                    }
+                    phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::ConstructorSemantics => {
+                        crate::types::evidence::EvidenceOrigin::ConstructorSemantics
+                    }
+                    phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::CallableSignature => {
+                        crate::types::evidence::EvidenceOrigin::CallableSignature
+                    }
+                    phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::NativeSignature => crate::types::evidence::EvidenceOrigin::NativeSignature,
+                    phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::DeveloperAnnotation => {
+                        crate::types::evidence::EvidenceOrigin::DeveloperAnnotation
+                    }
+                    phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::GenericInference => crate::types::evidence::EvidenceOrigin::GenericInference,
+                    phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::Flow => crate::types::evidence::EvidenceOrigin::Flow,
+                    phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::FieldLifecycle => crate::types::evidence::EvidenceOrigin::FieldLifecycle,
+                    phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::ContextualDerivation => {
+                        crate::types::evidence::EvidenceOrigin::ContextualDerivation
+                    }
+                    phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::PatternDecomposition => {
+                        crate::types::evidence::EvidenceOrigin::PatternDecomposition
+                    }
+                }),
+            },
+        },
+        Portable::Refuted { actual, expected, reason } => BindingConsistency::Refuted {
+            actual: relocation.ty(*actual)?,
+            expected: relocation.ty(*expected)?,
+            reason: match reason {
+                phalcom_compiler_artifact::semantic::world::CallableRefutationReasonV1::IncompatibleNominal => {
+                    crate::types::relation::RefutationReason::IncompatibleNominal
+                }
+                phalcom_compiler_artifact::semantic::world::CallableRefutationReasonV1::TypeMismatch => crate::types::relation::RefutationReason::TypeMismatch,
+                phalcom_compiler_artifact::semantic::world::CallableRefutationReasonV1::UnionMemberMismatch => {
+                    crate::types::relation::RefutationReason::UnionMemberMismatch
+                }
+            },
+        },
+        Portable::DynamicBoundary { reason } => BindingConsistency::DynamicBoundary {
+            obligation: crate::types::outcome::DynamicBoundaryObligation {
+                reason: allocations.string(reason).map_err(allocation_error)?,
+            },
+        },
+        Portable::Blocked { reason } => BindingConsistency::Blocked(import_callable_block_reason(reason, relocation, allocations)?),
+        Portable::Cancelled => BindingConsistency::Cancelled,
+        Portable::BudgetExceeded { report } => BindingConsistency::BudgetExceeded(import_callable_binding_budget(report)),
+        Portable::InternalFailure { message } => BindingConsistency::InternalFailure(allocations.boxed_str(message).map_err(allocation_error)?),
+    })
+}
+
+fn import_callable_binding_source_authority(
+    authority: &phalcom_compiler_artifact::semantic::world::CallableBindingAuthorityV1,
+    allocations: &mut AllocationBudget,
+) -> Result<
+    (
+        crate::checker::analysis::CallableBindingOrigin,
+        ImportedCallableBindingSourceAuthority,
+        Option<SourceRange>,
+    ),
+    ArtifactError,
+> {
+    use phalcom_compiler_artifact::semantic::world::{CallableAnalysisSourceOwnerV1 as SourceOwnerV1, CallableBindingAuthorityV1 as Authority};
+    Ok(match authority {
+        Authority::BodyLocalSource {
+            site_owner,
+            site_local,
+            declaration_range,
+        } => {
+            if declaration_range.start > declaration_range.end {
+                return Err(referential("callable binding source declaration range is inverted"));
+            }
+            let owner = match site_owner {
+                SourceOwnerV1::Module { module } => SourceOwner::Module(import_stable_module_with_allocation_budget(module, allocations)?),
+                SourceOwnerV1::Callable { callable } => SourceOwner::Callable(import_stable_callable_with_allocation_budget(callable, allocations)?),
+            };
+            let site = SourceSiteId {
+                owner,
+                local: SourceSiteLocalId(*site_local),
+            };
+            let range = SourceRange {
+                start: usize::try_from(declaration_range.start).map_err(|_| referential("callable binding source start exceeds address space"))?,
+                end: usize::try_from(declaration_range.end).map_err(|_| referential("callable binding source end exceeds address space"))?,
+            };
+            (
+                crate::checker::analysis::CallableBindingOrigin::BodyLocal,
+                ImportedCallableBindingSourceAuthority::Source(site),
+                Some(range),
+            )
+        }
+        Authority::BodyLocalGenerated { reason } => (
+            crate::checker::analysis::CallableBindingOrigin::BodyLocal,
+            ImportedCallableBindingSourceAuthority::Generated(reason.clone()),
+            None,
+        ),
+        Authority::ModuleValue { module, name, import_binding } => {
+            let module = import_stable_module_with_allocation_budget(module, allocations)?;
+            let symbol = phalcom_modules::linker::SymbolId {
+                module,
+                name: allocations.boxed_str(name).map_err(allocation_error)?,
+            };
+            (
+                crate::checker::analysis::CallableBindingOrigin::ModuleValue {
+                    symbol,
+                    import: import_binding.map(phalcom_modules::linker::ImportBindingId),
+                },
+                ImportedCallableBindingSourceAuthority::ModuleValue,
+                None,
+            )
+        }
+    })
+}
+
+/// Imports complete callable binding rows without consulting source or
+/// rebuilding formal attachments from names and ranges.
+pub fn import_callable_binding_rows(
+    record: &phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<Vec<ImportedCallableBindingRow>, ArtifactError> {
+    use crate::checker::binding::{BindingContract, BindingContractOrigin};
+    use crate::checker::causal::CausalInvalidity;
+    use phalcom_compiler_artifact::semantic::world::{CallableBindingContractOriginV1 as ContractOrigin, CallableCausalInvalidityV1 as Invalidity};
+
+    let mut child = allocations.child(allocations.remaining());
+    let mut imported = child.vector::<ImportedCallableBindingRow>(record.bindings.len()).map_err(allocation_error)?;
+    for (index, row) in record.bindings.iter().enumerate() {
+        if usize::try_from(row.ordinal).ok() != Some(index) {
+            return Err(referential("callable binding rows are not dense and ordinal-sorted"));
+        }
+        if row.range.start > row.range.end {
+            return Err(referential("callable binding range is inverted"));
+        }
+        let binding = BindingId(row.ordinal);
+        let parameter = row
+            .parameter
+            .as_ref()
+            .map(|parameter| -> Result<CallableParameterId, ArtifactError> {
+                Ok(CallableParameterId {
+                    callable: import_stable_callable_with_allocation_budget(&parameter.callable, &mut child)?,
+                    index: parameter.index,
+                })
+            })
+            .transpose()?;
+        let range = SourceRange {
+            start: usize::try_from(row.range.start).map_err(|_| referential("callable binding range start exceeds address space"))?,
+            end: usize::try_from(row.range.end).map_err(|_| referential("callable binding range end exceeds address space"))?,
+        };
+        let contract = row
+            .contract
+            .as_ref()
+            .map(|contract| -> Result<_, ArtifactError> {
+                let source = contract
+                    .source
+                    .as_ref()
+                    .map(|source| -> Result<_, ArtifactError> {
+                        if source.start > source.end {
+                            return Err(referential("callable binding contract source range is inverted"));
+                        }
+                        Ok(SourceRange {
+                            start: usize::try_from(source.start).map_err(|_| referential("callable binding contract source start exceeds address space"))?,
+                            end: usize::try_from(source.end).map_err(|_| referential("callable binding contract source end exceeds address space"))?,
+                        })
+                    })
+                    .transpose()?;
+                Ok(BindingContract {
+                    ty: relocation.ty(contract.ty)?,
+                    origin: match contract.origin {
+                        ContractOrigin::SourceAnnotation => BindingContractOrigin::SourceAnnotation,
+                        ContractOrigin::InferredInitializer => BindingContractOrigin::InferredInitializer,
+                        ContractOrigin::CallableParameter => BindingContractOrigin::CallableParameter,
+                        ContractOrigin::ContextualBlockParameter => BindingContractOrigin::ContextualBlockParameter,
+                        ContractOrigin::PatternBinding => BindingContractOrigin::PatternBinding,
+                        ContractOrigin::StaticParameter => BindingContractOrigin::StaticParameter,
+                    },
+                    source,
+                })
+            })
+            .transpose()?;
+        let current = import_type_knowledge_with_allocation_budget(&row.current, relocation, &mut child)?;
+        let denotation = row
+            .denotation
+            .as_ref()
+            .map(|denotation| import_semantic_denotation_inner(denotation, relocation, &mut child))
+            .transpose()?;
+        let consistency = import_callable_binding_consistency(&row.consistency, relocation, &mut child)?;
+        let causal_invalidity = match row.causal_invalidity {
+            Invalidity::Clean => CausalInvalidity::Clean,
+            Invalidity::One { cause } => CausalInvalidity::One(DiagnosticCauseId(cause)),
+            Invalidity::Multiple => CausalInvalidity::Multiple,
+        };
+        let explanation = row.explanation.map(ExplanationId);
+        let (storage_origin, source_authority, formal_range) = import_callable_binding_source_authority(&row.authority, &mut child)?;
+        if formal_range.is_some() && !matches!(storage_origin, crate::checker::analysis::CallableBindingOrigin::BodyLocal) {
+            return Err(referential("module-value binding cannot have a callable-local formal source attachment"));
+        }
+        let name = child.string(&row.name).map_err(allocation_error)?;
+        let state = crate::checker::analysis::BindingState {
+            binding,
+            name,
+            parameter,
+            range,
+            contract,
+            current,
+            denotation,
+            consistency,
+            causal_invalidity,
+            mutable: row.mutable,
+            initialization: match row.initialization {
+                phalcom_compiler_artifact::semantic::world::CallableInitializationStateV1::Uninitialized => {
+                    crate::checker::flow::InitializationState::Uninitialized
+                }
+                phalcom_compiler_artifact::semantic::world::CallableInitializationStateV1::MaybeInitialized => {
+                    crate::checker::flow::InitializationState::MaybeInitialized
+                }
+                phalcom_compiler_artifact::semantic::world::CallableInitializationStateV1::DefinitelyInitialized => {
+                    crate::checker::flow::InitializationState::DefinitelyInitialized
+                }
+            },
+            version: row.version,
+            explanation,
+        };
+        imported.push(ImportedCallableBindingRow {
+            state,
+            storage_origin,
+            source_authority,
+            formal_range,
+        });
+    }
     allocations.commit_child(child).map_err(allocation_error)?;
     Ok(imported)
 }
@@ -2657,14 +3321,39 @@ mod tests {
         use phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId;
         use phalcom_compiler_artifact::semantic::world::{
             AssociatedFamilyIdentityV1, AssociatedMemberV1, AssociatedValueDenotationV1, CallableAnalysisRecordV1, CallableAnalysisStatusV1,
-            CallableBindingOriginV1, CallableBindingRowV1, CallableExpressionRowV1, CallableFlowGraphV1, FamilyOperationShapeV1, InvocationTargetV1,
-            SelectorKindV1, SelectorSlotV1, SemanticDenotationV1,
+            CallableBindingAuthorityV1, CallableBindingConsistencyV1, CallableBindingRowV1, CallableCausalInvalidityV1, CallableExpressionRowV1,
+            CallableFlowGraphV1, CallableInitializationStateV1, FamilyOperationShapeV1, InvocationTargetV1, SelectorKindV1, SelectorSlotV1,
+            SemanticDenotationV1,
         };
 
         let owner = owner();
         let callable = crate::identity::CallableId::method(owner.clone(), Selector::method("analyze", []).unwrap(), DispatchSide::Instance);
         let variant = VariantId::new(owner.clone(), Selector::getter("Ready").unwrap());
         let stable_owner = crate::metadata::stable_identity::to_stable_declaration(&owner);
+        let make_binding_row = |ordinal: u32, denotation| CallableBindingRowV1 {
+            ordinal,
+            name: format!("binding_{ordinal}"),
+            parameter: None,
+            range: SpanV1 { start: 0, end: 0 },
+            contract: None,
+            current: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+                reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+            },
+            denotation,
+            consistency: CallableBindingConsistencyV1::Unconstrained,
+            causal_invalidity: CallableCausalInvalidityV1::Clean,
+            mutable: false,
+            initialization: CallableInitializationStateV1::DefinitelyInitialized,
+            version: 0,
+            explanation: None,
+            authority: CallableBindingAuthorityV1::BodyLocalSource {
+                site_owner: phalcom_compiler_artifact::semantic::world::CallableAnalysisSourceOwnerV1::Module {
+                    module: stable_owner.module.clone(),
+                },
+                site_local: ordinal,
+                declaration_range: SpanV1 { start: 0, end: 0 },
+            },
+        };
         let mut record = CallableAnalysisRecordV1 {
             callable: crate::metadata::stable_identity::to_stable_callable(&callable),
             body_source_owner: None,
@@ -2681,24 +3370,54 @@ mod tests {
             expressions: vec![
                 CallableExpressionRowV1 {
                     ordinal: 0,
+                    range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+                    knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+                        reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+                    },
+                    callable: None,
+                    causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                    binding_read_safety: None,
+                    binding_read: None,
+                    binding_write: None,
+                    status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
                     denotation: None,
                     call_specialization: None,
                 },
                 CallableExpressionRowV1 {
                     ordinal: 1,
+                    range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+                    knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+                        reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+                    },
+                    callable: None,
+                    causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                    binding_read_safety: None,
+                    binding_read: None,
+                    binding_write: None,
+                    status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
                     denotation: None,
                     call_specialization: None,
                 },
                 CallableExpressionRowV1 {
                     ordinal: 2,
+                    range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+                    knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+                        reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+                    },
+                    callable: None,
+                    causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                    binding_read_safety: None,
+                    binding_read: None,
+                    binding_write: None,
+                    status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
                     denotation: Some(SemanticDenotationV1::TypeForm { ty: ArtifactTypeId(0) }),
                     call_specialization: None,
                 },
             ],
             bindings: vec![
-                CallableBindingRowV1 {
-                    ordinal: 0,
-                    denotation: Some(SemanticDenotationV1::AssociatedValue {
+                make_binding_row(
+                    0,
+                    Some(SemanticDenotationV1::AssociatedValue {
                         value: AssociatedValueDenotationV1::Exact {
                             owner_form: ArtifactTypeId(0),
                             lookup_owner: stable_owner.clone(),
@@ -2708,12 +3427,10 @@ mod tests {
                             target: None,
                         },
                     }),
-                    formal_attachment: None,
-                    origin: CallableBindingOriginV1::BodyLocal,
-                },
-                CallableBindingRowV1 {
-                    ordinal: 1,
-                    denotation: Some(SemanticDenotationV1::AssociatedValue {
+                ),
+                make_binding_row(
+                    1,
+                    Some(SemanticDenotationV1::AssociatedValue {
                         value: AssociatedValueDenotationV1::Family {
                             owner_form: ArtifactTypeId(0),
                             lookup_owner: stable_owner.clone(),
@@ -2731,9 +3448,7 @@ mod tests {
                             }],
                         },
                     }),
-                    formal_attachment: None,
-                    origin: CallableBindingOriginV1::BodyLocal,
-                },
+                ),
             ],
         };
         let relocation = TypeRelocation {
@@ -2786,18 +3501,270 @@ mod tests {
         assert!(matches!(error, ArtifactError::Allocation(AllocationError::Exhausted)));
         assert_eq!(insufficient.requested(), 0, "a rejected owner graph does not debit the caller");
 
-        record.bindings.push(CallableBindingRowV1 {
-            ordinal: 2,
-            denotation: Some(SemanticDenotationV1::StaticApplication {
-                body: stable_owner,
+        record.bindings.push(make_binding_row(
+            2,
+            Some(SemanticDenotationV1::StaticApplication {
+                body: stable_owner.clone(),
                 ordinal: 0,
             }),
-            formal_attachment: None,
-            origin: CallableBindingOriginV1::BodyLocal,
-        });
+        ));
         let mut rejected = AllocationBudget::new(1 << 20);
         assert!(import_callable_denotations(&record, &relocation, &mut rejected).is_err());
         assert_eq!(rejected.requested(), 0, "a later fail-closed denotation rolls back earlier owner allocations");
+    }
+
+    #[test]
+    fn callable_binding_row_import_preserves_full_state_and_exact_source_identity() {
+        use crate::checker::analysis::{BindingState, CallableBindingOrigin};
+        use crate::checker::binding::{BindingConsistency, BindingContract, BindingContractOrigin};
+        use crate::checker::causal::CausalInvalidity;
+        use crate::checker::flow::InitializationState;
+        use crate::identity::{CallableParameterId, DiagnosticCauseId, ExplanationId, SourceOwner, SourceSiteId, SourceSiteLocalId};
+        use crate::types::denotation::SemanticDenotation;
+        use crate::types::evidence::{EvidenceOrigin, EvidenceSet, EvidenceStatus, TypeKnowledge};
+        use crate::types::id::{TypeId, TypeStoreId};
+        use phalcom_compiler_artifact::module_world::SpanV1;
+        use phalcom_compiler_artifact::semantic::aggregates::{TraitRefV1, TypeTermV1};
+        use phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId;
+        use phalcom_compiler_artifact::semantic::world::{
+            CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1,
+            CallableBindingContractOriginV1, CallableBindingContractV1, CallableBindingRowV1, CallableCausalInvalidityV1, CallableFlowGraphV1,
+            CallableQueryOwnerV1, SemanticDenotationV1, TypeKnowledgeV1,
+        };
+
+        let declaration = owner();
+        let callable = CallableId::method(
+            declaration.clone(),
+            Selector::method("read", [phalcom_common::selector::SelectorSlot::Label("payload".into())]).unwrap(),
+            DispatchSide::Instance,
+        );
+        let stable_callable = crate::metadata::stable_identity::to_stable_callable(&callable);
+        let stable_declaration = crate::metadata::stable_identity::to_stable_declaration(&declaration);
+        let module = stable_declaration.module.clone();
+        let record = CallableAnalysisRecordV1 {
+            callable: stable_callable.clone(),
+            body_source_owner: None,
+            body_range: SpanV1 { start: 0, end: 12 },
+            status: CallableAnalysisStatusV1::Complete,
+            exits_unreachable: false,
+            flow_graph: CallableFlowGraphV1 {
+                nodes: Vec::new(),
+                edges: Vec::new(),
+                entry: None,
+                exits: Vec::new(),
+            },
+            constructor_super_initializer: None,
+            expressions: vec![phalcom_compiler_artifact::semantic::world::CallableExpressionRowV1 {
+                ordinal: 0,
+                range: SpanV1 { start: 1, end: 4 },
+                knowledge: TypeKnowledgeV1::Known {
+                    ty: ArtifactTypeId(0),
+                    status: phalcom_compiler_artifact::semantic::world::EvidenceStatusV1::Assumed,
+                    origin: phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::Flow,
+                    provenance: phalcom_compiler_artifact::semantic::world::EvidenceSetV1 {
+                        ranges: vec![SpanV1 { start: 2, end: 3 }],
+                        descriptions: vec!["flow fact".into()],
+                    },
+                },
+                callable: Some(stable_callable.clone()),
+                causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::One { cause: 7 },
+                binding_read_safety: Some(phalcom_compiler_artifact::semantic::world::CallableBindingReadSafetyV1::RuntimeCheckRequired),
+                binding_read: Some(0),
+                binding_write: Some(0),
+                status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Blocked {
+                    reason: phalcom_compiler_artifact::semantic::world::CallableBlockReasonV1::UnavailableSemanticOwner {
+                        owner: CallableQueryOwnerV1::GenericConformance {
+                            subject: TypeTermV1::Canonical { ty: ArtifactTypeId(0) },
+                            trait_ref: TraitRefV1 {
+                                declaration: stable_declaration.clone(),
+                                arguments: vec![ArtifactTypeId(0)],
+                            },
+                        },
+                    },
+                },
+                denotation: None,
+                call_specialization: None,
+            }],
+            bindings: vec![CallableBindingRowV1 {
+                ordinal: 0,
+                name: "text".into(),
+                parameter: Some(phalcom_compiler_artifact::semantic::world::CallableParameterIdentityV1 {
+                    callable: stable_callable.clone(),
+                    index: 3,
+                }),
+                range: SpanV1 { start: 5, end: 9 },
+                contract: Some(CallableBindingContractV1 {
+                    ty: ArtifactTypeId(0),
+                    origin: CallableBindingContractOriginV1::SourceAnnotation,
+                    source: Some(SpanV1 { start: 5, end: 9 }),
+                }),
+                current: TypeKnowledgeV1::Known {
+                    ty: ArtifactTypeId(0),
+                    status: phalcom_compiler_artifact::semantic::world::EvidenceStatusV1::Assumed,
+                    origin: phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::DeveloperAnnotation,
+                    provenance: phalcom_compiler_artifact::semantic::world::EvidenceSetV1 {
+                        ranges: vec![SpanV1 { start: 1, end: 2 }],
+                        descriptions: vec!["annotation".into()],
+                    },
+                },
+                denotation: Some(SemanticDenotationV1::TypeForm { ty: ArtifactTypeId(0) }),
+                consistency: CallableBindingConsistencyV1::Blocked {
+                    reason: phalcom_compiler_artifact::semantic::world::CallableBlockReasonV1::UnavailableSemanticOwner {
+                        owner: CallableQueryOwnerV1::GenericConformance {
+                            subject: TypeTermV1::Canonical { ty: ArtifactTypeId(0) },
+                            trait_ref: TraitRefV1 {
+                                declaration: stable_declaration.clone(),
+                                arguments: vec![ArtifactTypeId(0)],
+                            },
+                        },
+                    },
+                },
+                causal_invalidity: CallableCausalInvalidityV1::One { cause: 7 },
+                mutable: true,
+                initialization: phalcom_compiler_artifact::semantic::world::CallableInitializationStateV1::MaybeInitialized,
+                version: 4,
+                explanation: Some(9),
+                authority: CallableBindingAuthorityV1::BodyLocalSource {
+                    site_owner: CallableAnalysisSourceOwnerV1::Module { module: module.clone() },
+                    site_local: 12,
+                    declaration_range: SpanV1 { start: 5, end: 9 },
+                },
+            }],
+        };
+        let relocation = TypeRelocation {
+            store_id: TypeStoreId(0),
+            types: vec![TypeId(81)],
+            kinds: Vec::new(),
+            parameters: Vec::new(),
+            rows: Vec::new(),
+            families: Vec::new(),
+            variants: Vec::new(),
+            domains: Vec::new(),
+            constructors: Vec::new(),
+            scoped: Vec::new(),
+            lambdas: Vec::new(),
+        };
+        let mut allocations = AllocationBudget::new(1 << 20);
+        let rows = import_callable_binding_rows(&record, &relocation, &mut allocations).unwrap();
+        let required = allocations.requested();
+        assert!(required > 0);
+        assert_eq!(rows.len(), 1);
+
+        let conformance = crate::db::QueryKey::GenericConformance(crate::generic_evidence::GenericConformanceKey::new(
+            crate::types::parameter::TypeTerm::Canonical(TypeId(81)),
+            crate::traits::TraitRef::new(declaration.clone(), vec![TypeId(81)].into_boxed_slice()),
+        ));
+        let expected = BindingState {
+            binding: BindingId(0),
+            name: "text".into(),
+            parameter: Some(CallableParameterId::new(callable.clone(), 3)),
+            range: SourceRange { start: 5, end: 9 },
+            contract: Some(BindingContract {
+                ty: TypeId(81),
+                origin: BindingContractOrigin::SourceAnnotation,
+                source: Some(SourceRange { start: 5, end: 9 }),
+            }),
+            current: TypeKnowledge::known_with_evidence(
+                TypeId(81),
+                EvidenceStatus::Assumed,
+                EvidenceOrigin::DeveloperAnnotation,
+                EvidenceSet {
+                    ranges: vec![SourceRange { start: 1, end: 2 }],
+                    descriptions: vec!["annotation".into()],
+                },
+            ),
+            denotation: Some(SemanticDenotation::TypeForm(TypeId(81))),
+            consistency: BindingConsistency::Blocked(crate::types::outcome::BlockReason::UnavailableSemanticOwner(conformance)),
+            causal_invalidity: CausalInvalidity::One(DiagnosticCauseId(7)),
+            mutable: true,
+            initialization: InitializationState::MaybeInitialized,
+            version: 4,
+            explanation: Some(ExplanationId(9)),
+        };
+        assert_eq!(rows[0].state, expected);
+        assert_eq!(rows[0].storage_origin, CallableBindingOrigin::BodyLocal);
+        assert_eq!(
+            rows[0].source_authority,
+            ImportedCallableBindingSourceAuthority::Source(SourceSiteId {
+                owner: SourceOwner::Module(declaration.module),
+                local: SourceSiteLocalId(12),
+            })
+        );
+        assert_eq!(rows[0].formal_range, Some(SourceRange { start: 5, end: 9 }));
+
+        let mut status_allocations = AllocationBudget::new(1 << 20);
+        let statuses = import_callable_expression_statuses(&record.expressions, &relocation, &mut status_allocations).unwrap();
+        let status_required = status_allocations.requested();
+        assert_eq!(
+            statuses,
+            vec![(
+                0,
+                crate::checker::analysis::AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnavailableSemanticOwner(match &expected.consistency {
+                    BindingConsistency::Blocked(reason) => match reason {
+                        crate::types::outcome::BlockReason::UnavailableSemanticOwner(owner) => owner.clone(),
+                        _ => unreachable!(),
+                    },
+                    _ => unreachable!(),
+                }),)
+            )]
+        );
+        assert!(status_required > 0);
+        let mut status_exact = AllocationBudget::new(status_required);
+        import_callable_expression_statuses(&record.expressions, &relocation, &mut status_exact).unwrap();
+        assert_eq!(status_exact.requested(), status_required);
+        let mut status_short = AllocationBudget::new(status_required - 1);
+        let error = import_callable_expression_statuses(&record.expressions, &relocation, &mut status_short).unwrap_err();
+        assert!(matches!(error, ArtifactError::Allocation(AllocationError::Exhausted)));
+        assert_eq!(status_short.requested(), 0, "a rejected expression status does not debit its parent");
+
+        let mut expression_allocations = AllocationBudget::new(1 << 20);
+        let expression_facts = import_callable_expression_facts(&record, &relocation, &mut expression_allocations).unwrap();
+        let expression_required = expression_allocations.requested();
+        assert!(expression_required > 0);
+        assert_eq!(
+            expression_facts,
+            vec![ImportedCallableExpressionFacts {
+                ordinal: 0,
+                range: SourceRange { start: 1, end: 4 },
+                knowledge: TypeKnowledge::known_with_evidence(
+                    TypeId(81),
+                    EvidenceStatus::Assumed,
+                    EvidenceOrigin::Flow,
+                    EvidenceSet {
+                        ranges: vec![SourceRange { start: 2, end: 3 }],
+                        descriptions: vec!["flow fact".into()],
+                    },
+                ),
+                callable: Some(callable.clone()),
+                causal_invalidity: CausalInvalidity::One(DiagnosticCauseId(7)),
+                binding_read_safety: Some(crate::checker::flow::BindingReadSafety::RuntimeCheckRequired),
+                binding_read: Some(0),
+                binding_write: Some(0),
+            }]
+        );
+        let mut expression_exact = AllocationBudget::new(expression_required);
+        assert_eq!(
+            import_callable_expression_facts(&record, &relocation, &mut expression_exact).unwrap(),
+            expression_facts
+        );
+        assert_eq!(expression_exact.requested(), expression_required);
+        let mut expression_short = AllocationBudget::new(expression_required - 1);
+        let error = import_callable_expression_facts(&record, &relocation, &mut expression_short).unwrap_err();
+        assert!(matches!(error, ArtifactError::Allocation(AllocationError::Exhausted)));
+        assert_eq!(expression_short.requested(), 0, "a rejected expression owner does not debit its parent");
+
+        let mut exact = AllocationBudget::new(required);
+        assert_eq!(import_callable_binding_rows(&record, &relocation, &mut exact).unwrap(), rows);
+        assert_eq!(exact.requested(), required);
+
+        let mut one_short = AllocationBudget::new(required - 1);
+        let error = import_callable_binding_rows(&record, &relocation, &mut one_short).unwrap_err();
+        assert!(matches!(error, ArtifactError::Allocation(AllocationError::Exhausted)));
+        assert_eq!(one_short.requested(), 0, "a rejected callable binding owner does not debit its parent");
+
+        let mut retry = AllocationBudget::new(required);
+        assert_eq!(import_callable_binding_rows(&record, &relocation, &mut retry).unwrap(), rows);
+        assert_eq!(retry.requested(), required);
     }
 
     fn owner() -> DeclarationId {
@@ -2862,9 +3829,20 @@ mod tests {
 
         for key in keys {
             let portable = crate::artifact::export::export_callable_query_owner(&key, &types).unwrap();
-            let mut allocations = AllocationBudget::new(1 << 20);
-            let restored = import_callable_query_owner(&portable, &relocation, &mut allocations).unwrap();
+            let mut measured = AllocationBudget::new(1 << 20);
+            let restored = import_callable_query_owner(&portable, &relocation, &mut measured).unwrap();
             assert_eq!(restored, key);
+            let required = measured.requested();
+            assert!(required > 0);
+
+            let mut exact = AllocationBudget::new(required);
+            assert_eq!(import_callable_query_owner(&portable, &relocation, &mut exact).unwrap(), key);
+            assert_eq!(exact.requested(), required);
+
+            let mut one_short = AllocationBudget::new(required - 1);
+            let error = import_callable_query_owner(&portable, &relocation, &mut one_short).unwrap_err();
+            assert!(matches!(error, ArtifactError::Allocation(AllocationError::Exhausted)));
+            assert_eq!(one_short.requested(), 0, "query-owner import rolls back its parent on allocation failure");
         }
 
         let malformed = QueryKey::GenericConformance(GenericConformanceKey::new(
@@ -2915,21 +3893,61 @@ mod tests {
         let expressions = vec![
             CallableExpressionRowV1 {
                 ordinal: 0,
+                range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+                knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+                    reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+                },
+                callable: None,
+                causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                binding_read_safety: None,
+                binding_read: None,
+                binding_write: None,
+                status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
                 denotation: None,
                 call_specialization: None,
             },
             CallableExpressionRowV1 {
                 ordinal: 1,
+                range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+                knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+                    reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+                },
+                callable: None,
+                causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                binding_read_safety: None,
+                binding_read: None,
+                binding_write: None,
+                status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
                 denotation: None,
                 call_specialization: None,
             },
             CallableExpressionRowV1 {
                 ordinal: 2,
+                range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+                knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+                    reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+                },
+                callable: None,
+                causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                binding_read_safety: None,
+                binding_read: None,
+                binding_write: None,
+                status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
                 denotation: None,
                 call_specialization: None,
             },
             CallableExpressionRowV1 {
                 ordinal: 3,
+                range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+                knowledge: phalcom_compiler_artifact::semantic::world::TypeKnowledgeV1::Unknown {
+                    reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+                },
+                callable: None,
+                causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+                binding_read_safety: None,
+                binding_read: None,
+                binding_write: None,
+                status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Ready,
                 denotation: None,
                 call_specialization: Some(CallableCallSpecializationV1 {
                     callable: crate::metadata::stable_identity::to_stable_callable(&callable),
