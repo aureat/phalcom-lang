@@ -1223,6 +1223,176 @@ Before substantive edits, verify:
 
 ---
 
+## 12.4 Adopted architecture amendment — portable query-owner identity
+
+**Decision ID:** `PERF003.C2.P7.PATCH1-ADR-QUERY-OWNER`
+**Decision date:** 2026-10-16
+**Decision baseline:** `0bbc678b9dc280de3c33ba9938c8bfc01d4d4fd0`
+**Status:** approved for implementation; implementation and acceptance pending.
+
+This amendment adopts the architect's supplied decision. It is normative for
+PATCH1 and resolves the T4/T5 consultation hold recorded in the checkpoint.
+
+### Fixed architecture and PATCH4 boundary
+
+PATCH1 owns a closed, typed, deterministic, callable-local portable
+representation of `QueryKey` identities embedded in callable semantic facts.
+It preserves semantic identity only; it does not serialize query-cache state,
+reconstruct a query result, execute a query, re-run semantic analysis, or use
+source lookup. PATCH1 must not depend on PATCH4 completion or expand the shared
+query-image wire. PATCH4 owns query-image persistence and may reuse the logical
+identity rules established here without reinterpreting them.
+
+Unsupported/nonportable identities use typed fail-closed rejection. This is a
+codec disposition, not a redefinition of canonical-publication eligibility.
+The publisher must separately validate semantic eligibility and complete
+portable representability. A legitimate canonical callable state required by
+T4/T5 cannot be made unsupported merely to simplify the codec.
+
+### Publication domain and portable identities
+
+The contract covers an exhaustively classified canonical-publication subset
+of `QueryKey`, not automatically every internal query variant. Before fixing
+the final wire enum, QO-0 must classify every live `QueryKey` variant as:
+
+1. supported with complete portable identity and root closure;
+2. ineligible for canonical callable publication, with governing
+   invariant/evidence; or
+3. unsupported and explicitly rejected with a typed error.
+
+Every query owner reachable from an accepted callable must be supported.
+No wildcard may silently accept future variants; a rejection wildcard is
+permitted only when it always fails closed.
+
+`GenericConformance` and `TraitDispatchBucket` must be represented losslessly.
+The generic key preserves the complete `TypeTerm` and `TraitRef`, including
+stable declaration identity and ordered type arguments. The dispatch bucket
+preserves every field participating in `TraitDispatchBucketKey` equality and
+hashing. Exact field layouts must come from live types. Names, ranges, partial
+selectors, or re-resolved dispatch cannot substitute for identity.
+
+Use stable portable type/declaration identities, not raw `TypeId`,
+`InferVarId`, `TypeStoreId`, or other process-local handles. Reuse existing
+canonical identity rules where complete. Portable encoding and fingerprinting
+must share one logical identity contract.
+
+### PUB-QO-01 — Closed query-owner identity
+
+Every query-owner identity reachable from a publishable canonical callable
+must be fully resolved to portable semantic identities. Unresolved
+`TypeTerm::Infer(InferVarId)` is prohibited. Export preflight must detect and
+reject it before portable record construction. An existing authoritative
+finalized substitution may be projected only under established canonical
+normalization rules; export must not perform new inference, query execution,
+or semantic resolution.
+
+### Root closure, validation, and relocation
+
+Extend callable root registration through every occurrence of
+`UnavailableSemanticOwner(QueryKey)`, including binding consistency and
+expression status, and audit the rest of the callable graph for other such
+paths. Root traversal and encoding must have matching variant coverage.
+Register all type, trait, declaration, and identity roots before portable
+references are finalized. Import may not repair missing roots.
+
+Import must validate variant tags, admitted query kinds, graph references,
+stable declarations, trait argument consistency, owner relationships,
+canonical encoding, nesting/resource limits, and allocation-budget use before
+publishing the reconstructed callable. It reconstructs the exact native key
+after fresh-store relocation and never queries or re-solves semantics.
+
+### FP-QO-01 — Relocation-invariant query-owner fingerprinting
+
+Query-owner fingerprint contributions use the same normalized logical
+identity as portable encoding, including canonical structural type and stable
+declaration identities. Equivalent owners in independent stores must
+contribute equal fingerprints despite different native handles; distinct
+semantic owners must remain distinguishable. Raw relocated handles are not
+cross-store semantic identity inputs. Preserve PATCH0 fingerprint coverage.
+Derive `dependency_fingerprint` after relocation. Test cross-store fingerprint
+equality and independently compare reconstructed semantic facts; recomputing
+a fingerprint alone is not proof of parity. Do not add a serialized
+fingerprint field unless the established schema contract requires one.
+
+### T4/T5 and guard acceptance
+
+T4 preserves every admitted `BindingConsistency` variant and complete payload.
+T5 preserves every admitted `AnalysisStatus` variant and complete payload.
+Required discriminators include generic-conformance and trait-dispatch blocked
+owners, distinct owner keys, unsupported variants, unresolved inference
+identities, malformed/missing references, fresh-store relocation, exact
+reconstruction, and fingerprint parity. Exercise one logical blocked owner
+appearing in both a binding and an expression. Existing canonical-publication
+eligibility rules remain independent and unchanged.
+
+Remove the callable completeness guard only after the complete PATCH1 owner
+graph, T4/T5 admitted domains, validation, root closure, relocation,
+fingerprinting, source-independent reader parity, focused negative tests, and
+approved allocation architecture pass. Keep precise typed rejection for
+unsupported cases after guard removal. Global `UnaccountedBoundary` guards
+remain owned by PATCH3.
+
+Keep the accepted semantic-world schema 2 contract; schema 1 remains rejected.
+Do not reinterpret existing bytes or change the shared query-image schema for
+this amendment. Unknown discriminants fail closed.
+
+Preserve prior settled decisions: checked `StaticApplication` rows remain
+solely owned by `CheckedStaticBody`, and the budgeted enum-requirement wrapper
+remains unchanged.
+
+### Required execution order
+
+| Gate | Work | Acceptance |
+|---|---|---|
+| QO-0 | Exhaustive live `QueryKey` reachability and identity census | Every variant classified before final DTO design |
+| QO-1 | Define supported callable-local query-owner variants | Complete portable identity contract |
+| QO-2 | Enforce PUB-QO-01 | Unresolved inference identity is typed rejection |
+| QO-3 | Register roots nested in blocked owner payloads | INV-04 closure |
+| QO-4 | Encode and validate deterministically | Structural, closure, and negative tests |
+| QO-5 | Relocate and reconstruct in a fresh store | Exact owner round-trip |
+| QO-6 | Normalize query-owner fingerprint contribution | FP-QO-01 parity |
+| QO-7 | Complete T4 binding-state cases | T4 acceptance |
+| QO-8 | Complete T5 expression-status cases | T5 acceptance |
+| QO-9 | Run integrated callable-owner gates | Decide guard-removal frontier |
+
+### QO-0 live `QueryKey` census — 2026-10-16
+
+The live `QueryKey` enum at the decision baseline has 45 variants. The
+repository-wide search found four production construction sites for
+`BlockReason::UnavailableSemanticOwner`: two in declaration-surface owner
+validation, one in callable-signature projection, and one in field-signature
+projection. `unavailable_computed_signature_owner` and
+`declaration_signature_owner_diagnostics` construct only
+`CallableSignature` or `FieldSignature`; the direct projection sites use their
+own `CallableSignature` and `FieldSignature` keys. The incremental
+`query_ownership` test independently confirms the field-signature case.
+
+The portable query-owner contract must also implement the architect-required
+`GenericConformance` and `TraitDispatchBucket` variants even though no current
+`UnavailableSemanticOwner` construction site was found for those variants.
+Their presence as `SemanticDependency` variants is a separate owner relation;
+do not mistake that storage for a blocked query-owner payload.
+
+| Disposition | `QueryKey` variants | Evidence/requirement |
+|---|---|---|
+| Existing portable identity; currently reachable | `CallableSignature`, `FieldSignature` | Existing stable callable/field owner encodings; live unavailable-owner producers above |
+| New callable-local portable identity required | `GenericConformance`, `TraitDispatchBucket` | Explicit architect requirement; complete owner fields and roots must be encoded |
+| No current callable blocked-owner producer; typed fail-closed if encountered | `ParsedModule`, `UnlinkedInterface`, `ResolvedImports`, `LinkedInterface`, `DeclarationShell`, `SemanticComponent`, `DeclarationSurface`, `TraitHeader`, `TraitSurface`, `ConformanceDispatch`, `CallableDefinition`, `HierarchyEdge`, `ConstructorInitialization`, `CallableBody`, `CallableEffects`, `CallableControl`, `CallableTermination`, `CallableContracts`, `VerificationConditions`, `SourceStructure`, `SourceFormalAttachment`, `AdvisoryCallable`, `AdvisoryModule`, `ModuleDiagnostics`, `ModuleMetadata`, `DataDeclaration`, `EnumDeclaration`, `EnumRequirements`, `TypeMemberDeclaration`, `StaticDomainCaseCatalog`, `StaticCaseSignature`, `AssociatedStaticDomainDeclaration`, `AssociatedSurface`, `ResolvedImport`, `LinkedName`, `PublicExport`, `StaticDefinition`, `StaticConstant`, `ModuleStaticBindingCatalog`, `ModuleStaticBindings`, `CheckedStaticBody` | Exhaustive remainder of the live enum; no production unavailable-owner constructor or propagation source reaches callable state in the current tree. If a producer is added, revisit this disposition before accepting publication. |
+
+All 45 variants are classified above. The callable owner graph can contain
+other `BlockReason` payload sites in addition to `AnalysisStatus` and
+`BindingConsistency`: field validity inside flow summaries, blocked pattern
+resolution/value-space/exhaustiveness facts, and internal-blocked explanation
+steps. The encoder, root visitor, validator, importer, and fingerprint census
+must cover every such path found in the final field-exhaustive walk. The direct
+producer census currently limits `UnavailableSemanticOwner` payloads to the
+two existing signature-owner variants, while the portable codec must also
+support the two architect-required variants.
+
+These are PATCH1 task-order amendments, not a new checkpoint. PATCH1 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; this decision alone does not complete
+T4/T5, remove guards, close P7, or unblock P8.
+
 # 13. Global STOP / CONSULT triggers
 
 A triggered consultation cannot be self-waived.

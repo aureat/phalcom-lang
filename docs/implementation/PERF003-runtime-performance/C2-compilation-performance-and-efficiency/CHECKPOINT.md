@@ -415,6 +415,31 @@ of `UnavailableSemanticOwner(QueryKey)` nested in binding consistency, including
 the `GenericConformance` type/parameter roots; if the approved choice is
 fail-closed disposition, specify its PATCH1 acceptance and guard-removal effect.
 
+## PATCH1 architecture decision — portable query-owner identity (2026-10-16)
+
+The architect's supplied decision `PERF003.C2.P7.PATCH1-ADR-QUERY-OWNER` is
+approved for implementation. PATCH1 owns a callable-local typed portable
+identity for query owners embedded in callable semantic facts; it does not
+persist query-cache state or depend on PATCH4. Unsupported or unresolved
+identities fail closed with typed errors. The portable domain is the audited
+canonical-publication subset of `QueryKey`; generic-conformance and
+trait-dispatch-bucket identities require full portable encoding. Unresolved
+`InferVarId` is prohibited (PUB-QO-01). Roots must cover blocked binding and
+expression payloads. Query-owner fingerprints must use relocation-invariant
+logical identities (FP-QO-01). Keep semantic-world schema 2, the
+`CheckedStaticBody` static-application owner, and the budgeted
+enum-requirement wrapper. The full amendment and QO-0–QO-9 sequence are in
+§12.4 of the PATCH1 plan.
+
+This resolves the consultation hold but does not imply T4/T5 implementation or
+acceptance. The callable import guard and global allocation guards remain.
+QO-0 is complete against revision `0bbc678b9dc280de3c33ba9938c8bfc01d4d4fd0`:
+the 45 live `QueryKey` variants are classified in plan §12.4. Existing blocked
+owner production reaches `CallableSignature` and `FieldSignature`; the
+architect additionally requires portable `GenericConformance` and
+`TraitDispatchBucket` support. Other variants remain typed fail-closed unless a
+future live producer census changes.
+
 ## 0. Checkpoint state
 
 ```yaml
@@ -433,9 +458,13 @@ next_action: >
   library evidence is recorded below. T2 establishes the owner-local ordinal
   validation context; T3 has dense expression/binding rows and the discovered
   call-conformance root path, but the complete owner graph and rich validation
-  remain incomplete. T4 is paused before edits for the binding-consistency
-  query-owner decision recorded above; resume T4 after that decision and plan
-  amendment/clarification. Keep
+  remain incomplete. The T4/T5 query-owner hold is resolved by
+  PATCH1-ADR-QUERY-OWNER and plan §12.4. QO-0's 45-variant source census is
+  complete and recorded in plan §12.4. Next implement QO-1's closed typed owner
+  representation for `CallableSignature`, `FieldSignature`, `GenericConformance`,
+  and `TraitDispatchBucket`. Then continue QO-2 through QO-9;
+  retain typed fail-closed behavior and keep all callable/global guards until
+  their named gates pass. Keep
   checked StaticApplication
   rows owned by CheckedStaticBody; PATCH1 leaves their denotation fail-closed.
   Preserve the budgeted enum-requirement wrapper. Keep P7 IN_PROGRESS / PARTIAL /
