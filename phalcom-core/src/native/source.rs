@@ -380,9 +380,7 @@ impl NativeSourceIndex {
                     self.index_class(module, class_def, identity)?;
                 }
                 Statement::Data(data_def)
-                    if data_def.phase == phalcom_ast::ast::AlgebraicPhase::Runtime
-                        && data_def.implementation == ImplementationKind::Intrinsic
-                        && source_universe_identity(module, &data_def.name).is_known_name() =>
+                    if data_def.phase == phalcom_ast::ast::AlgebraicPhase::Runtime && data_def.implementation == ImplementationKind::Intrinsic =>
                 {
                     let identity = source_universe_identity(module, &data_def.name);
                     self.index_intrinsic_runtime_data(module, data_def, identity)?;

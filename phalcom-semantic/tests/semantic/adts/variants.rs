@@ -192,7 +192,11 @@ class Test {
         .all_diagnostics()
         .filter(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedMemberInaccessible)
         .collect::<Vec<_>>();
-    assert_eq!(inaccessible.len(), 1, "construction should be inaccessible while matching remains allowed: {inaccessible:#?}");
+    assert_eq!(
+        inaccessible.len(),
+        1,
+        "construction should be inaccessible while matching remains allowed: {inaccessible:#?}"
+    );
 
     let (callable, analysis) = fixture
         .analysis
@@ -211,7 +215,10 @@ class Test {
         Selector::method("Dog", [SelectorSlot::Positional]).expect("Dog selector"),
     );
     assert_eq!(pattern.candidates.len(), 1);
-    assert_eq!(pattern.candidates[0].variant, expected, "private construction must not remove Dog from match resolution");
+    assert_eq!(
+        pattern.candidates[0].variant, expected,
+        "private construction must not remove Dog from match resolution"
+    );
 }
 
 #[test]

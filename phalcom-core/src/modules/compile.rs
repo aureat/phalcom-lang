@@ -1081,16 +1081,25 @@ pub(crate) fn discover_reachable_dependencies<P: SourceProvider>(
 /// Runs semantic analysis between symbolic linking and executable finalization.
 /// The semantic import identities stay available during analysis; only the
 /// finalized projection is returned to compiler consumers.
+struct SemanticAnalysisSettings<'session> {
+    generation: u64,
+    compile_mode: CompileMode,
+    session: Option<&'session mut phalcom_semantic::SemanticWorkspaceSession>,
+}
+
 fn link_analyze_finalize(
     linker: &ModuleLinker,
     entry: ModuleId,
     resolved: &BTreeMap<(ModuleId, String), ModuleId>,
     sources: &BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
     runtime_modules: &BTreeSet<ModuleId>,
-    generation: u64,
-    compile_mode: CompileMode,
-    semantic_session: Option<&mut phalcom_semantic::SemanticWorkspaceSession>,
+    settings: SemanticAnalysisSettings<'_>,
 ) -> Result<(Arc<ExecutableLinkedProgram>, Arc<phalcom_semantic::SemanticSnapshot>), ProgramCompileError> {
+    let SemanticAnalysisSettings {
+        generation,
+        compile_mode,
+        session: semantic_session,
+    } = settings;
     let semantic = Arc::new(linker.link_semantic(entry.clone(), resolved)?);
     let attribute_execution_mode = semantic_attribute_execution_mode(compile_mode);
     let semantic_input = phalcom_semantic::SemanticWorkspaceInput::new(semantic.to_unfinalized_program(), sources.clone(), generation)
@@ -1369,9 +1378,11 @@ impl ProgramAnalyzer {
                     &resolved,
                     &sources,
                     &runtime_modules,
-                    0,
-                    compile_mode,
-                    semantic_session,
+                    SemanticAnalysisSettings {
+                        generation: 0,
+                        compile_mode,
+                        session: semantic_session,
+                    },
                 )?;
 
                 Ok(AnalyzedProgram {
@@ -1491,9 +1502,11 @@ impl ProgramAnalyzer {
             &discovered.resolved,
             &discovered.sources,
             &runtime_modules,
-            0,
-            compile_mode,
-            semantic_session,
+            SemanticAnalysisSettings {
+                generation: 0,
+                compile_mode,
+                session: semantic_session,
+            },
         )?;
 
         Ok(AnalyzedProgram {
@@ -1577,9 +1590,11 @@ impl ProgramAnalyzer {
             &discovered.resolved,
             &discovered.sources,
             &runtime_modules,
-            0,
-            compile_mode,
-            semantic_session,
+            SemanticAnalysisSettings {
+                generation: 0,
+                compile_mode,
+                session: semantic_session,
+            },
         )?;
 
         Ok(AnalyzedProgram {

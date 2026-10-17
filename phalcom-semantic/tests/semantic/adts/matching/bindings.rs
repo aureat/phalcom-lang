@@ -326,9 +326,7 @@ class Test {
     let mut reads = callable
         .expressions
         .values()
-        .filter(|expression| {
-            expression.binding_read.is_some() && case.source.get(expression.range.start..expression.range.end) == Some("x")
-        })
+        .filter(|expression| expression.binding_read.is_some() && case.source.get(expression.range.start..expression.range.end) == Some("x"))
         .collect::<Vec<_>>();
     reads.sort_by_key(|expression| expression.range.start);
     let expressions = callable
@@ -342,10 +340,17 @@ class Test {
             )
         })
         .collect::<Vec<_>>();
-    assert_eq!(reads.len(), 3, "expected the two arm reads and the post-match read; expressions: {expressions:#?}");
+    assert_eq!(
+        reads.len(),
+        3,
+        "expected the two arm reads and the post-match read; expressions: {expressions:#?}"
+    );
     assert_eq!(reads[0].binding_read, Some(pattern_binding), "the first arm reads its pattern binding");
     assert_ne!(reads[1].binding_read, Some(pattern_binding), "the second arm restores the outer binding");
-    assert_eq!(reads[2].binding_read, reads[1].binding_read, "the outer binding remains visible after the match");
+    assert_eq!(
+        reads[2].binding_read, reads[1].binding_read,
+        "the outer binding remains visible after the match"
+    );
 }
 
 #[test]

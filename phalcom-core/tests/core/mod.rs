@@ -31,10 +31,10 @@ mod modules_parse_package;
 mod modules_project_reflection;
 #[path = "modules/reflection.rs"]
 mod modules_reflection;
-#[path = "modules/telogue_project.rs"]
-mod modules_telogue_project;
 #[path = "modules/slotmap_package.rs"]
 mod modules_slotmap_package;
+#[path = "modules/telogue_project.rs"]
+mod modules_telogue_project;
 #[path = "modules/universe.rs"]
 mod modules_universe;
 #[path = "native/contracts.rs"]

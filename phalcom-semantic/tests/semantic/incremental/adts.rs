@@ -266,7 +266,8 @@ fn adt_incr_08_alias_union_contraction_updates_residual_witness() {
     let mut session = SemanticWorkspaceSession::new();
     let source_a =
         "data Choice { A B C }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
-    let source_b = "data Choice { A B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
+    let source_b =
+        "data Choice { A B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
     let _ = session
         .update(single_module_input(module.clone(), source_a, 1))
         .expect("semantic test update should succeed");
@@ -549,7 +550,9 @@ class Probe { @class run() -> One | Two { make(1) } }
     let first_resolution = &first.snapshot.callable_analyses[&callable].associated_resolutions;
     assert!(!first_resolution.is_empty(), "initial candidate publishes canonical associated target");
 
-    let second = session.update(single_module_input(module.clone(), &competing, 2)).expect("competing owner publication");
+    let second = session
+        .update(single_module_input(module.clone(), &competing, 2))
+        .expect("competing owner publication");
     assert!(
         second.snapshot.all_diagnostics().any(|d| d.code == DiagnosticCode::AssociatedCallAmbiguous),
         "adding a same-selector case in another eligible owner must invalidate the winner"
@@ -559,7 +562,9 @@ class Probe { @class run() -> One | Two { make(1) } }
         "ambiguous site must not retain a stale associated target"
     );
 
-    let third = session.update(single_module_input(module.clone(), original, 3)).expect("restored selector publication");
+    let third = session
+        .update(single_module_input(module.clone(), original, 3))
+        .expect("restored selector publication");
     let mut cold = SemanticWorkspaceSession::new();
     let cold = cold.update(single_module_input(module, original, 1)).expect("cold publication");
     let diagnostic_codes = |snapshot: &SemanticSnapshot| snapshot.all_diagnostics().map(|d| d.code).collect::<Vec<_>>();

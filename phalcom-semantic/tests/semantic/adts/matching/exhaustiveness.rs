@@ -522,7 +522,10 @@ class Test {
     let ExhaustivenessResult::Missing(witnesses) = &handle.resolution().exhaustiveness else {
         panic!("expected pair witness")
     };
-    let pair = case.variant("Pair", Selector::method("Both", [SelectorSlot::Positional, SelectorSlot::Positional]).expect("Both selector"));
+    let pair = case.variant(
+        "Pair",
+        Selector::method("Both", [SelectorSlot::Positional, SelectorSlot::Positional]).expect("Both selector"),
+    );
     let one = case.variant("Bit", Selector::getter("One").expect("One selector"));
     let expected = phalcom_semantic::match_semantics::CoverageWitness::Variant {
         variant: pair.id.clone(),
@@ -564,19 +567,27 @@ class Test {
     let ExhaustivenessResult::Missing(witnesses) = &handle.resolution().exhaustiveness else {
         panic!("expected nested pair witness")
     };
-    assert!(witnesses.iter().any(|witness| {
-        let phalcom_semantic::match_semantics::CoverageWitness::Variant { variant: outer_id, fields, .. } = witness else {
-            return false;
-        };
-        let phalcom_semantic::match_semantics::CoverageWitness::Variant { variant: pair_id, fields: pair_fields, .. } = &fields[0] else {
-            return false;
-        };
-        outer_id.owner.name.as_ref() == "Outer"
-            && outer_id.selector == Selector::getter("Boxed").expect("Boxed selector")
-            && pair_id.owner.name.as_ref() == "Pair"
-            && pair_id.selector == Selector::method("Both", [SelectorSlot::Positional, SelectorSlot::Positional]).expect("Both selector")
-            && pair_fields.len() == 2
-    }), "expected a nested Outer::Boxed(Pair::Both(field₀, field₁)) witness: {witnesses:#?}");
+    assert!(
+        witnesses.iter().any(|witness| {
+            let phalcom_semantic::match_semantics::CoverageWitness::Variant { variant: outer_id, fields, .. } = witness else {
+                return false;
+            };
+            let phalcom_semantic::match_semantics::CoverageWitness::Variant {
+                variant: pair_id,
+                fields: pair_fields,
+                ..
+            } = &fields[0]
+            else {
+                return false;
+            };
+            outer_id.owner.name.as_ref() == "Outer"
+                && outer_id.selector == Selector::getter("Boxed").expect("Boxed selector")
+                && pair_id.owner.name.as_ref() == "Pair"
+                && pair_id.selector == Selector::method("Both", [SelectorSlot::Positional, SelectorSlot::Positional]).expect("Both selector")
+                && pair_fields.len() == 2
+        }),
+        "expected a nested Outer::Boxed(Pair::Both(field₀, field₁)) witness: {witnesses:#?}"
+    );
 }
 
 #[test]
