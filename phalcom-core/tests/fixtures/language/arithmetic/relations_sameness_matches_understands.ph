@@ -1,6 +1,8 @@
 // area: arithmetic
 // spec: ===, matches, understands, ...
 
+from universe.object.ellipsis import Ellipsis
+
 // 1. === exact sameness
 let mut s1 = "hello"
 let mut s2 = "hello"

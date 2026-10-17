@@ -80,28 +80,25 @@ class Point {
   }
 }
 
-// ── Bridge A: @data / @sealed / @variant → algebraic data + exhaustive match ──
+// ── Bridge A: data cases → algebraic data + exhaustive match ──
 
 /// A closed family of shapes with structural equality and exhaustive matching.
 ///
-/// `@data` derives `==`, `hash`, and `with(...)` (the equality ladder keeps
-/// `==` and `hash` together — never a lone `==`). `@sealed` freezes the variant
-/// set, which is the *sole* route to checkable `match` exhaustiveness in a
-/// language with no type checker — so adding a `@variant` is a breaking change
-/// for every `match` over `Shape`.
-@data @sealed
-class Shape {
+/// A sum-shaped `data` declaration owns its complete set of cases.
+data Shape {
   /// A circle of the given radius.
-  @variant Circle(radius:)
+  Circle(_ radius: Number)
   /// An axis-aligned rectangle.
-  @variant Rect(w:, h:)
+  Rect(_ w: Number, _ h: Number)
+}
 
-  /// Area of the shape, by exhaustive match over the sealed variant set.
+impl Shape {
+  /// Area of the shape, by exhaustive match over the closed case set.
   /// @returns the area as a `Number`
   area {
-    return self.match || {
-      Circle(_ r) { 3.14159 * r * r ; }
-      Rect(w, h) { w * h }
+    match self {
+      Shape::Circle(r) => 3.14159 * r * r
+      Shape::Rect(w, h) => w * h
     }
   }
 }

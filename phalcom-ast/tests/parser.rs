@@ -354,7 +354,7 @@ fn parser_retains_exact_written_declaration_and_method_reference_ranges() {
     };
     assert_eq!(named.base, "method");
 
-    let source = "data Shape {\n  @variant Circle(radius: Float)\n}\n";
+    let source = "data Shape {\n  Circle(radius: Float)\n}\n";
     let program = parse_source(source, 0).expect("variant enum parses");
     let Statement::Data(enum_def) = &program.statements[0] else {
         panic!("expected data");
@@ -423,6 +423,37 @@ fn return_statement() {
 fn interpolated_string_parses() {
     let result = parse_source("return \"\\(value)\"", 0);
     assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn interpolated_string_to_string_sites_keep_distinct_segment_ranges() {
+    fn collect_to_string_ranges(expr: &Expr, ranges: &mut Vec<phalcom_common::range::SourceRange>) {
+        match expr {
+            Expr::Binary(binary) => {
+                collect_to_string_ranges(&binary.left, ranges);
+                collect_to_string_ranges(&binary.right, ranges);
+            }
+            Expr::GetProperty(property) if property.property == "toString" => ranges.push(property.range),
+            _ => {}
+        }
+    }
+
+    let source = "let value = \"\\(key): \\(proposition)\"\n";
+    let program = parse_source(source, 0).expect("interpolated binding parses");
+    let Statement::Let(binding) = &program.statements[0] else {
+        panic!("expected binding");
+    };
+    let value = binding.value.as_ref().expect("interpolated initializer");
+    let mut ranges = Vec::new();
+    collect_to_string_ranges(value, &mut ranges);
+
+    assert_eq!(ranges.len(), 2);
+    let mut interpolations = ranges
+        .iter()
+        .map(|range| source.get(range.start..range.end).expect("range is source-backed"))
+        .collect::<Vec<_>>();
+    interpolations.sort_unstable();
+    assert_eq!(interpolations, ["key", "proposition"]);
 }
 
 #[test]

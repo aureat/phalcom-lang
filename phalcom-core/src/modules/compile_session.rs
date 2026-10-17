@@ -55,6 +55,17 @@ impl ProgramCompilationSession {
     /// Replaces the current fixture source and compiles it through the retained
     /// module and semantic sessions.
     pub fn compile_fixture(&mut self, path: &Path, source_text: &str) -> Result<CompiledProgram, ProgramCompileError> {
+        self.compile_fixture_with_mode(path, source_text, crate::compiler::attributes::CompileMode::Debug)
+    }
+
+    /// Replaces a fixture while keeping semantic projection and VM guard mode
+    /// aligned. Executable requirements use the same finalizer as fresh entry analysis.
+    pub fn compile_fixture_with_mode(
+        &mut self,
+        path: &Path,
+        source_text: &str,
+        compile_mode: crate::compiler::attributes::CompileMode,
+    ) -> Result<CompiledProgram, ProgramCompileError> {
         #[cfg(any(test, feature = "test-timings"))]
         {
             self.last_fixture_timing = crate::instrumentation::FixtureTiming {
@@ -122,26 +133,43 @@ impl ProgramCompilationSession {
         }
         #[cfg(any(test, feature = "test-timings"))]
         let semantic_started = Instant::now();
-        let publication = self
-            .semantic_session
-            .update_module_workspace_with_cancel(module_update, &phalcom_semantic::db::CancellationToken::new())
-            .map_err(phalcom_semantic::SemanticUpdateFailure::from)?;
+        let module_session = self.semantic_session.module_session();
+        let project_universe = Arc::new(module_session.universe().clone());
+        let linker = phalcom_modules::ModuleLinker::new(
+            project_universe.clone(),
+            module_session
+                .interfaces()
+                .iter()
+                .map(|(id, (interface, _))| (id.clone(), interface.as_ref().clone()))
+                .collect(),
+        );
+        let entry = self.fixture_module_id.clone();
+        let semantic_linked = Arc::new(linker.link_semantic(entry.clone(), module_session.resolved_imports())?);
+        let publication = self.semantic_session.update_executable_module_workspace(
+            module_update,
+            semantic_linked.clone(),
+            super::compile::semantic_attribute_execution_mode(compile_mode),
+            &phalcom_semantic::db::CancellationToken::new(),
+        )?;
         #[cfg(any(test, feature = "test-timings"))]
         {
             self.last_fixture_timing.semantic_update = semantic_started.elapsed();
         }
-        let module_session = self.semantic_session.module_session();
-        let linked = module_session
-            .linked()
-            .cloned()
-            .ok_or_else(|| ProgramCompileError::Io("module session published no linked program".to_owned()))?;
-        let entry = self.fixture_module_id.clone();
+        let runtime_modules = BTreeSet::from([entry.clone()]);
+        let linked = super::compile::finalize_analyzed_link(
+            &linker,
+            semantic_linked.as_ref(),
+            &publication.snapshot,
+            publication.snapshot.sources().as_ref(),
+            &runtime_modules,
+        )?;
         let analyzed = AnalyzedProgram {
-            project_universe: Arc::new(module_session.universe().clone()),
+            compile_mode,
+            project_universe,
             linked,
             sources: publication.snapshot.sources().as_ref().clone(),
             semantic: publication.snapshot,
-            runtime_modules: BTreeSet::from([entry.clone()]),
+            runtime_modules,
             entry,
         };
 
@@ -194,19 +222,49 @@ mod tests {
         std::fs::write(path, source).unwrap();
     }
 
-    fn signature_shape(module: &crate::modules::compile::CompiledModule) -> Vec<(String, String, String, usize, String)> {
+    fn declared_type_shape(fact: &phalcom_semantic::DeclaredTypeFact, presenter: &phalcom_semantic::TypePresenter<'_>) -> String {
+        use phalcom_semantic::{DeclaredTypeState, types::TypeTerm};
+
+        let state = match &fact.state {
+            DeclaredTypeState::Known(TypeTerm::Canonical(ty)) => {
+                format!("Known({})", presenter.present_type(*ty))
+            }
+            DeclaredTypeState::Known(TypeTerm::SelfType(_)) => "Known(SelfType)".to_owned(),
+            DeclaredTypeState::Known(TypeTerm::Infer(_)) => "Known(Infer)".to_owned(),
+            DeclaredTypeState::Dynamic(reason) => format!("Dynamic({reason:?})"),
+            DeclaredTypeState::Unknown(reason) => format!("Unknown({reason:?})"),
+        };
+        format!("{:?}:{state}", fact.basis)
+    }
+
+    fn signature_shape(module: &crate::modules::compile::CompiledModule, store: &phalcom_semantic::TypeStore) -> Vec<String> {
+        let presenter = phalcom_semantic::TypePresenter::new(store);
         let mut shape = module
             .lowering
             .callable_signatures
             .iter()
             .filter(|(_, signature)| signature.owner.module == module.id)
             .map(|(_, signature)| {
-                (
-                    signature.owner.name.to_string(),
+                let parameters = signature
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        format!(
+                            "{}:{:?}:{:?}:{}",
+                            parameter.local_name,
+                            parameter.external_label,
+                            parameter.rest,
+                            declared_type_shape(&parameter.declared_type, &presenter)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!(
+                    "{}|{}|{:?}|[{parameters}]|{}",
+                    signature.owner.name,
                     signature.selector.encode(),
-                    format!("{:?}", signature.side),
-                    signature.parameters.len(),
-                    format!("{:?}", signature.declared_return),
+                    signature.side,
+                    declared_type_shape(&signature.declared_return, &presenter)
                 )
             })
             .collect::<Vec<_>>();
@@ -247,6 +305,26 @@ mod tests {
     }
 
     #[test]
+    fn retained_fixture_mode_transitions_preserve_the_selected_execution_policy() {
+        use crate::compiler::attributes::CompileMode;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("mode.ph");
+        let source = "class Probe { @requires(true) @ensures(true) value() -> Int { 42 } }\n";
+        let mut session = ProgramCompilationSession::standalone().unwrap();
+        let mut entry = None;
+        for mode in [CompileMode::Debug, CompileMode::Release, CompileMode::Unchecked, CompileMode::Debug] {
+            let program = session
+                .compile_fixture_with_mode(&path, source, mode)
+                .expect("retained mode transition compiles");
+            assert_eq!(program.compile_mode(), mode);
+            if let Some(previous) = &entry {
+                assert_eq!(&program.entry, previous, "mode transitions keep the fixture identity");
+            }
+            entry = Some(program.entry);
+        }
+    }
+
+    #[test]
     fn replacement_keeps_module_identity_and_publishes_fixture_path() {
         let directory = tempfile::tempdir().unwrap();
         let first_path = directory.path().join("first.ph");
@@ -282,12 +360,20 @@ mod tests {
         ] {
             let program = session.compile_fixture(path, source).unwrap();
             assert_eq!(program.modules[&program.entry].source_text.as_deref(), Some(source));
-            let cold = ProgramCompilationSession::standalone().unwrap().compile_fixture(path, source).unwrap();
+            let warm_store = &session.semantic_session.last_snapshot().unwrap().store;
+
+            let mut cold_session = ProgramCompilationSession::standalone().unwrap();
+            let cold = cold_session.compile_fixture(path, source).unwrap();
+            let cold_store = &cold_session.semantic_session.last_snapshot().unwrap().store;
+
             assert_eq!(
                 program.modules[&program.entry].lowering.associated.len(),
                 cold.modules[&cold.entry].lowering.associated.len()
             );
-            assert_eq!(signature_shape(&program.modules[&program.entry]), signature_shape(&cold.modules[&cold.entry]));
+            assert_eq!(
+                signature_shape(&program.modules[&program.entry], warm_store),
+                signature_shape(&cold.modules[&cold.entry], cold_store)
+            );
         }
     }
 
@@ -367,13 +453,17 @@ mod tests {
         let source_c = "import universe.reflection.selector\nclass FixtureShape { value { 42 } }\n";
         write_fixture(&path, source_c);
         let last = session.compile_fixture(&path, source_c).unwrap();
-        let cold = ProgramCompiler::compile_entry_selection(EntrySelection::Module(path.clone())).unwrap();
+        let warm_store = &session.semantic_session.last_snapshot().unwrap().store;
+
+        let mut cold_session = ProgramCompilationSession::standalone().unwrap();
+        let cold = cold_session.compile_fixture(&path, source_c).unwrap();
+        let cold_store = &cold_session.semantic_session.last_snapshot().unwrap().store;
 
         assert_eq!(first.modules[&module_id].plan.declarations, last.modules[&module_id].plan.declarations);
         assert_eq!(first_module.lowering.callable_signatures, last.modules[&module_id].lowering.callable_signatures);
         assert_eq!(
-            signature_shape(&last.modules[&module_id]),
-            signature_shape(&cold.modules[&cold.entry]),
+            signature_shape(&last.modules[&module_id], warm_store),
+            signature_shape(&cold.modules[&cold.entry], cold_store),
             "reused and cold compilation preserve callable declaration signatures"
         );
         assert_eq!(
@@ -381,5 +471,30 @@ mod tests {
             declaration_shape(&cold.modules[&cold.entry]),
             "reused and cold compilation preserve declaration shapes"
         );
+    }
+
+    #[test]
+    fn retained_fixture_finalizes_canonical_reads_and_removes_stale_requirements() {
+        fn reads(program: &CompiledProgram) -> BTreeSet<phalcom_modules::LinkedReadSpec> {
+            program.linked.runtime_reads_for(&program.entry).map(|(target, _)| target.clone()).collect()
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("fixture.ph");
+        let source = "System.print(\"linked\")\n";
+        let mut session = ProgramCompilationSession::standalone().unwrap();
+        let first = session.compile_fixture(&path, source).unwrap();
+        let system = phalcom_modules::LinkedReadSpec::Binding(phalcom_modules::SymbolId {
+            module: phalcom_semantic::core_surface::identity::universe_declaration(phalcom_native_meta::UniverseKey::System).module,
+            name: "System".into(),
+        });
+        assert!(reads(&first).contains(&system), "emitted class reads must have a finalized canonical slot");
+        let without_system = session.compile_fixture(&path, "let value = 1\n").unwrap();
+        assert_eq!(first.entry, without_system.entry);
+        assert!(!reads(&without_system).contains(&system), "removed source reads must not survive finalization");
+        let restored = session.compile_fixture(&path, source).unwrap();
+        let mut cold = ProgramCompilationSession::standalone().unwrap();
+        let cold = cold.compile_fixture(&path, source).unwrap();
+        assert_eq!(reads(&restored), reads(&cold), "retained and cold executable targets must agree");
+        assert!(reads(&restored).contains(&system));
     }
 }

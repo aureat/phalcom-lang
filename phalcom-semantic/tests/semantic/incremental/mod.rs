@@ -1,10 +1,10 @@
 mod adts;
-mod algebraic_realization;
 mod advisory;
+mod algebraic_realization;
 mod associated_types;
 mod callable_dependencies;
-mod coll006_c1_p3_publication;
 mod checker_dependencies;
+mod coll006_c1_p3_publication;
 mod db;
 mod declaration_authority;
 mod derived_conformance;

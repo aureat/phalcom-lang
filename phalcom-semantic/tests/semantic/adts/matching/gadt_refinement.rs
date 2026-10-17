@@ -7,7 +7,7 @@ use phalcom_semantic::types::LocalType;
 fn ambient_equality_chain_refutes_incompatible_concrete_gadt_case() {
     for constraints in ["T == U, U == Int", "U == Int, T == U", "Int == U, U == T"] {
         let source = format!(
-            "data Expr<T> {{ @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }}\n\
+            "data Expr<T> {{ Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }}\n\
              class Test {{ run<T, U>(_ value: Expr<T>) where {constraints} {{ match value {{ Expr::Bool(x) => x Expr::Int(x) => x }} }} }}\n"
         );
         let case = analyze_adt(&source);
@@ -24,8 +24,8 @@ fn gadt_branch_proof_refines_type_parameter_and_omits_refuted_cases() {
     let case = analyze_adt(
         r#"
 data Expr<T> {
-    @variant LitInt(_ value: Int) -> Expr<Int>
-    @variant LitBool(_ value: Bool) -> Expr<Bool>
+    LitInt(_ value: Int) -> Expr<Int>
+    LitBool(_ value: Bool) -> Expr<Bool>
 }
 
 class Test {
@@ -53,8 +53,8 @@ fn match_gadt_01_generic_evaluator_keeps_both_candidates_and_branch_proofs() {
     let case = analyze_adt(
         r#"
 data Expr<T> {
-    @variant Int(_ value: Int) -> Expr<Int>
-    @variant Bool(_ value: Bool) -> Expr<Bool>
+    Int(_ value: Int) -> Expr<Int>
+    Bool(_ value: Bool) -> Expr<Bool>
 }
 
 class Eval {
@@ -85,7 +85,7 @@ class Eval {
 #[test]
 fn review_c3_01_free_parameter_vs_concrete_case_is_satisfiable() {
     let case = analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) -> U { match value { Expr::Int(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) -> U { match value { Expr::Int(x) => x } } }\n",
     );
     let arm = case.only_match().arm(0);
     arm.assert_usefulness(PatternUsefulness::Useful);
@@ -95,7 +95,7 @@ fn review_c3_01_free_parameter_vs_concrete_case_is_satisfiable() {
 #[test]
 fn match_gadt_02_expr_int_excludes_bool_case() {
     let case = analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run(_ value: Expr<Int>) { match value { Expr::Bool(x) => x Expr::Int(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run(_ value: Expr<Int>) { match value { Expr::Bool(x) => x Expr::Int(x) => x } } }\n",
     );
     case.only_match().arm(0).assert_usefulness(PatternUsefulness::Impossible);
 }
@@ -103,7 +103,7 @@ fn match_gadt_02_expr_int_excludes_bool_case() {
 #[test]
 fn match_gadt_03_expr_bool_excludes_int_case() {
     let case = analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run(_ value: Expr<Bool>) { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run(_ value: Expr<Bool>) { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
     );
     case.only_match().arm(0).assert_usefulness(PatternUsefulness::Impossible);
 }
@@ -111,7 +111,7 @@ fn match_gadt_03_expr_bool_excludes_int_case() {
 #[test]
 fn review_c3_02_concrete_vs_free_parameter_is_satisfiable() {
     let case = analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval(_ value: Expr<Int>) { match value { Expr::Int(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval(_ value: Expr<Int>) { match value { Expr::Int(x) => x } } }\n",
     );
     case.only_match().arm(0).assert_usefulness(PatternUsefulness::Useful);
 }
@@ -119,7 +119,7 @@ fn review_c3_02_concrete_vs_free_parameter_is_satisfiable() {
 #[test]
 fn review_c3_03_distinct_free_parameters_are_not_refuted_by_id_inequality() {
     let case = analyze_adt(
-        "data Pair<T, U> { @variant Left(_ value: T) -> Pair<T, U> @variant Right(_ value: U) -> Pair<T, U> }\nclass Eval { eval<A, B>(_ value: Pair<A, B>) { match value { Pair::Left(x) => x Pair::Right(x) => x } } }\n",
+        "data Pair<T, U> { Left(_ value: T) -> Pair<T, U> Right(_ value: U) -> Pair<T, U> }\nclass Eval { eval<A, B>(_ value: Pair<A, B>) { match value { Pair::Left(x) => x Pair::Right(x) => x } } }\n",
     );
     let handle = case.only_match();
     assert!(handle.arm(0).resolution().usefulness != PatternUsefulness::Impossible);
@@ -129,7 +129,7 @@ fn review_c3_03_distinct_free_parameters_are_not_refuted_by_id_inequality() {
 #[test]
 fn review_c3_04_incompatible_concrete_types_remain_refuted() {
     let case = analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval(_ value: Expr<Bool>) { match value { Expr::Int(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval(_ value: Expr<Bool>) { match value { Expr::Int(x) => x } } }\n",
     );
     case.only_match().arm(0).assert_usefulness(PatternUsefulness::Impossible);
 }
@@ -137,7 +137,7 @@ fn review_c3_04_incompatible_concrete_types_remain_refuted() {
 #[test]
 fn review_c3_05_nominal_subtype_policy_is_explicit() {
     let case = analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval(_ value: Expr<Int>) { match value { Expr::Bool(x) => x Expr::Int(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval(_ value: Expr<Int>) { match value { Expr::Bool(x) => x Expr::Int(x) => x } } }\n",
     );
     case.only_match().arm(0).assert_usefulness(PatternUsefulness::Impossible);
 }
@@ -145,7 +145,7 @@ fn review_c3_05_nominal_subtype_policy_is_explicit() {
 #[test]
 fn review_c3_06_generic_evaluator_keeps_both_specialized_candidates() {
     let case = super::super::support::analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run<T>(_ value: Expr<T>) -> T { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run<T>(_ value: Expr<T>) -> T { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
     );
     let handle = case.only_match();
     assert_eq!(handle.resolution().arms.len(), 2);
@@ -156,7 +156,7 @@ fn review_c3_06_generic_evaluator_keeps_both_specialized_candidates() {
 #[test]
 fn review_c3_07_generic_exhaustiveness_retains_satisfiable_cases() {
     let case = analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) -> U { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) -> U { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
     );
     case.only_match().assert_exhaustive();
 }
@@ -164,7 +164,7 @@ fn review_c3_07_generic_exhaustiveness_retains_satisfiable_cases() {
 #[test]
 fn review_c3_08_multi_parameter_mixed_open_concrete_gadt_is_satisfiable() {
     let case = analyze_adt(
-        "data Pair<T, U> { @variant Left(_ value: Int) -> Pair<Int, U> @variant Right(_ value: String) -> Pair<T, String> }\nclass Eval { eval<A, B>(_ value: Pair<A, B>) { match value { Pair::Left(x) => x Pair::Right(x) => x } } }\n",
+        "data Pair<T, U> { Left(_ value: Int) -> Pair<Int, U> Right(_ value: String) -> Pair<T, String> }\nclass Eval { eval<A, B>(_ value: Pair<A, B>) { match value { Pair::Left(x) => x Pair::Right(x) => x } } }\n",
     );
     assert!(case.only_match().resolution().arms.iter().all(|arm| !arm.proof.is_empty()));
 }
@@ -172,7 +172,7 @@ fn review_c3_08_multi_parameter_mixed_open_concrete_gadt_is_satisfiable() {
 #[test]
 fn match_gadt_04_generic_root_keeps_all_compatible_cases() {
     let case = analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
     );
     assert_eq!(case.only_match().resolution().arms.len(), 2);
 }
@@ -180,7 +180,7 @@ fn match_gadt_04_generic_root_keeps_all_compatible_cases() {
 #[test]
 fn match_gadt_05_multi_parameter_proof_is_complete() {
     let case = analyze_adt(
-        "data Pair<T, U> { @variant Left(_ value: Int) -> Pair<Int, U> @variant Right(_ value: String) -> Pair<T, String> }\nclass Eval { eval<A, B>(_ value: Pair<A, B>) { match value { Pair::Left(x) => x Pair::Right(x) => x } } }\n",
+        "data Pair<T, U> { Left(_ value: Int) -> Pair<Int, U> Right(_ value: String) -> Pair<T, String> }\nclass Eval { eval<A, B>(_ value: Pair<A, B>) { match value { Pair::Left(x) => x Pair::Right(x) => x } } }\n",
     );
     assert!(case.only_match().resolution().arms.iter().all(|arm| !arm.proof.is_empty()));
 }
@@ -188,7 +188,7 @@ fn match_gadt_05_multi_parameter_proof_is_complete() {
 #[test]
 fn match_gadt_06_nested_gadt_proof_is_branch_local() {
     let case = analyze_adt(
-        "data Inner<T> { @variant Int(_ value: Int) -> Inner<Int> }\ndata Outer<T> { @variant Boxed(_ value: Inner<T>) -> Outer<T> }\nclass Eval { eval<U>(_ value: Outer<U>) { match value { Outer::Boxed(Inner::Int(x)) => x } } }\n",
+        "data Inner<T> { Int(_ value: Int) -> Inner<Int> }\ndata Outer<T> { Boxed(_ value: Inner<T>) -> Outer<T> }\nclass Eval { eval<U>(_ value: Outer<U>) { match value { Outer::Boxed(Inner::Int(x)) => x } } }\n",
     );
     let arm = case.only_match().arm(0);
     assert!(!arm.resolution().proof.is_empty(), "nested equality must be visible in branch product");
@@ -204,7 +204,7 @@ fn match_gadt_06_nested_gadt_proof_is_branch_local() {
 #[test]
 fn match_gadt_07_gadt_case_in_union_keeps_specialized_space() {
     let case = analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) { match value { Expr::Int(x) => x Expr::Bool(x) => x _ => 0 } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) { match value { Expr::Int(x) => x Expr::Bool(x) => x _ => 0 } } }\n",
     );
     assert_eq!(case.only_match().resolution().arms.len(), 3);
 }
@@ -212,7 +212,7 @@ fn match_gadt_07_gadt_case_in_union_keeps_specialized_space() {
 #[test]
 fn match_gadt_08_or_proof_keeps_only_common_facts() {
     let case = analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) { match value { Expr::Int(x) | Expr::Bool(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) { match value { Expr::Int(x) | Expr::Bool(x) => x } } }\n",
     );
     assert!(!case.only_match().resolution().arms.is_empty());
 }
@@ -220,17 +220,16 @@ fn match_gadt_08_or_proof_keeps_only_common_facts() {
 #[test]
 fn match_gadt_09_branch_proof_does_not_leak_to_sibling_arm() {
     let case = super::super::support::analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run<T>(_ value: Expr<T>) -> T { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run<T>(_ value: Expr<T>) -> T { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
     );
     let handle = case.only_match();
     assert_ne!(handle.arm(0).resolution().proof, handle.arm(1).resolution().proof);
 }
 
 #[test]
-#[ignore = "GATED: post-match flow environment fixture is required"]
 fn match_gadt_10_branch_proof_does_not_leak_after_match() {
     let case = analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
     );
     assert_ne!(case.only_match().arm(0).resolution().proof, Default::default());
 }
@@ -238,7 +237,7 @@ fn match_gadt_10_branch_proof_does_not_leak_after_match() {
 #[test]
 fn match_gadt_11_blocked_is_not_impossible() {
     let case = analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) { match value { Expr::Int(x) => x _ => 0 } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) { match value { Expr::Int(x) => x _ => 0 } } }\n",
     );
     assert_ne!(case.only_match().arm(0).resolution().usefulness, PatternUsefulness::Impossible);
 }
@@ -248,7 +247,7 @@ fn match_gadt_12_variant_local_generic_opens_shared_rigid_and_keeps_index_proof(
     let case = analyze_adt(
         r#"
 data Expr<T> {
-    @variant Wrap<U>(_ value: U) -> Expr<List<U>> where U <: Object
+    Wrap<U>(_ value: U) -> Expr<List<U>> where U <: Object
 }
 
 class Eval {
@@ -279,7 +278,7 @@ fn match_gadt_13_variant_local_rigid_is_not_guessed_to_fit_concrete_index() {
     let case = analyze_adt(
         r#"
 data Expr<T> {
-    @variant Wrap<U>(_ value: U) -> Expr<List<U>>
+    Wrap<U>(_ value: U) -> Expr<List<U>>
 }
 
 class Eval {
@@ -299,7 +298,7 @@ fn match_gadt_14_independent_constructor_observations_get_fresh_rigids_with_alph
     let case = analyze_adt(
         r#"
 data Expr<T> {
-    @variant Wrap<U>(_ value: U) -> Expr<List<U>>
+    Wrap<U>(_ value: U) -> Expr<List<U>>
 }
 
 class Eval {
@@ -340,7 +339,7 @@ fn match_gadt_15_enclosing_enum_specialization_appears_in_local_payload() {
     let case = analyze_adt(
         r#"
 data Container<F, T> {
-    @variant Item<A>(_ value: A, _ tag: F) -> Container<F, List<A>>
+    Item<A>(_ value: A, _ tag: F) -> Container<F, List<A>>
 }
 
 class Eval {
@@ -374,11 +373,11 @@ fn match_gadt_16_nested_local_expected_subject_preserves_parent_rigid_without_ma
     let case = analyze_adt(
         r#"
 data Inner<U> {
-    @variant Boxed(_ val: U) -> Inner<U>
+    Boxed(_ val: U) -> Inner<U>
 }
 
 data Outer<T> {
-    @variant Wrap<A>(_ inner: Inner<A>) -> Outer<List<A>>
+    Wrap<A>(_ inner: Inner<A>) -> Outer<List<A>>
 }
 
 class Eval {
@@ -401,11 +400,11 @@ fn match_gadt_17_r1_t01_exact_nested_local_binding_structure() {
     let case = analyze_adt(
         r#"
 data Inner<U> {
-    @variant Boxed(_ value: U) -> Inner<U>
+    Boxed(_ value: U) -> Inner<U>
 }
 
 data Outer<T> {
-    @variant Wrap<A>(_ inner: Inner<A>) -> Outer<List<A>>
+    Wrap<A>(_ inner: Inner<A>) -> Outer<List<A>>
 }
 
 class Eval {
@@ -443,7 +442,7 @@ fn match_gadt_18_r1_t02_multiple_nested_bindings_receive_different_local_types()
     let case = analyze_adt(
         r#"
 data Outer<T> {
-    @variant Wrap<A>(_ pair: (A, List<A>)) -> Outer<A>
+    Wrap<A>(_ pair: (A, List<A>)) -> Outer<A>
 }
 
 class Eval {
@@ -471,7 +470,7 @@ fn match_gadt_19_r1_t05_list_local_rigid_propagation() {
     let case = analyze_adt(
         r#"
 data Wrapper<T> {
-    @variant Wrap<A>(_ items: List<A>) -> Wrapper<A>
+    Wrap<A>(_ items: List<A>) -> Wrapper<A>
 }
 
 class Eval {
@@ -498,10 +497,10 @@ fn a2_unresolved_parent_rigid_constructor_proof_blocks_match_instead_of_refuting
     let case = analyze_adt(
         r#"
 data Inner<T> {
-    @variant Int(_ value: Int) -> Inner<Int>
+    Int(_ value: Int) -> Inner<Int>
 }
 data Outer<T> {
-    @variant Wrap<A>(_ inner: Inner<A>) -> Outer<A>
+    Wrap<A>(_ inner: Inner<A>) -> Outer<A>
 }
 class Eval {
     eval<T>(_ value: Outer<T>) {

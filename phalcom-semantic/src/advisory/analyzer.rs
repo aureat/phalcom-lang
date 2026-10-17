@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use phalcom_ast::ast::{
-    BracketLiteralElement, Expr, MapLiteralEntry, MapLiteralKey, NormalizedSelectorSpec, PackItem, ProductLabel, RecordLiteralEntry, SetLiteralEntry, Statement,
-    SymbolLiteralKind, TupleLiteralEntry,
+    BracketLiteralElement, Expr, MapLiteralEntry, MapLiteralKey, NormalizedSelectorSpec, PackItem, ProductLabel, RecordLiteralEntry, SetLiteralEntry,
+    Statement, SymbolLiteralKind, TupleLiteralEntry,
 };
 use phalcom_common::range::SourceRange;
 

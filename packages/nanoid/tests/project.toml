@@ -1,0 +1,9 @@
+[project]
+name = "nanoid-tests"
+namespace = "nanoid_tests"
+version = "0.0.0"
+source = "src"
+entry = "nanoid_tests.main"
+
+[dependencies]
+nanoid = { path = ".." }

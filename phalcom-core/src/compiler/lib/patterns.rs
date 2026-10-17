@@ -12,6 +12,42 @@ pub(crate) struct PatternExecutionFrame {
     pub(crate) scope_start: u16,
     pub(crate) visible_slots: Vec<u16>,
     pub(crate) staging_slots: Vec<u16>,
+    pub(crate) temp_slots: Vec<u16>,
+}
+
+pub(crate) fn count_pattern_temp_depth(pattern: &ExecutablePattern) -> usize {
+    match pattern {
+        ExecutablePattern::Wildcard | ExecutablePattern::Char(_) | ExecutablePattern::Binding { .. } => 0,
+        ExecutablePattern::Variant { candidates } => candidates
+            .iter()
+            .map(|c| {
+                c.fields
+                    .iter()
+                    .map(|f| {
+                        if matches!(f.child, ExecutablePattern::Wildcard | ExecutablePattern::Binding { .. }) {
+                            0
+                        } else {
+                            1 + count_pattern_temp_depth(&f.child)
+                        }
+                    })
+                    .max()
+                    .unwrap_or(0)
+            })
+            .max()
+            .unwrap_or(0),
+        ExecutablePattern::Tuple { elements } => elements.iter().map(|e| 1 + count_pattern_temp_depth(e)).max().unwrap_or(0),
+        ExecutablePattern::List { elements, rest } => {
+            let elem_max = elements.iter().map(|e| 1 + count_pattern_temp_depth(e)).max().unwrap_or(0);
+            // A rest extraction holds both the newly built tail list and the
+            // copying-loop index. Its child pattern starts at depth + 1 and
+            // can reuse the index slot only after the copy loop completes.
+            let rest_max = rest.as_ref().map_or(0, |r| 2.max(1 + count_pattern_temp_depth(r)));
+            elem_max.max(rest_max)
+        }
+        ExecutablePattern::Record { entries } => entries.iter().map(|(_, e)| 2 + count_pattern_temp_depth(e)).max().unwrap_or(0),
+        ExecutablePattern::Map { entries } => entries.iter().map(|(_, e)| 2 + count_pattern_temp_depth(e)).max().unwrap_or(0),
+        ExecutablePattern::Or { alternatives } => alternatives.iter().map(count_pattern_temp_depth).max().unwrap_or(0),
+    }
 }
 
 impl<'vm> Compiler<'vm> {
@@ -30,8 +66,13 @@ impl<'vm> Compiler<'vm> {
             .ok_or(CompilerError::MissingPatternSiteLoweringSemantics(range))
     }
 
-    /// Sets up visible locals and staging scratch slots for pattern bindings.
-    pub(crate) fn setup_pattern_frame(&mut self, bindings: &[ExecutableBindingSpec], range: SourceRange) -> Result<PatternExecutionFrame, CompilerError> {
+    /// Sets up visible locals, staging scratch slots, and evaluation temporaries for pattern matching.
+    pub(crate) fn setup_pattern_frame(
+        &mut self,
+        bindings: &[ExecutableBindingSpec],
+        pattern: &ExecutablePattern,
+        range: SourceRange,
+    ) -> Result<PatternExecutionFrame, CompilerError> {
         let scope_start = self.functions.last().unwrap().num_locals as u16;
         let mut visible_slots = Vec::with_capacity(bindings.len());
         let mut staging_slots = Vec::with_capacity(bindings.len());
@@ -47,10 +88,18 @@ impl<'vm> Compiler<'vm> {
             staging_slots.push(staging_slot);
         }
 
+        let temp_depth = count_pattern_temp_depth(pattern);
+        let mut temp_slots = Vec::with_capacity(temp_depth);
+        for _ in 0..temp_depth {
+            let temp_slot = self.reserve_pack_scratch("$pattern_temp", range)?;
+            temp_slots.push(temp_slot);
+        }
+
         Ok(PatternExecutionFrame {
             scope_start,
             visible_slots,
             staging_slots,
+            temp_slots,
         })
     }
 
@@ -71,6 +120,18 @@ impl<'vm> Compiler<'vm> {
         value_slot: u16,
         frame: &PatternExecutionFrame,
         failures: &mut Vec<usize>,
+        range: SourceRange,
+    ) -> Result<(), CompilerError> {
+        self.emit_executable_pattern_at_depth(pattern, value_slot, frame, failures, 0, range)
+    }
+
+    fn emit_executable_pattern_at_depth(
+        &mut self,
+        pattern: &ExecutablePattern,
+        value_slot: u16,
+        frame: &PatternExecutionFrame,
+        failures: &mut Vec<usize>,
+        depth: usize,
         range: SourceRange,
     ) -> Result<(), CompilerError> {
         match pattern {
@@ -129,13 +190,17 @@ impl<'vm> Compiler<'vm> {
                         }
 
                         // Child is refutable or structured: extract to hidden temp and recurse
-                        let child_temp = self.reserve_pack_scratch("$variant_child", range)?;
+                        let child_temp = if let Some(&slot) = frame.temp_slots.get(depth) {
+                            slot
+                        } else {
+                            self.reserve_pack_scratch("$variant_child", range)?
+                        };
                         self.emit(Bytecode::GetLocal(value_slot), range);
                         self.emit(Bytecode::GetVariantPayload(field_proj.slot), range);
                         self.emit(Bytecode::SetLocal(child_temp), range);
                         self.emit(Bytecode::Pop, range);
 
-                        self.emit_executable_pattern(&field_proj.child, child_temp, frame, &mut nested_failures, range)?;
+                        self.emit_executable_pattern_at_depth(&field_proj.child, child_temp, frame, &mut nested_failures, depth + 1, range)?;
                     }
 
                     if !is_last {
@@ -168,7 +233,7 @@ impl<'vm> Compiler<'vm> {
                     let is_last = idx == alt_count - 1;
                     let mut alt_failures = Vec::new();
 
-                    self.emit_executable_pattern(alt, value_slot, frame, &mut alt_failures, range)?;
+                    self.emit_executable_pattern_at_depth(alt, value_slot, frame, &mut alt_failures, depth, range)?;
 
                     if !is_last {
                         let succ_jump = self.emit_forward_jump(Bytecode::Jump, range);
@@ -194,8 +259,8 @@ impl<'vm> Compiler<'vm> {
                 self.emit_class_test(value_slot, "Tuple", failures, range)?;
                 self.emit_size_test(value_slot, elements.len(), false, failures, range)?;
                 for (index, element) in elements.iter().enumerate() {
-                    let child = self.emit_element_temp(value_slot, index, range)?;
-                    self.emit_executable_pattern(element, child, frame, failures, range)?;
+                    let child = self.emit_element_temp_at_depth(frame, depth, value_slot, index, range)?;
+                    self.emit_executable_pattern_at_depth(element, child, frame, failures, depth + 1, range)?;
                 }
                 Ok(())
             }
@@ -203,12 +268,12 @@ impl<'vm> Compiler<'vm> {
                 self.emit_class_test(value_slot, "List", failures, range)?;
                 self.emit_size_test(value_slot, elements.len(), rest.is_some(), failures, range)?;
                 for (index, element) in elements.iter().enumerate() {
-                    let child = self.emit_element_temp(value_slot, index, range)?;
-                    self.emit_executable_pattern(element, child, frame, failures, range)?;
+                    let child = self.emit_element_temp_at_depth(frame, depth, value_slot, index, range)?;
+                    self.emit_executable_pattern_at_depth(element, child, frame, failures, depth + 1, range)?;
                 }
                 if let Some(rest_pattern) = rest {
-                    let child = self.emit_list_rest_temp(value_slot, elements.len(), range)?;
-                    self.emit_executable_pattern(rest_pattern, child, frame, failures, range)?;
+                    let child = self.emit_list_rest_temp_at_depth(frame, depth, value_slot, elements.len(), range)?;
+                    self.emit_executable_pattern_at_depth(rest_pattern, child, frame, failures, depth + 1, range)?;
                 }
                 Ok(())
             }
@@ -216,10 +281,10 @@ impl<'vm> Compiler<'vm> {
                 self.emit_class_test(value_slot, "Record", failures, range)?;
                 for (label, child_pat) in entries.iter() {
                     let key = Value::symbol(self.vm.interner.intern(label));
-                    let option = self.emit_lookup_temp(value_slot, key, range)?;
+                    let option = self.emit_lookup_temp_at_depth(frame, depth, value_slot, key, range)?;
                     self.emit_option_test(option, true, failures, range)?;
-                    let child = self.emit_option_value_temp(option, range)?;
-                    self.emit_executable_pattern(child_pat, child, frame, failures, range)?;
+                    let child = self.emit_option_value_temp_at_depth(frame, depth + 1, option, range)?;
+                    self.emit_executable_pattern_at_depth(child_pat, child, frame, failures, depth + 2, range)?;
                 }
                 Ok(())
             }
@@ -227,10 +292,10 @@ impl<'vm> Compiler<'vm> {
                 self.emit_class_test(value_slot, "Map", failures, range)?;
                 for (key_pattern, child_pat) in entries.iter() {
                     let key = self.pattern_key_value(key_pattern);
-                    let option = self.emit_lookup_temp(value_slot, key, range)?;
+                    let option = self.emit_lookup_temp_at_depth(frame, depth, value_slot, key, range)?;
                     self.emit_option_test(option, true, failures, range)?;
-                    let child = self.emit_option_value_temp(option, range)?;
-                    self.emit_executable_pattern(child_pat, child, frame, failures, range)?;
+                    let child = self.emit_option_value_temp_at_depth(frame, depth + 1, option, range)?;
+                    self.emit_executable_pattern_at_depth(child_pat, child, frame, failures, depth + 2, range)?;
                 }
                 Ok(())
             }
@@ -300,37 +365,81 @@ impl<'vm> Compiler<'vm> {
         Ok(slot)
     }
 
-    fn emit_element_temp(&mut self, value_slot: u16, index: usize, range: SourceRange) -> Result<u16, CompilerError> {
-        self.emit_element_read(value_slot, index, range)?;
-        self.claim_pattern_temp("$pattern_element", range)
+    /// Claims the evaluation temporary at `depth`, pre-reserved by
+    /// [`Self::setup_pattern_frame`]. Under-provisioning is a compiler
+    /// invariant failure, not permission to allocate a new local in a loop
+    /// iteration or while resolving alternative pattern branches.
+    fn claim_pattern_temp_at_depth(&mut self, frame: &PatternExecutionFrame, depth: usize, prefix: &str, range: SourceRange) -> Result<u16, CompilerError> {
+        let slot = frame
+            .temp_slots
+            .get(depth)
+            .copied()
+            .ok_or_else(|| CompilerError::Message(format!("pattern scratch layout under-provisioned for {prefix} at depth {depth}")))?;
+        self.emit(Bytecode::SetLocal(slot), range);
+        self.emit(Bytecode::Pop, range);
+        Ok(slot)
     }
 
-    fn emit_option_value_temp(&mut self, value_slot: u16, range: SourceRange) -> Result<u16, CompilerError> {
+    fn emit_element_temp_at_depth(
+        &mut self,
+        frame: &PatternExecutionFrame,
+        depth: usize,
+        value_slot: u16,
+        index: usize,
+        range: SourceRange,
+    ) -> Result<u16, CompilerError> {
+        self.emit_element_read(value_slot, index, range)?;
+        self.claim_pattern_temp_at_depth(frame, depth, "$pattern_element", range)
+    }
+
+    fn emit_option_value_temp_at_depth(
+        &mut self,
+        frame: &PatternExecutionFrame,
+        depth: usize,
+        value_slot: u16,
+        range: SourceRange,
+    ) -> Result<u16, CompilerError> {
         self.emit(Bytecode::GetLocal(value_slot), range);
         self.emit(Bytecode::Nil, range);
         self.emit_operator_send("unwrapOr", 1, range)?;
-        self.claim_pattern_temp("$pattern_option_value", range)
+        self.claim_pattern_temp_at_depth(frame, depth, "$pattern_option_value", range)
     }
 
-    fn emit_lookup_temp(&mut self, value_slot: u16, key: Value, range: SourceRange) -> Result<u16, CompilerError> {
+    fn emit_lookup_temp_at_depth(
+        &mut self,
+        frame: &PatternExecutionFrame,
+        depth: usize,
+        value_slot: u16,
+        key: Value,
+        range: SourceRange,
+    ) -> Result<u16, CompilerError> {
         self.emit(Bytecode::GetLocal(value_slot), range);
         let key_idx = self.add_constant(key, range)?;
         self.emit(Bytecode::Constant(key_idx), range);
         self.emit_operator_send("get", 1, range)?;
-        self.claim_pattern_temp("$pattern_lookup", range)
+        self.claim_pattern_temp_at_depth(frame, depth, "$pattern_lookup", range)
     }
 
-    fn emit_list_rest_temp(&mut self, value_slot: u16, fixed_count: usize, range: SourceRange) -> Result<u16, CompilerError> {
-        // Reuse existing list-rest construction, but keep the result as a
-        // compiler temporary for the refutable matcher.
+    fn emit_list_rest_temp_at_depth(
+        &mut self,
+        frame: &PatternExecutionFrame,
+        depth: usize,
+        value_slot: u16,
+        fixed_count: usize,
+        range: SourceRange,
+    ) -> Result<u16, CompilerError> {
+        // Same hand-rolled copy loop as [`Self::emit_list_rest_temp`], but the
+        // rest list and its loop counter claim frame temporaries (counter at
+        // `depth + 1`, one deeper than the rest list itself) so repeated
+        // pattern execution stays reserve/release-free.
         let list_sym = self.vm.interner.intern("List");
         self.emit_global_reference(list_sym, range)?;
         self.emit_operator_send("new", 0, range)?;
-        let rest_slot = self.claim_pattern_temp("$pattern_rest", range)?;
+        let rest_slot = self.claim_pattern_temp_at_depth(frame, depth, "$pattern_rest", range)?;
         self.begin_scope();
         let start = self.add_constant(Value::int(fixed_count as i64), range)?;
         self.emit(Bytecode::Constant(start), range);
-        let counter = self.claim_pattern_temp("$pattern_rest_index", range)?;
+        let counter = self.claim_pattern_temp_at_depth(frame, depth + 1, "$pattern_rest_index", range)?;
         let loop_start = self.chunk_len();
         self.emit(Bytecode::GetLocal(counter), range);
         self.emit(Bytecode::GetLocal(value_slot), range);
@@ -353,6 +462,21 @@ impl<'vm> Compiler<'vm> {
         self.patch_forward_jump_to(done, self.chunk_len());
         self.end_scope(range);
         Ok(rest_slot)
+    }
+
+    fn emit_option_value_temp(&mut self, value_slot: u16, range: SourceRange) -> Result<u16, CompilerError> {
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        self.emit(Bytecode::Nil, range);
+        self.emit_operator_send("unwrapOr", 1, range)?;
+        self.claim_pattern_temp("$pattern_option_value", range)
+    }
+
+    fn emit_lookup_temp(&mut self, value_slot: u16, key: Value, range: SourceRange) -> Result<u16, CompilerError> {
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        let key_idx = self.add_constant(key, range)?;
+        self.emit(Bytecode::Constant(key_idx), range);
+        self.emit_operator_send("get", 1, range)?;
+        self.claim_pattern_temp("$pattern_lookup", range)
     }
 
     fn emit_record_rest_temp(&mut self, value_slot: u16, matched_labels: &[String], range: SourceRange) -> Result<u16, CompilerError> {
@@ -768,5 +892,48 @@ fn contains_char_literal(pattern: &Pattern) -> bool {
         }
         Pattern::Map { entries, .. } => entries.iter().any(|entry| contains_char_literal(&entry.pattern)),
         Pattern::Name { .. } | Pattern::Wildcard { .. } => false,
+    }
+}
+
+#[cfg(test)]
+mod pattern_temp_depth_tests {
+    use super::{ExecutablePattern, count_pattern_temp_depth};
+
+    fn rest_binding() -> ExecutablePattern {
+        ExecutablePattern::Binding {
+            binding_index: 0,
+            name: "tail".into(),
+        }
+    }
+
+    #[test]
+    fn list_rest_reserves_tail_and_copy_counter_even_for_binding() {
+        let pattern = ExecutablePattern::List {
+            elements: Box::new([]),
+            rest: Some(Box::new(rest_binding())),
+        };
+        assert_eq!(count_pattern_temp_depth(&pattern), 2);
+    }
+
+    #[test]
+    fn nested_list_rest_uses_one_slot_per_nested_frame_plus_copy_counter() {
+        let inner = ExecutablePattern::List {
+            elements: Box::new([]),
+            rest: Some(Box::new(rest_binding())),
+        };
+        let outer = ExecutablePattern::List {
+            elements: Box::new([]),
+            rest: Some(Box::new(inner)),
+        };
+        assert_eq!(count_pattern_temp_depth(&outer), 3);
+    }
+
+    #[test]
+    fn list_without_rest_needs_only_element_projection_temp() {
+        let pattern = ExecutablePattern::List {
+            elements: vec![rest_binding()].into_boxed_slice(),
+            rest: None,
+        };
+        assert_eq!(count_pattern_temp_depth(&pattern), 1);
     }
 }

@@ -46,7 +46,7 @@ impl<'vm> Compiler<'vm> {
                     let arm_spec = spec.arms.get(arm_idx).ok_or(CompilerError::InvalidExecutablePattern(arm.range))?;
 
                     self.begin_scope();
-                    let frame = self.setup_pattern_frame(&arm_spec.bindings, arm.range)?;
+                    let frame = self.setup_pattern_frame(&arm_spec.bindings, &arm_spec.pattern, arm.range)?;
 
                     let mut failure_jumps = Vec::new();
                     self.emit_virtual_variant_pattern(&arm_spec.pattern, &active_variant, known_variant, &frame, &mut failure_jumps, arm.range)?;
@@ -107,7 +107,7 @@ impl<'vm> Compiler<'vm> {
             let arm_spec = spec.arms.get(arm_idx).ok_or(CompilerError::InvalidExecutablePattern(arm.range))?;
 
             self.begin_scope();
-            let frame = self.setup_pattern_frame(&arm_spec.bindings, arm.range)?;
+            let frame = self.setup_pattern_frame(&arm_spec.bindings, &arm_spec.pattern, arm.range)?;
 
             let mut failure_jumps = Vec::new();
             self.emit_executable_pattern(&arm_spec.pattern, scrutinee_slot, &frame, &mut failure_jumps, arm.range)?;

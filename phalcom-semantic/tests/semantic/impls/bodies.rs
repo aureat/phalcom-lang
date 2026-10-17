@@ -247,7 +247,9 @@ impl User {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), src)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), src))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let callable = CallableId::new(
@@ -264,8 +266,8 @@ fn class_indexer_match_publishes_callable_body_and_proven_resolution() {
     let module = test_module();
     let source = r#"
 data Lookup {
-  @variant Found(_ value: Int)
-  @variant Missing
+  Found(_ value: Int)
+  Missing
 }
 
 class Table {
@@ -349,7 +351,9 @@ impl Counter {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), src)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), src))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let callable = CallableId::new(
@@ -377,7 +381,9 @@ impl Counter {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let direct = CallableId::new(
@@ -435,7 +441,9 @@ impl<A, B> Pair<B, A> {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), src)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), src))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let pair_decl = DeclarationId::new(module, "Pair".into());
@@ -466,7 +474,9 @@ impl<Tag> Id<Tag> {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), src)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), src))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let callable = CallableId::new(
@@ -496,7 +506,9 @@ impl<Tag> Id<Tag> {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let owner = DeclarationId::new(module.clone(), "Id".into());
@@ -543,7 +555,9 @@ impl<T> Box<T> where T <: Int {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let owner = DeclarationId::new(module, "Box".into());
@@ -584,7 +598,9 @@ impl<Tag> Id<Tag> {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), src)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), src))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let callable = CallableId::new(
@@ -613,7 +629,9 @@ impl<A, B> Pair<B, A> {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), src)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), src))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let callable = CallableId::new(
@@ -650,7 +668,9 @@ impl<A, B, C> Triple<{target}> {{
         );
         let module = test_module();
         let mut session = SemanticWorkspaceSession::new();
-        let update = session.update(single_module_input(module.clone(), &source)).expect("semantic test update should succeed");
+        let update = session
+            .update(single_module_input(module.clone(), &source))
+            .expect("semantic test update should succeed");
         assert!(
             !update.snapshot.has_errors(),
             "permutation {permutation:?} diagnostics: {:?}",
@@ -764,7 +784,9 @@ impl<A, B, C, **Fields: RecordFields> Triple<B, C, A, **Fields> {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let owner = DeclarationId::new(module, "Triple".into());
@@ -910,7 +932,9 @@ impl<A, B> Pair<B, A> {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), src)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), src))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let callable = CallableId::new(
@@ -959,7 +983,9 @@ impl<T> Box<T> {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module, source)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module, source))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 }
 
@@ -973,7 +999,9 @@ impl<T> Box<T> {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
     let callable = CallableId::new(
         DeclarationId::new(module, "Box".into()),
@@ -1017,7 +1045,9 @@ impl<T> Id<T> {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module, source)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module, source))
+        .expect("semantic test update should succeed");
     assert!(
         update
             .snapshot
@@ -1040,7 +1070,9 @@ impl<T> Id<T> {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module, source)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module, source))
+        .expect("semantic test update should succeed");
     assert!(
         update
             .snapshot
@@ -1076,7 +1108,9 @@ impl<A, B> Pair<B, A> {
     let definition_key = QueryKey::CallableDefinition(callable.clone());
     let body_key = QueryKey::CallableBody(callable.clone());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), source_v1)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source_v1))
+        .expect("semantic test update should succeed");
     let first_def = first.snapshot.callable_definitions.get(&callable).expect("first definition");
     let first_context = first_def.inherent_body_context.as_ref().unwrap().clone();
     let first_definition_fp = session.db().ready_product_fingerprint(&definition_key).expect("first definition product");
@@ -1089,7 +1123,9 @@ impl<A, B> Pair<B, A> {
         "callable body must record its accepted callable definition dependency"
     );
     let first_public_fp = phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(first.snapshot.callable_signatures.get(&callable).unwrap());
-    let second = session.update(single_module_input(module.clone(), source_v2)).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(module.clone(), source_v2))
+        .expect("semantic test update should succeed");
     let second_def = second.snapshot.callable_definitions.get(&callable).expect("second definition");
     let second_context = second_def.inherent_body_context.as_ref().unwrap();
     let second_definition_fp = session.db().ready_product_fingerprint(&definition_key).expect("second definition product");
@@ -1108,7 +1144,9 @@ impl<A, B> Pair<B, A> {
         second.stats
     );
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(single_module_input(module, source_v2)).expect("semantic test update should succeed");
+    let cold = cold_session
+        .update(single_module_input(module, source_v2))
+        .expect("semantic test update should succeed");
     let incremental_body = second.snapshot.callable_analyses.get(&callable).unwrap();
     let cold_body = cold.snapshot.callable_analyses.get(&callable).unwrap();
     assert_eq!(incremental_body.dependency_fingerprint, cold_body.dependency_fingerprint);
@@ -1148,14 +1186,18 @@ impl<A, B> Pair<B, A> {
     let definition_key = QueryKey::CallableDefinition(callable.clone());
     let body_key = QueryKey::CallableBody(callable.clone());
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(single_module_input(module.clone(), source_v1)).expect("semantic test update should succeed");
+    let first = incremental
+        .update(single_module_input(module.clone(), source_v1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "v1 diagnostics: {:?}", first.snapshot.diagnostics);
     let first_context_fingerprint = incremental
         .db()
         .query_state(&definition_key)
         .and_then(|state| state.input_fingerprint())
         .expect("initial callable definition fingerprint");
-    let second = incremental.update(single_module_input(module.clone(), source_v2)).expect("semantic test update should succeed");
+    let second = incremental
+        .update(single_module_input(module.clone(), source_v2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "incremental diagnostics: {:?}", second.snapshot.diagnostics);
     let second_context_fingerprint = incremental
         .db()
@@ -1173,7 +1215,9 @@ impl<A, B> Pair<B, A> {
     );
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold = cold.update(single_module_input(module.clone(), source_v2)).expect("semantic test update should succeed");
+    let cold = cold
+        .update(single_module_input(module.clone(), source_v2))
+        .expect("semantic test update should succeed");
     assert_eq!(
         second.snapshot.diagnostics, cold.snapshot.diagnostics,
         "incremental and cold diagnostics must agree"
@@ -1221,7 +1265,9 @@ class Child is Base {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), src)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), src))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let child_decl = DeclarationId::new(module, "Child".into());
@@ -1243,7 +1289,9 @@ impl Point {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), src)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), src))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let point_decl = DeclarationId::new(module, "Point".into());
@@ -1257,8 +1305,8 @@ fn test_enum_root_inherent_impl_body() {
     let module = test_module();
     let src = r#"
 data Status {
-  @variant Active
-  @variant Inactive
+  Active
+  Inactive
 }
 
 impl Status {
@@ -1268,7 +1316,9 @@ impl Status {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), src)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), src))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let status_decl = DeclarationId::new(module, "Status".into());

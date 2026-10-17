@@ -232,7 +232,7 @@ impl<'vm> Compiler<'vm> {
 
         let mut lane_frames = Vec::with_capacity(lanes.len());
         for (lane, spec) in lanes.iter().zip(lane_specs.iter()) {
-            let frame = self.setup_pattern_frame(&spec.bindings, lane.pattern.range())?;
+            let frame = self.setup_pattern_frame(&spec.bindings, &spec.pattern, lane.pattern.range())?;
             lane_frames.push(frame);
         }
 

@@ -506,8 +506,7 @@ fn classify_realization_candidate(
     typed: &TypedExpression,
 ) -> Option<RealizationCandidate> {
     if let Some(source) = realization_source(ctx, expression, typed) {
-        return (expected_is_concrete(expected) || realization_context_is_algebraic(ctx, expected, target_type))
-            .then_some(RealizationCandidate::Basis(source));
+        return (expected_is_concrete(expected) || realization_context_is_algebraic(ctx, expected, target_type)).then_some(RealizationCandidate::Basis(source));
     }
 
     if !is_embeddable_scalar_source(ctx, expression) {
@@ -524,8 +523,7 @@ fn classify_realization_candidate(
 }
 
 fn realization_context_is_algebraic(ctx: &mut CheckingContext<'_>, expected: &ExpectedType, target_type: crate::identity::TypeId) -> bool {
-    is_canonical_algebra_type(ctx, target_type)
-        || expected.origin() == Some(crate::checker::expected::ExpectationOrigin::AlgebraicArithmetic)
+    is_canonical_algebra_type(ctx, target_type) || expected.origin() == Some(crate::checker::expected::ExpectationOrigin::AlgebraicArithmetic)
 }
 
 /// Selects the class-side basis operation for a source-ordered scalar-times-
@@ -708,7 +706,7 @@ fn axis_declaration(axis: AlgebraicBasisAxis) -> Option<DeclarationId> {
 fn standard_math_declaration(path: &[&str], name: &str) -> Option<DeclarationId> {
     let components = path
         .iter()
-        .map(|component| ModuleComponent::from_identifier(*component).ok())
+        .map(|component| ModuleComponent::from_identifier(component).ok())
         .collect::<Option<Vec<_>>>()?;
     Some(DeclarationId::new(ModuleId::universe(ModulePath::from_components(components)), name.into()))
 }

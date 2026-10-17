@@ -43,7 +43,9 @@ pub struct TypedExpression {
     pub binding_write: Option<BindingId>,
     /// Query-local type view. Never copied into durable expression metadata.
     pub(crate) local_type: Option<LocalType>,
-    pub(crate) symbolic_result: Option<SymbolicInferenceResult>,
+    /// Optional solver terms stay indirect so their growth does not enlarge
+    /// the carrier used by every ordinary recursive expression.
+    pub(crate) symbolic_result: Option<Box<SymbolicInferenceResult>>,
     /// Query-local premises for executable construction; never serialized.
     pub(crate) publication_dependencies: super::sequence_publication::PublicationDependencies,
     pub binding_read_safety: Option<crate::checker::flow::BindingReadSafety>,
@@ -202,7 +204,7 @@ impl TypedExpression {
     }
 
     pub(crate) fn with_symbolic_result(mut self, result: SymbolicInferenceResult) -> Self {
-        self.symbolic_result = Some(result);
+        self.symbolic_result = Some(Box::new(result));
         self
     }
 
@@ -257,7 +259,7 @@ impl From<crate::checker::call::CallCheckResult> for TypedExpression {
         typed.explanation_parents = result.explanation_parents;
         typed.callable = result.callable;
         typed.local_type = result.local_type;
-        typed.symbolic_result = result.symbolic_result;
+        typed.symbolic_result = result.symbolic_result.map(Box::new);
         typed.debug_assert_coherent();
         typed
     }

@@ -824,7 +824,6 @@ impl VM {
     pub(crate) fn validate_captured_method_shape(&mut self, method: ObjRef, layout: &InvocationLayout) -> PhResult<Symbol> {
         let method_selector = self.heap.method(method).signature.selector;
         let method_signature = self.heap.method(method).signature.clone();
-        layout.validate_for_signature(&method_signature)?;
         let selector_text = self.resolve_symbol(method_selector).to_owned();
         let (base, expected_slots, _) = decode_selector(&selector_text);
         let signature_kind = self.heap.method(method).signature.kind;
@@ -861,6 +860,8 @@ impl VM {
         };
         let rest_layout = self.heap.method(method).signature.rest.clone();
         if rest_layout.is_some() {
+            // Rest-family matching has its own fixed-prefix validation.
+            layout.validate_for_signature(&method_signature)?;
             let mut slots = Vec::with_capacity(layout.structural_positionals() + layout.labeled_count());
             slots.extend(std::iter::repeat_n(None, layout.structural_positionals()));
             slots.extend(layout.labels().iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
@@ -888,6 +889,10 @@ impl VM {
             }
             .into());
         }
+        // An ordinary argument lane mismatch is a user-visible arity error,
+        // not an internal signature corruption. Validate the fixed signature
+        // only after determining that the caller's lanes match its selector.
+        layout.validate_for_signature(&method_signature)?;
         Ok(method_selector)
     }
 
@@ -1654,9 +1659,9 @@ impl VM {
         arity: usize,
         layout: InvocationLayout,
         source_range: SourceRange,
-        type_environment: crate::typing::RuntimeTypeEnvironmentId,
-        call_environment: Option<&crate::typing::RuntimeCallEnvironmentRecipe>,
+        environments: (crate::typing::RuntimeTypeEnvironmentId, Option<&crate::typing::RuntimeCallEnvironmentRecipe>),
     ) -> PhResult<Option<()>> {
+        let (type_environment, call_environment) = environments;
         let receiver = self.stack[receiver_idx];
         let Some(obj_id) = receiver.as_obj() else {
             return Ok(None);
@@ -1718,9 +1723,7 @@ impl VM {
         // past the module export gateway so validation happens against the
         // selected Family member, not Function.call(***) itself.
         if let Some(recipe) = call_environment
-            && target_val
-                .as_obj()
-                .is_some_and(|id| matches!(self.heap.get(id), Object::Family(_)))
+            && target_val.as_obj().is_some_and(|id| matches!(self.heap.get(id), Object::Family(_)))
         {
             let view = ArgumentView::from_layout(receiver_idx, layout, caller_authority.0, caller_authority.1);
             self.activate_family_with_kind_and_recipe(view, FamilyInvocationKind::Method, source_range, Some(recipe))?;
@@ -1957,14 +1960,7 @@ mod tests {
         );
 
         let outcome = vm
-            .dispatch_conditional_family_entry(
-                0,
-                receiver,
-                &entry,
-                view,
-                phalcom_common::range::SourceRange::default(),
-                None,
-            )
+            .dispatch_conditional_family_entry(0, receiver, &entry, view, phalcom_common::range::SourceRange::default(), None)
             .expect("strict subclass override should activate");
 
         assert_eq!(outcome, CallOutcome::EnteredFrame);

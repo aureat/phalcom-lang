@@ -254,9 +254,7 @@ fn array_disassembly_has_direct_instructions() {
     let mut vm = VM::new();
     let module = vm.create_module("disasm-test", "disasm-test");
 
-    let closure_fixed = vm
-        .compile_closure(module, "let a = <Int>[1, 2, 3]\n")
-        .expect("compiles fixed");
+    let closure_fixed = vm.compile_closure(module, "let a = <Int>[1, 2, 3]\n").expect("compiles fixed");
     let ops_fixed = vm.heap.closure(closure_fixed).callable.chunk.code.clone();
     assert!(
         ops_fixed.iter().any(|op| matches!(op, Bytecode::BuildArray(3))),

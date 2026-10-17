@@ -36,11 +36,17 @@ pub(crate) struct SequencePublication {
 
 impl SequencePublication {
     pub fn depends_on(&self, child: PublicationOwner, ancestor: PublicationOwner) -> bool {
-        child == ancestor || self.owners.get(&child).is_some_and(|owner| owner.parents.iter().any(|parent| self.depends_on(*parent, ancestor)))
+        child == ancestor
+            || self
+                .owners
+                .get(&child)
+                .is_some_and(|owner| owner.parents.iter().any(|parent| self.depends_on(*parent, ancestor)))
     }
 
     pub fn requires_owner(&self, owner: PublicationOwner) -> bool {
-        self.pending.values().any(|(_, dependencies)| dependencies.iter().any(|dependency| self.depends_on(*dependency, owner)))
+        self.pending
+            .values()
+            .any(|(_, dependencies)| dependencies.iter().any(|dependency| self.depends_on(*dependency, owner)))
     }
     pub fn register(&mut self, owner: PublicationOwner, parent: Option<PublicationOwner>) {
         self.owners.entry(owner).or_insert_with(|| Owner {
@@ -51,7 +57,10 @@ impl SequencePublication {
 
     /// Flow probes interpret inherited owners without sharing product mutation.
     pub fn probe(&self) -> Self {
-        Self { owners: self.owners.clone(), ..Self::default() }
+        Self {
+            owners: self.owners.clone(),
+            ..Self::default()
+        }
     }
 
     pub fn stage(&mut self, resolution: SequenceLiteralResolution, dependencies: PublicationDependencies, committed: &mut SequenceLiteralResolutionIndex) {
@@ -109,18 +118,22 @@ impl SequencePublication {
 
     fn flush(&mut self, committed: &mut SequenceLiteralResolutionIndex) {
         loop {
-            let transitions = self.owners.iter().filter_map(|(gate, owner)| {
-                if matches!(owner.state, State::Accepted | State::Rejected) {
-                    return None;
-                }
-                if owner.parents.iter().any(|parent| self.rejected(parent)) {
-                    Some((*gate, State::Rejected))
-                } else if owner.state == State::LocallyReady && owner.parents.iter().all(|parent| self.accepted(parent)) {
-                    Some((*gate, State::Accepted))
-                } else {
-                    None
-                }
-            }).collect::<Vec<_>>();
+            let transitions = self
+                .owners
+                .iter()
+                .filter_map(|(gate, owner)| {
+                    if matches!(owner.state, State::Accepted | State::Rejected) {
+                        return None;
+                    }
+                    if owner.parents.iter().any(|parent| self.rejected(parent)) {
+                        Some((*gate, State::Rejected))
+                    } else if owner.state == State::LocallyReady && owner.parents.iter().all(|parent| self.accepted(parent)) {
+                        Some((*gate, State::Accepted))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
             if transitions.is_empty() {
                 break;
             }
@@ -130,15 +143,19 @@ impl SequencePublication {
                 }
             }
         }
-        let completed = self.pending.iter().filter_map(|(expression, (_, dependencies))| {
-            if dependencies.iter().any(|owner| self.rejected(owner)) {
-                Some((*expression, false))
-            } else if dependencies.iter().all(|owner| self.accepted(owner)) {
-                Some((*expression, true))
-            } else {
-                None
-            }
-        }).collect::<Vec<_>>();
+        let completed = self
+            .pending
+            .iter()
+            .filter_map(|(expression, (_, dependencies))| {
+                if dependencies.iter().any(|owner| self.rejected(owner)) {
+                    Some((*expression, false))
+                } else if dependencies.iter().all(|owner| self.accepted(owner)) {
+                    Some((*expression, true))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
         for (expression, accepted) in completed {
             if let Some((resolution, _)) = self.pending.remove(&expression)
                 && accepted
@@ -182,7 +199,11 @@ impl DeferredApplicationRequirements {
             InferenceOutcome::BudgetExceeded(report) => return Err(AnalysisStatus::BudgetExceeded(report)),
             _ => return Err(blocked()),
         }
-        if session.residual_obligations().iter().any(|obligation| self.mandatory_constraints.contains(&obligation.constraint_index)) {
+        if session
+            .residual_obligations()
+            .iter()
+            .any(|obligation| self.mandatory_constraints.contains(&obligation.constraint_index))
+        {
             return Err(blocked());
         }
         let mut instantiation = crate::types::instantiation::GenericInstantiation::default();
@@ -196,11 +217,15 @@ impl DeferredApplicationRequirements {
             };
             instantiation = rows.materialize(&session, &self.terms, &solution, ctx.store).map_err(|_| blocked())?;
             if let Some(term) = &self.return_term {
-                if !matches!(rows.proof(&session, term, &solution), InferenceProofState::Established | InferenceProofState::Assumed) {
+                if !matches!(
+                    rows.proof(&session, term, &solution),
+                    InferenceProofState::Established | InferenceProofState::Assumed
+                ) {
                     return Err(blocked());
                 }
                 if let Some(ty) = self.signature_return.ty() {
-                    crate::types::materialize_type(ctx.store, ty, &instantiation, crate::types::RowMaterializationMode::RequireSolvedTail).map_err(|_| blocked())?;
+                    crate::types::materialize_type(ctx.store, ty, &instantiation, crate::types::RowMaterializationMode::RequireSolvedTail)
+                        .map_err(|_| blocked())?;
                 }
             }
         } else {
@@ -212,7 +237,10 @@ impl DeferredApplicationRequirements {
                 session.materialize(term, ctx.store).map_err(|_| blocked())?;
             }
             if let Some(term) = &self.return_term
-                && !matches!(session.proof_state_for_term(term), InferenceProofState::Established | InferenceProofState::Assumed)
+                && !matches!(
+                    session.proof_state_for_term(term),
+                    InferenceProofState::Established | InferenceProofState::Assumed
+                )
             {
                 return Err(blocked());
             }
@@ -227,8 +255,8 @@ impl DeferredApplicationRequirements {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::analysis::{SequenceConstructionPlan, SequenceLiteralFamily};
+    use super::*;
     use crate::identity::{BodyId, LocalExpressionId};
     use crate::types::id::TypeId;
 

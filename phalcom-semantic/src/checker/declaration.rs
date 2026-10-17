@@ -349,9 +349,7 @@ pub fn build_declared_class_surface(
                         .as_ref()
                         .is_some_and(super::declaration_signature::annotation_has_computed_record_key)
                     {
-                        let owner = crate::db::key::QueryKey::FieldSignature(
-                            super::declaration_signature::field_id_for_member(&decl_id, member)?,
-                        );
+                        let owner = crate::db::key::QueryKey::FieldSignature(super::declaration_signature::field_id_for_member(&decl_id, member)?);
                         ctx.diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
                             ctx.current_module.clone(),
                             DiagnosticCode::AnnotationUnresolved,
@@ -396,7 +394,7 @@ pub fn build_declared_class_surface(
                 surface.add_callable_with_visibility(side, projection, visibility);
                 signatures.insert(signature.callable.clone(), signature);
             }
-            ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => {}
+            ClassMember::Delegation(_) | ClassMember::TypeMember(_) => {}
         }
     }
 

@@ -102,7 +102,7 @@ fn legacy_class_layouts(source: &str) -> std::collections::HashMap<String, Legac
 
 #[test]
 fn adt_lower_01_one_associated_site_has_one_lowering_record() {
-    let source = "data State { @variant Ready }\nlet value = State::Ready\n";
+    let source = "data State { Ready }\nlet value = State::Ready\n";
     let (vm, program, _closure) = compile_inline(source).expect("singleton source should compile");
     let lowering = &program.modules[&program.entry].lowering;
     assert_eq!(lowering.associated.len(), 1);
@@ -112,14 +112,14 @@ fn adt_lower_01_one_associated_site_has_one_lowering_record() {
 
 #[test]
 fn adt_lower_02_multiple_sites_keep_distinct_source_keys() {
-    let source = "data State { @variant Ready }\nlet first = State::Ready\nlet second = State::Ready\n";
+    let source = "data State { Ready }\nlet first = State::Ready\nlet second = State::Ready\n";
     let (_vm, program, _closure) = compile_inline(source).expect("multiple singleton sites should compile");
     assert_eq!(program.modules[&program.entry].lowering.associated.len(), 2);
 }
 
 #[test]
 fn adt_lower_03_exact_candidate_retains_variant_identity() {
-    let source = "data State { @variant Ready }\nlet value = State::Ready\n";
+    let source = "data State { Ready }\nlet value = State::Ready\n";
     let (_vm, program, _closure) = compile_inline(source).expect("singleton source should compile");
     assert!(
         program.modules[&program.entry]
@@ -132,7 +132,7 @@ fn adt_lower_03_exact_candidate_retains_variant_identity() {
 
 #[test]
 fn adt_lower_04_mixed_field_layout_has_physical_slots() {
-    let source = "data Pair { @variant Pair(_ left: Int, named right: String) }\nlet value = Pair::Pair(1, named: \"two\")\n";
+    let source = "data Pair { Pair(_ left: Int, named right: String) }\nlet value = Pair::Pair(1, named: \"two\")\n";
     let (_vm, program, _closure) = compile_inline(source).expect("mixed field source should compile");
     let variants = &program.modules[&program.entry].lowering.enums[0].variants;
     let pair = variants.iter().find(|variant| variant.payload_fields.len() == 2).expect("Pair lowering");
@@ -143,14 +143,14 @@ fn adt_lower_04_mixed_field_layout_has_physical_slots() {
 #[test]
 #[ignore = "RED: family candidate-specific lowering projection remains incomplete"]
 fn adt_lower_05_candidate_specific_slots_follow_variant_field_ids() {
-    let source = "data Animal { @variant Dog(_ name: Int) @variant Dog(_ name: Int, age: Int) }\nlet value = Animal::Dog(1, age: 2)\nlet result = match value { Dog(x, ...) => x _ => 0 }\n";
+    let source = "data Animal { Dog(_ name: Int) Dog(_ name: Int, age: Int) }\nlet value = Animal::Dog(1, age: 2)\nlet result = match value { Dog(x, ...) => x _ => 0 }\n";
     let (_vm, program, _closure) = compile_inline(source).expect("family projection source should compile");
     assert!(!program.modules[&program.entry].lowering.family_applications.is_empty());
 }
 
 #[test]
 fn adt_lower_06_wildcard_child_does_not_require_payload_extraction() {
-    let source = "data Boxed { @variant Value(_ value: Int) }\nlet value = Boxed::Value(1)\nlet result = match value { Boxed::Value(_) => 1 }\n";
+    let source = "data Boxed { Value(_ value: Int) }\nlet value = Boxed::Value(1)\nlet result = match value { Boxed::Value(_) => 1 }\n";
     let (vm, _program, closure) = compile_inline(source).expect("wildcard source should compile");
     assert!(
         !vm.heap
@@ -166,7 +166,7 @@ fn adt_lower_06_wildcard_child_does_not_require_payload_extraction() {
 #[test]
 #[ignore = "RED: selector-gap lowering projection remains incomplete"]
 fn adt_lower_07_selector_gap_fields_are_not_extracted() {
-    let source = "data Animal { @variant Dog(_ name: Int) @variant Dog(_ name: Int, age: Int, breed: String) }\nlet value = Animal::Dog(1, age: 2, breed: \"terrier\")\nlet result = match value { Dog(x, ..., breed: y) => x _ => 0 }\n";
+    let source = "data Animal { Dog(_ name: Int) Dog(_ name: Int, age: Int, breed: String) }\nlet value = Animal::Dog(1, age: 2, breed: \"terrier\")\nlet result = match value { Dog(x, ..., breed: y) => x _ => 0 }\n";
     let (_vm, program, _closure) = compile_inline(source).expect("selector-gap source should reach lowering");
     assert!(!program.modules[&program.entry].lowering.enums.is_empty());
 }
@@ -174,7 +174,7 @@ fn adt_lower_07_selector_gap_fields_are_not_extracted() {
 #[test]
 #[ignore = "GATED: cross-module field layout fixture is required"]
 fn adt_lower_08_imported_field_layout_uses_declared_physical_slot() {
-    let source = "data Imported { @variant Value(_ first: Int, named second: String) }\nlet value = Imported::Value(1, named: \"two\")\n";
+    let source = "data Imported { Value(_ first: Int, named second: String) }\nlet value = Imported::Value(1, named: \"two\")\n";
     let (_vm, program, _closure) = compile_inline(source).expect("field-layout fixture should compile");
     let variant = &program.modules[&program.entry].lowering.enums[0].variants[0];
     assert_eq!(variant.payload_fields.iter().map(|field| field.slot).collect::<Vec<_>>(), vec![0, 1]);
@@ -182,7 +182,7 @@ fn adt_lower_08_imported_field_layout_uses_declared_physical_slot() {
 
 #[test]
 fn adt_lower_09_lowering_preserves_semantic_declaration_order() {
-    let source = "data State { @variant Ready @variant Done }\nlet first = State::Ready\nlet second = State::Done\n";
+    let source = "data State { Ready Done }\nlet first = State::Ready\nlet second = State::Done\n";
     let (_vm, program, _closure) = compile_inline(source).expect("ordered source should compile");
     let variants = &program.modules[&program.entry].lowering.enums[0].variants;
     assert_eq!(variants.len(), 2);
@@ -501,7 +501,7 @@ fn compiler_lowering_receives_resolved_parent_initializer_call_site() {
 
 #[test]
 fn adt_lower_10_executable_lowering_contains_no_gadt_proof_products() {
-    let source = "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nlet value = Expr<Int>::Int(1)\n";
+    let source = "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nlet value = Expr<Int>::Int(1)\n";
     let (_vm, program, _closure) = compile_inline(source).expect("GADT source should compile");
     let rendered = format!("{:?}", program.modules[&program.entry].lowering);
     assert!(!rendered.contains("CaseTypeEnvironment"));
@@ -515,7 +515,7 @@ fn adt_lower_11_missing_semantic_product_returns_typed_error() {
     use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
     use std::sync::Arc;
 
-    let source = "data State { @variant Ready @variant Done }\nlet result = match State::Ready { State::Ready => 1 State::Done => 2 }\n";
+    let source = "data State { Ready Done }\nlet result = match State::Ready { State::Ready => 1 State::Done => 2 }\n";
     let mut program =
         ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("valid exhaustive match should produce formal lowering");
 
@@ -540,13 +540,13 @@ fn adt_lower_11_missing_semantic_product_returns_typed_error() {
 #[test]
 #[ignore = "RED: non-proven source match rejection remains incomplete"]
 fn adt_lower_12_non_proven_match_is_rejected_before_bytecode_fallback() {
-    let result = compile_inline("data State { @variant Ready @variant Done }\nlet result = match State::Ready { State::Ready => 1 }\n");
+    let result = compile_inline("data State { Ready Done }\nlet result = match State::Ready { State::Ready => 1 }\n");
     assert!(result.is_err(), "non-exhaustive source match must not use bytecode fallback");
 }
 
 #[test]
 fn lexical_if_and_match_branches_lower_inline_without_closure_construction() {
-    let source = "data State { @variant Ready @variant Done }\nconst conditional = if true { 1 } else { 2 }\nconst matched = match State::Ready { State::Ready => { 3 } State::Done => { 4 } }\n";
+    let source = "data State { Ready Done }\nconst conditional = if true { 1 } else { 2 }\nconst matched = match State::Ready { State::Ready => { 3 } State::Done => { 4 } }\n";
     let (vm, _program, closure) = compile_inline(source).expect("lexical control regions should compile");
     let code = &vm.heap.closure(closure).callable.chunk.code;
     assert!(
@@ -565,8 +565,8 @@ fn lexical_if_and_match_branches_lower_inline_without_closure_construction() {
 #[test]
 fn a2_blocked_nested_constructor_match_is_rejected_before_lowering() {
     let source = r#"
-data Inner<T> { @variant Int(_ value: Int) -> Inner<Int> }
-data Outer<T> { @variant Wrap<A>(_ inner: Inner<A>) -> Outer<A> }
+data Inner<T> { Int(_ value: Int) -> Inner<Int> }
+data Outer<T> { Wrap<A>(_ inner: Inner<A>) -> Outer<A> }
 class Eval {
     eval<T>(_ value: Outer<T>) {
         match value { Outer::Wrap(Inner::Int(_)) => 1 _ => 0 }

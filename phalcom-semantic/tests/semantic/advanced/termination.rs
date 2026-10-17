@@ -55,6 +55,7 @@ fn mock_callable(id: CallableId, expressions: BTreeMap<ExpressionId, ExpressionA
         constructor_super_initializer: None,
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
+        observed_import_phases: Arc::new(BTreeMap::new()),
     }
 }
 

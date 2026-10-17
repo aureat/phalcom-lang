@@ -61,15 +61,13 @@ pub(crate) fn analyze_expression_with_publication(
     let effective_expected = algebraic_expected.as_ref().unwrap_or(expected);
     let expr_id = ctx.alloc_expression_id();
     let missing_inference_owner = match expected {
-        ExpectedType::Inference { context, .. } => {
-            match (ctx.inference_session(*context), ctx.current_inference_frame(*context)) {
-                (Some(_), Some(frame)) => {
-                    dependencies.insert(super::sequence_publication::PublicationOwner(*context, frame));
-                    false
-                }
-                _ => true,
+        ExpectedType::Inference { context, .. } => match (ctx.inference_session(*context), ctx.current_inference_frame(*context)) {
+            (Some(_), Some(frame)) => {
+                dependencies.insert(super::sequence_publication::PublicationOwner(*context, frame));
+                false
             }
-        }
+            _ => true,
+        },
         _ => false,
     };
     ctx.sequence_publication.expression_dependencies.insert(expr_id, dependencies);
@@ -90,6 +88,20 @@ pub(crate) fn analyze_expression_with_publication(
     } else {
         analyze_expression_inner(ctx, expr, effective_expected)
     };
+    finish_expression_analysis(ctx, expr_id, expr, expected, effective_expected, &mut typed);
+    typed
+}
+
+// Publication and explanation temporaries are needed after child analysis.
+// Keep them out of each live recursive descent frame.
+fn finish_expression_analysis(
+    ctx: &mut CheckingContext<'_>,
+    expr_id: crate::identity::ExpressionId,
+    expr: &Expr,
+    expected: &ExpectedType,
+    effective_expected: &ExpectedType,
+    typed: &mut TypedExpression,
+) {
     typed.publication_dependencies.extend(ctx.sequence_dependencies());
     ctx.record_sequence_dependencies(&typed.publication_dependencies);
     if let Some(cause_id) = ctx.pop_expression_owner(expr_id) {
@@ -99,7 +111,7 @@ pub(crate) fn analyze_expression_with_publication(
         ctx.reject_sequence_expression(expr_id);
     }
 
-    super::algebraic_realization::apply_contextual_realization(ctx, expr_id, expr, effective_expected, &mut typed);
+    super::algebraic_realization::apply_contextual_realization(ctx, expr_id, expr, effective_expected, typed);
 
     if let (Some(expected_ty), Some(origin)) = (expected.ty(), expected.origin()) {
         let requirement = crate::explain::ExplanationStep::TypeRequirement {
@@ -225,13 +237,16 @@ pub(crate) fn analyze_expression_with_publication(
     let explanation_id = Some(ctx.record_derivation(step, rule, status, origin, ev, typed.explanation_parents.clone()));
     ctx.record_call_dependency(typed.causal_invalidity, explanation_id);
     typed.expression_id = Some(expr_id);
-    ctx.publish_expression_analysis(expr_id, expr.range(), &typed, explanation_id);
-    typed
+    ctx.publish_expression_analysis(expr_id, expr.range(), typed, explanation_id);
 }
 
 /// Propagates only the provenance of an expectation derived from this result.
 fn analyze_contextual_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
-    let dependencies = if expected.is_none() { Default::default() } else { ctx.sequence_dependencies() };
+    let dependencies = if expected.is_none() {
+        Default::default()
+    } else {
+        ctx.sequence_dependencies()
+    };
     analyze_expression_with_publication(ctx, expr, expected, dependencies)
 }
 
@@ -347,6 +362,9 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
                 typed.denotation = fact.denotation;
                 if let Some(info) = ctx.lookup_binding_info(value) {
                     let binding_id = info.id;
+                    if let Some(import_id) = ctx.imported_source_bindings.get(&binding_id).cloned() {
+                        ctx.record_import_phase(&import_id, phalcom_modules::graph::DependencyPhase::Runtime);
+                    }
                     typed.binding_read = Some(binding_id);
                     typed.local_type = ctx.local_binding_type(binding_id).cloned();
                     if let Some(local_type) = typed.local_type.clone() {
@@ -387,6 +405,9 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
                 }
                 typed
             } else if let Some(decl) = ctx.resolve_type_name(value) {
+                if let Some(import_id) = ctx.resolver.resolve_import_binding_id(&ctx.current_module, value) {
+                    ctx.record_import_phase(&import_id, phalcom_modules::graph::DependencyPhase::Runtime);
+                }
                 if let Some(info) = ctx.declaration_info(&decl) {
                     TypedExpression::established(info.class_object_type, EvidenceOrigin::DeclarationSemantics, *range)
                         .with_denotation(SemanticDenotation::TypeForm(info.form))
@@ -401,7 +422,14 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
             } else if let Some(param_ty) = ctx.resolve_type_parameter(value) {
                 TypedExpression::established(param_ty, EvidenceOrigin::DeclarationSemantics, *range).with_denotation(SemanticDenotation::TypeForm(param_ty))
             } else {
-                TypedExpression::unknown(UnknownReason::UnresolvedName(value.as_str().into()))
+                let selector = Selector::getter(value).ok();
+                if let Some(selector) = selector
+                    && let Some(result) = synthesize_contextual_variant(ctx, value, &selector, None, expected, *range)
+                {
+                    result
+                } else {
+                    TypedExpression::unknown(UnknownReason::UnresolvedName(value.as_str().into()))
+                }
             }
         }
         Expr::SelfVar { range } => {
@@ -885,7 +913,24 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
             result
         }
         Expr::IfLet(if_let) => {
-            let val_typed = analyze_expression(ctx, &if_let.value, &ExpectedType::None);
+            let resolver = ctx.resolver.clone();
+            let (elaboration, _annotation_invalidity) = if let Some(annotation) = if_let.annotation.as_ref() {
+                ctx.elaborate_type_annotation(&resolver, annotation)
+            } else {
+                (None, crate::checker::causal::CausalInvalidity::Clean)
+            };
+
+            let expected_scrutinee = match &elaboration {
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                    ExpectedType::proper_from(*ty, ExpectationOrigin::DeclarationContract)
+                }
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context, term, .. }) => {
+                    ExpectedType::inference_from(*context, term.clone(), ExpectationOrigin::DeclarationContract)
+                }
+                None => ExpectedType::None,
+            };
+
+            let val_typed = analyze_expression(ctx, &if_let.value, &expected_scrutinee);
             let before = ctx.flow.clone();
 
             ctx.flow = before.clone();
@@ -941,12 +986,29 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
         Expr::WhileLet(while_let) => {
             let before = ctx.flow.clone();
 
+            let resolver = ctx.resolver.clone();
+            let (elaboration, _annotation_invalidity) = if let Some(annotation) = while_let.annotation.as_ref() {
+                ctx.elaborate_type_annotation(&resolver, annotation)
+            } else {
+                (None, crate::checker::causal::CausalInvalidity::Clean)
+            };
+
+            let expected_scrutinee = match &elaboration {
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                    ExpectedType::proper_from(*ty, ExpectationOrigin::DeclarationContract)
+                }
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context, term, .. }) => {
+                    ExpectedType::inference_from(*context, term.clone(), ExpectationOrigin::DeclarationContract)
+                }
+                None => ExpectedType::None,
+            };
+
             let evaluate_step = |step_ctx: &mut CheckingContext<'_>,
                                  current_header: &FlowState,
                                  is_real_pass: bool|
              -> (Option<FlowState>, FlowState, Vec<FlowState>, CausalInvalidity) {
                 step_ctx.flow = current_header.clone();
-                let val_typed = analyze_expression(step_ctx, &while_let.value, &ExpectedType::None);
+                let val_typed = analyze_expression(step_ctx, &while_let.value, &expected_scrutinee);
                 let exit_flow = step_ctx.flow.clone();
                 let (subject, refinement_block) = coverage_subject_for_expression(step_ctx, &val_typed);
 
@@ -1667,9 +1729,7 @@ fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation:
                             return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
                         }
                     },
-                    GenericArgumentSyntax::Expansion(_)
-                    | GenericArgumentSyntax::Remainder(_)
-                    | GenericArgumentSyntax::InferenceHole { .. } => {
+                    GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) | GenericArgumentSyntax::InferenceHole { .. } => {
                         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                             ctx.current_module.clone(),
                             DiagnosticCode::ApplicationArgumentKindMismatch,
@@ -1708,8 +1768,8 @@ fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation:
 }
 
 fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &phalcom_ast::ast::TypeAnnotation) -> Option<TypedExpression> {
+    use crate::checker::proof_predicate::{ProofPredicateGoal, ProofPredicateKind, ProofPredicateResolution, is_proof_predicate_declaration};
     use phalcom_ast::ast::TypeAnnotationExpr;
-    use crate::checker::proof_predicate::{is_proof_predicate_declaration, ProofPredicateGoal, ProofPredicateKind, ProofPredicateResolution};
 
     let TypeAnnotationExpr::Application { origin, arguments, range } = &annotation.expr else {
         return None;
@@ -1721,7 +1781,11 @@ fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &p
     let declaration = ctx.resolver.resolve_type_name(&ctx.current_module, &reference.root, &members)?;
     let kind = is_proof_predicate_declaration(&declaration)?;
 
-    if ctx.resolver.resolve_static_definition_name(&ctx.current_module, &reference.root, &members).is_some() {
+    if ctx
+        .resolver
+        .resolve_static_definition_name(&ctx.current_module, &reference.root, &members)
+        .is_some()
+    {
         return None;
     }
 
@@ -1822,10 +1886,7 @@ fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &p
             }
 
             let trait_ref = crate::traits::TraitRef::new(decl, resolved_args);
-            let key = crate::generic_evidence::GenericConformanceKey::new(
-                crate::types::parameter::TypeTerm::from(left_ty),
-                trait_ref,
-            );
+            let key = crate::generic_evidence::GenericConformanceKey::new(crate::types::parameter::TypeTerm::from(left_ty), trait_ref);
             ProofPredicateGoal::Conforms { key }
         }
     };
@@ -1878,6 +1939,15 @@ pub(crate) fn type_form_descriptor_type(ctx: &mut CheckingContext<'_>, form: Typ
 
 fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &AssociatedLookupExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &lookup.receiver, &ExpectedType::None);
+    synthesize_associated_lookup_with_receiver(ctx, lookup, expected, receiver)
+}
+
+fn synthesize_associated_lookup_with_receiver(
+    ctx: &mut CheckingContext<'_>,
+    lookup: &AssociatedLookupExpr,
+    expected: &ExpectedType,
+    receiver: TypedExpression,
+) -> TypedExpression {
     if let Some(SemanticDenotation::StaticDomain(domain)) = receiver.denotation.as_ref() {
         let Some(result) = resolve_static_domain_case(ctx, *domain, &lookup.member, TypeId::DUMMY, None, lookup.range) else {
             return TypedExpression::unknown(UnknownReason::UncheckedExpression);
@@ -2525,7 +2595,15 @@ fn constructor_parameter_knowledge(
 /// Resolves a concrete variant constructor or behavioral method selected by an exact static call shape.
 fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &AssociatedInvokeExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &invoke.receiver, &ExpectedType::None);
+    synthesize_associated_invoke_with_receiver(ctx, invoke, expected, receiver)
+}
 
+fn synthesize_associated_invoke_with_receiver(
+    ctx: &mut CheckingContext<'_>,
+    invoke: &AssociatedInvokeExpr,
+    expected: &ExpectedType,
+    receiver: TypedExpression,
+) -> TypedExpression {
     let arguments = application_arguments(&invoke.args);
     let StaticCallShape::Exact(slots) = static_call_shape(&arguments) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
@@ -2574,6 +2652,9 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
             let Some(variant_info) = ctx.variant_info(variant).cloned() else {
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
             };
+            if super::associated::authorize_variant_construction(ctx, &variant_info, invoke.range).is_err() {
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            }
             let Some(constructor) = variant_info.constructor else {
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
             };
@@ -3988,13 +4069,15 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
         return typed;
     }
 
-    if call.method == "call" && call.method_range.is_none() {
+    if call.method == "call" {
         // `Type<Args>(...)` is primary data-constructor syntax when the
         // receiver is a statically resolved declaration-backed data type
         // form. Keep the ordinary callable protocol below as the fallback for
         // all other type-form values and runtime expressions.
-        if let Some(typed) = synthesize_applied_data_constructor_call(ctx, &recv_typed, call, expected) {
-            return typed;
+        if call.method_range.is_none() {
+            if let Some(typed) = synthesize_applied_data_constructor_call(ctx, &recv_typed, call, expected) {
+                return typed;
+            }
         }
         if let Some(receiver_ty) = recv_typed.knowledge.ty() {
             if matches!(ctx.store.get(receiver_ty), TypeData::Family(_)) {
@@ -4330,15 +4413,11 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
         .unwrap_or_default();
     let before = ctx.flow.clone();
 
-    let evaluate_step = |step_ctx: &mut CheckingContext<'_>,
-                         current_header: &FlowState|
-     -> (Option<FlowState>, FlowState, Vec<FlowState>, CausalInvalidity) {
+    let evaluate_step = |step_ctx: &mut CheckingContext<'_>, current_header: &FlowState| -> (Option<FlowState>, FlowState, Vec<FlowState>, CausalInvalidity) {
         step_ctx.flow = current_header.clone();
         let cond_typed = analyze_expression(step_ctx, &while_expr.condition, &expected_bool);
         let cond_typed = match (expected_bool.ty(), cond_typed.knowledge.ty()) {
-            (Some(expected_ty), Some(actual_ty)) if expected_ty != actual_ty => {
-                check_typed_expr(step_ctx, &while_expr.condition, &expected_bool)
-            }
+            (Some(expected_ty), Some(actual_ty)) if expected_ty != actual_ty => check_typed_expr(step_ctx, &while_expr.condition, &expected_bool),
             _ => cond_typed,
         };
         let condition_flow = step_ctx.flow.clone();
@@ -4351,12 +4430,7 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
             super::control::ConditionTruth::AlwaysFalse => FlowState::unreachable(),
             _ => {
                 step_ctx.flow = condition_flow.clone();
-                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(
-                    step_ctx,
-                    &while_expr.condition,
-                    &cond_typed,
-                    true,
-                ) {
+                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(step_ctx, &while_expr.condition, &cond_typed, true) {
                     step_ctx.apply_flow_predicate(&predicate);
                 }
                 step_ctx.flow.clone()
@@ -4366,12 +4440,7 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
             super::control::ConditionTruth::AlwaysTrue => FlowState::unreachable(),
             _ => {
                 step_ctx.flow = condition_flow;
-                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(
-                    step_ctx,
-                    &while_expr.condition,
-                    &cond_typed,
-                    false,
-                ) {
+                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(step_ctx, &while_expr.condition, &cond_typed, false) {
                     step_ctx.apply_flow_predicate(&predicate);
                 }
                 step_ctx.flow.clone()
@@ -4384,12 +4453,7 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
 
         step_ctx.flow = when_true;
         step_ctx.push_loop_frame();
-        let body_res = super::control::analyze_executable_region(
-            step_ctx,
-            &while_expr.body.body,
-            while_expr.body.range,
-            &ExpectedType::None,
-        );
+        let body_res = super::control::analyze_executable_region(step_ctx, &while_expr.body.body, while_expr.body.range, &ExpectedType::None);
         let body_flow = step_ctx.flow.clone();
         let loop_frame = step_ctx.pop_loop_frame();
         let normal_backedge = if body_res.completes_normally() { Some(body_flow) } else { None };
@@ -4457,6 +4521,184 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
     }
     typed.causal_invalidity = causal;
     typed
+}
+
+/// Context supplies owners; spelling only selects members within those owners.
+/// Reuse qualified elaboration so shorthand publishes identical semantic targets.
+fn synthesize_contextual_variant(
+    ctx: &mut CheckingContext<'_>,
+    name: &str,
+    selector: &Selector,
+    args: Option<&Vec<PackItem>>,
+    expected: &ExpectedType,
+    range: SourceRange,
+) -> Option<TypedExpression> {
+    let mut owners = super::contextual_variant::expected_owners(ctx, expected);
+    owners.retain(|owner| ctx.enum_table.is_some_and(|table| table.enums.contains_key(&owner.owner)));
+    if owners.is_empty() {
+        return None;
+    }
+    let (mut candidates, refuted) = super::contextual_variant::discover(ctx, &owners, |info| info.id.selector == *selector);
+    let discovered = candidates.len();
+    if candidates.len() > 1 {
+        candidates.retain(|candidate| {
+            let contradicted = ctx.run_candidate_probe(|probe| {
+                let inherited = probe.expressions.keys().copied().collect::<std::collections::BTreeSet<_>>();
+                let result = apply_contextual_variant(probe, name, args, &candidate.owner.expected, candidate.owner.owner_type, range);
+                // Only an established contradiction eliminates an interpretation.
+                // Failed/blocked analysis is not negative evidence.
+                let unresolved = |status: &AnalysisStatus| {
+                    matches!(
+                        status,
+                        AnalysisStatus::Blocked(_)
+                            | AnalysisStatus::Suppressed(_)
+                            | AnalysisStatus::DynamicBoundary(_)
+                            | AnalysisStatus::Cancelled
+                            | AnalysisStatus::BudgetExceeded(_)
+                            | AnalysisStatus::InternalFailure(_)
+                    )
+                };
+                let blocked = probe.terminal_status.is_some()
+                    || unresolved(&result.status)
+                    || probe
+                        .expressions
+                        .iter()
+                        .any(|(id, expression)| !inherited.contains(id) && unresolved(&expression.status))
+                    || probe.diagnostics.iter().any(|diagnostic| {
+                        matches!(
+                            diagnostic.code,
+                            DiagnosticCode::AnalysisBlocked | DiagnosticCode::AnalysisBudgetExceeded | DiagnosticCode::AnalysisInternalFailure
+                        )
+                    });
+                let contradiction = probe.diagnostics.iter().any(|diagnostic| {
+                    matches!(
+                        diagnostic.code,
+                        DiagnosticCode::ArgumentMismatch
+                            | DiagnosticCode::TypeMismatch
+                            | DiagnosticCode::GenericInferenceConflict
+                            | DiagnosticCode::GenericConstraintUnsatisfied
+                            | DiagnosticCode::AssociatedGenericOwnerConflict
+                            | DiagnosticCode::AssociatedGadtOwnerConflict
+                            | DiagnosticCode::AssociatedFamilyInaccessible
+                            | DiagnosticCode::AssociatedMemberInaccessible
+                            | DiagnosticCode::MemberInaccessible
+                    )
+                });
+                !blocked && contradiction
+            });
+            !contradicted
+        });
+    }
+    if candidates.is_empty() {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            if discovered > 0 {
+                DiagnosticCode::ArgumentMismatch
+            } else if refuted {
+                DiagnosticCode::AssociatedGadtOwnerConflict
+            } else if args.is_some() {
+                DiagnosticCode::AssociatedCallShapeMissing
+            } else {
+                DiagnosticCode::AssociatedMemberMissing
+            },
+            if discovered > 0 {
+                format!("no contextual specialization of `{selector}` accepts these arguments; qualify the intended owner to inspect its requirements")
+            } else if refuted {
+                format!("variant `{selector}` cannot inhabit the expected owner specialization; its case constraints conflict")
+            } else {
+                format!(
+                    "no variant matching `{selector}` in expected owner(s) {}; check the case name, arguments and labels",
+                    owners.iter().map(|owner| owner.owner.name.to_string()).collect::<Vec<_>>().join(", ")
+                )
+            },
+            range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    }
+    if candidates.len() > 1 {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AssociatedCallAmbiguous,
+            format!(
+                "contextual variant `{name}` is ambiguous between {}; qualify the variant with its owner",
+                candidates
+                    .iter()
+                    .map(|candidate| format!("{}::{name}", ctx.store.format_type(candidate.owner.owner_type)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    }
+    let candidate = candidates.into_iter().next()?;
+    debug_assert_eq!(candidate.variant.selector, *selector);
+    // A single independently established owner does not require narrowing.
+    // Retain the originating inference term and its query-local variables:
+    // eagerly replacing them with a canonical owner type can manufacture
+    // conflicting generic constraints (e.g. Some(value) in Option<T>).
+    // With competing owner specializations, use the selected branch-specific
+    // expectation to retain the candidate isolation contract.
+    let application_expected = if owners.len() == 1 && discovered == 1 {
+        expected
+    } else {
+        &candidate.owner.expected
+    };
+    Some(apply_contextual_variant(
+        ctx,
+        name,
+        args,
+        application_expected,
+        candidate.owner.owner_type,
+        range,
+    ))
+}
+
+fn apply_contextual_variant(
+    ctx: &mut CheckingContext<'_>,
+    name: &str,
+    args: Option<&Vec<PackItem>>,
+    expected: &ExpectedType,
+    owner_type: TypeId,
+    range: SourceRange,
+) -> TypedExpression {
+    let Some(descriptor) = type_form_descriptor_type(ctx, owner_type) else {
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    };
+    let receiver =
+        TypedExpression::established(descriptor, EvidenceOrigin::DeclarationSemantics, range).with_denotation(SemanticDenotation::TypeForm(owner_type));
+    let syntax_receiver = Expr::Var {
+        value: ctx
+            .store
+            .nominal_origin_declaration(owner_type)
+            .map(|owner| owner.name.to_string())
+            .unwrap_or_default(),
+        range,
+    };
+    if let Some(args) = args {
+        let invoke = AssociatedInvokeExpr {
+            receiver: syntax_receiver,
+            first_separator_range: range,
+            base: name.to_string(),
+            base_range: range,
+            args: args.clone(),
+            range,
+        };
+        synthesize_associated_invoke_with_receiver(ctx, &invoke, expected, receiver)
+    } else {
+        let lookup = AssociatedLookupExpr {
+            receiver: syntax_receiver,
+            first_separator_range: range,
+            member: AssociatedMemberSyntax::Named(phalcom_ast::ast::AssociatedNamedMemberSyntax {
+                base: name.to_string(),
+                base_range: range,
+                mode: AssociatedNamedMode::Getter,
+                range,
+            }),
+            range,
+        };
+        synthesize_associated_lookup_with_receiver(ctx, &lookup, expected, receiver)
+    }
 }
 
 fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &UnqualifiedCallExpr, expected: &ExpectedType) -> TypedExpression {
@@ -4606,19 +4848,29 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
             // lanes. Solve the variadic constructor from its arguments first;
             // the ordinary type relation checks the completed result against
             // the contextual contract below.
-            let open_pack_context = decl == ctx.core_ids.pack && expected.ty().is_some_and(|ty| {
-                matches!(ctx.store.get(ty), TypeData::Pack(pack)
+            let open_pack_context = decl == ctx.core_ids.pack
+                && expected.ty().is_some_and(|ty| {
+                    matches!(ctx.store.get(ty), TypeData::Pack(pack)
                     if pack.positional_remainder != crate::types::store::AnonymousTupleRemainder::None
                         || pack.labeled_remainder != crate::types::store::AnonymousTupleRemainder::None)
-            });
+                });
             let constructor_expected = if open_pack_context { &ExpectedType::None } else { expected };
             let result = apply_resolved_callable(ctx, &target, &premise, &arguments, constructor_expected, call.range);
-            let result_type = result.knowledge.ty().or_else(|| target.signature.return_type.ty().filter(|ty| ctx.store.is_proper_type(*ty)));
+            let result_type = result
+                .knowledge
+                .ty()
+                .or_else(|| target.signature.return_type.ty().filter(|ty| ctx.store.is_proper_type(*ty)));
             let mut typed: TypedExpression = result.into();
-            if open_pack_context && typed.status.is_ready() && let Some(expected_type) = expected.ty() {
+            if open_pack_context
+                && typed.status.is_ready()
+                && let Some(expected_type) = expected.ty()
+            {
                 let application = ctx.apply_knowledge_against_type(
-                    &typed.knowledge, expected_type, DiagnosticCode::TypeMismatch,
-                    "Pack constructor result does not match the expected Pack type", call.range,
+                    &typed.knowledge,
+                    expected_type,
+                    DiagnosticCode::TypeMismatch,
+                    "Pack constructor result does not match the expected Pack type",
+                    call.range,
                 );
                 apply_relation_application_to_typed(&mut typed, &application);
             }
@@ -4640,35 +4892,50 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                         },
                     },
                 );
-                if ctx.phase == crate::checker::context::EvaluationPhase::Static && typed.status.is_ready()
+                if ctx.phase == crate::checker::context::EvaluationPhase::Static
+                    && typed.status.is_ready()
                     && decl == ctx.core_ids.pack
                     && ctx.store.kind_of(result_type) == KindId::TYPE
                 {
                     let mut labeled = false;
                     let mut labels = std::collections::HashSet::new();
-                    let checked = call.args.iter().enumerate().map(|(index, item)| {
-                        let (value, payload) = match item {
-                            PackItem::Positional { expr, .. } if !labeled => (expr, crate::static_definition::CheckedStaticPayloadId::PackPositional(index as u32)),
-                            PackItem::Labeled { label: PackLabel::Static { text, .. }, value, .. } => {
-                                labeled = true;
-                                if !labels.insert(text.as_str()) { return None; }
-                                (value, crate::static_definition::CheckedStaticPayloadId::PackLabeled(text.as_str().into()))
-                            }
-                            PackItem::Expand { expr, mode, .. } => {
-                                if labeled && *mode == phalcom_ast::ast::ExpansionMode::Positional {
-                                    return None;
+                    let checked = call
+                        .args
+                        .iter()
+                        .enumerate()
+                        .map(|(index, item)| {
+                            let (value, payload) = match item {
+                                PackItem::Positional { expr, .. } if !labeled => {
+                                    (expr, crate::static_definition::CheckedStaticPayloadId::PackPositional(index as u32))
                                 }
-                                if matches!(mode, phalcom_ast::ast::ExpansionMode::Labeled | phalcom_ast::ast::ExpansionMode::Complete) {
+                                PackItem::Labeled {
+                                    label: PackLabel::Static { text, .. },
+                                    value,
+                                    ..
+                                } => {
                                     labeled = true;
+                                    if !labels.insert(text.as_str()) {
+                                        return None;
+                                    }
+                                    (value, crate::static_definition::CheckedStaticPayloadId::PackLabeled(text.as_str().into()))
                                 }
-                                (expr, crate::static_definition::CheckedStaticPayloadId::PackExpansion(*mode))
-                            }
-                            _ => return None,
-                        };
-                        Some(crate::static_definition::CheckedStaticConstructionArgument {
-                            expression: ctx.expression_id_for_static_range(value.range())?, payload,
+                                PackItem::Expand { expr, mode, .. } => {
+                                    if labeled && *mode == phalcom_ast::ast::ExpansionMode::Positional {
+                                        return None;
+                                    }
+                                    if matches!(mode, phalcom_ast::ast::ExpansionMode::Labeled | phalcom_ast::ast::ExpansionMode::Complete) {
+                                        labeled = true;
+                                    }
+                                    (expr, crate::static_definition::CheckedStaticPayloadId::PackExpansion(*mode))
+                                }
+                                _ => return None,
+                            };
+                            Some(crate::static_definition::CheckedStaticConstructionArgument {
+                                expression: ctx.expression_id_for_static_range(value.range())?,
+                                payload,
+                            })
                         })
-                    }).collect::<Option<Vec<_>>>();
+                        .collect::<Option<Vec<_>>>();
                     if let Some(arguments) = checked {
                         ctx.record_checked_static_construction(crate::static_definition::CheckedStaticConstruction {
                             expression,
@@ -4677,28 +4944,37 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                             arguments: arguments.into_boxed_slice(),
                         });
                     }
-                } else if ctx.phase == crate::checker::context::EvaluationPhase::Static && typed.status.is_ready()
+                } else if ctx.phase == crate::checker::context::EvaluationPhase::Static
+                    && typed.status.is_ready()
                     && let Some(mapping) = argument_mapping.as_deref()
                     && mapping.len() == call.args.len()
                     && mapping.len() == data_info.components.len()
                 {
-                    let checked = call.args.iter().zip(mapping).map(|(item, component_index)| {
-                        let value = match item {
-                            PackItem::Positional { expr, .. } => expr,
-                            PackItem::Labeled { value, .. } => value,
-                            PackItem::Expand { .. } => return None,
-                        };
-                        let component = data_info.components.get(*component_index as usize)?;
-                        Some(crate::static_definition::CheckedStaticConstructionArgument {
-                            expression: ctx.expression_id_for_static_range(value.range())?,
-                            payload: crate::static_definition::CheckedStaticPayloadId::DataComponent(component.id.clone()),
+                    let checked = call
+                        .args
+                        .iter()
+                        .zip(mapping)
+                        .map(|(item, component_index)| {
+                            let value = match item {
+                                PackItem::Positional { expr, .. } => expr,
+                                PackItem::Labeled { value, .. } => value,
+                                PackItem::Expand { .. } => return None,
+                            };
+                            let component = data_info.components.get(*component_index as usize)?;
+                            Some(crate::static_definition::CheckedStaticConstructionArgument {
+                                expression: ctx.expression_id_for_static_range(value.range())?,
+                                payload: crate::static_definition::CheckedStaticPayloadId::DataComponent(component.id.clone()),
+                            })
                         })
-                    }).collect::<Option<Vec<_>>>();
+                        .collect::<Option<Vec<_>>>();
                     if let Some(checked) = checked {
-                        let distinct = checked.iter().filter_map(|argument| match &argument.payload {
-                            crate::static_definition::CheckedStaticPayloadId::DataComponent(component) => Some(component),
-                            _ => None,
-                        }).collect::<std::collections::BTreeSet<_>>();
+                        let distinct = checked
+                            .iter()
+                            .filter_map(|argument| match &argument.payload {
+                                crate::static_definition::CheckedStaticPayloadId::DataComponent(component) => Some(component),
+                                _ => None,
+                            })
+                            .collect::<std::collections::BTreeSet<_>>();
                         if distinct.len() == checked.len() {
                             ctx.record_checked_static_construction(crate::static_definition::CheckedStaticConstruction {
                                 expression,
@@ -4721,6 +4997,13 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
         return TypedExpression::established(ty, EvidenceOrigin::DeclarationSemantics, call.range);
     }
 
+    let arguments = application_arguments(&call.args);
+    if let StaticCallShape::Exact(slots) = static_call_shape(&arguments)
+        && let Ok(selector) = Selector::method(&call.name, slots)
+        && let Some(result) = synthesize_contextual_variant(ctx, &call.name, &selector, Some(&call.args), expected, call.range)
+    {
+        return result;
+    }
     TypedExpression::unknown(UnknownReason::UnresolvedName(call.name.as_str().into()))
 }
 
@@ -4834,8 +5117,8 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, ex
         .ty()
         .is_some_and(|target| super::algebraic_realization::is_canonical_algebra_type(ctx, target));
     if !left_has_basis && !right_has_basis && !expects_algebra {
-        let has_binding_operand = matches!(binary.left.as_ref(), Expr::Var { .. } | Expr::GetProperty(_))
-            || matches!(binary.right.as_ref(), Expr::Var { .. } | Expr::GetProperty(_));
+        let has_binding_operand =
+            matches!(binary.left.as_ref(), Expr::Var { .. } | Expr::GetProperty(_)) || matches!(binary.right.as_ref(), Expr::Var { .. } | Expr::GetProperty(_));
         if matches!(binary.op, BinaryOp::Multiply) && has_binding_operand {
             return synthesize_binding_binary_expr(ctx, binary, expected);
         }
@@ -5284,7 +5567,7 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
         // Consume the same linked type-name authority used by selective reads
         // and retain both the class-object type and its represented type form.
         if ctx.resolver.resolve_module_alias(&ctx.current_module, module_alias).is_some()
-            && let Some(declaration) = ctx.resolve_type_name_with_path(module_alias, &[get.property.clone()])
+            && let Some(declaration) = ctx.resolve_type_name_with_path(module_alias, std::slice::from_ref(&get.property))
             && let Some(info) = ctx.declaration_info(&declaration)
         {
             return TypedExpression::established(info.class_object_type, EvidenceOrigin::DeclarationSemantics, get.range)
@@ -6005,15 +6288,15 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
                 "redundant match arm: earlier patterns already cover every reachable value of this pattern",
                 arm.range,
             ));
-        } else if usefulness == crate::match_semantics::PatternUsefulness::Impossible {
-            if !crate::checker::pattern::pattern_is_variant_of_scrutinee_family(ctx.store, &pattern_res, scrutinee_subject.canonical) {
-                ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
-                    ctx.current_module.clone(),
-                    crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
-                    "impossible match pattern: it cannot match any value of the scrutinee type",
-                    arm.range,
-                ));
-            }
+        } else if usefulness == crate::match_semantics::PatternUsefulness::Impossible
+            && !crate::checker::pattern::pattern_is_variant_of_scrutinee_family(ctx.store, &pattern_res, scrutinee_subject.canonical)
+        {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
+                "impossible match pattern: it cannot match any value of the scrutinee type",
+                arm.range,
+            ));
         }
 
         let mut reachable_summary = if usefulness == crate::match_semantics::PatternUsefulness::Useful {

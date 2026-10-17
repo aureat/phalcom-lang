@@ -107,24 +107,14 @@ impl Owner for Carrier {
     let owner_ref = phalcom_semantic::traits::TraitRef::new(fixture.decl("Owner"), Vec::new());
     let gate_int_ref = phalcom_semantic::traits::TraitRef::new(fixture.decl("Gate"), vec![fixture.ty("Int")]);
     let mut store = (*fixture.analysis.snapshot.store).clone();
-    let box_int = store
-        .apply_type_form(fixture.ty("Box"), &[fixture.ty("Int")])
-        .expect("Box<Int> application");
+    let box_int = store.apply_type_form(fixture.ty("Box"), &[fixture.ty("Int")]).expect("Box<Int> application");
     let box_float = store
         .apply_type_form(fixture.ty("Box"), &[fixture.ty("Float")])
         .expect("Box<Float> application");
     let carrier = fixture.ty("Carrier");
 
-    let exact_int_gate = fixture
-        .analysis
-        .snapshot
-        .conformance_index
-        .query_exact(&mut store, box_int, &gate_int_ref);
-    let wrong_target_gate = fixture
-        .analysis
-        .snapshot
-        .conformance_index
-        .query_exact(&mut store, box_float, &gate_int_ref);
+    let exact_int_gate = fixture.analysis.snapshot.conformance_index.query_exact(&mut store, box_int, &gate_int_ref);
+    let wrong_target_gate = fixture.analysis.snapshot.conformance_index.query_exact(&mut store, box_float, &gate_int_ref);
     let wrong_trait_gate = fixture.analysis.snapshot.conformance_index.query_exact(
         &mut store,
         box_int,
@@ -134,10 +124,7 @@ impl Owner for Carrier {
     assert_eq!(wrong_target_gate.len(), 1);
     assert_eq!(wrong_trait_gate.len(), 1);
 
-    let owner_key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-        TypeTerm::Canonical(carrier),
-        owner_ref.clone(),
-    );
+    let owner_key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(TypeTerm::Canonical(carrier), owner_ref.clone());
     let mut proof_context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
         None,
         Some(&fixture.analysis.snapshot.conformance_index),
@@ -148,9 +135,9 @@ impl Owner for Carrier {
         Some(&mut store),
     );
     let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&owner_key, &mut proof_context);
-    let phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
-        phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(owner_evidence),
-    ) = proof
+    let phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(
+        owner_evidence,
+    )) = proof
     else {
         panic!("expected exact Owner proof with its trait contract discharged, got {proof:?}");
     };

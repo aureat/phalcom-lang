@@ -136,6 +136,19 @@ fn remap_lowering_metadata_pool(lowering: &mut crate::modules::semantic_lowering
 }
 
 impl VM {
+    /// Rejects a guard policy different from the one that finalized the read layout.
+    pub(crate) fn validate_program_compile_mode(&self, program: &CompiledProgram) -> PhResult<()> {
+        if self.compile_mode != program.compile_mode() {
+            return Err(RuntimeError::Internal(format!(
+                "program finalized for {:?} cannot execute with {:?} contract guards",
+                program.compile_mode(),
+                self.compile_mode
+            ))
+            .into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn install_semantic_metadata_bundle(
         &mut self,
         metadata_bundle: Arc<phalcom_type_meta::SemanticMetadataBundle>,
@@ -185,7 +198,9 @@ impl VM {
                     };
                     if symbol.module.project.is_universe() {
                         let declaration = phalcom_modules::DeclarationId::new(symbol.module.clone(), symbol.name.clone());
-                        if let Some(class_id) = self.resolve_universe_declaration_class(&declaration) {
+                        if !self.is_canonical_none_singleton_binding(&declaration)
+                            && let Some(class_id) = self.resolve_universe_declaration_class(&declaration)
+                        {
                             self.heap.module_mut(target_mod_obj).set_global(slot, crate::value::Value::obj(class_id))?;
                         }
                     }
@@ -256,7 +271,9 @@ impl VM {
                         };
                         if symbol_id.module.project.is_universe() {
                             let declaration = phalcom_modules::DeclarationId::new(symbol_id.module.clone(), symbol_id.name.clone());
-                            if let Some(class_id) = self.resolve_universe_declaration_class(&declaration) {
+                            if !self.is_canonical_none_singleton_binding(&declaration)
+                                && let Some(class_id) = self.resolve_universe_declaration_class(&declaration)
+                            {
                                 self.heap.module_mut(target_obj).set_global(slot, crate::value::Value::obj(class_id))?;
                             }
                         }
@@ -279,6 +296,7 @@ impl VM {
     /// Materializes a closed, linked compiled program into VM module objects,
     /// global layouts, linked read slots, and export tables without running initializers.
     pub fn materialize_program(&mut self, program: &CompiledProgram) -> PhResult<()> {
+        self.validate_program_compile_mode(program)?;
         // Phase 1: Allocate all module/package objects in the Prepared state (idempotent).
         for (id, compiled_mod) in &program.modules {
             if !self.module_registry.contains_key(id) {
@@ -694,12 +712,13 @@ impl VM {
 
     /// Compiles and attaches a source closure for `id` using precomputed bindings.
     pub fn compile_program_module_closure(&mut self, id: &phalcom_modules::ModuleId, source: &str, program: &CompiledProgram) -> PhResult<crate::heap::ObjRef> {
+        self.validate_program_compile_mode(program)?;
         let obj_ref = self
             .module_registry
             .get(id)
             .ok_or_else(|| RuntimeError::Internal(format!("module {id} not found in registry")))?
             .object;
-        let bindings = program.linked.modules.get(id).map(CompileBindings::from_linked_module);
+        let bindings = CompileBindings::from_executable_linked_program(&program.linked, id);
         let closure = self
             .compile_closure_as_with_bindings(obj_ref, source, crate::compiler::lib::UnitKind::File, bindings)
             .inspect_err(|err| {

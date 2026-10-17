@@ -21,9 +21,11 @@ pub const ELEMENTARY: &[(&str, f64, f64)] = &[
 
 /// mpmath 1.4.1 at 150 digits, exact binary64 inputs. The very-large atanh
 /// real part is evaluated at 700 digits so its 5e-309 correction is retained.
+// Independent reference ordinates retain their original binary64 bit pattern;
+// spelling them as bits avoids Clippy interpreting oracle data as approximated constants.
 pub const SCALED: &[(&str, f64, f64, f64, f64)] = &[
     ("sqrt", 1e-300, -1e-300, 1.09868411346781e-150, -4.5508986056222734e-151),
-    ("log", 5e-324, 5e-324, -744.0934983311013, 0.7853981633974483),
+    ("log", 5e-324, 5e-324, -744.0934983311013, f64::from_bits(0x3fe9_21fb_5444_2d18)),
     ("log", 1.0, 1e-10, 5.0000000000000005e-21, 1e-10),
     ("log1p", -1e-20, -2e-20, -1e-20, -2e-20),
     ("exp", 710.0, 1.5, 1.5802653829857376e307, f64::INFINITY),
@@ -35,10 +37,10 @@ pub const SCALED: &[(&str, f64, f64, f64, f64)] = &[
     ("atan", 1e-20, 1.0000000000000002, 1.570773808796775, 18.36840028433149),
     ("asinh", 1e-20, 1.0000000000000002, 2.1073424260789764e-8, 1.570796326794422),
     ("atanh", 0.9999999999999999, 1e-20, 18.714973873090283, 4.503599615191316e-5),
-    ("acos", 1e308, 1e308, 0.7853981633974483, -710.235929413006),
-    ("acosh", 1e308, -1e308, 710.235929413006, -0.7853981633974483),
-    ("asinh", -1e308, 1e308, -710.235929413006, 0.7853981633974483),
-    ("atanh", 1e308, 1e308, 5e-309, 1.5707963267948966),
+    ("acos", 1e308, 1e308, f64::from_bits(0x3fe9_21fb_5444_2d18), -710.235929413006),
+    ("acosh", 1e308, -1e308, 710.235929413006, -f64::from_bits(0x3fe9_21fb_5444_2d18)),
+    ("asinh", -1e308, 1e308, -710.235929413006, f64::from_bits(0x3fe9_21fb_5444_2d18)),
+    ("atanh", 1e308, 1e308, 5e-309, f64::from_bits(0x3ff9_21fb_5444_2d18)),
 ];
 
 /// mpmath 1.4.1 at 400 digits, exact binary64 inputs near both real cuts

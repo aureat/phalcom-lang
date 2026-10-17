@@ -25,4 +25,10 @@ class DuplicateKeyError is Error {
 // Raised when associating a pair in a Bijection conflicts with an existing key or value mapping.
 class BijectionConflictError is Error {}
 
-export ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError, BijectionConflictError
+// Raised when an interval is invalid, empty where non-empty required, or unordered.
+class InvalidIntervalError is ArgumentError {}
+
+// Raised when an interval overlaps an existing range during strict RangeMap insertion.
+class RangeOverlapError is ArgumentError {}
+
+export ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError, BijectionConflictError, InvalidIntervalError, RangeOverlapError

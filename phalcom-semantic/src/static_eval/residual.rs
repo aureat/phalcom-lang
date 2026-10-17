@@ -12,8 +12,8 @@ use crate::static_eval::application::{StaticSpecializationEnvironmentKey, Static
 use crate::static_value::StaticValueRef;
 use crate::types::id::TypeId;
 use crate::types::outcome::{BudgetReport, QueryBudget};
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -163,7 +163,9 @@ pub enum StaticResidualData {
 impl StaticResidualData {
     fn payload_work_units(&self) -> usize {
         fn environment_units(environment: &StaticSpecializationEnvironmentKey) -> usize {
-            environment.argument_bindings().len()
+            environment
+                .argument_bindings()
+                .len()
                 .saturating_add(environment.type_bindings().len())
                 .saturating_add(environment.constraints().len())
         }
@@ -172,11 +174,15 @@ impl StaticResidualData {
             Self::Parameter { .. } => 0,
             Self::Apply { application, .. } => application.arguments.len().saturating_add(environment_units(&application.environment)),
             Self::Proof { environment, .. } => environment_units(environment),
-            Self::MemberProjection { projection, environment, .. } =>
-                projection.arguments.len().saturating_add(environment_units(environment)),
+            Self::MemberProjection { projection, environment, .. } => projection.arguments.len().saturating_add(environment_units(environment)),
             Self::If { .. } => 3,
             Self::Match { semantics, .. } => semantics.arms.len().saturating_add(1),
-            Self::Pack { positionals, labels, labeled_values, .. } => positionals
+            Self::Pack {
+                positionals,
+                labels,
+                labeled_values,
+                ..
+            } => positionals
                 .len()
                 .saturating_add(labeled_values.len())
                 .saturating_add(labels.len())
@@ -262,15 +268,10 @@ impl StaticResidualStore {
             return Err(StaticResidualStoreError::ForeignStore);
         }
         let index = reference.residual.0 as usize;
-        self.residuals
-            .get(index)
-            .ok_or(StaticResidualStoreError::UnknownResidual(reference.residual.0))
+        self.residuals.get(index).ok_or(StaticResidualStoreError::UnknownResidual(reference.residual.0))
     }
 
-    pub(crate) fn trusted_context(
-        &self,
-        reference: StaticResidualRef,
-    ) -> Result<&StaticTrustedBranchContext, StaticResidualStoreError> {
+    pub(crate) fn trusted_context(&self, reference: StaticResidualRef) -> Result<&StaticTrustedBranchContext, StaticResidualStoreError> {
         if reference.store != self.id {
             return Err(StaticResidualStoreError::ForeignStore);
         }
@@ -292,7 +293,8 @@ impl StaticResidualStore {
     ) -> Result<StaticResidualRef, StaticResidualStoreError> {
         // Charge for variable-size payloads before traversing or cloning an
         // interning key. Repeated attempts may be free in nodes, but not in work.
-        let payload_units = data.payload_work_units()
+        let payload_units = data
+            .payload_work_units()
             .saturating_add(trusted_context.type_bindings().len())
             .saturating_add(trusted_context.constraints().len());
         for _ in 0..payload_units.div_ceil(1024) {
@@ -313,11 +315,7 @@ impl StaticResidualStore {
         Ok(StaticResidualRef::new(self.id, id))
     }
 
-    pub fn parameter(
-        &mut self,
-        parameter: StaticResidualParameter,
-        budget: &mut QueryBudget,
-    ) -> Result<StaticResidualRef, StaticResidualStoreError> {
+    pub fn parameter(&mut self, parameter: StaticResidualParameter, budget: &mut QueryBudget) -> Result<StaticResidualRef, StaticResidualStoreError> {
         self.intern(StaticResidualData::Parameter { parameter }, budget)
     }
 
@@ -342,7 +340,14 @@ impl StaticResidualStore {
                 std::mem::swap(left, right);
             }
         }
-        self.intern(StaticResidualData::Proof { goal, result_type, environment }, budget)
+        self.intern(
+            StaticResidualData::Proof {
+                goal,
+                result_type,
+                environment,
+            },
+            budget,
+        )
     }
 
     pub fn member_projection(
@@ -352,7 +357,14 @@ impl StaticResidualStore {
         environment: StaticSpecializationEnvironmentKey,
         budget: &mut QueryBudget,
     ) -> Result<StaticResidualRef, StaticResidualStoreError> {
-        self.intern(StaticResidualData::MemberProjection { projection, result_domain, environment }, budget)
+        self.intern(
+            StaticResidualData::MemberProjection {
+                projection,
+                result_domain,
+                environment,
+            },
+            budget,
+        )
     }
 
     pub fn if_then_else(
@@ -368,7 +380,15 @@ impl StaticResidualStore {
                 return Ok(r);
             }
         }
-        self.intern(StaticResidualData::If { condition, then_term, else_term, result_domain }, budget)
+        self.intern(
+            StaticResidualData::If {
+                condition,
+                then_term,
+                else_term,
+                result_domain,
+            },
+            budget,
+        )
     }
 
     pub fn match_term(
@@ -388,7 +408,15 @@ impl StaticResidualStore {
         result_type: TypeId,
         budget: &mut QueryBudget,
     ) -> Result<StaticResidualRef, StaticResidualStoreError> {
-        self.intern(StaticResidualData::Pack { positionals, labels, labeled_values, result_type }, budget)
+        self.intern(
+            StaticResidualData::Pack {
+                positionals,
+                labels,
+                labeled_values,
+                result_type,
+            },
+            budget,
+        )
     }
 
     pub fn tuple(
@@ -442,14 +470,7 @@ impl StaticResidualStore {
         fields: Box<[(VariantFieldId, StaticEvalTerm)]>,
         budget: &mut QueryBudget,
     ) -> Result<StaticResidualRef, StaticResidualStoreError> {
-        self.intern(
-            StaticResidualData::Variant {
-                variant,
-                result_type,
-                fields,
-            },
-            budget,
-        )
+        self.intern(StaticResidualData::Variant { variant, result_type, fields }, budget)
     }
 
     /// Computes an allocation-order-independent semantic fingerprint of the residual node.
@@ -476,15 +497,18 @@ impl StaticResidualStore {
     fn validate_data(&self, data: &StaticResidualData) -> Result<(), StaticResidualStoreError> {
         let validate = |term: &StaticEvalTerm| self.validate_term(term);
         match data {
-            StaticResidualData::Parameter { .. }
-            | StaticResidualData::Proof { .. }
-            | StaticResidualData::MemberProjection { .. } => {}
+            StaticResidualData::Parameter { .. } | StaticResidualData::Proof { .. } | StaticResidualData::MemberProjection { .. } => {}
             StaticResidualData::Apply { application, .. } => {
                 for argument in application.arguments.iter() {
                     validate(argument)?;
                 }
             }
-            StaticResidualData::If { condition, then_term, else_term, .. } => {
+            StaticResidualData::If {
+                condition,
+                then_term,
+                else_term,
+                ..
+            } => {
                 validate(condition)?;
                 validate(then_term)?;
                 validate(else_term)?;
@@ -495,7 +519,12 @@ impl StaticResidualStore {
                     validate(&arm.body)?;
                 }
             }
-            StaticResidualData::Pack { positionals, labels, labeled_values, .. } => {
+            StaticResidualData::Pack {
+                positionals,
+                labels,
+                labeled_values,
+                ..
+            } => {
                 if labels.len() != labeled_values.len() {
                     return Err(StaticResidualStoreError::InvalidPackLanes);
                 }
@@ -568,7 +597,11 @@ impl StaticResidualStore {
                     self.fingerprint_term(arg, hasher)?;
                 }
             }
-            StaticResidualData::Proof { goal, result_type, environment } => {
+            StaticResidualData::Proof {
+                goal,
+                result_type,
+                environment,
+            } => {
                 12u8.hash(hasher);
                 result_type.hash(hasher);
                 environment.hash(hasher);
@@ -590,13 +623,22 @@ impl StaticResidualStore {
                     }
                 }
             }
-            StaticResidualData::MemberProjection { projection, result_domain, environment } => {
+            StaticResidualData::MemberProjection {
+                projection,
+                result_domain,
+                environment,
+            } => {
                 13u8.hash(hasher);
                 projection.hash(hasher);
                 result_domain.hash(hasher);
                 environment.hash(hasher);
             }
-            StaticResidualData::If { condition, then_term, else_term, result_domain } => {
+            StaticResidualData::If {
+                condition,
+                then_term,
+                else_term,
+                result_domain,
+            } => {
                 14u8.hash(hasher);
                 result_domain.hash(hasher);
                 self.fingerprint_term(condition, hasher)?;
@@ -615,7 +657,12 @@ impl StaticResidualStore {
                     self.fingerprint_term(&arm.body, hasher)?;
                 }
             }
-            StaticResidualData::Pack { positionals, labels, labeled_values, result_type } => {
+            StaticResidualData::Pack {
+                positionals,
+                labels,
+                labeled_values,
+                result_type,
+            } => {
                 16u8.hash(hasher);
                 result_type.hash(hasher);
                 positionals.len().hash(hasher);
@@ -645,7 +692,12 @@ impl StaticResidualStore {
                     self.fingerprint_term(v, hasher)?;
                 }
             }
-            StaticResidualData::Data { owner, constructor, result_type, components } => {
+            StaticResidualData::Data {
+                owner,
+                constructor,
+                result_type,
+                components,
+            } => {
                 19u8.hash(hasher);
                 owner.hash(hasher);
                 constructor.hash(hasher);

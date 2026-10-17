@@ -20,8 +20,8 @@ fn run_inline(source: &str) -> Result<(VM, phalcom_core::heap::ObjRef), PhError>
 fn enum_singletons_are_canonical_and_constructors_allocate_cases() {
     let src = r#"
 data Status {
-  @variant Pending
-  @variant Active(code: Int)
+  Pending
+  Active(code: Int)
 }
 
 let p1 = Status::Pending
@@ -43,8 +43,8 @@ let diff_constructors = not (a1 === a2)
 fn singleton_access_and_nullary_construction_have_distinct_identity_laws() {
     let src = r#"
 data CustomOption {
-  @variant None
-  @variant Nullary()
+  None
+  Nullary()
 }
 
 let s1 = CustomOption::None
@@ -66,8 +66,8 @@ let nullaries_distinct = not (n1 === n2)
 fn enum_case_payloads_are_readable_by_declared_field() {
     let src = r#"
 data Shape {
-  @variant Circle(r: Int)
-  @variant Rectangle(w: Int, h: Int)
+  Circle(r: Int)
+  Rectangle(w: Int, h: Int)
 }
 
 let c = Shape::Circle(r: 10)
@@ -89,8 +89,8 @@ let c_r = c.r
 fn enum_root_instantiation_is_rejected() {
     let src = r#"
 data Status {
-  @variant Pending
-  @variant Active(code: Int)
+  Pending
+  Active(code: Int)
 }
 
 let s = Status.new()
@@ -103,7 +103,7 @@ let s = Status.new()
 fn enum_case_payload_mutation_is_rejected() {
     let src = r#"
 data Status {
-  @variant Active(code: Int)
+  Active(code: Int)
 }
 
 let a = Status::Active(code: 42)
@@ -164,9 +164,9 @@ fn enum_product_storage_keeps_case_identity_and_traces_mixed_payloads() {
     let (mut vm, module) = run_inline(
         r#"
 data Packed {
-  @variant First(_ f: Float, _ flag: Bool, _ text: String)
-  @variant Second(_ f: Float, _ flag: Bool, _ text: String)
-  @variant Big(_ value: Int)
+  First(_ f: Float, _ flag: Bool, _ text: String)
+  Second(_ f: Float, _ flag: Bool, _ text: String)
+  Big(_ value: Int)
 }
 let a = Packed::First(1.5, true, "child")
 let b = Packed::Second(1.5, true, "child")
@@ -200,8 +200,8 @@ fn enum_variants_sharing_layout_retain_distinct_case_identity() {
     let (vm, module) = run_inline(
         r#"
 data Shapes {
-  @variant Rect(w: Int, h: Int)
-  @variant Bounds(w: Int, h: Int)
+  Rect(w: Int, h: Int)
+  Bounds(w: Int, h: Int)
 }
 let r = Shapes::Rect(w: 10, h: 20)
 let b = Shapes::Bounds(w: 10, h: 20)
@@ -218,4 +218,51 @@ let eq = r == b
     let r = get(&vm, "r");
     let b = get(&vm, "b");
     assert_ne!(vm.runtime_variant_of(r), vm.runtime_variant_of(b));
+}
+
+#[test]
+fn contextual_enum_construction_and_union_payload_patterns_execute() {
+    let src = r#"
+data Boxed<T> {
+  some(_ value: T)
+  none
+}
+data Other { other }
+let singleton: Boxed<Int> = none
+let qualified = Boxed<Int>::none
+let same_singleton = singleton === qualified
+let value: Boxed<Int> = some(42)
+let extracted = match value { some(item) => item none => 0 }
+// Keep both union branches reachable to the semantic checker; an immediate
+// single-variant assignment can be flow-narrowed and makes _ redundant.
+let union: Boxed<Int> | Other = if same_singleton { Boxed<Int>::some(7) } else { Other::other }
+let union_payload = match union { some(item) => item _ => 0 }
+"#;
+    let (vm, main_mod) = run_inline(src).expect("contextual enum program should compile and run");
+    for (name, expected) in [
+        ("same_singleton", Value::bool(true)),
+        ("extracted", Value::int(42)),
+        ("union_payload", Value::int(7)),
+    ] {
+        let symbol = vm.interner.find(name).expect("binding symbol");
+        assert_eq!(vm.heap.module(main_mod).get(symbol), Some(expected), "{name}");
+    }
+}
+
+#[test]
+fn contextual_enum_completion_mutable_while_let_executes() {
+    let src = r#"
+data Envelope<T> { some(_ value: T) none }
+let mut state: Envelope<Int> = some(9)
+let mut result: Int = 0
+while let some(value) = state {
+  result = result + value
+  state = none
+}
+let once = result
+let stopped: Envelope<Int> = state
+"#;
+    let (vm, module) = run_inline(src).expect("mutable contextual enum loop should compile and execute");
+    let result = vm.interner.find("once").expect("exported result");
+    assert_eq!(vm.heap.module(module).get(result), Some(Value::int(9)));
 }

@@ -51,7 +51,11 @@ pub enum ModuleDiagnosticKind {
     /// Cyclic re-export.
     CyclicReExport { name: String },
     /// Cyclic module runtime initialization.
-    RuntimeCycle { cycle: Vec<ModuleId> },
+    RuntimeCycle {
+        cycle: Vec<ModuleId>,
+        components: Vec<Vec<ModuleId>>,
+        path: Vec<crate::graph::RuntimeDependencyEdge>,
+    },
     /// Unresolved import path.
     UnresolvedImport { path: String },
     /// Invalid module name.
@@ -380,19 +384,35 @@ impl ModuleDiagnostic {
                 range: SourceRange::default(),
                 message: format!("module {} is absent from the link universe", module),
             },
+            error @ (LinkError::InvalidImportSlot { .. }
+            | LinkError::UncoveredRuntimeRead { .. }
+            | LinkError::RuntimeReadTargetMismatch { .. }
+            | LinkError::RuntimeRequirementProvenanceMismatch { .. }) => {
+                let module = error.module().cloned().unwrap_or_else(ModuleId::universe_root);
+                Self {
+                    module,
+                    kind: ModuleDiagnosticKind::InterfaceError(error.to_string()),
+                    range: SourceRange::default(),
+                    message: error.to_string(),
+                }
+            }
             LinkError::CyclicReExport { module, name } => Self {
                 module: module.clone(),
                 kind: ModuleDiagnosticKind::CyclicReExport { name: name.clone() },
                 range: SourceRange::default(),
                 message: format!("cyclic re-export involving module {} and '{}'", module, name),
             },
-            LinkError::RuntimeCycle(ModuleGraphError::RuntimeCycle { cycle }) => {
+            LinkError::RuntimeCycle(ModuleGraphError::RuntimeCycle { cycle, components, path }) => {
                 let primary_module = cycle.first().cloned().unwrap_or_else(ModuleId::universe_root);
                 Self {
                     module: primary_module,
-                    kind: ModuleDiagnosticKind::RuntimeCycle { cycle },
+                    kind: ModuleDiagnosticKind::RuntimeCycle {
+                        cycle,
+                        components,
+                        path: path.clone(),
+                    },
                     range: SourceRange::default(),
-                    message: "cyclic module initialization".to_string(),
+                    message: format!("cyclic module initialization; deterministic cycle path: {path:?}"),
                 }
             }
         }

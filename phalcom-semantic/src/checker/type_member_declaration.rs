@@ -4,9 +4,7 @@ use crate::db::product::TypeMemberDeclarationProduct;
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::identity::{DeclarationId, DispatchSide, ModuleId};
-use crate::types::annotation::{
-    KindResolution, TypeFormationSite, resolve_contextual_kind_syntax,
-};
+use crate::types::annotation::{KindResolution, TypeFormationSite, resolve_contextual_kind_syntax};
 use crate::types::type_member::{
     IntrinsicTypeOperation, TypeMemberDeclarationId, TypeMemberDomain, TypeMemberParameter, TypeMemberSelector, TypeMemberSignature,
     lookup_intrinsic_type_operation,

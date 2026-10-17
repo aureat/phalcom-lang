@@ -2,18 +2,13 @@
 
 use crate::metadata::export::MetadataExportError;
 use crate::metadata::stable_identity::{
-    to_field_key_ref, to_stable_data_component_with_context, to_stable_declaration_with_context,
-    to_stable_variant_field_with_context, to_stable_variant_with_context, StableIdentityContext,
+    StableIdentityContext, to_field_key_ref, to_stable_data_component_with_context, to_stable_declaration_with_context, to_stable_variant_field_with_context,
+    to_stable_variant_with_context,
 };
-use crate::static_value::{
-    StaticSequenceFamily, StaticValueData, StaticValueRef, StaticValueStore,
-};
+use crate::static_value::{StaticSequenceFamily, StaticValueData, StaticValueRef, StaticValueStore};
 use crate::types::id::TypeId;
 use phalcom_type_meta::fingerprint::Fingerprint128;
-use phalcom_type_meta::static_value::{
-    compute_static_value_fingerprint, StaticSequenceFamilyRef, StaticValueNode, StaticValueNodeEntry,
-    StaticValueNodeId,
-};
+use phalcom_type_meta::static_value::{StaticSequenceFamilyRef, StaticValueNode, StaticValueNodeEntry, StaticValueNodeId, compute_static_value_fingerprint};
 use phalcom_type_meta::type_node::TypeNodeId;
 use std::collections::HashMap;
 
@@ -27,10 +22,7 @@ pub struct StaticValueTableExporter<'a> {
 }
 
 impl<'a> StaticValueTableExporter<'a> {
-    pub fn new(
-        store: &'a StaticValueStore,
-        context: StableIdentityContext<'a>,
-    ) -> Self {
+    pub fn new(store: &'a StaticValueStore, context: StableIdentityContext<'a>) -> Self {
         Self {
             store,
             context,
@@ -41,11 +33,7 @@ impl<'a> StaticValueTableExporter<'a> {
         }
     }
 
-    pub fn export_value<F>(
-        &mut self,
-        val_ref: StaticValueRef,
-        export_type: &mut F,
-    ) -> Result<StaticValueNodeId, MetadataExportError>
+    pub fn export_value<F>(&mut self, val_ref: StaticValueRef, export_type: &mut F) -> Result<StaticValueNodeId, MetadataExportError>
     where
         F: FnMut(TypeId) -> Result<(TypeNodeId, Fingerprint128), MetadataExportError>,
     {
@@ -53,10 +41,7 @@ impl<'a> StaticValueTableExporter<'a> {
             return Ok(existing);
         }
 
-        let val_data = self
-            .store
-            .get(val_ref)
-            .map_err(|e| MetadataExportError::StaticValue(e.to_string()))?;
+        let val_data = self.store.get(val_ref).map_err(|e| MetadataExportError::StaticValue(e.to_string()))?;
 
         let node = match val_data {
             StaticValueData::Unit => StaticValueNode::Unit,
@@ -89,11 +74,7 @@ impl<'a> StaticValueTableExporter<'a> {
                 StaticValueNode::StaticTerm(node_id)
             }
             StaticValueData::Tuple(id) => {
-                let elements = self
-                    .store
-                    .get_tuple(*id)
-                    .map_err(|e| MetadataExportError::StaticValue(e.to_string()))?
-                    .to_vec();
+                let elements = self.store.get_tuple(*id).map_err(|e| MetadataExportError::StaticValue(e.to_string()))?.to_vec();
                 let mut child_ids = Vec::with_capacity(elements.len());
                 for elem in elements {
                     child_ids.push(self.export_value(elem, export_type)?);
@@ -101,10 +82,7 @@ impl<'a> StaticValueTableExporter<'a> {
                 StaticValueNode::Tuple(child_ids.into_boxed_slice())
             }
             StaticValueData::Sequence(id) => {
-                let seq = self
-                    .store
-                    .get_sequence(*id)
-                    .map_err(|e| MetadataExportError::StaticValue(e.to_string()))?;
+                let seq = self.store.get_sequence(*id).map_err(|e| MetadataExportError::StaticValue(e.to_string()))?;
                 let family = match seq.family() {
                     StaticSequenceFamily::Array => StaticSequenceFamilyRef::Array,
                     StaticSequenceFamily::Vector => StaticSequenceFamilyRef::Vector,
@@ -142,10 +120,7 @@ impl<'a> StaticValueTableExporter<'a> {
                     .pack_positionals(*id)
                     .map_err(|e| MetadataExportError::StaticValue(e.to_string()))?
                     .to_vec();
-                let lab_slice = self
-                    .store
-                    .pack_labeled(*id)
-                    .map_err(|e| MetadataExportError::StaticValue(e.to_string()))?;
+                let lab_slice = self.store.pack_labeled(*id).map_err(|e| MetadataExportError::StaticValue(e.to_string()))?;
                 let mut pos_ids = Vec::with_capacity(pos_slice.len());
                 for pos in pos_slice {
                     pos_ids.push(self.export_value(pos, export_type)?);
@@ -166,11 +141,7 @@ impl<'a> StaticValueTableExporter<'a> {
                 }
             }
             StaticValueData::Data(id) => {
-                let data_val = self
-                    .store
-                    .get_data(*id)
-                    .map_err(|e| MetadataExportError::StaticValue(e.to_string()))?
-                    .clone();
+                let data_val = self.store.get_data(*id).map_err(|e| MetadataExportError::StaticValue(e.to_string()))?.clone();
                 let owner = to_stable_declaration_with_context(&data_val.owner, &self.context);
                 let (result_type, fp) = export_type(data_val.result_type)?;
                 self.type_fingerprints.insert(result_type, fp);

@@ -198,7 +198,12 @@ fn budget_exhaustion_retains_all_module_changes_for_retry() {
             set_overlay(consumer_path, 2, "class Consumer { value() -> Int { 20 } }\n"),
         ])
         .expect("module sources commit before semantic publication");
-    let failed = session.update_module_workspace_with_budget_and_cancel(update, QueryBudget::new(0), &CancellationToken::new());
+    let failed = session.update_module_workspace_with_budget_and_cancel(
+        update,
+        QueryBudget::new(0),
+        crate::attribute_analysis::AttributeExecutionMode::Debug,
+        &CancellationToken::new(),
+    );
 
     assert!(matches!(failed, Err(SemanticUpdateFailure::BudgetExceeded(_))));
     assert!(session.pending_semantic_delta.as_ref().is_some_and(|delta| delta.changed_modules.len() == 2));
@@ -223,7 +228,7 @@ fn operational_query_failures_keep_distinct_public_error_categories() {
     );
     assert_eq!(
         SemanticUpdateFailure::from(QueryOutcome::Blocked(BlockReason::RecursiveFixpoint)),
-        SemanticUpdateFailure::Blocked(BlockReason::RecursiveFixpoint),
+        SemanticUpdateFailure::Blocked(Box::new(BlockReason::RecursiveFixpoint)),
     );
     assert_eq!(
         SemanticUpdateFailure::from(QueryOutcome::Failed("fixture failure".into())),

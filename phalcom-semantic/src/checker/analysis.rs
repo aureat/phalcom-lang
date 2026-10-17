@@ -296,9 +296,7 @@ pub enum ForIterationRequirementResolution {
 /// Deterministic index of canonical semantic `for` lane resolutions.
 pub type ForIterationLaneResolutionIndex = BTreeMap<ExpressionId, ForIterationLaneResolution>;
 
-pub use crate::checker::static_iteration::{
-    StaticIterationItemDomain, StaticIterationLaneResolution, StaticIterationLaneResolutionIndex, StaticIterationMode,
-};
+pub use crate::checker::static_iteration::{StaticIterationItemDomain, StaticIterationLaneResolution, StaticIterationLaneResolutionIndex, StaticIterationMode};
 
 /// Evidence-backed semantic resolution for one positional expansion site (`*expr`).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -659,6 +657,8 @@ pub struct CallableAnalysis {
     /// not a hash of dependency-edge metadata.
     pub dependency_fingerprint: crate::db::ProductFingerprint,
     pub status: CallableAnalysisStatus,
+    /// Joined use-phases for each imported source binding observed in this callable body.
+    pub observed_import_phases: Arc<std::collections::BTreeMap<phalcom_modules::identity::SourceImportBindingId, phalcom_modules::graph::DependencyPhase>>,
 }
 
 #[cfg(test)]

@@ -1,0 +1,10 @@
+[project]
+name = "experiment-examples"
+namespace = "experiment_examples"
+version = "0.1.0"
+source = "src"
+entry = "experiment_examples.main"
+
+[dependencies]
+experiments = { path = ".." }
+measure = { path = "../../measure" }

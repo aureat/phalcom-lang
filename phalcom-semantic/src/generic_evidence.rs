@@ -846,9 +846,9 @@ fn map_conformance_resolution_to_proof(res: ConformanceResolution) -> GenericCon
         // A raw exact witness is not a complete generic proof until its
         // instantiated trait-header obligations have been discharged by the
         // active proof session.
-        ConformanceResolution::Proven(_) => GenericConformanceProof::InternalFailure(
-            "raw exact conformance witness bypassed trait-header proof publication".into(),
-        ),
+        ConformanceResolution::Proven(_) => {
+            GenericConformanceProof::InternalFailure("raw exact conformance witness bypassed trait-header proof publication".into())
+        }
         ConformanceResolution::NotDeclared => GenericConformanceProof::Missing,
         ConformanceResolution::InvalidSource(impl_id) | ConformanceResolution::Incomplete(impl_id) => GenericConformanceProof::Incomplete(impl_id),
         ConformanceResolution::CoherenceConflict(impls) => GenericConformanceProof::CoherenceConflict(impls),
@@ -892,16 +892,13 @@ fn prove_exact_trait_header_contract(
     result
 }
 
-fn complete_exact_conformance_evidence(
-    evidence: Arc<ConformanceEvidence>,
-    context: &mut ConformanceProofContext<'_>,
-) -> GenericConformanceProof {
+fn complete_exact_conformance_evidence(evidence: Arc<ConformanceEvidence>, context: &mut ConformanceProofContext<'_>) -> GenericConformanceProof {
     let trait_header_conformance_proofs = match prove_exact_trait_header_contract(&evidence, context) {
         Ok(proofs) => proofs,
         Err(proof) => return proof,
     };
     let mut completed = (*evidence).clone();
-    completed.trait_header_conformance_proofs = Some(trait_header_conformance_proofs);
+    completed.trait_header_conformance_proofs = Some(trait_header_conformance_proofs.into());
     GenericConformanceProof::Proven(GenericConformanceEvidence::Exact(Arc::new(completed)))
 }
 
@@ -1001,14 +998,22 @@ fn evaluate_conformance_goal(key: &GenericConformanceKey, context: &mut Conforma
                 crate::structural::StructuralClassification::Unsupported
             };
 
-            let is_satisfied = match (kind, &classification) {
-                (CompilerDerivedConformanceKind::Product, crate::structural::StructuralClassification::OrderedProduct(_))
-                | (CompilerDerivedConformanceKind::Product, crate::structural::StructuralClassification::UnorderedProduct(_)) => true,
-                (CompilerDerivedConformanceKind::OrderedProduct, crate::structural::StructuralClassification::OrderedProduct(_)) => true,
-                (CompilerDerivedConformanceKind::UnorderedProduct, crate::structural::StructuralClassification::UnorderedProduct(_)) => true,
-                (CompilerDerivedConformanceKind::Sum, crate::structural::StructuralClassification::Sum { .. }) => true,
-                _ => false,
-            };
+            let is_satisfied = matches!(
+                (kind, &classification),
+                (
+                    CompilerDerivedConformanceKind::Product,
+                    crate::structural::StructuralClassification::OrderedProduct(_)
+                ) | (
+                    CompilerDerivedConformanceKind::Product,
+                    crate::structural::StructuralClassification::UnorderedProduct(_)
+                ) | (
+                    CompilerDerivedConformanceKind::OrderedProduct,
+                    crate::structural::StructuralClassification::OrderedProduct(_)
+                ) | (
+                    CompilerDerivedConformanceKind::UnorderedProduct,
+                    crate::structural::StructuralClassification::UnorderedProduct(_)
+                ) | (CompilerDerivedConformanceKind::Sum, crate::structural::StructuralClassification::Sum { .. })
+            );
 
             if is_satisfied {
                 let evidence = Arc::new(CompilerDerivedConformanceEvidence {

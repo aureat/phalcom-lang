@@ -44,7 +44,9 @@ impl Iterable for Box {
     let source_c = source_b.replace("  type Item = String\n", "");
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let first = incremental
+        .update(single_module_input(module.clone(), source_a, 1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
     let first_plan = first.snapshot.conformance_witness_plans.get(&impl_id(&module)).expect("initial witness plan");
     let first_binding_fingerprint = first_plan.associated_type_plan.fingerprint;
@@ -76,7 +78,9 @@ impl Iterable for Box {
         Some(first.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form")),
     );
 
-    let second = incremental.update(single_module_input(module.clone(), &source_b, 2)).expect("semantic test update should succeed");
+    let second = incremental
+        .update(single_module_input(module.clone(), &source_b, 2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "replacement diagnostics: {:?}", second.snapshot.diagnostics);
     let second_plan = second.snapshot.conformance_witness_plans.get(&impl_id(&module)).expect("replaced witness plan");
     assert_ne!(
@@ -104,7 +108,9 @@ impl Iterable for Box {
         Some(second.snapshot.declarations.form(&CoreDeclarationIds::default().string).expect("String form")),
     );
 
-    let third = incremental.update(single_module_input(module.clone(), &source_c, 3)).expect("semantic test update should succeed");
+    let third = incremental
+        .update(single_module_input(module.clone(), &source_c, 3))
+        .expect("semantic test update should succeed");
     assert!(
         third
             .snapshot
@@ -125,7 +131,9 @@ impl Iterable for Box {
             .any(|failure| failure.reason.contains("no conformance binding"))
     );
 
-    let fourth = incremental.update(single_module_input(module.clone(), &source_b, 4)).expect("semantic test update should succeed");
+    let fourth = incremental
+        .update(single_module_input(module.clone(), &source_b, 4))
+        .expect("semantic test update should succeed");
     let fourth_plan = fourth.snapshot.conformance_witness_plans.get(&impl_id(&module)).expect("re-added witness plan");
     assert!(fourth_plan.associated_type_plan.failures.is_empty());
     let fourth_evidence = fourth
@@ -134,7 +142,9 @@ impl Iterable for Box {
         .expect("re-added exact evidence");
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_result = cold.update(single_module_input(module.clone(), &source_b, 1)).expect("semantic test update should succeed");
+    let cold_result = cold
+        .update(single_module_input(module.clone(), &source_b, 1))
+        .expect("semantic test update should succeed");
     let cold_plan = cold_result
         .snapshot
         .conformance_witness_plans
@@ -166,8 +176,12 @@ fn trait_default_body_edit_preserves_associated_identity_and_contract_product() 
     let declaration = DeclarationId::new(module.clone(), "Iterable".into());
 
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
-    let second = session.update(single_module_input(module.clone(), &source_b, 2)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source_a, 1))
+        .expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(module.clone(), &source_b, 2))
+        .expect("semantic test update should succeed");
     let first_surface = first.snapshot.trait_surfaces.get(&declaration).expect("initial trait surface");
     let second_surface = second.snapshot.trait_surfaces.get(&declaration).expect("updated trait surface");
     assert_eq!(
@@ -206,14 +220,18 @@ impl Iterable for Box {
     let trait_ref = phalcom_semantic::traits::TraitRef::new(trait_declaration.clone(), Vec::new().into_boxed_slice());
     let mut session = SemanticWorkspaceSession::new();
 
-    let first = session.update(single_module_input(module.clone(), source_without_method, 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source_without_method, 1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
     let first_box = first.snapshot.declarations.form(&box_declaration).expect("initial Box form");
     let first_evidence = first.snapshot.conformance_evidence_for(first_box, &trait_ref).expect("initial evidence");
     let first_surface_fingerprint = trait_surface_product_fingerprint(first.snapshot.trait_surfaces.get(&trait_declaration).expect("initial surface"));
     assert!(first_evidence.requirement_views.is_empty(), "the initial trait has no behavioral requirement");
 
-    let second = session.update(single_module_input(module.clone(), source_with_method, 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(module.clone(), source_with_method, 2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "method addition diagnostics: {:?}", second.snapshot.diagnostics);
     let second_box = second.snapshot.declarations.form(&box_declaration).expect("updated Box form");
     let second_evidence = second.snapshot.conformance_evidence_for(second_box, &trait_ref).expect("updated evidence");
@@ -239,7 +257,9 @@ impl Iterable for Box {
         "exact evidence must publish the added method"
     );
 
-    let third = session.update(single_module_input(module.clone(), source_without_method, 3)).expect("semantic test update should succeed");
+    let third = session
+        .update(single_module_input(module.clone(), source_without_method, 3))
+        .expect("semantic test update should succeed");
     assert!(!third.snapshot.has_errors(), "method removal diagnostics: {:?}", third.snapshot.diagnostics);
     let third_box = third.snapshot.declarations.form(&box_declaration).expect("removed-method Box form");
     let third_evidence = third.snapshot.conformance_evidence_for(third_box, &trait_ref).expect("removed-method evidence");
@@ -261,7 +281,9 @@ impl Iterable for Box {
     );
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_result = cold.update(single_module_input(module.clone(), source_without_method, 1)).expect("semantic test update should succeed");
+    let cold_result = cold
+        .update(single_module_input(module.clone(), source_without_method, 1))
+        .expect("semantic test update should succeed");
     let cold_box = cold_result.snapshot.declarations.form(&box_declaration).expect("cold Box form");
     let cold_evidence = cold_result.snapshot.conformance_evidence_for(cold_box, &trait_ref).expect("cold evidence");
     assert_eq!(
@@ -287,7 +309,9 @@ impl Iterable for Box {
     let source_b = source_a.replace("Item", "Element");
     let declaration = DeclarationId::new(module.clone(), "Iterable".into());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source_a, 1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
     let old_requirement = first
         .snapshot
@@ -298,7 +322,9 @@ impl Iterable for Box {
         .expect("initial Item")
         .requirement
         .clone();
-    let second = session.update(single_module_input(module.clone(), &source_b, 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(module.clone(), &source_b, 2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "rename diagnostics: {:?}", second.snapshot.diagnostics);
     let surface = second.snapshot.trait_surfaces.get(&declaration).expect("renamed surface");
     assert!(surface.associated_type_by_name("Item").is_none(), "old associated declaration must not remain");
@@ -330,18 +356,24 @@ fn incremental_read_write_delegation_to_getter_only_removes_only_setter() {
     let setter = Selector::setter("count").unwrap();
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let first = incremental
+        .update(single_module_input(module.clone(), source_a, 1))
+        .expect("semantic test update should succeed");
     let first_surface = first.snapshot.surfaces.get(&declaration).expect("initial Counter surface");
     assert!(first_surface.instance.get_callable(&getter).is_some());
     assert!(first_surface.instance.get_callable(&setter).is_some());
 
-    let second = incremental.update(single_module_input(module.clone(), &source_b, 2)).expect("semantic test update should succeed");
+    let second = incremental
+        .update(single_module_input(module.clone(), &source_b, 2))
+        .expect("semantic test update should succeed");
     let second_surface = second.snapshot.surfaces.get(&declaration).expect("updated Counter surface");
     assert!(second_surface.instance.get_callable(&getter).is_some());
     assert!(second_surface.instance.get_callable(&setter).is_none());
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_result = cold.update(single_module_input(module.clone(), &source_b, 1)).expect("semantic test update should succeed");
+    let cold_result = cold
+        .update(single_module_input(module.clone(), &source_b, 1))
+        .expect("semantic test update should succeed");
     let second_surface = second.snapshot.surfaces.get(&declaration).expect("updated Counter surface");
     let cold_surface = cold_result.snapshot.surfaces.get(&declaration).expect("cold Counter surface");
     assert_eq!(

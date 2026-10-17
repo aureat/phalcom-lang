@@ -335,3 +335,5 @@ impl<T> CanonicalIterable for List<T> {
   type Iterator = ListIterator<T>
   iterator -> ListIterator<T> { ListIterator.new(self) }
 }
+
+export List

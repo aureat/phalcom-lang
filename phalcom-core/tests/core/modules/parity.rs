@@ -24,7 +24,7 @@ fn write_parity_package(root: &Path) {
     fs::write(root.join("main.ph"), "import .either as EitherModule\nfrom .constants import version\n").unwrap();
     fs::write(
         root.join("either.ph"),
-        "data Either<L, R> {\n    @variant\n    Left(_ value: L)\n\n    @variant\n    Right(_ value: R)\n}\nexport Either\n",
+        "data Either<L, R> {\n    Left(_ value: L)\n\n    Right(_ value: R)\n}\nexport Either\n",
     )
     .unwrap();
     fs::write(root.join("constants.ph"), "const version = \"1\"\nexport version\n").unwrap();
@@ -346,7 +346,8 @@ fn static_const_sequence_imports_and_reexports_keep_canonical_owner() {
     for name in ["selected", "renamed", "qualified", "transitive"] {
         assert_eq!(read(name), vector, "{name} resolves the canonical Vector value");
     }
-    for name in ["transitiveArray"] {
+    {
+        let name = "transitiveArray";
         assert_eq!(read(name), array, "{name} resolves the canonical frozen Array value");
     }
     let second_obj = vm.module_registry.get(find_module("second")).unwrap().object;

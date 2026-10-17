@@ -181,13 +181,11 @@ fn golden_04_family_callable() {
 }
 
 #[test]
-#[ignore = "parser prerequisite: source type-lambda declaration syntax is not accepted yet"]
 fn golden_05_program_parses() {
     assert_parses("GOLDEN-05", GOLDEN_05);
 }
 
 #[test]
-#[ignore = "parser prerequisite: source type-lambda syntax must land before constraint semantics can run"]
 fn golden_05_type_lambda_constraints() {
     let _ = Fixture::new(GOLDEN_05);
 }

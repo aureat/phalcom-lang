@@ -11,14 +11,14 @@ fn test_module() -> ModuleId {
 fn match_matrix_simple_and_generic_enums() {
     let source = r#"
 data Status {
-    @variant Active -> Status
-    @variant Inactive -> Status
-    @variant Pending -> Status
+    Active -> Status
+    Inactive -> Status
+    Pending -> Status
 }
 
 data Result<T, E> {
-    @variant Ok(_ value: T) -> Result<T, E>
-    @variant Err(_ error: E) -> Result<T, E>
+    Ok(_ value: T) -> Result<T, E>
+    Err(_ error: E) -> Result<T, E>
 }
 
 class Test {
@@ -52,13 +52,13 @@ class Test {
 fn match_matrix_multi_type_parameter_gadts() {
     let source = r#"
 data Equal<A, B> {
-    @variant Refl -> Equal<A, A>
+    Refl -> Equal<A, A>
 }
 
 data Expr<T> {
-    @variant LitInt(_ v: Int) -> Expr<Int>
-    @variant LitBool(_ b: Bool) -> Expr<Bool>
-    @variant Add(_ left: Expr<Int>, right: Expr<Int>) -> Expr<Int>
+    LitInt(_ v: Int) -> Expr<Int>
+    LitBool(_ b: Bool) -> Expr<Bool>
+    Add(_ left: Expr<Int>, right: Expr<Int>) -> Expr<Int>
 }
 
 class Test {
@@ -84,9 +84,9 @@ class Test {
 fn match_matrix_tuples_nested_or_and_wildcard_catch_alls() {
     let source = r#"
 data Color {
-    @variant Red -> Color
-    @variant Green -> Color
-    @variant Blue -> Color
+    Red -> Color
+    Green -> Color
+    Blue -> Color
 }
 
 class Test {
@@ -114,8 +114,8 @@ class Test {
 fn match_matrix_selector_patterns_with_gaps_and_labels() {
     let source = r#"
 data Command {
-    @variant Move(_ x: Int, y: Int, speed: Int) -> Command
-    @variant Stop -> Command
+    Move(_ x: Int, y: Int, speed: Int) -> Command
+    Stop -> Command
 }
 
 class Test {
@@ -139,9 +139,7 @@ class Test {
 
 #[test]
 fn review_x_01_malformed_pattern_cannot_prove_false_exhaustiveness() {
-    let case = super::super::support::analyze_adt(
-        "data Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n",
-    );
+    let case = super::super::support::analyze_adt("data Choice { A B }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n");
     assert!(
         !case
             .only_match()
@@ -152,9 +150,8 @@ fn review_x_01_malformed_pattern_cannot_prove_false_exhaustiveness() {
 }
 
 #[test]
-#[ignore = "GATED: typed semantic-to-lowering rejection seam is required"]
 fn review_x_02_invalid_semantic_match_never_reaches_lowering() {
-    let case = super::super::support::analyze_adt("data Choice { @variant A }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n");
+    let case = super::super::support::analyze_adt("data Choice { A }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n");
     assert!(
         case.diagnostics()
             .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::MatchPatternUnresolved)
@@ -164,7 +161,7 @@ fn review_x_02_invalid_semantic_match_never_reaches_lowering() {
 #[test]
 fn review_x_03_gadt_theorem_remains_present_in_semantic_match_product() {
     let case = super::super::support::analyze_adt(
-        "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run<T>(_ value: Expr<T>) -> T { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
+        "data Expr<T> { Int(_ value: Int) -> Expr<Int> Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run<T>(_ value: Expr<T>) -> T { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
     );
     let handle = case.only_match();
     assert!(handle.resolution().arms.iter().all(|arm| !arm.proof.is_empty()));
@@ -172,8 +169,7 @@ fn review_x_03_gadt_theorem_remains_present_in_semantic_match_product() {
 
 #[test]
 fn review_x_04_witness_structure_is_separate_from_presentation() {
-    let case =
-        super::super::support::analyze_adt("data Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n");
+    let case = super::super::support::analyze_adt("data Choice { A B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n");
     let diagnostic = case.diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::MatchNonExhaustive);
     assert!(matches!(
         case.only_match().resolution().exhaustiveness,

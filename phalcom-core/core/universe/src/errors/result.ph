@@ -20,17 +20,30 @@ native data Result<T, E> {
     /// A successful result containing a value.
     ///
     /// @param value The successful value.
-    @variant
     Ok(_ value: T)
 
     /// A failed result containing an error.
     ///
     /// @param error The failure value.
-    @variant
     Error(_ error: E)
 }
 
 impl<T, E> Result<T, E> {
+    /// Combines successful values; the first error in receiver/other order wins.
+    /// combine runs once only when both results are Ok. The other argument is
+    /// already evaluated; this method does not defer the work producing it.
+    zipWith<U, R>(_ other: Result<U, E>, combine: (T, U) -> R) -> Result<R, E> {
+        match self {
+            Result::Ok(left) => {
+                match other {
+                    Result::Ok(right) => Result::Ok(combine.call(left, right))
+                    Result::Error(error) => Result::Error(error)
+                }
+            }
+            Result::Error(error) => Result::Error(error)
+        }
+    }
+
     /// Eliminates this result by invoking the callback corresponding to its
     /// current variant.
     ///

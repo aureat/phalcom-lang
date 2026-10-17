@@ -23,9 +23,9 @@ fn compile_inline(source: &str) -> Result<(VM, CompiledProgram, phalcom_core::he
 fn enum_lowering_projects_shapes_and_payload_slots_from_formal_semantics() {
     let source = r#"
 data Weird {
-  @variant Marker
-  @variant Marker()
-  @variant Marker(_ left: Int, _ right: Int)
+  Marker
+  Marker()
+  Marker(_ left: Int, _ right: Int)
 }
 
 let singleton = Weird::Marker
@@ -174,9 +174,9 @@ class Probe<T> {
 fn family_application_lowering_projects_static_and_dynamic_records() {
     let source = r#"
 data Weird {
-  @variant Marker
-  @variant Marker()
-  @variant Marker(_ value: Int)
+  Marker
+  Marker()
+  Marker(_ value: Int)
 }
 
 let make = &Weird::Marker...;

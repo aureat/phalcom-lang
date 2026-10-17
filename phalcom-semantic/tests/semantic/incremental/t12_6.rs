@@ -74,13 +74,17 @@ fn t12_6_expansion_kind_mode_and_fixed_prefix_edits_match_cold_analysis() {
     ];
     let mut session = SemanticWorkspaceSession::new();
     for (index, source) in revisions.iter().enumerate() {
-        let update = session.update(single_module_input(module.clone(), source, index as u64 + 1)).expect("semantic test update should succeed");
+        let update = session
+            .update(single_module_input(module.clone(), source, index as u64 + 1))
+            .expect("semantic test update should succeed");
         assert!(
             !update.snapshot.has_errors(),
             "revision {index} must be valid: {:?}",
             update.snapshot.diagnostics
         );
-        let cold = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+        let cold = SemanticWorkspaceSession::new()
+            .update(single_module_input(module.clone(), source, 1))
+            .expect("semantic test update should succeed");
         assert_eq!(
             diagnostic_summary(&update.snapshot),
             diagnostic_summary(&cold.snapshot),
@@ -136,9 +140,13 @@ fn t12_6_data_fixed_components_around_expansion_match_cold_analysis() {
     let mut session = SemanticWorkspaceSession::new();
     let mut previous_fingerprint = None;
     for (index, source) in revisions.iter().enumerate() {
-        let update = session.update(single_module_input(module.clone(), source, index as u64 + 1)).expect("semantic test update should succeed");
+        let update = session
+            .update(single_module_input(module.clone(), source, index as u64 + 1))
+            .expect("semantic test update should succeed");
         assert!(!update.snapshot.has_errors(), "revision {index}: {:?}", update.snapshot.diagnostics);
-        let cold = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+        let cold = SemanticWorkspaceSession::new()
+            .update(single_module_input(module.clone(), source, 1))
+            .expect("semantic test update should succeed");
         assert_eq!(diagnostic_summary(&update.snapshot), diagnostic_summary(&cold.snapshot));
         let incremental_shape = data_shape_summary(&update.snapshot, &owner);
         assert_eq!(incremental_shape, data_shape_summary(&cold.snapshot, &owner));
@@ -177,9 +185,15 @@ fn assert_universe_member_edit_parity(path: &[&str], owner_name: &str, source_a:
     ));
     let owner = DeclarationId::new(module.clone(), owner_name.into());
     let mut incremental = SemanticWorkspaceSession::new();
-    let initial = incremental.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
-    let updated = incremental.update(single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
-    let cold = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source_b, 1)).expect("semantic test update should succeed");
+    let initial = incremental
+        .update(single_module_input(module.clone(), source_a, 1))
+        .expect("semantic test update should succeed");
+    let updated = incremental
+        .update(single_module_input(module.clone(), source_b, 2))
+        .expect("semantic test update should succeed");
+    let cold = SemanticWorkspaceSession::new()
+        .update(single_module_input(module.clone(), source_b, 1))
+        .expect("semantic test update should succeed");
     assert_eq!(diagnostic_summary(&updated.snapshot), diagnostic_summary(&cold.snapshot));
     assert_eq!(
         type_member_summary(&updated.snapshot, &owner),
@@ -260,12 +274,18 @@ class Probe {
     );
     let body_key = QueryKey::CallableBody(callable.clone());
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let first = incremental
+        .update(single_module_input(module.clone(), source_a, 1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
     let first_analysis = first.snapshot.callable_analyses.get(&callable).expect("initial body").clone();
     let first_fp = incremental.db().ready_product_fingerprint(&body_key).expect("initial body fingerprint");
-    let updated = incremental.update(single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
-    let cold = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source_b, 1)).expect("semantic test update should succeed");
+    let updated = incremental
+        .update(single_module_input(module.clone(), source_b, 2))
+        .expect("semantic test update should succeed");
+    let cold = SemanticWorkspaceSession::new()
+        .update(single_module_input(module.clone(), source_b, 1))
+        .expect("semantic test update should succeed");
     assert_eq!(diagnostic_summary(&updated.snapshot), diagnostic_summary(&cold.snapshot));
     assert_eq!(
         callable_body_summary(&updated.snapshot, source_b, &callable),

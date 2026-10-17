@@ -75,7 +75,7 @@ impl VM {
             // The pinned kernel + the import registry (Invariant M5).
             universe,
 
-            // Sealing class objects (U-ANNOT-LAYOUT `@sealed`/`@variant`). Sits
+            // Sealing class objects (`@sealed`). Sits
             // among the Symbol-only maps below and reads like a peer of them, but
             // its *values* are handles.
             sealed_classes,

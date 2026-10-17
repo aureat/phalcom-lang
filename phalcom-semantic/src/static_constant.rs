@@ -147,11 +147,7 @@ impl StaticConstantProduct {
         }
     }
 
-    pub fn for_imported(
-        id: StaticConstantId,
-        value: StaticValueRef,
-        origin: ImportedStaticConstantOrigin,
-    ) -> Self {
+    pub fn for_imported(id: StaticConstantId, value: StaticValueRef, origin: ImportedStaticConstantOrigin) -> Self {
         Self {
             id,
             declaration_range: SourceRange::default(),

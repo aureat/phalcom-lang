@@ -882,7 +882,8 @@ fn generation_retains_clean_snapshot_and_removes_stale_declarations() {
         module.clone(),
         source_v1,
         Arc::new(phalcom_ast::parse("class OldName { val() -> Int { 1 } }", 0).program),
-    ).expect("semantic test analysis should succeed");
+    )
+    .expect("semantic test analysis should succeed");
 
     assert!(
         analysis_v1
@@ -896,7 +897,8 @@ fn generation_retains_clean_snapshot_and_removes_stale_declarations() {
         module.clone(),
         source_v2,
         Arc::new(phalcom_ast::parse("class NewName { val() -> Int { 2 } }", 0).program),
-    ).expect("semantic test analysis should succeed");
+    )
+    .expect("semantic test analysis should succeed");
 
     assert!(
         analysis_v2

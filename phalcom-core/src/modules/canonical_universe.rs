@@ -7,7 +7,10 @@
 use crate::modules::{AnalyzedProgram, CompiledProgram, ProgramCompiler};
 use crate::native::{NativeSourceIndex, PRIMITIVES, verify_native_contracts};
 use phalcom_common::range::SourceRange;
-use phalcom_modules::{FilesystemSourceProvider, ImportSurface, ModuleId, ModuleLinker, ModuleResolver, ProjectUniverse};
+use phalcom_modules::{
+    AvailabilityAuthority, AvailabilityContract, AvailabilityProof, FilesystemSourceProvider, ImportSurface, ModuleComponent, ModuleId, ModuleLinker,
+    ModulePath, ModuleResolver, ProjectUniverse, RuntimeRequirementProduct, RuntimeRequirementTarget, RuntimeRequirementTiming,
+};
 use phalcom_semantic::identity::{CallableId, ExpressionId};
 use phalcom_semantic::match_semantics::ExhaustivenessResult;
 use phalcom_semantic::snapshot::SemanticSnapshot;
@@ -32,6 +35,11 @@ pub(crate) struct CanonicalUniverseProgram {
     root_reachable: Arc<[ModuleId]>,
     /// Existing eager source-bootstrap order, retained without recomputation.
     bootstrap_order: Arc<[ModuleId]>,
+    /// Availability guaranteed after the native installation floor.
+    #[cfg(test)]
+    native_floor_availability: AvailabilityContract,
+    /// Exact products guaranteed after canonical Universe bootstrap.
+    availability_after_bootstrap: AvailabilityContract,
 }
 
 impl CanonicalUniverseProgram {
@@ -49,6 +57,10 @@ impl CanonicalUniverseProgram {
 
     pub(crate) fn bootstrap_order(&self) -> &[ModuleId] {
         &self.bootstrap_order
+    }
+
+    pub(crate) fn availability_after_bootstrap(&self) -> &AvailabilityContract {
+        &self.availability_after_bootstrap
     }
 }
 
@@ -70,6 +82,9 @@ pub(crate) enum CanonicalUniverseBuildError {
     /// Canonical source linking failed.
     #[error("canonical Universe linking failed: {0}")]
     Linking(String),
+    /// Exact availability proof disagreed with the canonical installation path.
+    #[error("canonical availability contract failed: {0}")]
+    AvailabilityContract(String),
     /// Canonical semantic analysis panicked at its existing boundary.
     #[error("canonical Universe semantic analysis panicked")]
     SemanticAnalysisPanicked,
@@ -109,6 +124,9 @@ pub(crate) enum CanonicalUniverseBuildError {
     /// A bootstrap module is absent from the linked program.
     #[error("canonical Universe bootstrap module {0} has no linked module")]
     MissingBootstrapLinkedModule(ModuleId),
+    /// A finalized runtime dependency would initialize after its importer.
+    #[error("canonical Universe bootstrap order initializes {importer} before runtime dependency {dependency}")]
+    BootstrapRuntimeDependencyOrder { importer: ModuleId, dependency: ModuleId },
     /// The explicit eager bootstrap order must be a set-like ordering.
     #[error("canonical Universe bootstrap order contains duplicate module {0}")]
     DuplicateBootstrapModule(ModuleId),
@@ -180,16 +198,21 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
 
     #[cfg(test)]
     CANONICAL_LINKS.fetch_add(1, Ordering::Relaxed);
-    let linked = ModuleLinker::new(project_universe.clone(), interfaces)
-        .link_all(ModuleId::universe_root(), &resolved)
-        .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?;
-    let linked = Arc::new(linked);
+    let linker = ModuleLinker::new(project_universe.clone(), interfaces);
+    let symbolic = Arc::new(
+        linker
+            .link_semantic(ModuleId::universe_root(), &resolved)
+            .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?,
+    );
+    let linked_for_semantics = symbolic.to_unfinalized_program();
     let sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>> =
         source_index.units.iter().map(|unit| (unit.id.clone(), unit.clone())).collect();
     #[cfg(test)]
     CANONICAL_SEMANTIC_ANALYSES.fetch_add(1, Ordering::Relaxed);
     let semantic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0))
+        phalcom_semantic::try_analyze_workspace(
+            phalcom_semantic::SemanticWorkspaceInput::new(linked_for_semantics.clone(), sources.clone(), 0).with_semantic_linked(symbolic.clone()),
+        )
     }))
     .map_err(|_| CanonicalUniverseBuildError::SemanticAnalysisPanicked)?;
     let semantic = semantic?;
@@ -205,7 +228,27 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     }
     ensure_executable_match_coverage(&semantic.snapshot)?;
 
+    let runtime_modules = symbolic.modules.keys().cloned().collect();
+    let mut requirements = semantic.snapshot.generated_runtime_requirements.to_vec();
+    requirements.extend(crate::modules::compile::runtime_metadata_type_requirements(
+        &semantic.snapshot,
+        &sources,
+        &runtime_modules,
+    ));
+    let native_floor_availability = native_floor_availability(&symbolic)?;
+    let linked = Arc::new(
+        linker
+            .finalize_executable_with_availability(
+                (*symbolic).clone(),
+                &semantic.snapshot.import_phase_products,
+                &requirements,
+                &native_floor_availability,
+            )
+            .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?,
+    );
+
     let analyzed = AnalyzedProgram {
+        compile_mode: crate::compiler::attributes::CompileMode::Debug,
         project_universe,
         runtime_modules: linked.modules.keys().cloned().collect(),
         linked,
@@ -223,21 +266,156 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
         .reachable_units_from_roots(std::slice::from_ref(&root))
         .map_err(CanonicalUniverseBuildError::BootstrapPlanning)?;
     let bootstrap_roots = source_index.bootstrap_roots();
-    let bootstrap_order = source_index
+    let authored_bootstrap_order = source_index
         .initialization_order_from_roots(&bootstrap_roots)
         .map_err(CanonicalUniverseBuildError::BootstrapPlanning)?
         .into_iter()
         .map(|unit| unit.id.clone())
         .collect::<Vec<_>>();
+    // Module discovery owns the source initializer closure, while the
+    // finalized runtime DAG owns dependency-first execution constraints.
+    // Preserve the old authored order wherever runtime dependencies permit.
+    let bootstrap_order = align_bootstrap_order_with_runtime_dependencies(&program.linked.as_program().graphs.runtime, &authored_bootstrap_order)?;
 
     validate_canonical_product(&source_index, &program, &root_reachable, &bootstrap_order)?;
+
+    // Only modules whose source initializers execute can publish source-value
+    // availability, even when other module identities are linked/catalogued.
+    let availability_after_bootstrap = fully_initialized_universe_availability(&native_floor_availability, &program, &bootstrap_order);
 
     Ok(CanonicalUniverseProgram {
         program: Arc::new(program),
         source_index,
         root_reachable: Arc::from(root_reachable.into_boxed_slice()),
         bootstrap_order: Arc::from(bootstrap_order.into_boxed_slice()),
+        #[cfg(test)]
+        native_floor_availability,
+        availability_after_bootstrap,
     })
+}
+
+/// The native materializer creates every canonical Universe module before any
+/// source initializer. Only bindings listed by `UNIVERSE_BINDINGS` receive a
+/// native-floor runtime-value proof; semantic declaration identities are
+/// recorded separately and do not assert that reserved source-only slots are
+/// populated.
+fn native_floor_availability(symbolic: &phalcom_modules::SemanticLinkedProgram) -> Result<AvailabilityContract, CanonicalUniverseBuildError> {
+    let before_source = RuntimeRequirementTiming::BeforeSourceExecution;
+    let mut proofs = Vec::new();
+    for (module, linked) in &symbolic.modules {
+        proofs.push(AvailabilityProof {
+            target: RuntimeRequirementTarget::Module(module.clone()),
+            product: RuntimeRequirementProduct::RuntimeObject,
+            authority: AvailabilityAuthority::NativeModuleMaterialization,
+            available_at: before_source,
+        });
+        proofs.push(AvailabilityProof {
+            target: RuntimeRequirementTarget::Module(module.clone()),
+            product: RuntimeRequirementProduct::CanonicalIdentity,
+            authority: AvailabilityAuthority::SemanticIdentityCatalog,
+            available_at: before_source,
+        });
+        for name in linked.local_globals.keys() {
+            proofs.push(AvailabilityProof {
+                target: RuntimeRequirementTarget::Binding {
+                    module: module.clone(),
+                    name: name.clone(),
+                },
+                product: RuntimeRequirementProduct::CanonicalIdentity,
+                authority: AvailabilityAuthority::SemanticIdentityCatalog,
+                available_at: before_source,
+            });
+        }
+    }
+    for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
+        let module = universe_module_id(binding.key)?;
+        proofs.push(AvailabilityProof {
+            target: RuntimeRequirementTarget::Binding {
+                module,
+                name: binding.name.into(),
+            },
+            product: RuntimeRequirementProduct::RuntimeObject,
+            authority: AvailabilityAuthority::NativeBindingCatalog,
+            available_at: before_source,
+        });
+    }
+    Ok(AvailabilityContract::from_proofs(proofs))
+}
+
+/// Source-initialized values are available only for modules whose source
+/// initializers the canonical bootstrap actually executes. Discovery/linking
+/// alone cannot certify that a runtime binding was populated.
+fn fully_initialized_universe_availability(
+    native_floor: &AvailabilityContract,
+    program: &crate::modules::CompiledProgram,
+    executed_modules: &[ModuleId],
+) -> AvailabilityContract {
+    let mut proofs = native_floor.proofs().cloned().collect::<Vec<_>>();
+    let executed = executed_modules.iter().cloned().collect::<std::collections::BTreeSet<_>>();
+    for (module, linked) in &program.linked.modules {
+        if !module.project.is_universe() || !executed.contains(module) {
+            continue;
+        }
+        proofs.push(AvailabilityProof {
+            target: RuntimeRequirementTarget::Module(module.clone()),
+            product: RuntimeRequirementProduct::RuntimeObject,
+            authority: AvailabilityAuthority::FullyInitializedUniverse,
+            available_at: RuntimeRequirementTiming::AfterBootstrap,
+        });
+        proofs.push(AvailabilityProof {
+            target: RuntimeRequirementTarget::Module(module.clone()),
+            product: RuntimeRequirementProduct::SourceInitializedValue,
+            authority: AvailabilityAuthority::FullyInitializedUniverse,
+            available_at: RuntimeRequirementTiming::AfterBootstrap,
+        });
+        for name in linked.bindings.local_globals.keys() {
+            proofs.push(AvailabilityProof {
+                target: RuntimeRequirementTarget::Binding {
+                    module: module.clone(),
+                    name: name.clone(),
+                },
+                product: RuntimeRequirementProduct::SourceInitializedValue,
+                authority: AvailabilityAuthority::FullyInitializedUniverse,
+                available_at: RuntimeRequirementTiming::AfterBootstrap,
+            });
+        }
+    }
+    if let Some(bundle) = &program.semantic_metadata {
+        for root in bundle.module_roots.iter() {
+            if let Some(module) = runtime_module_from_stable_ref(&root.module) {
+                proofs.push(AvailabilityProof {
+                    target: RuntimeRequirementTarget::Module(module),
+                    product: RuntimeRequirementProduct::MetadataDescriptor,
+                    authority: AvailabilityAuthority::FullyInitializedUniverse,
+                    available_at: RuntimeRequirementTiming::AfterBootstrap,
+                });
+            }
+        }
+    }
+    AvailabilityContract::from_proofs(proofs)
+}
+
+fn universe_module_id(key: phalcom_native_meta::UniverseKey) -> Result<ModuleId, CanonicalUniverseBuildError> {
+    let components = key
+        .source_path()
+        .iter()
+        .map(|component| ModuleComponent::from_identifier(component).map_err(|error| CanonicalUniverseBuildError::AvailabilityContract(error.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ModuleId::universe(ModulePath::from_components(components)))
+}
+
+fn runtime_module_from_stable_ref(reference: &phalcom_type_meta::identity::StableModuleRef) -> Option<ModuleId> {
+    match &reference.project {
+        phalcom_type_meta::identity::StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe" => {
+            let components = reference
+                .path
+                .iter()
+                .map(|component| ModuleComponent::from_identifier(component).ok())
+                .collect::<Option<Vec<_>>>()?;
+            Some(ModuleId::universe(ModulePath::from_components(components)))
+        }
+        _ => None,
+    }
 }
 
 /// Ensures the canonical product never asks executable lowering to interpret a
@@ -322,14 +500,183 @@ fn validate_canonical_product(
         }
     }
 
+    // Only executed source initializers participate in this schedule check.
+    // Dependencies satisfied by prior native-floor availability are absent
+    // from the finalized graph, and nonexecuted targets have separate owners.
+    validate_bootstrap_runtime_order(&program.linked.as_program().graphs.runtime, bootstrap_order)?;
+
+    Ok(())
+}
+
+/// Stably topologically order the selected source initializer closure
+/// against *effective*, finalized runtime dependencies. The source index
+/// determines which modules execute; its authored-import-only order is not
+/// authoritative when semantic-generated reads introduce additional edges.
+/// Use the authored order as a deterministic tie-breaker to avoid reordering
+/// unrelated source initializers.
+fn align_bootstrap_order_with_runtime_dependencies(
+    graph: &phalcom_modules::RuntimeDependencyGraph,
+    authored_order: &[ModuleId],
+) -> Result<Vec<ModuleId>, CanonicalUniverseBuildError> {
+    let positions = authored_order
+        .iter()
+        .enumerate()
+        .map(|(index, module)| (module.clone(), index))
+        .collect::<BTreeMap<_, _>>();
+    if positions.len() != authored_order.len() {
+        let mut seen = std::collections::BTreeSet::new();
+        let repeated = authored_order
+            .iter()
+            .find(|module| !seen.insert((*module).clone()))
+            .expect("non-unique source order has a duplicate");
+        return Err(CanonicalUniverseBuildError::DuplicateBootstrapModule(repeated.clone()));
+    }
+
+    let mut remaining = positions.keys().cloned().map(|module| (module, 0usize)).collect::<BTreeMap<_, _>>();
+    let mut dependents = BTreeMap::<ModuleId, std::collections::BTreeSet<ModuleId>>::new();
+    for importer in authored_order {
+        for dependency in graph.dependencies(importer) {
+            if !positions.contains_key(&dependency) {
+                // Native-floor and other nonexecuted targets have a separate
+                // availability owner, rather than a source initializer slot.
+                continue;
+            }
+            *remaining.get_mut(importer).expect("source importer is in closure") += 1;
+            dependents.entry(dependency).or_default().insert(importer.clone());
+        }
+    }
+
+    let mut ready = remaining
+        .iter()
+        .filter(|(_, degree)| **degree == 0)
+        .map(|(module, _)| (positions[module], module.clone()))
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut result = Vec::with_capacity(authored_order.len());
+    while let Some((_, module)) = ready.pop_first() {
+        if let Some(affected) = dependents.get(&module) {
+            for importer in affected {
+                let count = remaining.get_mut(importer).expect("dependent importer is in closure");
+                *count -= 1;
+                if *count == 0 {
+                    ready.insert((positions[importer], importer.clone()));
+                }
+            }
+        }
+        result.push(module);
+    }
+
+    if result.len() != authored_order.len() {
+        return Err(CanonicalUniverseBuildError::BootstrapPlanning(
+            "effective finalized runtime dependencies are cyclic within canonical source execution closure".into(),
+        ));
+    }
+
+    Ok(result)
+}
+
+/// Validate actual runtime edges against the VM's source-execution schedule.
+/// Linker acyclicity alone does not prove that the source-index order honors
+/// a generated, unsatisfied runtime requirement.
+fn validate_bootstrap_runtime_order(graph: &phalcom_modules::RuntimeDependencyGraph, bootstrap_order: &[ModuleId]) -> Result<(), CanonicalUniverseBuildError> {
+    let positions = bootstrap_order
+        .iter()
+        .enumerate()
+        .map(|(index, module)| (module.clone(), index))
+        .collect::<BTreeMap<_, _>>();
+    for importer in bootstrap_order {
+        for dependency in graph.dependencies(importer) {
+            if let Some(&dependency_position) = positions.get(&dependency) {
+                if dependency_position >= positions[importer] {
+                    return Err(CanonicalUniverseBuildError::BootstrapRuntimeDependencyOrder {
+                        importer: importer.clone(),
+                        dependency,
+                    });
+                }
+            }
+        }
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{CanonicalUniverseBuildError, canonical_universe_program};
-    use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
+    use phalcom_modules::{
+        AvailabilityAuthority, ModuleComponent, ModuleId, ModulePath, RuntimeRequirementProduct, RuntimeRequirementTarget, RuntimeRequirementTiming,
+    };
     use phalcom_native_meta::UniverseKey;
+
+    #[test]
+    fn finalized_bootstrap_order_respects_generated_edges_and_stable_authored_ties() {
+        use phalcom_modules::{RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason};
+
+        let importer = ModuleId::universe_root();
+        let dependency = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("errors").expect("module component"),
+        ]));
+        let independent = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("scalar").expect("module component"),
+        ]));
+        let mut graph = RuntimeDependencyGraph::default();
+        graph.add(RuntimeDependencyEdge {
+            importer: importer.clone(),
+            dependency: dependency.clone(),
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            provenance: None,
+        });
+
+        let aligned = super::align_bootstrap_order_with_runtime_dependencies(&graph, &[independent.clone(), importer.clone(), dependency.clone()])
+            .expect("acyclic finalized dependencies can be honored by reordering");
+        assert_eq!(aligned, [independent, dependency, importer]);
+        super::validate_bootstrap_runtime_order(&graph, &aligned).expect("reconciled schedule honors finalized dependencies");
+    }
+
+    #[test]
+    fn finalized_bootstrap_order_rejects_reversed_generated_dependency() {
+        use phalcom_modules::{RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason};
+
+        let importer = ModuleId::universe_root();
+        let dependency = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("errors").expect("module component"),
+        ]));
+        let mut graph = RuntimeDependencyGraph::default();
+        graph.add(RuntimeDependencyEdge {
+            importer: importer.clone(),
+            dependency: dependency.clone(),
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            provenance: None,
+        });
+
+        assert!(matches!(
+            super::validate_bootstrap_runtime_order(&graph, &[importer.clone(), dependency.clone()]),
+            Err(CanonicalUniverseBuildError::BootstrapRuntimeDependencyOrder {
+                importer: actual_importer, dependency: actual_dependency
+            }) if actual_importer == importer && actual_dependency == dependency
+        ));
+        super::validate_bootstrap_runtime_order(&graph, &[dependency, importer]).expect("dependency-first order must pass");
+    }
+
+    #[test]
+    fn finalized_bootstrap_order_ignores_nonexecuted_dependency_targets() {
+        use phalcom_modules::{RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason};
+
+        let importer = ModuleId::universe_root();
+        let dependency = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("errors").expect("module component"),
+        ]));
+        let mut graph = RuntimeDependencyGraph::default();
+        graph.add(RuntimeDependencyEdge {
+            importer: importer.clone(),
+            dependency,
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            provenance: None,
+        });
+
+        super::validate_bootstrap_runtime_order(&graph, &[importer]).expect("nonexecuted target is not part of this source execution schedule");
+    }
 
     #[test]
     fn canonical_semantic_failure_is_distinct_from_panic() {
@@ -372,6 +719,95 @@ mod tests {
                 canonical.program().linked.modules.contains_key(id),
                 "bootstrap module {id} must exist in linked program"
             );
+        }
+    }
+
+    #[test]
+    fn unexecuted_universe_modules_cannot_publish_source_initialized_value_proofs() {
+        let canonical = canonical_universe_program().expect("canonical Universe compiler product");
+
+        let empty_schedule = super::fully_initialized_universe_availability(&canonical.native_floor_availability, canonical.program(), &[]);
+        assert!(
+            !empty_schedule.proofs().any(|proof| {
+                proof.authority == AvailabilityAuthority::FullyInitializedUniverse && proof.product == RuntimeRequirementProduct::SourceInitializedValue
+            }),
+            "linking a module must not assert that its source initializer executed"
+        );
+
+        let executed = canonical.bootstrap_order().iter().cloned().collect::<std::collections::BTreeSet<_>>();
+        let source_values = canonical
+            .availability_after_bootstrap()
+            .proofs()
+            .filter(|proof| {
+                proof.authority == AvailabilityAuthority::FullyInitializedUniverse && proof.product == RuntimeRequirementProduct::SourceInitializedValue
+            })
+            .collect::<Vec<_>>();
+        assert!(!source_values.is_empty(), "executed canonical modules publish source values");
+        for proof in source_values {
+            assert!(
+                executed.contains(proof.target.module()),
+                "module {} has a source-value proof without an executed initializer",
+                proof.target.module()
+            );
+        }
+    }
+
+    #[test]
+    fn native_floor_contract_matches_fresh_vm_values_and_excludes_source_only_slots() {
+        let canonical = canonical_universe_program().expect("canonical Universe compiler product");
+        let mut vm = crate::vm::VM::new_native();
+
+        for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
+            let module = super::universe_module_id(binding.key).expect("catalog module path");
+            let module_object = vm.module_registry.get(&module).expect("native floor module materialized").object;
+            let name = vm.interner.intern(binding.name);
+            let value = vm
+                .heap
+                .module(module_object)
+                .get(name)
+                .expect("catalog binding populated before source execution");
+            if binding.key == UniverseKey::None {
+                assert_eq!(value, crate::value::Value::none());
+            } else {
+                let expected = crate::value::Value::obj(vm.universe.classes.resolve(binding.key));
+                assert!(value.same_as(&expected), "{} must retain its canonical class identity", binding.name);
+            }
+            assert!(canonical.native_floor_availability.proofs().any(|proof| {
+                proof.target
+                    == RuntimeRequirementTarget::Binding {
+                        module: module.clone(),
+                        name: binding.name.into(),
+                    }
+                    && proof.product == RuntimeRequirementProduct::RuntimeObject
+                    && proof.authority == AvailabilityAuthority::NativeBindingCatalog
+                    && proof.available_at == RuntimeRequirementTiming::BeforeSourceExecution
+            }));
+        }
+
+        for class in canonical.source_index().census.classes.iter().filter(|class| class.universe_key.is_none()) {
+            let module_object = vm
+                .module_registry
+                .get(&class.module)
+                .expect("source-only module object exists at native floor")
+                .object;
+            let name = vm.interner.intern(&class.name);
+            assert!(
+                vm.heap.module(module_object).get(name).is_none(),
+                "reserved source-only binding {}::{} is not an initialized native-floor value",
+                class.module,
+                class.name
+            );
+            assert!(!canonical.native_floor_availability.proofs().any(|proof| {
+                proof.target
+                    == RuntimeRequirementTarget::Binding {
+                        module: class.module.clone(),
+                        name: class.name.clone().into_boxed_str(),
+                    }
+                    && matches!(
+                        proof.product,
+                        RuntimeRequirementProduct::RuntimeObject | RuntimeRequirementProduct::SourceInitializedValue
+                    )
+            }));
         }
     }
 

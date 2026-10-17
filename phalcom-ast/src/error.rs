@@ -246,9 +246,9 @@ pub enum SyntaxErrorKind {
     #[error("{0}")]
     RestParameter(RestParameterErrorKind),
 
-    /// A `@variant` declaration appeared outside of an `enum` body.
-    #[error("`@variant` may only declare a variant inside an `enum` body")]
-    VariantOutsideEnum,
+    /// The retired `@variant` marker appeared in a class body.
+    #[error("`@variant` is retired for class declarations; declare cases inside a `data` declaration")]
+    ClassVariantMarkerRetired,
 
     /// Rest parameters are unsupported in variant payloads.
     #[error("rest parameters are not supported in variant payloads")]
@@ -257,6 +257,10 @@ pub enum SyntaxErrorKind {
     /// Behavior or methods declared inside an enum declaration are unsupported.
     #[error("enum declarations may only contain variants; behavior must be declared in an `impl` block")]
     EnumBehaviorUnsupported,
+
+    /// The legacy `@variant` marker is not part of `data` case syntax.
+    #[error("`@variant` is not supported in `data` declarations; declare the case directly")]
+    DataVariantMarkerRetired,
 
     /// An algebraic declaration body cannot mix product components and sum cases.
     #[error("data.mixed_body: algebraic declaration body cannot mix product components and sum cases")]
@@ -303,9 +307,10 @@ impl SyntaxErrorKind {
             Self::InvalidMultilineStringIndentation => "string.multiline.indentation",
             Self::InvalidMultilineStringLineEnding => "string.multiline.invalid_line_ending",
             Self::RestParameter(kind) => kind.code(),
-            Self::VariantOutsideEnum => "syntax.enum.variant_outside_enum",
+            Self::ClassVariantMarkerRetired => "syntax.class.variant_marker_retired",
             Self::VariantRestParameterUnsupported => "syntax.enum.variant_rest_unsupported",
             Self::EnumBehaviorUnsupported => "syntax.enum.behavior_unsupported",
+            Self::DataVariantMarkerRetired => "syntax.data.variant_marker_retired",
             Self::MixedAlgebraicBody => "syntax.algebraic.mixed_body",
             Self::Unknown => "syntax.unknown",
             Self::Message(_) => "syntax.message",

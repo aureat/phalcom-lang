@@ -248,9 +248,6 @@ pub fn declaration_surface_source_input_fingerprint(
                     hash_optional_source_region(&unit.text, index.return_annotation.as_ref().map(|annotation| annotation.range), &mut hasher);
                 }
             }
-            ClassMember::Variant(_) => {
-                5u8.hash(&mut hasher);
-            }
             ClassMember::Delegation(delegation) => {
                 6u8.hash(&mut hasher);
                 delegation.name.hash(&mut hasher);
@@ -3096,12 +3093,7 @@ pub fn static_constant_product_fingerprint(
         }
         crate::static_eval::StaticEvalOutcome::Symbolic(residual_ref) => {
             2u8.hash(&mut hasher);
-            let mut semantic = crate::db::static_fingerprint::StaticSemanticFingerprinter::new(
-                types,
-                store,
-                product.residuals.as_deref(),
-                projects,
-            );
+            let mut semantic = crate::db::static_fingerprint::StaticSemanticFingerprinter::new(types, store, product.residuals.as_deref(), projects);
             semantic.constant_owner(&product.id)?.hash(&mut hasher);
             semantic.residual(*residual_ref)?.hash(&mut hasher);
         }

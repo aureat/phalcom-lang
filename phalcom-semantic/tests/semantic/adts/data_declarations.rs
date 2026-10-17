@@ -729,8 +729,12 @@ class Probe {
 }
 "#;
     let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
-    let _initial = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), initial_source, 1)).expect("semantic test update should succeed");
-    let incremental = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 2)).expect("semantic test update should succeed");
+    let _initial = session
+        .update(crate::semantic::incremental::support::single_module_input(module.clone(), initial_source, 1))
+        .expect("semantic test update should succeed");
+    let incremental = session
+        .update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 2))
+        .expect("semantic test update should succeed");
     let parsed = phalcom_ast::parse(source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     let cold = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
@@ -788,8 +792,12 @@ class Probe {
 }
 "#;
     let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
-    let _initial = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), initial_source, 1)).expect("semantic test update should succeed");
-    let incremental = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 2)).expect("semantic test update should succeed");
+    let _initial = session
+        .update(crate::semantic::incremental::support::single_module_input(module.clone(), initial_source, 1))
+        .expect("semantic test update should succeed");
+    let incremental = session
+        .update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 2))
+        .expect("semantic test update should succeed");
     let parsed = phalcom_ast::parse(source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     let cold = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
@@ -1255,6 +1263,56 @@ fn data_phantom_applications_remain_distinct() {
 }
 
 #[test]
+fn phantom_tagged_identifier_rejects_cross_domain_argument() {
+    use phalcom_modules::{ModuleComponent, UniverseSourceProvider};
+    use phalcom_semantic::identity::WorkspaceId;
+    use phalcom_semantic::session::SemanticWorkspaceSession;
+
+    let source = r#"
+data UserTag()
+data OrderTag()
+data Identifier<Tag> private(_ raw: Int)
+
+impl<Tag> Identifier<Tag> {
+    @class
+    fromInt(_ raw: Int) -> Identifier<Tag> { Identifier<Tag>(raw) }
+}
+
+class Consumer {
+    @class
+    accept(_ id: Identifier<OrderTag>) -> Int { id.raw }
+
+    @class
+    run() -> Int {
+        let order: Identifier<OrderTag> = Identifier<OrderTag>.fromInt(1)
+        let user: Identifier<UserTag> = Identifier<UserTag>.fromInt(2)
+        Consumer.accept(order)
+        Consumer.accept(user)
+    }
+}
+"#;
+    let numbers = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("numbers").unwrap()]));
+    let canonical = UniverseSourceProvider::new().source_text(&numbers).expect("numbers source");
+    let exposed = canonical.replacen("from .capabilities import", "expose .capabilities\nfrom .capabilities import", 1);
+    assert_ne!(exposed, canonical.as_ref());
+    let provider = UniverseSourceProvider::with_test_source_override(numbers, Arc::from(exposed)).expect("test-only Universe fixture");
+    let mut session = SemanticWorkspaceSession::with_universe_source_provider(WorkspaceId::from_raw(73_001), provider);
+    let module = test_module();
+    let update = session
+        .update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
+    let diagnostics = update.snapshot.diagnostics_for(&module).unwrap_or_default();
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::ArgumentMismatch)
+            .count(),
+        1,
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
 fn data_declaration_cold_incremental_equivalence() {
     let module = test_module();
     let source = "data Point(x: Int, y: Int)\nclass Geometry { @class test() -> Int { let p = Point(x: 10, y: 20); p.x } }\n";
@@ -1302,12 +1360,16 @@ fn class_cannot_inherit_from_data_incremental() {
     let module = test_module();
     let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
     let source1 = "class Base {}\nclass Derived is Base {}\n";
-    let update1 = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source1, 1)).expect("semantic test update should succeed");
+    let update1 = session
+        .update(crate::semantic::incremental::support::single_module_input(module.clone(), source1, 1))
+        .expect("semantic test update should succeed");
     let diags1 = update1.snapshot.diagnostics_for(&module);
     assert!(diags1.is_none_or(|d| d.is_empty()));
 
     let source2 = "data Base(x: Int)\nclass Derived is Base {}\n";
-    let update2 = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source2, 2)).expect("semantic test update should succeed");
+    let update2 = session
+        .update(crate::semantic::incremental::support::single_module_input(module.clone(), source2, 2))
+        .expect("semantic test update should succeed");
     let diags2 = update2.snapshot.diagnostics_for(&module).expect("diagnostics expected in update 2");
     assert!(
         diags2.iter().any(|d| d.code == DiagnosticCode::DataUsedAsSuperclass),
@@ -1331,10 +1393,12 @@ fn data_cross_module_record_construction_order() {
     let source_b = "import schema.User\nclass App { @class make() -> User { User(age: 30, name: \"Alice\") } }\n";
 
     let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
-    let update = session.update(crate::semantic::incremental::support::multi_module_input(
-        vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b.into())],
-        1,
-    )).expect("semantic test update should succeed");
+    let update = session
+        .update(crate::semantic::incremental::support::multi_module_input(
+            vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b.into())],
+            1,
+        ))
+        .expect("semantic test update should succeed");
 
     let user_decl = DeclarationId::new(module_a, "User".into());
     let user_info = update.snapshot.data_semantics.data_info(&user_decl);
@@ -1360,20 +1424,24 @@ fn data_incremental_imported_component_type_mutation() {
     let source_b = "data Other(y: Int)\n";
 
     let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
-    let update1 = session.update(crate::semantic::incremental::support::multi_module_input(
-        vec![(module_a.clone(), source_a_v1.into()), (module_b.clone(), source_b.into())],
-        1,
-    )).expect("semantic test update should succeed");
+    let update1 = session
+        .update(crate::semantic::incremental::support::multi_module_input(
+            vec![(module_a.clone(), source_a_v1.into()), (module_b.clone(), source_b.into())],
+            1,
+        ))
+        .expect("semantic test update should succeed");
     let container_decl = DeclarationId::new(module_a.clone(), "Container".into());
     let info1 = update1.snapshot.data_semantics.data_info(&container_decl).unwrap();
     assert_eq!(info1.components.len(), 1);
 
     // Now change Container.x from Int to String in module A
     let source_a_v2 = "data Container(x: String)\n";
-    let update2 = session.update(crate::semantic::incremental::support::multi_module_input(
-        vec![(module_a.clone(), source_a_v2.into()), (module_b.clone(), source_b.into())],
-        2,
-    )).expect("semantic test update should succeed");
+    let update2 = session
+        .update(crate::semantic::incremental::support::multi_module_input(
+            vec![(module_a.clone(), source_a_v2.into()), (module_b.clone(), source_b.into())],
+            2,
+        ))
+        .expect("semantic test update should succeed");
 
     // Data declaration product in module A must reflect String
     let container_info = update2.snapshot.data_semantics.data_info(&container_decl).unwrap();

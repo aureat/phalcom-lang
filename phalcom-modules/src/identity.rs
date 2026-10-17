@@ -350,6 +350,18 @@ impl fmt::Display for ImportSiteId {
     }
 }
 
+/// Ordinal of one binding introduced by an authored import site.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportBindingLocalId(pub u32);
+
+/// Source import identity, independent of executable linked-read slots.
+/// Item ordinals are replaced with the owning import site on source revision.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SourceImportBindingId {
+    pub site: ImportSiteId,
+    pub local: ImportBindingLocalId,
+}
+
 /// Source-provider identity, distinct from semantic `ModuleId`.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct SourceId(pub Box<str>);

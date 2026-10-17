@@ -88,9 +88,9 @@ data LocalTimeDisambiguation { Reject Earlier Later Compatible }
 data ZonedDateTime private(_ timestamp: Timestamp, _ timeZone: TimeZone)
 
 data LocalTimeResolution {
-  @variant Unique(value: ZonedDateTime)
-  @variant Ambiguous(earlier: ZonedDateTime, later: ZonedDateTime)
-  @variant Gap(before: ZonedDateTime, after: ZonedDateTime)
+  Unique(value: ZonedDateTime)
+  Ambiguous(earlier: ZonedDateTime, later: ZonedDateTime)
+  Gap(before: ZonedDateTime, after: ZonedDateTime)
 }
 
 impl LocalTimeResolution {

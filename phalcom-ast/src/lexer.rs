@@ -1117,7 +1117,7 @@ impl<'input> Lexer<'input> {
                 u32::from_str_radix(digits, 16)
                     .ok()
                     .and_then(char::from_u32)
-                    .ok_or_else(|| LexicalError::InvalidCharacterEscape(start..self.pos))
+                    .ok_or(LexicalError::InvalidCharacterEscape(start..self.pos))
             }
             Some(_) => {
                 let end = self.pos + self.char_len_at(self.pos);

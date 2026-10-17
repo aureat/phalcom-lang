@@ -64,4 +64,4 @@ shown regardless because contract metadata is retained in every mode
 
 | File | Shows |
 |---|---|
-| [`showcase.ph`](showcase.ph) | `@requires`/`@ensures`/`@invariant` (DbC), `@construct` + `@get`/`@set` (layout), `@data`/`@sealed`/`@variant` (ADTs + exhaustive `match`), `@observable`/`@computed` (reactive) — each wrapped in Phaldoc `///`/`//!` |
+| [`showcase.ph`](showcase.ph) | `@requires`/`@ensures`/`@invariant` (DbC), `@construct` + `@get`/`@set` (layout), `data` case declarations (ADTs + exhaustive `match`), `@observable`/`@computed` (reactive) — each wrapped in Phaldoc `///`/`//!` |

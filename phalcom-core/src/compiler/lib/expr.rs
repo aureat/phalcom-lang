@@ -341,6 +341,15 @@ impl<'vm> Compiler<'vm> {
             return Ok(());
         }
 
+        let target = phalcom_modules::LinkedReadSpec::Binding(phalcom_modules::SymbolId {
+            module: declaration.module.clone(),
+            name: declaration.name.clone(),
+        });
+        if let Some(binding) = self.finalized_linked_read(&target) {
+            self.emit(Bytecode::GetLinked(binding.0 as u16), range);
+            return Ok(());
+        }
+
         if let Some(bindings) = self.linked_bindings.as_ref() {
             if let Some(import) = bindings.imports.values().find(|import| {
                 import
@@ -362,6 +371,13 @@ impl<'vm> Compiler<'vm> {
                 self.emit_invoke(0, index, range, InvocationAuthority::Ordinary)?;
                 return Ok(());
             }
+        }
+
+        if self.linked_bindings.as_ref().is_some_and(crate::modules::CompileBindings::is_finalized) {
+            return Err(CompilerError::Message(format!(
+                "finalized executable link has no runtime read for class `{}` from `{}`",
+                declaration.name, declaration.module
+            )));
         }
 
         let symbol = self.vm.interner.intern(&declaration.name);
@@ -457,8 +473,8 @@ impl<'vm> Compiler<'vm> {
         source: Expr,
         spec: std::sync::Arc<crate::modules::semantic_lowering::ContextualRealizationLoweringSpec>,
     ) -> Result<(), CompilerError> {
-        use phalcom_semantic::checker::analysis::{RealizationCoefficientSource, RealizationEvaluationPlan};
         use crate::modules::semantic_lowering::ContextualRealizationOperationLowering;
+        use phalcom_semantic::checker::analysis::{RealizationCoefficientSource, RealizationEvaluationPlan};
 
         let range = spec.source_range;
         self.emit_contextual_class_receiver(&spec.target_receiver, range)?;
@@ -482,11 +498,11 @@ impl<'vm> Compiler<'vm> {
             unreachable!("real embedding was handled above")
         };
 
-        match (coefficient, &source) {
+        match (coefficient.as_ref(), &source) {
             (RealizationCoefficientSource::One { .. }, Expr::Imaginary { .. })
             | (RealizationCoefficientSource::IntegerLiteral { .. } | RealizationCoefficientSource::FloatLiteral { .. }, Expr::Imaginary { .. }) => {
-                if !matches!(coefficient, RealizationCoefficientSource::One { .. }) {
-                    match coefficient {
+                if !matches!(coefficient.as_ref(), RealizationCoefficientSource::One { .. }) {
+                    match coefficient.as_ref() {
                         RealizationCoefficientSource::IntegerLiteral { digits, radix } => {
                             let value = if *radix == 10 {
                                 digits.parse::<i64>().ok().map(Value::int).or_else(|| {
@@ -530,7 +546,7 @@ impl<'vm> Compiler<'vm> {
                     .ok_or_else(|| CompilerError::Message("contextual realization is missing its scalar class receiver".into()))?;
                 self.emit_contextual_class_receiver(scalar_receiver, range)?;
                 let one = coefficient_one
-                    .as_ref()
+                    .as_deref()
                     .ok_or_else(|| CompilerError::Message("contextual realization is missing its selected `One` capability".into()))?
                     .clone();
                 self.emit_contextual_capability_invocation(one, 0, range)?;
@@ -578,7 +594,7 @@ impl<'vm> Compiler<'vm> {
         }
 
         if !matches!(
-            (coefficient, evaluation),
+            (coefficient.as_ref(), evaluation),
             (
                 RealizationCoefficientSource::One { .. },
                 RealizationEvaluationPlan::MultiplicativeIdentityThenSourceBasis
@@ -624,6 +640,88 @@ impl<'vm> Compiler<'vm> {
     }
 
     fn compile_expr_want_inner(&mut self, expr: Expr, want_value: bool) -> Result<(), CompilerError> {
+        // Other expression forms have large lowering temporaries. Keep them
+        // out of the frame retained for each nested arithmetic operation.
+        match expr {
+            Expr::Binary(binary) => self.compile_binary_expr(*binary),
+            other => self.compile_non_binary_expr_want(other, want_value),
+        }
+    }
+
+    fn compile_binary_expr(&mut self, binary_expr: phalcom_ast::ast::BinaryExpr) -> Result<(), CompilerError> {
+        // U5 (control-flow.md §1): every binary operator is an
+        // ordinary `Invoke` send — none of these are opcodes anymore.
+        // `and`/`or` are the two *lazy* exceptions (control-flow.md
+        // §2): their right operand compiles as a 0-arity block
+        // literal, not a plain expression, so `Bool::and(_)`/`or(_)`
+        // can choose whether to evaluate it at all. That literal
+        // block is compiler-synthesized here but is exactly as
+        // "literal" as a user-written `{ ... }` — U5-plan.md §4.2's
+        // "literal block at the call site" inlining condition is
+        // about the block's *shape*, not its origin — so `a and b`
+        // is built directly as a recognized `SacredCall::And` and
+        // handed to the same guarded-jump emitter `a.and { b }`
+        // uses (`inliner.rs`), not a plain send.
+        let range = binary_expr.range;
+        match binary_expr.op.clone() {
+            BinaryOp::And => {
+                // The left operand is a branch condition (control-flow
+                // .md §2); reject a literal `Option` there (BD-U6-1).
+                if is_option_literal(&binary_expr.left) {
+                    return Err(CompilerError::OptionTruthiness);
+                }
+                let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
+                return self.compile_sacred_call(
+                    inliner::SacredCall::And {
+                        receiver: binary_expr.left,
+                        rhs_block,
+                    },
+                    range,
+                );
+            }
+            BinaryOp::Or => {
+                if is_option_literal(&binary_expr.left) {
+                    return Err(CompilerError::OptionTruthiness);
+                }
+                let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
+                return self.compile_sacred_call(
+                    inliner::SacredCall::Or {
+                        receiver: binary_expr.left,
+                        rhs_block,
+                    },
+                    range,
+                );
+            }
+            BinaryOp::Same => {
+                self.compile_expr(binary_expr.left)?;
+                self.compile_expr(binary_expr.right)?;
+                self.emit(Bytecode::Same, range);
+            }
+            BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::IntegerDivide
+            | BinaryOp::Power
+            | BinaryOp::Modulo
+            | BinaryOp::ShiftLeft
+            | BinaryOp::ShiftRight
+            | BinaryOp::BitAnd
+            | BinaryOp::BitXor
+            | BinaryOp::BitOr
+            | BinaryOp::Compare => {
+                self.compile_bilateral_binary(binary_expr.left, binary_expr.right, &binary_expr.op, range)?;
+            }
+            op => {
+                self.compile_expr(binary_expr.left)?;
+                self.compile_expr(binary_expr.right)?;
+                self.emit_operator_send(binary_op_selector_name(&op), 1, range)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_non_binary_expr_want(&mut self, expr: Expr, want_value: bool) -> Result<(), CompilerError> {
         match expr {
             Expr::UnqualifiedCall(call) => {
                 let call = *call;
@@ -1869,14 +1967,21 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::Var { value, range } => {
+                if self.lowering().is_some_and(|lowering| {
+                    lowering
+                        .associated
+                        .keys()
+                        .any(|site| site.range == range && site.kind == LoweringSiteKind::AssociatedLookup)
+                }) {
+                    return self.compile_associated_lookup_at(range);
+                }
                 if value == "nil" {
                     return Err(CompilerError::UndefinedVariable(value.clone()));
                 }
                 if let Some(spec) = self.lowering().and_then(|l| l.type_form_values.get(&range)).cloned() {
                     match spec {
                         crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::ClassObject { declaration } => {
-                            let symbol = self.vm.interner.intern(&declaration.name);
-                            self.emit_global_reference(symbol, range)?;
+                            self.emit_declaration_class_reference(&declaration, range)?;
                             return Ok(());
                         }
                         crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::TypeParameter { .. } => {
@@ -2140,77 +2245,7 @@ impl<'vm> Compiler<'vm> {
                     _ => return Err(CompilerError::InvalidAssignmentTarget),
                 }
             }
-            Expr::Binary(binary_expr) => {
-                // U5 (control-flow.md §1): every binary operator is an
-                // ordinary `Invoke` send — none of these are opcodes anymore.
-                // `and`/`or` are the two *lazy* exceptions (control-flow.md
-                // §2): their right operand compiles as a 0-arity block
-                // literal, not a plain expression, so `Bool::and(_)`/`or(_)`
-                // can choose whether to evaluate it at all. That literal
-                // block is compiler-synthesized here but is exactly as
-                // "literal" as a user-written `{ ... }` — U5-plan.md §4.2's
-                // "literal block at the call site" inlining condition is
-                // about the block's *shape*, not its origin — so `a and b`
-                // is built directly as a recognized `SacredCall::And` and
-                // handed to the same guarded-jump emitter `a.and { b }`
-                // uses (`inliner.rs`), not a plain send.
-                let range = binary_expr.range;
-                match binary_expr.op.clone() {
-                    BinaryOp::And => {
-                        // The left operand is a branch condition (control-flow
-                        // .md §2); reject a literal `Option` there (BD-U6-1).
-                        if is_option_literal(&binary_expr.left) {
-                            return Err(CompilerError::OptionTruthiness);
-                        }
-                        let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
-                        return self.compile_sacred_call(
-                            inliner::SacredCall::And {
-                                receiver: binary_expr.left,
-                                rhs_block,
-                            },
-                            range,
-                        );
-                    }
-                    BinaryOp::Or => {
-                        if is_option_literal(&binary_expr.left) {
-                            return Err(CompilerError::OptionTruthiness);
-                        }
-                        let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
-                        return self.compile_sacred_call(
-                            inliner::SacredCall::Or {
-                                receiver: binary_expr.left,
-                                rhs_block,
-                            },
-                            range,
-                        );
-                    }
-                    BinaryOp::Same => {
-                        self.compile_expr(binary_expr.left)?;
-                        self.compile_expr(binary_expr.right)?;
-                        self.emit(Bytecode::Same, range);
-                    }
-                    BinaryOp::Add
-                    | BinaryOp::Subtract
-                    | BinaryOp::Multiply
-                    | BinaryOp::Divide
-                    | BinaryOp::IntegerDivide
-                    | BinaryOp::Power
-                    | BinaryOp::Modulo
-                    | BinaryOp::ShiftLeft
-                    | BinaryOp::ShiftRight
-                    | BinaryOp::BitAnd
-                    | BinaryOp::BitXor
-                    | BinaryOp::BitOr
-                    | BinaryOp::Compare => {
-                        self.compile_bilateral_binary(binary_expr.left, binary_expr.right, &binary_expr.op, range)?;
-                    }
-                    op => {
-                        self.compile_expr(binary_expr.left)?;
-                        self.compile_expr(binary_expr.right)?;
-                        self.emit_operator_send(binary_op_selector_name(&op), 1, range)?;
-                    }
-                }
-            }
+            Expr::Binary(_) => unreachable!("binary expressions are dispatched before other expression forms"),
             Expr::Unary(unary_expr) => {
                 // All four unary operators lower to bare getter sends so user-defined
                 // classes can implement them as zero-arg getters with bare selector
@@ -2654,10 +2689,10 @@ impl<'vm> Compiler<'vm> {
         // Pattern names live only in then-body. Keep their declaration scope
         // separate so an else-body cannot resolve them accidentally.
         self.begin_scope();
-        let frame = self.setup_pattern_frame(&spec.bindings, node.pattern.range())?;
-        let pattern_scratch_count = self.functions.last().unwrap().num_locals - frame.scope_start as usize;
+        let frame = self.setup_pattern_frame(&spec.bindings, &spec.pattern, node.pattern.range())?;
         let mut failures = Vec::new();
         self.emit_executable_pattern(&spec.pattern, value_slot, &frame, &mut failures, node.pattern.range())?;
+        let pattern_scratch_count = self.functions.last().unwrap().num_locals - frame.scope_start as usize;
         self.commit_pattern_frame(&frame, node.pattern.range())?;
         self.compile_inline_lexical_body(node.then_body.body, node.then_body.range)?;
         self.end_scope(range);
@@ -2729,13 +2764,15 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Pop, range);
 
         self.begin_scope();
-        let frame = self.setup_pattern_frame(&spec.bindings, node.pattern.range())?;
+        let frame = self.setup_pattern_frame(&spec.bindings, &spec.pattern, node.pattern.range())?;
         let pattern_scratch_count = self.functions.last().unwrap().num_locals - frame.scope_start as usize;
 
         self.push_loop_context();
         let loop_start = self.chunk_len();
         self.compile_expr(node.value)?;
         self.emit(Bytecode::SetLocal(value_slot), range);
+        self.emit(Bytecode::Pop, range);
+
         let mut failures = Vec::new();
         self.emit_executable_pattern(&spec.pattern, value_slot, &frame, &mut failures, node.pattern.range())?;
         self.commit_pattern_frame(&frame, node.pattern.range())?;
@@ -3018,5 +3055,59 @@ fn bilateral_operator_spec(op: &BinaryOp) -> (&'static str, &'static str, &'stat
         BinaryOp::BitXor => ("^", "^", "^", false),
         BinaryOp::Compare => ("<=>", "compare", "compare", true),
         _ => unreachable!("non-bilateral operator passed to bilateral_operator_spec"),
+    }
+}
+
+#[cfg(test)]
+mod finalized_runtime_read_tests {
+    use super::Compiler;
+    use crate::compiler::lib::{ProductOptimizationMode, UnitKind};
+    use crate::modules::CompileBindings;
+    use crate::vm::VM;
+    use phalcom_ast::parser::parse;
+    use phalcom_modules::{
+        ExecutableLinkedProgram, InterfaceBuilder, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId,
+    };
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    #[test]
+    fn finalized_declaration_reference_fails_closed_without_appending_a_read() {
+        let importer = ModuleId::resolved(
+            ResolvedProjectId::from_raw(24),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("importer").expect("valid module component")]),
+        );
+        let program = parse("let result = 0\n", 0).program;
+        let interface = InterfaceBuilder::build(importer.clone(), ModuleKind::Module, &program).expect("module interface");
+        let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), BTreeMap::from([(importer.clone(), interface)]));
+        let linked = linker.link(importer.clone(), &BTreeMap::new()).expect("conservative linked program");
+        let executable = ExecutableLinkedProgram::from_conservative_link(linked).expect("validated executable link");
+        let bindings = CompileBindings::from_executable_linked_program(&executable, &importer).expect("finalized compiler namespace");
+
+        let mut vm = VM::new_kernel();
+        let module = vm.create_module_with_id(importer, ModuleKind::Module, "importer", "<test>");
+        let declaration = phalcom_modules::DeclarationId::new(
+            ModuleId::resolved(
+                ResolvedProjectId::from_raw(25),
+                ModulePath::from_components(vec![ModuleComponent::from_identifier("owner").expect("valid module component")]),
+            ),
+            "ExternalClass".into(),
+        );
+        let mut compiler = Compiler::new_with_bindings_and_mode(&mut vm, module, 0, UnitKind::File, Some(bindings), ProductOptimizationMode::Enabled);
+
+        let error = compiler
+            .emit_declaration_class_reference(&declaration, Default::default())
+            .expect_err("a missing declaration read must fail closed");
+        assert!(
+            error
+                .to_string()
+                .contains("finalized executable link has no runtime read for class `ExternalClass`"),
+            "unexpected compiler error: {error}"
+        );
+        drop(compiler);
+        assert!(
+            vm.heap.module(module).linked_reads.is_empty(),
+            "failed declaration lookup must not append a late read"
+        );
     }
 }

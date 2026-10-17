@@ -144,7 +144,8 @@ class CfgWhile {
     };
     let while_expr = match &member_body[0] {
         phalcom_ast::ast::Statement::Expr {
-            expr: phalcom_ast::ast::Expr::While(while_expr), ..
+            expr: phalcom_ast::ast::Expr::While(while_expr),
+            ..
         } => while_expr,
         other => panic!("expected explicit While expression, got {other:?}"),
     };
@@ -162,7 +163,11 @@ class CfgWhile {
         .expect("condition branch uses the source condition range");
     assert_eq!(header.range, while_expr.range);
     assert!(cfg.edges.values().any(|edge| edge.kind == FlowEdgeKind::BackEdge && edge.target == header.id));
-    assert!(cfg.edges.values().any(|edge| edge.kind == FlowEdgeKind::FalseBranch && edge.source == condition.id));
+    assert!(
+        cfg.edges
+            .values()
+            .any(|edge| edge.kind == FlowEdgeKind::FalseBranch && edge.source == condition.id)
+    );
 }
 
 fn parse_expr_helper(src: &str) -> phalcom_ast::ast::Expr {

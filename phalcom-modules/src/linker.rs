@@ -2,9 +2,10 @@
 
 use crate::error::ModuleGraphError;
 use crate::graph::{
-    DependencyPhase, ModuleGraphs, ReferenceEdge, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyReason, SemanticEdge, SemanticEdgeKind, SemanticNodeId,
+    DependencyPhase, ModuleGraphs, ReferenceEdge, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyReason, RuntimeRequirementProduct,
+    RuntimeRequirementProvenance, RuntimeRequirementTarget, RuntimeRequirementTiming, SemanticEdge, SemanticEdgeKind, SemanticNodeId,
 };
-use crate::identity::{ModuleId, ModulePath};
+use crate::identity::{ImportBindingLocalId, ModuleId, ModulePath, SourceImportBindingId};
 use crate::interface::{ImportSurface, LinkedExport, LinkedModuleInterface, UnlinkedExportTarget, UnlinkedModuleInterface};
 use crate::project::ProjectUniverse;
 use phalcom_ast::ast::{ImportPath, StaticSymbolRef};
@@ -23,12 +24,364 @@ pub struct SymbolId {
 }
 
 /// A target used by a linked read.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum LinkedReadSpec {
     /// Read the materialized module object.
     Module(ModuleId),
     /// Read a mutable global slot owned by the canonical symbol.
     Binding(SymbolId),
+}
+
+/// Executable requirement transported to the finalizer.
+///
+/// Every requirement contributes a runtime graph edge. Requirements that also
+/// need a canonical external read carry its modules-owned target here so the
+/// finalizer can allocate the read slot from the same authority as the graph.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeDependencyRequirement {
+    pub importer: ModuleId,
+    pub dependency: ModuleId,
+    pub range: SourceRange,
+    pub reason: RuntimeDependencyReason,
+    pub read_target: Option<LinkedReadSpec>,
+    /// Exact producer, target, product, and timing for this edge.
+    pub provenance: RuntimeRequirementProvenance,
+}
+
+impl RuntimeDependencyRequirement {
+    pub fn edge(&self) -> RuntimeDependencyEdge {
+        RuntimeDependencyEdge {
+            importer: self.importer.clone(),
+            dependency: self.dependency.clone(),
+            range: self.range,
+            reason: self.reason,
+            provenance: Some(self.provenance.clone()),
+        }
+    }
+}
+
+/// Authority that guarantees an exact product is installed by a given stage.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum AvailabilityAuthority {
+    /// Exact module identity was established by semantic linking.
+    SemanticIdentityCatalog,
+    /// Native binding was written by the Universe binding installation catalog.
+    NativeBindingCatalog,
+    /// Canonical module object was created by native Universe materialization.
+    NativeModuleMaterialization,
+    /// Descriptor was installed from the immutable semantic metadata bundle.
+    SemanticMetadataBundle,
+    /// The canonical source module initializer produced this value.
+    CanonicalSourceInitializer,
+    /// The full canonical Universe bootstrap completed before user execution.
+    FullyInitializedUniverse,
+}
+
+/// One exact availability proof. It contains no VM or heap handles.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct AvailabilityProof {
+    /// Exact module or binding whose product is guaranteed.
+    pub target: RuntimeRequirementTarget,
+    /// Product guaranteed for the target.
+    pub product: RuntimeRequirementProduct,
+    /// Installation or initialization authority.
+    pub authority: AvailabilityAuthority,
+    /// Latest stage at which the product is guaranteed available.
+    pub available_at: RuntimeRequirementTiming,
+}
+
+/// Immutable exact availability facts accepted during executable finalization.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AvailabilityContract {
+    proofs: BTreeSet<AvailabilityProof>,
+}
+
+impl AvailabilityContract {
+    /// Builds a contract from immutable exact proofs.
+    pub fn from_proofs(proofs: impl IntoIterator<Item = AvailabilityProof>) -> Self {
+        Self {
+            proofs: proofs.into_iter().collect(),
+        }
+    }
+
+    /// Returns the exact proofs carried by this contract.
+    pub fn proofs(&self) -> impl Iterator<Item = &AvailabilityProof> {
+        self.proofs.iter()
+    }
+
+    fn satisfies(&self, provenance: &RuntimeRequirementProvenance) -> bool {
+        self.proofs.iter().any(|proof| {
+            let available_for_consumer = proof.available_at <= provenance.timing
+                || (proof.authority == AvailabilityAuthority::FullyInitializedUniverse
+                    && provenance.timing == RuntimeRequirementTiming::DuringModuleInitializer);
+            proof.target == provenance.target && proof.product == provenance.product && available_for_consumer
+        })
+    }
+}
+
+/// Canonical semantic target, independent of runtime read allocation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SymbolicImportTarget {
+    Module(ModuleId),
+    Binding(SymbolId),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SymbolicImportBinding {
+    pub id: SourceImportBindingId,
+    pub local_name: Box<str>,
+    pub target: SymbolicImportTarget,
+    /// Authored provider, which may differ from the canonical declaration owner.
+    pub provider: ModuleId,
+    pub kind: ReferenceKind,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SymbolicImportTable {
+    pub bindings: BTreeMap<SourceImportBindingId, SymbolicImportBinding>,
+    pub by_local_name: BTreeMap<Box<str>, SourceImportBindingId>,
+}
+
+impl SymbolicImportTable {
+    pub fn get(&self, name: &str) -> Option<&SymbolicImportBinding> {
+        self.by_local_name.get(name).and_then(|id| self.bindings.get(id))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SemanticLinkedModule {
+    pub interface: LinkedModuleInterface,
+    pub local_globals: BTreeMap<Box<str>, GlobalBindingId>,
+    pub imports: SymbolicImportTable,
+}
+
+/// Symbolic linkage has no runtime slots, graph or initialization order.
+/// Executable consumers accept `LinkedProgram`, never this provisional type.
+#[derive(Clone, Debug)]
+pub struct SemanticLinkedProgram {
+    pub universe: Arc<ProjectUniverse>,
+    pub modules: BTreeMap<ModuleId, SemanticLinkedModule>,
+    pub references: crate::graph::ReferenceGraph,
+    pub semantics: crate::graph::SemanticGraph,
+    pub entry: ModuleId,
+}
+
+impl SemanticLinkedProgram {
+    /// Projects every symbolic source import into an executable-shaped program
+    /// without claiming that its runtime graph has been validated.
+    ///
+    /// This compatibility projection is useful while a caller is migrating to
+    /// semantic phase evidence. Executable compilation must use
+    /// [`ModuleLinker::finalize_executable`] instead.
+    pub fn to_unfinalized_program(&self) -> Arc<LinkedProgram> {
+        let mut graphs = ModuleGraphs {
+            references: self.references.clone(),
+            semantics: self.semantics.clone(),
+            runtime: crate::graph::RuntimeDependencyGraph::default(),
+        };
+        let mut modules = BTreeMap::new();
+
+        for (module, symbolic) in &self.modules {
+            graphs.runtime.add_node(module.clone());
+            let mut bindings = ModuleBindingLayout {
+                local_globals: symbolic.local_globals.clone(),
+                imports: BTreeMap::new(),
+            };
+            let mut linked_reads = Vec::new();
+
+            for import in symbolic.imports.bindings.values() {
+                let target_module = symbolic_import_target_module(&import.target);
+                let read = symbolic_import_read(&import.target);
+                let slot = ImportBindingId(linked_reads.len() as u32);
+                linked_reads.push(read);
+                bindings.imports.insert(import.local_name.clone(), slot);
+
+                graphs.runtime.add(RuntimeDependencyEdge {
+                    importer: module.clone(),
+                    dependency: target_module,
+                    range: import.range,
+                    reason: runtime_reason(import.kind),
+                    provenance: None,
+                });
+            }
+
+            let mut runtime_dependencies = graphs.runtime.dependencies(module);
+            runtime_dependencies.sort();
+            modules.insert(
+                module.clone(),
+                LinkedModule {
+                    interface: symbolic.interface.clone(),
+                    bindings,
+                    linked_reads,
+                    runtime_dependencies,
+                },
+            );
+        }
+
+        Arc::new(LinkedProgram {
+            universe: self.universe.clone(),
+            modules,
+            graphs,
+            entry: self.entry.clone(),
+            initialization_order: Vec::new(),
+        })
+    }
+}
+
+fn symbolic_import_target_module(target: &SymbolicImportTarget) -> ModuleId {
+    match target {
+        SymbolicImportTarget::Module(module) => module.clone(),
+        SymbolicImportTarget::Binding(symbol) => symbol.module.clone(),
+    }
+}
+
+fn symbolic_import_read(target: &SymbolicImportTarget) -> LinkedReadSpec {
+    match target {
+        SymbolicImportTarget::Module(module) => LinkedReadSpec::Module(module.clone()),
+        SymbolicImportTarget::Binding(symbol) => LinkedReadSpec::Binding(symbol.clone()),
+    }
+}
+
+fn linked_read_module(target: &LinkedReadSpec) -> &ModuleId {
+    match target {
+        LinkedReadSpec::Module(module) => module,
+        LinkedReadSpec::Binding(symbol) => &symbol.module,
+    }
+}
+
+fn requirement_target_matches(read: &LinkedReadSpec, target: &RuntimeRequirementTarget) -> bool {
+    match (read, target) {
+        (LinkedReadSpec::Module(read), RuntimeRequirementTarget::Module(target)) => read == target,
+        (LinkedReadSpec::Binding(read), RuntimeRequirementTarget::Binding { module, name }) => read.module == *module && read.name == *name,
+        _ => false,
+    }
+}
+
+fn requirement_target_from_read(read: &LinkedReadSpec) -> RuntimeRequirementTarget {
+    match read {
+        LinkedReadSpec::Module(module) => RuntimeRequirementTarget::Module(module.clone()),
+        LinkedReadSpec::Binding(symbol) => RuntimeRequirementTarget::Binding {
+            module: symbol.module.clone(),
+            name: symbol.name.clone(),
+        },
+    }
+}
+
+fn runtime_reason(kind: ReferenceKind) -> RuntimeDependencyReason {
+    match kind {
+        ReferenceKind::WholeModuleImport => RuntimeDependencyReason::WholeModuleImport,
+        ReferenceKind::ReExport => RuntimeDependencyReason::ReExport,
+        _ => RuntimeDependencyReason::SelectiveValueImport,
+    }
+}
+
+/// Whether semantic analysis covered every phase-relevant owner of a module.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PhaseEvidenceCoverage {
+    Complete,
+    Incomplete,
+}
+
+/// Conservative phase evidence for one source import binding.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportPhaseSummary {
+    pub phase: DependencyPhase,
+    pub observed: bool,
+}
+
+/// Semantic phase product consumed by executable finalization.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModuleImportPhaseProduct {
+    pub module: ModuleId,
+    pub bindings: BTreeMap<SourceImportBindingId, ImportPhaseSummary>,
+    pub coverage: PhaseEvidenceCoverage,
+}
+
+/// The only linked product accepted by executable compilation/materialization.
+#[derive(Clone, Debug)]
+pub struct ExecutableLinkedProgram {
+    program: LinkedProgram,
+    canonical_runtime_reads: BTreeMap<(ModuleId, LinkedReadSpec), ImportBindingId>,
+    runtime_requirements: Vec<RuntimeDependencyRequirement>,
+}
+
+impl ExecutableLinkedProgram {
+    pub fn as_program(&self) -> &LinkedProgram {
+        &self.program
+    }
+
+    /// Returns the immutable slot assigned to one canonical runtime target.
+    pub fn runtime_read(&self, importer: &ModuleId, target: &LinkedReadSpec) -> Option<ImportBindingId> {
+        self.canonical_runtime_reads.get(&(importer.clone(), target.clone())).copied()
+    }
+
+    /// Returns the canonical runtime read map for one importing module.
+    pub fn runtime_reads_for(&self, importer: &ModuleId) -> impl Iterator<Item = (&LinkedReadSpec, ImportBindingId)> {
+        self.canonical_runtime_reads
+            .iter()
+            .filter_map(move |((module, target), slot)| (module == importer).then_some((target, *slot)))
+    }
+
+    /// Validates a legacy conservative link product before wrapping it in the
+    /// executable stage. Unlike phase-aware finalization, this path retains all
+    /// existing reads and runtime edges.
+    pub fn from_conservative_link(mut program: LinkedProgram) -> Result<Self, LinkError> {
+        let known_modules = program.modules.keys().cloned().collect::<BTreeSet<_>>();
+        for module in program.graphs.runtime.nodes() {
+            if !known_modules.contains(&module) {
+                return Err(LinkError::MissingModule { module });
+            }
+        }
+
+        let mut canonical_runtime_reads = BTreeMap::new();
+        for (module_id, module) in &program.modules {
+            for (slot, read) in module.linked_reads.iter().enumerate().map(|(slot, read)| (slot as u32, read)) {
+                let dependency = linked_read_module(read);
+                if !program.graphs.runtime.edges_from(module_id).iter().any(|edge| &edge.dependency == dependency) {
+                    return Err(LinkError::UncoveredRuntimeRead {
+                        importer: module_id.clone(),
+                        dependency: dependency.clone(),
+                    });
+                }
+                canonical_runtime_reads
+                    .entry((module_id.clone(), read.clone()))
+                    .or_insert(ImportBindingId(slot));
+            }
+            for slot in module.bindings.imports.values() {
+                if slot.0 as usize >= module.linked_reads.len() {
+                    return Err(LinkError::InvalidImportSlot {
+                        module: module_id.clone(),
+                        slot: slot.0,
+                    });
+                }
+            }
+        }
+
+        let initialization_order = program.graphs.runtime.initialization_order().map_err(LinkError::RuntimeCycle)?;
+        for (module_id, module) in &mut program.modules {
+            module.runtime_dependencies = program.graphs.runtime.dependencies(module_id);
+        }
+        program.initialization_order = initialization_order;
+        Ok(Self {
+            program,
+            canonical_runtime_reads,
+            runtime_requirements: Vec::new(),
+        })
+    }
+
+    /// Returns the exact generated requirements retained during finalization.
+    pub fn runtime_requirements(&self) -> &[RuntimeDependencyRequirement] {
+        &self.runtime_requirements
+    }
+}
+
+impl std::ops::Deref for ExecutableLinkedProgram {
+    type Target = LinkedProgram;
+
+    fn deref(&self) -> &Self::Target {
+        &self.program
+    }
 }
 
 /// Linked local binding layout. IDs are symbolic and VM-independent.
@@ -103,6 +456,22 @@ pub enum LinkError {
     /// interface universe supplied to the linker.
     #[error("module {module} is absent from the link universe")]
     MissingModule { module: ModuleId },
+    /// An import slot points outside its module's finalized read table.
+    #[error("module {module} has invalid finalized import slot {slot}")]
+    InvalidImportSlot { module: ModuleId, slot: u32 },
+    /// A linked read is not represented in the runtime initialization graph.
+    #[error("runtime read from {importer} to {dependency} is not covered by the runtime graph")]
+    UncoveredRuntimeRead { importer: ModuleId, dependency: ModuleId },
+    /// A generated read target and its declared graph dependency disagree.
+    #[error("runtime requirement from {importer} declares {dependency} but targets {target_module}")]
+    RuntimeReadTargetMismatch {
+        importer: ModuleId,
+        dependency: ModuleId,
+        target_module: ModuleId,
+    },
+    /// Generated requirement provenance does not describe its actual canonical target.
+    #[error("runtime requirement from {importer} has provenance inconsistent with dependency {dependency}")]
+    RuntimeRequirementProvenanceMismatch { importer: ModuleId, dependency: ModuleId },
     /// A re-export loop cannot produce a canonical symbol.
     #[error("cyclic re-export involving module {module} and '{name}'")]
     CyclicReExport { module: ModuleId, name: String },
@@ -119,8 +488,12 @@ impl LinkError {
             | Self::MissingBinding { module, .. }
             | Self::BindingCollision { module, .. }
             | Self::MissingModule { module }
+            | Self::InvalidImportSlot { module, .. }
             | Self::CyclicReExport { module, .. } => Some(module),
-            Self::RuntimeCycle(ModuleGraphError::RuntimeCycle { cycle }) => cycle.first(),
+            Self::UncoveredRuntimeRead { importer, .. }
+            | Self::RuntimeReadTargetMismatch { importer, .. }
+            | Self::RuntimeRequirementProvenanceMismatch { importer, .. } => Some(importer),
+            Self::RuntimeCycle(ModuleGraphError::RuntimeCycle { cycle, .. }) => cycle.first(),
         }
     }
 
@@ -283,6 +656,292 @@ impl ModuleLinker {
             graphs,
             entry,
             initialization_order,
+        })
+    }
+
+    /// Links all canonical names without runtime cycle validation or slot
+    /// allocation. Semantic analysis can therefore resolve interface cycles.
+    pub fn link_semantic(&self, entry: ModuleId, resolved: &BTreeMap<(ModuleId, String), ModuleId>) -> Result<SemanticLinkedProgram, LinkError> {
+        if !self.interfaces.contains_key(&entry) {
+            return Err(LinkError::MissingModule { module: entry });
+        }
+        let mut context = LinkContext::new(self, resolved, false, false);
+        context.collect_imports_and_graphs()?;
+        let mut modules = BTreeMap::new();
+        for (module, interface) in &self.interfaces {
+            let mut imports = SymbolicImportTable::default();
+            for (site, import) in interface.import_sites() {
+                let provider = context.target(module, import.path(), import.range())?;
+                let items: Vec<(String, SourceRange, ReferenceKind)> = match import {
+                    ImportSurface::Module(decl) => vec![(
+                        decl.alias
+                            .as_ref()
+                            .map(|alias| alias.name.clone())
+                            .or_else(|| default_module_binding(&decl.path).map(str::to_owned))
+                            .unwrap_or_else(|| provider.path.to_string()),
+                        decl.range,
+                        ReferenceKind::WholeModuleImport,
+                    )],
+                    ImportSurface::Selective(decl) => decl
+                        .items
+                        .iter()
+                        .map(|item| {
+                            (
+                                item.alias.as_ref().map(|alias| alias.name.clone()).unwrap_or_else(|| item.name.clone()),
+                                item.range,
+                                ReferenceKind::SelectiveImport,
+                            )
+                        })
+                        .collect(),
+                    ImportSurface::ReExport(decl) => decl
+                        .items
+                        .iter()
+                        .map(|item| (item.local_or_remote_name.clone(), item.range, ReferenceKind::ReExport))
+                        .collect(),
+                };
+                for (ordinal, (local, range, kind)) in items.into_iter().enumerate() {
+                    let target = match &context.import_targets[&(module.clone(), local.clone())] {
+                        LinkedReadSpec::Module(target) => SymbolicImportTarget::Module(target.clone()),
+                        LinkedReadSpec::Binding(target) => SymbolicImportTarget::Binding(target.clone()),
+                    };
+                    let id = SourceImportBindingId {
+                        site: site.clone(),
+                        local: ImportBindingLocalId(ordinal as u32),
+                    };
+                    imports.by_local_name.insert(local.clone().into_boxed_str(), id.clone());
+                    imports.bindings.insert(
+                        id.clone(),
+                        SymbolicImportBinding {
+                            id,
+                            local_name: local.into_boxed_str(),
+                            target,
+                            provider: provider.clone(),
+                            kind,
+                            range,
+                        },
+                    );
+                }
+            }
+            let local_globals = interface
+                .declarations
+                .keys()
+                .enumerate()
+                .map(|(index, name)| (name.clone().into_boxed_str(), GlobalBindingId(index as u32)))
+                .collect();
+            modules.insert(
+                module.clone(),
+                SemanticLinkedModule {
+                    interface: context.linked_interface(module)?,
+                    local_globals,
+                    imports,
+                },
+            );
+        }
+        Ok(SemanticLinkedProgram {
+            universe: self.universe.clone(),
+            modules,
+            references: context.graphs.references,
+            semantics: context.graphs.semantics,
+            entry,
+        })
+    }
+
+    /// Finalizes runtime slots and the strict initialization DAG from the
+    /// symbolic product and semantic phase evidence. Missing or incomplete
+    /// evidence remains runtime by construction.
+    pub fn finalize_executable(
+        &self,
+        semantic: SemanticLinkedProgram,
+        phase_products: &BTreeMap<ModuleId, ModuleImportPhaseProduct>,
+    ) -> Result<ExecutableLinkedProgram, LinkError> {
+        self.finalize_executable_with_requirements(semantic, phase_products, &[])
+    }
+
+    /// Finalizes runtime slots and the strict initialization DAG from
+    /// symbolic imports, semantic phase evidence, and generated runtime
+    /// declaration requirements. Missing or incomplete source evidence stays
+    /// runtime by construction.
+    pub fn finalize_executable_with_requirements(
+        &self,
+        semantic: SemanticLinkedProgram,
+        phase_products: &BTreeMap<ModuleId, ModuleImportPhaseProduct>,
+        requirements: &[RuntimeDependencyRequirement],
+    ) -> Result<ExecutableLinkedProgram, LinkError> {
+        self.finalize_executable_with_availability(semantic, phase_products, requirements, &AvailabilityContract::default())
+    }
+
+    /// Finalizes executable reads and strict runtime ordering using exact
+    /// availability proofs. Read slots are allocated even when a proof removes
+    /// the corresponding eager initialization edge.
+    pub fn finalize_executable_with_availability(
+        &self,
+        semantic: SemanticLinkedProgram,
+        phase_products: &BTreeMap<ModuleId, ModuleImportPhaseProduct>,
+        requirements: &[RuntimeDependencyRequirement],
+        availability: &AvailabilityContract,
+    ) -> Result<ExecutableLinkedProgram, LinkError> {
+        let SemanticLinkedProgram {
+            universe,
+            modules: semantic_modules,
+            references,
+            semantics,
+            entry,
+        } = semantic;
+        let mut modules = BTreeMap::new();
+        let mut graphs = ModuleGraphs {
+            references,
+            semantics,
+            runtime: crate::graph::RuntimeDependencyGraph::default(),
+        };
+        let mut canonical_runtime_reads = BTreeMap::new();
+        for (module, symbolic) in semantic_modules {
+            graphs.runtime.add_node(module.clone());
+            let evidence = phase_products.get(&module);
+            let mut bindings = ModuleBindingLayout {
+                local_globals: symbolic.local_globals.clone(),
+                imports: BTreeMap::new(),
+            };
+            let mut linked_reads = Vec::new();
+            for (id, import) in symbolic.imports.bindings {
+                let target_module = symbolic_import_target_module(&import.target);
+                let runtime = match import.kind {
+                    ReferenceKind::WholeModuleImport | ReferenceKind::ReExport => true,
+                    ReferenceKind::SelectiveImport => {
+                        evidence.is_none_or(|product| product.module != module || product.coverage != PhaseEvidenceCoverage::Complete)
+                            || evidence
+                                .and_then(|product| product.bindings.get(&id))
+                                .is_none_or(|summary| !summary.observed || summary.phase == DependencyPhase::Runtime)
+                    }
+                    // This is not an authored import kind. If one reaches the
+                    // executable projection without complete selective-import
+                    // evidence, retain it conservatively.
+                    ReferenceKind::InterfaceOnly => true,
+                };
+                if !runtime {
+                    continue;
+                }
+                let read = symbolic_import_read(&import.target);
+                let slot = ImportBindingId(linked_reads.len() as u32);
+                linked_reads.push(read);
+                canonical_runtime_reads
+                    .entry((module.clone(), linked_reads[slot.0 as usize].clone()))
+                    .or_insert(slot);
+                bindings.imports.insert(import.local_name.clone(), slot);
+                let read = &linked_reads[slot.0 as usize];
+                let target = requirement_target_from_read(read);
+                let default_provenance = RuntimeRequirementProvenance {
+                    consumer: module.clone(),
+                    producer: crate::graph::RuntimeRequirementProducer::ImportRead,
+                    product: target.conservative_product(),
+                    target,
+                    timing: RuntimeRequirementTiming::DuringModuleInitializer,
+                };
+                let mut import_provenances = requirements
+                    .iter()
+                    .filter(|requirement| {
+                        requirement.importer == module
+                            && requirement.provenance.producer == crate::graph::RuntimeRequirementProducer::ImportRead
+                            && requirement.read_target.as_ref() == Some(read)
+                    })
+                    .map(|requirement| requirement.provenance.clone())
+                    .collect::<Vec<_>>();
+                import_provenances.sort();
+                import_provenances.dedup();
+                let unsatisfied_provenance = import_provenances.iter().find(|provenance| !availability.satisfies(provenance)).cloned();
+                let unsatisfied_default = import_provenances
+                    .is_empty()
+                    .then(|| (!availability.satisfies(&default_provenance)).then_some(default_provenance));
+                if let Some(provenance) = unsatisfied_provenance.or_else(|| unsatisfied_default.flatten()) {
+                    graphs.runtime.add(RuntimeDependencyEdge {
+                        importer: module.clone(),
+                        dependency: target_module,
+                        range: import.range,
+                        reason: runtime_reason(import.kind),
+                        provenance: Some(provenance),
+                    });
+                }
+            }
+            modules.insert(
+                module,
+                LinkedModule {
+                    interface: symbolic.interface,
+                    bindings,
+                    linked_reads,
+                    runtime_dependencies: Vec::new(),
+                },
+            );
+        }
+
+        let known_modules = modules.keys().cloned().collect::<BTreeSet<_>>();
+        let mut ordered_requirements = requirements.to_vec();
+        ordered_requirements.sort_by(|left, right| {
+            (&left.importer, &left.dependency, left.range, &left.provenance).cmp(&(&right.importer, &right.dependency, right.range, &right.provenance))
+        });
+        for requirement in &ordered_requirements {
+            if !known_modules.contains(&requirement.importer) {
+                return Err(LinkError::MissingModule {
+                    module: requirement.importer.clone(),
+                });
+            }
+            // Canonical Universe modules are preinitialized by the VM and
+            // may own source-backed bindings that the user program did not
+            // import explicitly. They still participate in strict DAG checks
+            // and receive finalized read slots, but are not compiled as part
+            // of this linked source closure.
+            if !known_modules.contains(&requirement.dependency) && !requirement.dependency.project.is_universe() {
+                return Err(LinkError::MissingModule {
+                    module: requirement.dependency.clone(),
+                });
+            }
+            if let Some(target) = &requirement.read_target {
+                let target_module = linked_read_module(target);
+                if target_module != &requirement.dependency {
+                    return Err(LinkError::RuntimeReadTargetMismatch {
+                        importer: requirement.importer.clone(),
+                        dependency: requirement.dependency.clone(),
+                        target_module: target_module.clone(),
+                    });
+                }
+                if let std::collections::btree_map::Entry::Vacant(entry) = canonical_runtime_reads.entry((requirement.importer.clone(), target.clone())) {
+                    let linked = modules
+                        .get_mut(&requirement.importer)
+                        .expect("known runtime requirement importer has a linked module");
+                    let slot = ImportBindingId(linked.linked_reads.len() as u32);
+                    linked.linked_reads.push(target.clone());
+                    entry.insert(slot);
+                }
+            }
+            if requirement.provenance.consumer != requirement.importer
+                || requirement.provenance.target.module() != &requirement.dependency
+                || requirement
+                    .read_target
+                    .as_ref()
+                    .is_some_and(|target| !requirement_target_matches(target, &requirement.provenance.target))
+            {
+                return Err(LinkError::RuntimeRequirementProvenanceMismatch {
+                    importer: requirement.importer.clone(),
+                    dependency: requirement.dependency.clone(),
+                });
+            }
+            if !availability.satisfies(&requirement.provenance) {
+                graphs.runtime.add(requirement.edge());
+            }
+        }
+
+        for (module, linked) in &mut modules {
+            linked.runtime_dependencies = graphs.runtime.dependencies(module);
+        }
+        let initialization_order = graphs.runtime.initialization_order().map_err(LinkError::RuntimeCycle)?;
+        Ok(ExecutableLinkedProgram {
+            program: LinkedProgram {
+                universe,
+                modules,
+                graphs,
+                entry,
+                initialization_order,
+            },
+            canonical_runtime_reads,
+            runtime_requirements: ordered_requirements,
         })
     }
 
@@ -581,24 +1240,14 @@ impl<'a> LinkContext<'a> {
             Ok(order) => order,
             Err(err) => {
                 if self.tolerant {
-                    let mut found_any_cycle = false;
-                    for component in self.graphs.runtime.components() {
-                        if component.len() > 1 || self.graphs.runtime.has_self_edge(&component[0]) {
-                            found_any_cycle = true;
-                            for m in &component {
-                                self.blocked_modules.insert(m.clone());
-                            }
-                            self.diagnostics
-                                .push(LinkError::RuntimeCycle(crate::error::ModuleGraphError::RuntimeCycle { cycle: component }));
-                        }
+                    let crate::error::ModuleGraphError::RuntimeCycle { ref cycle, ref components, .. } = err;
+                    for component in components {
+                        self.blocked_modules.extend(component.iter().cloned());
                     }
-                    if !found_any_cycle {
-                        let crate::error::ModuleGraphError::RuntimeCycle { ref cycle } = err;
-                        for m in cycle {
-                            self.blocked_modules.insert(m.clone());
-                        }
-                        self.diagnostics.push(LinkError::RuntimeCycle(err));
+                    if components.is_empty() {
+                        self.blocked_modules.extend(cycle.iter().cloned());
                     }
+                    self.diagnostics.push(LinkError::RuntimeCycle(err));
 
                     // Cascade blocked: if module depends on a blocked module at runtime
                     let mut changed = true;
@@ -719,6 +1368,7 @@ impl<'a> LinkContext<'a> {
                             dependency: target.clone(),
                             range: decl.range,
                             reason: RuntimeDependencyReason::WholeModuleImport,
+                            provenance: None,
                         });
                         let local = decl
                             .alias
@@ -750,6 +1400,7 @@ impl<'a> LinkContext<'a> {
                                 dependency: target.clone(),
                                 range: item.range,
                                 reason: RuntimeDependencyReason::SelectiveValueImport,
+                                provenance: None,
                             });
                             let local = item.alias.as_ref().map(|alias| alias.name.clone()).unwrap_or_else(|| item.name.clone());
                             let provisional = SymbolId {
@@ -781,6 +1432,7 @@ impl<'a> LinkContext<'a> {
                                 dependency: target.clone(),
                                 range: item.range,
                                 reason: RuntimeDependencyReason::ReExport,
+                                provenance: None,
                             });
                             let local = item.local_or_remote_name.clone();
                             let provisional = SymbolId {
@@ -818,6 +1470,20 @@ impl<'a> LinkContext<'a> {
                                     }
                                 }
                             };
+                            // Reads address the canonical export owner, which can differ
+                            // from the authored import target after a re-export chain.
+                            // Project that owner before validating initialization order.
+                            let owner = match &linked_exp.target {
+                                crate::interface::LinkedExportTarget::Binding(symbol) => symbol.module.clone(),
+                                crate::interface::LinkedExportTarget::Module(module) => module.clone(),
+                            };
+                            self.graphs.runtime.add(RuntimeDependencyEdge {
+                                importer: module.clone(),
+                                dependency: owner,
+                                range: item.range,
+                                reason: RuntimeDependencyReason::SelectiveValueImport,
+                                provenance: None,
+                            });
                             match &linked_exp.target {
                                 crate::interface::LinkedExportTarget::Binding(symbol) => {
                                     self.import_targets
@@ -850,6 +1516,20 @@ impl<'a> LinkContext<'a> {
                                     }
                                 }
                             };
+                            // Reads address the canonical export owner, which can differ
+                            // from the authored import target after a re-export chain.
+                            // Project that owner before validating initialization order.
+                            let owner = match &linked_exp.target {
+                                crate::interface::LinkedExportTarget::Binding(symbol) => symbol.module.clone(),
+                                crate::interface::LinkedExportTarget::Module(module) => module.clone(),
+                            };
+                            self.graphs.runtime.add(RuntimeDependencyEdge {
+                                importer: module.clone(),
+                                dependency: owner,
+                                range: item.range,
+                                reason: RuntimeDependencyReason::ReExport,
+                                provenance: None,
+                            });
                             match &linked_exp.target {
                                 crate::interface::LinkedExportTarget::Binding(symbol) => {
                                     self.import_targets

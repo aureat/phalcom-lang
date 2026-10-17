@@ -19,8 +19,8 @@ fn run_inline(source: &str) -> Result<(VM, phalcom_core::heap::ObjRef), PhError>
 fn adt_case_primitives_cover_singletons_heap_cases_and_non_adt_values() {
     let source = r#"
 data Shape {
-  @variant None
-  @variant Pair(_ left: Int, _ right: Int)
+  None
+  Pair(_ left: Int, _ right: Int)
 }
 
 let singleton = Shape::None

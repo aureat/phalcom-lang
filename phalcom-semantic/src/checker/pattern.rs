@@ -88,15 +88,15 @@ fn resolve_pattern_with_mode(
                         "redundant or-pattern alternative: earlier alternatives already cover its reachable value space",
                         *range,
                     ));
-                } else if usefulness == crate::match_semantics::PatternUsefulness::Impossible {
-                    if !pattern_is_variant_of_scrutinee_family(ctx.store, &resolution, subject.canonical) {
-                        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
-                            ctx.current_module.clone(),
-                            crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
-                            "impossible or-pattern alternative: it cannot match any value of the scrutinee type",
-                            alternative.range(),
-                        ));
-                    }
+                } else if usefulness == crate::match_semantics::PatternUsefulness::Impossible
+                    && !pattern_is_variant_of_scrutinee_family(ctx.store, &resolution, subject.canonical)
+                {
+                    ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
+                        "impossible or-pattern alternative: it cannot match any value of the scrutinee type",
+                        alternative.range(),
+                    ));
                 }
                 prior_coverage_alts.push(cov_alt);
 
@@ -505,25 +505,20 @@ fn try_resolve_contextual_singleton(
     // A union scrutinee has no single nominal origin. Keep each member's
     // declaration-backed type while looking up its variant; never construct an
     // owner from the contextual leaf spelling.
-    let owner_types = nominal_owner_types(ctx.store, subject.canonical);
+    let owners = super::contextual_variant::expected_owners(ctx, &super::expected::ExpectedType::proper(subject.canonical));
+    let (discovered, _) = super::contextual_variant::discover(ctx, &owners, |info| {
+        info.id.selector == target_selector && info.shape == VariantShape::Singleton
+    });
     let mut matches = Vec::new();
     let mut blocked = None;
     let mut blocked_owners = Vec::new();
-    for (owner, owner_ty) in owner_types {
-        let Some(enum_info) = enum_table.enums.get(&owner) else {
+    for candidate in discovered {
+        let owner = candidate.owner.owner;
+        let owner_ty = candidate.owner.owner_type;
+        let variant_id = candidate.variant;
+        let Some(variant_info) = enum_table.variants.get(&variant_id).cloned() else {
             continue;
         };
-        let Some(variant_id) = enum_info.variants.iter().find(|variant| variant.selector == target_selector) else {
-            continue;
-        };
-        let Some(variant_info) = enum_table.variants.get(variant_id).cloned() else {
-            continue;
-        };
-        if variant_info.shape != VariantShape::Singleton {
-            continue;
-        }
-
-        ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
         let owner_subject = contextual_owner_subject(ctx.store, subject, &owner, owner_ty);
         let opened = match crate::checker::coverage::open_variant_case(
             ctx.declarations,
@@ -607,14 +602,26 @@ fn try_resolve_contextual_singleton(
 /// Preserve query-local terms when a contextual singleton belongs to that
 /// nominal owner. Union members without a corresponding local term are
 /// independent candidates and may use their declaration-backed canonical type.
+/// A local union may repeat one owner at several specializations; pair the
+/// local term with the exact canonical member when possible and otherwise
+/// retain only canonical evidence instead of choosing a member arbitrarily.
 fn contextual_owner_subject(store: &crate::types::store::TypeStore, subject: &CoverageSubject, owner: &DeclarationId, owner_ty: TypeId) -> CoverageSubject {
     match &subject.local {
-        LocalType::Union(members) => members
-            .iter()
-            .find(|member| local_nominal_owner(store, member).as_ref() == Some(owner))
-            .cloned()
-            .map(|member| CoverageSubject::from_parts(owner_ty, member))
-            .unwrap_or_else(|| CoverageSubject::canonical(owner_ty)),
+        LocalType::Union(members) => {
+            let owner_matches = members
+                .iter()
+                .filter(|member| local_nominal_owner(store, member).as_ref() == Some(owner))
+                .collect::<Vec<_>>();
+            match owner_matches.as_slice() {
+                [] => CoverageSubject::canonical(owner_ty),
+                [single] => CoverageSubject::from_parts(owner_ty, (*single).clone()),
+                _ => owner_matches
+                    .into_iter()
+                    .find(|member| matches!(member, LocalType::Canonical(ty) if *ty == owner_ty))
+                    .map(|member| CoverageSubject::from_parts(owner_ty, member.clone()))
+                    .unwrap_or_else(|| CoverageSubject::canonical(owner_ty)),
+            }
+        }
         local if local_nominal_owner(store, local).as_ref() == Some(owner) => subject.clone(),
         _ => CoverageSubject::canonical(owner_ty),
     }
@@ -631,31 +638,7 @@ fn local_nominal_owner(store: &crate::types::store::TypeStore, local: &LocalType
 
 /// Returns nominal owners and the corresponding expected type for each union
 /// member. The type is retained so GADT proof solving stays member-specific.
-pub(crate) fn nominal_owner_types(store: &crate::types::store::TypeStore, ty: TypeId) -> Vec<(DeclarationId, TypeId)> {
-    fn collect(store: &crate::types::store::TypeStore, ty: TypeId, seen: &mut BTreeSet<TypeId>, owners: &mut Vec<(DeclarationId, TypeId)>) {
-        if !seen.insert(ty) {
-            return;
-        }
-        match store.get(ty) {
-            TypeData::Union(members) => {
-                for member in members.iter().copied() {
-                    collect(store, member, seen, owners);
-                }
-            }
-            _ => {
-                if let Some(owner) = store.nominal_origin_declaration(ty).cloned() {
-                    if !owners.iter().any(|(known, known_ty)| known == &owner && known_ty == &ty) {
-                        owners.push((owner, ty));
-                    }
-                }
-            }
-        }
-    }
-
-    let mut owners = Vec::new();
-    collect(store, ty, &mut BTreeSet::new(), &mut owners);
-    owners
-}
+pub(crate) use super::contextual_variant::nominal_owner_types;
 
 pub(crate) fn pattern_is_variant_of_scrutinee_family(
     store: &crate::types::store::TypeStore,
@@ -743,7 +726,6 @@ fn resolve_variant_pattern(
     bindings: &mut Vec<PatternBindingResolution>,
     binding_mode: BindingMode,
 ) -> ResolvedVariantPattern {
-    let expected_nominal_decl = ctx.store.nominal_origin_declaration(subject.canonical).cloned();
     let expected_owners = nominal_owner_types(ctx.store, subject.canonical);
     let constraint = variant_selector_constraint(variant_pat);
 
@@ -775,7 +757,35 @@ fn resolve_variant_pattern(
             ));
         }
         decl
-    } else if let Some(decl) = expected_nominal_decl {
+    } else if let Some(decl) = {
+        let owners = super::contextual_variant::expected_owners(ctx, &super::expected::ExpectedType::proper(subject.canonical));
+        let (discovered, _) = super::contextual_variant::discover(ctx, &owners, |info| matches_variant_info(info, &variant_pat.base, &constraint, variant_pat));
+        let candidates = discovered.into_iter().map(|candidate| candidate.owner.owner).collect::<BTreeSet<_>>();
+        if candidates.len() > 1 {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::MatchPatternUnresolved,
+                format!(
+                    "variant pattern `{}` is ambiguous between {}; qualify it with its owner",
+                    variant_pat.base,
+                    candidates.iter().map(|owner| owner.name.to_string()).collect::<Vec<_>>().join(", ")
+                ),
+                variant_pat.range,
+            ));
+            return ResolvedVariantPattern {
+                owner: None,
+                family: None,
+                owner_candidates: candidates.into_iter().collect(),
+                selector: constraint,
+                candidates: Box::new([]),
+                blocked: None,
+            };
+        }
+        candidates
+            .into_iter()
+            .next()
+            .or_else(|| (expected_owners.len() == 1).then(|| expected_owners[0].0.clone()))
+    } {
         decl
     } else {
         ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
@@ -798,6 +808,14 @@ fn resolve_variant_pattern(
     };
 
     ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner_decl.clone()));
+    let mut owner_subjects = expected_owners
+        .iter()
+        .filter(|(owner, _)| owner == &owner_decl)
+        .map(|(_, owner_ty)| contextual_owner_subject(ctx.store, subject, &owner_decl, *owner_ty))
+        .collect::<Vec<_>>();
+    if owner_subjects.is_empty() {
+        owner_subjects.push(subject.clone());
+    }
 
     let enum_table = ctx.enum_table.cloned();
     let enum_info = enum_table.as_ref().and_then(|table| table.enums.get(&owner_decl).cloned());
@@ -860,179 +878,191 @@ fn resolve_variant_pattern(
             }
             had_shape_or_label_match = true;
 
-            let opened = match crate::checker::coverage::open_variant_case(
-                ctx.declarations,
-                ctx.store,
-                &ctx.hierarchy,
-                &mut ctx.rigids,
-                subject,
-                v_info,
-                &ctx.control,
-            ) {
-                crate::checker::coverage::VariantOpenOutcome::Reachable(opened) => opened,
-                crate::checker::coverage::VariantOpenOutcome::Refuted => continue,
-                crate::checker::coverage::VariantOpenOutcome::Blocked(reason) => {
-                    blocked.get_or_insert(reason);
-                    matched_any_variant = true;
-                    continue;
-                }
-            };
-            matched_any_variant = true;
-
-            let proof = opened.proof;
-            let exact_case = opened.exact_case;
-            let case_instantiation = opened.case_instantiation;
-
-            let mut resolved_fields = Vec::new();
-            let mut local_bindings = Vec::new();
-
-            match &variant_pat.mode {
-                VariantPatternMode::ExactCall { arguments } => {
-                    for (i, argument) in arguments.iter().enumerate() {
-                        let field_semantic = if let Some(ref label) = argument.label {
-                            v_info
-                                .fields
-                                .iter()
-                                .enumerate()
-                                .find(|(_, field)| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
-                        } else {
-                            v_info.fields.get(i).map(|field| (i, field))
-                        };
-
-                        let (field_id, field_type, local_type) = match field_semantic {
-                            Some((field_index, field)) => match opened.fields.get(field_index) {
-                                Some(field_subject) => (
-                                    field.id.clone(),
-                                    TypeKnowledge::established(field_subject.canonical, EvidenceOrigin::PatternDecomposition),
-                                    Some(field_subject.local.clone()),
-                                ),
-                                None => (field.id.clone(), TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence), None),
-                            },
-                            None => (
-                                crate::identity::VariantFieldId::new(variant_id.clone(), i as u32),
-                                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
-                                None,
-                            ),
-                        };
-
-                        let field_subject = field_semantic.and_then(|(field_index, _)| opened.fields.get(field_index).cloned());
-                        let child = if let Some(field_subject) = field_subject.as_ref() {
-                            resolve_pattern_with_mode(ctx, &argument.pattern, field_subject, &mut local_bindings, BindingMode::Detached)
-                        } else {
-                            // Invalid opened-field metadata must not invent a canonical
-                            // child subject. Retain unknown field evidence and leave child
-                            // resolution opaque until the opening invariant is repaired.
-                            PatternResolution::Wildcard
-                        };
-                        resolved_fields.push(ResolvedFieldPattern {
-                            field: field_id,
-                            field_type,
-                            local_type,
-                            child: Box::new(child),
-                        });
+            // A repeated owner declaration may reach this pattern through
+            // several specializations. Open the case against each and keep
+            // every reachable instantiation, mirroring the singleton path;
+            // never commit to an arbitrary member specialization.
+            let mut opened_cases = Vec::new();
+            for owner_subject in &owner_subjects {
+                match crate::checker::coverage::open_variant_case(
+                    ctx.declarations,
+                    ctx.store,
+                    &ctx.hierarchy,
+                    &mut ctx.rigids,
+                    owner_subject,
+                    v_info,
+                    &ctx.control,
+                ) {
+                    crate::checker::coverage::VariantOpenOutcome::Reachable(opened) => opened_cases.push(opened),
+                    crate::checker::coverage::VariantOpenOutcome::Refuted => {}
+                    crate::checker::coverage::VariantOpenOutcome::Blocked(reason) => {
+                        blocked.get_or_insert(reason);
+                        matched_any_variant = true;
                     }
                 }
-                VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
-                    for (i, argument) in prefix.iter().enumerate() {
-                        let (field_index, field_semantic) = if let Some(ref label) = argument.label {
-                            v_info
-                                .fields
-                                .iter()
-                                .enumerate()
-                                .find(|(_, field)| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
-                                .map(|(index, field)| (index, Some(field)))
-                                .unwrap_or((i, None))
-                        } else {
-                            (i, v_info.fields.get(i))
-                        };
-                        let (field_id, field_type, local_type) = match field_semantic {
-                            Some(field) => match opened.fields.get(field_index) {
-                                Some(field_subject) => (
-                                    field.id.clone(),
-                                    TypeKnowledge::established(field_subject.canonical, EvidenceOrigin::PatternDecomposition),
-                                    Some(field_subject.local.clone()),
-                                ),
-                                None => (field.id.clone(), TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence), None),
-                            },
-                            None => (
-                                crate::identity::VariantFieldId::new(variant_id.clone(), field_index as u32),
-                                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
-                                None,
-                            ),
-                        };
-                        let field_subject = opened.fields.get(field_index).cloned();
-                        let child = if let Some(field_subject) = field_subject.as_ref() {
-                            resolve_pattern_with_mode(ctx, &argument.pattern, field_subject, &mut local_bindings, BindingMode::Detached)
-                        } else {
-                            // Invalid opened-field metadata must not invent a canonical
-                            // child subject. Retain unknown field evidence and leave child
-                            // resolution opaque until the opening invariant is repaired.
-                            PatternResolution::Wildcard
-                        };
-                        resolved_fields.push(ResolvedFieldPattern {
-                            field: field_id,
-                            field_type,
-                            local_type,
-                            child: Box::new(child),
-                        });
-                    }
-
-                    for (suffix_index, argument) in suffix.iter().enumerate() {
-                        let (field_index, field_semantic) = if let Some(ref label) = argument.label {
-                            v_info
-                                .fields
-                                .iter()
-                                .enumerate()
-                                .find(|(_, field)| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
-                                .map(|(index, field)| (index, Some(field)))
-                                .unwrap_or((v_info.fields.len().saturating_sub(suffix.len() - suffix_index), None))
-                        } else {
-                            let index = v_info.fields.len().saturating_sub(suffix.len() - suffix_index);
-                            (index, v_info.fields.get(index))
-                        };
-                        let (field_id, field_type, local_type) = match field_semantic {
-                            Some(field) => match opened.fields.get(field_index) {
-                                Some(field_subject) => (
-                                    field.id.clone(),
-                                    TypeKnowledge::established(field_subject.canonical, EvidenceOrigin::PatternDecomposition),
-                                    Some(field_subject.local.clone()),
-                                ),
-                                None => (field.id.clone(), TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence), None),
-                            },
-                            None => (
-                                crate::identity::VariantFieldId::new(variant_id.clone(), field_index as u32),
-                                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
-                                None,
-                            ),
-                        };
-                        let field_subject = opened.fields.get(field_index).cloned();
-                        let child = if let Some(field_subject) = field_subject.as_ref() {
-                            resolve_pattern_with_mode(ctx, &argument.pattern, field_subject, &mut local_bindings, BindingMode::Detached)
-                        } else {
-                            // Invalid opened-field metadata must not invent a canonical
-                            // child subject. Retain unknown field evidence and leave child
-                            // resolution opaque until the opening invariant is repaired.
-                            PatternResolution::Wildcard
-                        };
-                        resolved_fields.push(ResolvedFieldPattern {
-                            field: field_id,
-                            field_type,
-                            local_type,
-                            child: Box::new(child),
-                        });
-                    }
-                }
-                VariantPatternMode::Singleton | VariantPatternMode::WholeFamily { .. } => {}
+            }
+            if opened_cases.is_empty() {
+                continue;
             }
 
-            candidate_resolutions.push(ResolvedVariantCandidate {
-                variant: variant_id.clone(),
-                exact_case,
-                fields: resolved_fields.into_boxed_slice(),
-                proof,
-                case_instantiation: Some(case_instantiation),
-            });
-            candidate_bindings.push(local_bindings);
+            for opened in opened_cases {
+                matched_any_variant = true;
+
+                let proof = opened.proof;
+                let exact_case = opened.exact_case;
+                let case_instantiation = opened.case_instantiation;
+
+                let mut resolved_fields = Vec::new();
+                let mut local_bindings = Vec::new();
+
+                match &variant_pat.mode {
+                    VariantPatternMode::ExactCall { arguments } => {
+                        for (i, argument) in arguments.iter().enumerate() {
+                            let field_semantic = if let Some(ref label) = argument.label {
+                                v_info
+                                    .fields
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_, field)| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
+                            } else {
+                                v_info.fields.get(i).map(|field| (i, field))
+                            };
+
+                            let (field_id, field_type, local_type) = match field_semantic {
+                                Some((field_index, field)) => match opened.fields.get(field_index) {
+                                    Some(field_subject) => (
+                                        field.id.clone(),
+                                        TypeKnowledge::established(field_subject.canonical, EvidenceOrigin::PatternDecomposition),
+                                        Some(field_subject.local.clone()),
+                                    ),
+                                    None => (field.id.clone(), TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence), None),
+                                },
+                                None => (
+                                    crate::identity::VariantFieldId::new(variant_id.clone(), i as u32),
+                                    TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                                    None,
+                                ),
+                            };
+
+                            let field_subject = field_semantic.and_then(|(field_index, _)| opened.fields.get(field_index).cloned());
+                            let child = if let Some(field_subject) = field_subject.as_ref() {
+                                resolve_pattern_with_mode(ctx, &argument.pattern, field_subject, &mut local_bindings, BindingMode::Detached)
+                            } else {
+                                // Invalid opened-field metadata must not invent a canonical
+                                // child subject. Retain unknown field evidence and leave child
+                                // resolution opaque until the opening invariant is repaired.
+                                PatternResolution::Wildcard
+                            };
+                            resolved_fields.push(ResolvedFieldPattern {
+                                field: field_id,
+                                field_type,
+                                local_type,
+                                child: Box::new(child),
+                            });
+                        }
+                    }
+                    VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                        for (i, argument) in prefix.iter().enumerate() {
+                            let (field_index, field_semantic) = if let Some(ref label) = argument.label {
+                                v_info
+                                    .fields
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_, field)| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
+                                    .map(|(index, field)| (index, Some(field)))
+                                    .unwrap_or((i, None))
+                            } else {
+                                (i, v_info.fields.get(i))
+                            };
+                            let (field_id, field_type, local_type) = match field_semantic {
+                                Some(field) => match opened.fields.get(field_index) {
+                                    Some(field_subject) => (
+                                        field.id.clone(),
+                                        TypeKnowledge::established(field_subject.canonical, EvidenceOrigin::PatternDecomposition),
+                                        Some(field_subject.local.clone()),
+                                    ),
+                                    None => (field.id.clone(), TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence), None),
+                                },
+                                None => (
+                                    crate::identity::VariantFieldId::new(variant_id.clone(), field_index as u32),
+                                    TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                                    None,
+                                ),
+                            };
+                            let field_subject = opened.fields.get(field_index).cloned();
+                            let child = if let Some(field_subject) = field_subject.as_ref() {
+                                resolve_pattern_with_mode(ctx, &argument.pattern, field_subject, &mut local_bindings, BindingMode::Detached)
+                            } else {
+                                // Invalid opened-field metadata must not invent a canonical
+                                // child subject. Retain unknown field evidence and leave child
+                                // resolution opaque until the opening invariant is repaired.
+                                PatternResolution::Wildcard
+                            };
+                            resolved_fields.push(ResolvedFieldPattern {
+                                field: field_id,
+                                field_type,
+                                local_type,
+                                child: Box::new(child),
+                            });
+                        }
+
+                        for (suffix_index, argument) in suffix.iter().enumerate() {
+                            let (field_index, field_semantic) = if let Some(ref label) = argument.label {
+                                v_info
+                                    .fields
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_, field)| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
+                                    .map(|(index, field)| (index, Some(field)))
+                                    .unwrap_or((v_info.fields.len().saturating_sub(suffix.len() - suffix_index), None))
+                            } else {
+                                let index = v_info.fields.len().saturating_sub(suffix.len() - suffix_index);
+                                (index, v_info.fields.get(index))
+                            };
+                            let (field_id, field_type, local_type) = match field_semantic {
+                                Some(field) => match opened.fields.get(field_index) {
+                                    Some(field_subject) => (
+                                        field.id.clone(),
+                                        TypeKnowledge::established(field_subject.canonical, EvidenceOrigin::PatternDecomposition),
+                                        Some(field_subject.local.clone()),
+                                    ),
+                                    None => (field.id.clone(), TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence), None),
+                                },
+                                None => (
+                                    crate::identity::VariantFieldId::new(variant_id.clone(), field_index as u32),
+                                    TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                                    None,
+                                ),
+                            };
+                            let field_subject = opened.fields.get(field_index).cloned();
+                            let child = if let Some(field_subject) = field_subject.as_ref() {
+                                resolve_pattern_with_mode(ctx, &argument.pattern, field_subject, &mut local_bindings, BindingMode::Detached)
+                            } else {
+                                // Invalid opened-field metadata must not invent a canonical
+                                // child subject. Retain unknown field evidence and leave child
+                                // resolution opaque until the opening invariant is repaired.
+                                PatternResolution::Wildcard
+                            };
+                            resolved_fields.push(ResolvedFieldPattern {
+                                field: field_id,
+                                field_type,
+                                local_type,
+                                child: Box::new(child),
+                            });
+                        }
+                    }
+                    VariantPatternMode::Singleton | VariantPatternMode::WholeFamily { .. } => {}
+                }
+
+                candidate_resolutions.push(ResolvedVariantCandidate {
+                    variant: variant_id.clone(),
+                    exact_case,
+                    fields: resolved_fields.into_boxed_slice(),
+                    proof,
+                    case_instantiation: Some(case_instantiation),
+                });
+                candidate_bindings.push(local_bindings);
+            }
         }
 
         if !matched_any_variant {

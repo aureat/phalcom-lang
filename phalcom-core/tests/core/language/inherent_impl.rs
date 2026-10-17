@@ -102,8 +102,8 @@ let result = Point(2, 3).sum()
 fn enum_root_impl_method_is_available_on_each_case() {
     let source = r#"
 data Status {
-  @variant Ready
-  @variant Failed
+  Ready
+  Failed
 }
 impl Status { isTerminal() -> Bool { true } }
 let ready = Status::Ready.isTerminal()
@@ -127,8 +127,8 @@ data Point(_ x: Int, _ y: Int)
 impl Point { sum() -> Int { self.x + self.y } }
 
 data Status {
-  @variant Ready
-  @variant Failed(reason: String)
+  Ready
+  Failed(reason: String)
 }
 impl Status { isTerminal() -> Bool { true } }
 

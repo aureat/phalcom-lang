@@ -11,7 +11,7 @@ REQUIRED_FILES = {
     "src/typing.ph": ["const Type =", "const AppliedType =", "const TypeParameter ="],
     "src/typing/type.ph": ["@protocol", "class Type", "currentApplication"],
     "src/typing/type_descriptor.ph": ["@abstract", "class TypeDescriptor"],
-    "src/typing/variance.ph": ["class Variance", "@variant Invariant", "@variant Covariant", "@variant Contravariant"],
+    "src/typing/variance.ph": ["data Variance", "Invariant", "Covariant", "Contravariant"],
     "src/typing/type_parameter.ph": ["class TypeParameter", "_owner", "_index", "substitute(using:"],
     "src/typing/generic_signature.ph": ["class GenericSignature", "validate(arguments:"],
     "src/typing/type_environment.ph": ["class TypeEnvironment", "bind(parameter:", "substitute(type:"],

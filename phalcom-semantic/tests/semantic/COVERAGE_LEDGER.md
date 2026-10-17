@@ -370,3 +370,230 @@ bug recorded above.
 This audit does not claim semantic or workspace completion. The remaining
 ignored failures and the two active failures require the classifications and
 follow-up work recorded here.
+
+## Consolidation-universe semantic run — 2026-10-15
+
+This later run supersedes the September audit counts for the current
+feat/consolidation-universe checkout. It does not rewrite the historical
+September results above.
+
+### Results
+
+The regular semantic binary was run with only the stack-overflowing test
+filtered out:
+
+    RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic -- --skip ordinary_float_horner_expression_is_stack_safe_without_realization --quiet
+
+Result: 2,104 passed, 94 failed, 42 ignored, and 1 filtered out. The filtered
+test, ordinary_float_horner_expression_is_stack_safe_without_realization,
+overflows its 2 MiB analysis thread and aborts the test process. The separate
+typed_expression_remains_a_lightweight_recursive_carrier test ran and failed:
+TypedExpression measured 896 bytes against a 760-byte limit.
+
+Before changing ignore markers, the forced ignored run was:
+
+    RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic -- --ignored --quiet
+
+Result: 19 passed, 23 failed. The 19 passing tests were then moved into the
+regular semantic gate by removing their ignore attributes. Each was rerun
+individually in normal mode; all 19 passed. The live ignored-test listing now
+contains 23 tests. The full regular gate was not rerun after this marker-only
+change, so 2,123 passed / 94 failed / 23 ignored is an arithmetic projection,
+not a completed post-change suite result.
+
+Removing an ignore marker records that the test passes in this checkout. It
+does not by itself promote a broader semantic law to READY: several enabled
+fixtures assert a narrower local property than their historical test name or
+gate reason implies. Their oracle scope should be tightened before relying on
+them as evidence for cross-module visibility, inheritance, post-match flow,
+or lowering integration.
+
+### Newly enabled tests
+
+- ADT associated scenarios: adt_assoc_11_inherited_family_keeps_lookup_and_definition_owners; adt_assoc_14_private_member_is_not_explicitly_acquirable; adt_assoc_15_frozen_family_does_not_acquire_later_members; adt_assoc_16_family_value_does_not_escape_member_visibility.
+- ADT visibility and exact cases: visibility_scenarios_require_cross_module_fixture_support; adt_exact_06_transparent_alias_union_matches_direct_exact_union.
+- Match semantics: review_x_02_invalid_semantic_match_never_reaches_lowering; match_exh_08_alias_union_exhaustiveness_is_not_root_widened; match_exh_15_open_object_requires_wildcard; match_gadt_10_branch_proof_does_not_leak_after_match.
+- Pattern fallback: review_c4_01_record_pattern_is_not_silently_converted_to_wildcard; review_c4_02_map_pattern_is_not_silently_converted_to_wildcard; review_c4_03_unsupported_record_does_not_make_match_exhaustive; review_c4_04_unsupported_map_does_not_make_later_arm_redundant; review_c4_05_resolver_has_no_catch_all_wildcard_fallback.
+- Golden and incremental: golden_05_program_parses; golden_05_type_lambda_constraints; adt_incr_07_alias_union_expansion_invalidates_exhaustiveness; adt_incr_match_analysis_records_alias_union_dependency.
+
+### Regular-run failures (94)
+
+The names below are relative to the semantic integration test binary.
+
+- Top-level: export_invalidation::test_previously_missing_public_name_appears_invalidates_consumer; adts::existentials::structural_wrapper_cannot_hide_local_existential_escape; advanced::integration_matrix::test_matrix_1_record_row_subtyping_and_unification.
+- Capabilities: algebraic_realization::typed_expression_remains_a_lightweight_recursive_carrier; aliases::source_alias_cycle_and_malformed_target_are_quarantined; authority::annotation_diagnostic_root_cause_marks_binding_without_erasing_value; flow_loops::{break_and_continue_preserve_loop_exit_and_backedge_facts, field_mutation_through_loop_preserves_contract, loop_fixpoint_preserves_mutated_integer_and_abrupt_edges}; generic_associated_constraints::infer_generic_method_call_with_associated_specialization; generics::{generic_pack_query_constructor_preserves_abstract_field_lane, higher_kinded_parameter_infers_list_constructor_and_element, universe_future_preserves_payload_types_through_async_map_then_and_await}; iteration::{custom_iterable_element_type_comes_from_protocol_not_first_generic_argument, for_tuple_pattern_decomposes_protocol_element_type, generic_iterator_receiver_substitution_selects_second_parameter, heterogeneous_collection_iteration_preserves_element_union, iterator_adapter_fixture_preserves_item_projections_and_chain_equality}; patterns::collection_and_destructure_facts_preserve_element_shapes; structural::contextual_product_components_propagate_to_nested_literals; traits::{source_universe_integer_constants_and_trait_defaults_publish_to_clients, trait_default_replays_external_nominal_callable_dependencies, trait_defaults_reject_unknown_members_storage_and_super_without_concrete_capabilities}.
+- Foundations: authority_boundaries::contextual_empty_list_inherits_expected_contract_authority; bidirectional_calls::test_bidirectional_empty_collections; canonical_call_application::missing_iterable_conformance_fails_closed_without_cursor_protocol; expression_composition::{assumed_expansion_weakens_aggregate, assumed_list_element_weakens_aggregate, for_loop_preserves_iterable_unknown_reason, incompatible_open_record_expansions_have_explicit_diagnostic, list_unknown_element_does_not_disappear, map_expansion_does_not_fabricate_record_row, unknown_expansions_do_not_disappear}; expression_engine::{test_block_and_control_flow_typing, test_for_loop_protocol_custom_iterable}; flow_graph::test_protocol_derived_iteration_typing_no_name_matching; static_values_pack::static_pack_storage_slicing_and_equality; static_values_sequence::static_sequence_materialization_is_recursive_and_truthfully_deferred.
+- Golden and impl queries: golden::{golden_07_unknown_authority, golden_12_higher_order_mutation}; impls::queries::{adding_impl_member_does_not_invalidate_another_target_or_its_caller, unrelated_class_body_edit_reuses_impl_callable_and_surface}.
+- Incremental: adts::adt_incr_10_unrelated_method_edit_reuses_match_analysis; callable_dependencies::{case_a_unchanged_caller_changed_callee_signature_recomputes, case_b_callee_body_change_signature_unchanged_reuses_caller, case_c_field_annotation_change_recomputes_reader, case_d_superclass_change_recomputes_inherited_call, case_f_unrelated_edit_reuses_unaffected_callables, case_j_generic_supertype_template_edit_invalidates_specialized_caller_and_matches_cold_rebuild, dependency_edit_remove_readd_recomputes_affected_summary_deterministically, direct_result_cycle_diagnostics_track_incremental_edges_and_match_cold_analysis, inferred_return_refresh_preserves_stable_products_and_counts_final_disposition_once}; checker_dependencies::{checker_body_sources_do_not_bypass_tracked_resolver_or_declaration_helpers, declaration_metadata_read_records_declaration_shell_dependency, legacy_universe_core_path_is_not_a_dependency_sentinel}; declaration_authority::field_signature_is_a_first_class_incremental_product; derived_conformance::trait_contract_edit_invalidates_derived_evidence; generic_contracts::constructor_generic_bound_edit_invalidates_dependent_call_and_matches_cold; product_stability::{binding_flow_edit_rechecks_only_the_affected_callable, body_only_edit_stops_at_stable_semantic_products, diagnostic_aggregate_matches_cold_after_repair_and_unrelated_edit, field_mutability_edit_invalidates_field_and_write_products, inferred_cross_module_result_updates_dependents_and_matches_cold_analysis, pa8_recomputed_stable_intermediate_allows_downstream_reuse, previously_absent_name_addition_recomputes_exact_consumer, range_only_body_edit_reuses_semantic_callers, signature_edit_recomputes_exact_callers_and_reuses_unrelated_bodies, stable_intermediate_callable_product_stops_later_propagation, superclass_edit_recomputes_hierarchy_consumers_without_touching_unrelated_bodies, unrelated_edit_retains_unaffected_module_diagnostics}; recomputation_metrics::{a6_cross_module_alias_relowers_when_provider_shell_changes, a6_high_fanout_unrelated_declaration_and_hierarchy_retain_existing_products, a6_high_fanout_unused_provider_body_edit_has_no_external_semantic_recompute, pa9_large_hierarchy_edit_isolates_unrelated_formal_products, unused_public_export_does_not_recompute_unrelated_consumer_body}; record_rows::{row_body_only_edit_preserves_signature_semantics, row_prefix_edit_invalidates_dependent_call}; t12_6::t12_6_tuple_and_record_intrinsic_member_result_kind_edits_match_cold; type_members::{associated_static_case_alias_uses_domain_catalog, canonical_universe_intrinsic_type_members_match_evaluator_catalog, static_case_rename_invalidates_alias_and_matches_cold_analysis}; type_store_revisions::{publication_effects_distinguish_initial_graph_build_from_body_edit, stable_type_store_id_and_snapshots_across_revisions}.
+- Integration and workspace: advisory::analysis::formal_projection_preserves_causal_invalidity_and_binding_contracts; imported_resolution::{imported_nominal_binder_header_supports_variadic_alias_forwarding, imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold, p3_cross_module_provider_pack_alias_survives_and_recomputes_cold_parity}; metadata::legacy_record_metadata_fails_closed_for_non_symbol_keys_and_domains; native_conformance::test_native_surface_conformance; record_row_polymorphism::{repeated_row_parameter_conflict_is_rejected, row_conflict_message_does_not_expose_solver_variables}; workspace::{alias_cycles_are_rejected_before_publication, imported_alias_cycle_is_rejected_before_publication, transparent_aliases_preserve_canonical_forms_and_kinds}.
+
+### Forced ignored-test failures (23)
+
+These failures were observed before the 19 passing cases were enabled.
+
+- Parser or fixture failures: adts::matching::bindings::review_m6_04_outer_same_name_binding_is_restored_after_match; adts::matching::exhaustiveness::{review_m5_02_missing_two_field_combination_is_complete, review_m5_03_nested_multi_field_witness_preserves_child_tree, review_m5_04_labeled_multi_field_witness_maps_external_labels}; adts::matching::flow::{match_flow_03_abrupt_arm_is_excluded_from_normal_result_join, match_flow_04_all_abrupt_arms_have_never_result, match_flow_10_branch_writes_join_after_match}; adts::variants::adt_variant_08_private_variant_name_is_not_explicitly_acquirable. The parser rejected statement separators, string patterns, return expressions in match arms, and the _Dog variant spelling before the intended semantic checks.
+- Gated visibility placeholders: adts::variants::{adt_variant_09_construction_visibility_is_independent_from_match_universe, adt_variant_10_private_payload_rejects_projection_but_allows_wildcard_ignore}. These explicitly panic because the cross-module fixtures are not implemented.
+- Gated golden behavior: golden::{golden_01_generic_self_chain, golden_02_flow_pattern_publication, golden_03_iterator_chain, golden_04_family_callable, golden_06_workspace_chain, golden_08_variance_recovery, golden_09_closure_flow, golden_10_mixed_pipeline, golden_11_recursive_fixed_point, golden_15_row_effect_contract}.
+- Gated incremental behavior: incremental::adts::{adt_incr_08_alias_union_contraction_updates_residual_witness, adt_incr_09_visibility_edit_invalidates_acquisition_without_shrinking_match_universe}. The first did not publish the expected match product; the second produced identical match resolution before and after the purported visibility edit.
+- Intentional child-process failure: support::regressions::fail_fast_policy_panics_only_after_recording_incident_child. Running this child directly is expected to panic; its parent test owns the process-level assertion.
+
+### Fresh stability baseline — 2026-10-16, `ce8c6777`
+
+The post-enable full semantic run is now observed rather than projected:
+
+```text
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic -- --skip ordinary_float_horner_expression_is_stack_safe_without_realization --quiet
+  2,123 passed; 94 failed; 23 ignored; 1 filtered out; 946.52s
+```
+
+The 94 named failures in the preceding inventory reproduced on `ce8c6777`.
+The 23 ignored tests were not run in this baseline; their last forced-run
+classification remains the earlier recorded evidence. A zero-test exact
+filter attempt for the stack test was discarded as non-evidence, then the
+fully qualified test was run separately:
+
+```text
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic semantic::capabilities::algebraic_realization::ordinary_float_horner_expression_is_stack_safe_without_realization -- --exact --nocapture
+  1 selected; analysis thread overflowed its explicit 2 MiB stack; test process aborted with SIGABRT
+```
+
+The size-budget failure also reproduced in the full run:
+`TypedExpression` is 896 bytes against the test's 760-byte maximum.
+
+Classification from this bounded pass:
+
+- **Confirmed compiler robustness defect:** the Horner expression analysis
+  overflows its explicitly bounded 2 MiB worker stack.
+- **Confirmed representation-budget regression:** `TypedExpression` exceeds
+  the asserted recursive-carrier budget by 136 bytes. Whether the budget or
+  representation should change still needs source-history/design review.
+- **Unresolved:** the other 93 failures in the 94-test failure set. They span
+  semantic result/diagnostic assertions and incremental recomputation/product
+  stability assertions. This run proves they reproduce, but does not by itself
+  distinguish implementation defects, stale oracles, or unsupported cases.
+  No environment-caused failure was identified.
+
+The branch's seven focused functional-acceptance gates were rerun on the same
+baseline and passed: canonical ordinary-user execution 1/1; positive
+protocol/default execution 1/1; strict cycle rejection 1/1; fail-closed
+mapping 2/2; modules linker 25/25; modules graph 5/5; semantic phase evidence
+12/12. Those focused results do not classify the broader semantic failures.
+
+### Audited stability baseline — 2026-10-16, `2b0e41ce`
+
+The full semantic test run prior to the mode slice was re-audited:
+
+```text
+CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic -- --skip ordinary_float_horner_expression_is_stack_safe_without_realization --quiet
+  2,131 passed; 94 failed; 23 ignored; 1 filtered out; 978.92s
+```
+
+All 94 failed tests match the existing failure inventory. The pass count is
+8 higher than the prior 2,123 count because `phase_evidence` expanded from 12
+to 20 tests. The 23 ignored tests were not executed.
+
+`TypedExpression` carrier size in this build measured 1,072 bytes, exceeding
+the 760-byte upper limit (744-byte base plus two-pointer allowance).
+
+## Recursive checker stabilization — 2026-10-17
+
+Starting from `324ee315`, the unchanged Horner regression reproduced a process
+abort on its 2 MiB analysis thread. The expression carrier exceeded its 760-byte
+budget. `BlockReason::UnavailableSemanticOwner` embedded a full `QueryKey`,
+enlarging every `AnalysisStatus`; solver-local terms also occupied every
+expression carrier even when absent.
+
+The correction keeps the exceptional owner key and optional solver result in
+owned boxes. Exact owner identity, equality, fingerprints, query outcomes, and
+single ownership remain unchanged. Publication, contextual realization,
+inference constraints, and explanations run in their original order in a
+post-descent helper. No evidence or diagnostics are removed. On this arm64 debug
+build, the recursive publication frame fell from the recorded 13,568 bytes to
+2,688 bytes. The stack allowance and carrier assertion are unchanged.
+
+The semantic library tests also contained a missed call-site update from the
+mode slice. The budget-exhaustion test now explicitly supplies Debug to the
+updated private API; its assertions are unchanged.
+
+Executed with `CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016`
+and empty `RUSTFLAGS`/`RUSTC_WRAPPER`:
+
+```text
+cargo test -p phalcom-semantic --test semantic capabilities::algebraic_realization -- --nocapture
+  9 passed; 0 failed; 2240 filtered out; 8.20s
+```
+
+This proves the bounded Horner analysis and carrier regressions are repaired,
+alongside the existing positive and negative realization cases. It does not
+establish arbitrary-depth stack safety or close P4. The 94-failure full-suite
+baseline has not been rerun after this correction; its carrier entry is now
+resolved by focused evidence.
+
+The new package probe also reproduced an 8 MiB lowering-thread overflow after
+semantic analysis succeeded. The native crash report showed repeated
+`compile_expr_want_inner` / `compile_bilateral_binary` frames. Binary expressions
+now dispatch before the large non-binary lowering match. The existing binary
+lowering body was moved without changing contextual-realization precedence,
+operand order, lazy Boolean blocks, operator selection, or scratch-slot lifetime.
+
+Additional completed semantic checks:
+
+```text
+cargo test -p phalcom-semantic --test semantic incremental::query_ownership -- --nocapture
+  7 passed; 0 failed; 2242 filtered out; 2.95s
+cargo test -p phalcom-semantic --lib session::publication_tests -- --nocapture
+  13 passed; 0 failed; 179 filtered out; 9.19s
+```
+
+Production-path regression:
+
+```text
+cargo test -p phalcom-core --test core ordinary_float_horner_package_executes_all_coefficients -- --nocapture
+  1 passed; 0 failed; 994 filtered out; 128.88s
+```
+
+The test uses the production package compiler and full Universe VM and asserts
+exactly `2080.0`, the sum of coefficients 1 through 64 at `x = 1`. The original
+8 MiB package-test stack is unchanged.
+
+Broader gate: `cargo test -p phalcom-core --test language-corpus -- arithmetic booleans --nocapture`
+selected two corpus groups and failed both (89.31s) before fixture execution:
+`finalized executable link has no runtime read for class System from universe:concurrency.fiber`.
+The retained fixture compiler still uses `ExecutableLinkedProgram::from_conservative_link`
+instead of projecting the semantic snapshot's generated requirements. This is
+an unresolved linkage blocker; the corpus run supplies no operator-runtime
+acceptance evidence. The exact Horner package uses the production finalizer and
+passes. Do not relax finalized-read checks to unblock the corpus.
+
+### Retained executable finalization — 2026-10-17
+
+Retained fixture compilation now supplies the canonical symbolic link to the
+existing semantic session, then shares fresh compilation's availability-aware
+finalizer. Generated reads and runtime metadata roots receive immutable slots
+before lowering. The change preserves transactional deltas, canonical ownership,
+strict runtime-cycle rejection, and exact full-Universe availability proofs.
+It removes the conservative fixture wrapper; it does not migrate the production
+Universe or add late compiler reads.
+
+Verification: five existing retained-session tests passed (131.67s), and the new
+canonical-read add/remove/restore versus cold regression passed (99.59s).
+Publication rollback/retry passed 13/13 (8.02s); semantic phase evidence passed
+20/20 (16.20s). The Boolean corpus passed all 12 fixtures; the arithmetic corpus
+passed all 33 fixtures after adding the missing explicit `Ellipsis` import to
+one fixture. Its expected output and runtime assertions are unchanged. The
+arithmetic rerun passed in 108.05s; the earlier combined run proved the Boolean
+group and exposed that invalid fixture. See the consolidation record for commands.
+
+P4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. The next priorities are
+implicit contract-error dependencies, remaining attribute/witness forms,
+conformance-cycle execution, and incremental invalidation failures. The full
+semantic failure inventory and workspace test acceptance have not been recertified.
+
+Broader gate disposition: the workspace/all-target build passed. Clippy with
+`--workspace --all-targets -- -D warnings` is blocked by a baseline
+`clippy::useless_conversion` at `phalcom-semantic/src/generic_evidence.rs:901`.
+That file and the four formatting-blocked ADT test files are byte-for-byte
+unchanged from `324ee315`. No lint allowance or unrelated formatting repair was
+added. Full workspace tests and the post-correction semantic baseline recount
+remain unexecuted. These slices are `IMPLEMENTED / FOCUSED_TESTED`; P4 and
+consolidation-wide stability acceptance remain incomplete.

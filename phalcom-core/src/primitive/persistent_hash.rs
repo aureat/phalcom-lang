@@ -4,7 +4,7 @@
 //! All user callbacks occur during Phase A (preflight); Phase B (commit) executes without callbacks.
 
 use crate::error::PhResult;
-use crate::heap::persistent_hash::{child_bit, compact_index, fragment, PersistentHashNode, MAX_SHIFT};
+use crate::heap::persistent_hash::{MAX_SHIFT, PersistentHashNode, child_bit, compact_index, fragment};
 use crate::heap::{Heap, ObjRef};
 use crate::primitive::ordered_hash::{hash_key, keys_equal};
 use crate::value::Value;
@@ -29,25 +29,13 @@ pub enum InsertTerminal {
     /// Target key matches an existing Leaf key; replace its payload.
     ReplaceLeaf,
     /// Hash collision with an existing Leaf; convert to a 2-entry Collision node.
-    CollisionWithLeaf {
-        existing_key: Value,
-        existing_payload: Value,
-    },
+    CollisionWithLeaf { existing_key: Value, existing_payload: Value },
     /// Hashes diverge at this shift; build branch chain separating existing and new nodes.
-    DivergentBranch {
-        existing_ref: ObjRef,
-        existing_hash: i64,
-        shift: u32,
-    },
+    DivergentBranch { existing_ref: ObjRef, existing_hash: i64, shift: u32 },
     /// Target key matches an entry in an existing Collision node; replace that entry.
-    ReplaceCollisionEntry {
-        existing_ref: ObjRef,
-        index: usize,
-    },
+    ReplaceCollisionEntry { existing_ref: ObjRef, index: usize },
     /// Full hash matches an existing Collision node but key is distinct; append entry.
-    AppendCollisionEntry {
-        existing_ref: ObjRef,
-    },
+    AppendCollisionEntry { existing_ref: ObjRef },
 }
 
 /// Preflight plan for persistent insertion.
@@ -81,10 +69,7 @@ pub enum RemoveTerminal {
     /// Target key was in a Leaf; remove the leaf from its parent branch.
     RemoveLeaf,
     /// Target key was in a Collision node; remove entry and normalize if 1 remains.
-    RemoveCollisionEntry {
-        existing_ref: ObjRef,
-        index: usize,
-    },
+    RemoveCollisionEntry { existing_ref: ObjRef, index: usize },
 }
 
 /// Look up `key` in the persistent trie rooted at `root`.
@@ -117,7 +102,11 @@ pub fn lookup(vm: &mut VM, root: Option<ObjRef>, key: Value) -> PhResult<Option<
                     curr = children[idx];
                     shift += 5;
                 }
-                PersistentHashNode::Leaf { hash: leaf_hash, key: leaf_key, payload } => {
+                PersistentHashNode::Leaf {
+                    hash: leaf_hash,
+                    key: leaf_key,
+                    payload,
+                } => {
                     let leaf_hash = *leaf_hash;
                     let leaf_key = *leaf_key;
                     let payload = *payload;
@@ -154,12 +143,7 @@ pub fn lookup(vm: &mut VM, root: Option<ObjRef>, key: Value) -> PhResult<Option<
 /// Prepares an insertion plan (Phase A: Inspect / Preflight).
 ///
 /// Invokes user hash/equality callbacks as necessary. Protects all live handles with VM temp roots.
-pub fn prepare_insert(
-    vm: &mut VM,
-    root: Option<ObjRef>,
-    key: Value,
-    payload: Value,
-) -> PhResult<InsertPlan> {
+pub fn prepare_insert(vm: &mut VM, root: Option<ObjRef>, key: Value, payload: Value) -> PhResult<InsertPlan> {
     let depth = vm.temp_root_depth();
     if let Some(r) = root {
         vm.push_temp_root(Value::obj(r));
@@ -213,7 +197,11 @@ pub fn prepare_insert(
                     curr = children[idx];
                     shift += 5;
                 }
-                PersistentHashNode::Leaf { hash: leaf_hash, key: leaf_key, payload: leaf_payload } => {
+                PersistentHashNode::Leaf {
+                    hash: leaf_hash,
+                    key: leaf_key,
+                    payload: leaf_payload,
+                } => {
                     let leaf_hash = *leaf_hash;
                     let leaf_key = *leaf_key;
                     let leaf_payload = *leaf_payload;
@@ -270,10 +258,7 @@ pub fn prepare_insert(
                                     payload,
                                     hash,
                                     frames,
-                                    terminal: InsertTerminal::ReplaceCollisionEntry {
-                                        existing_ref: curr,
-                                        index: i,
-                                    },
+                                    terminal: InsertTerminal::ReplaceCollisionEntry { existing_ref: curr, index: i },
                                     old_payload: Some(cand_v),
                                 });
                             }
@@ -284,9 +269,7 @@ pub fn prepare_insert(
                             payload,
                             hash,
                             frames,
-                            terminal: InsertTerminal::AppendCollisionEntry {
-                                existing_ref: curr,
-                            },
+                            terminal: InsertTerminal::AppendCollisionEntry { existing_ref: curr },
                             old_payload: None,
                         });
                     } else {
@@ -314,14 +297,7 @@ pub fn prepare_insert(
 }
 
 /// Recursively builds branch nodes separating two associations whose hashes differ (Appendix A.1).
-fn build_divergent_branches(
-    heap: &mut Heap,
-    existing_ref: ObjRef,
-    existing_hash: i64,
-    new_leaf_ref: ObjRef,
-    new_hash: i64,
-    shift: u32,
-) -> ObjRef {
+fn build_divergent_branches(heap: &mut Heap, existing_ref: ObjRef, existing_hash: i64, new_leaf_ref: ObjRef, new_hash: i64, shift: u32) -> ObjRef {
     debug_assert!(shift <= MAX_SHIFT, "divergent hashes must differ within 64 bits");
     let f_existing = fragment(existing_hash, shift);
     let f_new = fragment(new_hash, shift);
@@ -350,16 +326,18 @@ pub fn commit_insert(heap: &mut Heap, plan: InsertPlan) -> (ObjRef, Option<Value
     let mut curr_ref = match plan.terminal {
         InsertTerminal::FreshLeaf | InsertTerminal::NewChildLeaf => new_leaf_ref,
         InsertTerminal::ReplaceLeaf => new_leaf_ref,
-        InsertTerminal::CollisionWithLeaf { existing_key, existing_payload } => {
-            let col = PersistentHashNode::new_collision(
-                plan.hash,
-                Box::new([(existing_key, existing_payload), (plan.key, plan.payload)]),
-            );
+        InsertTerminal::CollisionWithLeaf {
+            existing_key,
+            existing_payload,
+        } => {
+            let col = PersistentHashNode::new_collision(plan.hash, Box::new([(existing_key, existing_payload), (plan.key, plan.payload)]));
             heap.alloc_persistent_hash_node(col)
         }
-        InsertTerminal::DivergentBranch { existing_ref, existing_hash, shift } => {
-            build_divergent_branches(heap, existing_ref, existing_hash, new_leaf_ref, plan.hash, shift)
-        }
+        InsertTerminal::DivergentBranch {
+            existing_ref,
+            existing_hash,
+            shift,
+        } => build_divergent_branches(heap, existing_ref, existing_hash, new_leaf_ref, plan.hash, shift),
         InsertTerminal::ReplaceCollisionEntry { existing_ref, index } => {
             let (hash, mut entries) = match heap.persistent_hash_node(existing_ref) {
                 PersistentHashNode::Collision { hash, entries } => (*hash, entries.to_vec()),
@@ -394,22 +372,14 @@ pub fn commit_insert(heap: &mut Heap, plan: InsertPlan) -> (ObjRef, Option<Value
             new_children[frame.compact_index] = curr_ref;
             bitmap
         };
-        curr_ref = heap.alloc_persistent_hash_node(PersistentHashNode::new_branch(
-            new_bitmap,
-            new_children.into_boxed_slice(),
-        ));
+        curr_ref = heap.alloc_persistent_hash_node(PersistentHashNode::new_branch(new_bitmap, new_children.into_boxed_slice()));
     }
 
     (curr_ref, plan.old_payload)
 }
 
 /// Convenience entry point: prepares and commits an insertion in one step.
-pub fn insert(
-    vm: &mut VM,
-    root: Option<ObjRef>,
-    key: Value,
-    payload: Value,
-) -> PhResult<(ObjRef, Option<Value>)> {
+pub fn insert(vm: &mut VM, root: Option<ObjRef>, key: Value, payload: Value) -> PhResult<(ObjRef, Option<Value>)> {
     let plan = prepare_insert(vm, root, key, payload)?;
     Ok(commit_insert(&mut vm.heap, plan))
 }
@@ -463,7 +433,11 @@ pub fn prepare_remove(vm: &mut VM, root: Option<ObjRef>, key: Value) -> PhResult
                     curr = children[idx];
                     shift += 5;
                 }
-                PersistentHashNode::Leaf { hash: leaf_hash, key: leaf_key, payload } => {
+                PersistentHashNode::Leaf {
+                    hash: leaf_hash,
+                    key: leaf_key,
+                    payload,
+                } => {
                     let leaf_hash = *leaf_hash;
                     let leaf_key = *leaf_key;
                     let payload = *payload;
@@ -498,10 +472,7 @@ pub fn prepare_remove(vm: &mut VM, root: Option<ObjRef>, key: Value) -> PhResult
                                     key,
                                     hash,
                                     frames,
-                                    terminal: RemoveTerminal::RemoveCollisionEntry {
-                                        existing_ref: curr,
-                                        index: i,
-                                    },
+                                    terminal: RemoveTerminal::RemoveCollisionEntry { existing_ref: curr, index: i },
                                     removed_payload: Some(cand_v),
                                 });
                             }
@@ -559,10 +530,7 @@ pub fn commit_remove(heap: &mut Heap, plan: RemovePlan) -> (Option<ObjRef>, Opti
         match curr_ref {
             Some(replacement) => {
                 new_children[frame.compact_index] = replacement;
-                curr_ref = Some(heap.alloc_persistent_hash_node(PersistentHashNode::new_branch(
-                    bitmap,
-                    new_children.into_boxed_slice(),
-                )));
+                curr_ref = Some(heap.alloc_persistent_hash_node(PersistentHashNode::new_branch(bitmap, new_children.into_boxed_slice())));
             }
             None => {
                 new_children.remove(frame.compact_index);
@@ -570,10 +538,7 @@ pub fn commit_remove(heap: &mut Heap, plan: RemovePlan) -> (Option<ObjRef>, Opti
                 if new_bitmap == 0 {
                     curr_ref = None;
                 } else {
-                    curr_ref = Some(heap.alloc_persistent_hash_node(PersistentHashNode::new_branch(
-                        new_bitmap,
-                        new_children.into_boxed_slice(),
-                    )));
+                    curr_ref = Some(heap.alloc_persistent_hash_node(PersistentHashNode::new_branch(new_bitmap, new_children.into_boxed_slice())));
                 }
             }
         }
@@ -614,10 +579,7 @@ pub fn commit_replace_payload(heap: &mut Heap, plan: RemovePlan, new_payload: Va
         match curr_ref {
             Some(replacement) => {
                 new_children[frame.compact_index] = replacement;
-                curr_ref = Some(heap.alloc_persistent_hash_node(PersistentHashNode::new_branch(
-                    bitmap,
-                    new_children.into_boxed_slice(),
-                )));
+                curr_ref = Some(heap.alloc_persistent_hash_node(PersistentHashNode::new_branch(bitmap, new_children.into_boxed_slice())));
             }
             None => unreachable!(),
         }
@@ -627,11 +589,7 @@ pub fn commit_replace_payload(heap: &mut Heap, plan: RemovePlan, new_payload: Va
 }
 
 /// Convenience entry point: prepares and commits removal in one step.
-pub fn remove(
-    vm: &mut VM,
-    root: Option<ObjRef>,
-    key: Value,
-) -> PhResult<(Option<ObjRef>, Option<Value>)> {
+pub fn remove(vm: &mut VM, root: Option<ObjRef>, key: Value) -> PhResult<(Option<ObjRef>, Option<Value>)> {
     let plan = prepare_remove(vm, root, key)?;
     Ok(commit_remove(&mut vm.heap, plan))
 }

@@ -396,7 +396,7 @@ mod tests {
     #[test]
     fn mixed_reachable_and_blocked_constructors_do_not_form_an_empty_or_closed_domain() {
         let module = ModuleId::universe_root();
-        let source: Arc<str> = Arc::from("data Case<T> { @variant Any(_ value: T) -> Case<T> @variant Int(_ value: Int) -> Case<Int> }\n");
+        let source: Arc<str> = Arc::from("data Case<T> { Any(_ value: T) -> Case<T> Int(_ value: Int) -> Case<Int> }\n");
         let parsed = phalcom_ast::parse_source(&source, 0).unwrap();
         let analysis = crate::analyze_single_module(module.clone(), source, Arc::new(parsed)).expect("semantic fixture should analyze");
         let mut store = (*analysis.snapshot.store).clone();

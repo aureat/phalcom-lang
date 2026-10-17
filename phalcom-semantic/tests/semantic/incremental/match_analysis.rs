@@ -15,8 +15,10 @@ fn module() -> ModuleId {
 fn adt_incr_match_analysis_records_enum_and_callable_dependencies() {
     let module = module();
     let mut session = SemanticWorkspaceSession::new();
-    let source = "data Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 _ => 0 } } }\n";
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let source = "data Choice { A B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 _ => 0 } } }\n";
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     assert!(
         update
             .snapshot
@@ -46,8 +48,10 @@ fn adt_incr_match_analysis_records_enum_and_callable_dependencies() {
 fn adt_incr_match_analysis_uses_one_shared_query_index() {
     let module = module();
     let mut session = SemanticWorkspaceSession::new();
-    let source = "data Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 _ => 0 } } }\n";
-    let _ = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let source = "data Choice { A B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 _ => 0 } } }\n";
+    let _ = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     let body = QueryKey::CallableBody(CallableId::new(
         DeclarationId::new(module, "Test".into()),
         Selector::method("run", [phalcom_common::selector::SelectorSlot::Positional]).expect("run"),
@@ -57,12 +61,13 @@ fn adt_incr_match_analysis_uses_one_shared_query_index() {
 }
 
 #[test]
-#[ignore = "GATED: source-level match dependency product does not yet expose alias edges"]
 fn adt_incr_match_analysis_records_alias_union_dependency() {
     let module = module();
     let mut session = SemanticWorkspaceSession::new();
-    let source = "data Choice { @variant A @variant B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 _ => 0 } } }\n";
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let source = "data Choice { A B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 _ => 0 } } }\n";
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     assert!(
         update
             .snapshot

@@ -1,6 +1,7 @@
 //! Typed semantic query product wrappers and accessors (Spec 04.5 / Wave 5).
 
 use crate::advisory::{AdvisoryCallableSummary, AdvisoryModuleProduct};
+use crate::attribute_analysis::AttributeArgumentAnalysis;
 use crate::checker::analysis::CallableAnalysis;
 use crate::db::state::QueryValue;
 use crate::declarations::TypeDeclarationShell;
@@ -238,6 +239,7 @@ pub enum SemanticProduct {
     FieldSignature(Arc<FieldSignatureProduct>),
     ConstructorInitialization(Arc<ConstructorInitializationOwnerProduct>),
     CallableBody(Arc<CallableAnalysis>),
+    AttributeArgument(Arc<AttributeArgumentAnalysis>),
     SourceStructure(Arc<ModuleSourceIndex>),
     SourceFormalAttachment(Arc<CallableSourceAttachment>),
     AdvisoryCallable(Arc<AdvisoryCallableSummary>),
@@ -390,6 +392,13 @@ impl SemanticProduct {
     pub fn as_callable_body(&self) -> Option<&Arc<CallableAnalysis>> {
         match self {
             Self::CallableBody(body) => Some(body),
+            _ => None,
+        }
+    }
+
+    pub fn as_attribute_argument(&self) -> Option<&Arc<AttributeArgumentAnalysis>> {
+        match self {
+            Self::AttributeArgument(product) => Some(product),
             _ => None,
         }
     }
@@ -566,6 +575,7 @@ impl SemanticProduct {
             Self::FieldSignature(_) => b"field-signature".as_slice(),
             Self::ConstructorInitialization(_) => b"constructor-initialization".as_slice(),
             Self::CallableBody(_) => b"callable-body".as_slice(),
+            Self::AttributeArgument(_) => b"attribute-argument".as_slice(),
             Self::SourceStructure(_) => b"source-structure".as_slice(),
             Self::SourceFormalAttachment(_) => b"source-formal-attachment".as_slice(),
             Self::AdvisoryCallable(_) => b"advisory-callable".as_slice(),

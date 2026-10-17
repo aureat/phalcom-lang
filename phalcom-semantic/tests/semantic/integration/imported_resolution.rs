@@ -465,7 +465,9 @@ fn imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold
                    class Probe { @class status() { Shape::Scalar } }\n";
     let source_a = provider("Scalar; Vector(_ size: Shape)");
     let mut session = SemanticWorkspaceSession::new();
-    let revision_a = session.update(static_domain_provider_input("Shape", &source_a, consumer, 1)).expect("semantic test update should succeed");
+    let revision_a = session
+        .update(static_domain_provider_input("Shape", &source_a, consumer, 1))
+        .expect("semantic test update should succeed");
     assert!(
         revision_a
             .snapshot
@@ -541,7 +543,9 @@ fn imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("composed provider metadata validates");
 
     let source_b = provider("Scalar; Vector(_ size: Int)");
-    let revision_b = session.update(static_domain_provider_input("Shape", &source_b, consumer, 2)).expect("semantic test update should succeed");
+    let revision_b = session
+        .update(static_domain_provider_input("Shape", &source_b, consumer, 2))
+        .expect("semantic test update should succeed");
     assert!(revision_b.snapshot.internal_incidents.is_empty());
     let provider_fp_b = session.db().ready_product_fingerprint(&provider_key).expect("provider payload product");
     let case_fp_b = session.db().ready_product_fingerprint(&vector_case_key).expect("provider Vector signature vB");
@@ -549,7 +553,9 @@ fn imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold
     assert_ne!(case_fp_a, case_fp_b, "provider Vector payload edit changes its checked signature");
 
     let mut cold_b = SemanticWorkspaceSession::new();
-    let cold_revision_b = cold_b.update(static_domain_provider_input("Shape", &source_b, consumer, 1)).expect("semantic test update should succeed");
+    let cold_revision_b = cold_b
+        .update(static_domain_provider_input("Shape", &source_b, consumer, 1))
+        .expect("semantic test update should succeed");
     let diagnostic_codes = |snapshot: &phalcom_semantic::SemanticSnapshot| {
         let mut codes = snapshot
             .all_diagnostics()
@@ -568,10 +574,14 @@ fn imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold
     assert_eq!(alias_form(&revision_b.snapshot), alias_form(&cold_revision_b.snapshot));
 
     let source_c = provider("Atom; Sized(_ size: Int)");
-    let revision_c = session.update(static_domain_provider_input("Shape", &source_c, consumer, 3)).expect("semantic test update should succeed");
+    let revision_c = session
+        .update(static_domain_provider_input("Shape", &source_c, consumer, 3))
+        .expect("semantic test update should succeed");
     assert!(revision_c.snapshot.internal_incidents.is_empty());
     let mut cold_c = SemanticWorkspaceSession::new();
-    let cold_revision_c = cold_c.update(static_domain_provider_input("Shape", &source_c, consumer, 1)).expect("semantic test update should succeed");
+    let cold_revision_c = cold_c
+        .update(static_domain_provider_input("Shape", &source_c, consumer, 1))
+        .expect("semantic test update should succeed");
     assert_eq!(diagnostic_codes(&revision_c.snapshot), diagnostic_codes(&cold_revision_c.snapshot));
     assert_eq!(alias_form(&revision_c.snapshot), alias_form(&cold_revision_c.snapshot));
     let index_c = revision_c
@@ -614,7 +624,9 @@ fn imported_associated_static_domain_retains_provider_owner_specialization() {
     let provider_source = "class Container<T: Type> { type data State { Ready } }\nexport Container\n";
     let consumer_source = "import app.shapes.Container\ntype Selected: Container<Int>::State = Container<Int>::State::Ready\n";
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(static_domain_provider_input("Container", provider_source, consumer_source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(static_domain_provider_input("Container", provider_source, consumer_source, 1))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
     assert!(update.snapshot.internal_incidents.is_empty());
 
@@ -856,11 +868,13 @@ fn workspace_partial_snapshot_publishes_module_diagnostic_and_valid_product() {
     );
 
     let mut session = phalcom_semantic::SemanticWorkspaceSession::new();
-    let update = session.update(
-        SemanticWorkspaceInput::new(linked, sources, 7)
-            .with_diagnostics(BTreeMap::from([(blocked_module.clone(), vec![diagnostic.clone()])]))
-            .with_blocked_modules(BTreeSet::from([blocked_module.clone()])),
-    ).expect("semantic test update should succeed");
+    let update = session
+        .update(
+            SemanticWorkspaceInput::new(linked, sources, 7)
+                .with_diagnostics(BTreeMap::from([(blocked_module.clone(), vec![diagnostic.clone()])]))
+                .with_blocked_modules(BTreeSet::from([blocked_module.clone()])),
+        )
+        .expect("semantic test update should succeed");
     let snapshot = update.snapshot;
 
     assert_eq!(snapshot.generation, 7);
@@ -1032,7 +1046,10 @@ fn exported_global_and_top_level_binding_use_module_binding_target() {
         initialization_order: vec![provider.clone(), consumer.clone()],
     });
     let mut session = phalcom_semantic::SemanticWorkspaceSession::new();
-    let snapshot = session.update(SemanticWorkspaceInput::new(linked, sources, 1)).expect("semantic test update should succeed").snapshot;
+    let snapshot = session
+        .update(SemanticWorkspaceInput::new(linked, sources, 1))
+        .expect("semantic test update should succeed")
+        .snapshot;
     let target = SemanticTargetId::ModuleBinding(symbol.clone());
 
     let provider_binding = snapshot

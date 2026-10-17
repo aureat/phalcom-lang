@@ -38,15 +38,15 @@ data Option<T> {
     }
 }
 
-// Ratified @variant-style ADT syntax.
+// Bare-case ADT syntax.
 data Result<T, E> {
-    case Ok(const _ value: T) {
+    Ok(const _ value: T) {
         unwrap -> T {
             value
         }
     }
 
-    case Err(const _ error: E)
+    Err(const _ error: E)
 
     isOk -> Bool {
         match self {
@@ -58,16 +58,16 @@ data Result<T, E> {
 
 // GADT constructor result types + constructor-local generics.
 data Expr<T> {
-    @variant Int(const _ value: Int) -> Expr<Int>
+    Int(const _ value: Int) -> Expr<Int>
 
-    @variant Bool(const _ value: Bool) -> Expr<Bool>
+    Bool(const _ value: Bool) -> Expr<Bool>
 
-    @variant Equal<U>(
+    Equal<U>(
         const _ left: Expr<U>,
         const _ right: Expr<U>
     ) -> Expr<Bool>
 
-    @variant If<U>(
+    If<U>(
         const condition: Expr<Bool>,
         const then thenExpr: Expr<U>,
         const else elseExpr: Expr<U>

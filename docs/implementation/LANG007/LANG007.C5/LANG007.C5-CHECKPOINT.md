@@ -4,11 +4,16 @@ category: LANG
 program: LANG007
 checkpoint: LANG007.C5
 kind: checkpoint-record
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 prepared: 2026-10-13
 prepared_against_revision: b9c8ddd9551c2e15a8a728085f2f259a3e92b6d3
+active_plan: LANG007.C5.P1
+latest_completed_plan: LANG007.C4.P9
+next_plan: LANG007.C5.P1
+active_plan_record: docs/implementation/LANG007/LANG007.C5/LANG007.C5.P1-interval-algebra-and-relational-matching-plan.md
+last_updated: 2026-10-14
 requires:
   - existing canonical runtime closed-sum matching and executable projection
   - canonical Universe module and generic declaration ownership
@@ -78,7 +83,7 @@ Does not own:
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| LANG007.C5.P1 | Contract adoption, interval/Progression algebra, Range bridges, matching, hotel fixture | PROPOSED | NOT_STARTED | UNVERIFIED | Planning complete; user authorized isolated implementation next |
+| LANG007.C5.P1 | Contract adoption, interval/Progression algebra, Range bridges, matching, hotel fixture | IN_PROGRESS | PARTIAL | UNVERIFIED | Active implementation started; T1 contract adoption |
 
 ## Inherited established boundaries
 

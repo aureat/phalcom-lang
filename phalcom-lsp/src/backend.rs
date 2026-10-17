@@ -177,6 +177,16 @@ pub struct SourceTextParams {
     pub uri: Url,
 }
 
+/// Parameters for checking whether one exact editor source is present in the
+/// request-visible canonical semantic publication.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ExactSourcePublicationParams {
+    /// Physical source URI whose canonical module publication is queried.
+    pub uri: Url,
+    /// Exact editor text that must be present in the canonical publication.
+    pub text: String,
+}
+
 /// Runtime configuration that affects semantic source discovery and hint UI.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
@@ -404,6 +414,19 @@ impl Backend {
             return Ok(Some(document.text.to_string()));
         }
         Ok(self.cached_source(&params.uri).map(|source| source.text.to_string()))
+    }
+
+    /// Returns whether the latest request-visible semantic publication contains
+    /// exactly the supplied source text for the supplied physical source URI.
+    ///
+    /// This is a read-only synchronization probe for editor integration tests
+    /// and tooling. It does not trigger analysis, path canonicalization, or
+    /// semantic queries.
+    pub async fn exact_source_published(&self, params: ExactSourcePublicationParams) -> Result<bool> {
+        let Ok(path) = params.uri.to_file_path() else {
+            return Ok(false);
+        };
+        Ok(self.semantic_publication_handle().contains_exact_source(&path, &params.text))
     }
 
     /// Pins open-document data and one published semantic generation before
@@ -1444,10 +1467,17 @@ impl LanguageServer for Backend {
     }
 
     /// Refreshes closed-file contributions for watched `.ph` changes.
+    ///
+    /// An open document's live buffer is authoritative. Filesystem watcher
+    /// traffic for that URI must not supersede, cancel, or remove its pending
+    /// semantic publication; close handling explicitly refreshes disk state.
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         let mut removals = Vec::new();
         let mut refreshes = Vec::new();
         for change in params.changes {
+            if self.documents.snapshot(&change.uri).is_some() {
+                continue;
+            }
             if change.typ == FileChangeType::DELETED {
                 self.closed_sources.write().expect("closed source cache lock poisoned").remove(&change.uri);
                 removals.push(change.uri.clone());

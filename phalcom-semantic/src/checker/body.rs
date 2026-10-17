@@ -54,6 +54,7 @@ pub struct BodyAnalysisContext<'a> {
     pub access_topology: Option<&'a phalcom_modules::topology::ModuleTopology>,
     pub module_values: Option<crate::module_bindings::ModuleValueEnvironment<'a>>,
     pub linked_module: Option<&'a phalcom_modules::linker::LinkedModule>,
+    pub semantic_linked_module: Option<&'a phalcom_modules::linker::SemanticLinkedModule>,
 }
 
 /// Inputs specific to one callable-body analysis.
@@ -88,6 +89,25 @@ pub struct CallableBodyRequest<'a> {
 
 /// Analyzes a single callable body and returns a complete [`CallableAnalysis`].
 pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: CallableBodyRequest<'_>) -> CallableAnalysis {
+    analyze_callable_body_with_attribute_context(context, request, None)
+}
+
+/// Analyzes one attribute argument with its executable lexical context.
+/// Contract arguments retain the owning receiver and generic binders, while
+/// deliberately omitting the callable's value parameters.
+pub fn analyze_attribute_argument(
+    context: BodyAnalysisContext<'_>,
+    request: CallableBodyRequest<'_>,
+    attribute_context: crate::attribute_analysis::AttributeAnalysisContext,
+) -> CallableAnalysis {
+    analyze_callable_body_with_attribute_context(context, request, Some(attribute_context))
+}
+
+fn analyze_callable_body_with_attribute_context(
+    context: BodyAnalysisContext<'_>,
+    request: CallableBodyRequest<'_>,
+    attribute_context: Option<crate::attribute_analysis::AttributeAnalysisContext>,
+) -> CallableAnalysis {
     let BodyAnalysisContext {
         store,
         hierarchy,
@@ -101,6 +121,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         access_topology,
         module_values,
         linked_module,
+        semantic_linked_module,
     } = context;
     let CallableBodyRequest {
         callable,
@@ -176,9 +197,13 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     if let Some(topology) = access_topology {
         ctx.set_access_topology(topology);
     }
-    if let (Some(module_values), Some(linked_module)) = (module_values, linked_module) {
+    if let Some(module_values) = module_values {
         ctx.attach_module_value_exports(module_values.bindings, module_values.exports);
-        ctx.seed_linked_module_import_values(linked_module, module_values.bindings);
+        if let Some(semantic_linked_module) = semantic_linked_module {
+            ctx.seed_symbolic_module_import_values(semantic_linked_module, module_values.bindings);
+        } else if let Some(linked_module) = linked_module {
+            ctx.seed_linked_module_import_values(linked_module, module_values.bindings);
+        }
     }
     if let Some(view) = conformance_semantics.or(request_conformance_semantics) {
         ctx.attach_conformance_semantics(view);
@@ -264,13 +289,19 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     if let Some(associated_families) = associated_families {
         ctx.attach_associated_families(associated_families);
     }
-    ctx.current_callable = Some(callable.clone());
-    ctx.current_class = match callable.owner {
-        crate::identity::CallableOwnerId::Conformance(_) => None,
-        _ if trait_surface.is_none() => Some(callable.declaration_owner().clone()),
-        _ => None,
-    };
-    ctx.current_side = callable.side;
+    let module_initialization_attribute = attribute_context == Some(crate::attribute_analysis::AttributeAnalysisContext::ModuleInitialization);
+    if module_initialization_attribute {
+        ctx.current_callable = None;
+        ctx.current_class = None;
+    } else {
+        ctx.current_callable = Some(callable.clone());
+        ctx.current_class = match callable.owner {
+            crate::identity::CallableOwnerId::Conformance(_) => None,
+            _ if trait_surface.is_none() => Some(callable.declaration_owner().clone()),
+            _ => None,
+        };
+        ctx.current_side = callable.side;
+    }
 
     // 1. Build flow graph for the body statements
     let flow_graph = Arc::new(FlowGraph::from_statements(body));
@@ -314,7 +345,9 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         callable.selector.kind,
         phalcom_common::selector::SelectorKind::Setter | phalcom_common::selector::SelectorKind::SubscriptSet
     );
-    if let Some(field_lifecycle) = field_lifecycle {
+    if attribute_context.is_none()
+        && let Some(field_lifecycle) = field_lifecycle
+    {
         ctx.attach_field_lifecycle(field_lifecycle);
         if let Some(owner) = callable.try_declaration_owner() {
             field_lifecycle.seed_flow_for_owner(&mut ctx.flow, owner, constructor_body);
@@ -325,37 +358,39 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         if trait_surface.is_none() {
             ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::CallableSignature(signature_id.clone()));
         }
-        for parameter in signature.parameters.iter() {
-            if let Some(ty) = parameter.declared_type.canonical_type() {
+        if attribute_context.is_none() {
+            for parameter in signature.parameters.iter() {
+                if let Some(ty) = parameter.declared_type.canonical_type() {
+                    ctx.seed_stable_record_row_lacks(crate::checker::row_inference::collect_stable_record_row_lacks(ctx.store, ty));
+                }
+            }
+            if let Some(ty) = signature.declared_return.canonical_type() {
                 ctx.seed_stable_record_row_lacks(crate::checker::row_inference::collect_stable_record_row_lacks(ctx.store, ty));
             }
-        }
-        if let Some(ty) = signature.declared_return.canonical_type() {
-            ctx.seed_stable_record_row_lacks(crate::checker::row_inference::collect_stable_record_row_lacks(ctx.store, ty));
-        }
-        ctx.push_scope();
-        for parameter in &signature.parameters {
-            ctx.bind_canonical_callable_parameter(parameter, body_range);
-        }
-        if !signature.is_constructor() || constructor_body {
-            let is_dynamic = signature.declared_return.is_dynamic();
-            let declared_return = signature.declared_return.to_knowledge();
-            if let Some(ret_ty) = declared_return.ty() {
-                ctx.expected_return = Some(CallableReturnContract {
-                    ty: ret_ty,
-                    basis: signature.declared_return.basis,
-                    origin: crate::types::evidence::EvidenceOrigin::CallableSignature,
-                    is_dynamic: false,
-                    source: None,
-                });
-            } else if is_dynamic {
-                ctx.expected_return = Some(CallableReturnContract {
-                    ty: ctx.store.unit(),
-                    basis: signature.declared_return.basis,
-                    origin: crate::types::evidence::EvidenceOrigin::CallableSignature,
-                    is_dynamic: true,
-                    source: None,
-                });
+            ctx.push_scope();
+            for parameter in &signature.parameters {
+                ctx.bind_canonical_callable_parameter(parameter, body_range);
+            }
+            if !signature.is_constructor() || constructor_body {
+                let is_dynamic = signature.declared_return.is_dynamic();
+                let declared_return = signature.declared_return.to_knowledge();
+                if let Some(ret_ty) = declared_return.ty() {
+                    ctx.expected_return = Some(CallableReturnContract {
+                        ty: ret_ty,
+                        basis: signature.declared_return.basis,
+                        origin: crate::types::evidence::EvidenceOrigin::CallableSignature,
+                        is_dynamic: false,
+                        source: None,
+                    });
+                } else if is_dynamic {
+                    ctx.expected_return = Some(CallableReturnContract {
+                        ty: ctx.store.unit(),
+                        basis: signature.declared_return.basis,
+                        origin: crate::types::evidence::EvidenceOrigin::CallableSignature,
+                        is_dynamic: true,
+                        source: None,
+                    });
+                }
             }
         }
     }
@@ -387,15 +422,18 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         let is_tail = statement_index + 1 == body.len();
         if is_tail {
             if let Statement::Expr { expr, range } = stmt {
-                let expected = ctx
-                    .expected_return
-                    .as_ref()
-                    .map(|contract| {
-                        crate::checker::expected::ExpectedType::proper_from(contract.ty, crate::checker::expected::ExpectationOrigin::ReturnContract)
-                    })
-                    .unwrap_or_default();
+                let expected = if attribute_context.is_some() {
+                    crate::checker::expected::ExpectedType::None
+                } else {
+                    ctx.expected_return
+                        .as_ref()
+                        .map(|contract| {
+                            crate::checker::expected::ExpectedType::proper_from(contract.ty, crate::checker::expected::ExpectationOrigin::ReturnContract)
+                        })
+                        .unwrap_or_default()
+                };
                 let mut typed = crate::checker::expression::analyze_expression(&mut ctx, expr, &expected);
-                if !constructor_body && !setter_body {
+                if attribute_context.is_none() && !constructor_body && !setter_body {
                     if let Some(expected_return) = ctx.expected_return.clone() {
                         let relation = ctx.apply_knowledge_against_type(
                             &typed.knowledge,

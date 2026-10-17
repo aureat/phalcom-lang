@@ -195,7 +195,12 @@ impl ExpectedType {
     }
 }
 
-pub(crate) fn canonical_collection_arguments(store: &crate::types::store::TypeStore, ty: TypeId, collection_decl: &DeclarationId, arity: usize) -> Option<Vec<TypeId>> {
+pub(crate) fn canonical_collection_arguments(
+    store: &crate::types::store::TypeStore,
+    ty: TypeId,
+    collection_decl: &DeclarationId,
+    arity: usize,
+) -> Option<Vec<TypeId>> {
     let (declaration, _) = store.applied_nominal_parts(ty)?;
     if &declaration != collection_decl {
         return None;

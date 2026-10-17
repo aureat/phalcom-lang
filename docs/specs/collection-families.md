@@ -195,15 +195,117 @@ It maintains dual persistent hash roots and guarantees `forward[k] == v` if and 
 | `keys -> Array<K>` | Snapshot array of forward keys. |
 | `values -> Array<V>` | Snapshot array of forward values. |
 
-## 7. Errors and representation boundary
+## 7. `Bound<T>` and `Interval<T>`
+
+`Bound<T>` and `Interval<T>` define the generic immutable interval domain foundation.
+Interval semantics are independent of numeric/progression/slicing `Range`.
+
+### 7.1 `Bound<T>`
+
+`Bound<T>` represents an interval endpoint. It has exactly three semantic states:
+
+```telos
+data Bound<T> {
+  Unbounded
+  Included(value: T)
+  Excluded(value: T)
+}
+```
+
+`Unbounded` has no fixed position independent of endpoint role:
+- As a lower bound, `Unbounded` represents $-\infty$.
+- As an upper bound, `Unbounded` represents $+\infty$.
+
+#### Endpoint Ordering
+
+Endpoints are ordered via canonical bilateral `<=>` comparison of their underlying finite values, with the following boundary tie-breaking rules:
+
+- **Lower bound ordering** (`compareLower`):
+  - `Unbounded < Included(x) < Excluded(x)`
+  - For equal finite values $x$: `Included(x) < Excluded(x)`
+- **Upper bound ordering** (`compareUpper`):
+  - `Excluded(x) < Included(x) < Unbounded`
+  - For equal finite values $x$: `Excluded(x) < Included(x)`
+
+Any comparison between finite endpoint values that yields `Ordering::Unordered` is rejected with `InvalidIntervalError`.
+
+### 7.2 `Interval<T>`
+
+`Interval<T>` represents a generic interval over an ordered domain defined by lower and upper bounds:
+
+```telos
+data Interval<T>(_ lower: Bound<T>, _ upper: Bound<T>)
+```
+
+#### Validity and Emptiness
+
+- **Valid nonempty**: `lower < upper`, or `lower == upper` with both endpoints `Included` (a singleton $[x, x]$).
+- **Valid empty**: `lower == upper` with at least one endpoint `Excluded` (e.g. $[x, x)$, $(x, x]$, or $(x, x)$).
+- **Invalid**: finite `lower > upper`, or any endpoint comparison resulting in `Ordering::Unordered`.
+
+#### Operations
+
+| Selector | Contract |
+|---|---|
+| `lower -> Bound<T>` | Lower endpoint bound. |
+| `upper -> Bound<T>` | Upper endpoint bound. |
+| `isValid -> Bool` | Whether the interval is mathematically valid (not descending or unordered). |
+| `isEmpty -> Bool` | Whether the interval contains zero points. |
+| `contains(_ point: T) -> Bool` | Point containment: `point` satisfies lower bound ($p \ge x$ if Included, $p > x$ if Excluded, true if Unbounded) AND upper bound ($p \le y$ if Included, $p < y$ if Excluded, true if Unbounded). |
+| `overlaps(_ other: Interval<T>) -> Bool` | True iff both intervals are valid, nonempty, and share at least one point. |
+| `intersection(_ other: Interval<T>) -> Option<Interval<T>>` | Intersection of two intervals: `max(lowerA, lowerB)` and `min(upperA, upperB)`. Returns `Some(interval)` if valid and nonempty; `None` otherwise. |
+| `touchesWithoutGap(_ other: Interval<T>) -> Bool` | Contiguity without overlap: true iff intervals are disjoint and touch at a common boundary point covered by one side's inclusion and the other side's exclusion (e.g. $[a, b)$ and $[b, c]$). |
+| `unionIfContiguous(_ other: Interval<T>) -> Option<Interval<T>>` | If `touchesWithoutGap` or `overlaps`, returns `Some(Interval(min(lowerA, lowerB), max(upperA, upperB)))`; otherwise `None`. |
+| `==(_ other: Dynamic) -> Bool` | Value equality of bounds. |
+| `hash -> Int` | Deterministic hash over endpoint bounds. |
+
+## 8. `RangeMap<K,V>`
+
+`RangeMap<K,V>` is a persistent, immutable mapping from pairwise-disjoint, valid, non-empty `Interval<K>` regions to values `V`.
+
+### 8.1 Invariants
+
+1. **Non-overlapping**: All stored intervals are pairwise non-overlapping.
+2. **Point lookup uniqueness**: Any point $k \in K$ belongs to at most one stored interval.
+3. **Logarithmic lookup**: Point lookup traverses a balanced persistent tree in $O(\log n)$ time.
+4. **Persistence & immutability**: All mutating operations return a new `RangeMap` root, preserving older versions completely intact through structural sharing.
+5. **Ordered domain precondition**: Keys used as endpoints must have stable ordering-relevant observable state for the lifetime of any `RangeMap` retaining them.
+
+### 8.2 Selectors and Contracts
+
+| Selector | Contract |
+|---|---|
+| `new() -> Self` | Construct an empty `RangeMap`. |
+| `size -> Int` | Number of stored disjoint interval entries. |
+| `isEmpty -> Bool` | Whether the map contains zero entries. |
+| `get(_ point: K) -> Option<V>` | Point lookup: finds the unique interval containing `point` and returns `Some(value)`, or `None`. $O(\log n)$ complexity. |
+| `containsPoint(_ point: K) -> Bool` | True iff `get(point)` is `Some(_)`. |
+| `inserting(_ interval: Interval<K>, _ value: V) -> Self` | Strict insertion: inserts `interval -> value`. Rejects invalid or empty intervals with `InvalidIntervalError`. Rejects any overlap with existing entries with `RangeOverlapError`. Adjoining non-overlapping intervals are permitted. |
+| `removing(_ interval: Interval<K>) -> Self` | Coverage subtraction: removes all coverage of `interval`. Discards fully covered entries, truncates partially covered entries, and splits an interior-covered entry into left and right remainders. Empty interval is identity; invalid interval raises `InvalidIntervalError`. |
+| `overlaying(_ interval: Interval<K>, _ value: V) -> Self` | Range overlay: replaces mapping over `interval` with `value`. Truncates or splits overlapping existing entries to preserve unaffected remainders outside `interval`. Architected as $O(\log n + k)$ where $k$ is the number of overlapped entries. Empty interval is identity; invalid interval raises `InvalidIntervalError`. |
+| `iterator -> RangeMapIterator<K,V>` | In-order traversal by canonical lower bound yielding labeled `(interval: Interval<K>, value: V)` tuples. |
+| `entries -> Array<(interval: Interval<K>, value: V)>` | Snapshot array of in-order logical entries. |
+| `==(_ other: Dynamic) -> Bool` | Extensional equality: identical normalized logical entries in canonical order, independent of internal tree topology. |
+| `hash -> Int` | Deterministic fold over normalized logical entries. |
+
+### 8.3 Normalization and Coalescing
+
+When two adjacent entries have Telos-equal values (`v1 == v2`) and their intervals touch without an unmapped gap (`intervalA.touchesWithoutGap(intervalB)`), they are coalesced into a single entry with interval `intervalA.unionIfContiguous(intervalB)`. Adjacent intervals with a gap between them are never coalesced.
+
+## 9. Errors and representation boundary
 
 The existing `ArgumentError`, `KeyError`, `IndexError`, `DuplicateKeyError`,
 `BijectionConflictError`, and `Result` conventions are used as specified above.
-User callback errors propagate unchanged. A failed validation, duplicate,
-conflict, callback, or permitted integer-policy check leaves that operation's
-receiver update unapplied.
 
-The VM may use distinct native object arms and internal hash indices, but must
-preserve the semantics in this document. No public `Hashable` constraint or
-parallel hash/equality authority is introduced. Existing `Map` and `Set`
-contracts are unaffected.
+The interval and range map family adds:
+- `InvalidIntervalError is ArgumentError`: raised when an interval has invalid bounds (e.g. finite `lower > upper`), when an operation encounters `Ordering::Unordered`, or when a non-empty interval is required but an empty interval was provided.
+- `RangeOverlapError is ArgumentError`: raised by `RangeMap.inserting` when the requested interval overlaps any existing stored interval.
+
+User callback errors propagate unchanged. A failed validation, duplicate,
+conflict, overlap, callback, or permitted integer-policy check leaves that
+operation's receiver update unapplied and publishes no partial root.
+
+The VM and library layer preserve the semantics in this document. No public
+`Hashable` or `Comparable` constraint is introduced. Existing `Map`, `Set`,
+and numeric `Range` contracts are unaffected.
+

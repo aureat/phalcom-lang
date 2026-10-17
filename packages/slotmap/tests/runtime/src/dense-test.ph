@@ -17,14 +17,14 @@ Test.expectEqual(map.get(cause), Option::Some("Cause"))
 // Remove the middle dense element. The final element moves into its position,
 // but its stable key must continue to resolve correctly.
 Test.expectEqual(map.remove(matter), Option::Some("Matter"))
-Test.expectEqual(map.get(matter), Option::None)
+Test.expectEqual(map.get(matter), Option<String>::None)
 Test.expectEqual(map.get(form), Option::Some("Form"))
 Test.expectEqual(map.get(cause), Option::Some("Cause"))
 Test.expectEqual(map.len, 2)
 
 // Reuse must never revive the removed stable key.
 let essence = map.insert("Essence")
-Test.expectEqual(map.get(matter), Option::None)
+Test.expectEqual(map.get(matter), Option<String>::None)
 Test.expectEqual(map.get(essence), Option::Some("Essence"))
 
 // Dense iteration visits len entries and is independent of stable-slot holes.
@@ -42,7 +42,7 @@ Test.expectEqual(seen, map.len)
 let stale = cause
 map.clear
 Test.expect(map.isEmpty, "dense clear empties the map")
-Test.expectEqual(map.get(stale), Option::None)
+Test.expectEqual(map.get(stale), Option<String>::None)
 
 let actuality = map.insert("Actuality")
 Test.expectEqual(map.get(stale), Option<String>::None)

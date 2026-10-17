@@ -7,8 +7,8 @@
 
 use crate::data_semantics::{DataProductShapeMaterializationError, DataProductShapeState, DataSemanticTable, DataShape, materialize_data_product_shape};
 use crate::enum_semantics::{AlgebraicCasePayloadKind, EnumSemanticTable};
-use crate::identity::{DataComponentId, DeclarationId, VariantId};
 use crate::field_key::FieldKey;
+use crate::identity::{DataComponentId, DeclarationId, VariantId};
 use crate::reflection::{ExactCaseTypeReflection, VariantReflection};
 use crate::types::id::{KindId, TypeId};
 use crate::types::row::{RecordRowTail, StructuralMemberPresence};
@@ -296,69 +296,63 @@ impl<'a> StructuralClassifier<'a> {
     }
 
     /// Forms shallow unordered facts for an exact unordered product type.
-    pub fn unordered_product(
-        &self,
-        types: &mut TypeStore,
-        ty: TypeId,
-    ) -> Result<Option<UnorderedProductStructure>, DataProductShapeMaterializationError> {
+    pub fn unordered_product(&self, types: &mut TypeStore, ty: TypeId) -> Result<Option<UnorderedProductStructure>, DataProductShapeMaterializationError> {
         let classification = self.classify(types, ty);
         match classification {
-            StructuralClassification::UnorderedProduct(UnorderedProductForm::Record) => {
-                match types.get(ty).clone() {
-                    TypeData::Record(row_id) => {
-                        let row = types.record_row(row_id).clone();
-                        let fields = row
-                            .fields
-                            .iter()
-                            .map(|f| UnorderedProductEntry {
-                                component: None,
-                                key: f.key.clone(),
-                                ty: Some(f.ty),
-                                presence: f.presence,
-                            })
-                            .collect::<Vec<_>>()
-                            .into_boxed_slice();
-                        Ok(Some(UnorderedProductStructure {
-                            ty,
-                            origin: UnorderedProductOrigin::Record,
-                            fields,
-                            tail: row.tail,
-                            state: DataProductShapeState::Concrete,
-                        }))
-                    }
-                    _ => {
-                        if let Some((owner, arguments)) = types.applied_nominal_static_parts(ty) {
-                            if owner.module.project.is_universe()
-                                && owner.name.as_ref() == "Record"
-                                && owner.module == crate::core_surface::identity::universe_module(&["collections", "record"])
-                            {
-                                if let Some(crate::types::store::StaticArgument::RecordRow(row_id)) = arguments.first() {
-                                    let row = types.record_row(*row_id).clone();
-                                    let fields = row
-                                        .fields
-                                        .iter()
-                                        .map(|f| UnorderedProductEntry {
-                                            component: None,
-                                            key: f.key.clone(),
-                                            ty: Some(f.ty),
-                                            presence: f.presence,
-                                        })
-                                        .collect::<Vec<_>>()
-                                        .into_boxed_slice();
-                                    return Ok(Some(UnorderedProductStructure {
-                                        ty,
-                                        origin: UnorderedProductOrigin::Record,
-                                        fields,
-                                        tail: row.tail,
-                                        state: DataProductShapeState::Concrete,
-                                    }));
-                                }
+            StructuralClassification::UnorderedProduct(UnorderedProductForm::Record) => match types.get(ty).clone() {
+                TypeData::Record(row_id) => {
+                    let row = types.record_row(row_id).clone();
+                    let fields = row
+                        .fields
+                        .iter()
+                        .map(|f| UnorderedProductEntry {
+                            component: None,
+                            key: f.key.clone(),
+                            ty: Some(f.ty),
+                            presence: f.presence,
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice();
+                    Ok(Some(UnorderedProductStructure {
+                        ty,
+                        origin: UnorderedProductOrigin::Record,
+                        fields,
+                        tail: row.tail,
+                        state: DataProductShapeState::Concrete,
+                    }))
+                }
+                _ => {
+                    if let Some((owner, arguments)) = types.applied_nominal_static_parts(ty) {
+                        if owner.module.project.is_universe()
+                            && owner.name.as_ref() == "Record"
+                            && owner.module == crate::core_surface::identity::universe_module(&["collections", "record"])
+                        {
+                            if let Some(crate::types::store::StaticArgument::RecordRow(row_id)) = arguments.first() {
+                                let row = types.record_row(*row_id).clone();
+                                let fields = row
+                                    .fields
+                                    .iter()
+                                    .map(|f| UnorderedProductEntry {
+                                        component: None,
+                                        key: f.key.clone(),
+                                        ty: Some(f.ty),
+                                        presence: f.presence,
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .into_boxed_slice();
+                                return Ok(Some(UnorderedProductStructure {
+                                    ty,
+                                    origin: UnorderedProductOrigin::Record,
+                                    fields,
+                                    tail: row.tail,
+                                    state: DataProductShapeState::Concrete,
+                                }));
                             }
                         }
-                        Ok(None)
                     }
+                    Ok(None)
                 }
-            }
+            },
             StructuralClassification::UnorderedProduct(UnorderedProductForm::Data { owner }) => {
                 let Some(info) = self.data.data_info(&owner) else {
                     return Ok(None);

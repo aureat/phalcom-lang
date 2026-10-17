@@ -258,7 +258,10 @@ pub struct TypeMemberSignature {
 /// A checked member application failed its declared arity or argument-domain contract.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TypeMemberApplicationError {
-    ArityMismatch { expected: usize, actual: usize },
+    ArityMismatch {
+        expected: usize,
+        actual: usize,
+    },
     ArgumentDomainMismatch {
         index: usize,
         expected: TypeMemberDomain,

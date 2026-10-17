@@ -324,7 +324,9 @@ class Client {
     let client = incremental_module_id("client");
     let mut session = SemanticWorkspaceSession::new();
 
-    let first = session.update(module_value_input(&math, math_source_v1, &client, client_source, 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(module_value_input(&math, math_source_v1, &client, client_source, 1))
+        .expect("semantic test update should succeed");
     let body = CallableId::new(
         DeclarationId::new(client.clone(), "Client".into()),
         phalcom_common::selector::Selector::method("run", []).expect("run selector"),
@@ -349,7 +351,9 @@ class Client {
     );
     let first_revision = first.snapshot.id.revision();
 
-    let second = session.update(module_value_input(&math, math_source_v2, &client, client_source, 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(module_value_input(&math, math_source_v2, &client, client_source, 2))
+        .expect("semantic test update should succeed");
     let second_revision = second.snapshot.id.revision();
     assert_ne!(first_revision, second_revision);
     assert_eq!(
@@ -364,7 +368,9 @@ class Client {
     assert_eq!(session.db().query_state(&body_key).and_then(|state| state.revision()), Some(second_revision));
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_result = cold.update(module_value_input(&math, math_source_v2, &client, client_source, 2)).expect("semantic test update should succeed");
+    let cold_result = cold
+        .update(module_value_input(&math, math_source_v2, &client, client_source, 2))
+        .expect("semantic test update should succeed");
     assert_eq!(
         second.snapshot.diagnostics, cold_result.snapshot.diagnostics,
         "incremental and cold diagnostics agree"
@@ -411,9 +417,9 @@ fn immediate_family_call_publishes_static_application_resolution() {
     let source: Arc<str> = Arc::from(
         r#"
 data Weird {
-  @variant Marker
-  @variant Marker()
-  @variant Marker(_ value: Int)
+  Marker
+  Marker()
+  Marker(_ value: Int)
 }
 
 class Probe {
@@ -439,9 +445,9 @@ fn stored_family_call_publishes_static_application_resolution() {
     let source: Arc<str> = Arc::from(
         r#"
 data Weird {
-  @variant Marker
-  @variant Marker()
-  @variant Marker(_ value: Int)
+  Marker
+  Marker()
+  Marker(_ value: Int)
 }
 
 class Probe {
@@ -470,9 +476,9 @@ fn stored_family_dynamic_pack_publishes_frozen_candidates() {
     let source: Arc<str> = Arc::from(
         r#"
 data Weird {
-  @variant Marker
-  @variant Marker()
-  @variant Marker(_ value: Int)
+  Marker
+  Marker()
+  Marker(_ value: Int)
 }
 
 class Probe {
@@ -603,7 +609,7 @@ fn generic_associated_variant_family_recovers_constructor_signature() {
     let source: Arc<str> = Arc::from(
         r#"
 data Option<T> {
-  @variant Some(_ value: T) -> Option<T>
+  Some(_ value: T) -> Option<T>
 }
 
 class Probe {
@@ -647,7 +653,7 @@ fn family_wrong_shape_reports_associated_call_shape() {
     let source: Arc<str> = Arc::from(
         r#"
 data Weird {
-  @variant Marker(_ value: Int)
+  Marker(_ value: Int)
 }
 
 class Probe {

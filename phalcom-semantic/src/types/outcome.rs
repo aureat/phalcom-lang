@@ -216,7 +216,9 @@ pub enum BlockReason {
     /// A downstream semantic query cannot publish while this canonical owner
     /// product is unavailable. The exact owner lets the session report or
     /// schedule the missing prerequisite without reconstructing it locally.
-    UnavailableSemanticOwner(crate::db::key::QueryKey),
+    /// Keep the exceptional key indirect: this reason also inhabits every
+    /// recursive expression status, including ordinary ready expressions.
+    UnavailableSemanticOwner(Box<crate::db::key::QueryKey>),
     BudgetExceeded(BudgetReport),
     SuppressedDependency,
 }

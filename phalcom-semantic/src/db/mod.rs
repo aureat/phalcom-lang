@@ -19,9 +19,9 @@ pub use metrics::QueryMetrics;
 pub use product::SemanticProduct;
 pub use query::{
     CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module,
-    query_bootstrap_trait_header, query_bootstrap_trait_surface, query_callable_body, query_callable_body_with_formal_inputs, query_callable_signature,
-    query_declaration_shell, query_declaration_surface, query_hierarchy_edge, query_signatureless_callable_body, query_source_formal_attachment,
-    query_source_structure, query_type_member_declaration,
+    query_attribute_argument, query_bootstrap_trait_header, query_bootstrap_trait_surface, query_callable_body, query_callable_body_with_formal_inputs,
+    query_callable_signature, query_declaration_shell, query_declaration_surface, query_hierarchy_edge, query_signatureless_callable_body,
+    query_source_formal_attachment, query_source_structure, query_type_member_declaration,
 };
 pub use scheduler::QueryScheduler;
 pub use state::{PublishError, QueryOutcome, QueryState, QueryValue};
@@ -187,7 +187,11 @@ impl SemanticDb {
     }
 
     fn remember_last_known_good(&mut self, key: &QueryKey) {
-        if self.transaction.as_ref().is_none_or(|transaction| transaction.last_known_good.contains_key(key)) {
+        if self
+            .transaction
+            .as_ref()
+            .is_none_or(|transaction| transaction.last_known_good.contains_key(key))
+        {
             return;
         }
         let old = self.last_known_good.get(key).cloned();
@@ -614,10 +618,7 @@ impl SemanticDb {
     }
 }
 
-fn restore_query_products(
-    current: &mut BTreeMap<QueryKey, Arc<SemanticProduct>>,
-    undo: BTreeMap<QueryKey, Option<Arc<SemanticProduct>>>,
-) {
+fn restore_query_products(current: &mut BTreeMap<QueryKey, Arc<SemanticProduct>>, undo: BTreeMap<QueryKey, Option<Arc<SemanticProduct>>>) {
     for (key, old) in undo {
         match old {
             Some(product) => {
@@ -656,6 +657,7 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::StaticDefinition(declaration) => Some(&declaration.module),
         QueryKey::StaticConstant(constant) => Some(&constant.0.module),
         QueryKey::CheckedStaticBody(body) => Some(&body.0.module),
+        QueryKey::AttributeArgument(argument) => Some(argument.module()),
         QueryKey::AssociatedStaticDomainDeclaration(domain) => Some(&domain.owner.module),
         QueryKey::StaticDomainCaseCatalog(domain) => Some(match domain {
             crate::identity::StaticDomainDeclarationId::Nominal(declaration) => &declaration.module,

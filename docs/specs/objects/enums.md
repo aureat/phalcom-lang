@@ -10,6 +10,10 @@ owns closed-sum runtime behavior; it does not define a second algebraic declarat
 category. C4 static `Sum` / `Variant` / `Variants` reflection is owned by
 [Structural Sums](../structural-sums.md).
 
+Sum cases are declared directly inside a sum-shaped `data` declaration.
+`@variant` is retired: it is unsupported inside `data` bodies and inside class
+bodies, including sealed classes.
+
 In this document, **closed sum** names the language semantic category and its
 root type. Remaining uses of *enum* in descriptive terms such as *enum root*
 refer to the corresponding runtime/semantic concept, not to source syntax or

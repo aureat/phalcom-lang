@@ -222,7 +222,7 @@ fn system_gc_collects_garbage_from_source() {
         module,
         r#"
         class UnusedClass {}
-        let i = 0
+        let mut i = 0
         while (i < 10) {
             UnusedClass.new()
             i = i + 1
@@ -286,7 +286,7 @@ fn automatic_safepoint_fires() {
         module,
         r#"
         class Trash {}
-        let i = 0
+        let mut i = 0
         while (i < 15000) {
             Trash.new()
             i = i + 1
@@ -326,7 +326,7 @@ fn bounded_churn_real_workload() {
     vm.interpret_source(
         module,
         r#"
-        let i = 0
+        let mut i = 0
         while (i < 6000) {
             i = i + 1
         }
@@ -398,7 +398,7 @@ fn verify_invariants_post_automatic_gc() {
     vm.interpret_source(
         module,
         r#"
-        let i = 0
+        let mut i = 0
         while (i < 5000) {
             i = i + 1
         }
@@ -474,7 +474,7 @@ fn ensure_raised_error_survives_collecting_cleanup() {
           || {
             Error.new("boom").raise()
           }.ensure(|| {
-            let i = 0
+            let mut i = 0
             while (i < 6000) {
               List.new()
               i = i + 1
@@ -506,37 +506,29 @@ fn persistent_hash_nodes_participate_in_precise_gc_tracing_and_reclamation() {
     let string_handle = string_child.as_obj().expect("string handle");
 
     // Shared leaf
-    let shared_leaf = vm.heap.alloc_persistent_hash_node(PersistentHashNode::new_leaf(
-        100,
-        Value::int(1),
-        string_child,
-    ));
+    let shared_leaf = vm
+        .heap
+        .alloc_persistent_hash_node(PersistentHashNode::new_leaf(100, Value::int(1), string_child));
 
     // Unique leaf for v1
-    let v1_unique = vm.heap.alloc_persistent_hash_node(PersistentHashNode::new_leaf(
-        200,
-        Value::int(2),
-        Value::int(20),
-    ));
+    let v1_unique = vm
+        .heap
+        .alloc_persistent_hash_node(PersistentHashNode::new_leaf(200, Value::int(2), Value::int(20)));
 
     // Unique leaf for v2
-    let v2_unique = vm.heap.alloc_persistent_hash_node(PersistentHashNode::new_leaf(
-        300,
-        Value::int(3),
-        Value::int(30),
-    ));
+    let v2_unique = vm
+        .heap
+        .alloc_persistent_hash_node(PersistentHashNode::new_leaf(300, Value::int(3), Value::int(30)));
 
     // Branch 1 (v1 root) sharing shared_leaf + v1_unique
-    let branch1 = vm.heap.alloc_persistent_hash_node(PersistentHashNode::new_branch(
-        (1 << 0) | (1 << 1),
-        Box::new([shared_leaf, v1_unique]),
-    ));
+    let branch1 = vm
+        .heap
+        .alloc_persistent_hash_node(PersistentHashNode::new_branch((1 << 0) | (1 << 1), Box::new([shared_leaf, v1_unique])));
 
     // Branch 2 (v2 root) sharing shared_leaf + v2_unique
-    let branch2 = vm.heap.alloc_persistent_hash_node(PersistentHashNode::new_branch(
-        (1 << 0) | (1 << 2),
-        Box::new([shared_leaf, v2_unique]),
-    ));
+    let branch2 = vm
+        .heap
+        .alloc_persistent_hash_node(PersistentHashNode::new_branch((1 << 0) | (1 << 2), Box::new([shared_leaf, v2_unique])));
 
     // Root both versions
     vm.push_root_for_test(Value::obj(branch1));

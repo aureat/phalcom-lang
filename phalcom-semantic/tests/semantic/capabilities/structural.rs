@@ -410,9 +410,7 @@ class Probe {
     let int_ty = f.ty("Int");
     let mut store = (*f.analysis.snapshot.store).clone();
     let pack_ty = store
-        .pack(Box::new([
-            phalcom_semantic::types::store::PackTypeElement { label: None, ty: int_ty },
-        ]))
+        .pack(Box::new([phalcom_semantic::types::store::PackTypeElement { label: None, ty: int_ty }]))
         .unwrap();
 
     let product_decl = f.decl("Product");
@@ -425,51 +423,102 @@ class Probe {
     let unordered_ref = phalcom_semantic::traits::TraitRef::new(unordered_decl, Vec::new());
     let sum_ref = phalcom_semantic::traits::TraitRef::new(sum_decl, Vec::new());
 
-    let check_proof = |subject: phalcom_semantic::types::id::TypeId, trait_ref: &phalcom_semantic::traits::TraitRef, store: &mut phalcom_semantic::types::store::TypeStore| {
+    let check_proof = |subject: phalcom_semantic::types::id::TypeId,
+                       trait_ref: &phalcom_semantic::traits::TraitRef,
+                       store: &mut phalcom_semantic::types::store::TypeStore| {
         let term = phalcom_semantic::types::parameter::TypeTerm::Canonical(subject);
-        phalcom_semantic::generic_evidence::query_generic_conformance_proof(
-            &term,
-            trait_ref,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(store),
-        )
+        phalcom_semantic::generic_evidence::query_generic_conformance_proof(&term, trait_ref, None, None, None, None, None, None, None, Some(store))
     };
 
     // Unit: Product=Proven, OrderedProduct=Proven, UnorderedProduct=Missing, Sum=Missing
-    assert!(matches!(check_proof(unit_ty, &product_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)));
-    assert!(matches!(check_proof(unit_ty, &ordered_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)));
-    assert!(matches!(check_proof(unit_ty, &unordered_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Missing));
-    assert!(matches!(check_proof(unit_ty, &sum_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Missing));
+    assert!(matches!(
+        check_proof(unit_ty, &product_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)
+    ));
+    assert!(matches!(
+        check_proof(unit_ty, &ordered_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)
+    ));
+    assert!(matches!(
+        check_proof(unit_ty, &unordered_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Missing
+    ));
+    assert!(matches!(
+        check_proof(unit_ty, &sum_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Missing
+    ));
 
     // Tuple: Product=Proven, OrderedProduct=Proven, UnorderedProduct=Missing, Sum=Missing
-    assert!(matches!(check_proof(tuple_ty, &product_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)));
-    assert!(matches!(check_proof(tuple_ty, &ordered_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)));
-    assert!(matches!(check_proof(tuple_ty, &unordered_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Missing));
-    assert!(matches!(check_proof(tuple_ty, &sum_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Missing));
+    assert!(matches!(
+        check_proof(tuple_ty, &product_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)
+    ));
+    assert!(matches!(
+        check_proof(tuple_ty, &ordered_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)
+    ));
+    assert!(matches!(
+        check_proof(tuple_ty, &unordered_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Missing
+    ));
+    assert!(matches!(
+        check_proof(tuple_ty, &sum_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Missing
+    ));
 
     // Pack: Product=Proven, OrderedProduct=Proven, UnorderedProduct=Missing, Sum=Missing
-    assert!(matches!(check_proof(pack_ty, &product_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)));
-    assert!(matches!(check_proof(pack_ty, &ordered_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)));
-    assert!(matches!(check_proof(pack_ty, &unordered_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Missing));
-    assert!(matches!(check_proof(pack_ty, &sum_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Missing));
+    assert!(matches!(
+        check_proof(pack_ty, &product_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)
+    ));
+    assert!(matches!(
+        check_proof(pack_ty, &ordered_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)
+    ));
+    assert!(matches!(
+        check_proof(pack_ty, &unordered_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Missing
+    ));
+    assert!(matches!(
+        check_proof(pack_ty, &sum_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Missing
+    ));
 
     // Record: Product=Proven, OrderedProduct=Missing, UnorderedProduct=Proven, Sum=Missing
-    assert!(matches!(check_proof(record_ty, &product_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)));
-    assert!(matches!(check_proof(record_ty, &ordered_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Missing));
-    assert!(matches!(check_proof(record_ty, &unordered_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)));
-    assert!(matches!(check_proof(record_ty, &sum_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Missing));
+    assert!(matches!(
+        check_proof(record_ty, &product_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)
+    ));
+    assert!(matches!(
+        check_proof(record_ty, &ordered_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Missing
+    ));
+    assert!(matches!(
+        check_proof(record_ty, &unordered_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(_)
+    ));
+    assert!(matches!(
+        check_proof(record_ty, &sum_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Missing
+    ));
 
     // Int: Product=Missing, OrderedProduct=Missing, UnorderedProduct=Missing, Sum=Missing
-    assert!(matches!(check_proof(int_ty, &product_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Missing));
-    assert!(matches!(check_proof(int_ty, &ordered_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Missing));
-    assert!(matches!(check_proof(int_ty, &unordered_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Missing));
-    assert!(matches!(check_proof(int_ty, &sum_ref, &mut store), phalcom_semantic::generic_evidence::GenericConformanceProof::Missing));
+    assert!(matches!(
+        check_proof(int_ty, &product_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Missing
+    ));
+    assert!(matches!(
+        check_proof(int_ty, &ordered_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Missing
+    ));
+    assert!(matches!(
+        check_proof(int_ty, &unordered_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Missing
+    ));
+    assert!(matches!(
+        check_proof(int_ty, &sum_ref, &mut store),
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Missing
+    ));
 }
 
 /// G6, G8, G9, G10: Canonical compiler-derived structural reflection reduces
@@ -479,9 +528,9 @@ fn compiler_derived_structural_reflection_evaluates_shapes_and_variants() {
     let f = Fixture::new(
         r#"
 data Color {
-  @variant Red
-  @variant Green(_ value: Int)
-  @variant Blue(intensity: Int)
+  Red
+  Green(_ value: Int)
+  Blue(intensity: Int)
 }
 
 class Probe<T, S> {
@@ -507,10 +556,7 @@ class Probe<T, S> {
     let mut values = phalcom_semantic::static_value::StaticValueStore::new();
 
     let structural_ids = phalcom_semantic::core_surface::identity::StructuralUniverseIds::new();
-    let classifier = phalcom_semantic::structural::StructuralClassifier::new(
-        &f.analysis.snapshot.data_semantics,
-        &f.analysis.snapshot.enum_semantics,
-    );
+    let classifier = phalcom_semantic::structural::StructuralClassifier::new(&f.analysis.snapshot.data_semantics, &f.analysis.snapshot.enum_semantics);
 
     // Verify Sum conformance proof before creating projector
     let sum_decl = f.decl("Sum");
@@ -528,7 +574,7 @@ class Probe<T, S> {
         None,
         Some(&mut store),
         Some(phalcom_semantic::generic_evidence::StructuralConformanceContext {
-            classifier: classifier.clone(),
+            classifier,
             ids: &structural_ids,
         }),
     );
@@ -547,7 +593,10 @@ class Probe<T, S> {
     // G6: Ordered Product Reflection
     // Unit Product::Kind -> Ordered
     let unit_kind = projector.project_product_kind(unit_ty).expect("project unit kind");
-    assert!(matches!(unit_kind, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)));
+    assert!(matches!(
+        unit_kind,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)
+    ));
     if let phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(val) = unit_kind {
         let phalcom_semantic::static_value::StaticValueData::Variant(var_id) = *projector.values.get(val).unwrap() else {
             panic!("expected variant for kind");
@@ -558,11 +607,17 @@ class Probe<T, S> {
 
     // Unit Product::Shape -> ProductShape::Ordered
     let unit_shape = projector.project_product_shape(unit_ty).expect("project unit shape");
-    assert!(matches!(unit_shape, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)));
+    assert!(matches!(
+        unit_shape,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)
+    ));
 
     // Tuple Product::Kind -> Ordered
     let tuple_kind = projector.project_product_kind(tuple_ty).expect("project tuple kind");
-    assert!(matches!(tuple_kind, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)));
+    assert!(matches!(
+        tuple_kind,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)
+    ));
     if let phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(val) = tuple_kind {
         let phalcom_semantic::static_value::StaticValueData::Variant(var_id) = *projector.values.get(val).unwrap() else {
             panic!("expected variant for kind");
@@ -573,7 +628,10 @@ class Probe<T, S> {
 
     // Tuple OrderedProduct::Entries -> Pack of 2 entries
     let tuple_entries = projector.project_ordered_product_member(tuple_ty, "Entries").expect("tuple entries");
-    assert!(matches!(tuple_entries, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)));
+    assert!(matches!(
+        tuple_entries,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)
+    ));
     if let phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(val) = tuple_entries {
         let phalcom_semantic::static_value::StaticValueData::Pack(pack_id) = *projector.values.get(val).unwrap() else {
             panic!("expected pack");
@@ -585,7 +643,10 @@ class Probe<T, S> {
     // G8: Unordered Product Reflection
     // Record Product::Kind -> Unordered
     let rec_kind = projector.project_product_kind(record_ty).expect("project record kind");
-    assert!(matches!(rec_kind, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)));
+    assert!(matches!(
+        rec_kind,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)
+    ));
     if let phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(val) = rec_kind {
         let phalcom_semantic::static_value::StaticValueData::Variant(var_id) = *projector.values.get(val).unwrap() else {
             panic!("expected variant for kind");
@@ -596,21 +657,36 @@ class Probe<T, S> {
 
     // Record Product::Shape -> ProductShape::Unordered(UnorderedShape)
     let rec_shape = projector.project_product_shape(record_ty).expect("project record shape");
-    assert!(matches!(rec_shape, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)));
+    assert!(matches!(
+        rec_shape,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)
+    ));
 
     // Record UnorderedProduct::UnorderedShape -> Data(UnorderedShape)
-    let rec_u_shape = projector.project_unordered_product_member(record_ty, "UnorderedShape").expect("record unordered shape");
-    assert!(matches!(rec_u_shape, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)));
-    let phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(shape_val) = rec_u_shape else { unreachable!() };
+    let rec_u_shape = projector
+        .project_unordered_product_member(record_ty, "UnorderedShape")
+        .expect("record unordered shape");
+    assert!(matches!(
+        rec_u_shape,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)
+    ));
+    let phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(shape_val) = rec_u_shape else {
+        unreachable!()
+    };
 
     // UnorderedShape::Lookup<'a'> -> Required(Int)
     let sym_a = projector.values.intern_symbol("a");
-    let lookup_res = projector.project_unordered_shape_member(
-        shape_val,
-        phalcom_semantic::types::type_member::IntrinsicTypeOperation::UnorderedShapeLookup,
-        &[phalcom_semantic::member_projection::MemberProjectionArgument::Value(sym_a)],
-    ).expect("lookup a");
-    assert!(matches!(lookup_res, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)));
+    let lookup_res = projector
+        .project_unordered_shape_member(
+            shape_val,
+            phalcom_semantic::types::type_member::IntrinsicTypeOperation::UnorderedShapeLookup,
+            &[phalcom_semantic::member_projection::MemberProjectionArgument::Value(sym_a)],
+        )
+        .expect("lookup a");
+    assert!(matches!(
+        lookup_res,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)
+    ));
     if let phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(val) = lookup_res {
         let phalcom_semantic::static_value::StaticValueData::Variant(var_id) = *projector.values.get(val).unwrap() else {
             panic!("expected variant");
@@ -621,12 +697,17 @@ class Probe<T, S> {
 
     // UnorderedShape::Lookup<'b'> -> Absent
     let sym_b = projector.values.intern_symbol("b");
-    let lookup_b = projector.project_unordered_shape_member(
-        shape_val,
-        phalcom_semantic::types::type_member::IntrinsicTypeOperation::UnorderedShapeLookup,
-        &[phalcom_semantic::member_projection::MemberProjectionArgument::Value(sym_b)],
-    ).expect("lookup b");
-    assert!(matches!(lookup_b, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)));
+    let lookup_b = projector
+        .project_unordered_shape_member(
+            shape_val,
+            phalcom_semantic::types::type_member::IntrinsicTypeOperation::UnorderedShapeLookup,
+            &[phalcom_semantic::member_projection::MemberProjectionArgument::Value(sym_b)],
+        )
+        .expect("lookup b");
+    assert!(matches!(
+        lookup_b,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)
+    ));
     if let phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(val) = lookup_b {
         let phalcom_semantic::static_value::StaticValueData::Variant(var_id) = *projector.values.get(val).unwrap() else {
             panic!("expected variant");
@@ -636,12 +717,13 @@ class Probe<T, S> {
     }
 
     // UnorderedShape::Tail -> Closed
-    let tail_res = projector.project_unordered_shape_member(
-        shape_val,
-        phalcom_semantic::types::type_member::IntrinsicTypeOperation::UnorderedShapeTail,
-        &[],
-    ).expect("tail");
-    assert!(matches!(tail_res, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)));
+    let tail_res = projector
+        .project_unordered_shape_member(shape_val, phalcom_semantic::types::type_member::IntrinsicTypeOperation::UnorderedShapeTail, &[])
+        .expect("tail");
+    assert!(matches!(
+        tail_res,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)
+    ));
     if let phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(val) = tail_res {
         let phalcom_semantic::static_value::StaticValueData::Variant(var_id) = *projector.values.get(val).unwrap() else {
             panic!("expected variant");
@@ -651,12 +733,13 @@ class Probe<T, S> {
     }
 
     // UnorderedShape::View -> Field
-    let view_res = projector.project_unordered_shape_member(
-        shape_val,
-        phalcom_semantic::types::type_member::IntrinsicTypeOperation::UnorderedShapeView,
-        &[],
-    ).expect("view");
-    assert!(matches!(view_res, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)));
+    let view_res = projector
+        .project_unordered_shape_member(shape_val, phalcom_semantic::types::type_member::IntrinsicTypeOperation::UnorderedShapeView, &[])
+        .expect("view");
+    assert!(matches!(
+        view_res,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)
+    ));
     if let phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(val) = view_res {
         let phalcom_semantic::static_value::StaticValueData::Variant(var_id) = *projector.values.get(val).unwrap() else {
             panic!("expected variant");
@@ -667,7 +750,10 @@ class Probe<T, S> {
 
     // G9: Sum / Variant Reflection
     let variants_res = projector.project_sum_variants(color_ty).expect("project sum variants");
-    assert!(matches!(variants_res, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)));
+    assert!(matches!(
+        variants_res,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(_)
+    ));
     if let phalcom_semantic::member_projection::StaticMemberProjectionOutcome::ReducedValue(val) = variants_res {
         let phalcom_semantic::static_value::StaticValueData::Pack(pack_id) = *projector.values.get(val).unwrap() else {
             panic!("expected pack");
@@ -692,8 +778,14 @@ class Probe<T, S> {
 
     // G10: Generic / Stuck projections
     let stuck_kind = projector.project_product_kind(t_param_ty).expect("generic product kind");
-    assert!(matches!(stuck_kind, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::Stuck(_)));
+    assert!(matches!(
+        stuck_kind,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::Stuck(_)
+    ));
 
     let stuck_sum = projector.project_sum_variants(s_param_ty).expect("generic sum variants");
-    assert!(matches!(stuck_sum, phalcom_semantic::member_projection::StaticMemberProjectionOutcome::Stuck(_)));
+    assert!(matches!(
+        stuck_sum,
+        phalcom_semantic::member_projection::StaticMemberProjectionOutcome::Stuck(_)
+    ));
 }

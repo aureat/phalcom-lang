@@ -21,8 +21,8 @@
 // `@sealed` advertises is already supplied by module structure, and the check is
 // reachable only for classes visible in every unit's globals at compile time —
 // i.e. the bootstrap-sealed kernel (`Option`/`Some`/`None`), which is exactly
-// what `annotation_variant_in_bootstrap_sealed_class.ph` exercises. `@sealed`'s
-// only *live* effect on a user class today is gating `@variant`.
+// what `class_variant_marker_retired_sealed_class.ph` exercises. Sum cases
+// are declared with `data`; class sealing remains an inheritance boundary.
 //
 // The error below is therefore about SCOPE, not sealing. **If cross-module class
 // references ever land, this fixture must change** — its expected output should

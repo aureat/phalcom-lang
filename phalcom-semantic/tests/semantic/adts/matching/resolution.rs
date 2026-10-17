@@ -105,7 +105,7 @@ class Test {
 
 #[test]
 fn match_res_01_wildcard_root_records_total_resolution() {
-    let case = analyze_adt("data Status { @variant Ready @variant Done }\nclass Test { run(_ value: Status) { match value { _ => 1 } } }\n");
+    let case = analyze_adt("data Status { Ready Done }\nclass Test { run(_ value: Status) { match value { _ => 1 } } }\n");
     let handle = case.only_match();
     handle.assert_exhaustive();
     assert!(handle.resolution().arms[0].bindings.is_empty());
@@ -113,7 +113,7 @@ fn match_res_01_wildcard_root_records_total_resolution() {
 
 #[test]
 fn match_res_02_qualified_singleton_has_one_exact_candidate() {
-    let case = analyze_adt("data Status { @variant Ready @variant Done }\nclass Test { run(_ value: Status) { match value { Status::Ready => 1 _ => 0 } } }\n");
+    let case = analyze_adt("data Status { Ready Done }\nclass Test { run(_ value: Status) { match value { Status::Ready => 1 _ => 0 } } }\n");
     let handle = case.only_match();
     handle.assert_arm_candidate_variants(
         0,
@@ -123,8 +123,7 @@ fn match_res_02_qualified_singleton_has_one_exact_candidate() {
 
 #[test]
 fn match_res_03_qualified_nullary_has_constructor_identity() {
-    let case =
-        analyze_adt("data Status { @variant Ready() @variant Done }\nclass Test { run(_ value: Status) { match value { Status::Ready() => 1 _ => 0 } } }\n");
+    let case = analyze_adt("data Status { Ready() Done }\nclass Test { run(_ value: Status) { match value { Status::Ready() => 1 _ => 0 } } }\n");
     let handle = case.only_match();
     handle.assert_arm_candidate_variants(
         0,
@@ -134,9 +133,8 @@ fn match_res_03_qualified_nullary_has_constructor_identity() {
 
 #[test]
 fn match_res_04_exact_positional_constructor_projects_field() {
-    let case = analyze_adt(
-        "data Status { @variant Ready(_ code: Int) @variant Done }\nclass Test { run(_ value: Status) { match value { Status::Ready(code) => code _ => 0 } } }\n",
-    );
+    let case =
+        analyze_adt("data Status { Ready(_ code: Int) Done }\nclass Test { run(_ value: Status) { match value { Status::Ready(code) => code _ => 0 } } }\n");
     let handle = case.only_match();
     assert_eq!(handle.arm(0).resolution().bindings.len(), 1);
     handle.arm(0).assert_binding_names(&["code"]);
@@ -145,7 +143,7 @@ fn match_res_04_exact_positional_constructor_projects_field() {
 #[test]
 fn match_res_05_exact_labeled_constructor_uses_external_label() {
     let case = analyze_adt(
-        "data Status { @variant Ready(named code: Int) @variant Done }\nclass Test { run(_ value: Status) { match value { Status::Ready(named: code) => code _ => 0 } } }\n",
+        "data Status { Ready(named code: Int) Done }\nclass Test { run(_ value: Status) { match value { Status::Ready(named: code) => code _ => 0 } } }\n",
     );
     let handle = case.only_match();
     handle.arm(0).assert_binding_names(&["code"]);
@@ -154,7 +152,7 @@ fn match_res_05_exact_labeled_constructor_uses_external_label() {
 #[test]
 fn match_res_06_contextual_some_uses_scrutinee_owner() {
     let case = analyze_adt(
-        "data Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\nclass Test { run(_ value: Option<Int>) { match value { Some(x) => x None => 0 } } }\n",
+        "data Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }\nclass Test { run(_ value: Option<Int>) { match value { Some(x) => x None => 0 } } }\n",
     );
     let handle = case.only_match();
     handle.arm(0).assert_binding_names(&["x"]);
@@ -164,7 +162,7 @@ fn match_res_06_contextual_some_uses_scrutinee_owner() {
 #[test]
 fn match_res_07_contextual_none_resolves_singleton_member() {
     let case = analyze_adt(
-        "data Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\nclass Test { run(_ value: Option<Int>) { match value { Some(_) => 1 None => 0 } } }\n",
+        "data Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }\nclass Test { run(_ value: Option<Int>) { match value { Some(_) => 1 None => 0 } } }\n",
     );
     let handle = case.only_match();
     assert_eq!(handle.arm(1).resolution().bindings.len(), 0);
@@ -172,9 +170,7 @@ fn match_res_07_contextual_none_resolves_singleton_member() {
 
 #[test]
 fn match_res_08_ambiguous_contextual_owner_reports_no_arbitrary_candidate() {
-    let case = analyze_adt(
-        "data Left { @variant Same }\ndata Right { @variant Same }\nclass Test { run(_ value: Left | Right) { match value { Same => 1 _ => 0 } } }\n",
-    );
+    let case = analyze_adt("data Left { Same }\ndata Right { Same }\nclass Test { run(_ value: Left | Right) { match value { Same => 1 _ => 0 } } }\n");
     case.assert_diagnostic_primary_contains(phalcom_semantic::diagnostic::DiagnosticCode::MatchPatternUnresolved, "Same");
     let handle = case.only_match();
     let arm = handle.arm(0);
@@ -198,7 +194,7 @@ fn match_res_08_ambiguous_contextual_owner_reports_no_arbitrary_candidate() {
 #[test]
 fn match_res_09_nested_contextual_resolution_uses_specialized_payload_domain() {
     let case = analyze_adt(
-        "data Result<T, E> { @variant Ok(_ value: T) -> Result<T, E> @variant Error(_ value: E) -> Result<T, E> }\ndata Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\nclass Test { run(_ value: Option<Result<Int, String>>) { match value { Some(Ok(x)) => x Some(Error(x)) => 0 None => 0 } } }\n",
+        "data Result<T, E> { Ok(_ value: T) -> Result<T, E> Error(_ value: E) -> Result<T, E> }\ndata Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }\nclass Test { run(_ value: Option<Result<Int, String>>) { match value { Some(Ok(x)) => x Some(Error(x)) => 0 None => 0 } } }\n",
     );
     let handle = case.only_match();
     assert_eq!(handle.arm(0).resolution().bindings.len(), 1);
@@ -206,9 +202,7 @@ fn match_res_09_nested_contextual_resolution_uses_specialized_payload_domain() {
 
 #[test]
 fn match_res_10_callable_family_includes_only_callable_candidates() {
-    let case = analyze_adt(
-        "data Animal { @variant Dog @variant Dog(_ name: String) @variant Cat }\nclass Test { run(_ value: Animal) { match value { Dog(...) => 1 _ => 0 } } }\n",
-    );
+    let case = analyze_adt("data Animal { Dog Dog(_ name: String) Cat }\nclass Test { run(_ value: Animal) { match value { Dog(...) => 1 _ => 0 } } }\n");
     let arm = case.only_match().arm(0);
     assert!(arm.resolution().bindings.is_empty());
     let PatternResolution::Variant(pattern) = &arm.resolution().pattern else {
@@ -225,7 +219,7 @@ fn match_res_10_callable_family_includes_only_callable_candidates() {
 #[test]
 fn match_res_11_prefix_gap_records_candidate_specific_projection() {
     let case = analyze_adt(
-        "data Animal { @variant Dog(_ name: String) @variant Dog(_ name: String, age: Int, breed: String) }\nclass Test { run(_ value: Animal) { match value { Dog(name, ..., breed: b) => 1 _ => 0 } } }\n",
+        "data Animal { Dog(_ name: String) Dog(_ name: String, age: Int, breed: String) }\nclass Test { run(_ value: Animal) { match value { Dog(name, ..., breed: b) => 1 _ => 0 } } }\n",
     );
     assert!(matches!(
         case.only_match().arm(0).resolution().pattern,
@@ -236,7 +230,7 @@ fn match_res_11_prefix_gap_records_candidate_specific_projection() {
 #[test]
 fn match_res_12_suffix_label_gap_matches_canonical_selector_pattern() {
     let case = analyze_adt(
-        "data Animal { @variant Dog(_ name: String) @variant Dog(_ name: String, age: Int, breed: String) }\nclass Test { run(_ value: Animal) { match value { Dog(..., breed: b) => 1 _ => 0 } } }\n",
+        "data Animal { Dog(_ name: String) Dog(_ name: String, age: Int, breed: String) }\nclass Test { run(_ value: Animal) { match value { Dog(..., breed: b) => 1 _ => 0 } } }\n",
     );
     assert!(matches!(
         case.only_match().arm(0).resolution().pattern,
@@ -247,7 +241,7 @@ fn match_res_12_suffix_label_gap_matches_canonical_selector_pattern() {
 #[test]
 fn match_res_13_prefix_and_suffix_gap_join_field_projections() {
     let case = analyze_adt(
-        "data Animal { @variant Dog(_ name: String) @variant Dog(_ name: String, age: Int, breed: String) }\nclass Test { run(_ value: Animal) { match value { Dog(name, ..., breed: b) => name _ => \"unknown\" } } }\n",
+        "data Animal { Dog(_ name: String) Dog(_ name: String, age: Int, breed: String) }\nclass Test { run(_ value: Animal) { match value { Dog(name, ..., breed: b) => name _ => \"unknown\" } } }\n",
     );
     assert!(matches!(
         case.only_match().arm(0).resolution().pattern,
@@ -257,9 +251,7 @@ fn match_res_13_prefix_and_suffix_gap_join_field_projections() {
 
 #[test]
 fn match_res_14_whole_family_candidate_set_is_explicit() {
-    let case = analyze_adt(
-        "data Animal { @variant Dog @variant Dog() @variant Dog(_ name: String) @variant Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Cat => 2 } } }\n",
-    );
+    let case = analyze_adt("data Animal { Dog Dog() Dog(_ name: String) Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Cat => 2 } } }\n");
     let handle = case.only_match();
     let candidates = match &handle.arm(0).resolution().pattern {
         phalcom_semantic::match_semantics::PatternResolution::Variant(pattern) => pattern.candidates.len(),
@@ -270,8 +262,7 @@ fn match_res_14_whole_family_candidate_set_is_explicit() {
 
 #[test]
 fn match_res_15_candidate_order_is_stable_across_repeated_analysis() {
-    let source =
-        "data Animal { @variant Dog @variant Dog() @variant Dog(_ name: String) }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 } } }\n";
+    let source = "data Animal { Dog Dog() Dog(_ name: String) }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 } } }\n";
     let first = analyze_adt(source);
     let second = analyze_adt(source);
     let first_ids = match &first.only_match().arm(0).resolution().pattern {
@@ -287,4 +278,113 @@ fn match_res_15_candidate_order_is_stable_across_repeated_analysis() {
         pattern => panic!("expected variant pattern, got {pattern:?}"),
     };
     assert_eq!(first_ids, second_ids);
+}
+
+#[test]
+fn contextual_enum_union_constructor_uses_member_specialization() {
+    let case = analyze_adt(
+        r#"
+data Left<T> { Take(_ value: T) Empty }
+data Right { Other }
+class Test {
+  run(_ value: Left<Int> | Right) -> Int {
+    match value { Take(item) => item _ => 0 }
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+    let arm = case.only_match().arm(0);
+    arm.assert_binding_names(&["item"]);
+    let binding = &arm.resolution().bindings[0];
+    let ty = binding.knowledge.ty().expect("payload type");
+    assert_eq!(case.analysis.snapshot.store.format_type(ty), "Int");
+    case.only_match().assert_arm_candidate_variants(
+        0,
+        &[case.variant_id("Left", Selector::method("Take", [phalcom_common::selector::SelectorSlot::Positional]).unwrap())],
+    );
+}
+
+#[test]
+fn contextual_enum_union_constructor_ambiguity_requires_qualification() {
+    let case = analyze_adt(
+        r#"
+data Left { Take(_ value: Int) }
+data Right { Take(_ value: Int) }
+class Test {
+  run(_ value: Left | Right) -> Int {
+    match value { Take(item) => item _ => 0 }
+  }
+}
+"#,
+    );
+    let diagnostic = case.diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::MatchPatternUnresolved);
+    assert!(diagnostic.message.contains("ambiguous"), "{diagnostic:?}");
+    assert!(diagnostic.message.contains("qualify"), "{diagnostic:?}");
+}
+
+#[test]
+fn contextual_enum_gadt_union_pattern_excludes_refuted_owners() {
+    let case = analyze_adt(
+        r#"
+data Restricted<T> { Take(_ value: Bool) -> Restricted<Bool> }
+data Plain { Take(_ value: Int) Other }
+class Test {
+  run(_ value: Restricted<Int> | Plain) -> Int {
+    match value { Take(item) => item _ => 0 }
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+    case.only_match().assert_arm_candidate_variants(
+        0,
+        &[case.variant_id("Plain", Selector::method("Take", [phalcom_common::selector::SelectorSlot::Positional]).unwrap())],
+    );
+}
+
+#[test]
+fn contextual_enum_repeated_owner_union_pattern_preserves_each_specialization() {
+    let case = analyze_adt(
+        r#"
+data Restricted<T> { Take(_ value: Bool) -> Restricted<Bool> Other }
+class Test {
+  run(_ value: Restricted<Int> | Restricted<Bool>) -> Bool {
+    match value { Take(item) => item _ => false }
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+    let arm = case.only_match().arm(0);
+    arm.assert_binding_names(&["item"]);
+    let ty = arm.resolution().bindings[0].knowledge.ty().expect("payload type");
+    assert_eq!(case.analysis.snapshot.store.format_type(ty), "Bool");
+    case.only_match().assert_arm_candidate_variants(
+        0,
+        &[case.variant_id(
+            "Restricted",
+            Selector::method("Take", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        )],
+    );
+}
+
+#[test]
+fn contextual_enum_repeated_owner_union_pattern_joins_payload_specializations() {
+    let case = analyze_adt(
+        r#"
+data Boxed<T> { Take(_ value: T) Empty }
+class Test {
+  run(_ value: Boxed<Int> | Boxed<String>) -> Int {
+    match value { Take(item) => 0 _ => 0 }
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+    let arm = case.only_match().arm(0);
+    arm.assert_binding_names(&["item"]);
+    let binding = &arm.resolution().bindings[0];
+    let ty = binding.knowledge.ty().expect("payload type");
+    assert_eq!(case.analysis.snapshot.store.format_type(ty), "Int | String");
 }

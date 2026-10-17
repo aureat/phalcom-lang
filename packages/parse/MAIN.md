@@ -306,13 +306,11 @@ Failures should not normally be represented by exceptions.
 data ParseResult<S, T>
 where S |= Source
 {
-    @variant
     Success(
         _ value: T,
         _ next: Cursor<S>,
     )
 
-    @variant
     Failure(
         _ error: ParseError,
         _ committed: Bool,
@@ -437,16 +435,12 @@ Suppose a lexer produces:
 
 ```telos
 data Token {
-    @variant
     Integer(_ value: Int)
 
-    @variant
     Identifier(_ value: String)
 
-    @variant
     Plus
 
-    @variant
     Star
 }
 ```
@@ -1896,10 +1890,8 @@ The returned public result may omit the cursor when running a complete document:
 
 ```telos
 data RunResult<T> {
-    @variant
     Success(_ value: T)
 
-    @variant
     Failure(_ error: ParseError)
 }
 ```
@@ -2305,19 +2297,15 @@ The same package should comfortably support:
 
 ```telos
 data Expr {
-    @variant
     Integer(_ value: Int)
 
-    @variant
     Name(_ name: String)
 
-    @variant
     Add(
         _ left: Expr,
         _ right: Expr,
     )
 
-    @variant
     Multiply(
         _ left: Expr,
         _ right: Expr,

@@ -1,8 +1,8 @@
 native data Ordering {
-    @variant Less
-    @variant Equal
-    @variant Greater
-    @variant Unordered
+    Less
+    Equal
+    Greater
+    Unordered
 }
 
 impl Ordering {

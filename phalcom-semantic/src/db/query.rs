@@ -58,6 +58,7 @@ pub struct FormalQueryInputs<'a> {
     pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
     /// Checked module value facts used by the ordinary callable body checker.
     pub module_values: Option<crate::module_bindings::ModuleValueEnvironment<'a>>,
+    pub semantic_linked: Option<&'a phalcom_modules::linker::SemanticLinkedProgram>,
 }
 
 pub struct HierarchyEdgeQueryInputs<'a> {
@@ -782,7 +783,10 @@ pub fn query_hierarchy_edge(
     let (super_decl, captured_dependencies) = if let Some(class_def) = class_def {
         crate::checker::context::resolve_source_class_superclass(&class_decl, class_def, resolver)
     } else {
-        (Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object)), BTreeSet::new())
+        (
+            Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object)),
+            BTreeSet::new(),
+        )
     };
     let input_fingerprint = if let Some(class_def) = class_def {
         crate::db::fingerprint::hierarchy_edge_input_fingerprint(&class_decl, superclass_source(&unit, class_def), &super_decl)
@@ -1345,10 +1349,7 @@ pub fn query_static_constant(
         _ => {}
     }
     let key = QueryKey::StaticConstant(product.id.clone());
-    let input_fingerprint = product.checked.as_ref().map_or(
-        crate::db::key::InputFingerprint(0),
-        |c| c.input_fingerprint,
-    );
+    let input_fingerprint = product.checked.as_ref().map_or(crate::db::key::InputFingerprint(0), |c| c.input_fingerprint);
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(cached) = db.product(&key).and_then(|value| value.as_static_constant()) {
             db.metrics().record_hit();
@@ -1404,12 +1405,7 @@ pub fn query_static_constant(
         }
     }
     let dependencies = recorder.finish();
-    let product_fingerprint = match crate::db::fingerprint::static_constant_product_fingerprint(
-        &product,
-        value_store,
-        type_store,
-        &inputs.linked.universe,
-    ) {
+    let product_fingerprint = match crate::db::fingerprint::static_constant_product_fingerprint(&product, value_store, type_store, &inputs.linked.universe) {
         Ok(fingerprint) => fingerprint,
         Err(error) => return query_failure(db, key, error),
     };
@@ -2406,9 +2402,7 @@ pub(crate) fn refresh_generic_conformance_root(
     let proof = crate::generic_evidence::prove_conformance_with_context(key, &mut proof_context);
     let proof_fingerprint = generic_conformance_proof_fingerprint(key, &proof);
 
-    if db.validate_reuse(&query_key, input_fingerprint)
-        && db.ready_product_fingerprint(&query_key) == Some(proof_fingerprint)
-    {
+    if db.validate_reuse(&query_key, input_fingerprint) && db.ready_product_fingerprint(&query_key) == Some(proof_fingerprint) {
         return QueryOutcome::Ready(());
     }
 
@@ -2507,12 +2501,12 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     if let Some(class_def) = class_def
         && let Some(owner) = unavailable_computed_signature_owner(db, &decl_id, class_def, field_signatures, callable_signatures)
     {
-        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(owner));
+        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(Box::new(owner)));
     }
     let (input_fingerprint, signature_diagnostics) = if let Some(class_def) = class_def {
         let signature_diagnostics = match declaration_signature_owner_diagnostics(db, &decl_id, class_def, field_signatures, callable_signatures) {
             Ok(diagnostics) => diagnostics,
-            Err(owner) => return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(owner)),
+            Err(owner) => return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(Box::new(owner))),
         };
         let input_fingerprint = crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def);
         (
@@ -2789,7 +2783,7 @@ pub fn query_callable_signature_with_inputs(
         && record_key_projections.is_none()
         && callable_source_has_computed_record_key(&unit, &callable, effective_definition.as_deref())
     {
-        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(key));
+        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(Box::new(key)));
     }
     let projected_resolver = match signature_projection_resolver(resolver, record_key_projections, &key) {
         Ok(projected_resolver) => projected_resolver,
@@ -3081,7 +3075,7 @@ pub fn query_field_signature_with_inputs(
             .as_ref()
             .is_some_and(crate::checker::declaration_signature::annotation_has_computed_record_key)
     {
-        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(key));
+        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(Box::new(key)));
     }
 
     let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, field.owner.module.clone());
@@ -3576,6 +3570,199 @@ pub fn query_callable_body_with_formal_inputs(db: &mut SemanticDb, query: Callab
     query_callable_body_with_requirement(db, query, CallableBodySignatureRequirement::Required)
 }
 
+/// Evaluates or retrieves one context-aware executable attribute argument.
+/// The dedicated key prevents attribute evidence from replacing an owner's
+/// ordinary body analysis.
+pub fn query_attribute_argument(
+    db: &mut SemanticDb,
+    id: crate::attribute_analysis::AttributeArgumentId,
+    query: CallableBodyQuery<'_>,
+    attribute_context: crate::attribute_analysis::AttributeAnalysisContext,
+) -> QueryOutcome<Arc<crate::attribute_analysis::AttributeArgumentAnalysis>> {
+    let CallableBodyQuery {
+        callable,
+        body,
+        body_range,
+        declared_signature,
+        owner_generic_signature,
+        receiver_value_override,
+        instance_self_override,
+        trait_surface,
+        store,
+        hierarchy,
+        resolver,
+        declarations,
+        dispatch,
+        module,
+        budget,
+        cancel,
+        formal_inputs,
+    } = query;
+    let key = QueryKey::AttributeArgument(id.clone());
+    let Some(inputs) = formal_inputs else {
+        return query_failure(db, key, "attribute argument analysis requires current formal inputs");
+    };
+    let body_input = crate::db::fingerprint::callable_body_input_fingerprint_with_formal_inputs(
+        &callable,
+        body,
+        body_range,
+        store,
+        crate::db::fingerprint::CallableBodyFormalInputFingerprint {
+            sources: inputs.sources,
+            source_resolution_input: inputs.source_resolution_input,
+            linked_component_product: inputs.linked_component_product,
+            lifecycle: inputs.field_lifecycle,
+            owner_generic_signature,
+            declared_signature: declared_signature.map(|(_, signature)| signature),
+            instance_self_override,
+            trait_surface,
+            conformance_semantics: inputs.conformance_semantics,
+            has_module_value_environment: inputs.module_values.is_some(),
+        },
+    );
+    let mut input_hasher = DefaultHasher::new();
+    id.hash(&mut input_hasher);
+    attribute_context.hash(&mut input_hasher);
+    body_input.hash(&mut input_hasher);
+    let input_fingerprint = InputFingerprint::new(input_hasher.finish());
+
+    match ensure_cached_formal_semantic_dependencies_current(db, &key, inputs, store) {
+        QueryOutcome::Ready(()) => {}
+        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+    }
+    if db.validate_reuse(&key, input_fingerprint)
+        && let Some(cached) = db.product(&key).and_then(|product| product.as_attribute_argument())
+    {
+        db.metrics().record_hit();
+        return QueryOutcome::Ready(cached.clone());
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+
+    let analysis = crate::checker::body::analyze_attribute_argument(
+        crate::checker::body::BodyAnalysisContext {
+            store,
+            hierarchy,
+            resolver,
+            declarations,
+            dispatch,
+            trait_surface,
+            conformance_semantics: inputs.conformance_semantics,
+            module_values: inputs.module_values,
+            linked_module: inputs.linked.modules.get(&module),
+            semantic_linked_module: inputs.semantic_linked.and_then(|semantic| semantic.modules.get(&module)),
+            module: module.clone(),
+            caller_package: Some(inputs.topology.owning_package(&module)),
+            access_topology: Some(inputs.topology),
+        },
+        crate::checker::body::CallableBodyRequest {
+            callable,
+            body,
+            body_range,
+            owner_generic_signature,
+            receiver_value_override,
+            instance_self_override,
+            declared_signature,
+            budget,
+            cancel,
+            field_signatures: inputs.field_signatures,
+            field_lifecycle: inputs.field_lifecycle,
+            constructor_initializations: inputs.constructor_initializations,
+            callable_signatures: inputs.callable_signatures,
+            enum_semantics: inputs.enum_semantics,
+            data_semantics: inputs.data_semantics,
+            associated_families: inputs.associated_families,
+            conformance_semantics: inputs.conformance_semantics,
+        },
+        attribute_context,
+    );
+    let product_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
+    let mut full_product_hasher = DefaultHasher::new();
+    id.hash(&mut full_product_hasher);
+    product_fingerprint.hash(&mut full_product_hasher);
+    let product_fingerprint = ProductFingerprint::new(full_product_hasher.finish());
+    let product = Arc::new(crate::attribute_analysis::AttributeArgumentAnalysis {
+        id: id.clone(),
+        analysis: Arc::new(analysis),
+    });
+
+    match product.analysis.status {
+        CallableAnalysisStatus::Cancelled => {
+            db.metrics().record_cancellation();
+            db.set_state(key, QueryState::Cancelled { revision: db.revision() });
+            QueryOutcome::Cancelled
+        }
+        CallableAnalysisStatus::BudgetExceeded => {
+            let report = crate::db::budget::BudgetReport::new(crate::db::budget::BudgetKind::Steps, budget.max_steps, budget.max_steps);
+            db.metrics().record_budget_exhaustion();
+            db.set_state(
+                key,
+                QueryState::BudgetExceeded {
+                    revision: db.revision(),
+                    report: report.clone(),
+                },
+            );
+            QueryOutcome::BudgetExceeded(report)
+        }
+        CallableAnalysisStatus::Blocked => {
+            let reason = BlockReason::SuppressedDependency;
+            db.set_state(
+                key,
+                QueryState::Blocked {
+                    revision: db.revision(),
+                    reason: reason.clone(),
+                },
+            );
+            QueryOutcome::Blocked(reason)
+        }
+        CallableAnalysisStatus::Complete | CallableAnalysisStatus::Partial | CallableAnalysisStatus::InternalFailure(_) => {
+            let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+            for semantic_dependency in product.analysis.semantic_dependencies.iter() {
+                match ensure_formal_semantic_dependency_current(db, semantic_dependency, inputs, store) {
+                    QueryOutcome::Ready(()) => {}
+                    QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+                    QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+                    QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+                    QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+                }
+                let dependency = semantic_dependency_query_key(semantic_dependency);
+                if dependency == key {
+                    return query_failure(db, key, "attribute argument captured a self-dependency");
+                }
+                if let crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) = semantic_dependency {
+                    let Some(fingerprint) = inputs.conformance_semantics.and_then(|view| view.fingerprint_for(impl_id)) else {
+                        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+                    };
+                    recorder.record(dependency, fingerprint);
+                } else if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket) = semantic_dependency {
+                    let Some(fingerprint) = inputs.conformance_semantics.map(|view| view.bucket_fingerprint(bucket)) else {
+                        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+                    };
+                    recorder.record(dependency, fingerprint);
+                } else if let Err(error) = db.record_dependency(&mut recorder, dependency) {
+                    return query_failure(db, key, error);
+                }
+            }
+            if let Err(error) = publish_current_product(
+                db,
+                key.clone(),
+                input_fingerprint,
+                product_fingerprint,
+                SemanticProduct::AttributeArgument(product.clone()),
+                recorder.finish(),
+            ) {
+                return query_failure(db, key, error);
+            }
+            QueryOutcome::Ready(product)
+        }
+    }
+}
+
 fn query_callable_body_with_requirement(
     db: &mut SemanticDb,
     query: CallableBodyQuery<'_>,
@@ -3722,6 +3909,7 @@ fn query_callable_body_with_requirement(
             conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
             module_values: formal_inputs.and_then(|inputs| inputs.module_values),
             linked_module: formal_inputs.and_then(|inputs| inputs.linked.modules.get(&module)),
+            semantic_linked_module: formal_inputs.and_then(|inputs| inputs.semantic_linked.and_then(|sl| sl.modules.get(&module))),
             module,
             caller_package,
             access_topology: formal_inputs.map(|inputs| inputs.topology),

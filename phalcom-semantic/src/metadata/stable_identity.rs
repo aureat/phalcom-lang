@@ -16,13 +16,19 @@ pub struct StableIdentityContext<'a> {
 
 impl<'a> StableIdentityContext<'a> {
     pub fn new(projects: &'a ProjectUniverse) -> Self {
-        Self { projects, query_fingerprint: false }
+        Self {
+            projects,
+            query_fingerprint: false,
+        }
     }
 
     /// Uses logical project identity for in-process query fingerprints. Unlike
     /// artifact identities, it does not change for an unrelated source edit.
     pub fn for_query(projects: &'a ProjectUniverse) -> Self {
-        Self { projects, query_fingerprint: true }
+        Self {
+            projects,
+            query_fingerprint: true,
+        }
     }
 }
 
@@ -176,9 +182,7 @@ pub fn to_stable_static_constant_with_context(
     }
 }
 
-pub fn to_stable_static_constant(
-    id: &crate::static_constant::StaticConstantId,
-) -> phalcom_type_meta::identity::StableStaticConstantRef {
+pub fn to_stable_static_constant(id: &crate::static_constant::StaticConstantId) -> phalcom_type_meta::identity::StableStaticConstantRef {
     phalcom_type_meta::identity::StableStaticConstantRef {
         module: to_stable_module(&id.0.module),
         name: id.0.name.to_string().into_boxed_str(),
@@ -195,9 +199,7 @@ pub fn to_stable_variant_with_context(
     }
 }
 
-pub fn to_stable_variant(
-    variant: &crate::identity::VariantId,
-) -> phalcom_type_meta::identity::StableVariantRef {
+pub fn to_stable_variant(variant: &crate::identity::VariantId) -> phalcom_type_meta::identity::StableVariantRef {
     phalcom_type_meta::identity::StableVariantRef {
         owner: to_stable_declaration(&variant.owner),
         selector: variant.selector.encode().into_boxed_str(),
@@ -214,9 +216,7 @@ pub fn to_stable_variant_field_with_context(
     }
 }
 
-pub fn to_stable_variant_field(
-    field: &crate::identity::VariantFieldId,
-) -> phalcom_type_meta::identity::StableVariantFieldRef {
+pub fn to_stable_variant_field(field: &crate::identity::VariantFieldId) -> phalcom_type_meta::identity::StableVariantFieldRef {
     phalcom_type_meta::identity::StableVariantFieldRef {
         variant: to_stable_variant(&field.variant),
         index: field.index,
@@ -233,9 +233,7 @@ pub fn to_stable_data_component_with_context(
     }
 }
 
-pub fn to_stable_data_component(
-    comp: &crate::identity::DataComponentId,
-) -> phalcom_type_meta::identity::StableDataComponentRef {
+pub fn to_stable_data_component(comp: &crate::identity::DataComponentId) -> phalcom_type_meta::identity::StableDataComponentRef {
     phalcom_type_meta::identity::StableDataComponentRef {
         owner: to_stable_declaration(&comp.owner),
         index: comp.index,

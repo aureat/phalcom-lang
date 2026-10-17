@@ -7,3 +7,6 @@ count: 1
 count: 2
 pair: 0, 0
 pair: 1, 10
+annotated: 0
+annotated: 1
+annotated: 2

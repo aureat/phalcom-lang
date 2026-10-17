@@ -652,61 +652,61 @@ fn row_proof_state(
     term: &InferenceTerm,
     solution: Option<&RecordRowSolution<InferenceTerm>>,
 ) -> super::inference::InferenceProofState {
-        fn visit_row(
-            proofs: &std::collections::HashMap<RecordRowVarId, super::inference::InferenceProofState>,
-            type_session: &super::inference::InferenceSession,
-            variable: RecordRowVarId,
-            solution: Option<&RecordRowSolution<InferenceTerm>>,
-            visiting: &mut HashSet<RecordRowVarId>,
-        ) -> super::inference::InferenceProofState {
-            use super::inference::InferenceProofState;
-            if !visiting.insert(variable) {
-                return InferenceProofState::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked);
-            }
-            let Some(solution) = solution else {
-                visiting.remove(&variable);
-                return proofs
-                    .get(&variable)
-                    .cloned()
-                    .unwrap_or(InferenceProofState::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked));
-            };
-            let Some(row) = solution.term_for(variable) else {
-                visiting.remove(&variable);
-                return proofs
-                    .get(&variable)
-                    .cloned()
-                    .unwrap_or(InferenceProofState::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked));
-            };
-            let mut proof = proofs.get(&variable).cloned().unwrap_or_else(|| {
-                if row.fields.is_empty() && row.tail == RecordRowTermTail::Closed {
-                    InferenceProofState::Established
-                } else {
-                    InferenceProofState::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence)
-                }
-            });
-            let mut nested = HashSet::new();
-            for field in row.fields.iter() {
-                proof = proof.meet(type_session.proof_state_for_term(&field.ty));
-                row_variables_in_term(&field.ty, &mut nested);
-            }
-            if let RecordRowTermTail::Var(tail) = row.tail {
-                nested.insert(tail);
-            }
-            for dependency in nested {
-                proof = proof.meet(visit_row(proofs, type_session, dependency, Some(solution), visiting));
-            }
+    fn visit_row(
+        proofs: &std::collections::HashMap<RecordRowVarId, super::inference::InferenceProofState>,
+        type_session: &super::inference::InferenceSession,
+        variable: RecordRowVarId,
+        solution: Option<&RecordRowSolution<InferenceTerm>>,
+        visiting: &mut HashSet<RecordRowVarId>,
+    ) -> super::inference::InferenceProofState {
+        use super::inference::InferenceProofState;
+        if !visiting.insert(variable) {
+            return InferenceProofState::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked);
+        }
+        let Some(solution) = solution else {
             visiting.remove(&variable);
-            proof
+            return proofs
+                .get(&variable)
+                .cloned()
+                .unwrap_or(InferenceProofState::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked));
+        };
+        let Some(row) = solution.term_for(variable) else {
+            visiting.remove(&variable);
+            return proofs
+                .get(&variable)
+                .cloned()
+                .unwrap_or(InferenceProofState::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked));
+        };
+        let mut proof = proofs.get(&variable).cloned().unwrap_or_else(|| {
+            if row.fields.is_empty() && row.tail == RecordRowTermTail::Closed {
+                InferenceProofState::Established
+            } else {
+                InferenceProofState::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence)
+            }
+        });
+        let mut nested = HashSet::new();
+        for field in row.fields.iter() {
+            proof = proof.meet(type_session.proof_state_for_term(&field.ty));
+            row_variables_in_term(&field.ty, &mut nested);
         }
-
-        let mut variables = HashSet::new();
-        row_variables_in_term(term, &mut variables);
-        let mut proof = type_session.proof_state_for_term(term);
-        let mut visiting = HashSet::new();
-        for variable in variables {
-            proof = proof.meet(visit_row(proofs, type_session, variable, solution, &mut visiting));
+        if let RecordRowTermTail::Var(tail) = row.tail {
+            nested.insert(tail);
         }
+        for dependency in nested {
+            proof = proof.meet(visit_row(proofs, type_session, dependency, Some(solution), visiting));
+        }
+        visiting.remove(&variable);
         proof
+    }
+
+    let mut variables = HashSet::new();
+    row_variables_in_term(term, &mut variables);
+    let mut proof = type_session.proof_state_for_term(term);
+    let mut visiting = HashSet::new();
+    for variable in variables {
+        proof = proof.meet(visit_row(proofs, type_session, variable, solution, &mut visiting));
+    }
+    proof
 }
 
 fn query_instantiation(
@@ -716,28 +716,28 @@ fn query_instantiation(
     row_solution: &RecordRowSolution<InferenceTerm>,
     store: &mut TypeStore,
 ) -> Result<GenericInstantiation, CombinedInferenceFailure<InferenceTerm>> {
-        let mut result = GenericInstantiation::default();
-        for (&parameter, binding) in bindings {
-            match binding {
-                GenericInferenceBinding::Type(_) | GenericInferenceBinding::FixedType(_) | GenericInferenceBinding::UntrackedType => {
-                    let Some(term) = type_terms.get(&parameter) else {
-                        return Err(CombinedInferenceFailure::UnderconstrainedType(parameter));
-                    };
-                    let ty = session
-                        .materialize(term, store)
-                        .map_err(|_| CombinedInferenceFailure::UnderconstrainedType(parameter))?;
-                    result.bind_type(parameter, ty);
-                }
-                GenericInferenceBinding::RecordRow(variable) => {
-                    let Some(term) = row_solution.term_for(*variable) else {
-                        return Err(CombinedInferenceFailure::UnderconstrainedRow(parameter));
-                    };
-                    let row = materialize_query_row_term(session, row_solution, term, parameter, store, &mut HashSet::new())?;
-                    result.bind_row(parameter, row);
-                }
+    let mut result = GenericInstantiation::default();
+    for (&parameter, binding) in bindings {
+        match binding {
+            GenericInferenceBinding::Type(_) | GenericInferenceBinding::FixedType(_) | GenericInferenceBinding::UntrackedType => {
+                let Some(term) = type_terms.get(&parameter) else {
+                    return Err(CombinedInferenceFailure::UnderconstrainedType(parameter));
+                };
+                let ty = session
+                    .materialize(term, store)
+                    .map_err(|_| CombinedInferenceFailure::UnderconstrainedType(parameter))?;
+                result.bind_type(parameter, ty);
+            }
+            GenericInferenceBinding::RecordRow(variable) => {
+                let Some(term) = row_solution.term_for(*variable) else {
+                    return Err(CombinedInferenceFailure::UnderconstrainedRow(parameter));
+                };
+                let row = materialize_query_row_term(session, row_solution, term, parameter, store, &mut HashSet::new())?;
+                result.bind_row(parameter, row);
             }
         }
-        Ok(result)
+    }
+    Ok(result)
 }
 
 /// Owned premises only: equations and solver identities stay in the coordinator.
@@ -749,19 +749,39 @@ pub(crate) struct QueryRowRequirements {
 }
 
 impl QueryRowRequirements {
-    pub fn solve(&self, coordinator: &super::inference::InferenceCoordinator, budget: &mut QueryBudget, cancellation: &CancellationToken) -> RecordRowSolveResult<InferenceTerm> {
-        let roots = self.bindings.values().filter_map(|binding| match binding {
-            GenericInferenceBinding::RecordRow(variable) => Some(*variable),
-            _ => None,
-        }).collect::<Vec<_>>();
+    pub fn solve(
+        &self,
+        coordinator: &super::inference::InferenceCoordinator,
+        budget: &mut QueryBudget,
+        cancellation: &CancellationToken,
+    ) -> RecordRowSolveResult<InferenceTerm> {
+        let roots = self
+            .bindings
+            .values()
+            .filter_map(|binding| match binding {
+                GenericInferenceBinding::RecordRow(variable) => Some(*variable),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
         coordinator.row_solution_for_roots(self.frame, &roots, budget, cancellation)
     }
 
-    pub fn proof(&self, session: &super::inference::InferenceSession, term: &InferenceTerm, solution: &RecordRowSolution<InferenceTerm>) -> super::inference::InferenceProofState {
+    pub fn proof(
+        &self,
+        session: &super::inference::InferenceSession,
+        term: &InferenceTerm,
+        solution: &RecordRowSolution<InferenceTerm>,
+    ) -> super::inference::InferenceProofState {
         row_proof_state(&self.proofs, session, term, Some(solution))
     }
 
-    pub fn materialize(&self, session: &super::inference::InferenceSession, terms: &std::collections::HashMap<TypeParameterId, InferenceTerm>, solution: &RecordRowSolution<InferenceTerm>, store: &mut TypeStore) -> Result<GenericInstantiation, CombinedInferenceFailure<InferenceTerm>> {
+    pub fn materialize(
+        &self,
+        session: &super::inference::InferenceSession,
+        terms: &std::collections::HashMap<TypeParameterId, InferenceTerm>,
+        solution: &RecordRowSolution<InferenceTerm>,
+        store: &mut TypeStore,
+    ) -> Result<GenericInstantiation, CombinedInferenceFailure<InferenceTerm>> {
         query_instantiation(&self.bindings, session, terms, solution, store)
     }
 }

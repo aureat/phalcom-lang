@@ -1,10 +1,10 @@
 use crate::identity::ModuleId;
+use crate::session::SemanticUpdateFailure;
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
-use crate::session::SemanticUpdateFailure;
 use phalcom_ast::ast::Program;
 use phalcom_modules::interface::InterfaceBuilder;
-use phalcom_modules::linker::LinkedProgram;
+use phalcom_modules::linker::{LinkedProgram, SemanticLinkedProgram};
 use phalcom_modules::source::ModuleKind;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -15,6 +15,10 @@ use phalcom_modules::diagnostic::ModuleDiagnostic;
 #[derive(Clone, Debug)]
 pub struct SemanticWorkspaceInput {
     pub linked: Arc<LinkedProgram>,
+    /// Symbolic import authority used by semantic resolution. During the
+    /// migration this is optional for compatibility callers; production
+    /// compilation supplies it before executable finalization.
+    pub semantic_linked: Option<Arc<SemanticLinkedProgram>>,
     pub sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     pub interfaces: Arc<BTreeMap<ModuleId, Arc<phalcom_modules::interface::UnlinkedModuleInterface>>>,
     /// Exact canonical import products. Production module-session updates
@@ -28,6 +32,9 @@ pub struct SemanticWorkspaceInput {
     /// Production module updates require canonical import products; direct
     /// source-index compatibility callers may retain path-map fallback.
     pub require_canonical_import_products: bool,
+    /// Runtime mode used to project mode-specific attribute requirements.
+    /// Semantic diagnostics are produced in every mode.
+    pub attribute_execution_mode: crate::attribute_analysis::AttributeExecutionMode,
     pub diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
     pub blocked_modules: BTreeSet<ModuleId>,
     pub generation: u64,
@@ -55,12 +62,14 @@ impl SemanticWorkspaceInput {
         ));
         Self {
             linked,
+            semantic_linked: None,
             sources,
             interfaces: Arc::new(BTreeMap::new()),
             import_products: Arc::new(BTreeMap::new()),
             module_graph_changed: false,
             import_sites_by_module: Arc::new(BTreeMap::new()),
             require_canonical_import_products: false,
+            attribute_execution_mode: crate::attribute_analysis::AttributeExecutionMode::Debug,
             diagnostics: BTreeMap::new(),
             blocked_modules: BTreeSet::new(),
             generation,
@@ -71,6 +80,11 @@ impl SemanticWorkspaceInput {
 
     pub fn with_topology(mut self, topology: Arc<phalcom_modules::topology::ModuleTopology>) -> Self {
         self.topology = Some(topology);
+        self
+    }
+
+    pub fn with_semantic_linked(mut self, semantic_linked: Arc<SemanticLinkedProgram>) -> Self {
+        self.semantic_linked = Some(semantic_linked);
         self
     }
 
@@ -102,6 +116,12 @@ impl SemanticWorkspaceInput {
         self
     }
 
+    /// Sets the runtime mode used to project retained attribute semantics.
+    pub fn with_attribute_execution_mode(mut self, mode: crate::attribute_analysis::AttributeExecutionMode) -> Self {
+        self.attribute_execution_mode = mode;
+        self
+    }
+
     pub fn with_diagnostics(mut self, diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>) -> Self {
         self.diagnostics = diagnostics;
         self
@@ -126,12 +146,18 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> Result<SemanticAnalys
     Ok(SemanticAnalysis { snapshot: update.snapshot })
 }
 
+/// Fallible workspace analysis entry point for executable and service consumers.
+pub fn try_analyze_workspace(input: SemanticWorkspaceInput) -> Result<SemanticAnalysis, SemanticUpdateFailure> {
+    analyze_workspace(input)
+}
+
 /// Convenience helper to analyze a single module as a standalone workspace.
-pub fn analyze_single_module(
-    module: ModuleId,
-    source: Arc<str>,
-    program: Arc<Program>,
-) -> Result<SemanticAnalysis, SemanticUpdateFailure> {
+pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Program>) -> Result<SemanticAnalysis, SemanticUpdateFailure> {
+    try_analyze_single_module(module, source, program)
+}
+
+/// Fallible single-module analysis that preserves interface and linking failures.
+pub fn try_analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Program>) -> Result<SemanticAnalysis, SemanticUpdateFailure> {
     let unlinked = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program)
         .map_err(|error| SemanticUpdateFailure::Failed(format!("single-module interface construction failed: {error}")))?;
 
@@ -154,13 +180,15 @@ pub fn analyze_single_module(
     let mut input_interfaces = BTreeMap::new();
     input_interfaces.insert(module, Arc::new(unlinked));
 
-    analyze_workspace(SemanticWorkspaceInput {
+    try_analyze_workspace(SemanticWorkspaceInput {
         linked,
+        semantic_linked: None,
         sources,
         interfaces: Arc::new(input_interfaces),
         import_products: Arc::new(BTreeMap::new()),
         import_sites_by_module: Arc::new(BTreeMap::new()),
         require_canonical_import_products: false,
+        attribute_execution_mode: crate::attribute_analysis::AttributeExecutionMode::Debug,
         diagnostics: BTreeMap::new(),
         blocked_modules: BTreeSet::new(),
         generation: 0,

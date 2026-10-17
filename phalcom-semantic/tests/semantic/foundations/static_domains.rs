@@ -254,12 +254,12 @@ fn static_domain_rejects_unsaturated_and_invalid() {
 #[test]
 fn type_member_domain_adapter_round_trip() {
     let kind_domain = StaticValueDomain::Kind(KindId::TYPE);
-    let member_domain: TypeMemberDomain = kind_domain.try_into().expect("kind converts to TypeMemberDomain");
+    let member_domain: TypeMemberDomain = kind_domain.into();
     assert_eq!(member_domain, TypeMemberDomain::Kind(KindId::TYPE));
     assert_eq!(member_domain.to_static_value_domain(), kind_domain);
 
     let int_domain = StaticValueDomain::ValueType(phalcom_semantic::types::id::TypeId(42));
-    let member_int: TypeMemberDomain = int_domain.try_into().expect("value type converts to TypeMemberDomain");
+    let member_int: TypeMemberDomain = int_domain.into();
     assert_eq!(member_int, TypeMemberDomain::ValueType(phalcom_semantic::types::id::TypeId(42)));
     assert_eq!(member_int.to_static_value_domain(), int_domain);
     assert_eq!(int_domain.to_type_member_domain(), Some(member_int));

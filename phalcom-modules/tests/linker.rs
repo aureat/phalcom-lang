@@ -1,7 +1,9 @@
 use phalcom_ast::parser::parse;
 use phalcom_modules::{
-    ImportBindingId, InterfaceBuilder, LinkError, LinkedReadSpec, ModuleComponent, ModuleDiagnostic, ModuleDiagnosticKind, ModuleId, ModuleKind, ModuleLinker,
-    ModulePath, ProjectUniverse, ResolvedProjectId, SymbolId, UnlinkedModuleInterface,
+    AvailabilityAuthority, AvailabilityContract, AvailabilityProof, DependencyPhase, ImportBindingId, ImportPhaseSummary, InterfaceBuilder, LinkError,
+    LinkedReadSpec, ModuleComponent, ModuleDiagnostic, ModuleDiagnosticKind, ModuleId, ModuleImportPhaseProduct, ModuleKind, ModuleLinker, ModulePath,
+    PhaseEvidenceCoverage, ProjectUniverse, ResolvedProjectId, RuntimeDependencyReason, RuntimeDependencyRequirement, RuntimeRequirementProducer,
+    RuntimeRequirementProduct, RuntimeRequirementProvenance, RuntimeRequirementTarget, RuntimeRequirementTiming, SymbolId, UnlinkedModuleInterface,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -24,6 +26,47 @@ fn interfaces(sources: &[(ModuleId, &str)]) -> BTreeMap<ModuleId, UnlinkedModule
         .collect()
 }
 
+fn requirement(
+    importer: &ModuleId,
+    dependency: &ModuleId,
+    read_target: Option<LinkedReadSpec>,
+    producer: RuntimeRequirementProducer,
+    product: RuntimeRequirementProduct,
+    timing: RuntimeRequirementTiming,
+) -> RuntimeDependencyRequirement {
+    let target = match read_target.as_ref() {
+        Some(LinkedReadSpec::Module(module)) => RuntimeRequirementTarget::Module(module.clone()),
+        Some(LinkedReadSpec::Binding(symbol)) => RuntimeRequirementTarget::Binding {
+            module: symbol.module.clone(),
+            name: symbol.name.clone(),
+        },
+        None => RuntimeRequirementTarget::Module(dependency.clone()),
+    };
+    RuntimeDependencyRequirement {
+        importer: importer.clone(),
+        dependency: dependency.clone(),
+        range: Default::default(),
+        reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+        read_target,
+        provenance: RuntimeRequirementProvenance {
+            consumer: importer.clone(),
+            producer,
+            target,
+            product,
+            timing,
+        },
+    }
+}
+
+fn proof(target: RuntimeRequirementTarget, product: RuntimeRequirementProduct, authority: AvailabilityAuthority) -> AvailabilityProof {
+    AvailabilityProof {
+        target,
+        product,
+        authority,
+        available_at: RuntimeRequirementTiming::BeforeSourceExecution,
+    }
+}
+
 /// LINK-01 — Selective import of exported name succeeds and produces LinkedReadSpec::Binding
 #[test]
 fn link_01_selective_import_produces_binding() {
@@ -43,6 +86,535 @@ fn link_01_selective_import_produces_binding() {
     };
     assert_eq!(linked.modules[&importer].linked_reads, vec![LinkedReadSpec::Binding(expected_symbol)]);
     assert_eq!(linked.modules[&importer].bindings.imports["Exported"], ImportBindingId(0));
+}
+
+#[test]
+fn semantic_link_preserves_item_identity_without_executable_slots() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let iface_map = interfaces(&[
+        (exporter.clone(), "class First {}\nclass Second {}\nexport First\nexport Second\n"),
+        (importer.clone(), "from .exporter import First as One, Second\n"),
+    ]);
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter.clone())]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+
+    let linked = linker.link_semantic(importer.clone(), &resolved).expect("symbolic link should succeed");
+    let module = &linked.modules[&importer];
+    let one = module.imports.by_local_name.get("One").expect("alias should be symbolically resolvable");
+    let second = module
+        .imports
+        .by_local_name
+        .get("Second")
+        .expect("second item should be symbolically resolvable");
+
+    assert_ne!(one, second);
+    assert_eq!(one.site, second.site);
+    assert_eq!(one.local.0, 0);
+    assert_eq!(second.local.0, 1);
+    assert_eq!(
+        module.imports.bindings[one].target,
+        phalcom_modules::SymbolicImportTarget::Binding(SymbolId {
+            module: exporter.clone(),
+            name: "First".into(),
+        })
+    );
+    assert_eq!(
+        module.imports.bindings[second].target,
+        phalcom_modules::SymbolicImportTarget::Binding(SymbolId {
+            module: exporter,
+            name: "Second".into(),
+        })
+    );
+
+    let unfinalized = linked.to_unfinalized_program();
+    assert_eq!(unfinalized.modules[&importer].linked_reads.len(), 2);
+    assert!(unfinalized.initialization_order.is_empty());
+}
+
+#[test]
+fn semantic_link_resolves_a_cycle_before_executable_validation() {
+    let a = module("a");
+    let b = module("b");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[
+            (a.clone(), "from .b import B\nclass A {}\nexport A\n"),
+            (b.clone(), "from .a import A\nclass B {}\nexport B\n"),
+        ]),
+    );
+    let resolved = BTreeMap::from([((a.clone(), ".b".to_string()), b.clone()), ((b.clone(), ".a".to_string()), a.clone())]);
+    let symbolic = linker.link_semantic(a.clone(), &resolved).expect("symbolic cycles are not runtime cycles");
+    assert_eq!(
+        symbolic.modules[&a].imports.get("B").unwrap().target,
+        phalcom_modules::SymbolicImportTarget::Binding(SymbolId { module: b, name: "B".into() })
+    );
+    assert!(matches!(linker.link_all(a, &resolved), Err(LinkError::RuntimeCycle(_))));
+}
+
+#[test]
+fn finalization_omits_proven_interface_import_and_keeps_unknown_runtime() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[
+            (exporter.clone(), "class TypeOnly {}\nclass Unknown {}\nexport TypeOnly\nexport Unknown\n"),
+            (importer.clone(), "from .exporter import TypeOnly, Unknown\n"),
+        ]),
+    );
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter)]);
+    let semantic = linker.link_semantic(importer.clone(), &resolved).expect("symbolic link should succeed");
+    let type_only = semantic.modules[&importer].imports.by_local_name["TypeOnly"].clone();
+    let unknown = semantic.modules[&importer].imports.by_local_name["Unknown"].clone();
+    let phase = ModuleImportPhaseProduct {
+        module: importer.clone(),
+        bindings: BTreeMap::from([(
+            type_only,
+            ImportPhaseSummary {
+                phase: DependencyPhase::InterfaceOnly,
+                observed: true,
+            },
+        )]),
+        coverage: PhaseEvidenceCoverage::Complete,
+    };
+    let executable = linker
+        .finalize_executable(semantic, &BTreeMap::from([(importer.clone(), phase)]))
+        .expect("runtime projection should succeed");
+    let linked = executable.as_program();
+    assert!(!linked.modules[&importer].bindings.imports.contains_key("TypeOnly"));
+    assert!(linked.modules[&importer].bindings.imports.contains_key("Unknown"));
+    assert_eq!(linked.modules[&importer].linked_reads.len(), 1);
+    assert_eq!(unknown.local.0, 1);
+}
+
+#[test]
+fn finalization_includes_generated_runtime_requirements() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[
+            (exporter.clone(), "class TypeOnly {}\nexport TypeOnly\n"),
+            (importer.clone(), "from .exporter import TypeOnly\n"),
+        ]),
+    );
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter.clone())]);
+    let semantic = linker.link_semantic(importer.clone(), &resolved).expect("symbolic link should succeed");
+    let type_only = semantic.modules[&importer].imports.by_local_name["TypeOnly"].clone();
+    let phase = ModuleImportPhaseProduct {
+        module: importer.clone(),
+        bindings: BTreeMap::from([(
+            type_only,
+            ImportPhaseSummary {
+                phase: DependencyPhase::InterfaceOnly,
+                observed: true,
+            },
+        )]),
+        coverage: PhaseEvidenceCoverage::Complete,
+    };
+    let requirement = RuntimeDependencyRequirement {
+        importer: importer.clone(),
+        dependency: exporter.clone(),
+        range: Default::default(),
+        reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+        read_target: Some(LinkedReadSpec::Binding(SymbolId {
+            module: exporter.clone(),
+            name: "TypeOnly".into(),
+        })),
+        provenance: RuntimeRequirementProvenance {
+            consumer: importer.clone(),
+            producer: RuntimeRequirementProducer::DeclarationRead,
+            target: RuntimeRequirementTarget::Binding {
+                module: exporter.clone(),
+                name: "TypeOnly".into(),
+            },
+            product: RuntimeRequirementProduct::RuntimeObject,
+            timing: RuntimeRequirementTiming::DuringModuleInitializer,
+        },
+    };
+
+    let executable = linker
+        .finalize_executable_with_requirements(semantic, &BTreeMap::from([(importer.clone(), phase)]), &[requirement])
+        .expect("generated runtime requirement should be finalized");
+    let program = executable.as_program();
+    assert!(!program.modules[&importer].bindings.imports.contains_key("TypeOnly"));
+    assert_eq!(program.modules[&importer].runtime_dependencies, vec![exporter.clone()]);
+    assert!(
+        program
+            .graphs
+            .runtime
+            .edges_from(&importer)
+            .iter()
+            .any(|edge| { edge.reason == RuntimeDependencyReason::RuntimeDeclarationReference && edge.dependency == exporter })
+    );
+    assert_eq!(
+        executable.runtime_read(
+            &importer,
+            &LinkedReadSpec::Binding(SymbolId {
+                module: exporter.clone(),
+                name: "TypeOnly".into(),
+            })
+        ),
+        Some(ImportBindingId(0)),
+        "generated canonical read must receive a finalized immutable slot"
+    );
+}
+
+#[test]
+fn exact_availability_proof_removes_edge_but_keeps_canonical_read_slot() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[(exporter.clone(), "class TypeOnly {}\n"), (importer.clone(), "class Consumer {}\n")]),
+    );
+    let semantic = linker.link_semantic(importer.clone(), &BTreeMap::new()).expect("symbolic link should succeed");
+    let read = LinkedReadSpec::Binding(SymbolId {
+        module: exporter.clone(),
+        name: "TypeOnly".into(),
+    });
+    let requirement = requirement(
+        &importer,
+        &exporter,
+        Some(read.clone()),
+        RuntimeRequirementProducer::DeclarationRead,
+        RuntimeRequirementProduct::RuntimeObject,
+        RuntimeRequirementTiming::DuringModuleInitializer,
+    );
+    let availability = AvailabilityContract::from_proofs([proof(
+        RuntimeRequirementTarget::Binding {
+            module: exporter.clone(),
+            name: "TypeOnly".into(),
+        },
+        RuntimeRequirementProduct::RuntimeObject,
+        AvailabilityAuthority::NativeBindingCatalog,
+    )]);
+
+    let executable = linker
+        .finalize_executable_with_availability(semantic, &BTreeMap::new(), std::slice::from_ref(&requirement), &availability)
+        .expect("exact native-floor proof should finalize");
+    assert!(executable.graphs.runtime.edges_from(&importer).is_empty());
+    assert_eq!(executable.modules[&importer].linked_reads, vec![read.clone()]);
+    assert_eq!(executable.runtime_read(&importer, &read), Some(ImportBindingId(0)));
+    assert_eq!(executable.runtime_requirements(), &[requirement]);
+}
+
+#[test]
+fn mismatched_and_reserved_binding_proofs_keep_conservative_edges() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[(exporter.clone(), "class TypeOnly {}\n"), (importer.clone(), "class Consumer {}\n")]),
+    );
+    let semantic = linker.link_semantic(importer.clone(), &BTreeMap::new()).expect("symbolic link should succeed");
+    let requirement = requirement(
+        &importer,
+        &exporter,
+        Some(LinkedReadSpec::Binding(SymbolId {
+            module: exporter.clone(),
+            name: "ReservedSourceClass".into(),
+        })),
+        RuntimeRequirementProducer::DeclarationRead,
+        RuntimeRequirementProduct::RuntimeObject,
+        RuntimeRequirementTiming::DuringModuleInitializer,
+    );
+    let availability = AvailabilityContract::from_proofs([
+        proof(
+            RuntimeRequirementTarget::Binding {
+                module: exporter.clone(),
+                name: "OtherBinding".into(),
+            },
+            RuntimeRequirementProduct::RuntimeObject,
+            AvailabilityAuthority::NativeBindingCatalog,
+        ),
+        proof(
+            RuntimeRequirementTarget::Module(exporter.clone()),
+            RuntimeRequirementProduct::RuntimeObject,
+            AvailabilityAuthority::NativeModuleMaterialization,
+        ),
+    ]);
+
+    let executable = linker
+        .finalize_executable_with_availability(semantic, &BTreeMap::new(), &[requirement], &availability)
+        .expect("non-exact proofs must leave the conservative requirement");
+    let edge = &executable.graphs.runtime.edges_from(&importer)[0];
+    assert_eq!(edge.dependency, exporter);
+    assert_eq!(edge.provenance.as_ref().unwrap().product, RuntimeRequirementProduct::RuntimeObject);
+}
+
+#[test]
+fn metadata_descriptor_requirement_uses_exact_metadata_proof_without_a_read_slot() {
+    let dependency = module("metadata_owner");
+    let importer = module("consumer");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[(dependency.clone(), "class Owner {}\n"), (importer.clone(), "class Consumer {}\n")]),
+    );
+    let semantic = linker.link_semantic(importer.clone(), &BTreeMap::new()).expect("symbolic link should succeed");
+    let requirement = requirement(
+        &importer,
+        &dependency,
+        None,
+        RuntimeRequirementProducer::MetadataTypeOwner,
+        RuntimeRequirementProduct::MetadataDescriptor,
+        RuntimeRequirementTiming::BeforeSourceExecution,
+    );
+    let availability = AvailabilityContract::from_proofs([proof(
+        RuntimeRequirementTarget::Module(dependency.clone()),
+        RuntimeRequirementProduct::MetadataDescriptor,
+        AvailabilityAuthority::SemanticMetadataBundle,
+    )]);
+
+    let executable = linker
+        .finalize_executable_with_availability(semantic, &BTreeMap::new(), &[requirement], &availability)
+        .expect("exact metadata proof should remove only the metadata edge");
+    assert!(executable.graphs.runtime.edges_from(&importer).is_empty());
+    assert!(executable.modules[&importer].linked_reads.is_empty());
+}
+
+#[test]
+fn module_proof_can_satisfy_whole_module_import_but_binding_proof_cannot() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[
+            (exporter.clone(), "class Exported {}\nexport Exported\n"),
+            (importer.clone(), "import .exporter as exp\n"),
+        ]),
+    );
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter.clone())]);
+    let semantic = linker.link_semantic(importer.clone(), &resolved).expect("symbolic link should succeed");
+    let module_proof = AvailabilityContract::from_proofs([AvailabilityProof {
+        target: RuntimeRequirementTarget::Module(exporter.clone()),
+        product: RuntimeRequirementProduct::SourceInitializedValue,
+        authority: AvailabilityAuthority::FullyInitializedUniverse,
+        available_at: RuntimeRequirementTiming::AfterBootstrap,
+    }]);
+    let executable = linker
+        .finalize_executable_with_availability(semantic.clone(), &BTreeMap::new(), &[], &module_proof)
+        .expect("module proof should satisfy whole-module object availability");
+    assert!(executable.graphs.runtime.edges_from(&importer).is_empty());
+    assert_eq!(executable.modules[&importer].linked_reads, vec![LinkedReadSpec::Module(exporter.clone())]);
+
+    let binding_proof = AvailabilityContract::from_proofs([proof(
+        RuntimeRequirementTarget::Binding {
+            module: exporter.clone(),
+            name: "Exported".into(),
+        },
+        RuntimeRequirementProduct::RuntimeObject,
+        AvailabilityAuthority::NativeBindingCatalog,
+    )]);
+    let executable = linker
+        .finalize_executable_with_availability(semantic, &BTreeMap::new(), &[], &binding_proof)
+        .expect("binding proof cannot prove a whole-module import");
+    assert_eq!(executable.graphs.runtime.edges_from(&importer).len(), 1);
+}
+
+#[test]
+fn exact_binding_identity_proof_satisfies_authored_import_and_keeps_its_read_slot() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[
+            (exporter.clone(), "trait Exported {}\nexport Exported\n"),
+            (importer.clone(), "from .exporter import Exported\n"),
+        ]),
+    );
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter.clone())]);
+    let semantic = linker.link_semantic(importer.clone(), &resolved).expect("symbolic link should succeed");
+    let target = RuntimeRequirementTarget::Binding {
+        module: exporter.clone(),
+        name: "Exported".into(),
+    };
+    let requirement = requirement(
+        &importer,
+        &exporter,
+        Some(LinkedReadSpec::Binding(SymbolId {
+            module: exporter.clone(),
+            name: "Exported".into(),
+        })),
+        RuntimeRequirementProducer::ImportRead,
+        RuntimeRequirementProduct::CanonicalIdentity,
+        RuntimeRequirementTiming::BeforeSourceExecution,
+    );
+    let availability = AvailabilityContract::from_proofs([proof(
+        target,
+        RuntimeRequirementProduct::CanonicalIdentity,
+        AvailabilityAuthority::SemanticIdentityCatalog,
+    )]);
+
+    let executable = linker
+        .finalize_executable_with_availability(semantic, &BTreeMap::new(), std::slice::from_ref(&requirement), &availability)
+        .expect("exact declaration identity proof should satisfy authored import ordering");
+    assert!(executable.graphs.runtime.edges_from(&importer).is_empty());
+    assert_eq!(
+        executable.modules[&importer].linked_reads,
+        vec![LinkedReadSpec::Binding(SymbolId {
+            module: exporter,
+            name: "Exported".into(),
+        })],
+        "identity-only proof must not remove the canonical read slot"
+    );
+    assert_eq!(executable.runtime_requirements(), &[requirement]);
+}
+
+#[test]
+fn generated_requirement_read_slots_are_ordered_independently_of_input_order() {
+    let first = module("first");
+    let second = module("second");
+    let consumer = module("consumer");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[
+            (first.clone(), "class First {}\n"),
+            (second.clone(), "class Second {}\n"),
+            (consumer.clone(), "class Consumer {}\n"),
+        ]),
+    );
+    let semantic = linker.link_semantic(consumer.clone(), &BTreeMap::new()).expect("symbolic link should succeed");
+    let first_requirement = requirement(
+        &consumer,
+        &first,
+        Some(LinkedReadSpec::Binding(SymbolId {
+            module: first.clone(),
+            name: "First".into(),
+        })),
+        RuntimeRequirementProducer::DeclarationRead,
+        RuntimeRequirementProduct::RuntimeObject,
+        RuntimeRequirementTiming::DuringModuleInitializer,
+    );
+    let second_requirement = requirement(
+        &consumer,
+        &second,
+        Some(LinkedReadSpec::Binding(SymbolId {
+            module: second.clone(),
+            name: "Second".into(),
+        })),
+        RuntimeRequirementProducer::DeclarationRead,
+        RuntimeRequirementProduct::RuntimeObject,
+        RuntimeRequirementTiming::DuringModuleInitializer,
+    );
+    let executable = linker
+        .finalize_executable_with_requirements(semantic, &BTreeMap::new(), &[second_requirement, first_requirement])
+        .expect("requirements form an acyclic graph");
+    assert_eq!(
+        executable.modules[&consumer].linked_reads,
+        vec![
+            LinkedReadSpec::Binding(SymbolId {
+                module: first,
+                name: "First".into()
+            }),
+            LinkedReadSpec::Binding(SymbolId {
+                module: second,
+                name: "Second".into()
+            }),
+        ]
+    );
+}
+
+#[test]
+fn finalization_rejects_cycles_created_by_generated_runtime_requirements() {
+    let a = module("a");
+    let b = module("b");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[(a.clone(), "class A {}\n"), (b.clone(), "class B {}\n")]),
+    );
+    let semantic = linker.link_semantic(a.clone(), &BTreeMap::new()).expect("symbolic link should succeed");
+    let requirements = [
+        RuntimeDependencyRequirement {
+            importer: a.clone(),
+            dependency: b.clone(),
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            read_target: None,
+            provenance: RuntimeRequirementProvenance {
+                consumer: a.clone(),
+                producer: RuntimeRequirementProducer::MetadataTypeOwner,
+                target: RuntimeRequirementTarget::Module(b.clone()),
+                product: RuntimeRequirementProduct::MetadataDescriptor,
+                timing: RuntimeRequirementTiming::BeforeSourceExecution,
+            },
+        },
+        RuntimeDependencyRequirement {
+            importer: b.clone(),
+            dependency: a.clone(),
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            read_target: None,
+            provenance: RuntimeRequirementProvenance {
+                consumer: b.clone(),
+                producer: RuntimeRequirementProducer::MetadataTypeOwner,
+                target: RuntimeRequirementTarget::Module(a.clone()),
+                product: RuntimeRequirementProduct::MetadataDescriptor,
+                timing: RuntimeRequirementTiming::BeforeSourceExecution,
+            },
+        },
+    ];
+
+    let error = linker
+        .finalize_executable_with_requirements(semantic, &BTreeMap::new(), &requirements)
+        .expect_err("genuine runtime initialization cycle remains rejected");
+    let LinkError::RuntimeCycle(phalcom_modules::ModuleGraphError::RuntimeCycle { components, path, .. }) = error else {
+        panic!("expected strict runtime-cycle error");
+    };
+    assert_eq!(components, vec![vec![a.clone(), b.clone()]]);
+    assert_eq!(path.len(), 2, "reported path must show the deterministic cycle");
+    assert!(
+        path.iter().all(|edge| edge.provenance.is_some()),
+        "cycle path preserves generated-requirement provenance"
+    );
+    assert_eq!(path[0].importer, a);
+    assert_eq!(path[0].dependency, b);
+}
+
+#[test]
+fn individually_acyclic_generated_requirement_families_can_form_combined_cycle() {
+    let a = module("a");
+    let b = module("b");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[(a.clone(), "class A {}\n"), (b.clone(), "class B {}\n")]),
+    );
+    let semantic = linker
+        .link_semantic(a.clone(), &BTreeMap::new())
+        .expect("symbolic linking accepts both modules");
+    let semantic_generated = requirement(
+        &a,
+        &b,
+        None,
+        RuntimeRequirementProducer::CallableOwner,
+        RuntimeRequirementProduct::SourceInitializedValue,
+        RuntimeRequirementTiming::DuringModuleInitializer,
+    );
+    let metadata_generated = requirement(
+        &b,
+        &a,
+        None,
+        RuntimeRequirementProducer::MetadataTypeOwner,
+        RuntimeRequirementProduct::SourceInitializedValue,
+        RuntimeRequirementTiming::DuringModuleInitializer,
+    );
+
+    for family in [&semantic_generated, &metadata_generated] {
+        linker
+            .finalize_executable_with_requirements(semantic.clone(), &BTreeMap::new(), std::slice::from_ref(family))
+            .expect("one directed dependency cannot create a cycle");
+    }
+
+    let error = linker
+        .finalize_executable_with_requirements(semantic, &BTreeMap::new(), &[semantic_generated, metadata_generated])
+        .expect_err("combined producer families must not evade strict DAG rejection");
+    let LinkError::RuntimeCycle(phalcom_modules::ModuleGraphError::RuntimeCycle { components, path, .. }) = error else {
+        panic!("expected a provenance-bearing runtime-cycle diagnostic");
+    };
+    assert_eq!(components, vec![vec![a, b]]);
+    assert_eq!(path.len(), 2, "combined cycle must retain a complete edge path");
+    assert!(path.iter().all(|edge| edge.provenance.is_some()));
 }
 
 /// LINK-02 — Selective import of non-exported name produces LinkError::MissingExport
@@ -142,6 +714,11 @@ fn link_05_reexport_chains_to_original_symbol() {
         name: "Foo".into(),
     };
     assert_eq!(linked.modules[&mod_c].linked_reads, vec![LinkedReadSpec::Binding(original_symbol)]);
+    let executable =
+        phalcom_modules::ExecutableLinkedProgram::from_conservative_link(linked).expect("canonical re-export reads must be covered by the runtime DAG");
+    assert!(executable.graphs.runtime.edges_from(&mod_c).iter().any(|edge| edge.dependency == mod_a));
+    let order = &executable.initialization_order;
+    assert!(order.iter().position(|id| id == &mod_a).unwrap() < order.iter().position(|id| id == &mod_c).unwrap());
 }
 
 /// LINK-06 — Cyclic re-export produces LinkError::CyclicReExport

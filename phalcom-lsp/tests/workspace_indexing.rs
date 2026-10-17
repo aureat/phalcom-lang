@@ -53,7 +53,7 @@ async fn indexed_navigation_symbols_and_request_work_are_bounded() {
     let workspace = ScratchWorkspace::new();
     let provider_uri = workspace.uri("provider.ph");
     let main_uri = workspace.uri("main.ph");
-    let provider = "class Circle { area() -> Int { 1 } }\ndata Mood { @variant Happy }\ntype Alias = Circle\nexport Circle\n";
+    let provider = "class Circle { area() -> Int { 1 } }\ndata Mood { Happy }\ntype Alias = Circle\nexport Circle\n";
     let main = "from .provider import Circle as Shape\nlet value = Shape\nlet second = Shape\nlet third = Shape\n";
     std::fs::write(workspace.root.join("provider.ph"), provider).expect("write provider");
     std::fs::write(workspace.root.join("main.ph"), main).expect("write main");

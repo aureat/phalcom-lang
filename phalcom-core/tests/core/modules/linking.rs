@@ -1,13 +1,57 @@
+use phalcom_core::bytecode::Bytecode;
+use phalcom_core::error::{PhError, RuntimeError};
 use phalcom_core::modules::RuntimeLinkedRead;
-use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
+use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer, ProgramCompileError, ProgramCompiler};
+use phalcom_core::modules::registry::ModuleFailure;
 use phalcom_core::value::Value;
-use phalcom_core::vm::VM;
-use phalcom_modules::{LinkError, LinkedReadSpec, ModuleComponent, ModuleId, ModulePath, ModuleResolutionError};
+use phalcom_core::vm::{ClassKey, VM};
+use phalcom_modules::{LinkError, LinkedReadSpec, ModuleComponent, ModuleId, ModulePath, ModuleResolutionError, SymbolId};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+
+fn semantic_session_with_private_numbers_child_exposed() -> phalcom_semantic::SemanticWorkspaceSession {
+    static NEXT_WORKSPACE_ID: AtomicU64 = AtomicU64::new(40_000);
+
+    let universe_provider = phalcom_modules::UniverseSourceProvider::new();
+    let numbers = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("numbers").expect("valid module component"),
+    ]));
+    let numbers_source = universe_provider.source_text(&numbers).expect("canonical numbers source");
+    let compatible_numbers_source = numbers_source.replacen("from .capabilities import", "expose .capabilities\nfrom .capabilities import", 1);
+    assert_ne!(
+        compatible_numbers_source,
+        numbers_source.as_ref(),
+        "test fixture must amend the private child exposure"
+    );
+    let universe_provider = phalcom_modules::UniverseSourceProvider::with_test_source_override(numbers, Arc::from(compatible_numbers_source))
+        .expect("test-only Universe source override is valid");
+    phalcom_semantic::SemanticWorkspaceSession::with_universe_source_provider(
+        phalcom_semantic::identity::WorkspaceId::from_raw(NEXT_WORKSPACE_ID.fetch_add(1, Ordering::Relaxed)),
+        universe_provider,
+    )
+}
 
 fn fixture_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/modules_linker").join(name)
+}
+
+fn raised_class(error: &PhError, vm: &VM) -> Option<phalcom_core::heap::ClassId> {
+    match error {
+        PhError::Runtime(RuntimeError::Raise { error, .. }) => Some(error.class(vm)),
+        PhError::NativeOrigin { source, .. } => raised_class(source, vm),
+        PhError::ModuleInitialization(initialization) => raised_class_from_failure(initialization.failure.as_ref(), vm),
+        _ => None,
+    }
+}
+
+fn raised_class_from_failure(failure: &ModuleFailure, vm: &VM) -> Option<phalcom_core::heap::ClassId> {
+    match failure {
+        ModuleFailure::Initializer { cause } => raised_class(cause, vm),
+        ModuleFailure::Dependency { cause, .. } => raised_class_from_failure(cause.as_ref(), vm),
+    }
 }
 
 /// COMP-01 — Single-module file compiles without error
@@ -173,6 +217,464 @@ fn comp_07_cycle_ab_detected_and_rejected() {
     );
 }
 
+/// Semantic-only selected imports remain resolvable without executable reads,
+/// while analysis publishes a finalized runtime layout.
+#[test]
+fn semantic_type_cycle_finalizes_without_runtime_import_slots() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let src_dir = root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"phase_links\"\nnamespace = \"phase_links\"\nversion = \"0.1.0\"\nentry = \"phase_links.main\"\n",
+    )
+    .unwrap();
+    std::fs::write(src_dir.join("package.ph"), "expose .a\nexpose .b\nexpose .main\n").unwrap();
+    std::fs::write(src_dir.join("a.ph"), "from .b import B\nclass A { _value: B }\nexport A\n").unwrap();
+    std::fs::write(src_dir.join("b.ph"), "from .a import A\nclass B { _value: A }\nexport B\n").unwrap();
+    std::fs::write(src_dir.join("main.ph"), "from .a import A\nlet value = A\n").unwrap();
+
+    let analyzed = ProgramAnalyzer::analyze_entry_selection_with_session(
+        EntrySelection::Project(root.to_path_buf()),
+        semantic_session_with_private_numbers_child_exposed(),
+    )
+    .expect("mutual type imports should pass symbolic semantic linking");
+    assert!(!analyzed.semantic.has_errors(), "{:#?}", analyzed.semantic.diagnostics);
+
+    let a_id = analyzed
+        .linked
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "a")
+        .expect("module a is linked");
+    let b_id = analyzed
+        .linked
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "b")
+        .expect("module b is linked");
+    let main_id = analyzed
+        .linked
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "main")
+        .expect("entry module is linked");
+
+    for (module, local_name) in [(a_id, "B"), (b_id, "A")] {
+        let linked = &analyzed.linked.modules[module];
+        assert!(
+            !linked.bindings.imports.contains_key(local_name),
+            "interface-only `{local_name}` must not have a runtime slot"
+        );
+        assert!(linked.linked_reads.is_empty(), "interface-only import must not create a linked read");
+        assert!(
+            analyzed.linked.graphs.runtime.edges_from(module).is_empty(),
+            "interface-only import must not enter the runtime graph"
+        );
+    }
+
+    let main = &analyzed.linked.modules[main_id];
+    assert!(main.bindings.imports.contains_key("A"), "value-position import retains its runtime slot");
+    let imported_a = LinkedReadSpec::Binding(phalcom_modules::SymbolId {
+        module: a_id.clone(),
+        name: "A".into(),
+    });
+    assert_eq!(main.linked_reads, vec![imported_a.clone()]);
+    assert_eq!(analyzed.linked.runtime_read(main_id, &imported_a), Some(main.bindings.imports["A"]));
+
+    assert!(analyzed.linked.modules.contains_key(a_id));
+    assert!(analyzed.linked.modules.contains_key(b_id));
+
+    let compiled = ProgramCompiler::compile_analyzed(&analyzed).expect("acyclic executable projection compiles");
+    assert_eq!(compiled.modules[main_id].linked_reads, vec![imported_a]);
+    let mut vm = VM::new();
+    vm.run_compiled(&compiled).expect("semantic type cycle with acyclic runtime graph executes");
+    let main_object = vm.module_registry.get(main_id).expect("entry module is materialized").object;
+    let a_object = vm.module_registry.get(a_id).expect("canonical A module is materialized").object;
+    let expected = vm
+        .heap
+        .module(a_object)
+        .get(vm.interner.intern("A"))
+        .expect("canonical A class value is populated");
+    let actual = vm
+        .heap
+        .module(main_object)
+        .get(vm.interner.intern("value"))
+        .expect("entry's imported class value is populated");
+    assert_eq!(actual, expected, "the finalized read returns the canonical A class");
+}
+
+/// CV-04 — Whole-module imports and re-exported bindings retain their distinct
+/// runtime targets through phase-aware finalization and compiler lowering.
+#[test]
+fn whole_module_and_reexport_reads_keep_canonical_runtime_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let src_dir = root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"phase_reexports\"\nnamespace = \"phase_reexports\"\nversion = \"0.1.0\"\nentry = \"phase_reexports.main\"\n",
+    )
+    .unwrap();
+    std::fs::write(src_dir.join("package.ph"), "expose .source\nexpose .facade\nexpose .main\n").unwrap();
+    std::fs::write(src_dir.join("source.ph"), "class Exported {}\nexport Exported\n").unwrap();
+    std::fs::write(src_dir.join("facade.ph"), "export Exported as Alias from .source\n").unwrap();
+    std::fs::write(
+        src_dir.join("main.ph"),
+        "import .facade as facade\nfrom .facade import Alias\nlet module_read = facade.Alias\nlet selected_read = Alias\nlet delayed_read = || { Alias }\nlet nested_read = delayed_read()\n",
+    )
+    .unwrap();
+
+    let analyzed = ProgramAnalyzer::analyze_entry_selection_with_session(
+        EntrySelection::Project(root.to_path_buf()),
+        semantic_session_with_private_numbers_child_exposed(),
+    )
+    .expect("whole-module and re-export reads should finalize");
+    let module_id = |name: &str| {
+        analyzed
+            .linked
+            .modules
+            .keys()
+            .find(|id| id.path.to_string() == name)
+            .unwrap_or_else(|| panic!("module {name} is linked"))
+    };
+    let source_id = module_id("source");
+    let facade_id = module_id("facade");
+    let main_id = module_id("main");
+    let module_target = LinkedReadSpec::Module(facade_id.clone());
+    let reexport_target = LinkedReadSpec::Binding(phalcom_modules::SymbolId {
+        module: source_id.clone(),
+        name: "Exported".into(),
+    });
+    let main = &analyzed.linked.modules[main_id];
+    assert_eq!(main.linked_reads.len(), 2);
+    assert_eq!(analyzed.linked.runtime_read(main_id, &module_target), Some(main.bindings.imports["facade"]));
+    assert_eq!(analyzed.linked.runtime_read(main_id, &reexport_target), Some(main.bindings.imports["Alias"]));
+    assert!(
+        analyzed
+            .linked
+            .graphs
+            .runtime
+            .edges_from(main_id)
+            .iter()
+            .any(|edge| edge.dependency == *facade_id),
+        "whole-module import keeps its authored module dependency"
+    );
+    assert!(
+        analyzed
+            .linked
+            .graphs
+            .runtime
+            .edges_from(main_id)
+            .iter()
+            .any(|edge| edge.dependency == *source_id),
+        "re-exported selected binding keeps its canonical owner dependency"
+    );
+
+    let compiled = ProgramCompiler::compile_analyzed(&analyzed).expect("canonical finalized reads lower successfully");
+    assert_eq!(compiled.modules[main_id].linked_reads, main.linked_reads);
+
+    let mut vm = VM::new();
+    let execution = vm.run_compiled(&compiled);
+    let main_object = vm.module_registry.get(main_id).expect("entry module is materialized").object;
+    let source_object = vm.module_registry.get(source_id).expect("canonical source module is materialized").object;
+    let main_runtime_reads = vm.heap.module(main_object).linked_reads.clone();
+    let main_initializer = vm.heap.module(main_object).closure.expect("entry initializer is compiled");
+    let main_code = vm.heap.closure(main_initializer).callable.chunk.code.clone();
+    assert!(
+        execution.is_ok(),
+        "whole-module and re-export reads execute: {execution:?}; compiled reads={:?}; runtime reads={main_runtime_reads:?}; bytecode={main_code:?}; source globals={:?}; source exports={:?}; facade exports={:?}",
+        compiled.modules[main_id].linked_reads,
+        vm.heap.module(source_object).name_to_slot,
+        vm.heap.module(source_object).exports,
+        vm.module_registry.get(facade_id).map(|entry| vm.heap.module(entry.object).exports.clone())
+    );
+    let exported_class = vm
+        .heap
+        .module(source_object)
+        .get(vm.interner.intern("Exported"))
+        .expect("canonical exported class value is populated");
+    for name in ["module_read", "selected_read", "nested_read"] {
+        let observed = vm
+            .heap
+            .module(main_object)
+            .get(vm.interner.intern(name))
+            .unwrap_or_else(|| panic!("{name} is populated"));
+        assert_eq!(observed, exported_class, "{name} resolves to the original exported class");
+    }
+
+    let initializer = vm.heap.module(main_object).closure.expect("entry initializer is compiled");
+    let code = &vm.heap.closure(initializer).callable.chunk.code;
+    let emitted_targets = code
+        .iter()
+        .filter_map(|instruction| {
+            let Bytecode::GetLinked(index) = instruction else { return None };
+            Some(
+                compiled.modules[main_id]
+                    .linked_reads
+                    .get(*index as usize)
+                    .unwrap_or_else(|| panic!("GetLinked operand {index} is covered by the finalized linked-read layout"))
+                    .clone(),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        emitted_targets,
+        std::collections::BTreeSet::from([module_target, reexport_target]),
+        "each emitted GetLinked operand resolves to its exact canonical target"
+    );
+
+    let mut emitted_read_count = 0;
+    let mut nested_callable_read_count = 0;
+    for handle in vm.heap.iter_handles_for_test() {
+        let phalcom_core::heap::Object::Closure(closure) = vm.heap.get(handle) else {
+            continue;
+        };
+        let owner = vm.heap.module(closure.module);
+        let Some(compiled_owner) = compiled.modules.get(&owner.id) else { continue };
+        let is_initializer = owner.closure == Some(handle);
+
+        for instruction in &closure.callable.chunk.code {
+            let Bytecode::GetLinked(index) = instruction else { continue };
+            let index = *index as usize;
+            let target = compiled_owner
+                .linked_reads
+                .get(index)
+                .unwrap_or_else(|| panic!("{} callable emits GetLinked({index}) outside its immutable finalized read layout", owner.id));
+            let runtime_target = owner
+                .linked_reads
+                .get(index)
+                .unwrap_or_else(|| panic!("{} callable emits GetLinked({index}) outside its materialized read layout", owner.id));
+
+            let dependency = match (target, runtime_target) {
+                (LinkedReadSpec::Module(expected), RuntimeLinkedRead::Module(actual)) => {
+                    let actual_id = &vm.heap.module(*actual).id;
+                    assert_eq!(actual_id, expected, "module read keeps its finalized target");
+                    expected
+                }
+                (LinkedReadSpec::Binding(expected), RuntimeLinkedRead::Binding(actual)) => {
+                    let actual_module = vm.heap.module(actual.module);
+                    assert_eq!(actual_module.id, expected.module, "binding read keeps its canonical declaration owner");
+                    let symbol = vm.interner.intern(&expected.name);
+                    assert_eq!(
+                        actual_module.name_to_slot.get(&symbol).copied(),
+                        Some(actual.slot as usize),
+                        "binding read materializes the canonical declaration slot"
+                    );
+                    &expected.module
+                }
+                _ => panic!("compiled and runtime linked-read kinds agree for {target:?}"),
+            };
+            assert!(
+                compiled
+                    .linked
+                    .graphs
+                    .runtime
+                    .edges_from(&owner.id)
+                    .iter()
+                    .any(|edge| &edge.dependency == dependency),
+                "{} read target {target:?} has a finalized runtime dependency",
+                owner.id
+            );
+            let dependency_position = compiled
+                .initialization_order
+                .iter()
+                .position(|module| module == dependency)
+                .unwrap_or_else(|| panic!("runtime dependency {dependency} is initialized by the program"));
+            let owner_position = compiled
+                .initialization_order
+                .iter()
+                .position(|module| module == &owner.id)
+                .unwrap_or_else(|| panic!("read owner {} is initialized by the program", owner.id));
+            assert!(dependency_position < owner_position, "{dependency} initializes before {}", owner.id);
+
+            emitted_read_count += 1;
+            if !is_initializer {
+                nested_callable_read_count += 1;
+            }
+        }
+    }
+    assert!(emitted_read_count >= 3, "all fixture-module GetLinked instructions are inspected");
+    assert!(nested_callable_read_count >= 1, "the imported binding read is covered inside a nested callable");
+}
+
+/// A protocol default may construct an adapter that depends on the protocol
+/// only for conformance. The finalized runtime edge stays one-way.
+#[test]
+fn protocol_default_to_adapter_cycle_is_only_semantic_on_adapter_side() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let src_dir = root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"phase_iteration\"\nnamespace = \"phase_iteration\"\nversion = \"0.1.0\"\nentry = \"phase_iteration.main\"\n",
+    )
+    .unwrap();
+    std::fs::write(src_dir.join("package.ph"), "expose .adapter\nexpose .main\nexpose .protocol\n").unwrap();
+    std::fs::write(
+        src_dir.join("protocol.ph"),
+        "from .adapter import Adapter\ntrait Builds { build() -> Int { let adapter = Adapter.new(); 23 } }\nexport Builds\n",
+    )
+    .unwrap();
+    std::fs::write(
+        src_dir.join("adapter.ph"),
+        "from .protocol import Builds\nclass Adapter {}\nimpl Builds for Adapter {}\nexport Adapter\n",
+    )
+    .unwrap();
+    std::fs::write(src_dir.join("main.ph"), "from .adapter import Adapter\nlet result = Adapter.new().build()\n").unwrap();
+
+    let analyzed = ProgramAnalyzer::analyze_entry_selection_with_session(
+        EntrySelection::Project(root.to_path_buf()),
+        semantic_session_with_private_numbers_child_exposed(),
+    )
+    .expect("interface-only conformance edge should not form a runtime cycle");
+    let protocol_id = analyzed
+        .linked
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "protocol")
+        .expect("protocol module is linked");
+    let adapter_id = analyzed
+        .linked
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "adapter")
+        .expect("adapter module is linked");
+    let main_id = analyzed
+        .linked
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "main")
+        .expect("entry module is linked");
+
+    let protocol_import_phases = &analyzed.semantic.import_phase_products[protocol_id];
+    assert_eq!(protocol_import_phases.bindings.len(), 1, "the default's adapter import is retained");
+    assert!(
+        protocol_import_phases
+            .bindings
+            .values()
+            .all(|summary| { summary.observed && summary.phase == phalcom_modules::graph::DependencyPhase::Runtime })
+    );
+    let adapter_import_phases = &analyzed.semantic.import_phase_products[adapter_id];
+    assert_eq!(adapter_import_phases.bindings.len(), 1, "the adapter's protocol conformance import is retained");
+    assert!(
+        adapter_import_phases
+            .bindings
+            .values()
+            .all(|summary| { summary.observed && summary.phase == phalcom_modules::graph::DependencyPhase::InterfaceOnly })
+    );
+    let semantic_node = |id: &ModuleId| phalcom_modules::graph::SemanticNodeId::Module(id.clone());
+    assert!(
+        analyzed
+            .linked
+            .graphs
+            .semantics
+            .edges_from(&semantic_node(protocol_id))
+            .iter()
+            .any(|edge| edge.to == semantic_node(adapter_id)),
+        "protocol default retains the adapter interface identity"
+    );
+    assert!(
+        analyzed
+            .linked
+            .graphs
+            .semantics
+            .edges_from(&semantic_node(adapter_id))
+            .iter()
+            .any(|edge| edge.to == semantic_node(protocol_id)),
+        "adapter conformance retains the canonical protocol interface identity"
+    );
+
+    assert!(
+        analyzed
+            .semantic
+            .trait_headers
+            .contains(&phalcom_semantic::identity::DeclarationId::new(protocol_id.clone(), "Builds".into())),
+        "the adapter's interface-only import must retain the protocol's canonical trait identity"
+    );
+    assert!(
+        analyzed
+            .linked
+            .graphs
+            .runtime
+            .edges_from(protocol_id)
+            .iter()
+            .any(|edge| &edge.dependency == adapter_id),
+        "the default's adapter construction contributes the protocol-to-adapter runtime edge"
+    );
+    assert!(
+        analyzed
+            .linked
+            .graphs
+            .runtime
+            .edges_from(adapter_id)
+            .iter()
+            .all(|edge| &edge.dependency != protocol_id),
+        "adapter conformance alone does not create an adapter-to-protocol runtime edge"
+    );
+    let adapter_module = &analyzed.linked.modules[adapter_id];
+    assert!(!adapter_module.bindings.imports.contains_key("Builds"));
+    assert!(adapter_module.linked_reads.is_empty(), "the semantic-only trait import has no executable slot");
+    let order = &analyzed.linked.initialization_order;
+    assert!(order.iter().position(|id| id == adapter_id).unwrap() < order.iter().position(|id| id == protocol_id).unwrap());
+    assert!(order.iter().position(|id| id == protocol_id).unwrap() < order.iter().position(|id| id == main_id).unwrap());
+
+    let program = ProgramCompiler::compile_analyzed(&analyzed).expect("positive protocol/default-to-adapter fixture compiles");
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("positive protocol/default-to-adapter fixture executes");
+    let user_module = vm.module_registry.get(&program.entry).expect("entry module is materialized").object;
+    let result = vm
+        .heap
+        .module(user_module)
+        .get(vm.interner.intern("result"))
+        .expect("protocol default result is populated");
+    assert_eq!(
+        result.as_int(),
+        Some(23),
+        "protocol default constructs the imported adapter and returns its result"
+    );
+}
+
+/// The same protocol/default → adapter path still rejects a runtime edge in
+/// the reverse direction; strict cycle checking is independent of semantic
+/// conformance edges.
+#[test]
+fn protocol_default_adapter_runtime_cycle_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let src_dir = root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"phase_iteration_cycle\"\nnamespace = \"phase_iteration_cycle\"\nversion = \"0.1.0\"\nentry = \"phase_iteration_cycle.main\"\n",
+    )
+    .unwrap();
+    std::fs::write(src_dir.join("package.ph"), "expose .adapter\nexpose .main\nexpose .protocol\n").unwrap();
+    std::fs::write(
+        src_dir.join("protocol.ph"),
+        "from .adapter import Adapter\ntrait Builds { build() -> Int { let adapter = Adapter.new(); 23 } }\nexport Builds\n",
+    )
+    .unwrap();
+    std::fs::write(
+        src_dir.join("adapter.ph"),
+        "from .protocol import Builds\nclass Adapter {}\nimpl Builds for Adapter {}\nlet protocol = Builds\nexport Adapter\n",
+    )
+    .unwrap();
+    std::fs::write(src_dir.join("main.ph"), "from .adapter import Adapter\nlet result = Adapter.new().build()\n").unwrap();
+
+    let result = ProgramAnalyzer::analyze_entry_selection_with_session(
+        EntrySelection::Project(root.to_path_buf()),
+        semantic_session_with_private_numbers_child_exposed(),
+    );
+    assert!(
+        matches!(result, Err(ProgramCompileError::Link(LinkError::RuntimeCycle(_)))),
+        "a runtime value use of the protocol from the adapter must restore strict cycle rejection; got {result:?}"
+    );
+}
+
 /// COMP-07b — Missing logical module is rejected during resolution.
 #[test]
 fn comp_07b_missing_logical_module_is_rejected() {
@@ -211,6 +713,32 @@ fn comp_08_standalone_module_succeeds() {
 #[test]
 fn mat_01_export_slots_populated() {
     let mut vm = VM::new();
+    let option_module = vm
+        .module_registry
+        .iter()
+        .find(|(id, _)| id.to_string() == "universe:option.option")
+        .expect("canonical Option module materialized")
+        .1
+        .object;
+    let none_sym = vm.interner.intern("None");
+    assert_eq!(
+        vm.heap.module(option_module).get(none_sym),
+        Some(Value::none()),
+        "canonical None binding remains immediate absence"
+    );
+    let option_sym = vm.interner.intern("Option");
+    assert_eq!(
+        vm.heap.module(option_module).get(option_sym),
+        Some(Value::obj(vm.universe.classes.option_class)),
+        "source reopen preserves the native Option class identity"
+    );
+    let is_none_sym = vm.interner.intern("isNone");
+    assert!(
+        vm.heap.class(vm.universe.classes.option_class).methods.contains_key(&is_none_sym),
+        "source Option reopen installs its behavior on the canonical class"
+    );
+    assert!(vm.heap.module(option_module).metadata.is_some(), "canonical module metadata is installed");
+
     let selection = EntrySelection::Project(fixture_path("simple_export"));
     let program = ProgramCompiler::compile_entry_selection(selection).expect("compile simple_export");
     vm.run_compiled(&program).expect("run simple_export");
@@ -226,6 +754,108 @@ fn mat_01_export_slots_populated() {
     let widget_val = vm.heap.module(exporter_obj).get(widget_sym).expect("Widget slot exists");
     assert!(!widget_val.is_none(), "Widget slot must not be None");
     assert!(widget_val.is_obj(), "Widget slot must be an object");
+
+    let (importer_id, _) = program
+        .modules
+        .iter()
+        .find(|(id, _)| id.path.to_string().contains("importer"))
+        .expect("importer module present");
+    let importer_obj = vm.module_registry.get(importer_id).unwrap().object;
+    let linked_read = vm
+        .heap
+        .module(importer_obj)
+        .linked_reads
+        .first()
+        .copied()
+        .expect("finalized Widget linked read");
+    let linked_value = match linked_read {
+        RuntimeLinkedRead::Module(module) => Value::obj(module),
+        RuntimeLinkedRead::Binding(binding) => vm.heap.module(binding.module).get_by_slot(binding.slot as usize).expect("linked binding value"),
+        RuntimeLinkedRead::StaticConstant(reference) => vm.heap.module(reference.module).static_constants[&reference.name],
+    };
+    assert_eq!(linked_value, widget_val, "finalized user linked read preserves the exported class identity");
+
+    let temp = tempfile::tempdir().expect("temporary availability-contract project");
+    let source_dir = temp.path().join("src");
+    std::fs::create_dir_all(&source_dir).expect("create project source directory");
+    std::fs::write(
+        temp.path().join("project.toml"),
+        "[project]\nname = \"availability_probe\"\nnamespace = \"availability_probe\"\nversion = \"0.1.0\"\nsource = \"src\"\nentry = \"availability_probe.main\"\n",
+    )
+    .expect("write project manifest");
+    std::fs::write(source_dir.join("package.ph"), "expose .main\n").expect("write package source");
+    std::fs::write(
+        source_dir.join("main.ph"),
+        "from universe.errors.unsupported import unsupported\nfrom universe.collections.list import List\nlet observed = unsupported\nlet values = List<Int>.new()\nvalues.append(19)\nvalues.append(23)\nlet result = values.at(0) + values.at(1)\nexport observed, result\n",
+    )
+    .expect("write Universe-importing user module");
+    let user_program = ProgramCompiler::compile_entry_selection(EntrySelection::Project(temp.path().to_path_buf()))
+        .expect("compile user project against fully initialized Universe contract");
+    vm.run_compiled(&user_program).expect("run Universe-importing user project");
+    let (user_module_id, _) = user_program
+        .modules
+        .iter()
+        .find(|(id, _)| id.path.to_string().ends_with("main"))
+        .expect("user main module present");
+    let user_module = vm.module_registry.get(user_module_id).unwrap().object;
+    let (unsupported_module_id, unsupported_module) = vm
+        .module_registry
+        .iter()
+        .find(|(id, _)| id.to_string() == "universe:errors.unsupported")
+        .expect("canonical exported binding module materialized");
+    let unsupported_module_id = unsupported_module_id.clone();
+    let unsupported_module = unsupported_module.object;
+    let unsupported_target = phalcom_modules::RuntimeRequirementTarget::Binding {
+        module: unsupported_module_id.clone(),
+        name: "unsupported".into(),
+    };
+    let source_requirement = user_program
+        .linked
+        .runtime_requirements()
+        .iter()
+        .find(|requirement| &requirement.importer == user_module_id && requirement.provenance.target == unsupported_target)
+        .expect("finalized user requirement retains exact source binding provenance");
+    assert_eq!(
+        source_requirement.provenance.product,
+        phalcom_modules::RuntimeRequirementProduct::SourceInitializedValue,
+        "authored source binding requires its initializer value"
+    );
+    assert!(
+        !user_program
+            .linked
+            .graphs
+            .runtime
+            .edges_from(user_module_id)
+            .iter()
+            .any(|edge| edge.dependency == unsupported_module_id),
+        "fully initialized Universe proof removes only the eager ordering edge"
+    );
+    let unsupported_read = vm
+        .heap
+        .module(user_module)
+        .linked_reads
+        .iter()
+        .find_map(|read| match read {
+            RuntimeLinkedRead::Binding(binding) if binding.module == unsupported_module => Some(*binding),
+            _ => None,
+        })
+        .expect("finalized exported Universe binding linked read remains allocated");
+    let unsupported_value = vm
+        .heap
+        .module(user_module)
+        .get(vm.interner.intern("observed"))
+        .expect("user module observed binding is populated");
+    assert_eq!(
+        vm.heap.module(unsupported_read.module).get_by_slot(unsupported_read.slot as usize),
+        Some(unsupported_value),
+        "post-bootstrap exact proof preserves the exported Universe value in its linked read"
+    );
+    let result = vm
+        .heap
+        .module(user_module)
+        .get(vm.interner.intern("result"))
+        .expect("user collection result is populated");
+    assert_eq!(result.as_int(), Some(42), "ordinary user collection operations execute against canonical List");
 }
 
 /// MAT-02 — __module__ intrinsic resolves to the module object itself
@@ -348,4 +978,126 @@ fn mat_06_module_import_binding_resolves_to_module() {
         RuntimeLinkedRead::Binding(_) => panic!("expected Module linked read"),
         RuntimeLinkedRead::StaticConstant(_) => panic!("expected Module linked read"),
     }
+}
+
+#[test]
+fn finalized_compile_modes_reject_mismatched_vm_before_mutation_and_execute_matching_guards() {
+    use phalcom_core::compiler::attributes::CompileMode;
+
+    let directory = tempfile::tempdir().expect("mode fixture directory");
+    let root = directory.path();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"mode_probe\"\nnamespace = \"mode_probe\"\nversion = \"0.1.0\"\nentry = \"mode_probe.main\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(root.join("src/package.ph"), "expose .main\nexpose .guard\n").unwrap();
+    std::fs::write(root.join("src/guard.ph"), "class Guard { @class allow() -> Bool { true } }\nexport Guard\n").unwrap();
+    std::fs::write(
+        root.join("src/main.ph"),
+        "from .guard import Guard\nclass Probe {\n  @ensures(Guard.allow())\n  @class value() -> Int { 42 }\n}\nlet answer = Probe.value()\nexport answer\n",
+    )
+    .unwrap();
+    let modes = [CompileMode::Debug, CompileMode::Release, CompileMode::Unchecked];
+    for finalized_mode in modes {
+        let analyzed =
+            ProgramAnalyzer::analyze_entry_selection_with_mode(EntrySelection::Project(root.to_path_buf()), finalized_mode).expect("mode fixture analyzes");
+        assert!(!analyzed.semantic.has_errors(), "{:?}", analyzed.semantic.all_diagnostics().collect::<Vec<_>>());
+        let program = ProgramCompiler::compile_analyzed(&analyzed).expect("mode fixture compiles");
+        assert_eq!(program.compile_mode(), finalized_mode);
+        let guard_read = program.modules[&program.entry]
+            .linked_reads
+            .iter()
+            .any(|read| matches!(read, LinkedReadSpec::Binding(symbol) if symbol.name.as_ref() == "Guard"));
+        assert_eq!(guard_read, finalized_mode == CompileMode::Debug, "only emitted postconditions require Guard");
+
+        for vm_mode in modes {
+            if vm_mode == finalized_mode {
+                continue;
+            }
+            let mut vm = VM::new_native();
+            vm.compile_mode = vm_mode;
+            let modules_before = vm.module_registry.iter().count();
+            let error = vm.run_compiled(&program).expect_err("different mode must fail before materialization");
+            assert!(error.to_string().contains("program finalized for"), "{error}");
+            assert_eq!(vm.module_registry.iter().count(), modules_before);
+            assert!(vm.module_registry.get(&program.entry).is_none());
+        }
+        let mut vm = VM::new();
+        vm.compile_mode = finalized_mode;
+        vm.materialize_program(&program).expect("matching mode materializes");
+        vm.compile_mode = modes.into_iter().find(|mode| *mode != finalized_mode).unwrap();
+        let source = program.modules[&program.entry].source_text.as_ref().unwrap();
+        assert!(vm.compile_program_module_closure(&program.entry, source, &program).is_err());
+        assert!(vm.initialize_program(&program).is_err());
+        assert!(vm.initialize_single_module(&program, &program.entry).is_err());
+        let entry_object = vm.module_registry.get(&program.entry).unwrap().object;
+        assert!(vm.heap.module(entry_object).closure.is_none());
+        vm.compile_mode = finalized_mode;
+        vm.run_compiled(&program).expect("matching guard policy executes");
+        let answer = vm.interner.intern("answer");
+        assert_eq!(vm.heap.module(entry_object).get(answer).and_then(Value::as_int), Some(42));
+    }
+}
+
+#[test]
+fn contract_failure_uses_finalized_canonical_precondition_error_read() {
+    let directory = tempfile::tempdir().expect("contract failure project directory");
+    let root = directory.path();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"contract_read_probe\"\nnamespace = \"contract_read_probe\"\nversion = \"0.1.0\"\nentry = \"contract_read_probe.main\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(root.join("src/package.ph"), "expose .main\n").unwrap();
+    std::fs::write(
+        root.join("src/main.ph"),
+        r#"
+class Guarded {
+  @constructor
+  new() {}
+
+  @requires(value > 0)
+  check(_ value) { value }
+}
+
+let guarded = Guarded.new()
+guarded.check(0)
+"#,
+    )
+    .unwrap();
+
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Project(root.to_path_buf()))
+        .expect("project with a failing precondition should compile through finalized linkage");
+    let contracts_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("errors").expect("valid module component"),
+        ModuleComponent::from_identifier("contracts").expect("valid module component"),
+    ]));
+    let precondition_read = LinkedReadSpec::Binding(SymbolId {
+        module: contracts_module.clone(),
+        name: "PreconditionError".into(),
+    });
+    let mut vm = VM::new();
+    let failure = vm.run_compiled(&program).expect_err("false @requires predicate must raise its contract error");
+    let actual_class = raised_class(&failure, &vm).unwrap_or_else(|| panic!("failure should carry a catchable surface Error: {failure:?}"));
+    let contracts_object = vm
+        .module_registry
+        .get(&contracts_module)
+        .expect("canonical contract error module is initialized")
+        .object;
+    let precondition_name = vm.interner.find("PreconditionError").expect("contract error class name was interned");
+    let expected_class = *vm
+        .classes
+        .get(&ClassKey {
+            module: contracts_object,
+            name: precondition_name,
+        })
+        .expect("canonical PreconditionError class was materialized");
+    assert_eq!(actual_class, expected_class, "contract failure must raise the canonical PreconditionError");
+    assert!(
+        program.modules[&program.entry].linked_reads.contains(&precondition_read),
+        "the woven guard must use the canonical finalized PreconditionError binding"
+    );
 }

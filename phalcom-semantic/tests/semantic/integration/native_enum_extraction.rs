@@ -6,8 +6,8 @@ use phalcom_semantic::identity::ModuleId;
 fn test_native_enum_core_surface_extraction() {
     let source = r#"
 native data Maybe<T> {
-    @variant None
-    @variant Some(_ value: T)
+    None
+    Some(_ value: T)
 }
 "#;
     let program = parse_source(source, 0).expect("parse program");

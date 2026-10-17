@@ -8,13 +8,11 @@ from .error import ParseError
 /// branches must not run (see `attempt` and `cut`).
 data ParseResult<S, T>
 {
-  @variant
   Success(
     _ value: T,
     _ next: Cursor<S>
   )
 
-  @variant
   Failure(
     _ error: ParseError,
     _ committed: Bool
@@ -24,10 +22,8 @@ data ParseResult<S, T>
 /// Public outcome of parsing a complete input, hiding cursor plumbing.
 data RunResult<T>
 {
-  @variant
   Ok(_ value: T)
 
-  @variant
   Err(_ error: ParseError)
 }
 

@@ -1,6 +1,127 @@
 use phalcom_modules::{ModuleId, ModulePath, ProjectIdentity, SyntheticProjectIdAllocator, UniverseSourceProvider};
 
 #[test]
+fn universe_functional_sources_parse_and_export_typed_computations() {
+    let provider = UniverseSourceProvider::new();
+    let cases: &[(&[&str], &[&str])] = &[
+        (
+            &["functional"],
+            &[
+                "State",
+                "StateStep",
+                "Reader",
+                "Validation",
+                "Lens",
+                "Chain",
+                "ChainIterator",
+                "NonEmpty",
+                "Partition",
+                "Semigroup",
+                "Monoid",
+                "Additive",
+                "Multiplicative",
+                "AllTrue",
+                "AnyTrue",
+                "First",
+                "Last",
+                "Dual",
+                "Endo",
+                "Writer",
+                "Journal",
+                "StateResult",
+                "ReaderResult",
+                "Functor",
+                "Applicative",
+                "Monad",
+                "Identity",
+                "IdentityContext",
+                "OptionContext",
+                "ChainContext",
+                "NonEmptyContext",
+                "Effects",
+                "Folds",
+                "Fold",
+                "FoldFactory",
+                "Iso",
+                "Optional",
+                "Prism",
+                "Either",
+                "Arrow",
+                "ArrowContext",
+                "Profunctor",
+            ],
+        ),
+        (&["functional", "state"], &["State", "StateStep"]),
+        (&["functional", "reader"], &["Reader"]),
+        (&["functional", "validation"], &["Validation"]),
+        (&["functional", "lens"], &["Lens"]),
+        (&["functional", "chain"], &["Chain", "ChainIterator", "NonEmpty", "Partition"]),
+        (
+            &["functional", "algebra"],
+            &[
+                "Semigroup",
+                "Monoid",
+                "Additive",
+                "Multiplicative",
+                "AllTrue",
+                "AnyTrue",
+                "First",
+                "Last",
+                "Dual",
+                "Endo",
+            ],
+        ),
+        (&["functional", "writer"], &["Writer"]),
+        (&["functional", "journal"], &["Journal"]),
+        (&["functional", "state_result"], &["StateResult"]),
+        (&["functional", "reader_result"], &["ReaderResult"]),
+        (
+            &["functional", "higher_kinded"],
+            &[
+                "Functor",
+                "Applicative",
+                "Monad",
+                "Identity",
+                "IdentityContext",
+                "OptionContext",
+                "ChainContext",
+                "NonEmptyContext",
+            ],
+        ),
+        (&["functional", "effects"], &["Effects"]),
+        (&["functional", "folds"], &["Folds"]),
+        (&["functional", "fold"], &["Fold", "FoldFactory"]),
+        (&["functional", "optics"], &["Iso", "Optional", "Prism"]),
+        (&["functional", "either"], &["Either"]),
+        (&["functional", "arrow"], &["Arrow", "ArrowContext", "Profunctor"]),
+    ];
+    for (components, exports) in cases {
+        let path = ModulePath::from_components(
+            components
+                .iter()
+                .map(|name| phalcom_modules::ModuleComponent::from_identifier(name).unwrap())
+                .collect::<Vec<_>>(),
+        );
+        let id = ModuleId::universe(path);
+        provider.load_parsed(&id).unwrap_or_else(|error| panic!("{id} must parse: {error}"));
+        let interface = provider.load_interface(&id).unwrap_or_else(|error| panic!("{id} interface must load: {error}"));
+        for name in *exports {
+            assert!(interface.exports.contains_key(*name), "{id} must export {name}");
+        }
+    }
+    // Exercise the modified prelude declarations without executing Universe.
+    for components in [&["option", "option"][..], &["errors", "result"][..]] {
+        let path = ModulePath::from_components(
+            components
+                .iter()
+                .map(|name| phalcom_modules::ModuleComponent::from_identifier(name).unwrap())
+                .collect::<Vec<_>>(),
+        );
+        provider.load_parsed(&ModuleId::universe(path)).expect("combinator source parses");
+    }
+}
+
+#[test]
 fn builtin_universe_provider_has_virtual_identity_and_exports() {
     let id = ModuleId::universe(ModulePath::root());
     let provider = UniverseSourceProvider::new();

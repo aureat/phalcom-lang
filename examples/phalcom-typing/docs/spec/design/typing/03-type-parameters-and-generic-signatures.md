@@ -58,7 +58,7 @@ This document specifies:
 
 - generic parameter-list grammar on class-shaped declarations and methods;
 - generic classes, protocols, instance methods, class-side methods, and protocol requirements as type-parameter owners;
-- `Variance.Invariant`, `Variance.Covariant`, and `Variance.Contravariant` as real immutable reflected values;
+- `Variance::Invariant`, `Variance::Covariant`, and `Variance::Contravariant` as real immutable reflected values;
 - invariance as the default for unmarked declaration-site parameters;
 - the first-version restriction that method-owned parameters are invariant;
 - `T: Bound` as an upper-bound declaration;
@@ -87,7 +87,7 @@ The following are assigned to later documents:
 - structural protocol bounds and conformance: Document 10;
 - generic abstract obligations: Document 11;
 - generic superclass applications and inherited substitution: Document 12;
-- generic generated declarations for `@data`, `@immutable`, `@sealed`, and `@variant`: Documents 14–15;
+- generic generated declarations for `data`, `@immutable`, and `@sealed`: Documents 14–15;
 - final metadata encoding and lazy/eager resolution choices: Document 17;
 - hardened bootstrap authority and malformed-metadata security: Document 18;
 - checker modes, warnings, LSP presentation, and compatibility: Document 19.
@@ -447,7 +447,7 @@ Document 01's manual protocol construction uses public ownerless specifications:
 ```phalcom
 const t = TypeParameterSpec.new(
   name: #T,
-  variance: Variance.Invariant,
+  variance: Variance::Invariant,
   bound: None,
   constraints: const [],
   default: None,
@@ -462,12 +462,12 @@ const key = TypeParameterSpec.invariant(name: #K)
 const value = TypeParameterSpec.covariant(name: #V)
 const vehicle = TypeParameterSpec.bounded(
   name: #T,
-  variance: Variance.Invariant,
+  variance: Variance::Invariant,
   by: Vehicle
 )
 const id = TypeParameterSpec.constrained(
   name: #T,
-  variance: Variance.Invariant,
+  variance: Variance::Invariant,
   to: const [Int, String]
 )
 ```
@@ -534,8 +534,8 @@ Restriction metadata does not change the free-parameter result. `T.freeParameter
 This document records variance but defines only these legality rules:
 
 - unmarked class/protocol parameters are invariant;
-- `out` maps to `Variance.Covariant`;
-- `in` maps to `Variance.Contravariant`;
+- `out` maps to `Variance::Covariant`;
+- `in` maps to `Variance::Contravariant`;
 - method-owned parameters are always invariant;
 - variance is immutable after declaration completion.
 
@@ -679,9 +679,9 @@ The recursive restriction difference does not reduce first-version expressivenes
 
 `Variance` is an immutable sealed value family with three canonical variants:
 
-- `Variance.Invariant`;
-- `Variance.Covariant`;
-- `Variance.Contravariant`.
+- `Variance::Invariant`;
+- `Variance::Covariant`;
+- `Variance::Contravariant`.
 
 The variants are stable singleton-like values suitable for identity comparison, equality, hashing, serialization, and reflection. They do not contain executable checking policy.
 
@@ -823,13 +823,10 @@ The owner integration blocks in Section 6.11 are normative augmentations to the 
 ### 6.2 Variance
 
 ```phalcom
-@data
-@immutable
-@sealed
-class Variance {
-  @variant Invariant
-  @variant Covariant
-  @variant Contravariant
+data Variance {
+  Invariant
+  Covariant
+  Contravariant
 }
 ```
 
@@ -931,7 +928,7 @@ class TypeParameterSpec {
   invariant(name: Symbol) -> TypeParameterSpec {
     return TypeParameterSpec.new(
       name: name,
-      variance: Variance.Invariant,
+      variance: Variance::Invariant,
       bound: None,
       constraints: const [],
       default: None,
@@ -943,7 +940,7 @@ class TypeParameterSpec {
   covariant(name: Symbol) -> TypeParameterSpec {
     return TypeParameterSpec.new(
       name: name,
-      variance: Variance.Covariant,
+      variance: Variance::Covariant,
       bound: None,
       constraints: const [],
       default: None,
@@ -955,7 +952,7 @@ class TypeParameterSpec {
   contravariant(name: Symbol) -> TypeParameterSpec {
     return TypeParameterSpec.new(
       name: name,
-      variance: Variance.Contravariant,
+      variance: Variance::Contravariant,
       bound: None,
       constraints: const [],
       default: None,
@@ -1466,7 +1463,7 @@ class TypeParameterRuntime {
       const methodOwned =
         ownerKind == #method or ownerKind == #protocolRequirement
 
-      if methodOwned and specification.variance != Variance.Invariant {
+      if methodOwned and specification.variance != Variance::Invariant {
         throw TypeParameterRestrictionError.new(
           TypeParameterDiagnostic.new(
             code: "type.variance.method_parameter",
@@ -1957,7 +1954,7 @@ const repository = Protocol.new(
 
 System.assert(repository.typeParameters.size == 2)
 System.assert(repository.typeParameters.at(0).owner === repository)
-System.assert(repository.typeParameters.at(1).variance == Variance.Covariant)
+System.assert(repository.typeParameters.at(1).variance == Variance::Covariant)
 ```
 
 The parameter and result annotations in a manually constructed recursive generic protocol require already resolved type-expression objects. Document 05 supplies environments and Document 09 may add a public recursive specification facility. This limitation is explicit and does not affect ordinary compiler declarations.
@@ -2043,7 +2040,7 @@ They are not accepted on:
 - constructors as a separate declaration category beyond their method descriptor;
 - module declarations;
 - attributes;
-- individual `@variant` payload fields in this document.
+- individual sum-case payload fields in this document.
 
 Constructor methods may be generic only if ordinary methods with `@constructor` are permitted to own type parameters by the constructor specification. If permitted, the parameters belong to the constructor's `Method` descriptor and remain non-dispatching.
 
@@ -2151,9 +2148,9 @@ Compiler lowering maps:
 
 | Source | Reflected value |
 |---|---|
-| no marker | `Variance.Invariant` |
-| `out` | `Variance.Covariant` |
-| `in` before name | `Variance.Contravariant` |
+| no marker | `Variance::Invariant` |
+| `out` | `Variance::Covariant` |
+| `in` before name | `Variance::Contravariant` |
 
 A method-owned non-invariant marker is diagnosed during header validation. The compiler must not silently erase it to invariant.
 
@@ -2170,7 +2167,7 @@ produces:
 ```phalcom
 TypeParameterSpec.new(
   name: #T,
-  variance: Variance.Invariant,
+  variance: Variance::Invariant,
   bound: Some.new(Vehicle),
   constraints: const [],
   default: None,
@@ -2635,7 +2632,7 @@ Existing `Method`, `Class`, `Protocol`, and `ProtocolRequirement` reflection gai
 class Cell<T> {}
 
 const t = Cell.typeParameters.first
-System.assert(t.variance == Variance.Invariant)
+System.assert(t.variance == Variance::Invariant)
 System.assert(t.isUnrestricted)
 ```
 
@@ -2649,7 +2646,7 @@ class Source<out T> {
 
 const t = Source.typeParameters.first
 System.assert(t.owner === Source)
-System.assert(t.variance == Variance.Covariant)
+System.assert(t.variance == Variance::Covariant)
 ```
 
 ### 12.3 Contravariant class parameter
@@ -2663,7 +2660,7 @@ class Sink<in T> {
 
 System.assert(
   Sink.typeParameters.first.variance ==
-    Variance.Contravariant
+    Variance::Contravariant
 )
 ```
 
@@ -2749,7 +2746,7 @@ const u = method.typeParameters.first
 
 System.assert(u.owner === method)
 System.assert(u.index == 0)
-System.assert(u.variance == Variance.Invariant)
+System.assert(u.variance == Variance::Invariant)
 ```
 
 ### 12.10 Shadowing
@@ -3018,9 +3015,9 @@ class Invariant<T> {}
 class Output<out T> {}
 class Input<in T> {}
 
-assert(Invariant.typeParameters.first.variance == Variance.Invariant)
-assert(Output.typeParameters.first.variance == Variance.Covariant)
-assert(Input.typeParameters.first.variance == Variance.Contravariant)
+assert(Invariant.typeParameters.first.variance == Variance::Invariant)
+assert(Output.typeParameters.first.variance == Variance::Covariant)
+assert(Input.typeParameters.first.variance == Variance::Contravariant)
 ```
 
 Negative:
@@ -3291,7 +3288,7 @@ Structural `TypeParameterOwner` behavior is public, but compiler metadata accept
 13. Type-parameter substitution resolves by owner/index identity and leaves an unbound parameter unchanged.
 14. Bounds and constraints do not contribute additional entries to the parameter's `freeParameters` result.
 15. Unmarked class and protocol parameters are invariant.
-16. `out` denotes `Variance.Covariant`; `in` before a name denotes `Variance.Contravariant`.
+16. `out` denotes `Variance::Covariant`; `in` before a name denotes `Variance::Contravariant`.
 17. Method-owned type parameters are invariant and reject `in`/`out` markers.
 18. One parameter may declare at most one upper bound.
 19. One parameter may declare either a bound or a finite constraint set, never both.

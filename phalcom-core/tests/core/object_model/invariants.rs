@@ -1257,6 +1257,8 @@ fn isa_is_reflexive_and_superclass_closed() {
     let string = Value::obj(vm.universe.classes.string_class);
     let object = Value::obj(vm.universe.classes.object_class);
     let class = Value::obj(vm.universe.classes.class_class);
+    let option = Value::obj(vm.universe.classes.option_class);
+    let none = Value::none();
 
     // Immediate receiver `3`.
     assert_eq!(send1(&mut vm, Value::int(3), "is(_)", number).as_bool(), Some(true), "3.is(Number)");
@@ -1266,6 +1268,11 @@ fn isa_is_reflexive_and_superclass_closed() {
         "3.is(Object) — reflexive-to-root"
     );
     assert_eq!(send1(&mut vm, Value::int(3), "is(_)", string).as_bool(), Some(false), "!3.is(String)");
+
+    // None's Option equality calls Object.is, so its class-chain walk must
+    // terminate with identity comparison rather than dispatching `!=` again.
+    assert_eq!(send1(&mut vm, none, "is(_)", option).as_bool(), Some(true), "None.is(Option)");
+    assert_eq!(send1(&mut vm, none, "is(_)", object).as_bool(), Some(true), "None.is(Object)");
 
     // Class receiver `Number` (walks the metaclass chain, Smalltalk isKindOf:).
     assert_eq!(send1(&mut vm, number, "is(_)", class).as_bool(), Some(true), "Number.is(Class)");

@@ -160,8 +160,7 @@ fn is_query_owned_module(module: &ModuleId) -> bool {
 /// remain ordinary semantic identities and must retain their fine-grained
 /// dependency edges. Only the aggregate root is bootstrap-owned here.
 fn is_bootstrap_declaration(declaration: &DeclarationId) -> bool {
-    declaration.module == ModuleId::universe_root()
-        || crate::checker::proof_predicate::is_proof_predicate_declaration(declaration).is_some()
+    declaration.module == ModuleId::universe_root() || crate::checker::proof_predicate::is_proof_predicate_declaration(declaration).is_some()
 }
 
 /// Built-in type-test callables are represented by the standalone bootstrap
@@ -399,6 +398,10 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         self.inner.resolve_module_alias(current_module, alias)
     }
 
+    fn resolve_import_binding_id(&self, current_module: &ModuleId, name: &str) -> Option<phalcom_modules::identity::SourceImportBindingId> {
+        self.inner.resolve_import_binding_id(current_module, name)
+    }
+
     fn resolve_associated_type_requirement(&self, trait_declaration: &DeclarationId, name: &str) -> Option<crate::traits::AssociatedTypeRequirementId> {
         self.inner.resolve_associated_type_requirement(trait_declaration, name)
     }
@@ -593,6 +596,8 @@ pub struct CheckingContext<'a> {
     pub current_class: Option<DeclarationId>,
     pub current_side: DispatchSide,
     pub current_callable: Option<CallableId>,
+    pub(crate) imported_source_bindings: BTreeMap<BindingId, phalcom_modules::identity::SourceImportBindingId>,
+    pub(crate) observed_import_phases: BTreeMap<phalcom_modules::identity::SourceImportBindingId, phalcom_modules::graph::DependencyPhase>,
     /// Owner whose canonical instance constructor body is currently checked.
     /// Set only from a declaration signature carrying constructor semantics.
     pub(crate) current_constructor_owner: Option<DeclarationId>,
@@ -737,6 +742,8 @@ impl<'a> CheckingContext<'a> {
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
+            imported_source_bindings: BTreeMap::new(),
+            observed_import_phases: BTreeMap::new(),
             current_constructor_owner: None,
             internal_failure_policy: InternalFailurePolicy::Contain,
             control: CheckerControl::default(),
@@ -855,6 +862,8 @@ impl<'a> CheckingContext<'a> {
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
+            imported_source_bindings: BTreeMap::new(),
+            observed_import_phases: BTreeMap::new(),
             current_constructor_owner: None,
             internal_failure_policy: InternalFailurePolicy::Contain,
             control,
@@ -952,6 +961,8 @@ impl<'a> CheckingContext<'a> {
             current_class: self.current_class.clone(),
             current_side: self.current_side,
             current_callable: self.current_callable.clone(),
+            imported_source_bindings: self.imported_source_bindings.clone(),
+            observed_import_phases: self.observed_import_phases.clone(),
             current_constructor_owner: self.current_constructor_owner.clone(),
             internal_failure_policy: self.internal_failure_policy,
             control: self.control.clone(),
@@ -1080,6 +1091,37 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
+    pub(crate) fn record_import_phase(&mut self, id: &phalcom_modules::identity::SourceImportBindingId, phase: phalcom_modules::graph::DependencyPhase) {
+        self.observed_import_phases
+            .entry(id.clone())
+            .and_modify(|p| *p = p.join(phase))
+            .or_insert(phase);
+    }
+
+    pub(crate) fn seed_symbolic_module_import_values(
+        &mut self,
+        semantic_module: &phalcom_modules::linker::SemanticLinkedModule,
+        bindings: &BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
+    ) {
+        for import_binding in semantic_module.imports.bindings.values() {
+            let phalcom_modules::linker::SymbolicImportTarget::Binding(ref symbol) = import_binding.target else {
+                continue;
+            };
+            let Some(fact) = bindings.get(&symbol.module).and_then(|index| index.get(symbol)) else {
+                continue;
+            };
+            let local_name = import_binding.local_name.to_string();
+            self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::LinkedName(
+                self.current_module.clone(),
+                local_name.clone(),
+            ));
+            self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
+            if let BindingDeclarationResult::Inserted(binding_id) = self.declare_checked_binding(local_name, &fact.state, fact.phase) {
+                self.imported_source_bindings.insert(binding_id, import_binding.id.clone());
+            }
+        }
+    }
+
     /// Resolves `module_alias.public_name` as an exported *value*, without
     /// treating the module as an object with a synthetic dispatch surface.
     pub(crate) fn resolve_module_export_value(&self, module_alias: &str, public_name: &str) -> Option<ValueSemanticFact> {
@@ -1132,6 +1174,26 @@ impl<'a> CheckingContext<'a> {
     fn authorize_dispatch(&self, mut resolved: ResolvedDispatch) -> ResolvedDispatch {
         resolved.access_denied = !self.dispatch_is_accessible(&resolved);
         resolved
+    }
+
+    /// Checks a candidate without committing solver, flow, rigid or publication
+    /// state. Dependency reads and budget/cancellation remain shared. A unique
+    /// winner must subsequently be checked through the live application path.
+    pub(crate) fn run_candidate_probe<T>(&mut self, run: impl FnOnce(&mut CheckingContext<'_>) -> T) -> T {
+        let resolver = self.resolver.inner;
+        let mut probe = self.with_resolver(resolver);
+        probe.inference_contexts = probe
+            .inference_contexts
+            .iter()
+            .map(|(id, session)| (*id, Rc::new(RefCell::new(session.borrow().fork()))))
+            .collect();
+        let deferred = probe.resolver.deferred_static_definitions.borrow().clone();
+        probe.resolver.deferred_static_definitions = Rc::new(RefCell::new(deferred));
+        let result = run(&mut probe);
+        let dependencies = probe.dependencies.clone();
+        drop(probe);
+        self.dependencies.extend(dependencies);
+        result
     }
 
     /// Runs a speculative flow probe in an isolated child context.
@@ -1320,7 +1382,11 @@ impl<'a> CheckingContext<'a> {
                     match norm_progress {
                         Ok(changed) => {
                             if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
-                                eprintln!("inference frame {:?}: projection rewrite changed={changed} residual={:?}", frame, session.residual_obligations());
+                                eprintln!(
+                                    "inference frame {:?}: projection rewrite changed={changed} residual={:?}",
+                                    frame,
+                                    session.residual_obligations()
+                                );
                             }
                             // Rewrites, including reflexive equalities with no
                             // new binding, require a canonical residual retry.
@@ -1351,7 +1417,8 @@ impl<'a> CheckingContext<'a> {
         let mut session = crate::checker::inference::InferenceCoordinator::new();
         let frame = session.root_frame();
         self.inference_contexts.insert(context, Rc::new(RefCell::new(session)));
-        self.sequence_publication.register(super::sequence_publication::PublicationOwner(context, frame), None);
+        self.sequence_publication
+            .register(super::sequence_publication::PublicationOwner(context, frame), None);
         (context, frame)
     }
 
@@ -1430,13 +1497,19 @@ impl<'a> CheckingContext<'a> {
             .unwrap_or_default()
     }
 
-    pub(crate) fn stage_sequence(&mut self, resolution: super::analysis::SequenceLiteralResolution, mut dependencies: super::sequence_publication::PublicationDependencies) {
+    pub(crate) fn stage_sequence(
+        &mut self,
+        resolution: super::analysis::SequenceLiteralResolution,
+        mut dependencies: super::sequence_publication::PublicationDependencies,
+    ) {
         dependencies.extend(self.sequence_dependencies());
         self.sequence_publication.stage(resolution, dependencies, &mut self.sequence_literals);
     }
 
     pub(crate) fn sequence_local_resolution(&self, expression: ExpressionId) -> Option<&super::analysis::SequenceLiteralResolution> {
-        self.sequence_literals.get(&expression).or_else(|| self.sequence_publication.local_resolution(expression))
+        self.sequence_literals
+            .get(&expression)
+            .or_else(|| self.sequence_publication.local_resolution(expression))
     }
 
     pub(crate) fn reject_sequence_expression(&mut self, expression: ExpressionId) {
@@ -1456,9 +1529,12 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub(crate) fn accept_sequence_owner(&mut self, owner: super::sequence_publication::PublicationOwner) -> Result<(), AnalysisStatus> {
-        let requirements = self.deferred_applications.values()
+        let requirements = self
+            .deferred_applications
+            .values()
             .filter(|requirements| self.sequence_publication.requires_owner(owner) && self.sequence_publication.depends_on(requirements.owner, owner))
-            .cloned().collect::<Vec<_>>();
+            .cloned()
+            .collect::<Vec<_>>();
         for requirements in &requirements {
             if let Err(status) = requirements.validate(self) {
                 self.reject_sequence_owner(owner);
@@ -1492,7 +1568,9 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub(crate) fn finish_call_sequence_publication(&mut self, status: &mut AnalysisStatus, causal: super::causal::CausalInvalidity) {
-        let Some(expression) = self.current_expression_id() else { return; };
+        let Some(expression) = self.current_expression_id() else {
+            return;
+        };
         let owners = self.call_publication_owners.remove(&expression).unwrap_or_default();
         for (owner, owns_context) in owners {
             let readiness = self.deferred_applications.get(&owner);
@@ -1513,7 +1591,11 @@ impl<'a> CheckingContext<'a> {
 
     pub(crate) fn record_sequence_dependencies(&mut self, dependencies: &super::sequence_publication::PublicationDependencies) {
         if let Some(expression) = self.current_expression_id() {
-            self.sequence_publication.expression_dependencies.entry(expression).or_default().extend(dependencies.iter().copied());
+            self.sequence_publication
+                .expression_dependencies
+                .entry(expression)
+                .or_default()
+                .extend(dependencies.iter().copied());
         }
     }
 
@@ -1523,7 +1605,11 @@ impl<'a> CheckingContext<'a> {
         if !self.sequence_publication.has_pending() {
             return true;
         }
-        if !self.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error) {
+        if !self
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error)
+        {
             self.publish_analysis_incident("sequence construction reached artifact extraction with an unsettled inference owner");
             self.emit_diagnostic(SemanticDiagnostic::error_in(
                 self.current_module.clone(),
@@ -1671,10 +1757,7 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub(crate) fn current_call_explanations(&self) -> Vec<crate::identity::ExplanationId> {
-        self.call_dependency_frames
-            .last()
-            .map(|frame| frame.explanations.clone())
-            .unwrap_or_default()
+        self.call_dependency_frames.last().map(|frame| frame.explanations.clone()).unwrap_or_default()
     }
 
     pub(crate) fn record_terminal_status(&mut self, status: AnalysisStatus) {
@@ -1834,6 +1917,13 @@ impl<'a> CheckingContext<'a> {
         resolver: &dyn TypeResolver,
         annotation: &phalcom_ast::ast::TypeAnnotation,
     ) -> (TypeKnowledge, crate::checker::causal::CausalInvalidity) {
+        let mut roots = Vec::new();
+        crate::phase_evidence::collect_type_annotation_roots(annotation, &mut roots);
+        for root in roots {
+            if let Some(import_id) = resolver.resolve_import_binding_id(&self.current_module, &root) {
+                self.record_import_phase(&import_id, phalcom_modules::graph::DependencyPhase::InterfaceOnly);
+            }
+        }
         let mut diagnostics = Vec::new();
         let mut site = if let Some(owner) = self.current_class.clone() {
             TypeFormationSite::member(self.current_module.clone(), owner, self.current_side)
@@ -1854,7 +1944,10 @@ impl<'a> CheckingContext<'a> {
         &mut self,
         resolver: &dyn TypeResolver,
         annotation: &phalcom_ast::ast::TypeAnnotation,
-    ) -> (Option<crate::checker::annotation_elaboration::AnnotationElaboration>, crate::checker::causal::CausalInvalidity) {
+    ) -> (
+        Option<crate::checker::annotation_elaboration::AnnotationElaboration>,
+        crate::checker::causal::CausalInvalidity,
+    ) {
         match crate::checker::annotation_elaboration::elaborate_annotation(self, resolver, annotation) {
             Ok(elaboration) => (Some(elaboration), crate::checker::causal::CausalInvalidity::Clean),
             Err(diagnostics) => {
@@ -4007,6 +4100,7 @@ impl<'a> CheckingContext<'a> {
             constructor_super_initializer: self.constructor_super_initializer,
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status,
+            observed_import_phases: std::sync::Arc::new(self.observed_import_phases),
         }
     }
 

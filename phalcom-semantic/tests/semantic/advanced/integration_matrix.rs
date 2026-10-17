@@ -124,6 +124,7 @@ fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
         constructor_super_initializer: None,
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
+        observed_import_phases: Arc::new(BTreeMap::new()),
     };
 
     let caller_analysis = CallableAnalysis {
@@ -153,6 +154,7 @@ fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
         constructor_super_initializer: None,
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
+        observed_import_phases: Arc::new(BTreeMap::new()),
     };
 
     // Intraprocedural
@@ -209,6 +211,7 @@ fn test_matrix_3_termination_and_control_facts() {
         constructor_super_initializer: None,
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
+        observed_import_phases: Arc::new(BTreeMap::new()),
     };
 
     let term = analyze_callable_termination(Some(&graph), &analysis, None);
@@ -307,6 +310,7 @@ fn test_matrix_5_invariants_hold_across_boundaries() {
         constructor_super_initializer: None,
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
+        observed_import_phases: Arc::new(BTreeMap::new()),
     };
     let eff = infer_intraprocedural_effects(&analysis);
     assert_eq!(eff, EffectKnowledge::Opaque(EffectOpaqueReason::ForeignBoundary));

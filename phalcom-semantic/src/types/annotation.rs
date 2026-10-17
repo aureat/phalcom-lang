@@ -177,6 +177,11 @@ pub trait TypeResolver {
         None
     }
 
+    /// Resolve an imported binding identity for this root name in the current module context.
+    fn resolve_import_binding_id(&self, _current_module: &ModuleId, _name: &str) -> Option<phalcom_modules::identity::SourceImportBindingId> {
+        None
+    }
+
     /// Resolve an associated type requirement by trait declaration and member name.
     fn resolve_associated_type_requirement(&self, _trait_declaration: &DeclarationId, _name: &str) -> Option<AssociatedTypeRequirementId> {
         None
@@ -331,6 +336,10 @@ impl<'a> TypeResolver for ScopedTypeResolver<'a> {
 
     fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
         self.parent.resolve_module_alias(current_module, alias)
+    }
+
+    fn resolve_import_binding_id(&self, current_module: &ModuleId, name: &str) -> Option<phalcom_modules::identity::SourceImportBindingId> {
+        self.parent.resolve_import_binding_id(current_module, name)
     }
 
     fn resolve_associated_type_requirement(&self, trait_declaration: &DeclarationId, name: &str) -> Option<AssociatedTypeRequirementId> {
@@ -625,12 +634,10 @@ pub fn resolve_static_generic_value(
 
     let value = match expression {
         Expr::Int { digits, radix, .. } => BigInt::parse_bytes(digits.as_bytes(), *radix),
-        Expr::Unary(unary) if matches!(unary.op, phalcom_ast::ast::UnaryOp::Minus) => {
-            match &unary.expr {
-                Expr::Int { digits, radix, .. } => BigInt::parse_bytes(digits.as_bytes(), *radix).map(|value| -value),
-                _ => None,
-            }
-        }
+        Expr::Unary(unary) if matches!(unary.op, phalcom_ast::ast::UnaryOp::Minus) => match &unary.expr {
+            Expr::Int { digits, radix, .. } => BigInt::parse_bytes(digits.as_bytes(), *radix).map(|value| -value),
+            _ => None,
+        },
         _ => None,
     };
     let Some(value) = value else {
@@ -3260,9 +3267,7 @@ pub fn resolve_type_form(
             let mut arg_tys = Vec::with_capacity(arguments.len());
             for (index, arg) in arguments.iter().enumerate() {
                 let arg_res = match arg {
-                    phalcom_ast::ast::GenericArgumentSyntax::Single(arg) => {
-                        resolve_type_form(store, declarations, resolver, site, arg, diagnostics)
-                    }
+                    phalcom_ast::ast::GenericArgumentSyntax::Single(arg) => resolve_type_form(store, declarations, resolver, site, arg, diagnostics),
                     phalcom_ast::ast::GenericArgumentSyntax::Value(expression) => {
                         let Some(expected_kind) = parameter_kinds.get(index).copied() else {
                             diagnostics.push(SemanticDiagnostic::error_in(

@@ -9,6 +9,7 @@ pub mod call;
 pub mod causal;
 pub(crate) mod composition;
 pub mod context;
+pub(crate) mod contextual_variant;
 pub(crate) mod control;
 pub(crate) mod coverage;
 pub mod data_declaration;
@@ -39,24 +40,20 @@ pub mod type_member_declaration;
 pub mod typed_expr;
 
 pub use proof_predicate::{
-    ProofPredicateGoal, ProofPredicateKind, ProofPredicateResolution, ProofPredicateResolutionIndex,
-    is_proof_predicate_declaration, proof_predicate_declaration,
+    ProofPredicateGoal, ProofPredicateKind, ProofPredicateResolution, ProofPredicateResolutionIndex, is_proof_predicate_declaration,
+    proof_predicate_declaration,
 };
 pub use static_iteration::{
-    StaticIterationItemDomain, StaticIterationLaneResolution, StaticIterationLaneResolutionIndex, StaticIterationMode,
-    resolve_static_iteration_lane,
+    StaticIterationItemDomain, StaticIterationLaneResolution, StaticIterationLaneResolutionIndex, StaticIterationMode, resolve_static_iteration_lane,
 };
 
 pub use analysis::{
     AlgebraicBasisAxis, AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ContextualRealization,
-    ContextualRealizationOperation, ExpressionAnalysis, ExpressionAnalysisIndex, FlowStateSummary, ForIterationLaneResolution,
-    ForIterationLaneResolutionIndex, ForIterationRequirementResolution, RealizationCapabilitySelection, RealizationCoefficientSource,
-    RealizationEvaluationPlan,
-    SequenceConstructionPlan, SequenceExpansionResolution, SequenceLiteralFamily, SequenceLiteralResolution, SequenceLiteralResolutionIndex,
+    ContextualRealizationOperation, ExpressionAnalysis, ExpressionAnalysisIndex, FlowStateSummary, ForIterationLaneResolution, ForIterationLaneResolutionIndex,
+    ForIterationRequirementResolution, RealizationCapabilitySelection, RealizationCoefficientSource, RealizationEvaluationPlan, SequenceConstructionPlan,
+    SequenceExpansionResolution, SequenceLiteralFamily, SequenceLiteralResolution, SequenceLiteralResolutionIndex,
 };
-pub use annotation_elaboration::{
-    AnnotationElaboration, InferenceHoleOrigin, annotation_contains_inference_hole, elaborate_annotation,
-};
+pub use annotation_elaboration::{AnnotationElaboration, InferenceHoleOrigin, annotation_contains_inference_hole, elaborate_annotation};
 pub use associated::{
     AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,
     CallableReferenceResolutionKind, FamilyApplicationCandidate, FamilyApplicationKind, FamilyApplicationResolution, FamilyApplicationResolutionIndex,
@@ -66,7 +63,7 @@ pub use binding::{
     AssumptionBasis, BindingConsistency, BindingContract, BindingContractOrigin, BindingDeclarationResult, BindingReconciliation, BindingSeed,
     BindingWriteResult, reconcile_binding_contract,
 };
-pub use body::analyze_callable_body;
+pub use body::{analyze_attribute_argument, analyze_callable_body};
 pub use call::CallCheckResult;
 pub use causal::{CausalInvalidity, SuppressionCause};
 pub use context::{CheckingContext, EvaluationPhase};

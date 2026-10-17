@@ -2813,7 +2813,8 @@ impl<'source> Parser<'source> {
                 name,
                 range: (start..self.prev_end).into(),
             })
-        } else if self.eat(&Token::Hash) {
+        } else if matches!(self.peek(), Token::Hash) {
+            // parse_hash_symbol consumes '#' itself and checks adjacency.
             let sym = self.parse_hash_symbol()?;
             let name = match sym {
                 SymbolLiteralKind::Name(n) => n,
@@ -4558,6 +4559,12 @@ impl<'source> Parser<'source> {
         let mut pending_attrs: Vec<Attribute> = Vec::new();
         loop {
             self.skip_newlines();
+            if let Some(variant_attr) = pending_attrs.iter().find(|a| a.name == "variant") {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::ClassVariantMarkerRetired,
+                    range: variant_attr.range.start..variant_attr.range.end,
+                });
+            }
             match self.peek() {
                 Token::RBrace if pending_attrs.is_empty() => break,
                 Token::RBrace => return Err(self.dangling_attribute_error(&pending_attrs)),
@@ -4587,12 +4594,6 @@ impl<'source> Parser<'source> {
                 }
                 Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
                 _ => {}
-            }
-            if let Some(variant_attr) = pending_attrs.iter().find(|a| a.name == "variant") {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::VariantOutsideEnum,
-                    range: variant_attr.range.start..variant_attr.range.end,
-                });
             }
             if matches!(self.peek(), Token::TypeKw) && matches!(self.peek_next(), Token::Data) {
                 let Statement::Data(declaration) = self.parse_type_data(std::mem::take(&mut pending_attrs), ParsedModifiers::default())? else {
@@ -5182,14 +5183,8 @@ impl<'source> Parser<'source> {
     }
 
     fn parse_sum_case(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<AlgebraicCaseSyntax> {
-        let variant_attr = pending_attrs.iter().find(|a| a.name == "variant").cloned();
-        let variant_marker_range = variant_attr.as_ref().map(|a| a.range);
-        let start = if let Some(ref attr) = variant_attr {
-            attr.range.start
-        } else {
-            pending_attrs.first().map(|a| a.range.start).unwrap_or_else(|| self.cur_start())
-        };
-        let non_variant_attrs: Vec<Attribute> = pending_attrs.into_iter().filter(|a| a.name != "variant").collect();
+        let start = pending_attrs.first().map(|a| a.range.start).unwrap_or_else(|| self.cur_start());
+        let case_attrs = pending_attrs;
 
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["case name"])?;
@@ -5324,12 +5319,11 @@ impl<'source> Parser<'source> {
         Ok(AlgebraicCaseSyntax {
             name,
             name_range,
-            variant_marker_range,
             generic_parameters,
             where_clause,
             payload,
             result_annotation,
-            attributes: non_variant_attrs,
+            attributes: case_attrs,
             range,
         })
     }
@@ -5358,6 +5352,12 @@ impl<'source> Parser<'source> {
                 Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
                 Token::At => {
                     let attr = self.parse_attribute()?;
+                    if attr.name == "variant" {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::DataVariantMarkerRetired,
+                            range: attr.range.start..attr.range.end,
+                        });
+                    }
                     self.skip_newlines();
                     pending_attrs.push(attr);
                     continue;
@@ -5402,7 +5402,7 @@ impl<'source> Parser<'source> {
                     range,
                 }));
             } else {
-                let is_case = pending_attrs.iter().any(|a| a.name == "variant") || !self.is_record_field_start();
+                let is_case = !self.is_record_field_start();
 
                 if is_case {
                     let case = self.parse_sum_case(std::mem::take(&mut pending_attrs))?;
@@ -5483,11 +5483,7 @@ impl<'source> Parser<'source> {
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["associated type name"])?;
         let name_range = (name_start..self.prev_end).into();
-        let result_domain = if self.eat(&Token::Colon) {
-            Some(self.parse_static_domain()?)
-        } else {
-            None
-        };
+        let result_domain = if self.eat(&Token::Colon) { Some(self.parse_static_domain()?) } else { None };
         if self.eat(&Token::Equal) {
             return Err(SyntaxError {
                 kind: SyntaxErrorKind::Message("associated type declarations cannot have defaults in P1".to_string()),
@@ -5972,14 +5968,6 @@ impl<'source> Parser<'source> {
             ClassMember::Setter(s) => s.attributes = attrs,
             ClassMember::Delegation(d) => d.attributes = attrs,
             ClassMember::Field(f) => f.attributes = attrs,
-            // Unreachable in practice — `parse_class_body` diverts a pending
-            // `@variant` straight to `parse_variant_decl`, which consumes
-            // every pending attribute itself before this function could ever
-            // be called with a `Variant` member. Kept for match exhaustiveness
-            // and future-proofing (a hypothetical attribute placed *after*
-            // `@variant` in source, which the grammar does not currently
-            // support attaching, would land here rather than panicking).
-            ClassMember::Variant(v) => v.attributes = attrs,
             ClassMember::Index(ix) => ix.attributes = attrs,
             ClassMember::TypeMember(t) => t.attributes = attrs,
         }
@@ -6983,13 +6971,6 @@ impl<'source> Parser<'source> {
                 // shape as the top-level `parse_top_item`, but nesting itself
                 // is rejected below rather than accepted.
                 //
-                // Synthesized `Statement::Class` nodes (`@variant`,
-                // `compiler/attributes.rs`) never reach this arm — they are
-                // built as Rust struct literals and handed straight to the
-                // compiler, bypassing the parser entirely (U-CLASSCLOSE §1.3).
-                // This ban is therefore a syntax-level check only; any future
-                // desugar that synthesizes a `Statement::Class` inherits the
-                // same bypass silently.
                 // A declaration starts `class Name`; `class.` is an expression
                 // spelling for `self.class` and must continue through small
                 // statement parsing below. `@` keeps its existing decorated
@@ -7299,12 +7280,13 @@ impl<'source> Parser<'source> {
             let part = match segment {
                 StringSegment::Literal(value) => Expr::String { value, range: outer_range },
                 StringSegment::Expr { source, range } => {
+                    let interpolation_range = (self.offset + range.start..self.offset + range.end).into();
                     let inner = self.parse_interp_expr(&source, range)?;
                     Expr::GetProperty(Box::new(GetPropertyExpr {
                         object: inner,
                         property: "toString".to_string(),
                         property_range: None,
-                        range: outer_range,
+                        range: interpolation_range,
                     }))
                 }
             };
@@ -9094,6 +9076,7 @@ impl<'source> Parser<'source> {
         self.advance(); // 'if'
         if self.eat(&Token::Let) {
             let pattern = self.parse_pattern()?;
+            let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
             self.expect(&Token::Equal, &["\"=\""])?;
             let value = self.parse_expr_without_trailing_closures()?;
             let then_body = self.parse_lexical_block()?;
@@ -9101,6 +9084,7 @@ impl<'source> Parser<'source> {
             let range = (start..self.prev_end).into();
             return Ok(Expr::IfLet(Box::new(IfLetExpr {
                 pattern,
+                annotation,
                 value,
                 then_body,
                 else_body,
@@ -9139,6 +9123,7 @@ impl<'source> Parser<'source> {
         self.advance(); // 'while'
         if self.eat(&Token::Let) {
             let pattern = self.parse_pattern()?;
+            let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
             self.expect(&Token::Equal, &["\"=\""])?;
             let value = self.parse_expr_without_trailing_closures()?;
             let body = match self.parse_brace_block()? {
@@ -9146,16 +9131,18 @@ impl<'source> Parser<'source> {
                 _ => unreachable!("parse_brace_block must produce a block"),
             };
             let range = (start..self.prev_end).into();
-            return Ok(Expr::WhileLet(Box::new(WhileLetExpr { pattern, value, body, range })));
+            return Ok(Expr::WhileLet(Box::new(WhileLetExpr {
+                pattern,
+                annotation,
+                value,
+                body,
+                range,
+            })));
         }
         let condition = self.parse_expr_without_trailing_closures()?;
         let body = self.parse_lexical_block()?;
         let range = (start..self.prev_end).into();
-        Ok(Expr::While(Box::new(WhileExpr {
-            condition,
-            body,
-            range,
-        })))
+        Ok(Expr::While(Box::new(WhileExpr { condition, body, range })))
     }
 
     /// Parses a `match value { (pattern => branch)* }` pattern elimination expression.
@@ -10679,13 +10666,19 @@ mod tests {
 
     #[test]
     fn plain_while_is_explicit_and_while_true_remains_a_send() {
-        let Statement::Expr { expr: Expr::While(while_expr), .. } = only_statement("while ready { break }") else {
+        let Statement::Expr {
+            expr: Expr::While(while_expr), ..
+        } = only_statement("while ready { break }")
+        else {
             panic!("expected explicit while expression");
         };
         assert!(matches!(while_expr.condition, Expr::Var { ref value, .. } if value == "ready"));
         assert!(matches!(while_expr.body.body.as_slice(), [Statement::Break { .. }]));
 
-        let Statement::Expr { expr: Expr::MethodCall(call), .. } = only_statement("|| { true }.whileTrue || { false }") else {
+        let Statement::Expr {
+            expr: Expr::MethodCall(call), ..
+        } = only_statement("|| { true }.whileTrue || { false }")
+        else {
             panic!("expected explicit whileTrue method send");
         };
         assert_eq!(call.method, "whileTrue");
@@ -10926,38 +10919,50 @@ mod tests {
 
     #[test]
     fn bracket_literal_parses_explicit_heads_and_inference_holes() {
-        let Statement::Expr { expr, .. } = only_statement("<Int>[1, 2]") else { panic!() };
+        let Statement::Expr { expr, .. } = only_statement("<Int>[1, 2]") else {
+            panic!()
+        };
         let Expr::BracketLiteral(bracket) = expr else { panic!() };
         let head = bracket.head.as_ref().expect("expected head");
         assert_eq!(head.arguments.len(), 1);
         assert!(matches!(&head.arguments[0], GenericArgumentSyntax::Single(_)));
         assert_eq!(bracket.elements.len(), 2);
 
-        let Statement::Expr { expr, .. } = only_statement("<_>[1, 2]") else { panic!() };
+        let Statement::Expr { expr, .. } = only_statement("<_>[1, 2]") else {
+            panic!()
+        };
         let Expr::BracketLiteral(bracket) = expr else { panic!() };
         let head = bracket.head.as_ref().expect("expected head");
         assert_eq!(head.arguments.len(), 1);
         assert!(matches!(&head.arguments[0], GenericArgumentSyntax::InferenceHole { .. }));
 
-        let Statement::Expr { expr, .. } = only_statement("<Int, 3>[1, 2, 3]") else { panic!() };
+        let Statement::Expr { expr, .. } = only_statement("<Int, 3>[1, 2, 3]") else {
+            panic!()
+        };
         let Expr::BracketLiteral(bracket) = expr else { panic!() };
         let head = bracket.head.as_ref().expect("expected head");
         assert_eq!(head.arguments.len(), 2);
         assert!(matches!(&head.arguments[0], GenericArgumentSyntax::Single(_)));
         assert!(matches!(&head.arguments[1], GenericArgumentSyntax::Value(_)));
 
-        let Statement::Expr { expr, .. } = only_statement("<_, _>[1, 2, 3]") else { panic!() };
+        let Statement::Expr { expr, .. } = only_statement("<_, _>[1, 2, 3]") else {
+            panic!()
+        };
         let Expr::BracketLiteral(bracket) = expr else { panic!() };
         let head = bracket.head.as_ref().expect("expected head");
         assert_eq!(head.arguments.len(), 2);
         assert!(matches!(&head.arguments[0], GenericArgumentSyntax::InferenceHole { .. }));
         assert!(matches!(&head.arguments[1], GenericArgumentSyntax::InferenceHole { .. }));
 
-        let Statement::Expr { expr, .. } = only_statement("<List<Int>>[]") else { panic!() };
+        let Statement::Expr { expr, .. } = only_statement("<List<Int>>[]") else {
+            panic!()
+        };
         let Expr::BracketLiteral(bracket) = expr else { panic!() };
         assert!(bracket.head.is_some());
 
-        let Statement::Expr { expr, .. } = only_statement("<\n  Int,\n  3\n>[\n  1, 2, 3\n]") else { panic!() };
+        let Statement::Expr { expr, .. } = only_statement("<\n  Int,\n  3\n>[\n  1, 2, 3\n]") else {
+            panic!()
+        };
         let Expr::BracketLiteral(bracket) = expr else { panic!() };
         assert_eq!(bracket.head.as_ref().unwrap().arguments.len(), 2);
         assert_eq!(bracket.elements.len(), 3);

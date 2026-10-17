@@ -17,17 +17,9 @@ pub enum ProofPredicateKind {
 /// Canonical semantic goal for a proof predicate proposition (LANG007.C4.P7 T0).
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum ProofPredicateGoal {
-    Equivalent {
-        left: TypeId,
-        right: TypeId,
-    },
-    Subtype {
-        lower: TypeId,
-        upper: TypeId,
-    },
-    Conforms {
-        key: GenericConformanceKey,
-    },
+    Equivalent { left: TypeId, right: TypeId },
+    Subtype { lower: TypeId, upper: TypeId },
+    Conforms { key: GenericConformanceKey },
 }
 
 /// Checked product identifying one proof predicate expression.

@@ -223,6 +223,10 @@ pub struct SemanticSnapshot {
     pub module_static_bindings: Arc<BTreeMap<ModuleId, Arc<ModuleStaticBindingIndex>>>,
     /// Retained source-local semantic structure shards for incremental reuse.
     pub semantic_structure_shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
+    /// Observed and inferred dependency use-phases for each imported source binding.
+    pub import_phase_products: Arc<BTreeMap<ModuleId, phalcom_modules::linker::ModuleImportPhaseProduct>>,
+    /// Runtime dependency requirements discovered during semantic analysis.
+    pub generated_runtime_requirements: Arc<[phalcom_modules::RuntimeDependencyRequirement]>,
     pub status: SnapshotStatus,
 }
 
@@ -287,6 +291,8 @@ impl SemanticSnapshot {
             static_values: Arc::new(StaticValueStore::new()),
             module_static_bindings: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
+            import_phase_products: Arc::new(BTreeMap::new()),
+            generated_runtime_requirements: Arc::from([]),
             status: SnapshotStatus::Complete,
         }
     }
@@ -353,6 +359,8 @@ impl SemanticSnapshot {
             static_values: Arc::new(StaticValueStore::new()),
             module_static_bindings: Arc::new(BTreeMap::new()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
+            import_phase_products: Arc::new(BTreeMap::new()),
+            generated_runtime_requirements: Arc::from([]),
             status: SnapshotStatus::Complete,
         }
     }

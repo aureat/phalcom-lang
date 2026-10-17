@@ -14,9 +14,9 @@ use super::variance::Variance;
 use crate::identity::{AssociatedStaticDomainDeclarationId, DeclarationId, VariantId};
 use crate::scalar::StaticInt;
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
+use im::{HashMap, Vector};
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
-use im::{HashMap, Vector};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 fn canonical_complete_pack_source_member(selector: &TypeMemberSelector) -> TypeMemberDeclarationId {
@@ -2249,10 +2249,7 @@ mod tests {
             committed.nominal_type(test_decl(&format!("Shared{index}")));
         }
         let owner = test_decl("GenericOwner");
-        let first_source = crate::diagnostic::SemanticSourceSpan::new(
-            ModuleId::universe_root(),
-            phalcom_common::range::SourceRange::new(1, 2),
-        );
+        let first_source = crate::diagnostic::SemanticSourceSpan::new(ModuleId::universe_root(), phalcom_common::range::SourceRange::new(1, 2));
         let parameter = committed.intern_type_parameter(
             TypeParameterData::new(TypeParameterOwner::Declaration(owner.clone()), 0, "T", KindId::TYPE).with_source(first_source.clone()),
         );
@@ -2266,13 +2263,9 @@ mod tests {
         assert!(committed.lambda_arena.shares_backing_with(&candidate.lambda_arena));
 
         let new_type = candidate.nominal_type(test_decl("CandidateOnly"));
-        let second_source = crate::diagnostic::SemanticSourceSpan::new(
-            ModuleId::universe_root(),
-            phalcom_common::range::SourceRange::new(5, 7),
-        );
-        let same_parameter = candidate.intern_type_parameter(
-            TypeParameterData::new(TypeParameterOwner::Declaration(owner), 0, "T", KindId::TYPE).with_source(second_source.clone()),
-        );
+        let second_source = crate::diagnostic::SemanticSourceSpan::new(ModuleId::universe_root(), phalcom_common::range::SourceRange::new(5, 7));
+        let same_parameter = candidate
+            .intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(owner), 0, "T", KindId::TYPE).with_source(second_source.clone()));
 
         assert_eq!(candidate.id(), committed_id);
         assert_eq!(candidate.unit(), committed_type_id);

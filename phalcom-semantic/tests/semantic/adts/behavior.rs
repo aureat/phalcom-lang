@@ -10,8 +10,8 @@ fn adt_beh_01_enum_wide_method_is_published_as_root_default_and_requirement() {
     let case = analyze_adt(
         r#"
 data Shape {
-    @variant Circle
-    @variant Square
+    Circle
+    Square
 }
 impl Shape {
     describe() -> String { "shape" }
@@ -53,8 +53,8 @@ fn adt_beh_02_variant_override_has_exact_case_dispatch_target() {
     let case = analyze_adt(
         r#"
 data Shape {
-    @variant Circle
-    @variant Square
+    Circle
+    Square
 }
 impl Shape { describe() -> String { "shape" } }
 impl Shape::Circle { describe() -> String { "circle" } }
@@ -77,8 +77,8 @@ fn adt_beh_03_case_only_method_is_not_promised_by_root_type() {
     let case = analyze_adt(
         r#"
 data Shape {
-    @variant Circle
-    @variant Square
+    Circle
+    Square
 }
 impl Shape::Circle { draw() -> String { "circle" } }
 "#,
