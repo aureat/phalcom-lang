@@ -18,6 +18,9 @@ use im::{HashMap, Vector};
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use super::type_lambda::FrozenTypeLambdaPrefix;
+use phalcom_type_meta::allocation::BudgetedSortedMap;
 
 fn canonical_complete_pack_source_member(selector: &TypeMemberSelector) -> TypeMemberDeclarationId {
     let module = ModuleId::universe(ModulePath::from_components(vec![
@@ -49,7 +52,7 @@ pub enum AnonymousTupleRemainder {
     Typed(TypeId),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TupleTypeElement {
     pub label: Option<Box<str>>,
     pub ty: TypeId,
@@ -65,7 +68,7 @@ impl TupleTypeElement {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TupleType {
     pub elements: Box<[TupleTypeElement]>,
     pub positional_remainder: AnonymousTupleRemainder,
@@ -88,7 +91,7 @@ impl TupleType {
 
 pub type PackTypeElement = TupleTypeElement;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PackType {
     pub elements: Box<[PackTypeElement]>,
     pub positional_remainder: AnonymousTupleRemainder,
@@ -113,7 +116,7 @@ pub type RecordTypeField = RecordRowField;
 
 use phalcom_ast::ast::RestMode;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableParameterType {
     pub label: Option<Box<str>>,
     pub ty: TypeId,
@@ -144,7 +147,7 @@ impl CallableParameterType {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableType {
     pub parameters: Box<[CallableParameterType]>,
     pub return_type: TypeId,
@@ -155,7 +158,7 @@ pub struct CallableType {
 /// The subject, relevant trait application, and trait-owned requirement
 /// identity together determine the projection. Source spelling and ranges are
 /// intentionally not part of this semantic type node.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AssociatedTypeProjection {
     pub subject: TypeId,
     pub trait_ref: TraitRef,
@@ -192,14 +195,14 @@ pub enum StaticDataFormationError {
     ArgumentKindMismatch { index: usize, expected: KindId, actual: KindId },
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LabeledTypePackElement {
     pub label: Box<str>,
     pub element: TypeId,
 }
 
 /// Structural canonical type definition.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TypeData {
     /// Canonical bottom type (inhabited by no values).
     Never,
@@ -279,7 +282,7 @@ pub enum TypeData {
 /// Two static domains are identical iff their `StaticDomainData` representations
 /// are structurally equal. Raw `StaticDomainId` integers must not be serialized
 /// as durable identity; use the `declaration` field or a `ConstInt` marker instead.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StaticDomainData {
     /// The built-in domain of compile-time integer constants.
     ConstInt,
@@ -294,7 +297,7 @@ pub enum StaticDomainData {
 
 /// A canonical static algebraic term: one constructor application within a
 /// nominal `type data` static domain.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AlgebraicStaticTerm {
     /// The static domain this term belongs to.
     pub domain: StaticDomainId,
@@ -309,7 +312,7 @@ pub struct AlgebraicStaticTerm {
 /// Static constructors may accept static type-level terms or record-row terms.
 /// Arbitrary runtime expressions are not accepted; only terms whose identity
 /// is deterministic at compile time may appear here.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StaticArgument {
     /// A static term argument (itself a `TypeId` with a static-domain kind).
     Term(TypeId),
@@ -333,7 +336,7 @@ impl StaticArgument {
 ///
 /// One constructor corresponds to one product `type data` primary constructor,
 /// or to one case/variant within a sum `type data`.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AlgebraicStaticConstructorData {
     /// The domain this constructor belongs to.
     pub domain: StaticDomainId,
@@ -346,10 +349,98 @@ pub struct AlgebraicStaticConstructorData {
     pub parameter_kinds: Box<[KindId]>,
 }
 
+/// Frozen immutable prefix for TypeStore loaded from a compiler artifact.
+#[derive(Debug)]
+pub struct FrozenTypeStorePrefix {
+    pub id: TypeStoreId,
+    pub types: Box<[TypeData]>,
+    pub type_to_id: Box<[TypeId]>,
+    pub kinds: Box<[KindData]>,
+    pub kind_to_id: Box<[KindId]>,
+    pub type_kinds: Box<[KindId]>,
+    pub type_parameters: Box<[TypeParameterData]>,
+    pub parameter_to_id: Box<[TypeParameterId]>,
+    pub parameter_variances: BudgetedSortedMap<(DeclarationId, u32), Variance>,
+    pub lambda_arena: Arc<FrozenTypeLambdaPrefix>,
+    pub row_arena: Box<[RecordRowData]>,
+    pub row_interner: Box<[RecordRowId]>,
+    pub family_arena: Box<[FamilyType]>,
+    pub family_interner: Box<[FamilyTypeId]>,
+    pub variant_identities: Box<[VariantId]>,
+    pub variant_identity_to_id: Box<[VariantTypeId]>,
+    pub static_domains: Box<[StaticDomainData]>,
+    pub static_domain_to_id: Box<[StaticDomainId]>,
+    pub static_constructors: Box<[AlgebraicStaticConstructorData]>,
+    pub static_constructor_to_id: Box<[AlgebraicStaticConstructorId]>,
+    pub const_int_domain: StaticDomainId,
+    pub never_id: TypeId,
+    pub unit_id: TypeId,
+}
+
+impl FrozenTypeStorePrefix {
+    pub fn find_type(&self, data: &TypeData, kind: KindId) -> Option<TypeId> {
+        let idx = self.type_to_id.binary_search_by(|&id| {
+            (&self.types[id.index()], self.type_kinds[id.index()]).cmp(&(data, kind))
+        }).ok()?;
+        Some(self.type_to_id[idx])
+    }
+
+    pub fn find_kind(&self, key: &KindData) -> Option<KindId> {
+        let idx = self.kind_to_id.binary_search_by(|&id| {
+            self.kinds[id.index()].cmp(key)
+        }).ok()?;
+        Some(self.kind_to_id[idx])
+    }
+
+    pub fn find_parameter(&self, owner: &TypeParameterOwner, index: u32) -> Option<TypeParameterId> {
+        let idx = self.parameter_to_id.binary_search_by(|&id| {
+            let p = &self.type_parameters[id.index()];
+            (&p.owner, p.index).cmp(&(owner, index))
+        }).ok()?;
+        Some(self.parameter_to_id[idx])
+    }
+
+    pub fn find_row(&self, key: &RecordRowData) -> Option<RecordRowId> {
+        let idx = self.row_interner.binary_search_by(|&id| {
+            self.row_arena[id.index()].cmp(key)
+        }).ok()?;
+        Some(self.row_interner[idx])
+    }
+
+    pub fn find_family(&self, key: &FamilyType) -> Option<FamilyTypeId> {
+        let idx = self.family_interner.binary_search_by(|&id| {
+            self.family_arena[id.index()].cmp(key)
+        }).ok()?;
+        Some(self.family_interner[idx])
+    }
+
+    pub fn find_variant(&self, key: &VariantId) -> Option<VariantTypeId> {
+        let idx = self.variant_identity_to_id.binary_search_by(|&id| {
+            self.variant_identities[id.index()].cmp(key)
+        }).ok()?;
+        Some(self.variant_identity_to_id[idx])
+    }
+
+    pub fn find_static_domain(&self, key: &StaticDomainData) -> Option<StaticDomainId> {
+        let idx = self.static_domain_to_id.binary_search_by(|&id| {
+            self.static_domains[id.index()].cmp(key)
+        }).ok()?;
+        Some(self.static_domain_to_id[idx])
+    }
+
+    pub fn find_static_constructor(&self, key: &AlgebraicStaticConstructorData) -> Option<AlgebraicStaticConstructorId> {
+        let idx = self.static_constructor_to_id.binary_search_by(|&id| {
+            self.static_constructors[id.index()].cmp(key)
+        }).ok()?;
+        Some(self.static_constructor_to_id[idx])
+    }
+}
+
 /// Central store for canonical type interning, hash-consing, and kind assignments.
 #[derive(Clone, Debug)]
 pub struct TypeStore {
     id: TypeStoreId,
+    frozen: Option<Arc<FrozenTypeStorePrefix>>,
     types: Vector<TypeData>,
     type_to_id: HashMap<(TypeData, KindId), TypeId>,
     kinds: Vector<KindData>,
@@ -396,9 +487,14 @@ impl Default for TypeStore {
 }
 
 impl TypeStore {
+    pub fn fresh_id() -> TypeStoreId {
+        TypeStoreId(NEXT_TYPE_STORE_ID.fetch_add(1, Ordering::Relaxed))
+    }
+
     pub fn new() -> Self {
         let mut store = Self {
             id: TypeStoreId(NEXT_TYPE_STORE_ID.fetch_add(1, Ordering::Relaxed)),
+            frozen: None,
             types: Vector::new(),
             type_to_id: HashMap::new(),
             kinds: Vector::new(),
@@ -445,6 +541,37 @@ impl TypeStore {
         store
     }
 
+    pub fn from_frozen(prefix: Arc<FrozenTypeStorePrefix>) -> Self {
+        Self {
+            id: prefix.id,
+            types: Vector::new(),
+            type_to_id: HashMap::new(),
+            kinds: Vector::new(),
+            kind_to_id: HashMap::new(),
+            type_kinds: Vector::new(),
+            type_parameters: Vector::new(),
+            parameter_to_id: HashMap::new(),
+            parameter_variances: HashMap::new(),
+            lambda_arena: TypeLambdaArena::from_frozen(prefix.lambda_arena.clone()),
+            row_arena: Vector::new(),
+            row_interner: HashMap::new(),
+            family_arena: Vector::new(),
+            family_interner: HashMap::new(),
+            variant_identities: Vector::new(),
+            variant_identity_to_id: HashMap::new(),
+            static_domains: Vector::new(),
+            static_domain_to_id: HashMap::new(),
+            static_constructors: Vector::new(),
+            static_constructor_to_id: HashMap::new(),
+            const_int_domain: prefix.const_int_domain,
+            never_id: prefix.never_id,
+            unit_id: prefix.unit_id,
+            frozen: Some(prefix),
+            #[cfg(feature = "perf-observability")]
+            forked_from_baseline: false,
+        }
+    }
+
     /// Create a fork from a canonical prefix.
     ///
     /// All node IDs allocated in `self` are preserved with identical numeric
@@ -460,14 +587,14 @@ impl TypeStore {
             let context = PerfContext::current_thread();
             let span = context.span(PerfPhase::TypeStoreBaselineFork);
             context.record_counter(PerfCounter::TypeStorePersistentRootForks, 1);
-            context.record_counter(PerfCounter::TypeStoreForkTypeEntries, self.types.len() as u64);
-            context.record_counter(PerfCounter::TypeStoreForkKindEntries, self.kinds.len() as u64);
-            context.record_counter(PerfCounter::TypeStoreForkParameterEntries, self.type_parameters.len() as u64);
-            context.record_counter(PerfCounter::TypeStoreForkRowEntries, self.row_arena.len() as u64);
-            context.record_counter(PerfCounter::TypeStoreForkFamilyEntries, self.family_arena.len() as u64);
-            context.record_counter(PerfCounter::TypeStoreForkStaticDomainEntries, self.static_domains.len() as u64);
-            context.record_counter(PerfCounter::TypeStoreForkStaticConstructorEntries, self.static_constructors.len() as u64);
-            context.record_counter(PerfCounter::TypeStoreForkVariantEntries, self.variant_identities.len() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkTypeEntries, self.type_count() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkKindEntries, self.kind_count() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkParameterEntries, self.parameter_count() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkRowEntries, self.row_count() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkFamilyEntries, self.family_count() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkStaticDomainEntries, self.static_domain_count() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkStaticConstructorEntries, self.static_constructor_count() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkVariantEntries, self.variant_count() as u64);
             context.record_counter(PerfCounter::TypeStorePhysicalCowMeasurementUnavailable, 1);
             let mut fork = self.clone();
             fork.id = TypeStoreId(NEXT_TYPE_STORE_ID.fetch_add(1, Ordering::Relaxed));
@@ -488,37 +615,28 @@ impl TypeStore {
     /// changed generic variance or lambda meaning. It is a reader-binding check,
     /// not a hot-path substitute for query currentness.
     pub fn extends_canonical_prefix(&self, prefix: &Self) -> bool {
-        self.types.len() >= prefix.types.len()
-            && self.types.iter().take(prefix.types.len()).eq(prefix.types.iter())
-            && self.kinds.len() >= prefix.kinds.len()
-            && self.kinds.iter().take(prefix.kinds.len()).eq(prefix.kinds.iter())
-            && self.type_kinds.len() >= prefix.type_kinds.len()
-            && self.type_kinds.iter().take(prefix.type_kinds.len()).eq(prefix.type_kinds.iter())
-            && self.type_parameters.len() >= prefix.type_parameters.len()
-            && self.type_parameters.iter().take(prefix.type_parameters.len()).eq(prefix.type_parameters.iter())
-            && self.row_arena.len() >= prefix.row_arena.len()
-            && self.row_arena.iter().take(prefix.row_arena.len()).eq(prefix.row_arena.iter())
-            && self.family_arena.len() >= prefix.family_arena.len()
-            && self.family_arena.iter().take(prefix.family_arena.len()).eq(prefix.family_arena.iter())
-            && self.variant_identities.len() >= prefix.variant_identities.len()
-            && self
-                .variant_identities
-                .iter()
-                .take(prefix.variant_identities.len())
-                .eq(prefix.variant_identities.iter())
-            && self.static_domains.len() >= prefix.static_domains.len()
-            && self.static_domains.iter().take(prefix.static_domains.len()).eq(prefix.static_domains.iter())
-            && self.static_constructors.len() >= prefix.static_constructors.len()
-            && self
-                .static_constructors
-                .iter()
-                .take(prefix.static_constructors.len())
-                .eq(prefix.static_constructors.iter())
+        self.type_count() >= prefix.type_count()
+            && (0..prefix.type_count()).all(|i| self.get(TypeId(i as u32)) == prefix.get(TypeId(i as u32)))
+            && self.kind_count() >= prefix.kind_count()
+            && (0..prefix.kind_count()).all(|i| self.get_kind(KindId(i as u32)) == prefix.get_kind(KindId(i as u32)))
+            && self.type_kind_count() >= prefix.type_kind_count()
+            && (0..prefix.type_kind_count()).all(|i| self.kind_of(TypeId(i as u32)) == prefix.kind_of(TypeId(i as u32)))
+            && self.parameter_count() >= prefix.parameter_count()
+            && (0..prefix.parameter_count()).all(|i| self.type_parameter(TypeParameterId(i as u32)) == prefix.type_parameter(TypeParameterId(i as u32)))
+            && self.row_count() >= prefix.row_count()
+            && (0..prefix.row_count()).all(|i| self.record_row(RecordRowId(i as u32)) == prefix.record_row(RecordRowId(i as u32)))
+            && self.family_count() >= prefix.family_count()
+            && (0..prefix.family_count()).all(|i| self.get_family(FamilyTypeId(i as u32)) == prefix.get_family(FamilyTypeId(i as u32)))
+            && self.variant_count() >= prefix.variant_count()
+            && (0..prefix.variant_count()).all(|i| self.variant_identity(VariantTypeId(i as u32)) == prefix.variant_identity(VariantTypeId(i as u32)))
+            && self.static_domain_count() >= prefix.static_domain_count()
+            && (0..prefix.static_domain_count()).all(|i| self.static_domain(StaticDomainId(i as u32)) == prefix.static_domain(StaticDomainId(i as u32)))
+            && self.static_constructor_count() >= prefix.static_constructor_count()
+            && (0..prefix.static_constructor_count()).all(|i| self.static_constructor(AlgebraicStaticConstructorId(i as u32)) == prefix.static_constructor(AlgebraicStaticConstructorId(i as u32)))
             && self.lambda_arena.extends_prefix(&prefix.lambda_arena)
             && prefix
-                .parameter_variances
-                .iter()
-                .all(|(key, value)| self.parameter_variances.get(key) == Some(value))
+                .parameter_variance_bindings()
+                .all(|(key, value)| self.get_parameter_variance(&key.0, key.1) == Some(value))
     }
 
     fn record_post_fork_mutation(&self, category: TypeStoreMutationCategory) {
@@ -548,7 +666,44 @@ impl TypeStore {
     }
 
     pub fn type_count(&self) -> usize {
-        self.types.len()
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.types.len());
+        frozen_len + self.types.len()
+    }
+
+    #[inline]
+    pub fn kind_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.kinds.len());
+        frozen_len + self.kinds.len()
+    }
+
+    #[inline]
+    pub fn type_kind_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.type_kinds.len());
+        frozen_len + self.type_kinds.len()
+    }
+
+    #[inline]
+    pub fn parameter_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.type_parameters.len());
+        frozen_len + self.type_parameters.len()
+    }
+
+    #[inline]
+    pub fn row_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.row_arena.len());
+        frozen_len + self.row_arena.len()
+    }
+
+    #[inline]
+    pub fn variant_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.variant_identities.len());
+        frozen_len + self.variant_identities.len()
+    }
+
+    #[inline]
+    pub fn static_domain_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.static_domains.len());
+        frozen_len + self.static_domains.len()
     }
 
     pub fn proper_type(&self, id: TypeId) -> Result<ProperTypeId, KindId> {
@@ -563,25 +718,22 @@ impl TypeStore {
             self.record_post_fork_mutation(TypeStoreMutationCategory::Parameter);
         }
 
-        if let Some(&id) = self.parameter_to_id.get(&key) {
-            let existing = &self.type_parameters[id.index()];
+        if let Some(id) = self.find_type_parameter_id(&data.owner, data.index) {
+            let existing = self.type_parameter(id);
             let same_semantics = existing.name == data.name && existing.kind == data.kind && existing.variance == data.variance && existing.mode == data.mode;
 
             if same_semantics {
-                // Source provenance is revision-local presentation data, not semantic
-                // identity. Refresh it in the live store while retained snapshot clones
-                // continue to preserve the provenance from their own revision.
-                self.type_parameters[id.index()].source = data.source;
-                self.record_post_fork_mutation(TypeStoreMutationCategory::Parameter);
+                let frozen_len = self.frozen.as_ref().map_or(0, |f| f.type_parameters.len());
+                if id.index() >= frozen_len {
+                    self.type_parameters[id.index() - frozen_len].source = data.source;
+                    self.record_post_fork_mutation(TypeStoreMutationCategory::Parameter);
+                }
                 return id;
             }
         }
 
-        // `(owner, index)` identifies the current binder slot, not an eternal arena
-        // object. If the slot's semantic meaning changes, allocate a new parameter
-        // version rather than mutating the old one. Cached products and retained
-        // snapshots may still reference the previous ID and must keep its denotation.
-        let id = TypeParameterId(self.type_parameters.len() as u32);
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.type_parameters.len());
+        let id = TypeParameterId((frozen_len + self.type_parameters.len()) as u32);
         self.type_parameters.push_back(data);
         self.parameter_to_id.insert(key, id);
         self.record_post_fork_mutation(TypeStoreMutationCategory::Parameter);
@@ -594,11 +746,46 @@ impl TypeStore {
     }
 
     pub fn get_parameter_variance(&self, decl: &DeclarationId, index: u32) -> Option<Variance> {
-        self.parameter_variances.get(&(decl.clone(), index)).copied()
+        let key = (decl.clone(), index);
+        if let Some(&variance) = self.parameter_variances.get(&key) {
+            return Some(variance);
+        }
+        if let Some(frozen) = &self.frozen {
+            if let Some(&variance) = frozen.parameter_variances.get(&key) {
+                return Some(variance);
+            }
+        }
+        None
     }
 
     pub fn find_type_parameter_id(&self, owner: &TypeParameterOwner, index: u32) -> Option<TypeParameterId> {
-        self.parameter_to_id.get(&(owner.clone(), index)).copied()
+        let key = (owner.clone(), index);
+        if let Some(&id) = self.parameter_to_id.get(&key) {
+            return Some(id);
+        }
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_parameter(owner, index) {
+                return Some(id);
+            }
+        }
+        None
+    }
+
+    pub fn parameter_bindings(&self) -> impl Iterator<Item = (&TypeParameterOwner, u32, TypeParameterId)> {
+        let frozen_bindings = self.frozen.as_ref().map(|f| {
+            f.parameter_to_id.iter().map(|&id| {
+                let param = &f.type_parameters[id.index()];
+                (&param.owner, param.index, id)
+            })
+        });
+        let overlay_bindings = self.parameter_to_id.iter().map(|((owner, index), id)| (owner, *index, *id));
+        frozen_bindings.into_iter().flatten().chain(overlay_bindings)
+    }
+
+    pub fn parameter_variance_bindings(&self) -> impl Iterator<Item = ((DeclarationId, u32), Variance)> + '_ {
+        let frozen_iter = self.frozen.as_ref().map(|f| f.parameter_variances.iter().map(|(k, v)| (k.clone(), *v)));
+        let overlay_iter = self.parameter_variances.iter().map(|(k, v)| (k.clone(), *v));
+        frozen_iter.into_iter().flatten().chain(overlay_iter)
     }
 
     #[inline]
@@ -676,11 +863,27 @@ impl TypeStore {
 
     #[inline]
     pub fn type_parameter(&self, id: TypeParameterId) -> &TypeParameterData {
-        &self.type_parameters[id.index()]
+        let index = id.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.type_parameters.len() {
+                return &frozen.type_parameters[index];
+            }
+            &self.type_parameters[index - frozen.type_parameters.len()]
+        } else {
+            &self.type_parameters[index]
+        }
     }
 
     pub fn try_type_parameter(&self, id: TypeParameterId) -> Option<&TypeParameterData> {
-        self.type_parameters.get(id.index())
+        let index = id.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.type_parameters.len() {
+                return Some(&frozen.type_parameters[index]);
+            }
+            self.type_parameters.get(index - frozen.type_parameters.len())
+        } else {
+            self.type_parameters.get(index)
+        }
     }
 
     pub fn parameter_form(&mut self, id: TypeParameterId) -> TypeId {
@@ -694,24 +897,43 @@ impl TypeStore {
     }
 
     pub fn contains_parameter_type(&self, parameter: TypeParameterId) -> bool {
+        if let Some(frozen) = &self.frozen {
+            if frozen.types.iter().any(|ty| matches!(ty, TypeData::Parameter(id) if *id == parameter)) {
+                return true;
+            }
+        }
         self.types.iter().any(|ty| matches!(ty, TypeData::Parameter(id) if *id == parameter))
     }
 
     #[inline]
     pub fn never(&self) -> TypeId {
-        self.never_id
+        if let Some(frozen) = &self.frozen {
+            frozen.never_id
+        } else {
+            self.never_id
+        }
     }
 
     #[inline]
     pub fn unit(&self) -> TypeId {
-        self.unit_id
+        if let Some(frozen) = &self.frozen {
+            frozen.unit_id
+        } else {
+            self.unit_id
+        }
     }
 
     pub fn intern_kind(&mut self, data: KindData) -> KindId {
         if let Some(&id) = self.kind_to_id.get(&data) {
             return id;
         }
-        let id = KindId(self.kinds.len() as u32);
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_kind(&data) {
+                return id;
+            }
+        }
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.kinds.len());
+        let id = KindId((frozen_len + self.kinds.len()) as u32);
         self.kinds.push_back(data.clone());
         self.kind_to_id.insert(data, id);
         self.record_post_fork_mutation(TypeStoreMutationCategory::Kind);
@@ -719,7 +941,15 @@ impl TypeStore {
     }
 
     pub fn get_kind(&self, id: KindId) -> &KindData {
-        &self.kinds[id.index()]
+        let index = id.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.kinds.len() {
+                return &frozen.kinds[index];
+            }
+            &self.kinds[index - frozen.kinds.len()]
+        } else {
+            &self.kinds[index]
+        }
     }
 
     pub fn format_kind(&self, id: KindId) -> String {
@@ -804,11 +1034,17 @@ impl TypeStore {
         // different kind in a later semantic revision, and the old TypeId must retain
         // its original denotation for cached products and retained snapshots.
         let key = (data.clone(), kind);
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_type(&key.0, key.1) {
+                return id;
+            }
+        }
         if let Some(&id) = self.type_to_id.get(&key) {
             return id;
         }
 
-        let id = TypeId(self.types.len() as u32);
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.types.len());
+        let id = TypeId((frozen_len + self.types.len()) as u32);
         self.types.push_back(data);
         self.type_kinds.push_back(kind);
         self.type_to_id.insert(key, id);
@@ -819,7 +1055,15 @@ impl TypeStore {
 
     #[inline]
     pub fn kind_of(&self, ty: TypeId) -> KindId {
-        self.type_kinds[ty.index()]
+        let index = ty.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.type_kinds.len() {
+                return frozen.type_kinds[index];
+            }
+            self.type_kinds[index - frozen.type_kinds.len()]
+        } else {
+            self.type_kinds[index]
+        }
     }
 
     #[inline]
@@ -829,20 +1073,26 @@ impl TypeStore {
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.types.len()
+        self.type_count()
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.types.is_empty()
+        self.type_count() == 0
     }
 
     /// Interns one nominal or built-in static domain in this type store.
     pub fn intern_static_domain(&mut self, data: StaticDomainData) -> StaticDomainId {
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_static_domain(&data) {
+                return id;
+            }
+        }
         if let Some(&id) = self.static_domain_to_id.get(&data) {
             return id;
         }
-        let id = StaticDomainId::from_index(self.static_domains.len());
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.static_domains.len());
+        let id = StaticDomainId::from_index(frozen_len + self.static_domains.len());
         self.static_domains.push_back(data.clone());
         self.static_domain_to_id.insert(data, id);
         self.record_post_fork_mutation(TypeStoreMutationCategory::StaticDomain);
@@ -855,27 +1105,44 @@ impl TypeStore {
     }
 
     pub fn static_domain(&self, id: StaticDomainId) -> Option<&StaticDomainData> {
-        self.static_domains.get(id.index())
+        let index = id.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.static_domains.len() {
+                return Some(&frozen.static_domains[index]);
+            }
+            self.static_domains.get(index - frozen.static_domains.len())
+        } else {
+            self.static_domains.get(index)
+        }
     }
 
     /// Enumerates canonical static-domain identities registered in this store.
     pub fn static_domain_ids(&self) -> impl Iterator<Item = StaticDomainId> + '_ {
-        (0..self.static_domains.len()).map(StaticDomainId::from_index)
+        (0..self.static_domain_count()).map(StaticDomainId::from_index)
     }
 
     /// Returns declaration parameters in source order for metadata validation.
     pub fn type_parameters_for_owner(&self, owner: &TypeParameterOwner) -> Vec<TypeParameterId> {
-        let mut parameters = self
-            .parameter_to_id
-            .iter()
-            .filter_map(|((parameter_owner, index), parameter)| (parameter_owner == owner).then_some((*index, *parameter)))
-            .collect::<Vec<_>>();
+        let mut parameters = Vec::new();
+        if let Some(frozen) = &self.frozen {
+            for (index, param) in frozen.type_parameters.iter().enumerate() {
+                if param.owner == *owner {
+                    parameters.push((param.index, TypeParameterId(index as u32)));
+                }
+            }
+        }
+        for ((parameter_owner, index), parameter) in &self.parameter_to_id {
+            if parameter_owner == owner {
+                parameters.push((*index, *parameter));
+            }
+        }
         parameters.sort_by_key(|(index, _)| *index);
         parameters.into_iter().map(|(_, parameter)| parameter).collect()
     }
 
     pub fn static_constructor_count(&self) -> usize {
-        self.static_constructors.len()
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.static_constructors.len());
+        frozen_len + self.static_constructors.len()
     }
 
     /// Returns the canonical static kind for a domain.
@@ -913,10 +1180,16 @@ impl TypeStore {
             case_name: case_name.into(),
             parameter_kinds,
         };
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_static_constructor(&data) {
+                return id;
+            }
+        }
         if let Some(&id) = self.static_constructor_to_id.get(&data) {
             return id;
         }
-        let id = AlgebraicStaticConstructorId::from_index(self.static_constructors.len());
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.static_constructors.len());
+        let id = AlgebraicStaticConstructorId::from_index(frozen_len + self.static_constructors.len());
         self.static_constructors.push_back(data.clone());
         self.static_constructor_to_id.insert(data, id);
         self.record_post_fork_mutation(TypeStoreMutationCategory::StaticConstructor);
@@ -924,18 +1197,24 @@ impl TypeStore {
     }
 
     pub fn static_constructor(&self, id: AlgebraicStaticConstructorId) -> Option<&AlgebraicStaticConstructorData> {
-        self.static_constructors.get(id.index())
+        let index = id.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.static_constructors.len() {
+                return Some(&frozen.static_constructors[index]);
+            }
+            self.static_constructors.get(index - frozen.static_constructors.len())
+        } else {
+            self.static_constructors.get(index)
+        }
     }
 
     /// Returns the canonical static constructors declared by one domain.
     /// This is an internal enumeration for metadata and diagnostics. Source
     /// case membership is owned by `StaticDomainCaseCatalogProduct`.
     pub fn static_constructor_ids_for_domain(&self, domain: StaticDomainId) -> Vec<AlgebraicStaticConstructorId> {
-        self.static_constructors
-            .iter()
-            .enumerate()
-            .filter(|(_, constructor)| constructor.domain == domain)
-            .map(|(index, _)| AlgebraicStaticConstructorId::from_index(index))
+        (0..self.static_constructor_count())
+            .map(AlgebraicStaticConstructorId::from_index)
+            .filter(|&id| self.static_constructor(id).map_or(false, |c| c.domain == domain))
             .collect()
     }
 
@@ -990,7 +1269,15 @@ impl TypeStore {
 
     #[inline]
     pub fn get(&self, id: TypeId) -> &TypeData {
-        &self.types[id.index()]
+        let index = id.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.types.len() {
+                return &frozen.types[index];
+            }
+            &self.types[index - frozen.types.len()]
+        } else {
+            &self.types[index]
+        }
     }
 
     pub fn nominal_form(&mut self, declaration: DeclarationId, kind: KindId) -> TypeId {
@@ -1003,6 +1290,11 @@ impl TypeStore {
 
     /// Returns an already-interned proper nominal type without mutating the store.
     pub fn nominal_type_id(&self, declaration: &DeclarationId) -> Option<TypeId> {
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_type(&TypeData::Nominal { declaration: declaration.clone() }, KindId::TYPE) {
+                return Some(id);
+            }
+        }
         self.type_to_id
             .get(&(
                 TypeData::Nominal {
@@ -1015,6 +1307,11 @@ impl TypeStore {
 
     /// Returns an already-interned class-object type without mutating the store.
     pub fn class_object_type_id(&self, declaration: &DeclarationId) -> Option<TypeId> {
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_type(&TypeData::ClassObject { declaration: declaration.clone() }, KindId::TYPE) {
+                return Some(id);
+            }
+        }
         self.type_to_id
             .get(&(
                 TypeData::ClassObject {
@@ -1752,10 +2049,16 @@ impl TypeStore {
     }
 
     pub(crate) fn intern_record_row(&mut self, data: RecordRowData) -> RecordRowId {
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_row(&data) {
+                return id;
+            }
+        }
         if let Some(&id) = self.row_interner.get(&data) {
             return id;
         }
-        let id = RecordRowId(self.row_arena.len() as u32);
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.row_arena.len());
+        let id = RecordRowId((frozen_len + self.row_arena.len()) as u32);
         self.row_arena.push_back(data.clone());
         self.row_interner.insert(data, id);
         self.record_post_fork_mutation(TypeStoreMutationCategory::Row);
@@ -1765,18 +2068,32 @@ impl TypeStore {
     /// Accesses a record row by its ID.
     #[inline]
     pub fn record_row(&self, id: RecordRowId) -> &RecordRowData {
-        &self.row_arena[id.index()]
+        let index = id.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.row_arena.len() {
+                return &frozen.row_arena[index];
+            }
+            &self.row_arena[index - frozen.row_arena.len()]
+        } else {
+            &self.row_arena[index]
+        }
     }
 
     /// Looks up an already-interned record row.
     pub fn find_record_row(&self, data: &RecordRowData) -> Option<RecordRowId> {
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_row(data) {
+                return Some(id);
+            }
+        }
         self.row_interner.get(data).copied()
     }
 
     /// Returns the number of interned record rows.
     #[inline]
     pub fn record_row_count(&self) -> usize {
-        self.row_arena.len()
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.row_arena.len());
+        frozen_len + self.row_arena.len()
     }
 
     /// Interns a record type backed by a canonical closed row.
@@ -1829,7 +2146,19 @@ impl TypeStore {
         }
 
         let family = FamilyType::new(deduped.into_boxed_slice());
-        let family_id = if let Some(&id) = self.family_interner.get(&family) {
+        let family_id = if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_family(&family) {
+                id
+            } else if let Some(&id) = self.family_interner.get(&family) {
+                id
+            } else {
+                let id = FamilyTypeId::new((frozen.family_arena.len() + self.family_arena.len()) as u32);
+                self.family_arena.push_back(family.clone());
+                self.family_interner.insert(family, id);
+                self.record_post_fork_mutation(TypeStoreMutationCategory::Family);
+                id
+            }
+        } else if let Some(&id) = self.family_interner.get(&family) {
             id
         } else {
             let id = FamilyTypeId::new(self.family_arena.len() as u32);
@@ -1844,7 +2173,15 @@ impl TypeStore {
 
     #[inline]
     pub fn get_family(&self, id: FamilyTypeId) -> &FamilyType {
-        &self.family_arena[id.index()]
+        let index = id.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.family_arena.len() {
+                return &frozen.family_arena[index];
+            }
+            &self.family_arena[index - frozen.family_arena.len()]
+        } else {
+            &self.family_arena[index]
+        }
     }
 
     pub fn family_count(&self) -> usize {
@@ -1959,7 +2296,7 @@ impl TypeStore {
                 format!("({})", parts.join(", "))
             }
             TypeData::Record(row_id) => {
-                let row = &self.row_arena[row_id.index()];
+                let row = self.record_row(*row_id);
                 let mut fields: Vec<String> = row
                     .fields
                     .iter()
@@ -1997,7 +2334,7 @@ impl TypeStore {
                         format!("{{{}}}", fields.join(", "))
                     }
                     RecordRowTail::Parameter(p) => {
-                        let p_name = &self.type_parameters[p.index()].name;
+                        let p_name = &self.type_parameter(p).name;
                         fields.push(format!("**{p_name}"));
                         format!("{{{}}}", fields.join(", "))
                     }
@@ -2032,7 +2369,7 @@ impl TypeStore {
                 format!("({params}) -> {ret}")
             }
             TypeData::Family(fid) => {
-                let family = &self.family_arena[fid.index()];
+                let family = self.get_family(*fid);
                 let member_strs = family
                     .members
                     .iter()
@@ -2070,7 +2407,7 @@ impl TypeStore {
                 let enum_str = self.format_type(*enum_type);
                 format!("ExactCase<{}::{}, {enum_str}>", variant_id.owner.name, variant_id.selector.encode())
             }
-            TypeData::Parameter(param_id) => self.type_parameters[param_id.index()].name.to_string(),
+            TypeData::Parameter(param_id) => self.type_parameter(*param_id).name.to_string(),
             TypeData::Lambda(_) => "[TypeLambda]".to_string(),
             TypeData::SelfType(_) => "Self".to_string(),
             TypeData::TypePack(elements) => {
@@ -2171,10 +2508,16 @@ impl TypeStore {
 
     /// Interns a [`VariantId`] into a compact store-relative [`VariantTypeId`].
     pub fn intern_variant_identity(&mut self, variant: VariantId) -> VariantTypeId {
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_variant(&variant) {
+                return id;
+            }
+        }
         if let Some(&id) = self.variant_identity_to_id.get(&variant) {
             return id;
         }
-        let id = VariantTypeId::from_index(self.variant_identities.len());
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.variant_identities.len());
+        let id = VariantTypeId::from_index(frozen_len + self.variant_identities.len());
         self.variant_identities.push_back(variant.clone());
         self.variant_identity_to_id.insert(variant, id);
         self.record_post_fork_mutation(TypeStoreMutationCategory::Variant);
@@ -2183,11 +2526,24 @@ impl TypeStore {
 
     /// Returns the stable [`VariantId`] corresponding to a [`VariantTypeId`].
     pub fn variant_identity(&self, id: VariantTypeId) -> &VariantId {
-        &self.variant_identities[id.index()]
+        let index = id.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.variant_identities.len() {
+                return &frozen.variant_identities[index];
+            }
+            &self.variant_identities[index - frozen.variant_identities.len()]
+        } else {
+            &self.variant_identities[index]
+        }
     }
 
     /// Returns the store-local handle for an already-interned stable variant identity.
     pub fn variant_type_id(&self, variant: &VariantId) -> Option<VariantTypeId> {
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_variant(variant) {
+                return Some(id);
+            }
+        }
         self.variant_identity_to_id.get(variant).copied()
     }
 

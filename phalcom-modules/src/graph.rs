@@ -4,8 +4,10 @@
 //! separate structures. A declaration/interface cycle is valid input to a
 //! semantic fixed point; a runtime initialization cycle is not.
 
+use crate::authority::{ModuleAuthorityBuildError, ModuleAuthorityMap};
 use crate::identity::ModuleId;
 use phalcom_common::range::SourceRange;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::Hash;
 
@@ -61,6 +63,22 @@ pub enum SemanticNodeId {
     Module(ModuleId),
     /// Declaration-level node reserved for type/protocol/ADT linking.
     Declaration { module: ModuleId, name: Box<str> },
+}
+
+impl SemanticNodeId {
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, AllocationError> {
+        match self {
+            Self::Module(id) => Ok(Self::Module(id.clone_with_allocation_budget(allocations)?)),
+            Self::Declaration { module, name } => {
+                let module = module.clone_with_allocation_budget(allocations)?;
+                let name = allocations.boxed_str(name)?;
+                Ok(Self::Declaration { module, name })
+            }
+        }
+    }
 }
 
 /// Semantic relationship between declaration/interface nodes.
@@ -124,10 +142,32 @@ pub struct RuntimeDependencyEdge {
 /// Graph of statically resolved source references.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ReferenceGraph {
-    forward: BTreeMap<ModuleId, Vec<ReferenceEdge>>,
+    forward: ModuleAuthorityMap<ModuleId, Vec<ReferenceEdge>>,
 }
 
 impl ReferenceGraph {
+    pub fn new() -> Self {
+        Self { forward: ModuleAuthorityMap::new() }
+    }
+
+    pub fn from_budgeted_sorted_entries(
+        entries: Vec<(ModuleId, Vec<ReferenceEdge>)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, ModuleAuthorityBuildError> {
+        Ok(Self {
+            forward: ModuleAuthorityMap::from_budgeted_sorted_entries(entries, allocations)?,
+        })
+    }
+
+    pub fn from_budgeted_entries(
+        entries: Vec<(ModuleId, Vec<ReferenceEdge>)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, ModuleAuthorityBuildError> {
+        Ok(Self {
+            forward: ModuleAuthorityMap::from_budgeted_entries(entries, allocations)?,
+        })
+    }
+
     /// Registers a module as a node in the graph even if it has no outgoing edges.
     pub fn add_node(&mut self, module: ModuleId) {
         self.forward.entry(module).or_default();
@@ -162,10 +202,32 @@ impl ReferenceGraph {
 /// Graph of semantic/interface dependencies.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SemanticGraph {
-    forward: BTreeMap<SemanticNodeId, Vec<SemanticEdge>>,
+    forward: ModuleAuthorityMap<SemanticNodeId, Vec<SemanticEdge>>,
 }
 
 impl SemanticGraph {
+    pub fn new() -> Self {
+        Self { forward: ModuleAuthorityMap::new() }
+    }
+
+    pub fn from_budgeted_sorted_entries(
+        entries: Vec<(SemanticNodeId, Vec<SemanticEdge>)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, ModuleAuthorityBuildError> {
+        Ok(Self {
+            forward: ModuleAuthorityMap::from_budgeted_sorted_entries(entries, allocations)?,
+        })
+    }
+
+    pub fn from_budgeted_entries(
+        entries: Vec<(SemanticNodeId, Vec<SemanticEdge>)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, ModuleAuthorityBuildError> {
+        Ok(Self {
+            forward: ModuleAuthorityMap::from_budgeted_entries(entries, allocations)?,
+        })
+    }
+
     /// Adds one semantic edge.
     pub fn add(&mut self, edge: SemanticEdge) {
         self.forward.entry(edge.from.clone()).or_default().push(edge);
@@ -233,10 +295,32 @@ impl SemanticGraph {
 /// Graph of eager runtime module initialization dependencies.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RuntimeDependencyGraph {
-    forward: BTreeMap<ModuleId, Vec<RuntimeDependencyEdge>>,
+    forward: ModuleAuthorityMap<ModuleId, Vec<RuntimeDependencyEdge>>,
 }
 
 impl RuntimeDependencyGraph {
+    pub fn new() -> Self {
+        Self { forward: ModuleAuthorityMap::new() }
+    }
+
+    pub fn from_budgeted_sorted_entries(
+        entries: Vec<(ModuleId, Vec<RuntimeDependencyEdge>)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, ModuleAuthorityBuildError> {
+        Ok(Self {
+            forward: ModuleAuthorityMap::from_budgeted_sorted_entries(entries, allocations)?,
+        })
+    }
+
+    pub fn from_budgeted_entries(
+        entries: Vec<(ModuleId, Vec<RuntimeDependencyEdge>)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, ModuleAuthorityBuildError> {
+        Ok(Self {
+            forward: ModuleAuthorityMap::from_budgeted_entries(entries, allocations)?,
+        })
+    }
+
     /// Registers a module as a node in the graph even if it has no outgoing edges.
     pub fn add_node(&mut self, module: ModuleId) {
         self.forward.entry(module).or_default();
@@ -343,7 +427,7 @@ impl RuntimeDependencyGraph {
         for node in allowed {
             forward.entry(node.clone()).or_default();
         }
-        Self { forward }
+        Self { forward: forward.into() }
     }
 }
 

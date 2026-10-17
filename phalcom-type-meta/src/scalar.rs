@@ -25,6 +25,20 @@ impl StaticInt {
         }
     }
 
+    /// Creates a normalized exact integer with allocation budget tracking for heap allocation.
+    pub fn new_with_allocation_budget(
+        value: BigInt,
+        allocations: &mut crate::allocation::AllocationBudget,
+    ) -> Result<Self, crate::allocation::AllocationError> {
+        match i64::try_from(&value).ok() {
+            Some(small) => Ok(Self::Small(small)),
+            None => {
+                let arc = allocations.arc(value)?;
+                Ok(Self::Large(arc))
+            }
+        }
+    }
+
     /// Normalizes compatibility inputs that directly constructed `Large`.
     pub fn normalized(self) -> Self {
         match self {

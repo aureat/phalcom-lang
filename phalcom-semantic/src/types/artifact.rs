@@ -11,6 +11,7 @@ use crate::types::type_member::{ConstTerm, TypeMemberArgument};
 use phalcom_common::selector::{Selector, SelectorBase};
 use phalcom_compiler_artifact::semantic::type_store::*;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
+use phalcom_type_meta::allocation::{AllocationBudget, BudgetedSortedMap};
 use phalcom_type_meta::identity::*;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1665,11 +1666,11 @@ enum Node {
     Scoped(u32),
     Lambda(u32),
 }
-struct Import<'a> {
+struct Import<'a, 'b> {
     graph: &'a TypeGraphV1,
     limits: &'a ValidationLimits,
-    store: TypeStore,
-    active: BTreeSet<Node>,
+    allocations: &'b mut AllocationBudget,
+    active: Vec<Node>,
     types: Vec<Option<TypeId>>,
     kinds: Vec<Option<KindId>>,
     parameters: Vec<Option<TypeParameterId>>,
@@ -1680,6 +1681,18 @@ struct Import<'a> {
     constructors: Vec<Option<AlgebraicStaticConstructorId>>,
     scoped: Vec<Option<ScopedTypeId>>,
     lambdas: Vec<Option<TypeLambdaId>>,
+
+    decoded_types: Vec<Option<TypeData>>,
+    decoded_type_kinds: Vec<Option<KindId>>,
+    decoded_kinds: Vec<Option<KindData>>,
+    decoded_parameters: Vec<Option<TypeParameterData>>,
+    decoded_rows: Vec<Option<RecordRowData>>,
+    decoded_families: Vec<Option<FamilyType>>,
+    decoded_variants: Vec<Option<VariantId>>,
+    decoded_domains: Vec<Option<StaticDomainData>>,
+    decoded_constructors: Vec<Option<AlgebraicStaticConstructorData>>,
+    decoded_scoped: Vec<Option<ScopedTypeData>>,
+    decoded_lambdas: Vec<Option<TypeLambdaData>>,
 }
 macro_rules! resolve_node {
     ($($method:ident : $field:ident ($wire:ty) -> $native:ty, $node:ident, $build:ident),* $(,)?) => { $(
@@ -1688,54 +1701,143 @@ macro_rules! resolve_node {
             if let Some(value) = previous { return Ok(*value); }
             let node = Node::$node(id.0);
             if self.active.len() >= self.limits.max_recursion_depth { return Err(invalid("type graph dependency depth exceeds limit")); }
-            if !self.active.insert(node) { return Err(invalid("cyclic structural type graph")); }
+            if self.active.contains(&node) { return Err(invalid("cyclic structural type graph")); }
+            self.active.push(node);
             let result = self.$build(id);
-            self.active.remove(&node);
+            self.active.pop();
             if let Ok(value) = result { self.$field[id.0 as usize] = Some(value); }
             result
         }
     )* };
 }
-impl<'a> Import<'a> {
-    fn new(graph: &'a TypeGraphV1, limits: &'a ValidationLimits) -> Self {
-        Self {
+impl<'a, 'b> Import<'a, 'b> {
+    fn new(graph: &'a TypeGraphV1, limits: &'a ValidationLimits, allocations: &'b mut AllocationBudget) -> Result<Self, ArtifactError> {
+        fn make_options<T: Clone>(len: usize, allocations: &mut AllocationBudget) -> Result<Vec<Option<T>>, ArtifactError> {
+            let mut v = allocations.vector(len).map_err(|e| ArtifactError::Allocation(e))?;
+            v.resize(len, None);
+            Ok(v)
+        }
+
+        let active = allocations.vector(limits.max_recursion_depth).map_err(|e| ArtifactError::Allocation(e))?;
+        let types = make_options(graph.types.len(), allocations)?;
+        let kinds = make_options(graph.kinds.len(), allocations)?;
+        let parameters = make_options(graph.parameters.len(), allocations)?;
+        let rows = make_options(graph.rows.len(), allocations)?;
+        let families = make_options(graph.families.len(), allocations)?;
+        let variants = make_options(graph.variants.len(), allocations)?;
+        let domains = make_options(graph.static_domains.len(), allocations)?;
+        let constructors = make_options(graph.static_constructors.len(), allocations)?;
+        let scoped = make_options(graph.scoped.len(), allocations)?;
+        let lambdas = make_options(graph.lambdas.len(), allocations)?;
+
+        let decoded_types = make_options(graph.types.len(), allocations)?;
+        let decoded_type_kinds = make_options(graph.types.len(), allocations)?;
+        let decoded_kinds = make_options(graph.kinds.len(), allocations)?;
+        let decoded_parameters = make_options(graph.parameters.len(), allocations)?;
+        let decoded_rows = make_options(graph.rows.len(), allocations)?;
+        let decoded_families = make_options(graph.families.len(), allocations)?;
+        let decoded_variants = make_options(graph.variants.len(), allocations)?;
+        let decoded_domains = make_options(graph.static_domains.len(), allocations)?;
+        let decoded_constructors = make_options(graph.static_constructors.len(), allocations)?;
+        let decoded_scoped = make_options(graph.scoped.len(), allocations)?;
+        let decoded_lambdas = make_options(graph.lambdas.len(), allocations)?;
+
+        Ok(Self {
             graph,
             limits,
-            store: TypeStore::new(),
-            active: BTreeSet::new(),
-            types: vec![None; graph.types.len()],
-            kinds: vec![None; graph.kinds.len()],
-            parameters: vec![None; graph.parameters.len()],
-            rows: vec![None; graph.rows.len()],
-            families: vec![None; graph.families.len()],
-            variants: vec![None; graph.variants.len()],
-            domains: vec![None; graph.static_domains.len()],
-            constructors: vec![None; graph.static_constructors.len()],
-            scoped: vec![None; graph.scoped.len()],
-            lambdas: vec![None; graph.lambdas.len()],
-        }
+            allocations,
+            active,
+            types,
+            kinds,
+            parameters,
+            rows,
+            families,
+            variants,
+            domains,
+            constructors,
+            scoped,
+            lambdas,
+            decoded_types,
+            decoded_type_kinds,
+            decoded_kinds,
+            decoded_parameters,
+            decoded_rows,
+            decoded_families,
+            decoded_variants,
+            decoded_domains,
+            decoded_constructors,
+            decoded_scoped,
+            decoded_lambdas,
+        })
     }
+
+    fn kind_of(&self, ty: TypeId) -> Result<KindId, ArtifactError> {
+        self.decoded_type_kinds
+            .get(ty.index())
+            .and_then(|k| *k)
+            .ok_or_else(|| invalid("referenced type kind not resolved"))
+    }
+
+    fn get_type(&self, ty: TypeId) -> Result<&TypeData, ArtifactError> {
+        self.decoded_types
+            .get(ty.index())
+            .and_then(|t| t.as_ref())
+            .ok_or_else(|| invalid("referenced type data not resolved"))
+    }
+
+    fn get_kind(&self, kind: KindId) -> Result<&KindData, ArtifactError> {
+        self.decoded_kinds
+            .get(kind.index())
+            .and_then(|k| k.as_ref())
+            .ok_or_else(|| invalid("referenced kind data not resolved"))
+    }
+
+    fn type_parameter(&self, parameter: TypeParameterId) -> Result<&TypeParameterData, ArtifactError> {
+        self.decoded_parameters
+            .get(parameter.index())
+            .and_then(|p| p.as_ref())
+            .ok_or_else(|| invalid("referenced type parameter not resolved"))
+    }
+
+    fn static_constructor(&self, constructor: AlgebraicStaticConstructorId) -> Result<&AlgebraicStaticConstructorData, ArtifactError> {
+        self.decoded_constructors
+            .get(constructor.index())
+            .and_then(|c| c.as_ref())
+            .ok_or_else(|| invalid("referenced static constructor not resolved"))
+    }
+
     resolve_node!(ty: types(ArtifactTypeId) -> TypeId, Type, build_type, kind: kinds(ArtifactKindId) -> KindId, Kind, build_kind, parameter: parameters(ArtifactTypeParameterId) -> TypeParameterId, Parameter, build_parameter, row: rows(ArtifactRecordRowId) -> RecordRowId, Row, build_row, family: families(ArtifactFamilyTypeId) -> FamilyTypeId, Family, build_family, variant: variants(ArtifactVariantTypeId) -> VariantTypeId, Variant, build_variant, domain: domains(ArtifactStaticDomainId) -> StaticDomainId, Domain, build_domain, constructor: constructors(ArtifactStaticConstructorId) -> AlgebraicStaticConstructorId, Constructor, build_constructor, scoped: scoped(ArtifactScopedTypeId) -> ScopedTypeId, Scoped, build_scoped, lambda: lambdas(ArtifactTypeLambdaId) -> TypeLambdaId, Lambda, build_lambda);
     fn args(&mut self, values: &[StaticArgumentV1]) -> Result<Box<[StaticArgument]>, ArtifactError> {
-        values
-            .iter()
-            .map(|value| {
-                Ok(match value {
-                    StaticArgumentV1::Term { term } => StaticArgument::Term(self.ty(*term)?),
-                    StaticArgumentV1::RecordRow { row } => StaticArgument::RecordRow(self.row(*row)?),
-                    StaticArgumentV1::DynamicType => StaticArgument::DynamicType,
-                })
-            })
-            .collect()
+        let mut result = self.allocations.vector(values.len()).map_err(|e| ArtifactError::Allocation(e))?;
+        for value in values {
+            result.push(match value {
+                StaticArgumentV1::Term { term } => StaticArgument::Term(self.ty(*term)?),
+                StaticArgumentV1::RecordRow { row } => StaticArgument::RecordRow(self.row(*row)?),
+                StaticArgumentV1::DynamicType => StaticArgument::DynamicType,
+            });
+        }
+        self.allocations.boxed_slice(result).map_err(|e| ArtifactError::Allocation(e))
     }
     fn type_list(&mut self, values: &[ArtifactTypeId]) -> Result<Box<[TypeId]>, ArtifactError> {
-        values.iter().map(|ty| self.ty(*ty)).collect()
+        let mut result = self.allocations.vector(values.len()).map_err(|e| ArtifactError::Allocation(e))?;
+        for ty in values {
+            result.push(self.ty(*ty)?);
+        }
+        self.allocations.boxed_slice(result).map_err(|e| ArtifactError::Allocation(e))
     }
     fn scope_list(&mut self, values: &[ArtifactScopedTypeId]) -> Result<Box<[ScopedTypeId]>, ArtifactError> {
-        values.iter().map(|ty| self.scoped(*ty)).collect()
+        let mut result = self.allocations.vector(values.len()).map_err(|e| ArtifactError::Allocation(e))?;
+        for ty in values {
+            result.push(self.scoped(*ty)?);
+        }
+        self.allocations.boxed_slice(result).map_err(|e| ArtifactError::Allocation(e))
     }
     fn kind_list(&mut self, values: &[ArtifactKindId]) -> Result<Box<[KindId]>, ArtifactError> {
-        values.iter().map(|kind| self.kind(*kind)).collect()
+        let mut result = self.allocations.vector(values.len()).map_err(|e| ArtifactError::Allocation(e))?;
+        for kind in values {
+            result.push(self.kind(*kind)?);
+        }
+        self.allocations.boxed_slice(result).map_err(|e| ArtifactError::Allocation(e))
     }
     fn remainder(&mut self, value: &TupleRemainderV1) -> Result<AnonymousTupleRemainder, ArtifactError> {
         Ok(match value {
@@ -1745,17 +1847,20 @@ impl<'a> Import<'a> {
         })
     }
     fn tuple(&mut self, value: &TupleV1) -> Result<TupleType, ArtifactError> {
+        let mut elements = self.allocations.vector(value.elements.len()).map_err(|e| ArtifactError::Allocation(e))?;
+        for element in &value.elements {
+            let label = match &element.label {
+                Some(label) => Some(self.allocations.boxed_str(label).map_err(|e| ArtifactError::Allocation(e))?),
+                None => None,
+            };
+            elements.push(TupleTypeElement {
+                label,
+                ty: self.ty(element.ty)?,
+            });
+        }
+        let elements = self.allocations.boxed_slice(elements).map_err(|e| ArtifactError::Allocation(e))?;
         Ok(TupleType {
-            elements: value
-                .elements
-                .iter()
-                .map(|element| {
-                    Ok(TupleTypeElement {
-                        label: element.label.as_ref().map(|label| label.clone().into()),
-                        ty: self.ty(element.ty)?,
-                    })
-                })
-                .collect::<Result<_, ArtifactError>>()?,
+            elements,
             positional_remainder: self.remainder(&value.positionals)?,
             labeled_remainder: self.remainder(&value.labeled)?,
         })
@@ -1768,27 +1873,29 @@ impl<'a> Import<'a> {
         })
     }
     fn scoped_fields(&mut self, values: &[ScopedFieldV1]) -> Result<Box<[ScopedRecordField]>, ArtifactError> {
-        values
-            .iter()
-            .map(|value| {
-                Ok(ScopedRecordField {
-                    key: key_in(&value.key, self.limits)?,
-                    ty: self.scoped(value.ty)?,
-                    presence: presence_in(&value.presence),
-                })
-            })
-            .collect()
+        let mut result = self.allocations.vector(values.len()).map_err(|e| ArtifactError::Allocation(e))?;
+        for value in values {
+            result.push(ScopedRecordField {
+                key: key_in(&value.key, self.limits)?,
+                ty: self.scoped(value.ty)?,
+                presence: presence_in(&value.presence),
+            });
+        }
+        self.allocations.boxed_slice(result).map_err(|e| ArtifactError::Allocation(e))
     }
     fn scoped_elements(&mut self, values: &[ScopedElementV1]) -> Result<Box<[ScopedTupleElement]>, ArtifactError> {
-        values
-            .iter()
-            .map(|value| {
-                Ok(ScopedTupleElement {
-                    label: value.label.as_ref().map(|label| label.clone().into()),
-                    ty: self.scoped(value.ty)?,
-                })
-            })
-            .collect()
+        let mut result = self.allocations.vector(values.len()).map_err(|e| ArtifactError::Allocation(e))?;
+        for value in values {
+            let label = match &value.label {
+                Some(label) => Some(self.allocations.boxed_str(label).map_err(|e| ArtifactError::Allocation(e))?),
+                None => None,
+            };
+            result.push(ScopedTupleElement {
+                label,
+                ty: self.scoped(value.ty)?,
+            });
+        }
+        self.allocations.boxed_slice(result).map_err(|e| ArtifactError::Allocation(e))
     }
     fn scoped_remainder(&mut self, value: &ScopedRemainderV1) -> Result<ScopedPackRemainder, ArtifactError> {
         Ok(match value {
@@ -1830,7 +1937,8 @@ impl<'a> Import<'a> {
             }
             KindV1::StaticDomain { domain } => KindData::StaticDomain(self.domain(domain)?),
         };
-        Ok(self.store.intern_kind(data))
+        self.decoded_kinds[id.0 as usize] = Some(data);
+        Ok(KindId(id.0))
     }
     fn build_parameter(&mut self, id: ArtifactTypeParameterId) -> Result<TypeParameterId, ArtifactError> {
         let data = self.graph.parameters[id.0 as usize].clone();
@@ -1839,19 +1947,18 @@ impl<'a> Import<'a> {
         if !crate::types::parameter::expansion_mode_accepts_kind(mode_in(&data.mode), kind) {
             return Err(invalid("parameter expansion mode has incompatible kind"));
         }
-        // Parameter arena entries are historical binder versions. The current
-        // owner slot is restored separately after all references relocate.
-        let parameter = TypeParameterId(u32::try_from(self.store.type_parameters.len()).map_err(|_| invalid("parameter allocation exceeds u32"))?);
-        self.store.type_parameters.push_back(TypeParameterData {
+        let name = self.allocations.boxed_str(&data.name).map_err(|e| ArtifactError::Allocation(e))?;
+        let param_data = TypeParameterData {
             owner,
             index: data.index,
-            name: data.name.into(),
+            name,
             kind,
             variance: variance_in(&data.variance),
             mode: mode_in(&data.mode),
             source: None,
-        });
-        Ok(parameter)
+        };
+        self.decoded_parameters[id.0 as usize] = Some(param_data);
+        Ok(TypeParameterId(id.0))
     }
     fn build_domain(&mut self, id: ArtifactStaticDomainId) -> Result<StaticDomainId, ArtifactError> {
         let data = match self.graph.static_domains[id.0 as usize].clone() {
@@ -1864,7 +1971,8 @@ impl<'a> Import<'a> {
                 owner_arguments: self.args(&arguments)?,
             },
         };
-        Ok(self.store.intern_static_domain(data))
+        self.decoded_domains[id.0 as usize] = Some(data);
+        Ok(StaticDomainId(id.0))
     }
     fn build_constructor(&mut self, id: ArtifactStaticConstructorId) -> Result<AlgebraicStaticConstructorId, ArtifactError> {
         let data = self.graph.static_constructors[id.0 as usize].clone();
@@ -1874,13 +1982,23 @@ impl<'a> Import<'a> {
         if data.case_name.is_empty() {
             return Err(invalid("empty static constructor name"));
         }
-        Ok(self.store.intern_static_constructor(domain, declaration, data.case_name, kinds))
+        let case_name = self.allocations.boxed_str(&data.case_name).map_err(|e| ArtifactError::Allocation(e))?;
+        let ctor_data = AlgebraicStaticConstructorData {
+            domain,
+            declaration,
+            case_name,
+            parameter_kinds: kinds,
+        };
+        self.decoded_constructors[id.0 as usize] = Some(ctor_data);
+        Ok(AlgebraicStaticConstructorId(id.0))
     }
     fn build_variant(&mut self, id: ArtifactVariantTypeId) -> Result<VariantTypeId, ArtifactError> {
         let data = &self.graph.variants[id.0 as usize];
         let owner = declaration_in(&data.owner)?;
         let selector = Selector::try_decode_exact(&data.selector).map_err(|error| invalid(error.to_string()))?;
-        Ok(self.store.intern_variant_identity(VariantId::new(owner, selector)))
+        let variant = VariantId::new(owner, selector);
+        self.decoded_variants[id.0 as usize] = Some(variant);
+        Ok(VariantTypeId(id.0))
     }
     fn build_row(&mut self, id: ArtifactRecordRowId) -> Result<RecordRowId, ArtifactError> {
         let data = self.graph.rows[id.0 as usize].clone();
@@ -1901,7 +2019,12 @@ impl<'a> Import<'a> {
             RowTailV1::Parameter { parameter } => RecordRowTail::Parameter(self.parameter(parameter)?),
             RowTailV1::Projection { ty } => RecordRowTail::Projection(self.ty(ty)?),
         };
-        self.store.record_row_checked(fields, tail).map_err(|error| invalid(error.to_string()))
+        let mut fields_vec = self.allocations.vector(fields.len()).map_err(|e| ArtifactError::Allocation(e))?;
+        fields_vec.extend(fields);
+        let fields = self.allocations.boxed_slice(fields_vec).map_err(|e| ArtifactError::Allocation(e))?;
+        let row_data = RecordRowData { fields, tail };
+        self.decoded_rows[id.0 as usize] = Some(row_data);
+        Ok(RecordRowId(id.0))
     }
     fn build_family(&mut self, id: ArtifactFamilyTypeId) -> Result<FamilyTypeId, ArtifactError> {
         let data = self.graph.families[id.0 as usize].clone();
@@ -1922,11 +2045,20 @@ impl<'a> Import<'a> {
         if members.windows(2).any(|pair| pair[0].operation >= pair[1].operation) {
             return Err(invalid("family operations are not unique and ordered"));
         }
-        let ty = self.store.family_type(members).map_err(|error| invalid(format!("invalid family: {error:?}")))?;
-        match self.store.get(ty) {
-            TypeData::Family(id) => Ok(*id),
-            _ => Err(invalid("family interner returned wrong type form")),
+        for member in &members {
+            if member.member_kind == FamilyMemberTypeKind::Callable {
+                let ty_data = self.get_type(member.ty)?;
+                if !matches!(ty_data, TypeData::Callable(_)) {
+                    return Err(invalid("family callable member type is not callable"));
+                }
+            }
         }
+        let mut members_vec = self.allocations.vector(members.len()).map_err(|e| ArtifactError::Allocation(e))?;
+        members_vec.extend(members);
+        let members = self.allocations.boxed_slice(members_vec).map_err(|e| ArtifactError::Allocation(e))?;
+        let family = FamilyType::new(members);
+        self.decoded_families[id.0 as usize] = Some(family);
+        Ok(FamilyTypeId(id.0))
     }
     fn build_type(&mut self, id: ArtifactTypeId) -> Result<TypeId, ArtifactError> {
         let entry = self.graph.types[id.0 as usize].clone();
@@ -1951,26 +2083,26 @@ impl<'a> Import<'a> {
             },
             TypeV1::Union { members } => {
                 let mut members = self.type_list(&members)?.into_vec();
-                members.sort();
+                members.sort_unstable();
                 if members.len() < 2 || members.windows(2).any(|pair| pair[0] == pair[1]) {
                     return Err(invalid("noncanonical union members"));
                 }
-                TypeData::Union(members.into())
+                TypeData::Union(self.allocations.boxed_slice(members).map_err(|e| ArtifactError::Allocation(e))?)
             }
             TypeV1::Tuple { tuple } => TypeData::Tuple(self.tuple(&tuple)?),
             TypeV1::Record { row } => TypeData::Record(self.row(row)?),
             TypeV1::TypePack { members } => TypeData::TypePack(self.type_list(&members)?),
-            TypeV1::LabeledTypePack { members } => TypeData::LabeledTypePack(
-                members
-                    .iter()
-                    .map(|value| {
-                        Ok(LabeledTypePackElement {
-                            label: value.label.clone().into(),
-                            element: self.ty(value.ty)?,
-                        })
-                    })
-                    .collect::<Result<_, ArtifactError>>()?,
-            ),
+            TypeV1::LabeledTypePack { members } => {
+                let mut elements = self.allocations.vector(members.len()).map_err(|e| ArtifactError::Allocation(e))?;
+                for value in members {
+                    let label = self.allocations.boxed_str(&value.label).map_err(|e| ArtifactError::Allocation(e))?;
+                    elements.push(LabeledTypePackElement {
+                        label,
+                        element: self.ty(value.ty)?,
+                    });
+                }
+                TypeData::LabeledTypePack(self.allocations.boxed_slice(elements).map_err(|e| ArtifactError::Allocation(e))?)
+            }
             TypeV1::CompleteTypePack { positionals, labeled } => TypeData::CompleteTypePack {
                 positionals: self.ty(positionals)?,
                 labeled: self.ty(labeled)?,
@@ -1998,20 +2130,25 @@ impl<'a> Import<'a> {
                 labeled: self.ty(labeled)?,
                 return_type: self.ty(result)?,
             },
-            TypeV1::Callable { callable } => TypeData::Callable(CallableType {
-                parameters: callable
-                    .parameters
-                    .iter()
-                    .map(|parameter| {
-                        Ok(CallableParameterType {
-                            label: parameter.label.as_ref().map(|label| label.clone().into()),
-                            ty: self.ty(parameter.ty)?,
-                            rest: rest_in(&parameter.rest),
-                        })
-                    })
-                    .collect::<Result<_, ArtifactError>>()?,
-                return_type: self.ty(callable.result)?,
-            }),
+            TypeV1::Callable { callable } => {
+                let mut parameters = self.allocations.vector(callable.parameters.len()).map_err(|e| ArtifactError::Allocation(e))?;
+                for parameter in &callable.parameters {
+                    let label = match &parameter.label {
+                        Some(label) => Some(self.allocations.boxed_str(label).map_err(|e| ArtifactError::Allocation(e))?),
+                        None => None,
+                    };
+                    parameters.push(CallableParameterType {
+                        label,
+                        ty: self.ty(parameter.ty)?,
+                        rest: rest_in(&parameter.rest),
+                    });
+                }
+                let parameters = self.allocations.boxed_slice(parameters).map_err(|e| ArtifactError::Allocation(e))?;
+                TypeData::Callable(CallableType {
+                    parameters,
+                    return_type: self.ty(callable.result)?,
+                })
+            }
             TypeV1::Family { family } => TypeData::Family(self.family(family)?),
             TypeV1::Parameter { parameter } => TypeData::Parameter(self.parameter(parameter)?),
             TypeV1::Lambda { lambda } => TypeData::Lambda(self.lambda(lambda)?),
@@ -2038,13 +2175,8 @@ impl<'a> Import<'a> {
                     requirement: AssociatedTypeRequirementId::new(requirement_owner, projection.requirement_index),
                 })
             }
-            TypeV1::TypeMemberProjection { projection } => TypeData::TypeMemberProjection(TypeLevelProjection {
-                subject: match projection.subject {
-                    ProjectionSubjectV1::Type { ty } => ProjectionSubject::Type(self.ty(ty)?),
-                    ProjectionSubjectV1::RecordRow { row } => ProjectionSubject::RecordRow(self.row(row)?),
-                },
-                selector: selector_in(&projection.selector),
-                arguments: projection
+            TypeV1::TypeMemberProjection { projection } => {
+                let arguments = projection
                     .arguments
                     .iter()
                     .map(|argument| {
@@ -2054,22 +2186,34 @@ impl<'a> Import<'a> {
                             TypeMemberArgumentV1::RecordRow { row } => TypeMemberArgument::RecordRow(self.row(*row)?),
                         })
                     })
-                    .collect::<Result<_, ArtifactError>>()?,
-                source_declaration: projection
-                    .source
-                    .as_ref()
-                    .map(|source| {
-                        Ok::<_, ArtifactError>(TypeMemberDeclarationId::new(
-                            declaration_in(&source.owner)?,
-                            if source.selector.as_ref() == "[]" {
-                                TypeMemberSelector::Subscript
-                            } else {
-                                TypeMemberSelector::Named(source.selector.clone())
-                            },
-                        ))
-                    })
-                    .transpose()?,
-            }),
+                    .collect::<Result<Vec<_>, ArtifactError>>()?;
+                let mut args_vec = self.allocations.vector(arguments.len()).map_err(|e| ArtifactError::Allocation(e))?;
+                args_vec.extend(arguments);
+                let arguments = self.allocations.boxed_slice(args_vec).map_err(|e| ArtifactError::Allocation(e))?;
+
+                TypeData::TypeMemberProjection(TypeLevelProjection {
+                    subject: match projection.subject {
+                        ProjectionSubjectV1::Type { ty } => ProjectionSubject::Type(self.ty(ty)?),
+                        ProjectionSubjectV1::RecordRow { row } => ProjectionSubject::RecordRow(self.row(row)?),
+                    },
+                    selector: selector_in(&projection.selector),
+                    arguments,
+                    source_declaration: projection
+                        .source
+                        .as_ref()
+                        .map(|source| {
+                            Ok::<_, ArtifactError>(TypeMemberDeclarationId::new(
+                                declaration_in(&source.owner)?,
+                                if source.selector.as_ref() == "[]" {
+                                    TypeMemberSelector::Subscript
+                                } else {
+                                    TypeMemberSelector::Named(source.selector.clone())
+                                },
+                            ))
+                        })
+                        .transpose()?,
+                })
+            }
             TypeV1::ConstInt { decimal } => TypeData::ConstInt(integer_in(&decimal, self.limits)?),
             TypeV1::StaticData {
                 domain,
@@ -2082,7 +2226,9 @@ impl<'a> Import<'a> {
             }),
         };
         self.validate_type(&data, kind)?;
-        Ok(self.store.intern_with_kind(data, kind))
+        self.decoded_types[id.0 as usize] = Some(data);
+        self.decoded_type_kinds[id.0 as usize] = Some(kind);
+        Ok(TypeId(id.0))
     }
     fn build_scoped(&mut self, id: ArtifactScopedTypeId) -> Result<ScopedTypeId, ArtifactError> {
         let data = match self.graph.scoped[id.0 as usize].clone() {
@@ -2092,8 +2238,6 @@ impl<'a> Import<'a> {
                 origin: self.scoped(origin)?,
                 arguments: self.scope_list(&arguments)?,
             },
-            // Scoped bodies retain source order and repeated contributions;
-            // global union normalization is a separate owning operation.
             ScopedTypeV1::Union { members } => ScopedTypeData::Union(self.scope_list(&members)?),
             ScopedTypeV1::Tuple { elements } => ScopedTypeData::Tuple(self.scoped_elements(&elements)?),
             ScopedTypeV1::Record { fields } => ScopedTypeData::Record(self.scoped_fields(&fields)?),
@@ -2111,37 +2255,42 @@ impl<'a> Import<'a> {
                 fields: self.scoped_fields(&row.fields)?,
                 tail: self.scoped_tail(&row.tail)?,
             }),
-            ScopedTypeV1::Callable { callable } => ScopedTypeData::Callable(ScopedCallableType {
-                parameters: callable
-                    .parameters
-                    .iter()
-                    .map(|parameter| {
-                        Ok(ScopedCallableParameter {
-                            label: parameter.label.as_ref().map(|label| label.clone().into()),
-                            ty: self.scoped(parameter.ty)?,
-                            rest: parameter.rest,
-                        })
-                    })
-                    .collect::<Result<_, ArtifactError>>()?,
-                return_type: self.scoped(callable.result)?,
-            }),
+            ScopedTypeV1::Callable { callable } => {
+                let mut parameters = self.allocations.vector(callable.parameters.len()).map_err(|e| ArtifactError::Allocation(e))?;
+                for parameter in &callable.parameters {
+                    let label = match &parameter.label {
+                        Some(label) => Some(self.allocations.boxed_str(label).map_err(|e| ArtifactError::Allocation(e))?),
+                        None => None,
+                    };
+                    parameters.push(ScopedCallableParameter {
+                        label,
+                        ty: self.scoped(parameter.ty)?,
+                        rest: parameter.rest,
+                    });
+                }
+                let parameters = self.allocations.boxed_slice(parameters).map_err(|e| ArtifactError::Allocation(e))?;
+                ScopedTypeData::Callable(ScopedCallableType {
+                    parameters,
+                    return_type: self.scoped(callable.result)?,
+                })
+            }
             ScopedTypeV1::Pack { pack } => ScopedTypeData::Pack(ScopedPackType {
                 elements: self.scoped_elements(&pack.elements)?,
                 positional_remainder: self.scoped_remainder(&pack.positionals)?,
                 labeled_remainder: self.scoped_remainder(&pack.labeled)?,
             }),
             ScopedTypeV1::TypePack { members } => ScopedTypeData::TypePack(self.scope_list(&members)?),
-            ScopedTypeV1::LabeledTypePack { members } => ScopedTypeData::LabeledTypePack(
-                members
-                    .iter()
-                    .map(|member| {
-                        Ok(ScopedLabeledTypePackElement {
-                            label: member.label.clone().into(),
-                            element: self.scoped(member.ty)?,
-                        })
-                    })
-                    .collect::<Result<_, ArtifactError>>()?,
-            ),
+            ScopedTypeV1::LabeledTypePack { members } => {
+                let mut elements = self.allocations.vector(members.len()).map_err(|e| ArtifactError::Allocation(e))?;
+                for member in members {
+                    let label = self.allocations.boxed_str(&member.label).map_err(|e| ArtifactError::Allocation(e))?;
+                    elements.push(ScopedLabeledTypePackElement {
+                        label,
+                        element: self.scoped(member.ty)?,
+                    });
+                }
+                ScopedTypeData::LabeledTypePack(self.allocations.boxed_slice(elements).map_err(|e| ArtifactError::Allocation(e))?)
+            }
             ScopedTypeV1::CompleteTypePack { positionals, labeled } => ScopedTypeData::CompleteTypePack {
                 positionals: self.scoped(positionals)?,
                 labeled: self.scoped(labeled)?,
@@ -2171,7 +2320,8 @@ impl<'a> Import<'a> {
             },
             ScopedTypeV1::Lambda { lambda } => ScopedTypeData::Lambda(self.lambda(lambda)?),
         };
-        Ok(self.store.lambda_arena.intern_scoped(data))
+        self.decoded_scoped[id.0 as usize] = Some(data);
+        Ok(ScopedTypeId(id.0))
     }
     fn build_lambda(&mut self, id: ArtifactTypeLambdaId) -> Result<TypeLambdaId, ArtifactError> {
         let value = self.graph.lambdas[id.0 as usize].clone();
@@ -2179,7 +2329,11 @@ impl<'a> Import<'a> {
             return Err(invalid("lambda binder kind/mode count mismatch"));
         }
         let kinds = self.kind_list(&value.parameter_kinds)?;
-        let modes = value.parameter_modes.iter().map(mode_in).collect::<Box<[_]>>();
+        let mut modes_vec = self.allocations.vector(value.parameter_modes.len()).map_err(|e| ArtifactError::Allocation(e))?;
+        for mode in &value.parameter_modes {
+            modes_vec.push(mode_in(mode));
+        }
+        let modes = self.allocations.boxed_slice(modes_vec).map_err(|e| ArtifactError::Allocation(e))?;
         for (kind, mode) in kinds.iter().zip(modes.iter()) {
             if !crate::types::parameter::expansion_mode_accepts_kind(*mode, *kind) {
                 return Err(invalid("lambda binder expansion kind mismatch"));
@@ -2187,11 +2341,18 @@ impl<'a> Import<'a> {
         }
         let body = self.scoped(value.body)?;
         let result = self.kind(value.result_kind)?;
-        Ok(self.store.lambda_arena.intern_lambda_with_modes(kinds, modes, body, result, None))
+        let lambda_data = TypeLambdaData {
+            parameter_kinds: kinds,
+            parameter_modes: modes,
+            body,
+            result_kind: result,
+        };
+        self.decoded_lambdas[id.0 as usize] = Some(lambda_data);
+        Ok(TypeLambdaId(id.0))
     }
     fn validate_type(&self, data: &TypeData, kind: KindId) -> Result<(), ArtifactError> {
         let proper = |ty| {
-            if self.store.kind_of(ty) == KindId::TYPE {
+            if self.kind_of(ty)? == KindId::TYPE {
                 Ok(())
             } else {
                 Err(invalid("structural component is not a proper type"))
@@ -2199,7 +2360,7 @@ impl<'a> Import<'a> {
         };
         match data {
             TypeData::Parameter(parameter) => {
-                let parameter_kind = self.store.type_parameter(*parameter).kind;
+                let parameter_kind = self.type_parameter(*parameter)?.kind;
                 if parameter_kind == KindId::RECORD_ROW {
                     return Err(invalid("RecordRow parameter cannot enter the TypeId domain"));
                 }
@@ -2263,7 +2424,7 @@ impl<'a> Import<'a> {
             TypeData::Union(members) => {
                 for ty in members {
                     proper(*ty)?;
-                    if matches!(self.store.get(*ty), TypeData::Union(_) | TypeData::Never) {
+                    if matches!(self.get_type(*ty)?, TypeData::Union(_) | TypeData::Never) {
                         return Err(invalid("union is not flattened"));
                     }
                 }
@@ -2274,38 +2435,43 @@ impl<'a> Import<'a> {
                 }
             }
             TypeData::LabeledTypePack(members) => {
-                let mut labels = BTreeSet::new();
-                for member in members {
+                for (i, member) in members.iter().enumerate() {
                     proper(member.element)?;
-                    if !labels.insert(member.label.as_ref()) {
-                        return Err(invalid("duplicate labeled pack label"));
+                    for other in &members[..i] {
+                        if member.label == other.label {
+                            return Err(invalid("duplicate labeled pack label"));
+                        }
                     }
                 }
             }
             TypeData::ConstInt(_) => {
-                if !matches!(self.store.get_kind(kind), KindData::StaticDomain(domain) if *domain == self.store.const_int_domain) {
+                let kind_data = self.get_kind(kind)?;
+                let matches_const_int = match kind_data {
+                    KindData::StaticDomain(domain) => {
+                        self.decoded_domains.get(domain.index()).and_then(|d| d.as_ref()) == Some(&StaticDomainData::ConstInt)
+                    }
+                    _ => false,
+                };
+                if !matches_const_int {
                     return Err(invalid("integer term has wrong static domain kind"));
                 }
             }
             TypeData::StaticDomainForm { domain } => {
-                if !matches!(self.store.get_kind(kind), KindData::StaticDomain(value) if value == domain) {
+                if !matches!(self.get_kind(kind)?, KindData::StaticDomain(value) if value == domain) {
                     return Err(invalid("static form has wrong domain kind"));
                 }
             }
             TypeData::StaticData(value) => {
-                if !matches!(self.store.get_kind(kind), KindData::StaticDomain(domain) if *domain == value.domain) {
+                if !matches!(self.get_kind(kind)?, KindData::StaticDomain(domain) if *domain == value.domain) {
                     return Err(invalid("static term has wrong domain kind"));
                 }
-                let constructor = self
-                    .store
-                    .static_constructor(value.constructor)
-                    .ok_or_else(|| invalid("missing static constructor"))?;
+                let constructor = self.static_constructor(value.constructor)?;
                 if constructor.domain != value.domain || constructor.parameter_kinds.len() != value.arguments.len() {
                     return Err(invalid("static constructor domain/arity mismatch"));
                 }
                 for (argument, expected) in value.arguments.iter().zip(constructor.parameter_kinds.iter()) {
                     let actual = match argument {
-                        StaticArgument::Term(ty) => self.store.kind_of(*ty),
+                        StaticArgument::Term(ty) => self.kind_of(*ty)?,
                         StaticArgument::RecordRow(_) => KindId::RECORD_ROW,
                         StaticArgument::DynamicType => KindId::TYPE,
                     };
@@ -2318,7 +2484,7 @@ impl<'a> Import<'a> {
             | TypeData::TupleFromPacks { positionals, labeled }
             | TypeData::PackFromPacks { positionals, labeled }
             | TypeData::CallableFromPacks { positionals, labeled, .. } => {
-                if self.store.kind_of(*positionals) != KindId::TYPE_PACK || self.store.kind_of(*labeled) != KindId::LABELED_TYPE_PACK {
+                if self.kind_of(*positionals)? != KindId::TYPE_PACK || self.kind_of(*labeled)? != KindId::LABELED_TYPE_PACK {
                     return Err(invalid("pack lane kind mismatch"));
                 }
                 if let TypeData::CallableFromPacks { return_type, .. } = data {
@@ -2451,11 +2617,12 @@ fn operation_in(value: &OperationV1) -> Result<FamilyOperationShape, ArtifactErr
     Selector::new(base, kind, slots.clone()).map_err(|error| invalid(error.to_string()))?;
     Ok(FamilyOperationShape { kind, slots })
 }
-fn complete<T: Copy>(values: Vec<Option<T>>) -> Result<Vec<T>, ArtifactError> {
-    values
-        .into_iter()
-        .map(|value| value.ok_or_else(|| invalid("incomplete type relocation")))
-        .collect()
+fn complete<T: Copy>(values: Vec<Option<T>>, allocations: &mut AllocationBudget) -> Result<Vec<T>, ArtifactError> {
+    let mut result = allocations.vector(values.len()).map_err(ArtifactError::Allocation)?;
+    for value in values {
+        result.push(value.ok_or_else(|| invalid("incomplete type relocation"))?);
+    }
+    Ok(result)
 }
 impl TypeStore {
     /// Decodes and relocates into a fresh store. No semantic analysis is performed.
@@ -2464,9 +2631,29 @@ impl TypeStore {
         Self::import_type_graph(&graph, limits)
     }
 
+    /// Decodes and relocates into a fresh store with allocation budget tracking.
+    pub fn decode_artifact_with_allocation_budget(
+        bytes: &[u8],
+        limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
+    ) -> Result<(Self, TypeRelocation), ArtifactError> {
+        let graph = TypeGraphV1::decode(bytes, limits)?;
+        Self::import_type_graph_with_allocation_budget(&graph, limits, allocations)
+    }
+
     /// Relocates a validated `TypeGraphV1` into a fresh store.
     pub fn import_type_graph(graph: &TypeGraphV1, limits: &ValidationLimits) -> Result<(Self, TypeRelocation), ArtifactError> {
-        let mut import = Import::new(graph, limits);
+        let mut allocations = AllocationBudget::new(usize::MAX);
+        Self::import_type_graph_with_allocation_budget(graph, limits, &mut allocations)
+    }
+
+    /// Relocates a validated `TypeGraphV1` into a fresh store with allocation budgeting.
+    pub fn import_type_graph_with_allocation_budget(
+        graph: &TypeGraphV1,
+        limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
+    ) -> Result<(Self, TypeRelocation), ArtifactError> {
+        let mut import = Import::new(graph, limits, allocations)?;
         for index in 0..graph.kinds.len() {
             import.kind(ArtifactKindId(index as u32))?;
         }
@@ -2497,83 +2684,332 @@ impl TypeStore {
         for index in 0..graph.lambdas.len() {
             import.lambda(ArtifactTypeLambdaId(index as u32))?;
         }
-        // Restore current binder selection independently of historical arena order.
+
+        let Import {
+            types: import_types,
+            kinds: import_kinds,
+            parameters: import_parameters,
+            rows: import_rows,
+            families: import_families,
+            variants: import_variants,
+            domains: import_domains,
+            constructors: import_constructors,
+            scoped: import_scoped,
+            lambdas: import_lambdas,
+            decoded_types,
+            decoded_type_kinds,
+            decoded_kinds,
+            decoded_parameters,
+            decoded_rows,
+            decoded_families,
+            decoded_variants,
+            decoded_domains,
+            decoded_constructors,
+            decoded_scoped,
+            decoded_lambdas,
+            ..
+        } = import;
+
+        // Scoped types
+        let mut scoped_types_vec = allocations.vector(graph.scoped.len()).map_err(ArtifactError::Allocation)?;
+        for opt in decoded_scoped {
+            scoped_types_vec.push(opt.ok_or_else(|| invalid("incomplete scoped type node"))?);
+        }
+        let scoped_types = allocations.boxed_slice(scoped_types_vec).map_err(ArtifactError::Allocation)?;
+
+        let mut scoped_to_id_vec = allocations.vector(graph.scoped.len()).map_err(ArtifactError::Allocation)?;
+        for i in 0..graph.scoped.len() {
+            scoped_to_id_vec.push(ScopedTypeId(i as u32));
+        }
+        scoped_to_id_vec.sort_unstable_by(|&a, &b| scoped_types[a.index()].cmp(&scoped_types[b.index()]));
+        if scoped_to_id_vec.windows(2).any(|pair| scoped_types[pair[0].index()] == scoped_types[pair[1].index()]) {
+            return Err(invalid("duplicate canonical scoped type node"));
+        }
+        let scoped_to_id = allocations.boxed_slice(scoped_to_id_vec).map_err(ArtifactError::Allocation)?;
+
+        // Lambdas
+        let mut lambdas_vec = allocations.vector(graph.lambdas.len()).map_err(ArtifactError::Allocation)?;
+        for opt in decoded_lambdas {
+            lambdas_vec.push(opt.ok_or_else(|| invalid("incomplete type lambda node"))?);
+        }
+        let lambdas = allocations.boxed_slice(lambdas_vec).map_err(ArtifactError::Allocation)?;
+
+        let mut lambda_to_id_vec = allocations.vector(graph.lambdas.len()).map_err(ArtifactError::Allocation)?;
+        for i in 0..graph.lambdas.len() {
+            lambda_to_id_vec.push(TypeLambdaId(i as u32));
+        }
+        lambda_to_id_vec.sort_unstable_by(|&a, &b| lambdas[a.index()].cmp(&lambdas[b.index()]));
+        if lambda_to_id_vec.windows(2).any(|pair| lambdas[pair[0].index()] == lambdas[pair[1].index()]) {
+            return Err(invalid("duplicate canonical type lambda node"));
+        }
+        let lambda_to_id = allocations.boxed_slice(lambda_to_id_vec).map_err(ArtifactError::Allocation)?;
+
+        let mut prov_vec = allocations.vector(graph.lambdas.len()).map_err(ArtifactError::Allocation)?;
+        for _ in 0..graph.lambdas.len() {
+            prov_vec.push(TypeLambdaProvenance::default());
+        }
+        let provenance = allocations.boxed_slice(prov_vec).map_err(ArtifactError::Allocation)?;
+
+        let lambda_prefix = FrozenTypeLambdaPrefix {
+            scoped_types,
+            scoped_to_id,
+            lambdas,
+            lambda_to_id,
+            provenance,
+        };
+        let lambda_arena = allocations.arc(lambda_prefix).map_err(ArtifactError::Allocation)?;
+
+        // Kinds
+        let mut kinds_vec = allocations.vector(graph.kinds.len()).map_err(ArtifactError::Allocation)?;
+        for opt in decoded_kinds {
+            kinds_vec.push(opt.ok_or_else(|| invalid("incomplete kind node"))?);
+        }
+        let kinds = allocations.boxed_slice(kinds_vec).map_err(ArtifactError::Allocation)?;
+
+        let mut kind_to_id_vec = allocations.vector(graph.kinds.len()).map_err(ArtifactError::Allocation)?;
+        for i in 0..graph.kinds.len() {
+            kind_to_id_vec.push(KindId(i as u32));
+        }
+        kind_to_id_vec.sort_unstable_by(|&a, &b| kinds[a.index()].cmp(&kinds[b.index()]));
+        if kind_to_id_vec.windows(2).any(|pair| kinds[pair[0].index()] == kinds[pair[1].index()]) {
+            return Err(invalid("duplicate canonical kind node"));
+        }
+        let kind_to_id = allocations.boxed_slice(kind_to_id_vec).map_err(ArtifactError::Allocation)?;
+
+        if kinds.get(KindId::TYPE.index()) != Some(&KindData::Type)
+            || kinds.get(KindId::RECORD_ROW.index()) != Some(&KindData::RecordRow)
+            || kinds.get(KindId::TYPE_PACK.index()) != Some(&KindData::TypePack)
+            || kinds.get(KindId::LABELED_TYPE_PACK.index()) != Some(&KindData::LabeledTypePack)
+            || kinds.get(KindId::COMPLETE_TYPE_PACK.index()) != Some(&KindData::CompleteTypePack)
+        {
+            return Err(invalid("canonical type graph omits required primitive kinds"));
+        }
+
+        // Types and Type Kinds
+        let mut types_vec = allocations.vector(graph.types.len()).map_err(ArtifactError::Allocation)?;
+        for opt in decoded_types {
+            types_vec.push(opt.ok_or_else(|| invalid("incomplete type node"))?);
+        }
+        let types = allocations.boxed_slice(types_vec).map_err(ArtifactError::Allocation)?;
+
+        let mut type_kinds_vec = allocations.vector(graph.types.len()).map_err(ArtifactError::Allocation)?;
+        for opt in decoded_type_kinds {
+            type_kinds_vec.push(opt.ok_or_else(|| invalid("incomplete type kind node"))?);
+        }
+        let type_kinds = allocations.boxed_slice(type_kinds_vec).map_err(ArtifactError::Allocation)?;
+
+        let mut type_to_id_vec = allocations.vector(graph.types.len()).map_err(ArtifactError::Allocation)?;
+        for i in 0..graph.types.len() {
+            type_to_id_vec.push(TypeId(i as u32));
+        }
+        type_to_id_vec.sort_unstable_by(|&a, &b| (&types[a.index()], type_kinds[a.index()]).cmp(&(&types[b.index()], type_kinds[b.index()])));
+        if type_to_id_vec.windows(2).any(|pair| (&types[pair[0].index()], type_kinds[pair[0].index()]) == (&types[pair[1].index()], type_kinds[pair[1].index()])) {
+            return Err(invalid("duplicate canonical type node"));
+        }
+        let type_to_id = allocations.boxed_slice(type_to_id_vec).map_err(ArtifactError::Allocation)?;
+
+        let never_id = types
+            .iter()
+            .position(|t| *t == TypeData::Never)
+            .map(|i| TypeId(i as u32))
+            .ok_or_else(|| invalid("canonical type graph omits Never primitive"))?;
+
+        let unit_id = types
+            .iter()
+            .position(|t| *t == TypeData::Unit)
+            .map(|i| TypeId(i as u32))
+            .ok_or_else(|| invalid("canonical type graph omits Unit primitive"))?;
+
+        // Static domains
+        let mut domains_vec = allocations.vector(graph.static_domains.len()).map_err(ArtifactError::Allocation)?;
+        for opt in decoded_domains {
+            domains_vec.push(opt.ok_or_else(|| invalid("incomplete static domain node"))?);
+        }
+        let static_domains = allocations.boxed_slice(domains_vec).map_err(ArtifactError::Allocation)?;
+
+        let mut static_domain_to_id_vec = allocations.vector(graph.static_domains.len()).map_err(ArtifactError::Allocation)?;
+        for i in 0..graph.static_domains.len() {
+            static_domain_to_id_vec.push(StaticDomainId(i as u32));
+        }
+        static_domain_to_id_vec.sort_unstable_by(|&a, &b| static_domains[a.index()].cmp(&static_domains[b.index()]));
+        if static_domain_to_id_vec.windows(2).any(|pair| static_domains[pair[0].index()] == static_domains[pair[1].index()]) {
+            return Err(invalid("duplicate canonical static domain node"));
+        }
+        let static_domain_to_id = allocations.boxed_slice(static_domain_to_id_vec).map_err(ArtifactError::Allocation)?;
+
+        let const_int_domain = static_domains
+            .iter()
+            .position(|d| *d == StaticDomainData::ConstInt)
+            .map(|i| StaticDomainId(i as u32))
+            .ok_or_else(|| invalid("canonical type graph omits ConstInt domain"))?;
+
+        // Rows
+        let mut rows_vec = allocations.vector(graph.rows.len()).map_err(ArtifactError::Allocation)?;
+        for opt in decoded_rows {
+            rows_vec.push(opt.ok_or_else(|| invalid("incomplete record row node"))?);
+        }
+        let row_arena = allocations.boxed_slice(rows_vec).map_err(ArtifactError::Allocation)?;
+
+        let mut row_interner_vec = allocations.vector(graph.rows.len()).map_err(ArtifactError::Allocation)?;
+        for i in 0..graph.rows.len() {
+            row_interner_vec.push(RecordRowId(i as u32));
+        }
+        row_interner_vec.sort_unstable_by(|&a, &b| row_arena[a.index()].cmp(&row_arena[b.index()]));
+        if row_interner_vec.windows(2).any(|pair| row_arena[pair[0].index()] == row_arena[pair[1].index()]) {
+            return Err(invalid("duplicate canonical record row node"));
+        }
+        let row_interner = allocations.boxed_slice(row_interner_vec).map_err(ArtifactError::Allocation)?;
+
+        // Families
+        let mut families_vec = allocations.vector(graph.families.len()).map_err(ArtifactError::Allocation)?;
+        for opt in decoded_families {
+            families_vec.push(opt.ok_or_else(|| invalid("incomplete family node"))?);
+        }
+        let family_arena = allocations.boxed_slice(families_vec).map_err(ArtifactError::Allocation)?;
+
+        let mut family_interner_vec = allocations.vector(graph.families.len()).map_err(ArtifactError::Allocation)?;
+        for i in 0..graph.families.len() {
+            family_interner_vec.push(FamilyTypeId(i as u32));
+        }
+        family_interner_vec.sort_unstable_by(|&a, &b| family_arena[a.index()].cmp(&family_arena[b.index()]));
+        if family_interner_vec.windows(2).any(|pair| family_arena[pair[0].index()] == family_arena[pair[1].index()]) {
+            return Err(invalid("duplicate canonical family node"));
+        }
+        let family_interner = allocations.boxed_slice(family_interner_vec).map_err(ArtifactError::Allocation)?;
+
+        // Variants
+        let mut variants_vec = allocations.vector(graph.variants.len()).map_err(ArtifactError::Allocation)?;
+        for opt in decoded_variants {
+            variants_vec.push(opt.ok_or_else(|| invalid("incomplete variant node"))?);
+        }
+        let variant_identities = allocations.boxed_slice(variants_vec).map_err(ArtifactError::Allocation)?;
+
+        let mut variant_identity_to_id_vec = allocations.vector(graph.variants.len()).map_err(ArtifactError::Allocation)?;
+        for i in 0..graph.variants.len() {
+            variant_identity_to_id_vec.push(VariantTypeId(i as u32));
+        }
+        variant_identity_to_id_vec.sort_unstable_by(|&a, &b| variant_identities[a.index()].cmp(&variant_identities[b.index()]));
+        if variant_identity_to_id_vec.windows(2).any(|pair| variant_identities[pair[0].index()] == variant_identities[pair[1].index()]) {
+            return Err(invalid("duplicate canonical variant node"));
+        }
+        let variant_identity_to_id = allocations.boxed_slice(variant_identity_to_id_vec).map_err(ArtifactError::Allocation)?;
+
+        // Constructors
+        let mut ctors_vec = allocations.vector(graph.static_constructors.len()).map_err(ArtifactError::Allocation)?;
+        for opt in decoded_constructors {
+            ctors_vec.push(opt.ok_or_else(|| invalid("incomplete static constructor node"))?);
+        }
+        let static_constructors = allocations.boxed_slice(ctors_vec).map_err(ArtifactError::Allocation)?;
+
+        let mut static_constructor_to_id_vec = allocations.vector(graph.static_constructors.len()).map_err(ArtifactError::Allocation)?;
+        for i in 0..graph.static_constructors.len() {
+            static_constructor_to_id_vec.push(AlgebraicStaticConstructorId(i as u32));
+        }
+        static_constructor_to_id_vec.sort_unstable_by(|&a, &b| static_constructors[a.index()].cmp(&static_constructors[b.index()]));
+        if static_constructor_to_id_vec.windows(2).any(|pair| static_constructors[pair[0].index()] == static_constructors[pair[1].index()]) {
+            return Err(invalid("duplicate canonical static constructor node"));
+        }
+        let static_constructor_to_id = allocations.boxed_slice(static_constructor_to_id_vec).map_err(ArtifactError::Allocation)?;
+
+        // Parameters
+        let mut parameters_vec = allocations.vector(graph.parameters.len()).map_err(ArtifactError::Allocation)?;
+        for opt in decoded_parameters {
+            parameters_vec.push(opt.ok_or_else(|| invalid("incomplete type parameter node"))?);
+        }
+        let type_parameters = allocations.boxed_slice(parameters_vec).map_err(ArtifactError::Allocation)?;
+
+        // parameter_to_id from graph.current_parameters
+        let mut parameter_to_id_vec = allocations.vector(graph.current_parameters.len()).map_err(ArtifactError::Allocation)?;
         for id in &graph.current_parameters {
-            let parameter = import.parameter(*id)?;
-            let data = import.store.type_parameter(parameter);
-            let key = (data.owner.clone(), data.index);
-            if import.store.parameter_to_id.insert(key, parameter).is_some() {
-                return Err(invalid("duplicate current parameter slot"));
+            let parameter = import_parameters
+                .get(id.0 as usize)
+                .and_then(|p| *p)
+                .ok_or_else(|| invalid("unresolved current parameter"))?;
+            parameter_to_id_vec.push(parameter);
+        }
+        parameter_to_id_vec.sort_unstable_by(|&a, &b| {
+            let pa = &type_parameters[a.index()];
+            let pb = &type_parameters[b.index()];
+            (&pa.owner, pa.index).cmp(&(&pb.owner, pb.index))
+        });
+        if parameter_to_id_vec.windows(2).any(|pair| {
+            let pa = &type_parameters[pair[0].index()];
+            let pb = &type_parameters[pair[1].index()];
+            (&pa.owner, pa.index) == (&pb.owner, pb.index)
+        }) {
+            return Err(invalid("duplicate current parameter slot"));
+        }
+        for param in type_parameters.iter() {
+            let key = (&param.owner, param.index);
+            let found = parameter_to_id_vec.binary_search_by(|&id| {
+                let p = &type_parameters[id.index()];
+                (&p.owner, p.index).cmp(&key)
+            }).is_ok();
+            if !found {
+                return Err(invalid("missing current binder selection"));
             }
         }
-        let owner_slots = import
-            .store
-            .type_parameters
-            .iter()
-            .map(|value| (value.owner.clone(), value.index))
-            .collect::<BTreeSet<_>>();
-        if import.store.parameter_to_id.len() != owner_slots.len() {
-            return Err(invalid("missing current binder selection"));
-        }
+        let parameter_to_id = allocations.boxed_slice(parameter_to_id_vec).map_err(ArtifactError::Allocation)?;
+
+        // Variances
+        let mut variances_vec = allocations.vector(graph.variance_overrides.len()).map_err(ArtifactError::Allocation)?;
         for value in &graph.variance_overrides {
             let owner = declaration_in(&value.owner)?;
-            if import
-                .store
-                .parameter_variances
-                .insert((owner, value.index), variance_in(&value.variance))
-                .is_some()
-            {
-                return Err(invalid("duplicate parameter variance override"));
-            }
+            variances_vec.push(((owner, value.index), variance_in(&value.variance)));
         }
-        validate_import_uniqueness(&import)?;
-        validate_scoped_roots(&import.store, limits)?;
-        let relocation = TypeRelocation {
-            store_id: import.store.id(),
-            types: complete(import.types)?,
-            kinds: complete(import.kinds)?,
-            parameters: complete(import.parameters)?,
-            rows: complete(import.rows)?,
-            families: complete(import.families)?,
-            variants: complete(import.variants)?,
-            domains: complete(import.domains)?,
-            constructors: complete(import.constructors)?,
-            scoped: complete(import.scoped)?,
-            lambdas: complete(import.lambdas)?,
-        };
-        Ok((import.store, relocation))
-    }
-}
+        variances_vec.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        if variances_vec.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(invalid("duplicate parameter variance override"));
+        }
+        let parameter_variances = BudgetedSortedMap::from_sorted_entries(variances_vec)
+            .map_err(|e| invalid(format!("invalid parameter variances: {e:?}")))?;
 
-fn unique<T: Copy + Ord>(values: &[Option<T>], name: &str) -> Result<(), ArtifactError> {
-    let present = values
-        .iter()
-        .map(|value| value.ok_or_else(|| invalid("missing relocated node")))
-        .collect::<Result<BTreeSet<_>, _>>()?;
-    if present.len() != values.len() {
-        return Err(invalid(format!("duplicate canonical {name} node")));
+        let prefix = FrozenTypeStorePrefix {
+            id: TypeStore::fresh_id(),
+            types,
+            type_to_id,
+            kinds,
+            kind_to_id,
+            type_kinds,
+            type_parameters,
+            parameter_to_id,
+            parameter_variances,
+            lambda_arena,
+            row_arena,
+            row_interner,
+            family_arena,
+            family_interner,
+            variant_identities,
+            variant_identity_to_id,
+            static_domains,
+            static_domain_to_id,
+            static_constructors,
+            static_constructor_to_id,
+            const_int_domain,
+            never_id,
+            unit_id,
+        };
+        let prefix_arc = allocations.arc(prefix).map_err(ArtifactError::Allocation)?;
+        let store = TypeStore::from_frozen(prefix_arc);
+
+        validate_scoped_roots(&store, limits)?;
+
+        let relocation = TypeRelocation {
+            store_id: store.id(),
+            types: complete(import_types, allocations)?,
+            kinds: complete(import_kinds, allocations)?,
+            parameters: complete(import_parameters, allocations)?,
+            rows: complete(import_rows, allocations)?,
+            families: complete(import_families, allocations)?,
+            variants: complete(import_variants, allocations)?,
+            domains: complete(import_domains, allocations)?,
+            constructors: complete(import_constructors, allocations)?,
+            scoped: complete(import_scoped, allocations)?,
+            lambdas: complete(import_lambdas, allocations)?,
+        };
+
+        Ok((store, relocation))
     }
-    Ok(())
-}
-fn validate_import_uniqueness(import: &Import<'_>) -> Result<(), ArtifactError> {
-    unique(&import.types, "type")?;
-    unique(&import.kinds, "kind")?;
-    unique(&import.rows, "record row")?;
-    unique(&import.families, "family")?;
-    unique(&import.variants, "variant")?;
-    unique(&import.domains, "static domain")?;
-    unique(&import.constructors, "static constructor")?;
-    unique(&import.scoped, "scoped type")?;
-    unique(&import.lambdas, "lambda")?;
-    if import.store.types.len() != import.graph.types.len()
-        || import.store.kinds.len() != import.graph.kinds.len()
-        || import.store.static_domains.len() != import.graph.static_domains.len()
-    {
-        return Err(invalid("canonical type graph omits required primitive nodes or adds implicit nodes"));
-    }
-    // Historical parameter versions are intentionally not content-deduplicated.
-    // Their current owner slots are independently unique and complete.
-    Ok(())
 }
 
 /// Checks de Bruijn addressability in complete global lambda roots, retaining
@@ -2726,8 +3162,8 @@ fn validate_scoped_roots(store: &TypeStore, limits: &ValidationLimits) -> Result
         remaining_bytes: limits.max_decoded_section_bytes,
         calls: 0,
     };
-    for value in store.types.iter() {
-        if let TypeData::Lambda(lambda) = value {
+    for i in 0..store.type_count() {
+        if let TypeData::Lambda(lambda) = store.get(TypeId(i as u32)) {
             validator.lambda(*lambda, &[], 0)?;
         }
     }

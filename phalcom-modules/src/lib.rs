@@ -1,6 +1,7 @@
 //! `phalcom-modules` — logical module system, project manifests, source identity, and path visibility for Phalcom.
 
 pub mod artifact;
+pub mod authority;
 pub mod builtin;
 pub mod builtin_interface;
 pub mod compiler_artifact;

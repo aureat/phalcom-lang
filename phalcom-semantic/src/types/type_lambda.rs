@@ -10,7 +10,7 @@ use crate::field_key::FieldKey;
 use im::{HashMap, Vector};
 
 /// Representation of scoped types inside a type lambda body arena.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ScopedTypeData {
     /// Lambda-bound variable; de Bruijn depth and index within the binder layer.
     Bound { depth: u32, index: u32 },
@@ -60,33 +60,33 @@ pub enum ScopedTypeData {
     Lambda(TypeLambdaId),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ScopedTupleElement {
     pub label: Option<Box<str>>,
     pub ty: ScopedTypeId,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ScopedPackRemainder {
     None,
     Unconstrained,
     Typed(ScopedTypeId),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ScopedPackType {
     pub elements: Box<[ScopedTupleElement]>,
     pub positional_remainder: ScopedPackRemainder,
     pub labeled_remainder: ScopedPackRemainder,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ScopedLabeledTypePackElement {
     pub label: Box<str>,
     pub element: ScopedTypeId,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ScopedPackProjectionLane {
     Positionals,
     Labeled,
@@ -95,27 +95,27 @@ pub enum ScopedPackProjectionLane {
 
 pub type ScopedAnonymousRecordRemainder = super::row::AnonymousRecordRemainder<ScopedTypeId>;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ScopedRecordField {
     pub key: FieldKey,
     pub ty: ScopedTypeId,
     pub presence: super::row::StructuralMemberPresence,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ScopedRecordTail {
     Bound { depth: u32, index: u32 },
     FreeParameter(TypeParameterId),
     Anonymous(ScopedAnonymousRecordRemainder),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ScopedOpenRecord {
     pub fields: Box<[ScopedRecordField]>,
     pub tail: ScopedRecordTail,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ScopedRecordRowTail {
     Closed,
     Anonymous(ScopedAnonymousRecordRemainder),
@@ -124,27 +124,27 @@ pub enum ScopedRecordRowTail {
     Projection(TypeId),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ScopedRecordRow {
     pub fields: Box<[ScopedRecordField]>,
     pub tail: ScopedRecordRowTail,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ScopedCallableParameter {
     pub label: Option<Box<str>>,
     pub ty: ScopedTypeId,
     pub rest: bool,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ScopedCallableType {
     pub parameters: Box<[ScopedCallableParameter]>,
     pub return_type: ScopedTypeId,
 }
 
 /// Canonical alpha-normalized type lambda definition.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TypeLambdaData {
     pub parameter_kinds: Box<[KindId]>,
     pub parameter_modes: Box<[GenericParameterMode]>,
@@ -160,9 +160,38 @@ pub struct TypeLambdaProvenance {
     pub lambda_source: Option<SemanticSourceSpan>,
 }
 
+use std::sync::Arc;
+
+/// Frozen immutable prefix for type-lambda arena loaded from a compiler artifact.
+#[derive(Debug, Eq, PartialEq)]
+pub struct FrozenTypeLambdaPrefix {
+    pub scoped_types: Box<[ScopedTypeData]>,
+    pub scoped_to_id: Box<[ScopedTypeId]>,
+    pub lambdas: Box<[TypeLambdaData]>,
+    pub lambda_to_id: Box<[TypeLambdaId]>,
+    pub provenance: Box<[TypeLambdaProvenance]>,
+}
+
+impl FrozenTypeLambdaPrefix {
+    pub fn find_scoped(&self, key: &ScopedTypeData) -> Option<ScopedTypeId> {
+        let idx = self.scoped_to_id.binary_search_by(|&id| {
+            self.scoped_types[id.index()].cmp(key)
+        }).ok()?;
+        Some(self.scoped_to_id[idx])
+    }
+
+    pub fn find_lambda(&self, key: &TypeLambdaData) -> Option<TypeLambdaId> {
+        let idx = self.lambda_to_id.binary_search_by(|&id| {
+            self.lambdas[id.index()].cmp(key)
+        }).ok()?;
+        Some(self.lambda_to_id[idx])
+    }
+}
+
 /// Arena managing scoped types and alpha-normalized type lambdas.
 #[derive(Clone, Debug, Default)]
 pub struct TypeLambdaArena {
+    frozen: Option<Arc<FrozenTypeLambdaPrefix>>,
     scoped_types: Vector<ScopedTypeData>,
     scoped_to_id: HashMap<ScopedTypeData, ScopedTypeId>,
     lambdas: Vector<TypeLambdaData>,
@@ -172,22 +201,45 @@ pub struct TypeLambdaArena {
 
 impl TypeLambdaArena {
     /// Bounded persistence census, excluding presentation provenance.
-    pub(crate) fn artifact_counts(&self) -> (usize, usize) { (self.scoped_types.len(), self.lambdas.len()) }
+    pub(crate) fn artifact_counts(&self) -> (usize, usize) {
+        let frozen_scoped = self.frozen.as_ref().map_or(0, |f| f.scoped_types.len());
+        let frozen_lambdas = self.frozen.as_ref().map_or(0, |f| f.lambdas.len());
+        (frozen_scoped + self.scoped_types.len(), frozen_lambdas + self.lambdas.len())
+    }
 
     pub(crate) fn extends_prefix(&self, prefix: &Self) -> bool {
-        self.scoped_types.len() >= prefix.scoped_types.len()
-            && self.lambdas.len() >= prefix.lambdas.len()
-            && self.scoped_types.iter().take(prefix.scoped_types.len()).eq(prefix.scoped_types.iter())
-            && self.lambdas.iter().take(prefix.lambdas.len()).eq(prefix.lambdas.iter())
+        let (self_scoped, self_lambdas) = self.artifact_counts();
+        let (prefix_scoped, prefix_lambdas) = prefix.artifact_counts();
+        self_scoped >= prefix_scoped
+            && self_lambdas >= prefix_lambdas
+            && (0..prefix_scoped).all(|i| self.get_scoped(ScopedTypeId::from_index(i)) == prefix.get_scoped(ScopedTypeId::from_index(i)))
+            && (0..prefix_lambdas).all(|i| self.get_lambda(TypeLambdaId::from_index(i)) == prefix.get_lambda(TypeLambdaId::from_index(i)))
     }
 
     pub fn new() -> Self {
         Self::default()
     }
 
+    pub fn from_frozen(frozen: Arc<FrozenTypeLambdaPrefix>) -> Self {
+        Self {
+            frozen: Some(frozen),
+            scoped_types: Vector::new(),
+            scoped_to_id: HashMap::new(),
+            lambdas: Vector::new(),
+            lambda_to_id: HashMap::new(),
+            provenance: Vector::new(),
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn shares_backing_with(&self, other: &Self) -> bool {
-        (self.scoped_types.is_empty() && other.scoped_types.is_empty() || self.scoped_types.ptr_eq(&other.scoped_types))
+        let frozen_share = match (&self.frozen, &other.frozen) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        frozen_share
+            && (self.scoped_types.is_empty() && other.scoped_types.is_empty() || self.scoped_types.ptr_eq(&other.scoped_types))
             && self.scoped_to_id.ptr_eq(&other.scoped_to_id)
             && (self.lambdas.is_empty() && other.lambdas.is_empty() || self.lambdas.ptr_eq(&other.lambdas))
             && self.lambda_to_id.ptr_eq(&other.lambda_to_id)
@@ -198,14 +250,28 @@ impl TypeLambdaArena {
         if let Some(&id) = self.scoped_to_id.get(&data) {
             return id;
         }
-        let id = ScopedTypeId::from_index(self.scoped_types.len());
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_scoped(&data) {
+                return id;
+            }
+        }
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.scoped_types.len());
+        let id = ScopedTypeId::from_index(frozen_len + self.scoped_types.len());
         self.scoped_types.push_back(data.clone());
         self.scoped_to_id.insert(data, id);
         id
     }
 
     pub fn get_scoped(&self, id: ScopedTypeId) -> &ScopedTypeData {
-        &self.scoped_types[id.index()]
+        let index = id.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.scoped_types.len() {
+                return &frozen.scoped_types[index];
+            }
+            &self.scoped_types[index - frozen.scoped_types.len()]
+        } else {
+            &self.scoped_types[index]
+        }
     }
 
     pub fn intern_lambda(
@@ -242,7 +308,13 @@ impl TypeLambdaArena {
         if let Some(&id) = self.lambda_to_id.get(&data) {
             return id;
         }
-        let id = TypeLambdaId::from_index(self.lambdas.len());
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_lambda(&data) {
+                return id;
+            }
+        }
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.lambdas.len());
+        let id = TypeLambdaId::from_index(frozen_len + self.lambdas.len());
         self.lambdas.push_back(data.clone());
         self.lambda_to_id.insert(data, id);
         self.provenance.push_back(prov.unwrap_or_default());
@@ -250,11 +322,27 @@ impl TypeLambdaArena {
     }
 
     pub fn get_lambda(&self, id: TypeLambdaId) -> &TypeLambdaData {
-        &self.lambdas[id.index()]
+        let index = id.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.lambdas.len() {
+                return &frozen.lambdas[index];
+            }
+            &self.lambdas[index - frozen.lambdas.len()]
+        } else {
+            &self.lambdas[index]
+        }
     }
 
     pub fn get_provenance(&self, id: TypeLambdaId) -> Option<&TypeLambdaProvenance> {
-        self.provenance.get(id.index())
+        let index = id.index();
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.provenance.len() {
+                return Some(&frozen.provenance[index]);
+            }
+            self.provenance.get(index - frozen.provenance.len())
+        } else {
+            self.provenance.get(index)
+        }
     }
 
     /// Computes the full kind of a type lambda: `Kind(P0) -> Kind(P1) -> ... -> ResultKind`.

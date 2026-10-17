@@ -2368,7 +2368,7 @@ impl WorkspaceModuleSession {
             (
                 Arc::new(LinkedProgram {
                     universe: Arc::new(universe.clone()),
-                    modules: BTreeMap::new(),
+                    modules: BTreeMap::new().into(),
                     graphs: crate::graph::ModuleGraphs::default(),
                     entry: ModuleId::universe_root(),
                     initialization_order: Vec::new(),
@@ -2470,7 +2470,7 @@ impl WorkspaceModuleSession {
             (
                 Arc::new(LinkedProgram {
                     universe: Arc::new(universe.clone()),
-                    modules,
+                    modules: modules.into(),
                     graphs,
                     entry,
                     initialization_order,

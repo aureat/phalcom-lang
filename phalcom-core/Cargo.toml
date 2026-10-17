@@ -36,6 +36,10 @@ path = "tests/cli_smoke/mod.rs"
 name = "canonical-bootstrap-stack"
 path = "tests/canonical_bootstrap_stack.rs"
 
+[[test]]
+name = "artifact-allocation"
+path = "tests/artifact_allocation.rs"
+
 
 
 

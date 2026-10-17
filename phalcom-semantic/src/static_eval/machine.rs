@@ -3924,9 +3924,8 @@ impl<'a> StaticEvaluator<'a> {
                             StaticValueData::Record(rid) => {
                                 let rec = self
                                     .values
-                                    .records_arena()
-                                    .get(rid.raw() as usize)
-                                    .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                                    .get_record(*rid)
+                                    .map_err(|_| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                                 let found = rec.iter().find(|f| {
                                     if let crate::field_key::FieldKey::Symbol(sym) = &f.key {
                                         sym.as_ref() == &*member
@@ -3942,9 +3941,8 @@ impl<'a> StaticEvaluator<'a> {
                                 let (data_table, _) = self.semantic_tables.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                                 let data_val = self
                                     .values
-                                    .data_values_arena()
-                                    .get(did.raw() as usize)
-                                    .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                                    .get_data(*did)
+                                    .map_err(|_| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                                 let info = data_table
                                     .get(&data_val.owner)
                                     .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;

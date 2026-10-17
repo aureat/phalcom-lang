@@ -1,6 +1,7 @@
 //! Module and project semantic identity types.
 
 use crate::error::InvalidModuleNameError;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::num::NonZeroU32;
@@ -197,6 +198,24 @@ impl ModuleComponent {
         Ok(Self(identifier))
     }
 
+    /// Validates logical snake_case spelling without allocating.
+    pub fn validate_identifier(s: &str) -> Result<(), &'static str> {
+        if s.is_empty() {
+            return Err("empty identifier");
+        }
+        let mut chars = s.chars();
+        let first = chars.next().unwrap();
+        if !first.is_ascii_lowercase() && first != '_' {
+            return Err("invalid leading character in identifier");
+        }
+        for c in chars {
+            if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '_' {
+                return Err("invalid character in identifier");
+            }
+        }
+        Ok(())
+    }
+
     /// Canonical physical spelling used for source discovery.
     pub fn to_kebab(&self) -> String {
         self.0.replace('_', "-")
@@ -322,6 +341,27 @@ impl ModuleId {
             project: ProjectIdentity::Synthetic(project),
             path,
         }
+    }
+
+    /// Clones this module identity, budgeting the component slice and each component string.
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, AllocationError> {
+        let comps = self.path.components();
+        let mut components = allocations.vector::<ModuleComponent>(comps.len())?;
+        for comp in comps {
+            let boxed_spelling = allocations.boxed_str(comp.as_str())?;
+            let comp = ModuleComponent::from_owned_identifier(boxed_spelling)
+                .map_err(|_| AllocationError::Failed)?;
+            components.push(comp);
+        }
+        let components = allocations.boxed_slice(components)?;
+        let path = ModulePath::from_components(components);
+        Ok(ModuleId {
+            project: self.project,
+            path,
+        })
     }
 }
 

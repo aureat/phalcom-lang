@@ -388,14 +388,14 @@ pub enum ConstTerm {
 }
 
 /// The subject of a generalized type-level projection.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ProjectionSubject {
     Type(TypeId),
     RecordRow(crate::types::id::RecordRowId),
 }
 
 /// An argument passed to a type member application/projection.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TypeMemberArgument {
     Type(TypeId),
     Const(ConstTerm),
@@ -403,7 +403,7 @@ pub enum TypeMemberArgument {
 }
 
 /// Canonical semantic type-level member projection.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TypeLevelProjection {
     pub subject: ProjectionSubject,
     pub selector: TypeMemberSelector,

@@ -148,6 +148,8 @@ fn query_closure_debits_exact_allocator_requests_and_rolls_back_on_exhaustion() 
             .map(|index| CallableFlowNodeV1 {
                 kind: if index == 0 {
                     CallableFlowNodeKindV1::Entry
+                } else if index == 1 {
+                    CallableFlowNodeKindV1::Throw
                 } else if index + 1 == graph_node_count {
                     CallableFlowNodeKindV1::Exit
                 } else {
@@ -171,6 +173,7 @@ fn query_closure_debits_exact_allocator_requests_and_rolls_back_on_exhaustion() 
         let kind = match &node.kind {
             CallableFlowNodeKindV1::Entry => FlowNodeKind::Entry,
             CallableFlowNodeKindV1::Exit => FlowNodeKind::Exit,
+            CallableFlowNodeKindV1::Throw => FlowNodeKind::Throw,
             CallableFlowNodeKindV1::Statement { index } => FlowNodeKind::Statement(*index as usize),
             _ => unreachable!("fixture contains only entry, exit, and statement nodes"),
         };

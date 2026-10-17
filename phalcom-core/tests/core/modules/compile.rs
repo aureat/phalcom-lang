@@ -26,12 +26,12 @@ fn linked_module() -> LinkedModule {
         interface: LinkedModuleInterface {
             module,
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: BTreeMap::new().into(),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::new(),
-            imports,
+            local_globals: BTreeMap::new().into(),
+            imports: imports.into(),
         },
         linked_reads: vec![LinkedReadSpec::Binding(symbol)],
         runtime_dependencies: Vec::new(),

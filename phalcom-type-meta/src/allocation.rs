@@ -160,6 +160,64 @@ impl AllocationBudget {
         }
     }
 
+    /// Converts a vector into an exactly sized boxed slice, debiting any shrink
+    /// reallocation request made when capacity exceeds length.
+    pub fn boxed_slice<T>(&mut self, values: Vec<T>) -> Result<Box<[T]>, AllocationError> {
+        let before = (self.remaining, self.requested);
+        if values.capacity() > values.len() {
+            let layout = Layout::array::<T>(values.len()).map_err(|_| AllocationError::Overflow)?;
+            if let Err(err) = self.reserve_layout(layout) {
+                self.restore(before);
+                return Err(err);
+            }
+        }
+        Ok(values.into_boxed_slice())
+    }
+
+    /// Converts a vector into an Arc-wrapped slice, debiting any shrink reallocation
+    /// plus the ArcInner block requested by the allocator.
+    pub fn arc_slice<T>(&mut self, values: Vec<T>) -> Result<std::sync::Arc<[T]>, AllocationError> {
+        use std::sync::atomic::AtomicUsize;
+
+        let before = (self.remaining, self.requested);
+        if values.capacity() > values.len() {
+            let shrink_layout = Layout::array::<T>(values.len()).map_err(|_| AllocationError::Overflow)?;
+            if let Err(err) = self.reserve_layout(shrink_layout) {
+                self.restore(before);
+                return Err(err);
+            }
+        }
+        let payload = Layout::array::<T>(values.len()).map_err(|_| AllocationError::Overflow)?;
+        let layout = Layout::new::<[AtomicUsize; 2]>()
+            .extend(payload)
+            .map_err(|_| AllocationError::Overflow)?
+            .0
+            .pad_to_align();
+        if let Err(err) = self.reserve_layout(layout) {
+            self.restore(before);
+            return Err(err);
+        }
+        Ok(std::sync::Arc::from(values.into_boxed_slice()))
+    }
+
+    /// Creates an Arc-wrapped string, debiting the ArcInner block requested by the allocator.
+    pub fn arc_str(&mut self, value: &str) -> Result<std::sync::Arc<str>, AllocationError> {
+        use std::sync::atomic::AtomicUsize;
+
+        let before = (self.remaining, self.requested);
+        let payload = Layout::array::<u8>(value.len()).map_err(|_| AllocationError::Overflow)?;
+        let layout = Layout::new::<[AtomicUsize; 2]>()
+            .extend(payload)
+            .map_err(|_| AllocationError::Overflow)?
+            .0
+            .pad_to_align();
+        if let Err(err) = self.reserve_layout(layout) {
+            self.restore(before);
+            return Err(err);
+        }
+        Ok(std::sync::Arc::from(value))
+    }
+
     /// Starts a sorted map whose pair buffer is charged before allocation.
     /// Additional pushes charge each replacement buffer before it is requested.
     pub fn sorted_map_builder<K, V>(&mut self, expected: usize) -> Result<BudgetedSortedMapBuilder<'_, K, V>, AllocationError> {
@@ -260,6 +318,11 @@ impl<K: Ord, V> BudgetedSortedMap<K, V> {
         &self.entries
     }
 
+    /// Consumes the map and returns the underlying entries vector.
+    pub fn into_entries(self) -> Vec<(K, V)> {
+        self.entries
+    }
+
     /// Iterates over the requested key bounds without allocating scratch.
     pub fn range<Q, R>(&self, bounds: R) -> impl Iterator<Item = (&K, &V)>
     where
@@ -345,6 +408,11 @@ impl<K: Ord> BudgetedSortedSet<K> {
     /// Exposes the ordered backing slice for zero-allocation owner adapters.
     pub fn as_entries(&self) -> &[K] {
         &self.entries
+    }
+
+    /// Consumes the set and returns the underlying entries vector.
+    pub fn into_entries(self) -> Vec<K> {
+        self.entries
     }
 
     pub fn range<Q, R>(&self, bounds: R) -> impl Iterator<Item = &K>

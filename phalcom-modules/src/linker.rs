@@ -1,5 +1,6 @@
 //! Static symbol/import linking for a resolved module universe.
 
+use crate::authority::ModuleAuthorityMap;
 use crate::error::ModuleGraphError;
 use crate::graph::{
     DependencyPhase, ModuleGraphs, ReferenceEdge, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyReason, SemanticEdge, SemanticEdgeKind, SemanticNodeId,
@@ -35,9 +36,9 @@ pub enum LinkedReadSpec {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ModuleBindingLayout {
     /// Module-owned globals.
-    pub local_globals: BTreeMap<Box<str>, GlobalBindingId>,
+    pub local_globals: ModuleAuthorityMap<Box<str>, GlobalBindingId>,
     /// Immutable imported bindings.
-    pub imports: BTreeMap<Box<str>, ImportBindingId>,
+    pub imports: ModuleAuthorityMap<Box<str>, ImportBindingId>,
 }
 
 /// Index of a local global in a linked module layout.
@@ -67,7 +68,7 @@ pub struct LinkedProgram {
     /// Resolved project/package universe.
     pub universe: Arc<ProjectUniverse>,
     /// Every linked reachable module.
-    pub modules: BTreeMap<ModuleId, LinkedModule>,
+    pub modules: ModuleAuthorityMap<ModuleId, LinkedModule>,
     /// Reference, semantic, and runtime graphs.
     pub graphs: ModuleGraphs,
     /// Selected entry module.
@@ -200,7 +201,7 @@ impl ModuleLinker {
                 return TolerantLinkResult {
                     program: LinkedProgram {
                         universe: self.universe.clone(),
-                        modules: BTreeMap::new(),
+                        modules: ModuleAuthorityMap::new(),
                         graphs: ModuleGraphs::default(),
                         entry,
                         initialization_order: Vec::new(),
@@ -223,7 +224,7 @@ impl ModuleLinker {
             Ok((modules, graphs, initialization_order)) => TolerantLinkResult {
                 program: LinkedProgram {
                     universe: self.universe.clone(),
-                    modules,
+                    modules: modules.into(),
                     graphs,
                     entry,
                     initialization_order,
@@ -239,7 +240,7 @@ impl ModuleLinker {
                 TolerantLinkResult {
                     program: LinkedProgram {
                         universe: self.universe.clone(),
-                        modules: BTreeMap::new(),
+                        modules: ModuleAuthorityMap::new(),
                         graphs: ModuleGraphs::default(),
                         entry,
                         initialization_order: Vec::new(),
@@ -258,7 +259,7 @@ impl ModuleLinker {
             Ok((modules, graphs, initialization_order)) => TolerantLinkResult {
                 program: LinkedProgram {
                     universe: self.universe.clone(),
-                    modules,
+                    modules: modules.into(),
                     graphs,
                     entry,
                     initialization_order,
@@ -274,7 +275,7 @@ impl ModuleLinker {
                 TolerantLinkResult {
                     program: LinkedProgram {
                         universe: self.universe.clone(),
-                        modules: BTreeMap::new(),
+                        modules: ModuleAuthorityMap::new(),
                         graphs: ModuleGraphs::default(),
                         entry,
                         initialization_order: Vec::new(),
@@ -292,7 +293,7 @@ impl ModuleLinker {
         let mut context = LinkContext::new(self, resolved, false, false);
         context.build().map(|(modules, graphs, initialization_order)| LinkedProgram {
             universe: self.universe.clone(),
-            modules,
+            modules: modules.into(),
             graphs,
             entry,
             initialization_order,
@@ -317,7 +318,7 @@ impl ModuleLinker {
         let mut context = LinkContext::new(&reachable_linker, resolved, allow_unresolved_imports, false);
         context.build().map(|(modules, graphs, initialization_order)| LinkedProgram {
             universe: self.universe.clone(),
-            modules,
+            modules: modules.into(),
             graphs,
             entry,
             initialization_order,
@@ -1021,7 +1022,7 @@ impl<'a> LinkContext<'a> {
         Ok(LinkedModuleInterface {
             module: module.clone(),
             kind: unlinked.kind,
-            exports,
+            exports: exports.into(),
             metadata: unlinked.metadata.clone(),
         })
     }

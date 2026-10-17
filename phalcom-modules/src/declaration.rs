@@ -25,6 +25,15 @@ impl DeclarationId {
             name: self.name.clone(),
         }
     }
+
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        let module = self.module.clone_with_allocation_budget(allocations)?;
+        let name = allocations.boxed_str(&self.name)?;
+        Ok(Self { module, name })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

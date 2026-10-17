@@ -3,6 +3,7 @@
 //! Completed external authority is independent of source-backed build products.
 //! Source compilation captures interfaces from the provider cache once.
 
+use crate::authority::ModuleAuthorityMap;
 use crate::{LinkedProgram, ModuleComponent, ModuleId, ModulePath, ModuleTopology, ParsedModuleUnit, UniverseSourceProvider, UnlinkedModuleInterface};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -11,7 +12,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct CanonicalExternalModuleWorld {
     linked: Arc<LinkedProgram>,
-    interfaces: BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>>,
+    interfaces: ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>>,
     topology: Arc<ModuleTopology>,
 }
 
@@ -19,7 +20,7 @@ impl CanonicalExternalModuleWorld {
     /// Materializes completed authority; does not parse, build interfaces, or link.
     pub fn from_parts(
         linked: Arc<LinkedProgram>,
-        interfaces: BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>>,
+        interfaces: ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>>,
         topology: Arc<ModuleTopology>,
     ) -> Result<Self, String> {
         if linked.modules.len() != topology.nodes.len()
@@ -32,7 +33,7 @@ impl CanonicalExternalModuleWorld {
     }
 
     pub fn linked(&self) -> &Arc<LinkedProgram> { &self.linked }
-    pub fn interfaces(&self) -> &BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>> { &self.interfaces }
+    pub fn interfaces(&self) -> &ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>> { &self.interfaces }
     pub fn topology(&self) -> &Arc<ModuleTopology> { &self.topology }
 }
 
@@ -79,7 +80,7 @@ impl CanonicalModuleProducts {
         }
         let plain_interfaces = interfaces.iter().map(|(id, iface)| (id.clone(), (**iface).clone())).collect();
         let topology = Arc::new(ModuleTopology::from_parts(crate::ResolverGeneration(0), &linked.universe, &plain_interfaces, &BTreeMap::new()));
-        let external = Arc::new(CanonicalExternalModuleWorld::from_parts(linked, interfaces, topology)?);
+        let external = Arc::new(CanonicalExternalModuleWorld::from_parts(linked, interfaces.into(), topology)?);
         Ok(Self {
             external,
             sources,
@@ -98,7 +99,7 @@ impl CanonicalModuleProducts {
         &self.sources
     }
     /// Provider-derived interfaces used to build topology.
-    pub fn interfaces(&self) -> &BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>> {
+    pub fn interfaces(&self) -> &ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>> {
         self.external.interfaces()
     }
     /// Deterministic digest of module identities and exact provider source texts.

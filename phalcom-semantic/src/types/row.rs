@@ -99,7 +99,7 @@ pub enum RecordRowTail {
     Projection(TypeId),         // must have kind RecordRow
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RecordRowData {
     pub fields: Box<[RecordRowField]>, // sorted by canonical_cmp, unique
     pub tail: RecordRowTail,

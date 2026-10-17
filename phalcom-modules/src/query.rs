@@ -6,6 +6,7 @@
 //! through this view; LSP consumers can then query those products without
 //! reconstructing module meaning.
 
+use crate::authority::{ModuleAuthorityMapRef, ReverseImportsRef};
 use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, SourceId, SourceLocation};
 use crate::interface::{LinkedExport, LinkedModuleInterface, UnlinkedModuleInterface};
 use crate::project::ProjectUniverse;
@@ -43,14 +44,14 @@ pub enum RelativeQueryError {
 /// Immutable view of one canonical module-resolution generation.
 pub struct ModuleQueryFacade<'a> {
     universe: &'a ProjectUniverse,
-    unlinked: &'a BTreeMap<ModuleId, UnlinkedModuleInterface>,
-    linked: &'a BTreeMap<ModuleId, LinkedModuleInterface>,
-    resolved_imports: &'a BTreeMap<(ModuleId, String), ModuleId>,
-    sources: &'a BTreeMap<ModuleId, SourceLocation>,
-    source_modules: &'a BTreeMap<SourceId, ModuleId>,
-    display_path_modules: &'a BTreeMap<std::path::PathBuf, ModuleId>,
+    unlinked: ModuleAuthorityMapRef<'a, ModuleId, UnlinkedModuleInterface>,
+    linked: ModuleAuthorityMapRef<'a, ModuleId, LinkedModuleInterface>,
+    resolved_imports: ModuleAuthorityMapRef<'a, (ModuleId, String), ModuleId>,
+    sources: ModuleAuthorityMapRef<'a, ModuleId, SourceLocation>,
+    source_modules: ModuleAuthorityMapRef<'a, SourceId, ModuleId>,
+    display_path_modules: ModuleAuthorityMapRef<'a, std::path::PathBuf, ModuleId>,
     topology: Option<&'a crate::topology::ModuleTopology>,
-    reverse_imports: Option<&'a BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
+    reverse_imports: Option<ReverseImportsRef<'a>>,
     fallback_scans: Option<&'a AtomicU64>,
 }
 
@@ -58,21 +59,21 @@ impl<'a> ModuleQueryFacade<'a> {
     /// Creates a query view over already-produced canonical module products.
     pub fn new(
         universe: &'a ProjectUniverse,
-        unlinked: &'a BTreeMap<ModuleId, UnlinkedModuleInterface>,
-        linked: &'a BTreeMap<ModuleId, LinkedModuleInterface>,
-        resolved_imports: &'a BTreeMap<(ModuleId, String), ModuleId>,
-        sources: &'a BTreeMap<ModuleId, SourceLocation>,
-        source_modules: &'a BTreeMap<SourceId, ModuleId>,
-        display_path_modules: &'a BTreeMap<std::path::PathBuf, ModuleId>,
+        unlinked: impl Into<ModuleAuthorityMapRef<'a, ModuleId, UnlinkedModuleInterface>>,
+        linked: impl Into<ModuleAuthorityMapRef<'a, ModuleId, LinkedModuleInterface>>,
+        resolved_imports: impl Into<ModuleAuthorityMapRef<'a, (ModuleId, String), ModuleId>>,
+        sources: impl Into<ModuleAuthorityMapRef<'a, ModuleId, SourceLocation>>,
+        source_modules: impl Into<ModuleAuthorityMapRef<'a, SourceId, ModuleId>>,
+        display_path_modules: impl Into<ModuleAuthorityMapRef<'a, std::path::PathBuf, ModuleId>>,
     ) -> Self {
         Self {
             universe,
-            unlinked,
-            linked,
-            resolved_imports,
-            sources,
-            source_modules,
-            display_path_modules,
+            unlinked: unlinked.into(),
+            linked: linked.into(),
+            resolved_imports: resolved_imports.into(),
+            sources: sources.into(),
+            source_modules: source_modules.into(),
+            display_path_modules: display_path_modules.into(),
             topology: None,
             reverse_imports: None,
             fallback_scans: None,
@@ -86,8 +87,8 @@ impl<'a> ModuleQueryFacade<'a> {
     }
 
     /// Attaches a precomputed reverse import map to accelerate reverse importer queries.
-    pub fn with_reverse_imports(mut self, reverse_imports: &'a BTreeMap<ModuleId, BTreeSet<ModuleId>>) -> Self {
-        self.reverse_imports = Some(reverse_imports);
+    pub fn with_reverse_imports(mut self, reverse_imports: impl Into<ReverseImportsRef<'a>>) -> Self {
+        self.reverse_imports = Some(reverse_imports.into());
         self
     }
 
@@ -319,8 +320,8 @@ impl<'a> ModuleQueryFacade<'a> {
     }
 
     /// Returns linked public exports for a module.
-    pub fn public_exports(&self, module: &ModuleId) -> Option<&BTreeMap<Box<str>, LinkedExport>> {
-        self.linked.get(module).map(|interface| &interface.exports)
+    pub fn public_exports(&self, module: &ModuleId) -> Option<ModuleAuthorityMapRef<'_, Box<str>, LinkedExport>> {
+        self.linked.get(module).map(|interface| ModuleAuthorityMapRef::from(&interface.exports))
     }
 
     /// Returns a previously computed canonical resolution for an import path.

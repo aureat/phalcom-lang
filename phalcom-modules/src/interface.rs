@@ -1,3 +1,4 @@
+use crate::authority::{ModuleAuthorityMap, ModuleAuthoritySet};
 use crate::dunder::{DunderPolicy, DunderRole};
 use crate::error::InterfaceError;
 use crate::identity::{ModuleComponent, ModuleId};
@@ -90,7 +91,7 @@ pub struct LinkedModuleInterface {
     /// Source kind retained for compile/materialization policy.
     pub kind: ModuleKind,
     /// Canonical public exports.
-    pub exports: BTreeMap<Box<str>, LinkedExport>,
+    pub exports: ModuleAuthorityMap<Box<str>, LinkedExport>,
     /// Module metadata retained from source.
     pub metadata: ModuleMetadata,
 }
@@ -135,10 +136,10 @@ impl ImportSurface {
 pub struct UnlinkedModuleInterface {
     pub id: ModuleId,
     pub kind: ModuleKind,
-    pub declarations: BTreeMap<String, DeclarationSurface>,
-    pub exports: BTreeMap<String, ExportSurface>,
+    pub declarations: ModuleAuthorityMap<String, DeclarationSurface>,
+    pub exports: ModuleAuthorityMap<String, ExportSurface>,
     pub imports: Vec<ImportSurface>,
-    pub exposed_children: BTreeSet<ModuleComponent>,
+    pub exposed_children: ModuleAuthoritySet<ModuleComponent>,
     pub metadata: ModuleMetadata,
 }
 
@@ -162,7 +163,7 @@ impl UnlinkedModuleInterface {
 /// Path exposure surface of a package.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PackagePathSurface {
-    pub exposed_children: BTreeSet<ModuleComponent>,
+    pub exposed_children: ModuleAuthoritySet<ModuleComponent>,
 }
 
 /// Unified namespace binding record used during source-local interface validation.
@@ -378,10 +379,10 @@ impl InterfaceBuilder {
         Ok(UnlinkedModuleInterface {
             id,
             kind,
-            declarations,
-            exports,
+            declarations: declarations.into(),
+            exports: exports.into(),
             imports,
-            exposed_children,
+            exposed_children: exposed_children.into(),
             metadata,
         })
     }

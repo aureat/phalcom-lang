@@ -2,7 +2,7 @@
 
 use super::id::{KindId, StaticDomainId};
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum KindData {
     /// Fully saturated value type (`*` or `Type`).
     Type,

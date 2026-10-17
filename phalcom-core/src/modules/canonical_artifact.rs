@@ -309,6 +309,20 @@ pub fn load_universe_telosc_from_bytes(bytes: &[u8], limits: &ValidationLimits) 
     load_universe_telosc_from_bytes_with_timings_and_budget(bytes, limits, &mut timings, &mut allocations)
 }
 
+/// Test-only/internal helper reporting load outcome and cumulative requested budget bytes.
+#[doc(hidden)]
+pub fn load_universe_telosc_from_bytes_with_allocation_summary(
+    bytes: &[u8],
+    limits: &ValidationLimits,
+) -> (Result<Arc<LoadedUniverseArtifact>, TeloscArtifactError>, usize) {
+    let mut timings = TeloscLoadTimings::default();
+    let transaction_limit = usize::try_from(limits.max_total_allocation_bytes).unwrap_or(usize::MAX);
+    let mut allocations = AllocationBudget::new(transaction_limit);
+    let result = load_universe_telosc_from_bytes_with_timings_and_budget(bytes, limits, &mut timings, &mut allocations);
+    let requested = allocations.requested();
+    (result, requested)
+}
+
 fn load_universe_telosc_from_bytes_with_timings_and_budget(
     bytes: &[u8],
     limits: &ValidationLimits,

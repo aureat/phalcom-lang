@@ -3891,7 +3891,7 @@ mod exact_module_fact_tests {
         };
         LinkedProgram {
             universe: Arc::new(ProjectUniverse::new()),
-            modules: BTreeMap::from([(module_id.clone(), linked_module)]),
+            modules: BTreeMap::from([(module_id.clone(), linked_module)]).into(),
             graphs: Default::default(),
             entry: module_id.clone(),
             initialization_order: vec![module_id],

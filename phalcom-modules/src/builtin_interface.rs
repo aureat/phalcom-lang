@@ -22,7 +22,7 @@ static BUILTIN_INTERFACE_CACHE: OnceLock<InterfaceCache> = OnceLock::new();
 /// manufacture a second root-owned declaration.
 #[derive(Clone, Debug, Default)]
 pub struct UniverseSourceDeclarationCatalog {
-    declarations: BTreeMap<ModuleId, BTreeMap<String, DeclarationSurface>>,
+    declarations: BTreeMap<ModuleId, crate::authority::ModuleAuthorityMap<String, DeclarationSurface>>,
 }
 
 impl UniverseSourceDeclarationCatalog {

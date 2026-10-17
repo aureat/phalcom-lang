@@ -745,7 +745,7 @@ impl CanonicalUniverseFormalImage {
         &self.build_sources
     }
     /// Provider-derived module interfaces.
-    pub fn interfaces(&self) -> &BTreeMap<ModuleId, Arc<phalcom_modules::UnlinkedModuleInterface>> {
+    pub fn interfaces(&self) -> &phalcom_modules::authority::ModuleAuthorityMap<ModuleId, Arc<phalcom_modules::UnlinkedModuleInterface>> {
         self.modules.interfaces()
     }
     /// Foundation-linked canonical program.
@@ -989,7 +989,7 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
     let input = SemanticWorkspaceInput {
         linked: modules.linked().clone(),
         sources: modules.sources().clone(),
-        interfaces: Arc::new(modules.interfaces().clone()),
+        interfaces: Arc::new(modules.interfaces().iter().map(|(m, i)| (m.clone(), i.clone())).collect()),
         import_products: Arc::new(BTreeMap::new()),
         module_graph_changed: false,
         import_sites_by_module: Arc::new(BTreeMap::new()),
