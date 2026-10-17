@@ -6,16 +6,16 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
 latest_completed_plan_verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P8
-latest_completed_plan: PERF003.C2.P7
-next_plan: PERF003.C2.P8
+active_plan: PERF003.C2.P7.PATCH5
+latest_completed_plan: PERF003.C2.P7.PATCH4
+next_plan: PERF003.C2.P7.PATCH5
 next_action: >
-  Downstream performance characterization benchmarks and P8 portable executable
-  Universe image compilation.
-prepared_against_revision: 2e914b6c8905130780abb675db3401e592214c78
-execution_tree_head: 2e914b6c
-latest_tested_revision: 2e914b6c
-latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
+  Complete Task T6 semantic owner closure, Wave 3 query image publication, and
+  Wave 4 exact allocator parity verification.
+prepared_against_revision: a134a0650461b2dd6760a8d42a2e944be505849f
+execution_tree_head: a134a065
+latest_tested_revision: a134a065
+latest_tested_predecessor: e4503086b97669d25cbaea21dcbc7e7740e2b260
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
@@ -2211,3 +2211,20 @@ P7's full compiler artifact lifecycle is complete and verified:
 8. Subprocess test `fresh_process_source_denied_artifact_compilation` verifies that an independent process with no Universe source access loads the persisted `universe.telosc` artifact from disk, verifies source-free completeness, and compiles a novel dependent package exercising Universe types.
 
 All 11 tests in `modules_canonical_artifact` pass. P7 status is promoted to `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+
+## PERF003.C2.P7.PATCH5 allocation & evidence hardening — 2026-10-17
+
+Adopted `PERF003.C2.P7.PATCH5` to complete exact cumulative allocation accounting for the loaded compiler artifact (`.telosc`), normalize `packages/slotmap` for source vs artifact compiler parity, and repair the P7 audit harness.
+
+Progress:
+1. Wave 0 (T0 & T1) Complete: Created counting allocator test target `phalcom-core/tests/artifact_allocation.rs` and exact layout helpers in `phalcom-type-meta/src/allocation.rs` (`boxed_slice`, `arc_slice`, `arc_str`, `vector`, `string`, `boxed_str`, `arc`), verified by `phalcom-type-meta/tests/allocation_helpers.rs` (`delta = 0`).
+2. Wave 1 (T2 & T3) Complete: Implemented `ModuleAuthorityMap<K, V>` and `ModuleAuthoritySet<T>` in `phalcom-modules/src/authority.rs`, replacing native maps/sets with frozen budgeted sorted arrays for all loaded module authority while preserving runtime dependency graph topological ordering.
+3. Wave 2 (T4 & T5) Complete:
+   - Added `Ord, PartialOrd` derives to all semantic type and static value data structures.
+   - Implemented `FrozenTypeLambdaPrefix` in `phalcom-semantic/src/types/type_lambda.rs` and `FrozenTypeStorePrefix` in `phalcom-semantic/src/types/store.rs` along with `TypeStore::from_frozen` and `TypeStore::import_type_graph_with_allocation_budget`.
+   - Implemented `FrozenStaticValuePrefix` in `phalcom-semantic/src/static_value/store.rs` and dense boxed slice relocations in `phalcom-semantic/src/static_value/artifact.rs`.
+   - Verified that `cargo check --lib -p phalcom-type-meta -p phalcom-modules -p phalcom-semantic -p phalcom-core` and `cargo test -p phalcom-semantic --test artifact-allocation` pass with zero errors.
+   - Test suites in `phalcom-modules` (`tests/topology.rs`, `tests/query.rs`) updated to `ModuleAuthorityMap`/`Set` interfaces and pass.
+
+Immediate Next Action:
+Execute Task T6 to wire budgeted type and static value import closures into `validate_and_import_semantic_world_inner` and remove `require_semantic_import_allocation_accounting()`.
