@@ -381,3 +381,86 @@ instead of projecting the semantic snapshot's generated requirements. This is
 an unresolved linkage blocker; the corpus run supplies no operator-runtime
 acceptance evidence. The exact Horner package uses the production finalizer and
 passes. Do not relax finalized-read checks to unblock the corpus.
+
+## Retained executable finalization — 2026-10-17
+
+Starting from `0665588e`, the arithmetic and Boolean corpus groups both stopped
+at the first fixture because `System` had no finalized canonical read. The
+retained compiler supplied no symbolic link to semantic requirement projection
+and wrapped the conservative module link as executable. That path omitted
+reads selected by semantic lowering.
+
+`ProgramCompilationSession` now builds the canonical symbolic link from the
+retained module session's interfaces and resolver results. A dedicated semantic
+entry point carries that link through the existing delta, cancellation, and
+transactional publication path. Fresh and retained compilation share
+`finalize_analyzed_link`, including generated requirements, metadata type roots,
+exact post-bootstrap availability, immutable slots, and strict runtime graph
+validation. There is no second analysis session and no compiler-side late read.
+The ordinary tolerant editor update path retains its existing behavior.
+
+The five existing retained-session tests passed (131.67s), covering source
+replacement, retained identity/path, imports and cold parity, random fixtures,
+and compile-mode transitions. A new regression requires a canonical `System`
+slot, removes it after a source edit, restores it, and compares the resulting
+read targets with a cold retained session.
+
+The new canonical-read removal/restoration test passed 1/1 (99.59s). The
+broader corpus rerun passed the Boolean group (12 fixtures), then the arithmetic
+group reached `relations_sameness_matches_understands.ph` and failed because
+that fixture used the source-authored `Ellipsis` class without importing it.
+The literal `...` itself executed. `universe.md` §6 and its rejected
+all-Universe-as-prelude design distinguish canonical package membership from
+implicit visibility; `object/ellipsis.ph` exports the class explicitly.
+The fixture now imports `Ellipsis` from that canonical module. No expected
+output or runtime assertion was changed.
+
+Additional completed checks on the retained-finalization slice:
+
+```text
+cargo test -p phalcom-core --lib retained_fixture_finalizes_canonical_reads_and_removes_stale_requirements -- --nocapture
+  1 passed; 0 failed; 209 filtered out; 99.59s
+cargo test -p phalcom-semantic --lib session::publication_tests -- --nocapture
+  13 passed; 0 failed; 179 filtered out; 8.02s
+cargo test -p phalcom-semantic --test semantic integration::phase_evidence -- --nocapture
+  20 passed; 0 failed; 2229 filtered out; 16.20s
+```
+
+`cargo fmt --all -- --check` is blocked by pre-existing differences in four
+untouched semantic ADT test files: `adts/matching/bindings.rs`,
+`adts/matching/exhaustiveness.rs`, `adts/variants.rs`, and `incremental/adts.rs`.
+Those files match the starting revision. Scoped Rust formatting and
+`git diff --check` pass; no unrelated formatting was applied.
+
+Final arithmetic corpus result:
+
+```text
+cargo test -p phalcom-core --test language-corpus arithmetic -- --nocapture
+  1 group passed; 0 failed; 70 filtered out; 108.05s
+```
+
+The group executes all 33 arithmetic fixtures and compares their full stdout
+with unchanged expected sidecars. Together with the passing 12-fixture Boolean
+group, this establishes 45 executed corpus fixtures for these two families.
+The separate Horner package supplies the bounded deep-expression execution proof.
+
+Broader build gate:
+
+```text
+CARGO_TARGET_DIR=/tmp/phalcom-consolidation-check-20261016 RUSTFLAGS='' RUSTC_WRAPPER='' cargo build --workspace --all-targets
+  PASS; 1m 39s
+```
+
+This compiles all workspace targets, including semantic library tests, core,
+REPL, and LSP consumers. It is build evidence, not workspace execution or
+release certification. No full post-correction semantic/workspace test run has
+been completed; the earlier 94-failure baseline remains the inventory anchor.
+
+Broader gate disposition: the workspace/all-target build passed. Clippy with
+`--workspace --all-targets -- -D warnings` is blocked by a baseline
+`clippy::useless_conversion` at `phalcom-semantic/src/generic_evidence.rs:901`.
+That file and the four formatting-blocked ADT test files are byte-for-byte
+unchanged from `324ee315`. No lint allowance or unrelated formatting repair was
+added. Full workspace tests and the post-correction semantic baseline recount
+remain unexecuted. These slices are `IMPLEMENTED / FOCUSED_TESTED`; P4 and
+consolidation-wide stability acceptance remain incomplete.

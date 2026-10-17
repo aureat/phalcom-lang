@@ -317,3 +317,36 @@ publication rollback/retry tests 13/13. The latter suite required adding the
 missing Debug argument at one test call site from the mode slice. Full baseline
 recount and P4 closure remain outstanding; see the consolidation record for
 cross-stage runtime evidence.
+
+### Retained executable finalization — 2026-10-17
+
+Retained fixture compilation now supplies the canonical symbolic link to the
+existing semantic session, then shares fresh compilation's availability-aware
+finalizer. Generated reads and runtime metadata roots receive immutable slots
+before lowering. The change preserves transactional deltas, canonical ownership,
+strict runtime-cycle rejection, and exact full-Universe availability proofs.
+It removes the conservative fixture wrapper; it does not migrate the production
+Universe or add late compiler reads.
+
+Verification: five existing retained-session tests passed (131.67s), and the new
+canonical-read add/remove/restore versus cold regression passed (99.59s).
+Publication rollback/retry passed 13/13 (8.02s); semantic phase evidence passed
+20/20 (16.20s). The Boolean corpus passed all 12 fixtures; the arithmetic corpus
+passed all 33 fixtures after adding the missing explicit `Ellipsis` import to
+one fixture. Its expected output and runtime assertions are unchanged. The
+arithmetic rerun passed in 108.05s; the earlier combined run proved the Boolean
+group and exposed that invalid fixture. See the consolidation record for commands.
+
+P4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. The next priorities are
+implicit contract-error dependencies, remaining attribute/witness forms,
+conformance-cycle execution, and incremental invalidation failures. The full
+semantic failure inventory and workspace test acceptance have not been recertified.
+
+Broader gate disposition: the workspace/all-target build passed. Clippy with
+`--workspace --all-targets -- -D warnings` is blocked by a baseline
+`clippy::useless_conversion` at `phalcom-semantic/src/generic_evidence.rs:901`.
+That file and the four formatting-blocked ADT test files are byte-for-byte
+unchanged from `324ee315`. No lint allowance or unrelated formatting repair was
+added. Full workspace tests and the post-correction semantic baseline recount
+remain unexecuted. These slices are `IMPLEMENTED / FOCUSED_TESTED`; P4 and
+consolidation-wide stability acceptance remain incomplete.

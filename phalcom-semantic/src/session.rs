@@ -934,6 +934,29 @@ impl SemanticWorkspaceSession {
         execution_mode: crate::attribute_analysis::AttributeExecutionMode,
         cancel: &CancellationToken,
     ) -> Result<SemanticWorkspacePublication, SemanticUpdateFailure> {
+        self.update_module_workspace_with_link_and_budget(update, budget, execution_mode, None, cancel)
+    }
+
+    /// Publishes a retained module update with the canonical symbolic link
+    /// needed to project executable requirements before finalization.
+    pub fn update_executable_module_workspace(
+        &mut self,
+        update: WorkspaceModuleUpdate,
+        semantic_linked: Arc<phalcom_modules::SemanticLinkedProgram>,
+        execution_mode: crate::attribute_analysis::AttributeExecutionMode,
+        cancel: &CancellationToken,
+    ) -> Result<SemanticWorkspacePublication, SemanticUpdateFailure> {
+        self.update_module_workspace_with_link_and_budget(update, QueryBudget::default(), execution_mode, Some(semantic_linked), cancel)
+    }
+
+    fn update_module_workspace_with_link_and_budget(
+        &mut self,
+        update: WorkspaceModuleUpdate,
+        budget: QueryBudget,
+        execution_mode: crate::attribute_analysis::AttributeExecutionMode,
+        semantic_linked: Option<Arc<phalcom_modules::SemanticLinkedProgram>>,
+        cancel: &CancellationToken,
+    ) -> Result<SemanticWorkspacePublication, SemanticUpdateFailure> {
         let generation = self.module_session.generation();
         let delta = SemanticModuleDelta {
             changed_modules: update.changed_modules.clone(),
@@ -948,7 +971,7 @@ impl SemanticWorkspaceSession {
             .update_with_budget_and_cancel_and_delta(
                 SemanticWorkspaceInput {
                     linked: update.linked,
-                    semantic_linked: None,
+                    semantic_linked,
                     sources: update.sources,
                     interfaces: update.interfaces,
                     import_products: update.import_products,

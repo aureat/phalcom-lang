@@ -1114,6 +1114,19 @@ fn link_analyze_finalize(
         .map_err(phalcom_semantic::SemanticUpdateFailure::from)?
         .snapshot;
 
+    let executable = finalize_analyzed_link(linker, semantic.as_ref(), &snapshot, sources, runtime_modules)?;
+    Ok((executable, snapshot))
+}
+
+/// Shares the executable requirement projection between fresh entry analysis
+/// and retained fixture analysis. All read slots are fixed before lowering.
+pub(super) fn finalize_analyzed_link(
+    linker: &ModuleLinker,
+    semantic: &phalcom_modules::SemanticLinkedProgram,
+    snapshot: &phalcom_semantic::SemanticSnapshot,
+    sources: &BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    runtime_modules: &BTreeSet<ModuleId>,
+) -> Result<Arc<ExecutableLinkedProgram>, ProgramCompileError> {
     // Semantic snapshots also cover source-backed Universe support modules.
     // Those modules are already initialized by the VM and are not part of this
     // program's materialization closure, so only generated requirements owned
@@ -1126,16 +1139,16 @@ fn link_analyze_finalize(
         .filter(|requirement| runtime_modules.contains(&requirement.importer))
         .cloned()
         .collect::<Vec<_>>();
-    generated_requirements.extend(runtime_metadata_type_requirements(&snapshot, sources, runtime_modules));
+    generated_requirements.extend(runtime_metadata_type_requirements(snapshot, sources, runtime_modules));
 
     let canonical = crate::modules::canonical_universe_program().map_err(|error| ProgramCompileError::AvailabilityContract(error.to_string()))?;
     let executable = linker.finalize_executable_with_availability(
-        (*semantic).clone(),
+        semantic.clone(),
         &snapshot.import_phase_products,
         &generated_requirements,
         canonical.availability_after_bootstrap(),
     )?;
-    Ok((Arc::new(executable), snapshot))
+    Ok(Arc::new(executable))
 }
 
 pub(super) fn semantic_attribute_execution_mode(mode: CompileMode) -> phalcom_semantic::attribute_analysis::AttributeExecutionMode {

@@ -59,7 +59,7 @@ impl ProgramCompilationSession {
     }
 
     /// Replaces a fixture while keeping semantic projection and VM guard mode
-    /// aligned. The compatibility linker retains its conservative read layout.
+    /// aligned. Executable requirements use the same finalizer as fresh entry analysis.
     pub fn compile_fixture_with_mode(
         &mut self,
         path: &Path,
@@ -133,8 +133,21 @@ impl ProgramCompilationSession {
         }
         #[cfg(any(test, feature = "test-timings"))]
         let semantic_started = Instant::now();
-        let publication = self.semantic_session.update_module_workspace_with_execution_mode_and_cancel(
+        let module_session = self.semantic_session.module_session();
+        let project_universe = Arc::new(module_session.universe().clone());
+        let linker = phalcom_modules::ModuleLinker::new(
+            project_universe.clone(),
+            module_session
+                .interfaces()
+                .iter()
+                .map(|(id, (interface, _))| (id.clone(), interface.as_ref().clone()))
+                .collect(),
+        );
+        let entry = self.fixture_module_id.clone();
+        let semantic_linked = Arc::new(linker.link_semantic(entry.clone(), module_session.resolved_imports())?);
+        let publication = self.semantic_session.update_executable_module_workspace(
             module_update,
+            semantic_linked.clone(),
             super::compile::semantic_attribute_execution_mode(compile_mode),
             &phalcom_semantic::db::CancellationToken::new(),
         )?;
@@ -142,20 +155,21 @@ impl ProgramCompilationSession {
         {
             self.last_fixture_timing.semantic_update = semantic_started.elapsed();
         }
-        let module_session = self.semantic_session.module_session();
-        let linked = module_session
-            .linked()
-            .cloned()
-            .ok_or_else(|| ProgramCompileError::Io("module session published no linked program".to_owned()))?;
-        let linked = Arc::new(phalcom_modules::ExecutableLinkedProgram::from_conservative_link(linked.as_ref().clone())?);
-        let entry = self.fixture_module_id.clone();
+        let runtime_modules = BTreeSet::from([entry.clone()]);
+        let linked = super::compile::finalize_analyzed_link(
+            &linker,
+            semantic_linked.as_ref(),
+            &publication.snapshot,
+            publication.snapshot.sources().as_ref(),
+            &runtime_modules,
+        )?;
         let analyzed = AnalyzedProgram {
             compile_mode,
-            project_universe: Arc::new(module_session.universe().clone()),
+            project_universe,
             linked,
             sources: publication.snapshot.sources().as_ref().clone(),
             semantic: publication.snapshot,
-            runtime_modules: BTreeSet::from([entry.clone()]),
+            runtime_modules,
             entry,
         };
 
@@ -457,5 +471,30 @@ mod tests {
             declaration_shape(&cold.modules[&cold.entry]),
             "reused and cold compilation preserve declaration shapes"
         );
+    }
+
+    #[test]
+    fn retained_fixture_finalizes_canonical_reads_and_removes_stale_requirements() {
+        fn reads(program: &CompiledProgram) -> BTreeSet<phalcom_modules::LinkedReadSpec> {
+            program.linked.runtime_reads_for(&program.entry).map(|(target, _)| target.clone()).collect()
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("fixture.ph");
+        let source = "System.print(\"linked\")\n";
+        let mut session = ProgramCompilationSession::standalone().unwrap();
+        let first = session.compile_fixture(&path, source).unwrap();
+        let system = phalcom_modules::LinkedReadSpec::Binding(phalcom_modules::SymbolId {
+            module: phalcom_semantic::core_surface::identity::universe_declaration(phalcom_native_meta::UniverseKey::System).module,
+            name: "System".into(),
+        });
+        assert!(reads(&first).contains(&system), "emitted class reads must have a finalized canonical slot");
+        let without_system = session.compile_fixture(&path, "let value = 1\n").unwrap();
+        assert_eq!(first.entry, without_system.entry);
+        assert!(!reads(&without_system).contains(&system), "removed source reads must not survive finalization");
+        let restored = session.compile_fixture(&path, source).unwrap();
+        let mut cold = ProgramCompilationSession::standalone().unwrap();
+        let cold = cold.compile_fixture(&path, source).unwrap();
+        assert_eq!(reads(&restored), reads(&cold), "retained and cold executable targets must agree");
+        assert!(reads(&restored).contains(&system));
     }
 }
