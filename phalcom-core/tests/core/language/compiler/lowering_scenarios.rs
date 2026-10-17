@@ -515,7 +515,7 @@ fn adt_lower_11_missing_semantic_product_returns_typed_error() {
     use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
     use std::sync::Arc;
 
-    let source = "data State { @variant Ready @variant Done }\nlet result = match State::Ready { State::Ready => 1 State::Done => 2 }\n";
+    let source = "data State { Ready Done }\nlet result = match State::Ready { State::Ready => 1 State::Done => 2 }\n";
     let mut program =
         ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("valid exhaustive match should produce formal lowering");
 

@@ -17,13 +17,13 @@ Test.expect(map.containsKey(socrates), "inserted key is live")
 
 Test.expectEqual(map.remove(socrates), Option::Some("Socrates"))
 Test.expectEqual(map.len, 1)
-Test.expectEqual(map.get(socrates), Option::None)
+Test.expectEqual(map.get(socrates), Option<String>::None)
 Test.expect(not map.containsKey(socrates), "removed key is stale")
-Test.expectEqual(map.remove(socrates), Option::None)
+Test.expectEqual(map.remove(socrates), Option<String>::None)
 
 // Reuse must never resurrect the stale key.
 let aristotle = map.insert("Aristotle")
-Test.expectEqual(map.get(socrates), Option::None)
+Test.expectEqual(map.get(socrates), Option<String>::None)
 Test.expectEqual(map.get(aristotle), Option::Some("Aristotle"))
 
 // insertWithKey can construct self-identifying values.
@@ -51,10 +51,10 @@ match thinkers.get(epicurus) {
 let preClear = map.insert("Zeno")
 map.clear
 Test.expect(map.isEmpty, "clear empties the map")
-Test.expectEqual(map.get(preClear), Option::None)
+Test.expectEqual(map.get(preClear), Option<String>::None)
 
 let postClear = map.insert("Plotinus")
-Test.expectEqual(map.get(preClear), Option::None)
+Test.expectEqual(map.get(preClear), Option<String>::None)
 Test.expectEqual(map.get(postClear), Option::Some("Plotinus"))
 
 // retain invalidates removed entries and keeps accepted entries.
@@ -62,7 +62,7 @@ let a = map.insert("A")
 let b = map.insert("BB")
 map.retain |_, value| { value.size > 1 }
 
-Test.expectEqual(map.get(a), Option::None)
+Test.expectEqual(map.get(a), Option<String>::None)
 Test.expectEqual(map.get(b), Option::Some("BB"))
 
 // Sparse iteration yields every live entry exactly once.

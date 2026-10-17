@@ -266,8 +266,8 @@ fn class_indexer_match_publishes_callable_body_and_proven_resolution() {
     let module = test_module();
     let source = r#"
 data Lookup {
-  @variant Found(_ value: Int)
-  @variant Missing
+  Found(_ value: Int)
+  Missing
 }
 
 class Table {

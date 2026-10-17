@@ -33,6 +33,8 @@ mod modules_project_reflection;
 mod modules_reflection;
 #[path = "modules/telogue_project.rs"]
 mod modules_telogue_project;
+#[path = "modules/slotmap_package.rs"]
+mod modules_slotmap_package;
 #[path = "modules/universe.rs"]
 mod modules_universe;
 #[path = "native/contracts.rs"]
