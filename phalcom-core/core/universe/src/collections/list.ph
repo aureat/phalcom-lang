@@ -40,7 +40,7 @@ native class List<T> is Collection {
     return self.rawAt(i)
   }
 
-  get(_ index) {
+  get(_ index: Int) -> Option<T> {
     let mut raw = self.rawAt(index)
     let mut len = self.size
     let mut i = index

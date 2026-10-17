@@ -9,7 +9,7 @@ data DenseSlotState {
   Vacant(_ next: Option<Int>)
 }
 
-data DenseSlot private(
+data DenseSlot module(
   generation: Int,
   state: DenseSlotState
 )
