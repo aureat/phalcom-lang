@@ -19,7 +19,7 @@ latest_completed_plan: LANG007.C4.P8
 next_plan: LANG007.C4.P9
 active_plan_record: docs/implementation/LANG007/LANG007.C4/P9/LANG007.C4.P9-detailed-implementation-plan.md
 active_plan_prepared_against_revision: 73ea73f4622417510c39850e61664cf8c2c4a900
-last_updated: 2026-10-14
+last_updated: 2026-10-17
 ---
 
 # LANG007.C4 — Checkpoint Record
@@ -3920,3 +3920,24 @@ and [R1 handoff](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-handoff.md)
 record the documentation-only evidence boundary and auditor takeover points.
 This update does not alter the active P4 plan, next action, or any C4/R1
 completion or verification classification.
+
+### 2026-10-17 — SlotMap runtime consultation and smoke
+
+The adviser confirmed the missing `DenseSlotMap` match record was caused by
+`SemanticWorkspaceSession` omitting class indexers from callable-body
+publication, canonical selector derivation, and source-body replay. The
+implementation now uses the existing canonical `callable_id_for_member` path
+for indexers; no plan amendment was required. The focused semantic regression
+passes and confirms the subscript getter publishes a callable analysis with
+proven match coverage through incremental source-body replay.
+
+The package run then exposed two private-storage reads from
+`CanonicalIterable` implementations. Both package maps now construct their
+iterators through owner-class helpers. The requested SlotMap runtime program
+passes its basic and dense-map modules and prints its completion marker.
+Detailed reproduction and evidence are in the
+[SlotMap incident packet](LANG007.C4-slotmap-match-lowering-incident-2026-10-17.md).
+
+This is focused package/runtime evidence only. LANG007.C4 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; the active P9 plan and broader C4 gates
+are unchanged.

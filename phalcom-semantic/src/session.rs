@@ -6311,6 +6311,11 @@ impl SemanticWorkspaceSession {
                                 }
                                 ClassMember::Getter(g) => (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range)),
                                 ClassMember::Setter(s) => (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range)),
+                                ClassMember::Index(index) => (
+                                    crate::checker::declaration_signature::callable_id_for_member(&decl_id, member).map(|callable| callable.selector),
+                                    index.body.statements(),
+                                    Some(index.range),
+                                ),
                                 _ => (None, None, None),
                             };
 
@@ -11681,24 +11686,8 @@ fn advisory_status(status: crate::checker::CallableAnalysisStatus) -> AdvisoryPr
 /// Publishes body-derived return summaries into canonical callable signatures,
 /// then refreshes dispatch as a derived lookup projection. The fixed-point pass
 /// is required for calls such as `Probe.run -> Factory.of -> CellNum.new`.
-fn member_selector(member: &ClassMember) -> Option<Selector> {
-    match member {
-        ClassMember::Method(method) => {
-            let slots = method
-                .params
-                .iter()
-                .filter(|parameter| parameter.rest_mode == phalcom_ast::ast::RestMode::None)
-                .map(|parameter| match &parameter.label {
-                    Some(label) if label != "_" => phalcom_common::selector::SelectorSlot::Label(label.clone()),
-                    _ => phalcom_common::selector::SelectorSlot::Positional,
-                })
-                .collect::<Vec<_>>();
-            Selector::method(&method.name, slots).ok()
-        }
-        ClassMember::Getter(getter) => Selector::getter(&getter.name).ok(),
-        ClassMember::Setter(setter) => Selector::setter(&setter.name).ok(),
-        _ => None,
-    }
+fn member_selector(owner: &DeclarationId, member: &ClassMember) -> Option<Selector> {
+    crate::checker::declaration_signature::callable_id_for_member(owner, member).map(|callable| callable.selector)
 }
 
 fn source_body_for_callable<'a>(
@@ -11713,7 +11702,7 @@ fn source_body_for_callable<'a>(
             Statement::Class(class_def) if callable.owner == crate::identity::CallableOwnerId::Declaration(owner.clone()) => {
                 let declaration = DeclarationId::new(unit.id.clone(), class_def.name.clone().into());
                 for member in &class_def.members {
-                    let Some(selector) = member_selector(member) else {
+                    let Some(selector) = member_selector(&declaration, member) else {
                         continue;
                     };
                     let side = if matches!(member, ClassMember::Method(method) if method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor"))
@@ -11729,6 +11718,7 @@ fn source_body_for_callable<'a>(
                         ClassMember::Method(method) => Some((method.body.statements()?, method.range)),
                         ClassMember::Getter(getter) => Some((getter.body.statements()?, getter.range)),
                         ClassMember::Setter(setter) => Some((setter.body.statements()?, setter.range)),
+                        ClassMember::Index(index) => Some((index.body.statements()?, index.range)),
                         _ => None,
                     };
                 }

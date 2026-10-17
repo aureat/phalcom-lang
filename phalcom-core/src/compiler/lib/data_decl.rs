@@ -14,11 +14,29 @@ impl<'vm> Compiler<'vm> {
     pub(crate) fn compile_intrinsic_runtime_data(&mut self, data_def: &DataDef) -> Result<(), CompilerError> {
         let module = self.vm.heap.module(self.module).id.clone();
         let declaration = phalcom_modules::DeclarationId::new(module.clone(), data_def.name.clone().into_boxed_str());
-        let facade = self
-            .lowering()
+        let lowering = self.lowering();
+        let facade = lowering
             .and_then(|lowering| lowering.intrinsic_runtime_facades.iter().find(|facade| facade.declaration == declaration))
-            .cloned()
-            .ok_or_else(|| CompilerError::MissingIntrinsicRuntimeFacadeSemantics(data_def.name.clone()))?;
+            .cloned();
+
+        let Some(facade) = facade else {
+            let has_generic_semantics = lowering.is_some_and(|lowering| {
+                if data_def.is_sum() {
+                    lowering.enums.iter().any(|spec| spec.owner == declaration)
+                } else {
+                    lowering.data_decls.iter().any(|spec| spec.owner == declaration)
+                }
+            });
+            if !has_generic_semantics {
+                return Err(CompilerError::MissingIntrinsicRuntimeFacadeSemantics(data_def.name.clone()));
+            }
+
+            return if data_def.is_sum() {
+                self.compile_enum(data_def)
+            } else {
+                self.compile_data(data_def)
+            };
+        };
 
         let name_sym = self.vm.interner.intern(&data_def.name);
         let class = match facade.owner {

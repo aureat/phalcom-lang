@@ -248,6 +248,10 @@ class SlotMap<Tag, T> {
     SlotMapIterator<Tag, T>(_slots)
   }
 
+  module makeIterator -> SlotMapIterator<Tag, T> {
+    SlotMapIterator<Tag, T>(_slots)
+  }
+
   /// Checked indexing. Invalid or stale keys raise IndexError.
   [_ key] {
     match self.get(key) {
@@ -307,7 +311,7 @@ impl<Tag, T> CanonicalIterable for SlotMap<Tag, T> {
   type Iterator = SlotMapIterator<Tag, T>
 
   iterator -> SlotMapIterator<Tag, T> {
-    SlotMapIterator<Tag, T>(_slots)
+    self.makeIterator
   }
 }
 
