@@ -406,6 +406,8 @@ record!(CallableExpressionRowV1 {
     conditional_dispatch: Option<ConditionalDispatchSelectionV1>,
     conditional_capability: Option<CallableConditionalSelectedCallCapabilityV1>,
     trait_dispatch: Option<CallableTraitDispatchSiteV1>,
+    trait_dispatch_candidates: Option<Vec<CallableTraitDispatchCandidateV1>>,
+    contextual_realization: Option<CallableContextualRealizationV1>,
     status: CallableExpressionStatusV1,
     causal_invalidity: CallableCausalInvalidityV1,
     explanation: Option<u32>,
@@ -441,6 +443,69 @@ record!(CallableTraitDispatchSelectionV1 {
     evidence: u32,
     selection: CallableRequirementSelectionV1,
     requirement_targets: Vec<CallableRequirementSelectionEntryV1>,
+});
+
+record!(CallableTraitDispatchCandidateV1 {
+    source_impl: StableImplRef,
+    exact_target: ArtifactTypeId,
+    exact_trait_ref: TraitRefV1,
+    requirement: CallableRequirementIdentityV1,
+    signature: CallableSignatureRecordV1,
+    evidence: u32,
+    selection: CallableRequirementSelectionV1,
+    requirement_targets: Vec<CallableRequirementSelectionEntryV1>,
+    convergence: CallableTraitDispatchConvergenceV1,
+});
+
+tagged!(CallableTraitDispatchConvergenceV1 {
+    0 => Inherent { callable: StableCallableRef },
+    1 => ConditionalInherent { callable: StableCallableRef, implementation: StableImplRef, applicability_fingerprint: u64 },
+    2 => DataComponent { owner: StableDeclarationRef, index: u32 },
+    3 => ConformanceCallable { callable: StableCallableRef },
+    4 => TraitDefault { callable: StableCallableRef, evidence_fingerprint: u64 },
+});
+
+tagged!(CallableRealizationCapabilityV1 {
+    0 => Evidenced { selection: CallableTraitDispatchSelectionV1 },
+    1 => Assumed {
+        conformance: GenericConformanceKeyV1,
+        requirement: CallableRequirementIdentityV1,
+        signature: CallableSignatureRecordV1
+    },
+});
+
+tagged!(CallableAlgebraicBasisAxisV1 { 0 => I, 1 => J, 2 => K });
+
+tagged!(CallableRealizationCoefficientV1 {
+    0 => One { scalar_type: ArtifactTypeId, capability: CallableRealizationCapabilityV1 },
+    1 => IntegerLiteral { digits: Box<str>, radix: u32 },
+    2 => FloatLiteral { bits: u64 },
+    3 => Expression { expression: u32, scalar_type: ArtifactTypeId },
+});
+
+tagged!(CallableRealizationEvaluationV1 {
+    0 => LiteralCoefficientThenAxis,
+    1 => MultiplicativeIdentityThenSourceBasis,
+    2 => SourceOperands { first: u32, second: u32, coefficient: u32, basis: u32 },
+});
+
+tagged!(CallableContextualRealizationOperationV1 {
+    0 => Basis {
+        basis_type: ArtifactTypeId,
+        axis: CallableAlgebraicBasisAxisV1,
+        coefficient: CallableRealizationCoefficientV1,
+        evaluation: CallableRealizationEvaluationV1
+    },
+    1 => RealEmbedding { value: u32, scalar_type: ArtifactTypeId },
+});
+
+record!(CallableContextualRealizationV1 {
+    source_expression: u32,
+    source_range: SpanV1,
+    source_type: ArtifactTypeId,
+    target_type: ArtifactTypeId,
+    operation: CallableContextualRealizationOperationV1,
+    realization: CallableRealizationCapabilityV1,
 });
 
 tagged!(CallableForIterationRequirementV1 {
@@ -5310,6 +5375,21 @@ fn validate_callable_conformance_evidence_graph(
                 validate_callable_selection_evidence_references(record, &target.selection, 0, limits.max_recursion_depth)?;
             }
         }
+        if let Some(candidates) = &expression.trait_dispatch_candidates {
+            if candidates.len() > limits.max_semantic_entries_per_family {
+                return Err(invalid("callable trait-dispatch candidate count exceeds its owner-local limit"));
+            }
+            for candidate in candidates {
+                validate_callable_evidence_reference(record, candidate.evidence, None)?;
+                validate_callable_selection_evidence_references(record, &candidate.selection, 0, limits.max_recursion_depth)?;
+                for target in &candidate.requirement_targets {
+                    validate_callable_selection_evidence_references(record, &target.selection, 0, limits.max_recursion_depth)?;
+                }
+            }
+        }
+        if let Some(realization) = &expression.contextual_realization {
+            validate_callable_contextual_realization_evidence(record, realization, limits)?;
+        }
     }
     for lane in record.for_iteration_lanes.iter().chain(&record.positional_expansions) {
         for requirement in [&lane.iterator, &lane.next] {
@@ -5380,6 +5460,71 @@ fn validate_callable_conformance_evidence_graph(
         return Err(invalid("callable conformance evidence graph contains a cycle"));
     }
     Ok(())
+}
+
+fn validate_callable_realization_capability_evidence(
+    record: &CallableAnalysisRecordV1,
+    capability: &CallableRealizationCapabilityV1,
+    limits: &ValidationLimits,
+) -> Result<(), ArtifactError> {
+    match capability {
+        CallableRealizationCapabilityV1::Evidenced { selection } => {
+            validate_callable_evidence_reference(record, selection.evidence, None)?;
+            validate_callable_selection_evidence_references(record, &selection.selection, 0, limits.max_recursion_depth)?;
+            for target in &selection.requirement_targets {
+                validate_callable_selection_evidence_references(record, &target.selection, 0, limits.max_recursion_depth)?;
+            }
+        }
+        CallableRealizationCapabilityV1::Assumed { .. } => {}
+    }
+    Ok(())
+}
+
+fn validate_callable_contextual_expression(record: &CallableAnalysisRecordV1, expression: u32) -> Result<(), ArtifactError> {
+    if expression as usize >= record.expressions.len() {
+        return Err(invalid("contextual realization references an absent owner-local expression"));
+    }
+    Ok(())
+}
+
+fn validate_callable_contextual_realization_evidence(
+    record: &CallableAnalysisRecordV1,
+    realization: &CallableContextualRealizationV1,
+    limits: &ValidationLimits,
+) -> Result<(), ArtifactError> {
+    if realization.source_range.start > realization.source_range.end {
+        return Err(invalid("contextual realization source range is inverted"));
+    }
+    validate_callable_contextual_expression(record, realization.source_expression)?;
+    match &realization.operation {
+        CallableContextualRealizationOperationV1::Basis {
+            coefficient,
+            evaluation,
+            ..
+        } => {
+            if let CallableRealizationCoefficientV1::One { capability, .. } = coefficient {
+                validate_callable_realization_capability_evidence(record, capability, limits)?;
+            }
+            if let CallableRealizationCoefficientV1::Expression { expression, .. } = coefficient {
+                validate_callable_contextual_expression(record, *expression)?;
+            }
+            if let CallableRealizationEvaluationV1::SourceOperands {
+                first,
+                second,
+                coefficient,
+                basis,
+            } = evaluation
+            {
+                for expression in [*first, *second, *coefficient, *basis] {
+                    validate_callable_contextual_expression(record, expression)?;
+                }
+            }
+        }
+        CallableContextualRealizationOperationV1::RealEmbedding { value, .. } => {
+            validate_callable_contextual_expression(record, *value)?;
+        }
+    }
+    validate_callable_realization_capability_evidence(record, &realization.realization, limits)
 }
 
 fn allocation_error(error: AllocationError) -> ArtifactError {

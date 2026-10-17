@@ -2240,12 +2240,21 @@ fn export_callable_analysis_record(
         if expression.call.is_some() {
             return Err(referential("call resolution ids have no admitted portable callable owner"));
         }
-        if expression.trait_dispatch_candidates.is_some() {
-            return Err(referential("trait dispatch candidate sets have no admitted portable callable owner"));
-        }
-        if expression.contextual_realization.is_some() {
-            return Err(referential("contextual realization has no admitted portable callable owner"));
-        }
+        let trait_dispatch_candidates = expression
+            .trait_dispatch_candidates
+            .as_ref()
+            .map(|candidates| {
+                candidates
+                    .iter()
+                    .map(|candidate| export_callable_trait_dispatch_candidate(candidate, &mut conformance_export, 0))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
+        let contextual_realization = expression
+            .contextual_realization
+            .as_deref()
+            .map(|realization| export_callable_contextual_realization(realization, &ordinals, &mut conformance_export))
+            .transpose()?;
         let status = export_callable_expression_status(&expression.status, &ordinals, types)?;
         let range = phalcom_compiler_artifact::module_world::SpanV1 {
             start: u64::try_from(expression.range.start).map_err(|_| referential("callable expression range start exceeds portable range"))?,
@@ -2363,6 +2372,8 @@ fn export_callable_analysis_record(
             conditional_dispatch: expression.conditional_dispatch.as_ref().map(export_conditional_dispatch_selection),
             conditional_capability,
             trait_dispatch,
+            trait_dispatch_candidates,
+            contextual_realization,
             status,
             causal_invalidity,
             explanation: expression
@@ -2803,6 +2814,166 @@ fn export_callable_analysis_record(
         normal_returns,
         throws,
         return_validation,
+    })
+}
+
+fn export_callable_trait_dispatch_candidate(
+    candidate: &crate::trait_dispatch::TraitEvidencedMemberCandidate,
+    conformance_export: &mut CallableConformanceEvidenceExport<'_>,
+    depth: usize,
+) -> Result<phalcom_compiler_artifact::semantic::world::CallableTraitDispatchCandidateV1, ArtifactError> {
+    use crate::trait_dispatch::TraitDispatchConvergenceKey as Native;
+    use phalcom_compiler_artifact::semantic::world as wire;
+
+    let expected_fingerprint = crate::db::fingerprint::generic_conformance_evidence_fingerprint(&candidate.evidence);
+    if candidate.evidence_fingerprint != expected_fingerprint {
+        return Err(referential("trait dispatch candidate carries a stale evidence fingerprint"));
+    }
+    let mut requirement_targets = Vec::with_capacity(candidate.requirement_targets.len());
+    for (requirement, target) in candidate.requirement_targets.iter() {
+        requirement_targets.push(wire::CallableRequirementSelectionEntryV1 {
+            requirement: export_callable_requirement_identity(requirement),
+            selection: conformance_export.selection(target, depth + 1)?,
+        });
+    }
+    let convergence = match &candidate.convergence {
+        Native::Inherent(callable) => wire::CallableTraitDispatchConvergenceV1::Inherent {
+            callable: to_stable_callable(callable),
+        },
+        Native::ConditionalInherent {
+            callable,
+            impl_id,
+            applicability_fingerprint,
+        } => wire::CallableTraitDispatchConvergenceV1::ConditionalInherent {
+            callable: to_stable_callable(callable),
+            implementation: to_stable_impl(impl_id),
+            applicability_fingerprint: applicability_fingerprint.raw(),
+        },
+        Native::DataComponent(component) => wire::CallableTraitDispatchConvergenceV1::DataComponent {
+            owner: to_stable_declaration(&component.owner),
+            index: component.index,
+        },
+        Native::ConformanceCallable(callable) => wire::CallableTraitDispatchConvergenceV1::ConformanceCallable {
+            callable: to_stable_callable(callable),
+        },
+        Native::TraitDefault {
+            callable,
+            evidence_fingerprint,
+        } => wire::CallableTraitDispatchConvergenceV1::TraitDefault {
+            callable: to_stable_callable(callable),
+            evidence_fingerprint: evidence_fingerprint.raw(),
+        },
+    };
+    Ok(wire::CallableTraitDispatchCandidateV1 {
+        source_impl: to_stable_impl(&candidate.source_impl),
+        exact_target: conformance_export.types.ty(candidate.exact_target)?,
+        exact_trait_ref: export_trait_ref_identity(&candidate.exact_trait_ref, conformance_export.types)?,
+        requirement: export_callable_requirement_identity(&candidate.requirement),
+        signature: export_callable_signature(&candidate.signature, conformance_export.types)?,
+        evidence: conformance_export.evidence(&candidate.evidence, depth + 1)?,
+        selection: conformance_export.selection(&candidate.selection, depth + 1)?,
+        requirement_targets,
+        convergence,
+    })
+}
+
+fn export_callable_contextual_realization(
+    realization: &crate::checker::analysis::ContextualRealization,
+    ordinals: &CallableAnalysisOrdinalMap,
+    conformance_export: &mut CallableConformanceEvidenceExport<'_>,
+) -> Result<phalcom_compiler_artifact::semantic::world::CallableContextualRealizationV1, ArtifactError> {
+    use crate::checker::analysis::{
+        AlgebraicBasisAxis, ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource, RealizationEvaluationPlan,
+    };
+    use phalcom_compiler_artifact::semantic::world as wire;
+
+    let expression = |id| {
+        ordinals
+            .expressions
+            .get(&id)
+            .copied()
+            .ok_or_else(|| referential("contextual realization references an absent owner-local expression"))
+    };
+    let capability = |selection: &RealizationCapabilitySelection,
+                      conformance_export: &mut CallableConformanceEvidenceExport<'_>|
+     -> Result<wire::CallableRealizationCapabilityV1, ArtifactError> {
+        Ok(match selection {
+            RealizationCapabilitySelection::Evidenced(selection) => wire::CallableRealizationCapabilityV1::Evidenced {
+                selection: conformance_export.trait_dispatch_selection(selection, 0)?,
+            },
+            RealizationCapabilitySelection::Assumed(selection) => wire::CallableRealizationCapabilityV1::Assumed {
+                conformance: export_generic_conformance_key(&selection.conformance, conformance_export.types)?,
+                requirement: export_callable_requirement_identity(&selection.requirement),
+                signature: export_callable_signature(&selection.signature, conformance_export.types)?,
+            },
+        })
+    };
+    let axis = |axis| match axis {
+        AlgebraicBasisAxis::I => wire::CallableAlgebraicBasisAxisV1::I,
+        AlgebraicBasisAxis::J => wire::CallableAlgebraicBasisAxisV1::J,
+        AlgebraicBasisAxis::K => wire::CallableAlgebraicBasisAxisV1::K,
+    };
+    let operation = match &realization.operation {
+        ContextualRealizationOperation::Basis {
+            basis_type,
+            axis: basis_axis,
+            coefficient,
+            evaluation,
+        } => {
+            let coefficient = match coefficient {
+                RealizationCoefficientSource::One { scalar_type, one } => wire::CallableRealizationCoefficientV1::One {
+                    scalar_type: conformance_export.types.ty(*scalar_type)?,
+                    capability: capability(one, conformance_export)?,
+                },
+                RealizationCoefficientSource::IntegerLiteral { digits, radix } => wire::CallableRealizationCoefficientV1::IntegerLiteral {
+                    digits: digits.clone(),
+                    radix: *radix,
+                },
+                RealizationCoefficientSource::FloatLiteral { bits } => wire::CallableRealizationCoefficientV1::FloatLiteral { bits: *bits },
+                RealizationCoefficientSource::Expression {
+                    expression: coefficient_expression,
+                    scalar_type,
+                } => wire::CallableRealizationCoefficientV1::Expression {
+                    expression: expression(*coefficient_expression)?,
+                    scalar_type: conformance_export.types.ty(*scalar_type)?,
+                },
+            };
+            let evaluation = match evaluation {
+                RealizationEvaluationPlan::LiteralCoefficientThenAxis => wire::CallableRealizationEvaluationV1::LiteralCoefficientThenAxis,
+                RealizationEvaluationPlan::MultiplicativeIdentityThenSourceBasis => {
+                    wire::CallableRealizationEvaluationV1::MultiplicativeIdentityThenSourceBasis
+                }
+                RealizationEvaluationPlan::SourceOperands {
+                    first,
+                    second,
+                    coefficient,
+                    basis,
+                } => wire::CallableRealizationEvaluationV1::SourceOperands {
+                    first: expression(*first)?,
+                    second: expression(*second)?,
+                    coefficient: expression(*coefficient)?,
+                    basis: expression(*basis)?,
+                },
+            };
+            wire::CallableContextualRealizationOperationV1::Basis {
+                basis_type: conformance_export.types.ty(*basis_type)?,
+                axis: axis(*basis_axis),
+                coefficient,
+                evaluation,
+            }
+        }
+        ContextualRealizationOperation::RealEmbedding { value, scalar_type } => wire::CallableContextualRealizationOperationV1::RealEmbedding {
+            value: expression(*value)?,
+            scalar_type: conformance_export.types.ty(*scalar_type)?,
+        },
+    };
+    Ok(wire::CallableContextualRealizationV1 {
+        source_expression: expression(realization.source_expression)?,
+        source_range: export_source_range(realization.source_range)?,
+        source_type: conformance_export.types.ty(realization.source_type)?,
+        target_type: conformance_export.types.ty(realization.target_type)?,
+        operation,
+        realization: capability(&realization.realization, conformance_export)?,
     })
 }
 

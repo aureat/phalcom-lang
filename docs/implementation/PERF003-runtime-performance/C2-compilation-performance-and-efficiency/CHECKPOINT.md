@@ -23,6 +23,22 @@ latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 
 # PERF003.C2 — Compilation Performance and Efficiency
 
+## PATCH1 expression authority transport — 2026-10-17
+
+`CallableAnalysisRecordV1` now carries trait-dispatch candidate provenance and
+contextual-realization products. Both rows use the callable-local conformance
+evidence graph, stable semantic identities, and owner-local expression ordinals;
+import reconstructs the native products through the normal frozen callable owner.
+The artifact validator rejects dangling contextual expression ordinals and
+candidate evidence references. The manifest now classifies both fields as wire
+authority.
+
+Focused evidence: `cargo check -p phalcom-semantic -p phalcom-compiler-artifact`
+passed. The callable artifact target compiled and ran: 14 passed; four existing
+tests remain blocked by `Allocation(UnaccountedBoundary)`. The core source-free
+Universe test remains blocked at the broad callable completeness guard. No guard
+or allocation policy changed.
+
 ## PATCH1 T6 proof ownership ruling — 2026-10-17
 
 The user approved a new immutable `CallableProofGraph`, owned by each published

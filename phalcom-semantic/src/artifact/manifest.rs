@@ -38,6 +38,8 @@ pub const CALLABLE_ANALYSIS_FIELD_MANIFEST: &[CallableAnalysisFieldManifestRow] 
     CallableAnalysisFieldManifestRow { field_name: "body_source_owner", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
     CallableAnalysisFieldManifestRow { field_name: "expressions", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
     CallableAnalysisFieldManifestRow { field_name: "expression.conditional_dispatch", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
+    CallableAnalysisFieldManifestRow { field_name: "expression.trait_dispatch_candidates", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
+    CallableAnalysisFieldManifestRow { field_name: "expression.contextual_realization", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
     CallableAnalysisFieldManifestRow { field_name: "expression.denotation", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
     CallableAnalysisFieldManifestRow { field_name: "bindings", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
     CallableAnalysisFieldManifestRow { field_name: "binding.denotation", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },

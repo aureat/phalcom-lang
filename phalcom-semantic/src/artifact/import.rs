@@ -1657,11 +1657,14 @@ pub(crate) struct ImportedCallableExpressionDispatchAuthority {
     pub ordinal: u32,
     pub conditional_capability: Option<crate::dispatch::ConditionalSelectedCallCapability>,
     pub trait_dispatch: Option<crate::trait_dispatch::TraitDispatchSite>,
+    pub trait_dispatch_candidates: Option<Box<[crate::trait_dispatch::TraitEvidencedMemberCandidate]>>,
+    pub contextual_realization: Option<Arc<crate::checker::analysis::ContextualRealization>>,
     pub explanation: Option<ExplanationId>,
 }
 
 pub(crate) fn import_callable_expression_dispatch_authority(
     record: &phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1,
+    body: crate::identity::BodyId,
     relocation: &TypeRelocation,
     store: &TypeStore,
     source_plan_fingerprints: &BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
@@ -1768,16 +1771,219 @@ pub(crate) fn import_callable_expression_dispatch_authority(
                 })
             })
             .transpose()?;
+        let trait_dispatch_candidates = expression
+            .trait_dispatch_candidates
+            .as_ref()
+            .map(|candidates| {
+                let mut imported = importer
+                    .allocations
+                    .vector(candidates.len())
+                    .map_err(allocation_error)?;
+                for candidate in candidates {
+                    imported.push(import_callable_trait_dispatch_candidate(candidate, &record.conformance_evidence, &mut importer)?);
+                }
+                Ok::<_, ArtifactError>(imported.into_boxed_slice())
+            })
+            .transpose()?;
+        let contextual_realization = expression
+            .contextual_realization
+            .as_ref()
+            .map(|realization| import_callable_contextual_realization(realization, record, body, &mut importer))
+            .transpose()?;
         output.push(ImportedCallableExpressionDispatchAuthority {
             ordinal: expression.ordinal,
             conditional_capability,
             trait_dispatch,
+            trait_dispatch_candidates,
+            contextual_realization,
             explanation: expression.explanation.map(ExplanationId),
         });
     }
     drop(importer);
     allocations.commit_child(child).map_err(allocation_error)?;
     Ok(output)
+}
+
+fn import_callable_trait_dispatch_candidate(
+    candidate: &phalcom_compiler_artifact::semantic::world::CallableTraitDispatchCandidateV1,
+    evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
+    importer: &mut CallableEvidenceImporter<'_>,
+) -> Result<crate::trait_dispatch::TraitEvidencedMemberCandidate, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::world::CallableTraitDispatchConvergenceV1 as Portable;
+
+    let evidence = importer.evidence(evidence_nodes, candidate.evidence, 0)?;
+    let evidence_fingerprint = crate::db::fingerprint::generic_conformance_evidence_fingerprint(&evidence);
+    let mut targets = importer
+        .allocations
+        .vector(candidate.requirement_targets.len())
+        .map_err(allocation_error)?;
+    for target in &candidate.requirement_targets {
+        targets.push((
+            import_callable_requirement_identity(&target.requirement)?,
+            import_callable_requirement_selection(&target.selection, evidence_nodes, importer, 0)?,
+        ));
+    }
+    let requirement_targets = import_analysis_map(targets, importer.allocations, "trait dispatch candidate requirement targets are not canonical")?;
+    let convergence = match &candidate.convergence {
+        Portable::Inherent { callable } => crate::trait_dispatch::TraitDispatchConvergenceKey::Inherent(
+            import_stable_callable_with_allocation_budget(callable, importer.allocations)?,
+        ),
+        Portable::ConditionalInherent {
+            callable,
+            implementation,
+            applicability_fingerprint,
+        } => crate::trait_dispatch::TraitDispatchConvergenceKey::ConditionalInherent {
+            callable: import_stable_callable_with_allocation_budget(callable, importer.allocations)?,
+            impl_id: from_stable_impl(implementation).map_err(referential)?,
+            applicability_fingerprint: crate::db::ProductFingerprint::new(*applicability_fingerprint),
+        },
+        Portable::DataComponent { owner, index } => crate::trait_dispatch::TraitDispatchConvergenceKey::DataComponent(
+            crate::identity::DataComponentId::new(from_stable_declaration(owner).map_err(referential)?, *index),
+        ),
+        Portable::ConformanceCallable { callable } => crate::trait_dispatch::TraitDispatchConvergenceKey::ConformanceCallable(
+            import_stable_callable_with_allocation_budget(callable, importer.allocations)?,
+        ),
+        Portable::TraitDefault {
+            callable,
+            evidence_fingerprint,
+        } => crate::trait_dispatch::TraitDispatchConvergenceKey::TraitDefault {
+            callable: import_stable_callable_with_allocation_budget(callable, importer.allocations)?,
+            evidence_fingerprint: crate::db::ProductFingerprint::new(*evidence_fingerprint),
+        },
+    };
+    Ok(crate::trait_dispatch::TraitEvidencedMemberCandidate {
+        exact_target: importer.relocation.ty(candidate.exact_target)?,
+        exact_trait_ref: import_trait_ref_identity(&candidate.exact_trait_ref, importer.relocation, importer.allocations)?,
+        requirement: import_callable_requirement_identity(&candidate.requirement)?,
+        source_impl: from_stable_impl(&candidate.source_impl).map_err(referential)?,
+        evidence,
+        evidence_fingerprint,
+        selection: import_callable_requirement_selection(&candidate.selection, evidence_nodes, importer, 0)?,
+        signature: import_callable_signature(&candidate.signature, importer.relocation, importer.store, importer.allocations)?,
+        requirement_targets,
+        convergence,
+    })
+}
+
+fn import_callable_contextual_realization(
+    realization: &phalcom_compiler_artifact::semantic::world::CallableContextualRealizationV1,
+    record: &phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1,
+    body: crate::identity::BodyId,
+    importer: &mut CallableEvidenceImporter<'_>,
+) -> Result<Arc<crate::checker::analysis::ContextualRealization>, ArtifactError> {
+    use crate::checker::analysis::{
+        AlgebraicBasisAxis, ContextualRealization, ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource,
+        RealizationEvaluationPlan,
+    };
+    use crate::identity::{ExpressionId, LocalExpressionId};
+    use phalcom_compiler_artifact::semantic::world as wire;
+
+    let expression = |ordinal: u32| -> Result<ExpressionId, ArtifactError> {
+        if ordinal as usize >= record.expressions.len() {
+            return Err(referential("contextual realization references an absent owner-local expression"));
+        }
+        Ok(ExpressionId::new(body, LocalExpressionId(ordinal)))
+    };
+    let range = |range: &phalcom_compiler_artifact::module_world::SpanV1| -> Result<SourceRange, ArtifactError> {
+        if range.start > range.end {
+            return Err(referential("contextual realization source range is inverted"));
+        }
+        Ok(SourceRange {
+            start: usize::try_from(range.start).map_err(|_| referential("contextual realization source range start exceeds address space"))?,
+            end: usize::try_from(range.end).map_err(|_| referential("contextual realization source range end exceeds address space"))?,
+        })
+    };
+    let capability = |selection: &wire::CallableRealizationCapabilityV1,
+                      importer: &mut CallableEvidenceImporter<'_>|
+     -> Result<RealizationCapabilitySelection, ArtifactError> {
+        Ok(match selection {
+            wire::CallableRealizationCapabilityV1::Evidenced { selection } => {
+                RealizationCapabilitySelection::Evidenced(import_callable_trait_selection(selection, &record.conformance_evidence, importer)?)
+            }
+            wire::CallableRealizationCapabilityV1::Assumed {
+                conformance,
+                requirement,
+                signature,
+            } => RealizationCapabilitySelection::Assumed(crate::trait_dispatch::AssumedTraitDispatchSelection {
+                conformance: import_generic_conformance_key_with_allocation_budget(conformance, importer.relocation, importer.allocations)?,
+                requirement: import_callable_requirement_identity(requirement)?,
+                signature: import_callable_signature(signature, importer.relocation, importer.store, importer.allocations)?,
+            }),
+        })
+    };
+    let operation = match &realization.operation {
+        wire::CallableContextualRealizationOperationV1::Basis {
+            basis_type,
+            axis,
+            coefficient,
+            evaluation,
+        } => {
+            let coefficient = match coefficient {
+                wire::CallableRealizationCoefficientV1::One {
+                    scalar_type,
+                    capability: selected,
+                } => RealizationCoefficientSource::One {
+                    scalar_type: importer.relocation.ty(*scalar_type)?,
+                    one: capability(selected, importer)?,
+                },
+                wire::CallableRealizationCoefficientV1::IntegerLiteral { digits, radix } => RealizationCoefficientSource::IntegerLiteral {
+                    digits: importer.allocations.boxed_str(digits).map_err(allocation_error)?,
+                    radix: *radix,
+                },
+                wire::CallableRealizationCoefficientV1::FloatLiteral { bits } => RealizationCoefficientSource::FloatLiteral { bits: *bits },
+                wire::CallableRealizationCoefficientV1::Expression {
+                    expression: source_expression,
+                    scalar_type,
+                } => RealizationCoefficientSource::Expression {
+                    expression: expression(*source_expression)?,
+                    scalar_type: importer.relocation.ty(*scalar_type)?,
+                },
+            };
+            let evaluation = match evaluation {
+                wire::CallableRealizationEvaluationV1::LiteralCoefficientThenAxis => RealizationEvaluationPlan::LiteralCoefficientThenAxis,
+                wire::CallableRealizationEvaluationV1::MultiplicativeIdentityThenSourceBasis => {
+                    RealizationEvaluationPlan::MultiplicativeIdentityThenSourceBasis
+                }
+                wire::CallableRealizationEvaluationV1::SourceOperands {
+                    first,
+                    second,
+                    coefficient,
+                    basis,
+                } => RealizationEvaluationPlan::SourceOperands {
+                    first: expression(*first)?,
+                    second: expression(*second)?,
+                    coefficient: expression(*coefficient)?,
+                    basis: expression(*basis)?,
+                },
+            };
+            ContextualRealizationOperation::Basis {
+                basis_type: importer.relocation.ty(*basis_type)?,
+                axis: match axis {
+                    wire::CallableAlgebraicBasisAxisV1::I => AlgebraicBasisAxis::I,
+                    wire::CallableAlgebraicBasisAxisV1::J => AlgebraicBasisAxis::J,
+                    wire::CallableAlgebraicBasisAxisV1::K => AlgebraicBasisAxis::K,
+                },
+                coefficient,
+                evaluation,
+            }
+        }
+        wire::CallableContextualRealizationOperationV1::RealEmbedding { value, scalar_type } => ContextualRealizationOperation::RealEmbedding {
+            value: expression(*value)?,
+            scalar_type: importer.relocation.ty(*scalar_type)?,
+        },
+    };
+    let realization = ContextualRealization {
+        source_expression: expression(realization.source_expression)?,
+        source_range: range(&realization.source_range)?,
+        source_type: importer.relocation.ty(realization.source_type)?,
+        target_type: importer.relocation.ty(realization.target_type)?,
+        operation,
+        realization: capability(&realization.realization, importer)?,
+    };
+    importer
+        .allocations
+        .arc(realization)
+        .map_err(allocation_error)
 }
 
 fn import_unknown_reason_with_allocation_budget(reason: &UnknownReasonV1, allocations: &mut AllocationBudget) -> Result<UnknownReason, ArtifactError> {
@@ -4338,7 +4544,7 @@ fn import_callable_analysis_records(
         let facts = import_callable_expression_facts(record, relocation, &mut child)?;
         let statuses = import_callable_expression_statuses(&record.expressions, relocation, &mut child)?;
         let dispatch =
-            import_callable_expression_dispatch_authority(record, relocation, store, source_plan_fingerprints, &mut child, limits.max_recursion_depth)?;
+            import_callable_expression_dispatch_authority(record, body, relocation, store, source_plan_fingerprints, &mut child, limits.max_recursion_depth)?;
         let specializations = import_callable_call_specializations(
             &record.expressions,
             &record.conformance_evidence,
@@ -4368,8 +4574,8 @@ fn import_callable_analysis_records(
                     conditional_dispatch: fact.conditional_dispatch,
                     conditional_capability: authority.conditional_capability,
                     trait_dispatch: authority.trait_dispatch,
-                    trait_dispatch_candidates: None,
-                    contextual_realization: None,
+                    trait_dispatch_candidates: authority.trait_dispatch_candidates,
+                    contextual_realization: authority.contextual_realization,
                     denotation: take_sparse(&mut denotations, wire.ordinal),
                     status,
                     causal_invalidity: fact.causal_invalidity,
@@ -4399,6 +4605,8 @@ fn import_callable_analysis_records(
                 conditional_dispatch: None,
                 conditional_capability: None,
                 trait_dispatch: None,
+                trait_dispatch_candidates: None,
+                contextual_realization: None,
                 status: exit.status.clone(),
                 causal_invalidity: exit.causal_invalidity.clone(),
                 explanation: None,
