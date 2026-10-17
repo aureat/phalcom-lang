@@ -1,0 +1,33 @@
+{
+  "artifact_path": "target/telos/universe/universe.telosc",
+  "total_bytes": 15775219,
+  "module_world_bytes": 156313,
+  "semantic_world_bytes": 12788887,
+  "query_image_bytes": 1339575,
+  "metadata_bytes": 1489890,
+  "container_bytes": 15775219,
+  "artifact_digest": "2b74163734505beadc42441078a8e6afd80a6e33bc769b9cfeaba656c243dc93",
+  "source_digest": "6fa261187963d22e1e1adf4ee2d92f78584ff8d61c1d187c583f2c98d5c47f18",
+  "interface_digest": "23dd1128a8fc283e5626ddbf066d33c403cb5b2f08c937ce6c7ebe2303039d83",
+  "semantic_digest": "066714ed03be59d38612367576a8e15b0be857133273c004e5f575b52046d3aa",
+  "query_digest": "51e4e98cfcfd3e8d30672fa238a50a02f82e2446d0266d4c19cebc9c22bcd979",
+  "metadata_digest": "7ffa54db5d017c0ce883caab2eef16240f18976c9105229ff50e7997a32e7099",
+  "deterministic": true,
+  "source_free_complete": true,
+  "generation_duration_ms": 10349.599,
+  "serialization_duration_ms": 617.702541,
+  "validation_duration_ms": 373.36420799999996,
+  "publication_duration_ms": 491.95875,
+  "peak_rss_bytes": 1112981504,
+  "schema_versions": {
+    "container_schema": 2,
+    "minimum_reader_schema": 2,
+    "semantic_model_version": 1,
+    "stable_identity_schema": 1,
+    "module_semantic_abi": 1,
+    "semantic_artifact_abi": 1,
+    "query_fingerprint_abi": 1,
+    "native_surface_schema_version": 2,
+    "type_metadata_schema_version": 13
+  }
+}
