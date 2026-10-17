@@ -230,6 +230,10 @@ class DenseSlotMap<Tag, T> {
 
 
   iterator -> DenseSlotMapIterator<Tag, T> {
+    self.makeIterator
+  }
+
+  module makeIterator -> DenseSlotMapIterator<Tag, T> {
     DenseSlotMapIterator<Tag, T>(_keys, _values)
   }
 
@@ -278,7 +282,7 @@ impl<Tag, T> CanonicalIterable for DenseSlotMap<Tag, T> {
   type Iterator = DenseSlotMapIterator<Tag, T>
 
   iterator -> DenseSlotMapIterator<Tag, T> {
-    DenseSlotMapIterator<Tag, T>(_keys, _values)
+    self.makeIterator
   }
 }
 

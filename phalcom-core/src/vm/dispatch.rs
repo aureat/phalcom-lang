@@ -865,6 +865,7 @@ impl VM {
                 crate::compiler::lib::CompilerError::DuplicateSelector(_, _, _, range, _, _) => (comp_err.to_string(), Some(*range)),
                 crate::compiler::lib::CompilerError::DuplicateField(_, _, _, range, _, _) => (comp_err.to_string(), Some(*range)),
                 crate::compiler::lib::CompilerError::ClassReservedName(_, range) => (comp_err.to_string(), Some(*range)),
+                crate::compiler::lib::CompilerError::MissingMatchLoweringSemantics(range) => (comp_err.to_string(), Some(*range)),
                 crate::compiler::lib::CompilerError::Parse(syntax_err) => (
                     syntax_err.kind.to_string(),
                     Some(phalcom_common::range::SourceRange::from(syntax_err.range.clone())),

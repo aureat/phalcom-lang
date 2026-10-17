@@ -412,6 +412,23 @@ impl NativeSourceIndex {
         source_identity: SourceUniverseIdentity,
     ) -> Result<(), String> {
         let Some(key @ (UniverseKey::Tuple | UniverseKey::Record | UniverseKey::Pack)) = source_identity.canonical_key() else {
+            if source_identity == SourceUniverseIdentity::NotUniverseName {
+                if data_def.is_sum() {
+                    return self.index_enum(module, data_def, source_identity);
+                }
+
+                self.census.classes.push(UniverseClassRow {
+                    module: module.clone(),
+                    name: data_def.name.clone(),
+                    range: data_def.range,
+                    universe_key: None,
+                    native: false,
+                    superclass: Some("Object".to_owned()),
+                    documented: false,
+                });
+                return Ok(());
+            }
+
             return Err(format!(
                 "intrinsic runtime data {} is not a canonical Tuple/Record/Pack source declaration",
                 data_def.name
@@ -898,6 +915,32 @@ mod tests {
                 .iter()
                 .any(|row| row.universe_key == Some(UniverseKey::Tuple) && !row.native)
         );
+    }
+
+    #[test]
+    fn non_facade_intrinsic_runtime_data_stays_source_owned() {
+        let program = parse_program("intrinsic data ProductKind {\n  Ordered\n  Unordered\n}\nintrinsic data OrderedShape(_ entries: Int)\n");
+        let module = ModuleId::universe(ModulePath::from_components(
+            ["reflection", "structural"]
+                .into_iter()
+                .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap())
+                .collect::<Vec<_>>(),
+        ));
+
+        let index = NativeSourceIndex::from_program_at(&module, &program).expect("source data indexes without a runtime owner");
+
+        for name in ["ProductKind", "OrderedShape"] {
+            let row = index
+                .census
+                .classes
+                .iter()
+                .find(|row| row.name == name)
+                .unwrap_or_else(|| panic!("{name} has a source census row"));
+            assert_eq!(row.universe_key, None);
+            assert!(!row.native);
+            assert!(!index.presentations.values().any(|presentation| presentation.name == name));
+        }
+        assert!(index.classes.is_empty(), "source-owned intrinsic data must not claim native runtime classes");
     }
 
     #[test]

@@ -9,7 +9,7 @@ use phalcom_core::heap::Object;
 use phalcom_core::interpret::Interpreter;
 use phalcom_core::method::{MethodKind, RestLayout, RestMode};
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
-use phalcom_core::modules::semantic_lowering::{IntrinsicRuntimeFacadeLoweringSpec, ModuleLoweringSemantics};
+use phalcom_core::modules::semantic_lowering::{DataDeclarationLoweringSpec, EnumLoweringSpec, IntrinsicRuntimeFacadeLoweringSpec, ModuleLoweringSemantics};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use phalcom_modules::{DeclarationId, ModuleComponent, ModuleId, ModulePath};
@@ -271,6 +271,40 @@ fn intrinsic_structural_data_without_facade_semantics_fails_closed() {
         error.to_string().contains("has no canonical facade binding"),
         "expected a typed missing-facade error, got: {error}"
     );
+}
+
+#[test]
+fn intrinsic_data_with_generic_semantics_uses_generic_enum_and_product_lowering() {
+    let mut vm = VM::new();
+    let module = vm.create_module("intrinsic_generic_lowering", "<test>");
+    let module_id = vm.heap.module(module).id.clone();
+    let enum_owner = DeclarationId::new(module_id.clone(), "GenericChoice".into());
+    let data_owner = DeclarationId::new(module_id.clone(), "GenericProduct".into());
+    let mut lowering = ModuleLoweringSemantics::new(module_id);
+    lowering.enums = vec![EnumLoweringSpec {
+        owner: enum_owner,
+        representation: phalcom_core::adt::RuntimeAdtRepresentation::General,
+        variants: Box::new([]),
+    }]
+    .into_boxed_slice();
+    lowering.data_decls = vec![DataDeclarationLoweringSpec {
+        owner: data_owner,
+        layout: None,
+        components: Box::new([]),
+    }]
+    .into_boxed_slice();
+    vm.heap.module_mut(module).lowering = Some(Arc::new(lowering));
+
+    let closure = vm
+        .compile_closure_as(
+            module,
+            "intrinsic data GenericChoice {\n  First\n  Second\n}\nintrinsic data GenericProduct()\n",
+            UnitKind::Repl,
+        )
+        .expect("generic semantic products should lower intrinsic enum and product declarations");
+    let code = &vm.heap.closure(closure).callable.chunk.code;
+    assert!(code.iter().any(|op| matches!(op, phalcom_core::bytecode::Bytecode::Enum(_))));
+    assert!(code.iter().any(|op| matches!(op, phalcom_core::bytecode::Bytecode::Data(_))));
 }
 
 // --- Duplicate Selector Checks ---
