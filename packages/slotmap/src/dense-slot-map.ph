@@ -238,7 +238,7 @@ class DenseSlotMap<Tag, T> {
   [_ key] {
     match self.get(key) {
       Option::Some(value) => value
-      Option::None => throw IndexError.new("invalid or stale DenseSlotMap key")
+      Option::None => { throw IndexError.new("invalid or stale DenseSlotMap key") }
     }
   }
 }

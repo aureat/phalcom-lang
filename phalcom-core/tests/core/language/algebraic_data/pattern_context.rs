@@ -1,7 +1,10 @@
 //! Shared executable-pattern context scenarios.
 
 use super::vm_support::{compile_inline, run_inline};
+use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
 use phalcom_core::value::Value;
+use phalcom_core::vm::VM;
+use std::sync::Arc;
 
 fn slot(vm: &phalcom_core::vm::VM, module: phalcom_core::heap::ObjRef, name: &str) -> Option<Value> {
     vm.heap.module(module).get(vm.interner.find(name)?)
@@ -59,11 +62,13 @@ fn pat_ctx_06_required_destructuring_uses_shared_emitter() {
 }
 
 #[test]
-#[ignore = "GATED: general for-pattern syntax is not available in current parser"]
 fn pat_ctx_07_for_pattern_binds_each_item() {
-    let source = "let total = 0\nfor (value in [1, 2, 3]) { total = total + value }\n";
-    let result = compile_inline(source);
-    assert!(result.is_ok(), "for-pattern fixture should reach compiler");
+    let source = "let mut total = 0\nfor value in [1, 2, 3] { total = total + value }\n";
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("for-pattern fixture should compile");
+    let mut vm = VM::new_kernel();
+    vm.materialize_program(&program).expect("for-pattern fixture should materialize");
+    vm.compile_program_module_closure(&program.entry, source, &program)
+        .expect("for-pattern fixture should lower to a module closure");
 }
 
 #[test]

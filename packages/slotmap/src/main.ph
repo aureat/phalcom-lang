@@ -24,7 +24,7 @@ let propositions = DenseSlotMap<Propositions, String>()
 propositions.insert("All humans are mortal")
 propositions.insert("Knowledge is recollection")
 
-for (entry in propositions) {
+for entry in propositions {
   let (key, proposition) = entry
   System.print("\(key): \(proposition)")
 }

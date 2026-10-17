@@ -147,19 +147,19 @@ slotmap/
 ├── src/
 │   ├── package.ph
 │   ├── main.ph
-│   ├── slot_map.ph
-│   └── dense_slot_map.ph
+│   ├── slot-map.ph
+│   └── dense-slot-map.ph
 ├── examples/
-│   ├── self_key.ph
-│   └── typed_domains.ph
+│   ├── self-key.ph
+│   └── typed-domains.ph
 └── tests/
     └── runtime/
         ├── project.toml
         └── src/
             ├── package.ph
             ├── support.ph
-            ├── basic_test.ph
-            ├── dense_test.ph
+            ├── basic-test.ph
+            ├── dense-test.ph
             └── main.ph
 ```
 
