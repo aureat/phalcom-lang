@@ -119,6 +119,74 @@ fn match_bind_01_simple_payload_binding_has_canonical_type_and_identity() {
 }
 
 #[test]
+fn generic_class_match_preserves_the_payload_type_parameter() {
+    let case = analyze_adt(
+        r#"
+data Option<T> {
+    Some(_ value: T)
+    None
+}
+
+data SlotState<T> {
+    Occupied(_ value: T)
+    Vacant
+}
+
+data Slot<T>(
+    generation: Int,
+    state: SlotState<T>
+)
+
+class Vector<T> {
+    get(_ index: Int) -> Option<T> {
+        Option::None
+    }
+}
+
+class Store<T> {
+    get(_ slots: Vector<Slot<T>>, _ index: Int) -> Option<T> {
+        match slots.get(index) {
+            Option::None => Option::None
+            Option::Some(slot) => {
+                match slot.state {
+                    SlotState::Occupied(value) => Option::Some(value)
+                    SlotState::Vacant => Option::None
+                }
+            }
+        }
+    }
+}
+"#,
+    );
+
+    case.assert_no_diagnostics();
+}
+
+#[test]
+fn subscript_getter_match_is_retained_for_lowering() {
+    let case = analyze_adt(
+        r#"
+data Choice {
+    First
+    Second
+}
+
+class Table {
+    [_ key: Int] -> Int {
+        match Choice::First {
+            Choice::First => key
+            Choice::Second => 0
+        }
+    }
+}
+"#,
+    );
+
+    case.assert_no_diagnostics();
+    case.only_match().assert_exhaustive();
+}
+
+#[test]
 fn match_bind_02_labeled_payload_binding_uses_field_mapping() {
     let case = analyze_adt(
         "data Pair { Pair(_ left: Int, right: String) }\nclass Test { inspect(_ value: Pair) { match value { Pair::Pair(left: x, right: y) => x _ => 0 } } }\n",

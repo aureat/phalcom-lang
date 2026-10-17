@@ -54,6 +54,49 @@ class Probe {
 }
 
 #[test]
+fn canonical_option_constructor_preserves_generic_payload_from_match() {
+    let snapshot = analyze(
+        r#"
+data SlotState<T> {
+  Occupied(_ value: T)
+  Vacant
+}
+
+data Slot<T>(state: SlotState<T>)
+
+class Store<T> {
+  get(_ slot: Slot<T>) -> Option<T> {
+    match slot.state {
+      SlotState::Occupied(value) => Option::Some(value)
+      SlotState::Vacant => Option::None
+    }
+  }
+}
+"#,
+    );
+
+    assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
+}
+
+#[test]
+fn list_get_result_drives_an_option_match() {
+    let snapshot = analyze(
+        r#"
+class Probe<T> {
+  get(_ values: List<T>, _ index: Int) -> Option<T> {
+    match values.get(index) {
+      Option::Some(value) => Option::Some(value)
+      Option::None => Option::None
+    }
+  }
+}
+"#,
+    );
+
+    assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
+}
+
+#[test]
 fn option_unwrap_or_rejects_default_of_unrelated_type() {
     let snapshot = analyze(
         r#"

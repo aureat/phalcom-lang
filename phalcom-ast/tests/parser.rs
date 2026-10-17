@@ -426,6 +426,37 @@ fn interpolated_string_parses() {
 }
 
 #[test]
+fn interpolated_string_to_string_sites_keep_distinct_segment_ranges() {
+    fn collect_to_string_ranges(expr: &Expr, ranges: &mut Vec<phalcom_common::range::SourceRange>) {
+        match expr {
+            Expr::Binary(binary) => {
+                collect_to_string_ranges(&binary.left, ranges);
+                collect_to_string_ranges(&binary.right, ranges);
+            }
+            Expr::GetProperty(property) if property.property == "toString" => ranges.push(property.range),
+            _ => {}
+        }
+    }
+
+    let source = "let value = \"\\(key): \\(proposition)\"\n";
+    let program = parse_source(source, 0).expect("interpolated binding parses");
+    let Statement::Let(binding) = &program.statements[0] else {
+        panic!("expected binding");
+    };
+    let value = binding.value.as_ref().expect("interpolated initializer");
+    let mut ranges = Vec::new();
+    collect_to_string_ranges(value, &mut ranges);
+
+    assert_eq!(ranges.len(), 2);
+    let mut interpolations = ranges
+        .iter()
+        .map(|range| source.get(range.start..range.end).expect("range is source-backed"))
+        .collect::<Vec<_>>();
+    interpolations.sort_unstable();
+    assert_eq!(interpolations, ["key", "proposition"]);
+}
+
+#[test]
 fn symbol_name_literal_parses() {
     // selectors.md §2: `#move` parses to `Expr::Symbol(SymbolLiteralKind::Name)`.
     insta::assert_snapshot!(parse("let s = #move"));

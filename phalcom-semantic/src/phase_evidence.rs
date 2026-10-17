@@ -337,6 +337,11 @@ fn push_compiler_generated_read_requirement(
             crate::core_surface::identity::universe_module(&["errors", "iteration"]),
             "ZipLengthMismatchError".into(),
         )),
+        "PreconditionError" | "PostconditionError" | "InvariantError" => Some(crate::identity::DeclarationId::new(
+            crate::core_surface::identity::universe_module(&["errors", "contracts"]),
+            name.into(),
+        )),
+        "Tuple" | "List" | "Record" | "Map" => prelude.get(name).cloned(),
         _ => None,
     };
     if let Some(declaration) = declaration {
@@ -1192,7 +1197,7 @@ fn add_lowering_runtime_requirements(
             let mut found_roots = Vec::new();
             collect_attribute_block_roots(statements, &mut found_roots, complete);
             for root in found_roots {
-                if root == "Error" || root == "ZipLengthMismatchError" {
+                if matches!(root.as_str(), "Error" | "ZipLengthMismatchError" | "Tuple" | "List" | "Record" | "Map") {
                     roots.push((root, Default::default()));
                 }
             }
@@ -1208,7 +1213,7 @@ fn add_lowering_runtime_requirements(
         let mut names = Vec::new();
         collect_attribute_block_roots(statements, &mut names, complete);
         for name in names {
-            if name == "Error" || name == "ZipLengthMismatchError" {
+            if matches!(name.as_str(), "Error" | "ZipLengthMismatchError" | "Tuple" | "List" | "Record" | "Map") {
                 roots.push((name, Default::default()));
             }
         }
@@ -1254,7 +1259,7 @@ fn add_lowering_runtime_requirements(
                                 roots.extend(
                                     found_roots
                                         .into_iter()
-                                        .filter(|root| root == "Error" || root == "ZipLengthMismatchError")
+                                        .filter(|root| matches!(root.as_str(), "Error" | "ZipLengthMismatchError" | "Tuple" | "List" | "Record" | "Map"))
                                         .map(|root| (root, default.range())),
                                 );
                                 roots.extend(
@@ -1745,6 +1750,16 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
                         if attribute_context.is_some_and(|context| !context.is_emitted_in(execution_mode)) {
                             continue;
                         }
+                        let contract_error = match attribute_context {
+                            Some(crate::attribute_analysis::AttributeAnalysisContext::RequiresContract) => Some("PreconditionError"),
+                            Some(crate::attribute_analysis::AttributeAnalysisContext::EnsuresContract) => Some("PostconditionError"),
+                            _ => None,
+                        };
+                        if let Some(error_name) = contract_error
+                            && !push_compiler_generated_read_requirement(module_id, error_name, attribute.range, &prelude, &mut generated_requirements)
+                        {
+                            module_complete = false;
+                        }
                         for argument in &attribute.args {
                             for range in collect_materialized_loop_control_trap_ranges_in_expr(argument) {
                                 if !push_compiler_generated_read_requirement(module_id, "Error", range, &prelude, &mut generated_requirements) {
@@ -1813,6 +1828,9 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
                                 // no runtime invariant expression to project.
                                 if sites.is_empty() {
                                     continue;
+                                }
+                                if !push_compiler_generated_read_requirement(module_id, "InvariantError", *range, &prelude, &mut generated_requirements) {
+                                    module_complete = false;
                                 }
                                 for trap_range in collect_materialized_loop_control_trap_ranges_in_expr(expression) {
                                     if !push_compiler_generated_read_requirement(module_id, "Error", trap_range, &prelude, &mut generated_requirements) {

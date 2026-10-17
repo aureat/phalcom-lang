@@ -1,9 +1,11 @@
 use phalcom_core::bytecode::Bytecode;
+use phalcom_core::error::{PhError, RuntimeError};
 use phalcom_core::modules::RuntimeLinkedRead;
 use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer, ProgramCompileError, ProgramCompiler};
+use phalcom_core::modules::registry::ModuleFailure;
 use phalcom_core::value::Value;
-use phalcom_core::vm::VM;
-use phalcom_modules::{LinkError, LinkedReadSpec, ModuleComponent, ModuleId, ModulePath, ModuleResolutionError};
+use phalcom_core::vm::{ClassKey, VM};
+use phalcom_modules::{LinkError, LinkedReadSpec, ModuleComponent, ModuleId, ModulePath, ModuleResolutionError, SymbolId};
 use std::path::PathBuf;
 use std::sync::{
     Arc,
@@ -34,6 +36,22 @@ fn semantic_session_with_private_numbers_child_exposed() -> phalcom_semantic::Se
 
 fn fixture_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/modules_linker").join(name)
+}
+
+fn raised_class(error: &PhError, vm: &VM) -> Option<phalcom_core::heap::ClassId> {
+    match error {
+        PhError::Runtime(RuntimeError::Raise { error, .. }) => Some(error.class(vm)),
+        PhError::NativeOrigin { source, .. } => raised_class(source, vm),
+        PhError::ModuleInitialization(initialization) => raised_class_from_failure(initialization.failure.as_ref(), vm),
+        _ => None,
+    }
+}
+
+fn raised_class_from_failure(failure: &ModuleFailure, vm: &VM) -> Option<phalcom_core::heap::ClassId> {
+    match failure {
+        ModuleFailure::Initializer { cause } => raised_class(cause, vm),
+        ModuleFailure::Dependency { cause, .. } => raised_class_from_failure(cause.as_ref(), vm),
+    }
 }
 
 /// COMP-01 — Single-module file compiles without error
@@ -1021,4 +1039,65 @@ fn finalized_compile_modes_reject_mismatched_vm_before_mutation_and_execute_matc
         let answer = vm.interner.intern("answer");
         assert_eq!(vm.heap.module(entry_object).get(answer).and_then(Value::as_int), Some(42));
     }
+}
+
+#[test]
+fn contract_failure_uses_finalized_canonical_precondition_error_read() {
+    let directory = tempfile::tempdir().expect("contract failure project directory");
+    let root = directory.path();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"contract_read_probe\"\nnamespace = \"contract_read_probe\"\nversion = \"0.1.0\"\nentry = \"contract_read_probe.main\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(root.join("src/package.ph"), "expose .main\n").unwrap();
+    std::fs::write(
+        root.join("src/main.ph"),
+        r#"
+class Guarded {
+  @constructor
+  new() {}
+
+  @requires(value > 0)
+  check(_ value) { value }
+}
+
+let guarded = Guarded.new()
+guarded.check(0)
+"#,
+    )
+    .unwrap();
+
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Project(root.to_path_buf()))
+        .expect("project with a failing precondition should compile through finalized linkage");
+    let contracts_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("errors").expect("valid module component"),
+        ModuleComponent::from_identifier("contracts").expect("valid module component"),
+    ]));
+    let precondition_read = LinkedReadSpec::Binding(SymbolId {
+        module: contracts_module.clone(),
+        name: "PreconditionError".into(),
+    });
+    let mut vm = VM::new();
+    let failure = vm.run_compiled(&program).expect_err("false @requires predicate must raise its contract error");
+    let actual_class = raised_class(&failure, &vm).unwrap_or_else(|| panic!("failure should carry a catchable surface Error: {failure:?}"));
+    let contracts_object = vm
+        .module_registry
+        .get(&contracts_module)
+        .expect("canonical contract error module is initialized")
+        .object;
+    let precondition_name = vm.interner.find("PreconditionError").expect("contract error class name was interned");
+    let expected_class = *vm
+        .classes
+        .get(&ClassKey {
+            module: contracts_object,
+            name: precondition_name,
+        })
+        .expect("canonical PreconditionError class was materialized");
+    assert_eq!(actual_class, expected_class, "contract failure must raise the canonical PreconditionError");
+    assert!(
+        program.modules[&program.entry].linked_reads.contains(&precondition_read),
+        "the woven guard must use the canonical finalized PreconditionError binding"
+    );
 }

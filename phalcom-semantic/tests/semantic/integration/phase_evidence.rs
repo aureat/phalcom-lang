@@ -810,6 +810,77 @@ fn attribute_argument_roots_emit_exact_prelude_and_import_reads() {
 }
 
 #[test]
+fn tuple_binding_pattern_emits_tuple_and_error_runtime_reads() {
+    let fixture = phase_fixture("class Imported {}\nexport Imported\n", "let (left, right) = (1, 2)\n", "class Unchanged {}\n");
+    let (_, requirements) = aggregate(&fixture, &HashMap::new());
+    let prelude = phalcom_semantic::prelude::PreludeTypeMap::shared_canonical_universe();
+
+    for name in ["Tuple", "Error"] {
+        let declaration = prelude.get(name).expect("canonical prelude declaration");
+        let target = LinkedReadSpec::Binding(SymbolId {
+            module: declaration.module.clone(),
+            name: declaration.name.clone(),
+        });
+        assert!(
+            requirements
+                .iter()
+                .any(|requirement| requirement.importer == fixture.consumer && requirement.read_target == Some(target.clone())),
+            "tuple binding lowering requires a canonical runtime read for {name}: {requirements:#?}"
+        );
+    }
+}
+
+#[test]
+fn tuple_binding_pattern_in_static_field_default_emits_tuple_and_error_runtime_reads() {
+    let fixture = phase_fixture(
+        "class Imported {}\nexport Imported\n",
+        "class Consumer {\n  @class mut _value = if true {\n    let (left, right) = (1, 2)\n    left\n  }\n}\n",
+        "class Unchanged {}\n",
+    );
+    let (_, requirements) = aggregate(&fixture, &HashMap::new());
+    let prelude = phalcom_semantic::prelude::PreludeTypeMap::shared_canonical_universe();
+
+    for name in ["Tuple", "Error"] {
+        let declaration = prelude.get(name).expect("canonical prelude declaration");
+        let target = LinkedReadSpec::Binding(SymbolId {
+            module: declaration.module.clone(),
+            name: declaration.name.clone(),
+        });
+        assert!(
+            requirements
+                .iter()
+                .any(|requirement| requirement.importer == fixture.consumer && requirement.read_target == Some(target.clone())),
+            "tuple field-default lowering requires a canonical runtime read for {name}: {requirements:#?}"
+        );
+    }
+}
+
+#[test]
+fn woven_precondition_emits_canonical_contract_error_runtime_read() {
+    let fixture = phase_fixture(
+        "class Imported {}\nexport Imported\n",
+        "class Guarded {\n  @requires(value > 0)\n  check(_ value) { value }\n}\n",
+        "class Unchanged {}\n",
+    );
+    let (_, requirements) = aggregate(&fixture, &HashMap::new());
+    let contracts_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("errors").expect("valid module component"),
+        ModuleComponent::from_identifier("contracts").expect("valid module component"),
+    ]));
+    let target = LinkedReadSpec::Binding(SymbolId {
+        module: contracts_module.clone(),
+        name: "PreconditionError".into(),
+    });
+
+    assert!(
+        requirements.iter().any(|requirement| {
+            requirement.importer == fixture.consumer && requirement.dependency == contracts_module && requirement.read_target.as_ref() == Some(&target)
+        }),
+        "a woven precondition guard requires a canonical PreconditionError read: {requirements:#?}"
+    );
+}
+
+#[test]
 fn attribute_argument_selected_callable_emits_external_owner_requirement() {
     let fixture = phase_fixture(
         "class Factory { @class produce() {} }\nexport Factory\n",
