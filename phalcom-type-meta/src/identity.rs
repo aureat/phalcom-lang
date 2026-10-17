@@ -88,6 +88,14 @@ impl<'de> Deserialize<'de> for StableCallableOwnerRef {
     }
 }
 
+impl StableDeclarationRef {
+    /// Returns true when this reference identifies a synthetic module `<main>` body
+    /// rather than an ordinary nominal declaration.
+    pub fn is_synthetic_main(&self) -> bool {
+        self.path.len() == 1 && self.path[0].as_ref() == "<main>"
+    }
+}
+
 impl StableCallableOwnerRef {
     /// Returns only a declaration-owned callable's lexical owner.
     pub fn try_declaration(&self) -> Option<&StableDeclarationRef> {
@@ -100,9 +108,9 @@ impl StableCallableOwnerRef {
     /// Returns the enclosing nominal declaration, when ownership provides one.
     pub fn enclosing_declaration(&self) -> Option<&StableDeclarationRef> {
         match self {
-            Self::Declaration(owner) => Some(owner),
-            Self::Variant(owner) => Some(&owner.owner),
-            Self::Conformance(_) => None,
+            Self::Declaration(owner) if !owner.is_synthetic_main() => Some(owner),
+            Self::Variant(owner) if !owner.owner.is_synthetic_main() => Some(&owner.owner),
+            _ => None,
         }
     }
 }

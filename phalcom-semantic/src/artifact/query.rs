@@ -413,6 +413,33 @@ fn product_and_fingerprints(
             let input_fingerprint = fp::type_member_declaration_input_fingerprint(None, &product);
             (SemanticProduct::TypeMemberDeclaration(product), product_fingerprint, input_fingerprint)
         }
+        QueryKey::ModuleStaticBindingCatalog(module) => {
+            let catalog = if let Some(index) = snapshot.module_static_bindings.get(module) {
+                Arc::new(crate::module_bindings::ModuleStaticBindingCatalog::from_index(index))
+            } else {
+                Arc::new(crate::module_bindings::ModuleStaticBindingCatalog::empty(module.clone()))
+            };
+            let product_fingerprint = catalog.product_fingerprint();
+            let input_fingerprint = catalog.input_fingerprint();
+            (SemanticProduct::ModuleStaticBindingCatalog(catalog), product_fingerprint, input_fingerprint)
+        }
+        QueryKey::ModuleStaticBindings(module) => {
+            let product = snapshot
+                .module_static_bindings
+                .get(module)
+                .cloned()
+                .ok_or_else(|| incomplete("missing module static bindings product for portable owner"))?;
+            let product_fingerprint = product.product_fingerprint();
+            let input_fingerprint = product.input_fingerprint();
+            (SemanticProduct::ModuleStaticBindings(product), product_fingerprint, input_fingerprint)
+        }
+        QueryKey::HierarchyEdge(class_decl) => {
+            let super_decl = snapshot.hierarchy.superclass(class_decl).cloned();
+            let product = Arc::new(crate::hierarchy_product::HierarchyEdgeProduct::new(class_decl.clone(), super_decl.clone()));
+            let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(class_decl, &super_decl, None);
+            let input_fingerprint = crate::db::fingerprint::hierarchy_edge_input_fingerprint(class_decl, None, &super_decl);
+            (SemanticProduct::HierarchyEdge(product), product_fingerprint, input_fingerprint)
+        }
         _ => return Err(incomplete("query kind has no loaded semantic owner adapter")),
     };
     Ok((Arc::new(result.0), result.1, result.2))

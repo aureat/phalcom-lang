@@ -6761,7 +6761,6 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
 
         let native_anchor_record = if !syntax.has_body()
             && syntax.implementation() == phalcom_common::modifier::ImplementationKind::Native
-            && ctx.declarations.intrinsic_runtime_owner(target_owner.declaration()).is_some()
         {
             let source_callable = callable_id_for_syntax(&target_owner, syntax, side);
             let candidates = phalcom_native_surface::NATIVE_SURFACES
@@ -6833,7 +6832,18 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
 
         let is_requirement = if is_enum_root {
             if !syntax.has_body() {
-                if is_class_side {
+                if syntax.implementation() == phalcom_common::modifier::ImplementationKind::Native {
+                    if native_anchor_record.is_none() {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::ImplBodylessMemberUnsupported,
+                            "bodyless native member declarations in enum impl blocks require a canonical native surface",
+                            syntax.range(),
+                        ));
+                        continue;
+                    }
+                    false
+                } else if is_class_side {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         DiagnosticCode::EnumCaseStaticBehaviorUnsupported,
@@ -6841,8 +6851,9 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
                         syntax.range(),
                     ));
                     continue;
+                } else {
+                    true
                 }
-                true
             } else {
                 false
             }

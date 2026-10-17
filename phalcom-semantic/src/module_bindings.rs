@@ -80,6 +80,35 @@ impl ModuleStaticBindingCatalog {
         }
     }
 
+    /// Reconstructs a catalog from an authoritative `ModuleStaticBindingIndex`.
+    pub fn from_index(index: &ModuleStaticBindingIndex) -> Self {
+        let mut bindings = BTreeMap::new();
+        for (symbol, fact) in index.iter() {
+            let seed = ModuleStaticBindingSeed {
+                symbol: symbol.clone(),
+                phase: fact.phase,
+                binding_range: fact.state.range,
+                declaration_range: fact.declaration_range,
+                initializer_range: fact.initializer_range,
+            };
+            bindings.insert(symbol.clone(), seed);
+        }
+        Self {
+            module: index.module().clone(),
+            bindings,
+            visible_names: index.visible_names.clone(),
+        }
+    }
+
+    /// Creates an empty catalog for a module with no top-level bindings.
+    pub fn empty(module: ModuleId) -> Self {
+        Self {
+            module,
+            bindings: BTreeMap::new(),
+            visible_names: BTreeMap::new(),
+        }
+    }
+
     /// Adds a linked import using its canonical remote symbol identity.
     pub fn insert_imported_binding(&mut self, local_name: &str, seed: ModuleStaticBindingSeed) {
         let symbol = seed.symbol.clone();

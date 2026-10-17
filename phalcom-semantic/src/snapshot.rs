@@ -119,6 +119,52 @@ impl ModuleQueryProducts {
             reverse_imports: Arc::new(BTreeMap::new()),
         }
     }
+
+    pub fn from_external_modules(modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld) -> Self {
+        let unlinked = Arc::new(
+            modules
+                .interfaces()
+                .iter()
+                .map(|(module, interface)| (module.clone(), (**interface).clone()))
+                .collect(),
+        );
+        let linked = Arc::new(
+            modules
+                .linked()
+                .modules
+                .iter()
+                .map(|(module, linked)| (module.clone(), linked.interface.clone()))
+                .collect(),
+        );
+        let mut resolved_imports = BTreeMap::new();
+        let references = &modules.linked().graphs.references;
+        for (module, interface) in modules.interfaces() {
+            let edges = references.edges_from(module);
+            for import in &interface.imports {
+                if let Some(edge) = edges.iter().find(|edge| edge.range == import.range()) {
+                    resolved_imports.insert((module.clone(), import.path().to_string()), edge.to.clone());
+                }
+            }
+        }
+        let mut reverse_imports: BTreeMap<ModuleId, BTreeSet<ModuleId>> = BTreeMap::new();
+        for module in modules.interfaces().keys() {
+            for edge in references.edges_from(module) {
+                reverse_imports.entry(edge.to.clone()).or_default().insert(edge.from.clone());
+            }
+        }
+        Self {
+            universe: modules.linked().universe.clone(),
+            unlinked,
+            linked,
+            import_products: Arc::new(BTreeMap::new()),
+            resolved_imports: Arc::new(resolved_imports),
+            sources: Arc::new(BTreeMap::new()),
+            source_modules: Arc::new(BTreeMap::new()),
+            display_path_modules: Arc::new(BTreeMap::new()),
+            topology: modules.topology().clone(),
+            reverse_imports: Arc::new(reverse_imports),
+        }
+    }
 }
 
 impl Default for ModuleQueryProducts {
@@ -811,9 +857,6 @@ impl SemanticSnapshot {
             && !self.trait_dispatch_index.is_empty()
             && self.associated_surfaces.surfaces.iter().next().is_some()
             && self.type_member_declarations.iter().next().is_some()
-            && !self.associated_static_domains.is_empty()
-            && !self.static_case_catalogs.is_empty()
-            && !self.static_case_signatures.is_empty()
             && self.static_definitions.iter().next().is_some()
             && !self.static_constants.is_empty()
             && self.module_static_bindings.iter().next().is_some()

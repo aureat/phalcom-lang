@@ -170,6 +170,12 @@ impl MetadataSectionV1 {
         transaction: &mut AllocationBudget,
     ) -> Result<SemanticMetadataBundle, MetadataTransportError> {
         validate_metadata_preflight(self, limits, expected_package_digest).map_err(MetadataTransportError::Envelope)?;
+        transaction
+            .reserve_bytes(self.encoded_bundle.len())
+            .map_err(|_| MetadataTransportError::Envelope(MetadataSectionError::SharedArtifactBudgetExhausted {
+                remaining: transaction.remaining(),
+                requested: self.encoded_bundle.len(),
+            }))?;
         let json = std::str::from_utf8(&self.encoded_bundle)?;
         // Probe only the header before the allocating owner codec: never invoke
         // legacy normalization based on a forged current-schema envelope.

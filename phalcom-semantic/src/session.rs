@@ -9109,6 +9109,11 @@ impl SemanticWorkspaceSession {
         snapshot_obj.surfaces = snapshot_obj.dispatch.surfaces().clone();
         snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
         snapshot_obj = snapshot_obj.with_constructor_initializations(Arc::new(constructor_initializations));
+        for (callable, definition) in callable_definitions.iter_local_mut() {
+            if let Some(sig) = snapshot_obj.callable_signatures.get(callable) {
+                definition.signature = sig.clone();
+            }
+        }
         snapshot_obj = snapshot_obj.with_callable_definitions(Arc::new(callable_definitions));
         snapshot_obj = snapshot_obj.with_conformance_index(Arc::new(conformance_index));
         snapshot_obj = snapshot_obj.with_conformance_witness_plans(Arc::new(conformance_witness_plans));

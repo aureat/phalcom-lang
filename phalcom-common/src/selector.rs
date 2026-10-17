@@ -175,9 +175,8 @@ impl Selector {
             return Self::setter(name);
         }
 
-        let name = head.strip_prefix("init ").unwrap_or(head);
         let slots = parse_slots_strict(inner)?;
-        Self::method(name, slots.into_boxed_slice())
+        Self::method(head, slots.into_boxed_slice())
     }
 
     /// Total runtime-originated decode. Malformed text is represented as an

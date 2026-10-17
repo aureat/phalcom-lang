@@ -77,6 +77,11 @@ impl<K: Ord, V> ParentMap<K, V> {
         self.local.iter()
     }
 
+    /// Mutably iterates only contributions owned by this workspace.
+    pub fn iter_local_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
+        self.local.iter_mut()
+    }
+
     /// Iterates only the immutable canonical parent, without local entries.
     pub fn iter_parent(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
         match &self.parent {

@@ -533,6 +533,86 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
         .expect("compiling user program against loaded universe image must succeed");
     assert!(!compiled.modules.is_empty());
     assert!(compiled.entry.path.is_root());
+
+    // Also compile user code exercising Universe prelude types (Option, String):
+    let compiled_user = loaded
+        .compile_user_entry(EntrySelection::Inline("let s = \"hello\"; let opt = Option.some(s); print(opt);".into()))
+        .expect("compiling user program exercising Universe prelude types must succeed");
+    assert!(!compiled_user.modules.is_empty());
+
+    // Also compile a multi-file dependent user package:
+    let pkg_dir = tempdir().unwrap();
+    std::fs::write(pkg_dir.path().join("package.ph"), "expose .main\n").expect("write package.ph");
+    std::fs::write(
+        pkg_dir.path().join("main.ph"),
+        "let message = \"package user program\";\nlet opt = Option.some(message);\nprint(opt);\n",
+    )
+    .expect("write main.ph");
+    let compiled_pkg = loaded
+        .compile_user_entry(EntrySelection::Package(pkg_dir.path().to_path_buf()))
+        .expect("compiling user package against loaded universe image must succeed");
+    assert!(!compiled_pkg.modules.is_empty());
+}
+
+#[test]
+fn fresh_process_target_runner() {
+    let Ok(telosc_path) = std::env::var("PHALCOM_TEST_TELOSC_PATH") else {
+        return;
+    };
+    let pkg_path = std::env::var("PHALCOM_TEST_PACKAGE_PATH").expect("package path");
+    let limits = ValidationLimits::default();
+
+    let loaded = load_universe_telosc(&std::path::PathBuf::from(telosc_path), &limits)
+        .expect("load_universe_telosc in fresh process must succeed");
+    assert!(loaded.formal_image.sources().is_empty(), "fresh process loaded image has no sources");
+    assert!(
+        loaded.formal_image.snapshot().is_source_free_artifact_complete(),
+        "fresh process loaded snapshot is source-free complete"
+    );
+
+    let compiled = loaded
+        .compile_user_entry(EntrySelection::Package(std::path::PathBuf::from(pkg_path)))
+        .expect("compile package in fresh process against loaded artifact must succeed");
+    assert!(!compiled.modules.is_empty(), "compiled modules must be non-empty");
+}
+
+#[test]
+fn fresh_process_source_denied_artifact_compilation() {
+    let program = canonical_universe_program().expect("canonical universe program");
+    let view = program.compiler_image_view().expect("compiler image view");
+    let limits = ValidationLimits::default();
+    let built = build_universe_telosc(&view, &limits).expect("build_universe_telosc must succeed");
+
+    let dir = tempdir().unwrap();
+    let telosc_path = dir.path().join("universe.telosc");
+    write_universe_telosc(&telosc_path, &built).expect("write_universe_telosc must succeed");
+
+    let pkg_dir = tempdir().unwrap();
+    std::fs::write(pkg_dir.path().join("package.ph"), "expose .main\n").expect("write package.ph");
+    std::fs::write(
+        pkg_dir.path().join("main.ph"),
+        "let message = \"fresh process verification\";\nlet opt = Option.some(message);\nprint(opt);\n",
+    )
+    .expect("write main.ph");
+
+    let current_exe = std::env::current_exe().expect("current test executable");
+    let output = std::process::Command::new(current_exe)
+        .arg("--exact")
+        .arg("modules_canonical_artifact::fresh_process_target_runner")
+        .arg("--nocapture")
+        .env("PHALCOM_TEST_TELOSC_PATH", &telosc_path)
+        .env("PHALCOM_TEST_PACKAGE_PATH", pkg_dir.path())
+        .output()
+        .expect("spawn fresh process target runner");
+
+    if !output.status.success() {
+        panic!(
+            "Fresh process failed with code {:?}:\nStdout: {}\nStderr: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 #[test]
@@ -590,7 +670,12 @@ fn foreign_native_catalog_fingerprint_is_rejected_before_section_materialization
         SectionKind::QueryImage,
         SectionKind::Metadata,
     ] {
-        builder.add_section(kind, 1, SectionFlags::REQUIRED, vec![0xff]);
+        let schema = if kind == SectionKind::SemanticWorld {
+            phalcom_compiler_artifact::semantic::world::SEMANTIC_WORLD_SCHEMA_V3
+        } else {
+            1
+        };
+        builder.add_section(kind, schema, SectionFlags::REQUIRED, vec![0xff]);
     }
     let bytes = builder.build().expect("container integrity should be valid");
 
@@ -742,7 +827,12 @@ fn loader_rejects_rehashed_incompatible_header_fields() {
             SectionKind::QueryImage,
             SectionKind::Metadata,
         ] {
-            builder.add_section(kind, 1, SectionFlags::REQUIRED, parsed.require_section(kind).unwrap().to_vec());
+            let schema = if kind == SectionKind::SemanticWorld {
+                phalcom_compiler_artifact::semantic::world::SEMANTIC_WORLD_SCHEMA_V3
+            } else {
+                1
+            };
+            builder.add_section(kind, schema, SectionFlags::REQUIRED, parsed.require_section(kind).unwrap().to_vec());
         }
         let bytes = builder.build().unwrap();
         // Integrity remains valid; the reader must reject compatibility itself.

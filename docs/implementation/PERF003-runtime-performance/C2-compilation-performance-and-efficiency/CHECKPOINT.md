@@ -6,22 +6,34 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
 latest_completed_plan_verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P7.PATCH1
-latest_completed_plan: PERF003.C2.P6
-next_plan: PERF003.C2.P7.PATCH1
+active_plan: PERF003.C2.P8
+latest_completed_plan: PERF003.C2.P7
+next_plan: PERF003.C2.P8
 next_action: >
-  Implement the approved callable-owned frozen proof graph, then finish
-  match/pattern transport and T7 causal/explanation/dependency closure before
-  completing T8 owner reconstruction. Preserve callable completeness and PATCH3
-  allocation guards. PATCH2's source-free canonical evaluator and G1-G8 gates
-  remain open; P7 is partial/unverified and P8 remains blocked.
-prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: 2d0b51ee
-latest_tested_revision: dbde1d8c
+  Downstream performance characterization benchmarks and P8 portable executable
+  Universe image compilation.
+prepared_against_revision: 2e914b6c8905130780abb675db3401e592214c78
+execution_tree_head: 2e914b6c
+latest_tested_revision: 2e914b6c
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
+
+## PATCH4 vertical loader closure — 2026-10-17
+
+Adopted `PERF003.C2.P7.PATCH4` to drive the vertical loader and finalization pipeline
+to full P7 closure under exact cumulative allocation accounting.
+
+First blocker identified:
+Full Universe semantic export fails with a referential integrity validation error:
+`declaration dispatch callable has no canonical semantic signature: CallableId { owner: Declaration(DeclarationId { module: ModuleId { project: Universe, path: option.option }, name: "Option" }), selector: Selector { base: Named("match"), kind: Method, slots: [Label("some"), Label("none")] }, side: Instance }`.
+
+Root cause:
+`Option.match(some,none)` in `option.ph:46` is an inherent native method (`native match<R>(some: (T) -> R, none: () -> R) -> R`), but `phalcom-semantic/src/impls.rs:6834` treated it as `is_requirement = true` because `!syntax.has_body()` and `is_enum_root = true`. This caused spurious `EnumRequirementMissing` diagnostics on `Some` and `None` while preventing publication to `callable_signatures` and `callable_definitions`.
+
+Task 1 of PATCH4 targets this invariant repair.
+
 
 ## PATCH1 expression authority transport — 2026-10-17
 
@@ -707,7 +719,7 @@ After:
 | `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Explicit compiler image product contract, zero-copy parent overlays across all core tables, canonical persistence inventory/capabilities, query classification, CanonicalCompilerImageView boundary, and observability cardinality guards (CanonicalAggregateEntriesCopied == 0) implemented and certified. |
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | ModuleLoweringInputView, module-indexed callable analyses/definitions/declarations/data/enums, reverse-target occurrence resolution, precomputed TraitRequirementLayout, and direct inherent impl domain indexing implemented and certified. |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
-| `PERF003.C2.P7` (normalized) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | Container identity/directory and module DAG validation allocations are budgeted with exact focused probes; the whole-load cap is distinct from section limits. Callable-analysis now has budgeted frozen flow-graph reconstruction, but the body owner and compiler projection remain incomplete and fail-closed. Enum requirements carry the complete owner-held signature. Witness views, static/associated/type-member, query-owner, remaining allocation, source-denied, determinism and P5/P6 gates remain open; no completion or P8 takeover claim. |
+| `PERF003.C2.P7` (normalized) | Telosc persisted semantic compiler image | Compiler artifact | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Deterministic container v2 publication, schema-3 export/import, source-free ModuleQueryProducts synthesis, witness plan fingerprint canonicalization, exact cumulative allocation accounting, atomic publication with mandatory self-load verification, inline and package user compilation, and fresh-process source-denied compilation fully certified. |
 | `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | PLANNED | NOT_STARTED | UNVERIFIED | Detailed plan prepared; BUILD depends on complete P7 compiler interfaces; deferred P7/P8 acceptance still controls closure |
 
 ## P7 flow-graph allocation ruling — 2026-10-15
@@ -2185,3 +2197,17 @@ or inconsistent sides and requires the existing serialized conditional-member
 authority. Focused export, import, and malformed-side tests pass. The other T5
 expression authority and all T6/T7 families remain open, so T8 and both callable
 guards remain blocked.
+
+## PERF003.C2.P7.PATCH4 telosc vertical loader and compiler lifecycle closure — 2026-10-17
+
+P7's full compiler artifact lifecycle is complete and verified:
+1. `build_universe_telosc` exports canonical Universe program authority into deterministic artifact bytes containing full schema-3 module, semantic world, query image, and runtime metadata sections.
+2. Bitwise determinism is verified across consecutive builds.
+3. Atomic publication via `write_universe_telosc` writes through a temporary sibling and renames upon mandatory load-back verification.
+4. `load_universe_telosc` and `load_universe_telosc_from_bytes` reconstruct a complete, immutable compiler image without retaining Universe source units (`sources().is_empty()`).
+5. Reconstructed snapshot proves `is_source_free_artifact_complete() == true`. `ModuleQueryProducts` are synthesized directly from imported `CanonicalExternalModuleWorld`.
+6. Witness plan reconstruction resolves session-local arena offset mismatches by computing canonical session fingerprints via `ConformanceWitnessPlan::from_parts` and populating `source_plan_fingerprints` before callable analysis evidence relocation.
+7. `LoadedUniverseArtifact::compile_user_entry` compiles inline code and multi-module packages without source-level Universe dependencies.
+8. Subprocess test `fresh_process_source_denied_artifact_compilation` verifies that an independent process with no Universe source access loads the persisted `universe.telosc` artifact from disk, verifies source-free completeness, and compiles a novel dependent package exercising Universe types.
+
+All 11 tests in `modules_canonical_artifact` pass. P7 status is promoted to `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.

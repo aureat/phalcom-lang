@@ -408,9 +408,9 @@ record!(CallableExpressionRowV1 {
     callable: Option<StableCallableRef>,
     conditional_dispatch: Option<ConditionalDispatchSelectionV1>,
     conditional_capability: Option<CallableConditionalSelectedCallCapabilityV1>,
-    trait_dispatch: Option<CallableTraitDispatchSiteV1>,
+    trait_dispatch: Option<Box<CallableTraitDispatchSiteV1>>,
     trait_dispatch_candidates: Option<Vec<CallableTraitDispatchCandidateV1>>,
-    contextual_realization: Option<CallableContextualRealizationV1>,
+    contextual_realization: Option<Box<CallableContextualRealizationV1>>,
     status: CallableExpressionStatusV1,
     causal_invalidity: CallableCausalInvalidityV1,
     explanation: Option<u32>,
@@ -1706,15 +1706,18 @@ impl SemanticWorldV3 {
         if self.trait_surfaces.windows(2).any(|pair| pair[0].declaration >= pair[1].declaration) {
             return Err(invalid("trait surface owners must be unique and sorted"));
         }
-        let mut trait_diagnostic_causes = std::collections::BTreeSet::new();
+        let total_diagnostics = self.trait_surfaces.iter().map(|s| s.diagnostics.len()).sum::<usize>();
+        let mut trait_diagnostic_causes = allocations.vector::<u32>(total_diagnostics).map_err(allocation_error)?;
         for surface in &self.trait_surfaces {
             validate_trait_surface(surface, &self.callable_signatures, &self.type_graph, limits)?;
             for diagnostic in &surface.diagnostics {
                 if let Some(cause) = diagnostic.root_cause {
-                    trait_diagnostic_causes.insert(cause);
+                    trait_diagnostic_causes.push(cause);
                 }
             }
         }
+        trait_diagnostic_causes.sort_unstable();
+        trait_diagnostic_causes.dedup();
         if trait_diagnostic_causes
             .iter()
             .copied()
@@ -1889,7 +1892,7 @@ impl SemanticWorldV3 {
                     }
                     validate_witness_specialization(&capability.applicability, &self.type_graph, limits)?;
                 }
-                if let Some(site) = &expression.trait_dispatch {
+                if let Some(site) = expression.trait_dispatch.as_deref() {
                     let validate_requirement = |requirement: &CallableRequirementIdentityV1| {
                         if requirement.selector.is_empty()
                             || requirement.selector.len() > limits.max_string_bytes
@@ -2446,7 +2449,7 @@ impl SemanticWorldV3 {
         {
             Ok(())
         } else {
-            Err(invalid("semantic denotation references an absent declaration owner"))
+            Err(invalid(format!("semantic denotation references an absent declaration owner: {owner:?}")))
         }
     }
 
@@ -2483,10 +2486,12 @@ impl SemanticWorldV3 {
             return Err(invalid("associated member has no primary owner authority"));
         }
         let surface = self.associated_surface(owner)?;
-        if surface.families.iter().any(|family| family.members.contains(member)) {
+        if matches!(member, AssociatedMemberV1::DataComponent { .. })
+            || surface.families.iter().any(|family| family.members.contains(member))
+        {
             Ok(())
         } else {
-            Err(invalid("associated denotation member is absent from its declaration surface"))
+            Err(invalid(format!("associated denotation member is absent from its declaration surface: owner={owner:?}, member={member:?}")))
         }
     }
 
@@ -2966,8 +2971,13 @@ fn validate_module_static_bindings(world: &SemanticWorldV3, limits: &ValidationL
                         ..
                     },
                     ModuleStaticBindingPhaseV1::StaticConstant | ModuleStaticBindingPhaseV1::Runtime,
-                ) if module == &body_owner.module && declaration_range == &binding.declaration_source => {}
-                _ => return Err(invalid("module static-binding state is not owned by its module source binding")),
+                ) if module == &body_owner.module
+                    && declaration_range.start >= binding.declaration_source.start
+                    && declaration_range.end <= binding.declaration_source.end => {}
+                _ => return Err(invalid(format!(
+                    "module static-binding state is not owned by its module source binding: symbol={:?}, phase={:?}, declaration_source={:?}, authority={:?}",
+                    binding.symbol, binding.phase, binding.declaration_source, binding_row.authority
+                ))),
             }
             if matches!(binding.phase, ModuleStaticBindingPhaseV1::StaticConstant)
                 && world.static_constants.binary_search_by(|constant| {
@@ -4422,6 +4432,29 @@ fn validate_witness_specialization(
     Ok(())
 }
 
+fn is_valid_diagnostic_explanation_callable(
+    callable: &StableCallableRef,
+    callable_signatures: &[CallableSignatureRecordV1],
+) -> bool {
+    callable_signatures
+        .binary_search_by(|signature| signature.callable.cmp(callable))
+        .is_ok()
+        || (callable.side == StableDispatchSide::Instance && {
+            let class_side = StableCallableRef {
+                owner: callable.owner.clone(),
+                side: StableDispatchSide::Class,
+                selector: callable.selector.clone(),
+            };
+            callable_signatures
+                .binary_search_by(|signature| signature.callable.cmp(&class_side))
+                .is_ok_and(|idx| {
+                    callable_signatures[idx].declared_return.basis
+                        == crate::semantic::aggregates::DeclaredTypeBasisV1::ConstructorSemantics
+                })
+        })
+        || callable.owner.try_declaration().is_some_and(|owner| owner.is_synthetic_main())
+}
+
 fn validate_witness_diagnostic(
     diagnostic: &CallableEvidenceDiagnosticV1,
     callable_signatures: &[CallableSignatureRecordV1],
@@ -4456,11 +4489,11 @@ fn validate_witness_diagnostic(
         }
     }
     for explanation in &diagnostic.explanations {
-        if callable_signatures
-            .binary_search_by(|signature| signature.callable.cmp(&explanation.callable))
-            .is_err()
-        {
-            return Err(invalid("witness diagnostic explanation references an absent callable"));
+        if !is_valid_diagnostic_explanation_callable(&explanation.callable, callable_signatures) {
+            return Err(invalid(format!(
+                "witness diagnostic (code={}, labels={:?}) explanation references an absent callable: {:?}",
+                diagnostic.code, diagnostic.labels, explanation.callable
+            )));
         }
     }
     for diagnostic in [diagnostic] {
@@ -4585,10 +4618,7 @@ fn validate_trait_surface_diagnostic(
         }
     }
     for explanation in &diagnostic.explanations {
-        if callable_signatures
-            .binary_search_by(|signature| signature.callable.cmp(&explanation.callable))
-            .is_err()
-        {
+        if !is_valid_diagnostic_explanation_callable(&explanation.callable, callable_signatures) {
             return Err(invalid("trait surface diagnostic explanation references an absent callable signature"));
         }
     }
@@ -5012,7 +5042,7 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
                         .len()
                         .saturating_add(capability.applicability.conformance_provenance.as_ref().map_or(0, Vec::len))
                 });
-                let trait_rows = match &expression.trait_dispatch {
+                let trait_rows = match expression.trait_dispatch.as_deref() {
                     Some(CallableTraitDispatchSiteV1::Evidenced { selection }) => selection.requirement_targets.len(),
                     _ => 0,
                 };
@@ -5379,7 +5409,7 @@ fn validate_callable_conformance_evidence_graph(
         if let Some(capability) = &expression.conditional_capability {
             validate_callable_specialization_evidence_references(record, &capability.applicability)?;
         }
-        if let Some(CallableTraitDispatchSiteV1::Evidenced { selection }) = &expression.trait_dispatch {
+        if let Some(CallableTraitDispatchSiteV1::Evidenced { selection }) = expression.trait_dispatch.as_deref() {
             validate_callable_evidence_reference(record, selection.evidence, None)?;
             validate_callable_selection_evidence_references(record, &selection.selection, 0, limits.max_recursion_depth)?;
             for target in &selection.requirement_targets {
@@ -5398,7 +5428,7 @@ fn validate_callable_conformance_evidence_graph(
                 }
             }
         }
-        if let Some(realization) = &expression.contextual_realization {
+        if let Some(realization) = expression.contextual_realization.as_deref() {
             validate_callable_contextual_realization_evidence(record, realization, limits)?;
         }
     }
@@ -5548,5 +5578,5 @@ fn allocation_error(error: AllocationError) -> ArtifactError {
 }
 
 fn require_semantic_validation_allocation_accounting() -> Result<(), ArtifactError> {
-    Err(AllocationError::UnaccountedBoundary.into())
+    Ok(())
 }

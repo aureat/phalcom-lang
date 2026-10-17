@@ -2258,7 +2258,8 @@ fn export_callable_analysis_record(
             .contextual_realization
             .as_deref()
             .map(|realization| export_callable_contextual_realization(realization, &ordinals, &mut conformance_export))
-            .transpose()?;
+            .transpose()?
+            .map(Box::new);
         let status = export_callable_expression_status(&expression.status, &ordinals, types)?;
         let range = phalcom_compiler_artifact::module_world::SpanV1 {
             start: u64::try_from(expression.range.start).map_err(|_| referential("callable expression range start exceeds portable range"))?,
@@ -2367,7 +2368,8 @@ fn export_callable_analysis_record(
             .trait_dispatch
             .as_ref()
             .map(|site| conformance_export.trait_dispatch_site(site, 0))
-            .transpose()?;
+            .transpose()?
+            .map(Box::new);
         expressions.push(CallableExpressionRowV1 {
             ordinal: ordinals.expressions[expression_id],
             range,
@@ -4263,7 +4265,13 @@ pub fn export_semantic_world(
         if callable != &definition.callable {
             return Err(referential("callable definition table key disagrees with its owner"));
         }
-        callable_definitions.push(export_callable_definition(definition, &snapshot.store, types)?);
+        let canonical_sig = snapshot
+            .callable_signatures
+            .get(callable)
+            .ok_or_else(|| referential("callable definition has no canonical signature row"))?;
+        let mut synchronized = definition.clone();
+        synchronized.signature = canonical_sig.clone();
+        callable_definitions.push(export_callable_definition(&synchronized, &snapshot.store, types)?);
     }
     callable_definitions.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
 
@@ -4363,7 +4371,13 @@ pub fn export_semantic_world(
                         },
                     },
                     callable: to_stable_callable(&member.callable),
-                    signature: export_callable_signature(&member.signature, types)?,
+                    signature: export_callable_signature(
+                        snapshot
+                            .callable_signatures
+                            .get(&member.callable)
+                            .unwrap_or(&member.signature),
+                        types,
+                    )?,
                     visibility: export_visibility(member.visibility),
                     source: export_source_span(&member.source)?,
                     source_member_index: u32::try_from(member.source_member_index)

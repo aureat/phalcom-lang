@@ -168,6 +168,13 @@ impl ExplanationValidation<'_> {
         self.string(&callable.selector)?;
         if let Some(owner) = callable.owner.enclosing_declaration() {
             self.world.validate_declaration_reference(owner)?;
+        } else if let Some(owner) = callable.owner.try_declaration() {
+            if owner.is_synthetic_main()
+                && callable != &self.analysis.callable
+                && self.world.callable_analyses.binary_search_by(|row| row.callable.cmp(callable)).is_err()
+            {
+                return Err(invalid("callable explanation references an absent module-body callable"));
+            }
         }
         Ok(())
     }

@@ -281,6 +281,18 @@ impl TypeResolver for LinkedTypeResolver {
                 }
             }
 
+            // 5. Canonical Universe internal references. Source modules in the Universe
+            // have no explicit preamble imports and may reference other un-preluded Universe declarations
+            // (such as Behavior) directly without exposing them through the public user prelude.
+            if current_module.project == phalcom_modules::identity::ProjectIdentity::Universe {
+                if let Some(key) = phalcom_native_meta::UniverseKey::from_name(root) {
+                    let decl = crate::core_surface::universe_declaration(key);
+                    if self.known_declarations.contains(&decl) {
+                        return Some(decl);
+                    }
+                }
+            }
+
             None
         } else {
             // Qualified lookup can currently resolve only one declaration

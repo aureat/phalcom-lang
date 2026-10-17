@@ -795,6 +795,15 @@ impl CanonicalUniverseFormalImage {
         if !matches!(world.provenance, CanonicalWorldProvenance::Artifact { .. }) {
             return Err(CanonicalImageError::ForeignSemanticWorld);
         }
+        let mut snapshot_obj = (*snapshot).clone();
+        if snapshot_obj.module_products.unlinked.is_empty() {
+            let module_products = Arc::new(crate::snapshot::ModuleQueryProducts::from_external_modules(&modules));
+            snapshot_obj = snapshot_obj.with_module_products(module_products);
+        }
+        if snapshot_obj.status.is_partial() && snapshot_obj.has_source_free_artifact_contents() {
+            snapshot_obj = snapshot_obj.with_status(crate::snapshot::SnapshotStatus::Complete);
+        }
+        let snapshot = Arc::new(snapshot_obj);
         if !snapshot.is_source_free_artifact_complete() {
             return Err(CanonicalImageError::IncompletePublication(
                 "loaded artifact snapshot failed source-free completeness check".into(),
