@@ -9,7 +9,7 @@
 - Repository: `/Users/altunhasanli/dev/phalcom/phalcom`
 - Branch: `main`
 - Starting revision: `efe7067abb3dd7c17bea4a5a19f316e575dac30f` (clean)
-- Current revision: `efe7067abb3dd7c17bea4a5a19f316e575dac30f` (working changes only)
+- Incident-fix revision under closure gates: `d50c0079588a493192224474d94339280e83afe9`
 
 ## 2. Escalation trigger
 
@@ -204,6 +204,29 @@ Verification completed:
 - Earlier focused source-index coverage passed 8 tests; generic intrinsic enum/product dispatch passed 1 test.
 
 Match compilation remains fail-closed and consumes only the formal proven
-lowering product. Broader crate, workspace, lint, and release gates were not
-run. This package smoke does not promote LANG007.C4 beyond its existing
-checkpoint status.
+lowering product. At this point, broader crate, workspace, lint, and release
+gates remained open. This package smoke did not promote LANG007.C4 beyond its
+existing checkpoint status.
+
+## 17. Closure gates — 2026-10-17
+
+**Incident disposition: CLOSED.** The owner-layer semantic regression and the
+SlotMap runtime smoke pass in the current checkout. The new negative compiler
+regression removes the formal match record from an otherwise valid compiled
+program and confirms that compilation returns `MissingMatchLoweringSemantics`.
+The compiler still does not reconstruct match semantics from syntax.
+
+Gate results:
+
+- PASS — `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic class_indexer_match_publishes_callable_body_and_proven_resolution -- --nocapture` (1 test).
+- PASS — `RUSTFLAGS='' cargo test -p phalcom-core --test core adt_lower_11 -- --nocapture` (1 test).
+- PASS — `RUSTFLAGS='' cargo run -p phalcom-core --bin phalcom -- packages/slotmap/tests/runtime`; sparse and dense runtime tests passed and printed the completion marker.
+- PASS — `rustfmt --check phalcom-core/tests/core/language/compiler/lowering_scenarios.rs` and `git diff --check`.
+- FAIL — `RUSTFLAGS='' cargo test -p phalcom-semantic`: 184 passed, 1 failed in the library target. `checker::context::tests::tracking_resolver_demands_the_exact_unready_type_member_owner` also fails when run alone; it is outside the incident changes. Cargo stopped before semantic integration tests.
+- FAIL — `RUSTFLAGS='' cargo test -p phalcom-core`: 186 passed, 6 failed in the library target: `error::tests::runtime_error_transport_stays_below_large_result_threshold`, `modules::compile::tests::canonical_range_lower_option_closes_number_at_is_none_call_edge`, `modules::compile_session::tests::retained_random_fixture_replacement_publishes_current_source`, `universe::tests::kernel_option_match_override_reroutes_every_combinator`, `vm::send::tests::captured_setter_rejects_an_ordinary_positional_rhs_lane`, and `vm::walk::tests::walk_orders_oldest_first_with_selector_shaped_names`. Cargo stopped before the core integration targets.
+- FAIL — `RUSTFLAGS='' cargo clippy -p phalcom-semantic -p phalcom-core --all-targets -- -D warnings`: dependency warnings in `phalcom-ast/src/lexer.rs` (`unnecessary_lazy_evaluations`) and `phalcom-type-meta/src/validate.rs` (`collapsible_match`) stopped the gate before the requested crates were checked.
+- FAIL — `cargo fmt --all -- --check`: reports formatting diffs across unrelated existing files. No repository-wide formatting changes were applied; the changed test file passes its scoped rustfmt check.
+
+The failing broad gates do not reopen this match-lowering incident. They remain
+separate repository validation work. LANG007.C4 and its active P9 plan retain
+their existing status; this closeout does not claim checkpoint acceptance.
