@@ -1183,7 +1183,7 @@ mod local_outcome_tests {
         let case = CaseInstantiation {
             variant,
             scope,
-            local_rigids: BTreeMap::from([(parameter, rigid)]),
+            local_rigids: BTreeMap::from([(parameter, rigid)]).into(),
             payload_types: Box::new([LocalType::Rigid(rigid)]),
             result_type: local(LocalType::Rigid(rigid)),
             constraints: Box::new([]),

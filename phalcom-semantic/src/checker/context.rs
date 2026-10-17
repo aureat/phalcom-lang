@@ -4058,6 +4058,19 @@ impl<'a> CheckingContext<'a> {
             };
         }
         let return_validation = self.validate_return_contract(status, &normal_returns);
+        let frozen_proofs = match crate::types::proof::freeze_callable_proofs(&self.rigids, self.store, &self.match_resolutions, &self.pattern_site_resolutions)
+        {
+            Ok(proofs) => proofs,
+            Err(error) => {
+                let incident = self.publish_analysis_incident(format!("callable proof publication failed: {error:?}"));
+                status = super::analysis::CallableAnalysisStatus::InternalFailure(incident);
+                crate::types::proof::FrozenCallableProofs {
+                    graph: Default::default(),
+                    matches: Default::default(),
+                    sites: Default::default(),
+                }
+            }
+        };
         let semantic_dependencies = self.semantic_dependencies_snapshot();
         let entry_flow = self.current_flow_summary();
         let flow_graph = self
@@ -4115,8 +4128,9 @@ impl<'a> CheckingContext<'a> {
             associated_resolutions: std::sync::Arc::new(self.associated_resolutions),
             callable_reference_resolutions: std::sync::Arc::new(self.callable_reference_resolutions),
             family_applications: std::sync::Arc::new(self.family_applications),
-            match_resolutions: std::sync::Arc::new(self.match_resolutions),
-            pattern_site_resolutions: std::sync::Arc::new(self.pattern_site_resolutions),
+            match_resolutions: std::sync::Arc::new(frozen_proofs.matches),
+            pattern_site_resolutions: std::sync::Arc::new(frozen_proofs.sites),
+            local_proof_graph: std::sync::Arc::new(frozen_proofs.graph),
             flow_graph,
             entry_flow,
             exits,

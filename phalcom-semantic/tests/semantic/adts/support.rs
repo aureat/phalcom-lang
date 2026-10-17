@@ -16,9 +16,10 @@ use phalcom_semantic::declarations::DeclarationTypeInfo;
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use phalcom_semantic::enum_semantics::{EnumInfo, VariantInfo};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, VariantFamilyId, VariantFieldId, VariantId};
-use phalcom_semantic::match_semantics::{ExhaustivenessResult, MatchArmResolution, MatchResolution, PatternResolution, PatternSpaceSummary, PatternUsefulness};
+use phalcom_semantic::match_semantics::{ExhaustivenessResult, PatternResolution, PatternSpaceSummary, PatternUsefulness};
 use phalcom_semantic::snapshot::SemanticSnapshot;
 use phalcom_semantic::types::id::TypeId;
+use phalcom_semantic::types::proof::{FrozenMatchArmResolution, FrozenMatchResolution};
 use phalcom_semantic::types::store::TypeData;
 use phalcom_semantic::workspace::SemanticAnalysis;
 use std::collections::HashSet;
@@ -183,16 +184,16 @@ fn canonical_universe_declaration(name: &str) -> Option<DeclarationId> {
 }
 
 pub struct MatchHandle<'a> {
-    resolution: &'a MatchResolution,
+    resolution: &'a FrozenMatchResolution,
     snapshot: &'a SemanticSnapshot,
 }
 
 impl<'a> MatchHandle<'a> {
-    fn new(resolution: &'a MatchResolution, snapshot: &'a SemanticSnapshot) -> Self {
+    fn new(resolution: &'a FrozenMatchResolution, snapshot: &'a SemanticSnapshot) -> Self {
         Self { resolution, snapshot }
     }
 
-    pub fn resolution(&self) -> &MatchResolution {
+    pub fn resolution(&self) -> &FrozenMatchResolution {
         self.resolution
     }
 
@@ -240,12 +241,12 @@ impl<'a> MatchHandle<'a> {
 }
 
 pub struct ArmHandle<'a> {
-    arm: &'a MatchArmResolution,
+    arm: &'a FrozenMatchArmResolution,
     snapshot: &'a SemanticSnapshot,
 }
 
 impl ArmHandle<'_> {
-    pub fn resolution(&self) -> &MatchArmResolution {
+    pub fn resolution(&self) -> &FrozenMatchArmResolution {
         self.arm
     }
 
@@ -261,7 +262,7 @@ impl ArmHandle<'_> {
         assert_eq!(actual, expected, "unexpected resolved candidate variants");
     }
 
-    pub fn find_binding(&self, name: &str) -> Option<&phalcom_semantic::match_semantics::PatternBindingResolution> {
+    pub fn find_binding(&self, name: &str) -> Option<&phalcom_semantic::types::proof::FrozenPatternBinding> {
         self.arm.bindings.iter().find(|binding| binding.name.as_ref() == name)
     }
 

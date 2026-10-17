@@ -2770,8 +2770,8 @@ fn project_slot_repr_type(ty: TypeId, store: &TypeStore) -> crate::product::Prod
     }
 }
 
-fn project_match_resolution(
-    resolution: &phalcom_semantic::match_semantics::MatchResolution,
+fn project_match_resolution<R, S, K>(
+    resolution: &phalcom_semantic::match_semantics::MatchResolution<R, S, K>,
     snapshot: &SemanticSnapshot,
 ) -> Result<MatchLoweringSpec, ProjectionError> {
     if !matches!(resolution.exhaustiveness, phalcom_semantic::match_semantics::ExhaustivenessResult::Proven) {
@@ -2803,8 +2803,8 @@ fn project_match_resolution(
     Ok(MatchLoweringSpec { arms: arms.into_boxed_slice() })
 }
 
-fn project_pattern_site_resolution(
-    site: &phalcom_semantic::match_semantics::PatternSiteResolution,
+fn project_pattern_site_resolution<R, S, K>(
+    site: &phalcom_semantic::match_semantics::PatternSiteResolution<R, S, K>,
     snapshot: &SemanticSnapshot,
 ) -> Result<PatternSiteLoweringSpec, ProjectionError> {
     let bindings = site
@@ -2823,9 +2823,9 @@ fn project_pattern_site_resolution(
     Ok(PatternSiteLoweringSpec { pattern, bindings })
 }
 
-fn project_pattern_resolution(
-    pattern: &phalcom_semantic::match_semantics::PatternResolution,
-    bindings: &[phalcom_semantic::match_semantics::PatternBindingResolution],
+fn project_pattern_resolution<R, S, K>(
+    pattern: &phalcom_semantic::match_semantics::PatternResolution<R, S, K>,
+    bindings: &[phalcom_semantic::match_semantics::PatternBindingResolution<R, K>],
     snapshot: &SemanticSnapshot,
 ) -> Result<ExecutablePattern, ProjectionError> {
     match pattern {

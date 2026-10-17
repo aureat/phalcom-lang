@@ -696,8 +696,10 @@ pub struct CallableAnalysis {
     pub associated_resolutions: Arc<crate::checker::associated::AssociatedResolutionIndex>,
     pub callable_reference_resolutions: Arc<crate::checker::associated::CallableReferenceResolutionIndex>,
     pub family_applications: Arc<crate::checker::associated::FamilyApplicationResolutionIndex>,
-    pub match_resolutions: Arc<crate::match_semantics::MatchResolutionIndex>,
-    pub pattern_site_resolutions: Arc<crate::match_semantics::PatternSiteResolutionIndex>,
+    pub match_resolutions: Arc<crate::types::proof::FrozenMatchResolutionIndex>,
+    pub pattern_site_resolutions: Arc<crate::types::proof::FrozenPatternSiteResolutionIndex>,
+    /// Immutable definitions for every rigid in retained match/pattern proofs.
+    pub local_proof_graph: Arc<crate::types::proof::CallableProofGraph>,
     pub flow_graph: Arc<crate::checker::flow::graph::FlowGraph>,
     pub entry_flow: FlowStateSummary,
     pub exits: BodyExitFacts,
@@ -1054,8 +1056,9 @@ mod callable_analysis_table_tests {
             associated_resolutions: Arc::new(crate::checker::associated::AssociatedResolutionIndex::new()),
             callable_reference_resolutions: Arc::new(crate::checker::associated::CallableReferenceResolutionIndex::new()),
             family_applications: Arc::new(crate::checker::associated::FamilyApplicationResolutionIndex::new()),
-            match_resolutions: Arc::new(crate::match_semantics::MatchResolutionIndex::new()),
-            pattern_site_resolutions: Arc::new(crate::match_semantics::PatternSiteResolutionIndex::new()),
+            match_resolutions: Arc::new(Default::default()),
+            pattern_site_resolutions: Arc::new(Default::default()),
+            local_proof_graph: Arc::new(Default::default()),
             flow_graph: Arc::new(crate::checker::flow::graph::FlowGraph::default()),
             entry_flow: FlowStateSummary::default(),
             exits: BodyExitFacts::default(),
@@ -1077,6 +1080,50 @@ mod callable_analysis_table_tests {
             .into_iter()
             .map(|id| (id.clone(), analysis(id)))
             .collect()
+    }
+
+    #[test]
+    fn callable_proof_fingerprint_preserves_local_branch_authority() {
+        use crate::identity::{BodyId, ExpressionId, LocalExpressionId};
+        use crate::match_semantics::{
+            BranchProofEnvironment, ExhaustivenessResult, MatchArmResolution, MatchResolution, PatternResolution, PatternSpaceSummary, PatternUsefulness,
+        };
+        use crate::types::{LocalType, TypeId, TypeKnowledge, TypeParameterId, UnknownReason};
+
+        let mut original = (*analysis(callable(module(1), "proof"))).clone();
+        let expression = ExpressionId::new(BodyId(0), LocalExpressionId(0));
+        let knowledge = TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence);
+        let resolution = MatchResolution {
+            expression,
+            scrutinee: knowledge.clone(),
+            initial_space: PatternSpaceSummary::Empty,
+            arms: vec![MatchArmResolution {
+                arm_index: 0,
+                pattern: PatternResolution::Wildcard,
+                reachable_space: PatternSpaceSummary::Empty,
+                residual_after: PatternSpaceSummary::Empty,
+                bindings: Box::new([]),
+                proof: BranchProofEnvironment {
+                    local_bindings: [(TypeParameterId(0), LocalType::Canonical(TypeId(1)))].into(),
+                    ..Default::default()
+                },
+                usefulness: PatternUsefulness::Useful,
+                branch_result: knowledge.clone(),
+            }]
+            .into_boxed_slice(),
+            result: knowledge,
+            exhaustiveness: ExhaustivenessResult::Proven,
+        };
+        original.match_resolutions = Arc::new([(expression, resolution.clone())].into());
+        let mut changed = original.clone();
+        let mut changed_resolution = resolution;
+        changed_resolution.arms[0].proof.local_bindings = [(TypeParameterId(0), LocalType::Canonical(TypeId(2)))].into();
+        changed.match_resolutions = Arc::new([(expression, changed_resolution)].into());
+        assert_ne!(
+            crate::db::fingerprint::callable_body_product_fingerprint(&original),
+            crate::db::fingerprint::callable_body_product_fingerprint(&changed),
+            "retained local proof authority must participate in the callable fingerprint"
+        );
     }
 
     #[test]

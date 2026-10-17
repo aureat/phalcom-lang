@@ -6,9 +6,10 @@ use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedP
 use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
-use phalcom_semantic::match_semantics::{MatchResolution, PatternResolution, PatternSpaceSummary};
+use phalcom_semantic::match_semantics::{PatternResolution, PatternSpaceSummary};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::snapshot::SemanticSnapshot;
+use phalcom_semantic::types::proof::FrozenMatchResolution;
 use std::sync::Arc;
 
 fn module() -> ModuleId {
@@ -49,7 +50,7 @@ class Eval {
     );
 }
 
-fn first_match(snapshot: &SemanticSnapshot) -> &MatchResolution {
+fn first_match(snapshot: &SemanticSnapshot) -> &FrozenMatchResolution {
     snapshot
         .callable_analyses
         .values()

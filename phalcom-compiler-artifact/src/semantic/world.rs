@@ -1,5 +1,8 @@
 //! Combined semantic world section payload (`PERF003.C2.P7.T7.B/T8`).
 
+mod proof;
+pub use proof::*;
+
 use crate::module_world::SpanV1;
 use crate::module_world::{Decode, Wire, invalid, record, tagged};
 use crate::semantic::aggregates::{DeclaredTypeFactV1, GenericSignatureV1, StructuralPrimaryContractsV1, TraitRefV1, TypeTermV1, UnknownReasonV1};
@@ -440,14 +443,6 @@ record!(CallableTraitDispatchSelectionV1 {
     requirement_targets: Vec<CallableRequirementSelectionEntryV1>,
 });
 
-record!(CallableAnalysisUnsupportedFamilyCountsV1 {
-    trait_dispatch_candidates: u32,
-    contextual_realizations: u32,
-    positional_expansions: u32,
-    known_invalid_positional_expansions: u32,
-    family_applications: u32,
-});
-
 tagged!(CallableForIterationRequirementV1 {
     0 => Evidence {
         conformance: GenericConformanceKeyV1,
@@ -469,6 +464,16 @@ record!(CallableForIterationLaneV1 {
     iterator_type: ArtifactTypeId,
     iterator: CallableForIterationRequirementV1,
     next: CallableForIterationRequirementV1,
+});
+
+// Positional expansion has the same checked iteration payload. The callable
+// owner retains it in a separate expression-keyed family from `for` lanes.
+pub type CallablePositionalExpansionV1 = CallableForIterationLaneV1;
+
+record!(CallableKnownInvalidPositionalExpansionV1 {
+    expression: u32,
+    source_range: SpanV1,
+    source_type: ArtifactTypeId,
 });
 
 tagged!(CallableSequenceFamilyV1 {
@@ -542,6 +547,37 @@ record!(CallableReferenceResolutionV1 {
     family_type: ArtifactTypeId,
     spec: BehavioralFamilySpecV1,
     members: Vec<CallableBoundBehavioralMemberV1>,
+});
+
+tagged!(CallableFamilyApplicationKindV1 {
+    0 => Associated,
+    1 => Behavioral,
+});
+
+record!(CallableFamilyApplicationCandidateV1 {
+    operation: FamilyOperationShapeV1,
+    target: Option<InvocationTargetV1>,
+    callable_type: ArtifactTypeId,
+});
+
+tagged!(CallableFamilyApplicationSelectionV1 {
+    0 => Static {
+        operation: FamilyOperationShapeV1,
+        target: Option<InvocationTargetV1>,
+        callable_type: ArtifactTypeId,
+        result_type: ArtifactTypeId
+    },
+    1 => Dynamic {
+        candidates: Vec<CallableFamilyApplicationCandidateV1>,
+        result_type: Option<ArtifactTypeId>
+    },
+});
+
+record!(CallableFamilyApplicationV1 {
+    expression: u32,
+    family_type: ArtifactTypeId,
+    kind: CallableFamilyApplicationKindV1,
+    selection: CallableFamilyApplicationSelectionV1,
 });
 
 record!(CallableFlowBindingSummaryV1 {
@@ -957,11 +993,16 @@ record!(CallableAnalysisRecordV1 {
     expressions: Vec<CallableExpressionRowV1>,
     conformance_evidence: Vec<CallableConformanceEvidenceNodeV1>,
     bindings: Vec<CallableBindingRowV1>,
-    unsupported_family_counts: CallableAnalysisUnsupportedFamilyCountsV1,
     for_iteration_lanes: Vec<CallableForIterationLaneV1>,
+    positional_expansions: Vec<CallablePositionalExpansionV1>,
+    known_invalid_positional_expansions: Vec<CallableKnownInvalidPositionalExpansionV1>,
     sequence_literals: Vec<CallableSequenceLiteralV1>,
     associated_resolutions: Vec<CallableAssociatedResolutionV1>,
     callable_reference_resolutions: Vec<CallableReferenceResolutionV1>,
+    family_applications: Vec<CallableFamilyApplicationV1>,
+    local_proof_graph: Option<CallableProofGraphV1>,
+    match_resolutions: Vec<CallableMatchResolutionV1>,
+    pattern_site_resolutions: Vec<CallablePatternSiteResolutionV1>,
     entry_flow: CallableFlowStateSummaryV1,
     normal_returns: Vec<CallableNormalReturnV1>,
     throws: Vec<CallableFlowStateSummaryV1>,
@@ -1872,9 +1913,9 @@ impl SemanticWorldV3 {
                     }
                 }
             }
-            for lane in &analysis.for_iteration_lanes {
+            for lane in analysis.for_iteration_lanes.iter().chain(&analysis.positional_expansions) {
                 if lane.source_range.start > lane.source_range.end {
-                    return Err(invalid("for-iteration lane source range is inverted"));
+                    return Err(invalid("callable iteration source range is inverted"));
                 }
                 for ty in [lane.source_type, lane.item_type, lane.iterator_type] {
                     self.validate_denotation_type(ty)?;
@@ -1900,6 +1941,12 @@ impl SemanticWorldV3 {
                         }
                     }
                 }
+            }
+            for expansion in &analysis.known_invalid_positional_expansions {
+                if expansion.source_range.start > expansion.source_range.end {
+                    return Err(invalid("known-invalid positional expansion source range is inverted"));
+                }
+                self.validate_denotation_type(expansion.source_type)?;
             }
             for literal in &analysis.sequence_literals {
                 if literal.source_range.start > literal.source_range.end {
@@ -1988,6 +2035,35 @@ impl SemanticWorldV3 {
                     }
                 }
             }
+            for application in &analysis.family_applications {
+                self.validate_denotation_type(application.family_type)?;
+                match &application.selection {
+                    CallableFamilyApplicationSelectionV1::Static { operation, target, callable_type, result_type } => {
+                        validate_family_operation_shape(operation, limits)?;
+                        if let Some(target) = target {
+                            self.validate_invocation_target(target)?;
+                        }
+                        self.validate_denotation_type(*callable_type)?;
+                        self.validate_denotation_type(*result_type)?;
+                    }
+                    CallableFamilyApplicationSelectionV1::Dynamic { candidates, result_type } => {
+                        if candidates.len() > limits.max_semantic_entries_per_family {
+                            return Err(invalid("family application candidate count exceeds its owner-local limit"));
+                        }
+                        for candidate in candidates {
+                            validate_family_operation_shape(&candidate.operation, limits)?;
+                            if let Some(target) = &candidate.target {
+                                self.validate_invocation_target(target)?;
+                            }
+                            self.validate_denotation_type(candidate.callable_type)?;
+                        }
+                        if let Some(result_type) = result_type {
+                            self.validate_denotation_type(*result_type)?;
+                        }
+                    }
+                }
+            }
+            proof::validate_callable_proofs(Some(self), analysis, limits)?;
             self.validate_callable_flow_state(analysis, &analysis.entry_flow, limits)?;
             for exit in &analysis.normal_returns {
                 self.validate_callable_flow_state(analysis, &exit.flow, limits)?;
@@ -4737,20 +4813,14 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
         if record.expressions.len() > limits.max_semantic_entries_per_family || record.bindings.len() > limits.max_semantic_entries_per_family {
             return Err(invalid("callable expression or binding rows exceed their owner-local limit"));
         }
-        let unsupported = &record.unsupported_family_counts;
-        if unsupported.trait_dispatch_candidates != 0
-            || unsupported.contextual_realizations != 0
-            || unsupported.positional_expansions != 0
-            || unsupported.known_invalid_positional_expansions != 0
-            || unsupported.family_applications != 0
-        {
-            return Err(invalid("callable analysis contains a nonempty family outside the admitted portable profile"));
-        }
         for rows in [
             record.for_iteration_lanes.len(),
+            record.positional_expansions.len(),
+            record.known_invalid_positional_expansions.len(),
             record.sequence_literals.len(),
             record.associated_resolutions.len(),
             record.callable_reference_resolutions.len(),
+            record.family_applications.len(),
             record.normal_returns.len(),
             record.throws.len(),
         ] {
@@ -4759,13 +4829,19 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
             }
         }
         if record.for_iteration_lanes.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
+            || record.positional_expansions.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
+            || record.known_invalid_positional_expansions.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
             || record.sequence_literals.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
             || record.associated_resolutions.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
             || record.callable_reference_resolutions.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
+            || record.family_applications.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
             || record.for_iteration_lanes.iter().any(|row| row.expression as usize >= record.expressions.len())
+            || record.positional_expansions.iter().any(|row| row.expression as usize >= record.expressions.len())
+            || record.known_invalid_positional_expansions.iter().any(|row| row.expression as usize >= record.expressions.len())
             || record.sequence_literals.iter().any(|row| row.expression as usize >= record.expressions.len())
             || record.associated_resolutions.iter().any(|row| row.expression as usize >= record.expressions.len())
             || record.callable_reference_resolutions.iter().any(|row| row.expression as usize >= record.expressions.len())
+            || record.family_applications.iter().any(|row| row.expression as usize >= record.expressions.len())
         {
             return Err(invalid("callable resolution rows are not sorted or reference an absent expression"));
         }
@@ -4823,9 +4899,12 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
             record.flow_graph.edges.len(),
             record.flow_graph.exits.len(),
             record.for_iteration_lanes.len(),
+            record.positional_expansions.len(),
+            record.known_invalid_positional_expansions.len(),
             record.sequence_literals.len(),
             record.associated_resolutions.len(),
             record.callable_reference_resolutions.len(),
+            record.family_applications.len(),
             record.entry_flow.bindings.len(),
             record.entry_flow.fields.len(),
             record.normal_returns.len(),
@@ -4882,6 +4961,14 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
                     .iter()
                     .try_fold(total, |total, resolution| total.checked_add(resolution.members.len()))
             })
+            .and_then(|total| {
+                record.family_applications.iter().try_fold(total, |total, application| match &application.selection {
+                    CallableFamilyApplicationSelectionV1::Static { operation, .. } => total.checked_add(operation.slots.len()),
+                    CallableFamilyApplicationSelectionV1::Dynamic { candidates, .. } => {
+                        candidates.iter().try_fold(total.checked_add(candidates.len())?, |total, candidate| total.checked_add(candidate.operation.slots.len()))
+                    }
+                })
+            })
             .ok_or_else(|| invalid("callable resolution nested row count overflow"))?;
         let boundary_rows = std::iter::once(&record.entry_flow)
             .chain(record.normal_returns.iter().map(|exit| &exit.flow))
@@ -4890,6 +4977,9 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
                 total.checked_add(flow.bindings.len())?.checked_add(flow.fields.len())
             })
             .ok_or_else(|| invalid("callable flow-boundary row count overflow"))?;
+        let nested_rows = nested_rows
+            .checked_add(proof::validate_callable_proofs(None, record, limits)?)
+            .ok_or_else(|| invalid("callable proof row count overflow"))?;
         let nested_rows = nested_rows
             .checked_add(specialization_bindings)
             .and_then(|total| total.checked_add(specialization_conformances))
@@ -5221,7 +5311,7 @@ fn validate_callable_conformance_evidence_graph(
             }
         }
     }
-    for lane in &record.for_iteration_lanes {
+    for lane in record.for_iteration_lanes.iter().chain(&record.positional_expansions) {
         for requirement in [&lane.iterator, &lane.next] {
             if let CallableForIterationRequirementV1::Evidence { evidence, .. } = requirement {
                 validate_callable_evidence_reference(record, *evidence, None)?;

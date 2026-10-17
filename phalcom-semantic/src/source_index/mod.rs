@@ -1244,6 +1244,7 @@ mod tests {
                 family_applications: Arc::new(AnalysisMap::new()),
                 match_resolutions: Arc::new(AnalysisMap::new()),
                 pattern_site_resolutions: Arc::new(AnalysisMap::new()),
+                local_proof_graph: Arc::new(Default::default()),
                 flow_graph: Arc::new(FlowGraph::default()),
                 entry_flow: FlowStateSummary::default(),
                 exits: Default::default(),

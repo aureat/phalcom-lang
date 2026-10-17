@@ -166,7 +166,18 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
             semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.semantic_dependencies.len()).sum(),
         ),
     ];
-    eprintln!("canonical callable authority counts: {callable_authority_counts:#?}");
+    for family in [
+        "expressions",
+        "match_resolutions",
+        "pattern_site_resolutions",
+        "explanations",
+        "semantic_dependencies",
+    ] {
+        assert!(
+            callable_authority_counts.iter().any(|(name, count)| *name == family && *count > 0),
+            "Universe must exercise {family}"
+        );
+    }
     let mut associated_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
     let mut callable_reference_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
     let mut trait_dispatch_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
@@ -176,7 +187,10 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
     let mut pattern_space_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
     let mut exhaustiveness_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
     let mut branch_proof_counts = [0usize; 4];
-    fn count_pattern(pattern: &phalcom_semantic::match_semantics::PatternResolution, counts: &mut std::collections::BTreeMap<&'static str, usize>) {
+    fn count_pattern<R, S, K>(
+        pattern: &phalcom_semantic::match_semantics::PatternResolution<R, S, K>,
+        counts: &mut std::collections::BTreeMap<&'static str, usize>,
+    ) {
         use phalcom_semantic::match_semantics::PatternResolution;
         let kind = match pattern {
             PatternResolution::Wildcard => "wildcard",
@@ -256,6 +270,7 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
         *counts.entry(kind).or_default() += 1;
     }
     for (_, analysis) in semantic_snapshot.callable_analyses.iter() {
+        analysis.local_proof_graph.validate().expect("canonical callable has a closed acyclic proof graph");
         for resolution in analysis.associated_resolutions.values() {
             let kind = match &resolution.kind {
                 phalcom_semantic::checker::associated::AssociatedResolutionKind::ExactValue { .. } => "exact_value",
@@ -309,9 +324,6 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
                 branch_proof_counts[1] += arm.proof.equalities.len();
                 branch_proof_counts[2] += arm.proof.local_bindings.len();
                 branch_proof_counts[3] += arm.proof.local_equalities.len();
-                if !arm.proof.local_bindings.is_empty() || !arm.proof.local_equalities.is_empty() {
-                    eprintln!("canonical nonempty local branch proof: {:#?}", arm.proof);
-                }
             }
             let kind = match &resolution.exhaustiveness {
                 phalcom_semantic::match_semantics::ExhaustivenessResult::Proven => "proven",
@@ -324,15 +336,21 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
             count_pattern(&resolution.pattern, &mut pattern_kinds);
         }
     }
-    eprintln!("canonical associated kinds: {associated_kinds:#?}");
-    eprintln!("canonical callable reference kinds: {callable_reference_kinds:#?}");
-    eprintln!("canonical trait dispatch kinds: {trait_dispatch_kinds:#?}");
-    eprintln!("canonical explanation rules: {explanation_rules:#?}");
-    eprintln!("canonical explanation evidence: {explanation_evidence:#?}");
-    eprintln!("canonical pattern kinds: {pattern_kinds:#?}");
-    eprintln!("canonical pattern space kinds: {pattern_space_kinds:#?}");
-    eprintln!("canonical exhaustiveness kinds: {exhaustiveness_kinds:#?}");
-    eprintln!("canonical branch proof counts [bindings, equalities, local bindings, local equalities]: {branch_proof_counts:?}");
+    assert!(associated_kinds.get("static_invoke").copied().unwrap_or(0) > 0);
+    assert!(callable_reference_kinds.get("bound_family").copied().unwrap_or(0) > 0);
+    assert!(trait_dispatch_kinds.get("evidenced").copied().unwrap_or(0) > 0);
+    assert!(explanation_rules.get("generic_solution").copied().unwrap_or(0) > 0);
+    assert!(explanation_evidence.get("type").copied().unwrap_or(0) > 0);
+    assert!(pattern_kinds.get("variant").copied().unwrap_or(0) > 0);
+    assert!(pattern_space_kinds.get("blocked").copied().unwrap_or(0) > 0);
+    assert_eq!(
+        exhaustiveness_kinds.get("proven").copied().unwrap_or(0),
+        callable_authority_counts.iter().find(|(name, _)| *name == "match_resolutions").unwrap().1
+    );
+    assert!(
+        branch_proof_counts[2] > 0 && branch_proof_counts[3] > 0,
+        "Universe must retain local branch bindings and equalities"
+    );
     let program = canonical_universe_program().expect("canonical universe program must compile");
     let view = program.compiler_image_view().expect("compiler image view must be present");
     let limits = ValidationLimits::default();

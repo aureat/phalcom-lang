@@ -16,6 +16,7 @@ pub mod native;
 pub mod outcome;
 pub mod parameter;
 pub mod projection;
+pub mod proof;
 pub mod relation;
 pub mod rigid;
 pub mod row;

@@ -1943,6 +1943,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
 
     hash_match_resolutions(&analysis.match_resolutions, &mut hasher);
     hash_pattern_site_resolutions(&analysis.pattern_site_resolutions, &mut hasher);
+    analysis.local_proof_graph.hash(&mut hasher);
     hash_iteration_lanes(&analysis.for_iteration_lanes, &mut hasher);
     hash_positional_expansions(&analysis.positional_expansions, &mut hasher);
     hash_known_invalid_positional_expansions(&analysis.known_invalid_positional_expansions, &mut hasher);
@@ -2350,7 +2351,7 @@ fn hash_requirement_selection(selection: &crate::impls::RequirementSelectionTemp
     }
 }
 
-fn hash_match_resolutions(resolutions: &crate::match_semantics::MatchResolutionIndex, hasher: &mut impl Hasher) {
+fn hash_match_resolutions<R: Hash, S: Hash, K: Hash>(resolutions: &crate::match_semantics::MatchResolutionIndex<R, S, K>, hasher: &mut impl Hasher) {
     resolutions.len().hash(hasher);
     for (expr_id, resolution) in resolutions.iter() {
         expr_id.hash(hasher);
@@ -2358,7 +2359,7 @@ fn hash_match_resolutions(resolutions: &crate::match_semantics::MatchResolutionI
     }
 }
 
-fn hash_match_resolution(res: &crate::match_semantics::MatchResolution, hasher: &mut impl Hasher) {
+fn hash_match_resolution<R: Hash, S: Hash, K: Hash>(res: &crate::match_semantics::MatchResolution<R, S, K>, hasher: &mut impl Hasher) {
     res.expression.hash(hasher);
     hash_type_knowledge(&res.scrutinee, false, hasher);
     hash_pattern_space_summary(&res.initial_space, hasher);
@@ -2370,7 +2371,7 @@ fn hash_match_resolution(res: &crate::match_semantics::MatchResolution, hasher: 
     hash_exhaustiveness_result(&res.exhaustiveness, hasher);
 }
 
-fn hash_match_arm_resolution(arm: &crate::match_semantics::MatchArmResolution, hasher: &mut impl Hasher) {
+fn hash_match_arm_resolution<R: Hash, S: Hash, K: Hash>(arm: &crate::match_semantics::MatchArmResolution<R, S, K>, hasher: &mut impl Hasher) {
     arm.arm_index.hash(hasher);
     hash_pattern_resolution(&arm.pattern, hasher);
     hash_pattern_space_summary(&arm.reachable_space, hasher);
@@ -2380,6 +2381,7 @@ fn hash_match_arm_resolution(arm: &crate::match_semantics::MatchArmResolution, h
         b.binding.hash(hasher);
         b.name.hash(hasher);
         hash_type_knowledge(&b.knowledge, false, hasher);
+        b.local_type.hash(hasher);
         hash_range(b.source, hasher);
     }
     hash_branch_proof_environment(&arm.proof, hasher);
@@ -2391,7 +2393,10 @@ fn hash_match_arm_resolution(arm: &crate::match_semantics::MatchArmResolution, h
     hash_type_knowledge(&arm.branch_result, false, hasher);
 }
 
-fn hash_pattern_site_resolutions(resolutions: &crate::match_semantics::PatternSiteResolutionIndex, hasher: &mut impl Hasher) {
+fn hash_pattern_site_resolutions<R: Hash, S: Hash, K: Hash>(
+    resolutions: &crate::match_semantics::PatternSiteResolutionIndex<R, S, K>,
+    hasher: &mut impl Hasher,
+) {
     resolutions.len().hash(hasher);
     for (key, resolution) in resolutions.iter() {
         match key.kind {
@@ -2404,7 +2409,7 @@ fn hash_pattern_site_resolutions(resolutions: &crate::match_semantics::PatternSi
     }
 }
 
-fn hash_pattern_site_resolution(res: &crate::match_semantics::PatternSiteResolution, hasher: &mut impl Hasher) {
+fn hash_pattern_site_resolution<R: Hash, S: Hash, K: Hash>(res: &crate::match_semantics::PatternSiteResolution<R, S, K>, hasher: &mut impl Hasher) {
     match res.kind {
         crate::match_semantics::PatternSiteKind::IfLet => 0u8.hash(hasher),
         crate::match_semantics::PatternSiteKind::WhileLet => 1u8.hash(hasher),
@@ -2418,6 +2423,7 @@ fn hash_pattern_site_resolution(res: &crate::match_semantics::PatternSiteResolut
         b.binding.hash(hasher);
         b.name.hash(hasher);
         hash_type_knowledge(&b.knowledge, false, hasher);
+        b.local_type.hash(hasher);
         hash_range(b.source, hasher);
     }
     match res.usefulness {
@@ -2427,7 +2433,7 @@ fn hash_pattern_site_resolution(res: &crate::match_semantics::PatternSiteResolut
     }
 }
 
-fn hash_pattern_resolution(pat: &crate::match_semantics::PatternResolution, hasher: &mut impl Hasher) {
+fn hash_pattern_resolution<R: Hash, S: Hash, K: Hash>(pat: &crate::match_semantics::PatternResolution<R, S, K>, hasher: &mut impl Hasher) {
     match pat {
         crate::match_semantics::PatternResolution::Wildcard => 0u8.hash(hasher),
         crate::match_semantics::PatternResolution::Binding { binding, name, knowledge } => {
@@ -2440,6 +2446,10 @@ fn hash_pattern_resolution(pat: &crate::match_semantics::PatternResolution, hash
             2u8.hash(hasher);
             v.owner.hash(hasher);
             v.family.hash(hasher);
+            v.blocked.is_some().hash(hasher);
+            if let Some(reason) = &v.blocked {
+                hash_block_reason(reason, hasher);
+            }
             v.owner_candidates.len().hash(hasher);
             for owner in v.owner_candidates.iter() {
                 owner.hash(hasher);
@@ -2463,9 +2473,19 @@ fn hash_pattern_resolution(pat: &crate::match_semantics::PatternResolution, hash
                 for f in c.fields.iter() {
                     f.field.hash(hasher);
                     hash_type_knowledge(&f.field_type, false, hasher);
+                    f.local_type.hash(hasher);
                     hash_pattern_resolution(&f.child, hasher);
                 }
                 hash_branch_proof_environment(&c.proof, hasher);
+                c.case_instantiation.is_some().hash(hasher);
+                if let Some(case) = &c.case_instantiation {
+                    case.variant.hash(hasher);
+                    case.scope.hash(hasher);
+                    case.local_rigids.hash(hasher);
+                    case.payload_types.hash(hasher);
+                    case.result_type.hash(hasher);
+                    case.constraints.hash(hasher);
+                }
             }
         }
         crate::match_semantics::PatternResolution::Or(or_pat) => {
@@ -2558,7 +2578,9 @@ fn hash_pattern_space_summary(space: &crate::match_semantics::PatternSpaceSummar
     }
 }
 
-fn hash_branch_proof_environment(proof: &crate::match_semantics::BranchProofEnvironment, hasher: &mut impl Hasher) {
+fn hash_branch_proof_environment<R: Hash, K: Hash>(proof: &crate::match_semantics::BranchProofEnvironment<R, K>, hasher: &mut impl Hasher) {
+    proof.local_bindings.hash(hasher);
+    proof.local_equalities.hash(hasher);
     proof.bindings.len().hash(hasher);
     for (param, ty) in &proof.bindings {
         param.hash(hasher);

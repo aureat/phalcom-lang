@@ -50,6 +50,7 @@ pub const CALLABLE_ANALYSIS_FIELD_MANIFEST: &[CallableAnalysisFieldManifestRow] 
     CallableAnalysisFieldManifestRow { field_name: "callable_reference_resolutions", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
     CallableAnalysisFieldManifestRow { field_name: "family_applications", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
     CallableAnalysisFieldManifestRow { field_name: "match_resolutions", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
+    CallableAnalysisFieldManifestRow { field_name: "local_proof_graph", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
     CallableAnalysisFieldManifestRow { field_name: "pattern_site_resolutions", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
     CallableAnalysisFieldManifestRow { field_name: "flow_graph", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
     CallableAnalysisFieldManifestRow { field_name: "entry_flow", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },

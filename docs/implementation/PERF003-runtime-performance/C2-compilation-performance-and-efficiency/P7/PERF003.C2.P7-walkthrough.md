@@ -1,5 +1,22 @@
 # PERF003.C2.P7 walkthrough and corrections
 
+## Family and expansion transport continuation — 2026-10-16
+
+Added portable static/dynamic family applications, executable positional
+expansions, and known-invalid expansion facts. Import preserves checked
+selections, candidate order, optional targets/results, and iteration evidence
+in frozen budgeted indexes. The new export regressions first failed at the
+unsupported-family preflight and passed after transport was implemented.
+Focused tests cover fresh relocation, exact-fit/N-1 ledger behavior, and rollback
+after a malformed later row. The persisted zero-only family counter was removed.
+
+The semantic artifact unit module passes 37/37. The affected wire suite passes
+12/16; its four inherited decode failures are `Allocation(UnaccountedBoundary)`.
+The required core test remains blocked by callable export completeness. No
+source-free compilation, deterministic artifact publication, or whole-load
+allocation proof passed. The checkpoint records the exact commands and the
+open T6 local-proof identity consultation. P7 remains partial/unverified.
+
 ## Owner, type-root, and allocation continuation — 2026-10-15
 
 **P7 status remains IN_PROGRESS / PARTIAL / UNVERIFIED; P8 remains blocked.**

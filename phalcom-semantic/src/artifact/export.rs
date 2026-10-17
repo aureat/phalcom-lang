@@ -1,5 +1,7 @@
 //! Semantic-owned artifact export for structural primary contracts (`PERF003.C2.P7.T7.A`).
 
+mod proof;
+
 use crate::data_semantics::{DataComponentSemantic, DataConstructorParameter, DataProductContribution, DataSemanticTable, DataShape};
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::declarations::DeclarationTypeTable;
@@ -2471,31 +2473,6 @@ fn export_callable_analysis_record(
     bindings.sort_unstable_by_key(|binding| binding.ordinal);
 
     use phalcom_compiler_artifact::semantic::world as wire;
-    let unsupported_family_counts = wire::CallableAnalysisUnsupportedFamilyCountsV1 {
-        trait_dispatch_candidates: u32::try_from(
-            analysis.expressions.values().filter(|expression| expression.trait_dispatch_candidates.is_some()).count(),
-        )
-        .map_err(|_| referential("trait dispatch candidate count exceeds portable range"))?,
-        contextual_realizations: u32::try_from(
-            analysis.expressions.values().filter(|expression| expression.contextual_realization.is_some()).count(),
-        )
-        .map_err(|_| referential("contextual realization count exceeds portable range"))?,
-        positional_expansions: u32::try_from(analysis.positional_expansions.len())
-            .map_err(|_| referential("positional expansion count exceeds portable range"))?,
-        known_invalid_positional_expansions: u32::try_from(analysis.known_invalid_positional_expansions.len())
-            .map_err(|_| referential("invalid positional expansion count exceeds portable range"))?,
-        family_applications: u32::try_from(analysis.family_applications.len())
-            .map_err(|_| referential("family application count exceeds portable range"))?,
-    };
-    if unsupported_family_counts.trait_dispatch_candidates != 0
-        || unsupported_family_counts.contextual_realizations != 0
-        || unsupported_family_counts.positional_expansions != 0
-        || unsupported_family_counts.known_invalid_positional_expansions != 0
-        || unsupported_family_counts.family_applications != 0
-    {
-        return Err(referential("callable analysis contains a nonempty family outside the admitted portable profile"));
-    }
-
     let mut for_iteration_lanes = Vec::with_capacity(analysis.for_iteration_lanes.len());
     for (expression, lane) in analysis.for_iteration_lanes.iter() {
         if expression != &lane.source_expression {
@@ -2516,6 +2493,43 @@ fn export_callable_analysis_record(
         });
     }
     for_iteration_lanes.sort_unstable_by_key(|lane| lane.expression);
+
+    let mut positional_expansions = Vec::with_capacity(analysis.positional_expansions.len());
+    for (expression, expansion) in analysis.positional_expansions.iter() {
+        if expression != &expansion.source_expression {
+            return Err(referential("positional expansion key disagrees with its source expression"));
+        }
+        let expression = *ordinals
+            .expressions
+            .get(expression)
+            .ok_or_else(|| referential("positional expansion references an absent owner-local expression"))?;
+        positional_expansions.push(wire::CallablePositionalExpansionV1 {
+            expression,
+            source_range: export_source_range(expansion.source_range)?,
+            source_type: types.ty(expansion.source_type)?,
+            item_type: types.ty(expansion.item_type)?,
+            iterator_type: types.ty(expansion.iterator_type)?,
+            iterator: conformance_export.for_iteration_requirement(&expansion.iterator, 0)?,
+            next: conformance_export.for_iteration_requirement(&expansion.next, 0)?,
+        });
+    }
+    positional_expansions.sort_unstable_by_key(|expansion| expansion.expression);
+    let mut known_invalid_positional_expansions = Vec::with_capacity(analysis.known_invalid_positional_expansions.len());
+    for (expression, expansion) in analysis.known_invalid_positional_expansions.iter() {
+        if expression != &expansion.source_expression {
+            return Err(referential("known-invalid positional expansion key disagrees with its source expression"));
+        }
+        let expression = *ordinals
+            .expressions
+            .get(expression)
+            .ok_or_else(|| referential("known-invalid positional expansion references an absent owner-local expression"))?;
+        known_invalid_positional_expansions.push(wire::CallableKnownInvalidPositionalExpansionV1 {
+            expression,
+            source_range: export_source_range(expansion.source_range)?,
+            source_type: types.ty(expansion.source_type)?,
+        });
+    }
+    known_invalid_positional_expansions.sort_unstable_by_key(|expansion| expansion.expression);
 
     let mut sequence_literals = Vec::with_capacity(analysis.sequence_literals.len());
     for (expression, literal) in analysis.sequence_literals.iter() {
@@ -2672,6 +2686,51 @@ fn export_callable_analysis_record(
     }
     callable_reference_resolutions.sort_unstable_by_key(|resolution| resolution.expression);
 
+    let mut family_applications = Vec::with_capacity(analysis.family_applications.len());
+    for (expression, application) in analysis.family_applications.iter() {
+        use crate::checker::associated::{FamilyApplicationKind, FamilyApplicationSelection};
+        let expression = *ordinals
+            .expressions
+            .get(expression)
+            .ok_or_else(|| referential("family application references an absent owner-local expression"))?;
+        let selection = match &application.selection {
+            FamilyApplicationSelection::Static {
+                operation,
+                target,
+                callable_type,
+                result_type,
+            } => wire::CallableFamilyApplicationSelectionV1::Static {
+                operation: export_family_operation_shape(operation),
+                target: target.as_ref().map(export_invocation_target),
+                callable_type: types.ty(*callable_type)?,
+                result_type: types.ty(*result_type)?,
+            },
+            FamilyApplicationSelection::Dynamic { candidates, result_type } => wire::CallableFamilyApplicationSelectionV1::Dynamic {
+                candidates: candidates
+                    .iter()
+                    .map(|candidate| {
+                        Ok(wire::CallableFamilyApplicationCandidateV1 {
+                            operation: export_family_operation_shape(&candidate.operation),
+                            target: candidate.target.as_ref().map(export_invocation_target),
+                            callable_type: types.ty(candidate.callable_type)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ArtifactError>>()?,
+                result_type: result_type.map(|ty| types.ty(ty)).transpose()?,
+            },
+        };
+        family_applications.push(wire::CallableFamilyApplicationV1 {
+            expression,
+            family_type: types.ty(application.family_type)?,
+            kind: match application.kind {
+                FamilyApplicationKind::Associated => wire::CallableFamilyApplicationKindV1::Associated,
+                FamilyApplicationKind::Behavioral => wire::CallableFamilyApplicationKindV1::Behavioral,
+            },
+            selection,
+        });
+    }
+    family_applications.sort_unstable_by_key(|application| application.expression);
+
     let entry_flow = export_callable_flow_state(&analysis.entry_flow, &ordinals, types)?;
     let normal_returns = analysis
         .exits
@@ -2708,6 +2767,7 @@ fn export_callable_analysis_record(
             })
         })
         .transpose()?;
+    let (local_proof_graph, match_resolutions, pattern_site_resolutions) = proof::export_callable_proofs(analysis, &ordinals, types)?;
     Ok(CallableAnalysisRecordV1 {
         callable: to_stable_callable(callable_id),
         body_source_owner: analysis.body_source_owner.as_ref().map(|owner| match owner {
@@ -2729,11 +2789,16 @@ fn export_callable_analysis_record(
         expressions,
         conformance_evidence: conformance_export.nodes,
         bindings,
-        unsupported_family_counts,
         for_iteration_lanes,
+        positional_expansions,
+        known_invalid_positional_expansions,
         sequence_literals,
         associated_resolutions,
         callable_reference_resolutions,
+        family_applications,
+        local_proof_graph,
+        match_resolutions,
+        pattern_site_resolutions,
         entry_flow,
         normal_returns,
         throws,
@@ -4678,6 +4743,7 @@ mod callable_analysis_status_tests {
             family_applications: std::sync::Arc::new(Default::default()),
             match_resolutions: std::sync::Arc::new(Default::default()),
             pattern_site_resolutions: std::sync::Arc::new(Default::default()),
+            local_proof_graph: std::sync::Arc::new(Default::default()),
             flow_graph: std::sync::Arc::new(crate::checker::flow::graph::FlowGraph::default()),
             entry_flow: FlowStateSummary::default(),
             exits: BodyExitFacts {
@@ -5045,7 +5111,7 @@ mod callable_analysis_status_tests {
         assert!(export_callable_analysis_record(&wrong_key, &analysis, &binding_source_authorities, &types, &ValidationLimits::default()).is_err());
     }
 
-    fn empty_callable_analysis(callable: crate::identity::CallableId) -> crate::checker::analysis::CallableAnalysis {
+    pub(super) fn empty_callable_analysis(callable: crate::identity::CallableId) -> crate::checker::analysis::CallableAnalysis {
         use crate::checker::analysis::{BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, FlowStateSummary};
         use crate::signature::ReturnContractValidation;
         use phalcom_common::range::SourceRange;
@@ -5067,6 +5133,7 @@ mod callable_analysis_status_tests {
             family_applications: Arc::new(Default::default()),
             match_resolutions: Arc::new(Default::default()),
             pattern_site_resolutions: Arc::new(Default::default()),
+            local_proof_graph: Arc::new(Default::default()),
             flow_graph: Arc::new(crate::checker::flow::graph::FlowGraph::default()),
             entry_flow: FlowStateSummary::default(),
             exits: BodyExitFacts {
@@ -5129,6 +5196,341 @@ mod callable_analysis_status_tests {
             empty_record, denoted_record,
             "a denotation is owned expression data and must be represented in the callable-analysis record"
         );
+    }
+
+    #[test]
+    fn callable_analysis_record_preserves_static_and_dynamic_family_applications() {
+        use crate::checker::analysis::ExpressionAnalysis;
+        use crate::checker::associated::{FamilyApplicationCandidate, FamilyApplicationKind, FamilyApplicationResolution, FamilyApplicationSelection};
+        use crate::identity::{BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, InvocationTargetId, LocalExpressionId, ModuleId};
+        use crate::types::evidence::{TypeKnowledge, UnknownReason};
+        use crate::types::family::FamilyOperationShape;
+        use phalcom_common::selector::{Selector, SelectorSlot};
+        use std::sync::Arc;
+
+        let owner = DeclarationId::new(ModuleId::universe_root(), "FamilyApplicationOwner".into());
+        let callable = CallableId::method(owner.clone(), Selector::getter("apply").unwrap(), DispatchSide::Instance);
+        let mut source = empty_callable_analysis(callable.clone());
+        let mut store = crate::types::store::TypeStore::new();
+        let family_type = store.nominal_type(owner);
+        let result_type = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "FamilyResult".into()));
+        let target = InvocationTargetId::behavioral(callable.clone());
+        let selections = [
+            FamilyApplicationSelection::Static {
+                operation: FamilyOperationShape::getter(),
+                target: Some(target.clone()),
+                callable_type: family_type,
+                result_type,
+            },
+            FamilyApplicationSelection::Static {
+                operation: FamilyOperationShape::setter(),
+                target: None,
+                callable_type: family_type,
+                result_type,
+            },
+            FamilyApplicationSelection::Dynamic {
+                candidates: vec![
+                    FamilyApplicationCandidate {
+                        operation: FamilyOperationShape::method(vec![SelectorSlot::Positional]),
+                        target: None,
+                        callable_type: family_type,
+                    },
+                    FamilyApplicationCandidate {
+                        operation: FamilyOperationShape::getter(),
+                        target: Some(target),
+                        callable_type: result_type,
+                    },
+                ]
+                .into_boxed_slice(),
+                result_type: Some(result_type),
+            },
+            FamilyApplicationSelection::Dynamic {
+                candidates: Box::default(),
+                result_type: None,
+            },
+        ];
+        let mut families = crate::checker::associated::FamilyApplicationResolutionIndex::new();
+        for (index, selection) in selections.into_iter().enumerate() {
+            let id = ExpressionId::new(BodyId(71), LocalExpressionId((index * 3 + 5) as u32));
+            source
+                .expressions
+                .insert_source(
+                    id,
+                    ExpressionAnalysis::ready(
+                        id,
+                        phalcom_common::range::SourceRange { start: index, end: index + 1 },
+                        TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                    ),
+                )
+                .unwrap();
+            families
+                .insert_source(
+                    id,
+                    FamilyApplicationResolution {
+                        family_type,
+                        kind: if index % 2 == 0 {
+                            FamilyApplicationKind::Associated
+                        } else {
+                            FamilyApplicationKind::Behavioral
+                        },
+                        selection,
+                    },
+                )
+                .unwrap();
+        }
+        source.family_applications = Arc::new(families);
+        let mut types = crate::types::store::artifact::TypeExportContext::new(&store);
+        crate::artifact::roots::register_callable_analysis_roots(&mut types, &source, &store).unwrap();
+        types.close_graph(&store, &ValidationLimits::default()).unwrap();
+        let record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &ValidationLimits::default())
+            .expect("checked family applications must have portable owner rows");
+        let graph = types.project_graph(&store, &ValidationLimits::default()).unwrap();
+        let (_fresh_store, relocation) = crate::types::store::TypeStore::import_type_graph(&graph, &ValidationLimits::default()).unwrap();
+        let mut budget = phalcom_type_meta::allocation::AllocationBudget::new(1 << 20);
+        let restored = crate::artifact::import::import_callable_family_applications(&record, BodyId(0), &relocation, &mut budget).unwrap();
+        assert!(restored.is_frozen());
+        assert_eq!(restored.len(), source.family_applications.len());
+        for (index, ((id, restored), source)) in restored.iter().zip(source.family_applications.values()).enumerate() {
+            assert_eq!(*id, ExpressionId::new(BodyId(0), LocalExpressionId(index as u32)));
+            assert_eq!(restored.family_type, relocation.ty(types.ty(source.family_type).unwrap()).unwrap());
+            assert_eq!(restored.kind, source.kind);
+            match (&restored.selection, &source.selection) {
+                (
+                    FamilyApplicationSelection::Static {
+                        operation,
+                        target,
+                        callable_type,
+                        result_type,
+                    },
+                    FamilyApplicationSelection::Static {
+                        operation: expected_operation,
+                        target: expected_target,
+                        callable_type: expected_callable,
+                        result_type: expected_result,
+                    },
+                ) => {
+                    assert_eq!(operation, expected_operation);
+                    assert_eq!(target, expected_target);
+                    assert_eq!(*callable_type, relocation.ty(types.ty(*expected_callable).unwrap()).unwrap());
+                    assert_eq!(*result_type, relocation.ty(types.ty(*expected_result).unwrap()).unwrap());
+                }
+                (
+                    FamilyApplicationSelection::Dynamic { candidates, result_type },
+                    FamilyApplicationSelection::Dynamic {
+                        candidates: expected_candidates,
+                        result_type: expected_result,
+                    },
+                ) => {
+                    assert_eq!(*result_type, expected_result.map(|ty| relocation.ty(types.ty(ty).unwrap()).unwrap()));
+                    assert_eq!(candidates.len(), expected_candidates.len());
+                    for (candidate, expected) in candidates.iter().zip(expected_candidates.iter()) {
+                        assert_eq!(candidate.operation, expected.operation);
+                        assert_eq!(candidate.target, expected.target);
+                        assert_eq!(candidate.callable_type, relocation.ty(types.ty(expected.callable_type).unwrap()).unwrap());
+                    }
+                }
+                _ => panic!("family application changed selection kind"),
+            }
+        }
+        let requested = budget.requested();
+        for capacity in [requested, requested - 1] {
+            let mut limited = phalcom_type_meta::allocation::AllocationBudget::new(capacity);
+            let result = crate::artifact::import::import_callable_family_applications(&record, BodyId(0), &relocation, &mut limited);
+            assert_eq!(result.is_ok(), capacity == requested);
+            assert_eq!(limited.requested(), if capacity == requested { requested } else { 0 });
+        }
+        let mut malformed = record;
+        malformed.family_applications.last_mut().unwrap().expression = u32::MAX;
+        let mut rejected = phalcom_type_meta::allocation::AllocationBudget::new(1 << 20);
+        assert!(crate::artifact::import::import_callable_family_applications(&malformed, BodyId(0), &relocation, &mut rejected).is_err());
+        assert_eq!(rejected.requested(), 0);
+    }
+
+    #[test]
+    fn callable_analysis_record_preserves_positional_expansion_authority() {
+        use crate::checker::analysis::{
+            ExpressionAnalysis, ForIterationRequirementResolution, KnownInvalidPositionalExpansion, PositionalExpansionIterationResolution,
+        };
+        use crate::identity::{BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId};
+        use crate::types::evidence::{TypeKnowledge, UnknownReason};
+        use phalcom_common::range::SourceRange;
+        use phalcom_common::selector::Selector;
+        use std::sync::Arc;
+
+        let owner = DeclarationId::new(ModuleId::universe_root(), "ExpansionOwner".into());
+        let callable = CallableId::method(owner.clone(), Selector::getter("expand").unwrap(), DispatchSide::Instance);
+        let requirement = crate::traits::TraitRequirementId {
+            owner: owner.clone(),
+            selector: callable.selector.clone(),
+            side: callable.side,
+        };
+        let signature = crate::signature::CallableSemanticSignature {
+            callable: callable.clone(),
+            owner: owner.clone(),
+            side: callable.side,
+            selector: callable.selector.clone(),
+            generics: None,
+            parameters: Box::default(),
+            declared_return: crate::declaration_type::DeclaredTypeFact::unknown(UnknownReason::NoTypeEvidence),
+            return_validation: crate::signature::ReturnContractValidation::NotApplicable,
+            inferred_return: None,
+            source: None,
+            implementation: phalcom_common::modifier::ImplementationKind::Phalcom,
+            native_id: None,
+            effects: phalcom_native_meta::EffectSpec::Unknown,
+            raises: phalcom_native_meta::RaisesSpec::Unknown,
+            flow: phalcom_native_meta::ReturnFlowSpec::Value,
+            lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
+        };
+        let mut source = empty_callable_analysis(callable.clone());
+        let mut store = crate::types::store::TypeStore::new();
+        let source_type = store.nominal_type(owner);
+        let item_type = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "ExpansionItem".into()));
+        let iterator_type = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "ExpansionIterator".into()));
+        let conformance = crate::generic_evidence::GenericConformanceKey::new(
+            crate::types::parameter::TypeTerm::Canonical(iterator_type),
+            crate::traits::TraitRef::new(requirement.owner.clone(), Box::default()),
+        );
+        let evidence =
+            crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(Arc::new(crate::generic_evidence::CompilerDerivedConformanceEvidence {
+                key: conformance.clone(),
+                kind: crate::generic_evidence::CompilerDerivedConformanceKind::OrderedProduct,
+                classification: crate::structural::StructuralClassification::OrderedProduct(crate::structural::OrderedProductForm::Tuple),
+            }));
+        let ids = [
+            ExpressionId::new(BodyId(91), LocalExpressionId(7)),
+            ExpressionId::new(BodyId(91), LocalExpressionId(13)),
+        ];
+        for (index, id) in ids.into_iter().enumerate() {
+            source
+                .expressions
+                .insert_source(
+                    id,
+                    ExpressionAnalysis::ready(
+                        id,
+                        SourceRange { start: index, end: index + 1 },
+                        TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                    ),
+                )
+                .unwrap();
+        }
+        let mut expansions = crate::checker::analysis::PositionalExpansionIterationResolutionIndex::new();
+        expansions
+            .insert_source(
+                ids[0],
+                PositionalExpansionIterationResolution {
+                    source_expression: ids[0],
+                    source_range: SourceRange { start: 1, end: 4 },
+                    source_type,
+                    item_type,
+                    iterator_type,
+                    iterator: ForIterationRequirementResolution::AbstractRequirement {
+                        requirement: requirement.clone(),
+                        signature: signature.clone(),
+                    },
+                    next: ForIterationRequirementResolution::Evidence {
+                        conformance,
+                        evidence,
+                        requirement,
+                        signature,
+                    },
+                },
+            )
+            .unwrap();
+        source.positional_expansions = Arc::new(expansions);
+        let mut invalid = crate::checker::analysis::KnownInvalidPositionalExpansionIndex::new();
+        invalid
+            .insert_source(
+                ids[1],
+                KnownInvalidPositionalExpansion {
+                    source_expression: ids[1],
+                    source_range: SourceRange { start: 4, end: 7 },
+                    source_type,
+                },
+            )
+            .unwrap();
+        source.known_invalid_positional_expansions = Arc::new(invalid);
+        let mut types = crate::types::store::artifact::TypeExportContext::new(&store);
+        crate::artifact::roots::register_callable_analysis_roots(&mut types, &source, &store).unwrap();
+        types.close_graph(&store, &ValidationLimits::default()).unwrap();
+        let mut record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &ValidationLimits::default())
+            .expect("both executable and known-invalid expansion authority must be transported");
+        let limits = ValidationLimits::default();
+        let graph = types.project_graph(&store, &limits).unwrap();
+        let (fresh_store, relocation) = crate::types::store::TypeStore::import_type_graph(&graph, &limits).unwrap();
+        let mut budget = phalcom_type_meta::allocation::AllocationBudget::new(1 << 20);
+        let restored = crate::artifact::import::import_callable_resolution_authority(
+            &record,
+            BodyId(0),
+            &relocation,
+            &fresh_store,
+            &BTreeMap::new(),
+            &limits,
+            &mut budget,
+        )
+        .unwrap();
+        assert!(restored.positional_expansions.is_frozen());
+        assert!(restored.known_invalid_positional_expansions.is_frozen());
+        let expansion = restored.positional_expansions.get(&ExpressionId::new(BodyId(0), LocalExpressionId(0))).unwrap();
+        assert_eq!(expansion.source_expression, ExpressionId::new(BodyId(0), LocalExpressionId(0)));
+        assert_eq!(expansion.source_range, SourceRange { start: 1, end: 4 });
+        assert_eq!(expansion.source_type, relocation.ty(types.ty(source_type).unwrap()).unwrap());
+        assert_eq!(expansion.item_type, relocation.ty(types.ty(item_type).unwrap()).unwrap());
+        assert_eq!(expansion.iterator_type, relocation.ty(types.ty(iterator_type).unwrap()).unwrap());
+        let expected = source.positional_expansions.get(&ids[0]).unwrap();
+        assert_eq!(expansion.iterator, expected.iterator);
+        let ForIterationRequirementResolution::Evidence {
+            conformance,
+            evidence,
+            requirement,
+            signature,
+        } = &expansion.next
+        else {
+            panic!("expansion lost checked conformance evidence")
+        };
+        assert_eq!(conformance.subject, crate::types::parameter::TypeTerm::Canonical(expansion.iterator_type));
+        assert_eq!(conformance.trait_ref.declaration, requirement.owner);
+        assert_eq!(signature.callable, callable);
+        let crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence) = evidence else {
+            panic!("expansion evidence changed kind")
+        };
+        assert_eq!(&evidence.key, conformance);
+        let invalid = restored
+            .known_invalid_positional_expansions
+            .get(&ExpressionId::new(BodyId(0), LocalExpressionId(1)))
+            .unwrap();
+        assert_eq!(invalid.source_range, SourceRange { start: 4, end: 7 });
+        assert_eq!(invalid.source_type, expansion.source_type);
+        let requested = budget.requested();
+        for capacity in [requested, requested - 1] {
+            let mut limited = phalcom_type_meta::allocation::AllocationBudget::new(capacity);
+            let result = crate::artifact::import::import_callable_resolution_authority(
+                &record,
+                BodyId(0),
+                &relocation,
+                &fresh_store,
+                &BTreeMap::new(),
+                &limits,
+                &mut limited,
+            );
+            assert_eq!(result.is_ok(), capacity == requested);
+            assert_eq!(limited.requested(), if capacity == requested { requested } else { 0 });
+        }
+        record.known_invalid_positional_expansions[0].expression = u32::MAX;
+        let mut rejected = phalcom_type_meta::allocation::AllocationBudget::new(1 << 20);
+        assert!(
+            crate::artifact::import::import_callable_resolution_authority(
+                &record,
+                BodyId(0),
+                &relocation,
+                &fresh_store,
+                &BTreeMap::new(),
+                &limits,
+                &mut rejected,
+            )
+            .is_err()
+        );
+        assert_eq!(rejected.requested(), 0);
     }
 
     #[test]

@@ -3,14 +3,12 @@ use phalcom_compiler_artifact::semantic::aggregates::{StructuralPrimaryContracts
 use phalcom_compiler_artifact::semantic::static_value::StaticValueGraphV1;
 use phalcom_compiler_artifact::semantic::type_store::TypeGraphV1;
 use phalcom_compiler_artifact::semantic::world::{
-    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableAnalysisUnsupportedFamilyCountsV1,
-    CallableBindingAuthorityV1, CallableBindingConsistencyV1,
+    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1,
     CallableBindingRowV1, CallableCallSpecializationV1, CallableCausalInvalidityV1, CallableConformanceEvidenceNodeV1, CallableExactConformanceEvidenceV1,
     CallableExpressionRowV1, CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1, CallableFlowNodeV1,
-    CallableFlowStateSummaryV1,
-    CallableGenericCallConformanceBindingV1, CallableGenericCallConformanceSourceV1, CallableGenericConformanceProofRefV1, CallableInitializationStateV1,
-    CallableTypeEnvironmentV1, ConstructorSuperInitializerV1, EvidenceOriginV1, EvidenceSetV1, EvidenceStatusV1, GenericConformanceKeyV1, SemanticWorldV3,
-    ReturnContractValidationV1, TypeKnowledgeV1,
+    CallableFlowStateSummaryV1, CallableGenericCallConformanceBindingV1, CallableGenericCallConformanceSourceV1, CallableGenericConformanceProofRefV1,
+    CallableInitializationStateV1, CallableTypeEnvironmentV1, ConstructorSuperInitializerV1, EvidenceOriginV1, EvidenceSetV1, EvidenceStatusV1,
+    GenericConformanceKeyV1, ReturnContractValidationV1, SemanticWorldV3, TypeKnowledgeV1,
 };
 use phalcom_type_meta::identity::{
     StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableImplRef, StableModuleRef, StableProjectRef,
@@ -78,6 +76,367 @@ fn generic_conformance_key() -> GenericConformanceKeyV1 {
             arguments: vec![phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId(0)],
         },
     }
+}
+
+fn callable_proof_world() -> SemanticWorldV3 {
+    use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1};
+    use phalcom_compiler_artifact::semantic::world::*;
+    let mut world = world(CallableAnalysisStatusV1::Complete);
+    world.type_graph.kinds.push(KindV1::Type);
+    let record = &mut world.callable_analyses[0];
+    record.local_proof_graph = Some(CallableProofGraphV1 {
+        owner: record.callable.clone(),
+        scopes: vec![
+            CallableProofScopeV1 { parent: None },
+            CallableProofScopeV1 { parent: Some(0) },
+            CallableProofScopeV1 { parent: Some(0) },
+        ],
+        rigids: (0..3)
+            .map(|scope| CallableRigidV1 {
+                scope,
+                kind: ArtifactKindId(0),
+                origin: CallableRigidOriginV1::Synthetic,
+            })
+            .collect(),
+    });
+    record.pattern_site_resolutions.push(CallablePatternSiteResolutionV1 {
+        ordinal: 0,
+        kind: CallablePatternSiteKindV1::IfLet,
+        range: SpanV1 { start: 1, end: 2 },
+        subject: TypeKnowledgeV1::Unknown {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+        },
+        pattern: CallablePatternV1::Binding {
+            binding: 0,
+            name: "shared".into(),
+            knowledge: TypeKnowledgeV1::Unknown {
+                reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+            },
+        },
+        bindings: vec![CallablePatternBindingV1 {
+            binding: 0,
+            name: "shared".into(),
+            knowledge: TypeKnowledgeV1::Unknown {
+                reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+            },
+            local_type: Some(CallableLocalTypeV1::Rigid { rigid: 1 }),
+            source: SpanV1 { start: 1, end: 2 },
+        }],
+        usefulness: CallablePatternUsefulnessV1::Useful,
+    });
+    world
+}
+
+#[test]
+fn callable_proof_graph_validates_owner_closure_acyclicity_and_limits() {
+    use phalcom_compiler_artifact::semantic::world::*;
+    let source = callable_proof_world();
+    source.validate(&Default::default()).unwrap();
+    assert_eq!(source.encode().unwrap(), source.clone().encode().unwrap());
+    let reject = |mutant: SemanticWorldV3| assert!(mutant.validate(&Default::default()).is_err());
+    let mut wrong_owner = source.clone();
+    wrong_owner.callable_analyses[0].local_proof_graph.as_mut().unwrap().owner.selector = "another".into();
+    reject(wrong_owner);
+    let mut cyclic = source.clone();
+    cyclic.callable_analyses[0].local_proof_graph.as_mut().unwrap().scopes[0].parent = Some(1);
+    reject(cyclic);
+    let mut missing_scope = source.clone();
+    missing_scope.callable_analyses[0].local_proof_graph.as_mut().unwrap().rigids[0].scope = 99;
+    reject(missing_scope);
+    let mut missing_rigid = source.clone();
+    missing_rigid.callable_analyses[0].pattern_site_resolutions[0].bindings[0].local_type = Some(CallableLocalTypeV1::Rigid { rigid: 99 });
+    reject(missing_rigid);
+    let mut missing_kind = source.clone();
+    missing_kind.type_graph.kinds.clear();
+    reject(missing_kind);
+    let mut missing_graph = source.clone();
+    missing_graph.callable_analyses[0].local_proof_graph = None;
+    reject(missing_graph);
+    let mut missing_binding = source.clone();
+    missing_binding.callable_analyses[0].pattern_site_resolutions[0].bindings[0].binding = 99;
+    reject(missing_binding);
+    let mut too_deep = source.clone();
+    let term = &mut too_deep.callable_analyses[0].pattern_site_resolutions[0].bindings[0].local_type;
+    *term = Some(CallableLocalTypeV1::Union {
+        members: vec![term.take().unwrap()],
+    });
+    let limits = phalcom_compiler_artifact::ValidationLimits {
+        max_recursion_depth: 0,
+        ..Default::default()
+    };
+    assert!(too_deep.validate(&limits).is_err());
+}
+
+#[test]
+fn callable_proof_case_terms_obey_scope_visibility_and_distinguish_independent_openings() {
+    use phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId;
+    use phalcom_compiler_artifact::semantic::world::*;
+    let mut world = callable_proof_world();
+    let record = &mut world.callable_analyses[0];
+    let variant = phalcom_type_meta::identity::StableVariantRef {
+        owner: owner_ref(),
+        selector: "Some(_)".into(),
+    };
+    let proof = CallableBranchProofV1 {
+        bindings: vec![],
+        equalities: vec![],
+        local_bindings: vec![],
+        local_equalities: vec![],
+    };
+    record.pattern_site_resolutions[0].pattern = CallablePatternV1::Variant {
+        owner: Some(owner_ref()),
+        family: None,
+        owner_candidates: vec![],
+        selector: CallableVariantSelectorV1::WholeFamily,
+        candidates: vec![CallableVariantCandidateV1 {
+            variant: variant.clone(),
+            exact_case: ArtifactTypeId(0),
+            fields: vec![],
+            proof,
+            case_instantiation: Some(CallableCaseInstantiationV1 {
+                variant,
+                scope: 1,
+                local_rigids: vec![],
+                payload_types: vec![CallableLocalTypeV1::Rigid { rigid: 0 }],
+                result_type: CallableLocalTypeV1::Rigid { rigid: 1 },
+                constraints: vec![],
+            }),
+        }],
+        blocked: None,
+    };
+    // This discriminator concerns local closure; the full-world checker separately
+    // requires canonical variant/type authorities, absent from this small fixture.
+    record.validate_proof_graph(&Default::default()).unwrap();
+    let CallablePatternV1::Variant { candidates, .. } = &mut record.pattern_site_resolutions[0].pattern else {
+        unreachable!()
+    };
+    candidates[0].case_instantiation.as_mut().unwrap().payload_types[0] = CallableLocalTypeV1::Rigid { rigid: 2 };
+    assert!(
+        record.validate_proof_graph(&Default::default()).is_err(),
+        "a sibling opening is not an ancestor-visible rigid"
+    );
+}
+
+#[test]
+fn callable_resolution_family_applications_validate_local_closure_and_nested_limits() {
+    use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeV1};
+    use phalcom_compiler_artifact::semantic::world::{
+        CallableFamilyApplicationCandidateV1, CallableFamilyApplicationKindV1, CallableFamilyApplicationSelectionV1, CallableFamilyApplicationV1,
+        FamilyOperationShapeV1, InvocationTargetV1, SelectorKindV1, SelectorSlotV1,
+    };
+
+    let mut image = world(CallableAnalysisStatusV1::Complete);
+    image.type_graph.kinds = vec![KindV1::Type];
+    image.type_graph.types = vec![TypeEntryV1 {
+        kind: ArtifactKindId(0),
+        form: TypeV1::Nominal { declaration: owner_ref() },
+    }];
+    let operation = FamilyOperationShapeV1 {
+        kind: SelectorKindV1::Method,
+        slots: vec![SelectorSlotV1::Positional],
+    };
+    image.callable_analyses[0].expressions = vec![expression_row(0), expression_row(1)];
+    image.callable_analyses[0].family_applications = vec![
+        CallableFamilyApplicationV1 {
+            expression: 0,
+            family_type: ArtifactTypeId(0),
+            kind: CallableFamilyApplicationKindV1::Associated,
+            selection: CallableFamilyApplicationSelectionV1::Static {
+                operation: operation.clone(),
+                target: None,
+                callable_type: ArtifactTypeId(0),
+                result_type: ArtifactTypeId(0),
+            },
+        },
+        CallableFamilyApplicationV1 {
+            expression: 1,
+            family_type: ArtifactTypeId(0),
+            kind: CallableFamilyApplicationKindV1::Behavioral,
+            selection: CallableFamilyApplicationSelectionV1::Dynamic {
+                candidates: vec![CallableFamilyApplicationCandidateV1 {
+                    operation,
+                    target: None,
+                    callable_type: ArtifactTypeId(0),
+                }],
+                result_type: None,
+            },
+        },
+    ];
+    image
+        .validate(&Default::default())
+        .expect("both checked family-application representations are valid");
+    image.encode().expect("family application payload encodes");
+
+    let mut dangling = image.clone();
+    dangling.callable_analyses[0].family_applications[1].expression = 2;
+    assert!(dangling.validate(&Default::default()).unwrap_err().to_string().contains("absent expression"));
+    let mut duplicate = image.clone();
+    duplicate.callable_analyses[0].family_applications[1].expression = 0;
+    assert!(duplicate.validate(&Default::default()).unwrap_err().to_string().contains("not sorted"));
+    let mut absent_type = image.clone();
+    absent_type.callable_analyses[0].family_applications[0].family_type = ArtifactTypeId(1);
+    assert!(absent_type.validate(&Default::default()).is_err());
+    let mut absent_target = image.clone();
+    let CallableFamilyApplicationSelectionV1::Static { target, .. } = &mut absent_target.callable_analyses[0].family_applications[0].selection else {
+        unreachable!()
+    };
+    *target = Some(InvocationTargetV1::Behavioral { callable: callable() });
+    assert!(
+        absent_target.validate(&Default::default()).is_err(),
+        "a target must have primary callable authority"
+    );
+    let mut invalid_shape = image.clone();
+    let CallableFamilyApplicationSelectionV1::Dynamic { candidates, .. } = &mut invalid_shape.callable_analyses[0].family_applications[1].selection else {
+        unreachable!()
+    };
+    candidates[0].operation.kind = SelectorKindV1::Getter;
+    assert!(invalid_shape.validate(&Default::default()).is_err(), "getters cannot carry method slots");
+    let mut limits = phalcom_compiler_artifact::ValidationLimits::default();
+    limits.max_semantic_entries_per_family = 6;
+    assert!(image.validate(&limits).unwrap_err().to_string().contains("nested row budget"));
+}
+
+#[test]
+fn callable_resolution_known_invalid_expansions_validate_local_closure() {
+    use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeV1};
+    use phalcom_compiler_artifact::semantic::world::CallableKnownInvalidPositionalExpansionV1;
+
+    let mut image = world(CallableAnalysisStatusV1::Complete);
+    image.type_graph.kinds = vec![KindV1::Type];
+    image.type_graph.types = vec![TypeEntryV1 {
+        kind: ArtifactKindId(0),
+        form: TypeV1::Nominal { declaration: owner_ref() },
+    }];
+    image.callable_analyses[0].expressions = vec![expression_row(0), expression_row(1)];
+    image.callable_analyses[0].known_invalid_positional_expansions = vec![
+        CallableKnownInvalidPositionalExpansionV1 {
+            expression: 0,
+            source_range: SpanV1 { start: 2, end: 4 },
+            source_type: ArtifactTypeId(0),
+        },
+        CallableKnownInvalidPositionalExpansionV1 {
+            expression: 1,
+            source_range: SpanV1 { start: 4, end: 6 },
+            source_type: ArtifactTypeId(0),
+        },
+    ];
+    image
+        .validate(&Default::default())
+        .expect("known-invalid facts are retained rather than dropped");
+    let mut dangling = image.clone();
+    dangling.callable_analyses[0].known_invalid_positional_expansions[1].expression = 2;
+    assert!(dangling.validate(&Default::default()).unwrap_err().to_string().contains("absent expression"));
+    let mut duplicate = image.clone();
+    duplicate.callable_analyses[0].known_invalid_positional_expansions[1].expression = 0;
+    assert!(duplicate.validate(&Default::default()).unwrap_err().to_string().contains("not sorted"));
+    let mut inverted = image.clone();
+    inverted.callable_analyses[0].known_invalid_positional_expansions[0].source_range.start = 5;
+    assert!(inverted.validate(&Default::default()).unwrap_err().to_string().contains("range is inverted"));
+    image.callable_analyses[0].known_invalid_positional_expansions[0].source_type = ArtifactTypeId(1);
+    assert!(image.validate(&Default::default()).is_err());
+}
+
+#[test]
+fn callable_resolution_positional_expansions_require_owner_local_evidence() {
+    use phalcom_compiler_artifact::semantic::aggregates::{DeclaredTypeBasisV1, DeclaredTypeFactV1, DeclaredTypeStateV1, UnknownReasonV1};
+    use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeV1};
+    use phalcom_compiler_artifact::semantic::world::{
+        CallableCompilerDerivedConformanceEvidenceV1, CallableCompilerDerivedConformanceKindV1, CallableForIterationRequirementV1,
+        CallableOrderedProductFormV1, CallablePositionalExpansionV1, CallableRequirementIdentityV1, CallableSignatureRecordV1,
+        CallableStructuralClassificationV1, EffectSpecV1, ImplementationKindV1, NativeLifecycleSpecV1, RaisesSpecV1, ReturnFlowV1,
+    };
+
+    let mut image = world(CallableAnalysisStatusV1::Complete);
+    image.type_graph.kinds = vec![KindV1::Type];
+    image.type_graph.types = vec![TypeEntryV1 {
+        kind: ArtifactKindId(0),
+        form: TypeV1::Nominal { declaration: owner_ref() },
+    }];
+    let signature = CallableSignatureRecordV1 {
+        callable: callable(),
+        owner: owner_ref(),
+        side: 0,
+        selector: callable().selector,
+        generics: None,
+        parameters: vec![],
+        declared_return: DeclaredTypeFactV1 {
+            state: DeclaredTypeStateV1::Unknown {
+                reason: UnknownReasonV1::NoTypeEvidence,
+            },
+            basis: DeclaredTypeBasisV1::Unspecified,
+        },
+        return_validation: ReturnContractValidationV1::NotApplicable,
+        inferred_return: None,
+        source: None,
+        implementation: ImplementationKindV1::Phalcom,
+        native_id: None,
+        effects: EffectSpecV1::Unknown,
+        raises: RaisesSpecV1::Unknown,
+        flow: ReturnFlowV1::Value,
+        lifecycle: NativeLifecycleSpecV1 {
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+        },
+    };
+    let requirement = CallableRequirementIdentityV1 {
+        owner: owner_ref(),
+        selector: callable().selector,
+        side: 0,
+    };
+    image.callable_analyses[0].expressions = vec![expression_row(0)];
+    image.callable_analyses[0].conformance_evidence = vec![CallableConformanceEvidenceNodeV1::CompilerDerived {
+        evidence: CallableCompilerDerivedConformanceEvidenceV1 {
+            key: generic_conformance_key(),
+            kind: CallableCompilerDerivedConformanceKindV1::OrderedProduct,
+            classification: CallableStructuralClassificationV1::OrderedProduct {
+                form: CallableOrderedProductFormV1::Tuple,
+            },
+        },
+    }];
+    image.callable_analyses[0].positional_expansions = vec![CallablePositionalExpansionV1 {
+        expression: 0,
+        source_range: SpanV1 { start: 1, end: 3 },
+        source_type: ArtifactTypeId(0),
+        item_type: ArtifactTypeId(0),
+        iterator_type: ArtifactTypeId(0),
+        iterator: CallableForIterationRequirementV1::AbstractRequirement {
+            requirement: requirement.clone(),
+            signature: signature.clone(),
+        },
+        next: CallableForIterationRequirementV1::Evidence {
+            conformance: generic_conformance_key(),
+            evidence: 0,
+            requirement,
+            signature,
+        },
+    }];
+    image
+        .validate(&Default::default())
+        .expect("expansion requirements retain abstract and evidence-backed authority");
+    let mut absent_expression = image.clone();
+    absent_expression.callable_analyses[0].positional_expansions[0].expression = 1;
+    assert!(
+        absent_expression
+            .validate(&Default::default())
+            .unwrap_err()
+            .to_string()
+            .contains("absent expression")
+    );
+    let mut absent_evidence = image.clone();
+    absent_evidence.callable_analyses[0].conformance_evidence.clear();
+    assert!(
+        absent_evidence
+            .validate(&Default::default())
+            .unwrap_err()
+            .to_string()
+            .contains("evidence reference is out of range")
+    );
+    let mut absent_type = image.clone();
+    absent_type.callable_analyses[0].positional_expansions[0].item_type = ArtifactTypeId(1);
+    assert!(absent_type.validate(&Default::default()).is_err());
+    image.callable_analyses[0].positional_expansions[0].source_range.start = 4;
+    assert!(image.validate(&Default::default()).unwrap_err().to_string().contains("range is inverted"));
 }
 
 #[test]
@@ -229,17 +588,16 @@ fn world(status: CallableAnalysisStatusV1) -> SemanticWorldV3 {
             }),
             expressions: vec![],
             conformance_evidence: vec![],
-            unsupported_family_counts: CallableAnalysisUnsupportedFamilyCountsV1 {
-                trait_dispatch_candidates: 0,
-                contextual_realizations: 0,
-                positional_expansions: 0,
-                known_invalid_positional_expansions: 0,
-                family_applications: 0,
-            },
             for_iteration_lanes: vec![],
+            positional_expansions: vec![],
+            known_invalid_positional_expansions: vec![],
             sequence_literals: vec![],
             associated_resolutions: vec![],
             callable_reference_resolutions: vec![],
+            family_applications: vec![],
+            local_proof_graph: None,
+            match_resolutions: vec![],
+            pattern_site_resolutions: vec![],
             entry_flow: CallableFlowStateSummaryV1 {
                 bindings: vec![],
                 fields: vec![],
@@ -448,6 +806,9 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
         callable: None,
         conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        conditional_capability: None,
+        trait_dispatch: None,
+        explanation: None,
         binding_read_safety: None,
         binding_read: None,
         binding_write: None,
@@ -477,6 +838,9 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
             callable: None,
             conditional_dispatch: None,
             causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+            conditional_capability: None,
+            trait_dispatch: None,
+            explanation: None,
             binding_read_safety: None,
             binding_read: None,
             binding_write: None,
@@ -497,6 +861,9 @@ fn callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail() {
             callable: None,
             conditional_dispatch: None,
             causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+            conditional_capability: None,
+            trait_dispatch: None,
+            explanation: None,
             binding_read_safety: None,
             binding_read: None,
             binding_write: None,
@@ -549,6 +916,9 @@ fn explicit_dynamic_call_argument_round_trips_without_a_type_node() {
         callable: None,
         conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        conditional_capability: None,
+        trait_dispatch: None,
+        explanation: None,
         binding_read_safety: None,
         binding_read: None,
         binding_write: None,
@@ -604,6 +974,9 @@ fn call_specialization_rejects_unowned_ordinals_duplicate_bindings_and_wrong_dyn
         callable: None,
         conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        conditional_capability: None,
+        trait_dispatch: None,
+        explanation: None,
         binding_read_safety: None,
         binding_read: None,
         binding_write: None,
@@ -645,6 +1018,9 @@ fn call_specialization_rejects_unowned_ordinals_duplicate_bindings_and_wrong_dyn
         callable: None,
         conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        conditional_capability: None,
+        trait_dispatch: None,
+        explanation: None,
         binding_read_safety: None,
         binding_read: None,
         binding_write: None,
@@ -713,6 +1089,9 @@ fn associated_denotation_rejects_member_from_wrong_declaration_owner() {
         callable: None,
         conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        conditional_capability: None,
+        trait_dispatch: None,
+        explanation: None,
         binding_read_safety: None,
         binding_read: None,
         binding_write: None,
@@ -781,6 +1160,9 @@ fn associated_denotation_rejects_member_without_primary_owner_authority() {
         callable: None,
         conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        conditional_capability: None,
+        trait_dispatch: None,
+        explanation: None,
         binding_read_safety: None,
         binding_read: None,
         binding_write: None,
@@ -948,6 +1330,9 @@ fn associated_family_capture_round_trips_subset_and_optional_targets() {
         callable: None,
         conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        conditional_capability: None,
+        trait_dispatch: None,
+        explanation: None,
         binding_read_safety: None,
         binding_read: None,
         binding_write: None,
@@ -1143,6 +1528,9 @@ fn behavioral_family_capture_requires_conditional_member_authority() {
         callable: None,
         conditional_dispatch: None,
         causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
+        conditional_capability: None,
+        trait_dispatch: None,
+        explanation: None,
         binding_read_safety: None,
         binding_read: None,
         binding_write: None,

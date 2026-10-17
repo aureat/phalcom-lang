@@ -173,6 +173,12 @@ pub(super) fn register_callable_analysis_roots(
     for resolution in analysis.match_resolutions.values() {
         roots.match_resolution(resolution)?;
     }
+    for rigid in analysis.local_proof_graph.rigids() {
+        roots.kind(rigid.kind)?;
+        if let crate::types::rigid::RigidOrigin::VariantParameter { parameter, .. } = rigid.origin {
+            roots.parameter(parameter)?;
+        }
+    }
     for resolution in analysis.pattern_site_resolutions.values() {
         roots.pattern_site_resolution(resolution)?;
     }
@@ -518,7 +524,7 @@ impl<'a> Roots<'a> {
             }
         }
     }
-    fn match_resolution(&mut self, resolution: &crate::match_semantics::MatchResolution) -> Result<(), ArtifactError> {
+    fn match_resolution<R, S, K>(&mut self, resolution: &crate::match_semantics::MatchResolution<R, S, K>) -> Result<(), ArtifactError> {
         self.knowledge(&resolution.scrutinee)?;
         self.pattern_space(&resolution.initial_space)?;
         for arm in resolution.arms.iter() {
@@ -534,7 +540,7 @@ impl<'a> Roots<'a> {
         self.knowledge(&resolution.result)?;
         self.exhaustiveness(&resolution.exhaustiveness)
     }
-    fn pattern_site_resolution(&mut self, resolution: &crate::match_semantics::PatternSiteResolution) -> Result<(), ArtifactError> {
+    fn pattern_site_resolution<R, S, K>(&mut self, resolution: &crate::match_semantics::PatternSiteResolution<R, S, K>) -> Result<(), ArtifactError> {
         self.knowledge(&resolution.subject)?;
         self.pattern_resolution(&resolution.pattern)?;
         for binding in resolution.bindings.iter() {
@@ -542,7 +548,7 @@ impl<'a> Roots<'a> {
         }
         Ok(())
     }
-    fn pattern_resolution(&mut self, pattern: &crate::match_semantics::PatternResolution) -> Result<(), ArtifactError> {
+    fn pattern_resolution<R, S, K>(&mut self, pattern: &crate::match_semantics::PatternResolution<R, S, K>) -> Result<(), ArtifactError> {
         use crate::match_semantics::PatternResolution;
         match pattern {
             PatternResolution::Wildcard | PatternResolution::Char(_) => Ok(()),
@@ -602,14 +608,14 @@ impl<'a> Roots<'a> {
             }
         }
     }
-    fn pattern_binding(&mut self, binding: &crate::match_semantics::PatternBindingResolution) -> Result<(), ArtifactError> {
+    fn pattern_binding<R, K>(&mut self, binding: &crate::match_semantics::PatternBindingResolution<R, K>) -> Result<(), ArtifactError> {
         self.knowledge(&binding.knowledge)?;
         if let Some(local_type) = &binding.local_type {
             self.local_type(local_type)?;
         }
         Ok(())
     }
-    fn branch_proof(&mut self, proof: &crate::match_semantics::BranchProofEnvironment) -> Result<(), ArtifactError> {
+    fn branch_proof<R, K>(&mut self, proof: &crate::match_semantics::BranchProofEnvironment<R, K>) -> Result<(), ArtifactError> {
         for (&parameter, &ty) in &proof.bindings {
             self.parameter(parameter)?;
             self.ty(ty)?;
@@ -626,7 +632,7 @@ impl<'a> Roots<'a> {
         }
         Ok(())
     }
-    fn case_instantiation(&mut self, instantiation: &crate::types::CaseInstantiation) -> Result<(), ArtifactError> {
+    fn case_instantiation<R, S, K>(&mut self, instantiation: &crate::types::CaseInstantiation<R, S, K>) -> Result<(), ArtifactError> {
         for &parameter in instantiation.local_rigids.keys() {
             self.parameter(parameter)?;
         }
@@ -639,7 +645,7 @@ impl<'a> Roots<'a> {
         }
         Ok(())
     }
-    fn local_constraint(&mut self, constraint: &crate::types::rigid::LocalConstraint) -> Result<(), ArtifactError> {
+    fn local_constraint<R, K>(&mut self, constraint: &crate::types::rigid::LocalConstraint<R, K>) -> Result<(), ArtifactError> {
         use crate::types::rigid::LocalConstraint;
         match constraint {
             LocalConstraint::Subtype { lower, upper } => {
@@ -662,7 +668,7 @@ impl<'a> Roots<'a> {
             TypeConstraint::HasMember(ty, _) => self.ty(*ty),
         }
     }
-    fn local_type(&mut self, local_type: &crate::types::rigid::LocalType) -> Result<(), ArtifactError> {
+    fn local_type<R, K>(&mut self, local_type: &crate::types::rigid::LocalType<R, K>) -> Result<(), ArtifactError> {
         use crate::types::rigid::LocalType;
         match local_type {
             LocalType::Canonical(ty) => self.ty(*ty),
@@ -1627,6 +1633,7 @@ mod tests {
             family_applications: Arc::new(Default::default()),
             match_resolutions: Arc::new(Default::default()),
             pattern_site_resolutions: Arc::new(Default::default()),
+            local_proof_graph: Arc::new(Default::default()),
             flow_graph: Arc::new(crate::checker::flow::graph::FlowGraph::default()),
             entry_flow: FlowStateSummary::default(),
             exits: BodyExitFacts {
@@ -2628,7 +2635,7 @@ mod tests {
             ResolvedVariantPattern, VariantSelectorConstraint,
         };
         use crate::types::CaseInstantiation;
-        use crate::types::id::RigidScopeId;
+        use crate::types::proof::ProofScopeOrdinal;
         use crate::types::rigid::LocalType;
 
         let owner = DeclarationId::new(ModuleId::universe_root(), "PatternRootOwner".into());
@@ -2672,7 +2679,7 @@ mod tests {
                 proof: BranchProofEnvironment::default(),
                 case_instantiation: Some(CaseInstantiation {
                     variant: variant.clone(),
-                    scope: RigidScopeId::from_index(0),
+                    scope: ProofScopeOrdinal(0),
                     local_rigids: Default::default(),
                     payload_types: vec![LocalType::Canonical(payload)].into_boxed_slice(),
                     result_type: LocalType::Canonical(instantiated_result),

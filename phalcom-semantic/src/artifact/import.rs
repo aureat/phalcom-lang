@@ -1,5 +1,7 @@
 //! Semantic-owned artifact import for structural primary contracts (`PERF003.C2.P7.T7.A`).
 
+pub(super) mod proof;
+
 use crate::data_semantics::{
     DataComponentSemantic, DataConstructorParameter, DataConstructorParameterContribution, DataConstructorSignature, DataConstructorTemplate, DataInfo,
     DataProductContribution, DataProductExpansionSemantic, DataProductShapeTemplate, DataSemanticTable, DataShape,
@@ -3151,7 +3153,7 @@ fn import_behavioral_family_spec_with_allocation_budget(
     spec: &phalcom_compiler_artifact::semantic::world::BehavioralFamilySpecV1,
     allocations: &mut AllocationBudget,
 ) -> Result<crate::checker::associated::BehavioralFamilySpec, ArtifactError> {
-    use phalcom_compiler_artifact::semantic::world::{BehavioralFamilySpecV1, SelectorKindPatternV1};
+    use phalcom_compiler_artifact::semantic::world::BehavioralFamilySpecV1;
     Ok(match spec {
         BehavioralFamilySpecV1::Exact { selector } => {
             let base = import_selector_base_with_allocation_budget(&selector.base, allocations)?;
@@ -3166,6 +3168,16 @@ fn import_behavioral_family_spec_with_allocation_budget(
             crate::checker::associated::BehavioralFamilySpec::Exact(selector)
         }
         BehavioralFamilySpecV1::Pattern { pattern } => {
+            crate::checker::associated::BehavioralFamilySpec::Pattern(import_selector_pattern_with_allocation_budget(pattern, allocations)?)
+        }
+    })
+}
+
+fn import_selector_pattern_with_allocation_budget(
+    pattern: &phalcom_compiler_artifact::semantic::world::SelectorPatternSpecV1,
+    allocations: &mut AllocationBudget,
+) -> Result<phalcom_common::selector::SelectorPattern, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::world::SelectorKindPatternV1;
             let base = import_selector_base_with_allocation_budget(&pattern.base, allocations)?;
             let kind = match &pattern.kind {
                 SelectorKindPatternV1::AnyNamed => phalcom_common::selector::SelectorKindPattern::AnyNamed,
@@ -3187,9 +3199,7 @@ fn import_behavioral_family_spec_with_allocation_budget(
             }
             let pattern = phalcom_common::selector::SelectorPattern::new(base, kind, prefix.into_boxed_slice(), suffix.into_boxed_slice(), pattern.has_gap)
                 .map_err(|_| referential("behavioral selector pattern is invalid"))?;
-            crate::checker::associated::BehavioralFamilySpec::Pattern(pattern)
-        }
-    })
+    Ok(pattern)
 }
 
 fn import_invocation_target(
@@ -3731,6 +3741,775 @@ pub fn import_callable_binding_rows(
     Ok(imported)
 }
 
+fn import_callable_return_validation(
+    validation: &phalcom_compiler_artifact::semantic::world::ReturnContractValidationV1,
+) -> crate::signature::ReturnContractValidation {
+    use crate::signature::ReturnContractValidation as Native;
+    use phalcom_compiler_artifact::semantic::world::{EvidenceStatusV1, ReturnContractValidationV1 as Portable};
+    match validation {
+        Portable::NotApplicable => Native::NotApplicable,
+        Portable::Unchecked => Native::Unchecked,
+        Portable::Satisfied {
+            status: EvidenceStatusV1::Established,
+        } => Native::Satisfied(crate::types::evidence::EvidenceStatus::Established),
+        Portable::Satisfied {
+            status: EvidenceStatusV1::Assumed,
+        } => Native::Satisfied(crate::types::evidence::EvidenceStatus::Assumed),
+        Portable::Refuted => Native::Refuted,
+        Portable::Blocked => Native::Blocked,
+        Portable::DynamicBoundary => Native::DynamicBoundary,
+    }
+}
+
+fn import_callable_analysis_status(
+    status: phalcom_compiler_artifact::semantic::world::CallableAnalysisStatusV1,
+) -> crate::checker::analysis::CallableAnalysisStatus {
+    use crate::checker::analysis::CallableAnalysisStatus as Native;
+    use phalcom_compiler_artifact::semantic::world::CallableAnalysisStatusV1 as Portable;
+    match status {
+        Portable::Complete => Native::Complete,
+        Portable::Partial => Native::Partial,
+        Portable::Blocked => Native::Blocked,
+        Portable::Cancelled => Native::Cancelled,
+        Portable::BudgetExceeded => Native::BudgetExceeded,
+    }
+}
+
+fn import_callable_flow_state_summary(
+    flow: &phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::checker::analysis::FlowStateSummary, ArtifactError> {
+    use crate::checker::analysis::{FlowBindingSummary, FlowFieldSummary, FlowStateSummary};
+    use crate::checker::causal::CausalInvalidity;
+    use crate::checker::flow::{FieldContractValidity, InitializationState};
+    use phalcom_compiler_artifact::semantic::world::{CallableCausalInvalidityV1, CallableFieldContractValidityV1, CallableInitializationStateV1};
+
+    let mut bindings = allocations.vector(flow.bindings.len()).map_err(allocation_error)?;
+    for binding in &flow.bindings {
+        bindings.push((
+            BindingId(binding.binding),
+            FlowBindingSummary {
+                knowledge: import_type_knowledge_with_allocation_budget(&binding.knowledge, relocation, allocations)?,
+                contract: binding
+                    .contract
+                    .as_ref()
+                    .map(|contract| {
+                        Ok::<crate::checker::binding::BindingContract, ArtifactError>(crate::checker::binding::BindingContract {
+                            ty: relocation.ty(contract.ty)?,
+                            origin: match contract.origin {
+                                phalcom_compiler_artifact::semantic::world::CallableBindingContractOriginV1::SourceAnnotation => {
+                                    crate::checker::binding::BindingContractOrigin::SourceAnnotation
+                                }
+                                phalcom_compiler_artifact::semantic::world::CallableBindingContractOriginV1::InferredInitializer => {
+                                    crate::checker::binding::BindingContractOrigin::InferredInitializer
+                                }
+                                phalcom_compiler_artifact::semantic::world::CallableBindingContractOriginV1::CallableParameter => {
+                                    crate::checker::binding::BindingContractOrigin::CallableParameter
+                                }
+                                phalcom_compiler_artifact::semantic::world::CallableBindingContractOriginV1::ContextualBlockParameter => {
+                                    crate::checker::binding::BindingContractOrigin::ContextualBlockParameter
+                                }
+                                phalcom_compiler_artifact::semantic::world::CallableBindingContractOriginV1::PatternBinding => {
+                                    crate::checker::binding::BindingContractOrigin::PatternBinding
+                                }
+                                phalcom_compiler_artifact::semantic::world::CallableBindingContractOriginV1::StaticParameter => {
+                                    crate::checker::binding::BindingContractOrigin::StaticParameter
+                                }
+                            },
+                            source: contract
+                                .source
+                                .as_ref()
+                                .map(|range| {
+                                    Ok::<SourceRange, ArtifactError>(SourceRange {
+                                        start: usize::try_from(range.start).map_err(|_| referential("callable flow contract start exceeds address space"))?,
+                                        end: usize::try_from(range.end).map_err(|_| referential("callable flow contract end exceeds address space"))?,
+                                    })
+                                })
+                                .transpose()?,
+                        })
+                    })
+                    .transpose()?,
+                consistency: import_callable_binding_consistency(&binding.consistency, relocation, allocations)?,
+                mutable: binding.mutable,
+                initialization: match binding.initialization {
+                    CallableInitializationStateV1::Uninitialized => InitializationState::Uninitialized,
+                    CallableInitializationStateV1::MaybeInitialized => InitializationState::MaybeInitialized,
+                    CallableInitializationStateV1::DefinitelyInitialized => InitializationState::DefinitelyInitialized,
+                },
+            },
+        ));
+    }
+    let bindings = import_analysis_map(bindings, allocations, "callable flow bindings are not canonical")?;
+
+    let mut fields = allocations.vector(flow.fields.len()).map_err(allocation_error)?;
+    for field in &flow.fields {
+        let id = crate::identity::FieldId::new(
+            from_stable_declaration(&field.field.owner).map_err(referential)?,
+            field.field.name.clone(),
+            from_stable_dispatch_side(field.field.side),
+        );
+        fields.push((
+            id,
+            FlowFieldSummary {
+                contract: import_type_knowledge_with_allocation_budget(&field.contract, relocation, allocations)?,
+                current: import_type_knowledge_with_allocation_budget(&field.current, relocation, allocations)?,
+                initialization: match field.initialization {
+                    CallableInitializationStateV1::Uninitialized => InitializationState::Uninitialized,
+                    CallableInitializationStateV1::MaybeInitialized => InitializationState::MaybeInitialized,
+                    CallableInitializationStateV1::DefinitelyInitialized => InitializationState::DefinitelyInitialized,
+                },
+                validity: match &field.validity {
+                    CallableFieldContractValidityV1::Unchecked => FieldContractValidity::Unchecked,
+                    CallableFieldContractValidityV1::Validated => FieldContractValidity::Validated,
+                    CallableFieldContractValidityV1::Assumed => FieldContractValidity::Assumed,
+                    CallableFieldContractValidityV1::Refuted => FieldContractValidity::Refuted,
+                    CallableFieldContractValidityV1::Blocked { reason } => {
+                        FieldContractValidity::Blocked(import_callable_block_reason(reason, relocation, allocations)?)
+                    }
+                    CallableFieldContractValidityV1::DynamicBoundary { reason } => {
+                        FieldContractValidity::DynamicBoundary(crate::types::outcome::DynamicBoundaryObligation {
+                            reason: allocations.string(reason).map_err(allocation_error)?,
+                        })
+                    }
+                },
+                causal_invalidity: match field.causal_invalidity {
+                    CallableCausalInvalidityV1::Clean => CausalInvalidity::Clean,
+                    CallableCausalInvalidityV1::One { cause } => CausalInvalidity::One(DiagnosticCauseId(cause)),
+                    CallableCausalInvalidityV1::Multiple => CausalInvalidity::Multiple,
+                },
+            },
+        ));
+    }
+    Ok(FlowStateSummary {
+        bindings,
+        fields: import_analysis_map(fields, allocations, "callable flow fields are not canonical")?,
+        fact_count: usize::try_from(flow.fact_count).map_err(|_| referential("callable flow fact count exceeds address space"))?,
+    })
+}
+
+fn take_sparse<T>(rows: &mut std::iter::Peekable<impl Iterator<Item = (u32, T)>>, ordinal: u32) -> Option<T> {
+    if rows.peek().is_some_and(|(candidate, _)| *candidate == ordinal) {
+        rows.next().map(|(_, value)| value)
+    } else {
+        None
+    }
+}
+
+fn import_callable_range(range: &phalcom_compiler_artifact::module_world::SpanV1) -> Result<SourceRange, ArtifactError> {
+    if range.start > range.end {
+        return Err(referential("callable source range is inverted"));
+    }
+    Ok(SourceRange {
+        start: usize::try_from(range.start).map_err(|_| referential("callable source range start exceeds address space"))?,
+        end: usize::try_from(range.end).map_err(|_| referential("callable source range end exceeds address space"))?,
+    })
+}
+
+fn import_callable_trait_selection(
+    selection: &phalcom_compiler_artifact::semantic::world::CallableTraitDispatchSelectionV1,
+    evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
+    importer: &mut CallableEvidenceImporter<'_>,
+) -> Result<crate::trait_dispatch::TraitDispatchSelection, ArtifactError> {
+    let evidence = importer.evidence(evidence_nodes, selection.evidence, 0)?;
+    let evidence_fingerprint = crate::db::fingerprint::generic_conformance_evidence_fingerprint(&evidence);
+    let mut targets = importer.allocations.vector(selection.requirement_targets.len()).map_err(allocation_error)?;
+    for target in &selection.requirement_targets {
+        targets.push((
+            import_callable_requirement_identity(&target.requirement)?,
+            import_callable_requirement_selection(&target.selection, evidence_nodes, importer, 0)?,
+        ));
+    }
+    let requirement_targets = import_analysis_map(targets, importer.allocations, "trait dispatch requirement targets are not canonical")?;
+    Ok(crate::trait_dispatch::TraitDispatchSelection {
+        source_impl: from_stable_impl(&selection.source_impl).map_err(referential)?,
+        exact_target: importer.relocation.ty(selection.exact_target)?,
+        exact_trait_ref: import_trait_ref_identity(&selection.exact_trait_ref, importer.relocation, importer.allocations)?,
+        requirement: import_callable_requirement_identity(&selection.requirement)?,
+        callable: selection
+            .callable
+            .as_ref()
+            .map(|callable| import_stable_callable_with_allocation_budget(callable, importer.allocations))
+            .transpose()?,
+        signature: import_callable_signature(&selection.signature, importer.relocation, importer.store, importer.allocations)?,
+        evidence_fingerprint,
+        evidence,
+        selection: import_callable_requirement_selection(&selection.selection, evidence_nodes, importer, 0)?,
+        requirement_targets,
+    })
+}
+
+fn import_callable_iteration_requirement(
+    requirement: &phalcom_compiler_artifact::semantic::world::CallableForIterationRequirementV1,
+    evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
+    importer: &mut CallableEvidenceImporter<'_>,
+) -> Result<crate::checker::analysis::ForIterationRequirementResolution, ArtifactError> {
+    use crate::checker::analysis::ForIterationRequirementResolution as Native;
+    use phalcom_compiler_artifact::semantic::world::CallableForIterationRequirementV1 as Portable;
+    Ok(match requirement {
+        Portable::AbstractRequirement { requirement, signature } => Native::AbstractRequirement {
+            requirement: import_callable_requirement_identity(requirement)?,
+            signature: import_callable_signature(signature, importer.relocation, importer.store, importer.allocations)?,
+        },
+        Portable::Evidence {
+            conformance,
+            evidence,
+            requirement,
+            signature,
+        } => Native::Evidence {
+            conformance: import_generic_conformance_key_with_allocation_budget(conformance, importer.relocation, importer.allocations)?,
+            evidence: importer.evidence(evidence_nodes, *evidence, 0)?,
+            requirement: import_callable_requirement_identity(requirement)?,
+            signature: import_callable_signature(signature, importer.relocation, importer.store, importer.allocations)?,
+        },
+    })
+}
+
+pub(super) struct ImportedCallableResolutionAuthority {
+    for_iteration_lanes: Arc<crate::checker::analysis::ForIterationLaneResolutionIndex>,
+    pub(super) positional_expansions: Arc<crate::checker::analysis::PositionalExpansionIterationResolutionIndex>,
+    pub(super) known_invalid_positional_expansions: Arc<crate::checker::analysis::KnownInvalidPositionalExpansionIndex>,
+    sequence_literals: Arc<crate::checker::analysis::SequenceLiteralResolutionIndex>,
+    associated_resolutions: Arc<crate::checker::associated::AssociatedResolutionIndex>,
+    callable_reference_resolutions: Arc<crate::checker::associated::CallableReferenceResolutionIndex>,
+    family_applications: Arc<crate::checker::associated::FamilyApplicationResolutionIndex>,
+}
+
+pub(super) fn import_callable_family_applications(
+    record: &phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1,
+    body: crate::identity::BodyId,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<Arc<crate::checker::associated::FamilyApplicationResolutionIndex>, ArtifactError> {
+    use crate::checker::associated::{FamilyApplicationCandidate, FamilyApplicationKind, FamilyApplicationResolution, FamilyApplicationSelection};
+    use crate::identity::{ExpressionId, LocalExpressionId};
+    use phalcom_compiler_artifact::semantic::world::{CallableFamilyApplicationKindV1 as Kind, CallableFamilyApplicationSelectionV1 as Selection};
+
+    let mut child = allocations.child(allocations.remaining());
+    let mut rows = child.vector(record.family_applications.len()).map_err(allocation_error)?;
+    for application in &record.family_applications {
+        if application.expression as usize >= record.expressions.len() {
+            return Err(referential("family application references an absent owner-local expression"));
+        }
+        let selection = match &application.selection {
+            Selection::Static {
+                operation,
+                target,
+                callable_type,
+                result_type,
+            } => FamilyApplicationSelection::Static {
+                operation: import_family_operation_shape_with_allocation_budget(operation, &mut child)?,
+                target: target.as_ref().map(|target| import_invocation_target(target, &mut child)).transpose()?,
+                callable_type: relocation.ty(*callable_type)?,
+                result_type: relocation.ty(*result_type)?,
+            },
+            Selection::Dynamic { candidates, result_type } => {
+                let mut imported = child.vector(candidates.len()).map_err(allocation_error)?;
+                for candidate in candidates {
+                    imported.push(FamilyApplicationCandidate {
+                        operation: import_family_operation_shape_with_allocation_budget(&candidate.operation, &mut child)?,
+                        target: candidate
+                            .target
+                            .as_ref()
+                            .map(|target| import_invocation_target(target, &mut child))
+                            .transpose()?,
+                        callable_type: relocation.ty(candidate.callable_type)?,
+                    });
+                }
+                FamilyApplicationSelection::Dynamic {
+                    candidates: imported.into_boxed_slice(),
+                    result_type: result_type.map(|ty| relocation.ty(ty)).transpose()?,
+                }
+            }
+        };
+        rows.push((
+            ExpressionId::new(body, LocalExpressionId(application.expression)),
+            FamilyApplicationResolution {
+                family_type: relocation.ty(application.family_type)?,
+                kind: match application.kind {
+                    Kind::Associated => FamilyApplicationKind::Associated,
+                    Kind::Behavioral => FamilyApplicationKind::Behavioral,
+                },
+                selection,
+            },
+        ));
+    }
+    let index = import_analysis_map(rows, &mut child, "family application expressions are not canonical")?;
+    let index = child.arc(index).map_err(allocation_error)?;
+    allocations.commit_child(child).map_err(allocation_error)?;
+    Ok(index)
+}
+
+pub(super) fn import_callable_resolution_authority(
+    record: &phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1,
+    body: crate::identity::BodyId,
+    relocation: &TypeRelocation,
+    store: &TypeStore,
+    source_plan_fingerprints: &BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<ImportedCallableResolutionAuthority, ArtifactError> {
+    use crate::checker::analysis::{
+        ForIterationLaneResolution, SequenceConstructionPlan, SequenceExpansionResolution, SequenceLiteralFamily, SequenceLiteralResolution,
+    };
+    use crate::checker::associated::{
+        AssociatedResolution, AssociatedResolutionKind, BoundBehavioralMember, CallableReferenceResolution, CallableReferenceResolutionKind,
+    };
+    use phalcom_compiler_artifact::semantic::world as wire;
+
+    let mut child = allocations.child(allocations.remaining());
+    let mut importer = CallableEvidenceImporter::new(
+        record.conformance_evidence.len(),
+        relocation,
+        store,
+        source_plan_fingerprints,
+        &mut child,
+        limits.max_recursion_depth,
+    )?;
+    let expression = |ordinal: u32| -> Result<crate::identity::ExpressionId, ArtifactError> {
+        if ordinal as usize >= record.expressions.len() {
+            return Err(referential("callable resolution references an absent expression"));
+        }
+        Ok(crate::identity::ExpressionId::new(body, crate::identity::LocalExpressionId(ordinal)))
+    };
+    let mut lanes = importer.allocations.vector(record.for_iteration_lanes.len()).map_err(allocation_error)?;
+    for lane in &record.for_iteration_lanes {
+        let id = expression(lane.expression)?;
+        lanes.push((
+            id,
+            ForIterationLaneResolution {
+                source_expression: id,
+                source_range: import_callable_range(&lane.source_range)?,
+                source_type: relocation.ty(lane.source_type)?,
+                item_type: relocation.ty(lane.item_type)?,
+                iterator_type: relocation.ty(lane.iterator_type)?,
+                iterator: import_callable_iteration_requirement(&lane.iterator, &record.conformance_evidence, &mut importer)?,
+                next: import_callable_iteration_requirement(&lane.next, &record.conformance_evidence, &mut importer)?,
+            },
+        ));
+    }
+    let for_iteration_lanes = import_analysis_map(lanes, importer.allocations, "callable iteration lanes are not canonical")?;
+    let for_iteration_lanes = importer.allocations.arc(for_iteration_lanes).map_err(allocation_error)?;
+
+    let mut expansions = importer.allocations.vector(record.positional_expansions.len()).map_err(allocation_error)?;
+    for expansion in &record.positional_expansions {
+        let id = expression(expansion.expression)?;
+        expansions.push((
+            id,
+            crate::checker::analysis::PositionalExpansionIterationResolution {
+                source_expression: id,
+                source_range: import_callable_range(&expansion.source_range)?,
+                source_type: relocation.ty(expansion.source_type)?,
+                item_type: relocation.ty(expansion.item_type)?,
+                iterator_type: relocation.ty(expansion.iterator_type)?,
+                iterator: import_callable_iteration_requirement(&expansion.iterator, &record.conformance_evidence, &mut importer)?,
+                next: import_callable_iteration_requirement(&expansion.next, &record.conformance_evidence, &mut importer)?,
+            },
+        ));
+    }
+    let positional_expansions = import_analysis_map(expansions, importer.allocations, "callable positional expansions are not canonical")?;
+    let positional_expansions = importer.allocations.arc(positional_expansions).map_err(allocation_error)?;
+    let mut invalid = importer
+        .allocations
+        .vector(record.known_invalid_positional_expansions.len())
+        .map_err(allocation_error)?;
+    for expansion in &record.known_invalid_positional_expansions {
+        let id = expression(expansion.expression)?;
+        invalid.push((
+            id,
+            crate::checker::analysis::KnownInvalidPositionalExpansion {
+                source_expression: id,
+                source_range: import_callable_range(&expansion.source_range)?,
+                source_type: relocation.ty(expansion.source_type)?,
+            },
+        ));
+    }
+    let known_invalid_positional_expansions = import_analysis_map(invalid, importer.allocations, "known-invalid positional expansions are not canonical")?;
+    let known_invalid_positional_expansions = importer.allocations.arc(known_invalid_positional_expansions).map_err(allocation_error)?;
+
+    let mut literals = importer.allocations.vector(record.sequence_literals.len()).map_err(allocation_error)?;
+    for literal in &record.sequence_literals {
+        let id = expression(literal.expression)?;
+        let mut expansions = importer.allocations.vector(literal.exact_expansions.len()).map_err(allocation_error)?;
+        for expansion in &literal.exact_expansions {
+            expansions.push((
+                import_callable_range(&expansion.source_range)?,
+                match expansion.expansion {
+                    wire::CallableSequenceExpansionV1::TuplePositionals { extent } => SequenceExpansionResolution::TuplePositionals {
+                        extent: relocation.ty(extent)?,
+                    },
+                    wire::CallableSequenceExpansionV1::VectorStorage { extent } => SequenceExpansionResolution::VectorStorage {
+                        extent: relocation.ty(extent)?,
+                    },
+                },
+            ));
+        }
+        let exact_expansions = import_analysis_map(expansions, importer.allocations, "callable sequence expansion ranges are not canonical")?;
+        literals.push((
+            id,
+            SequenceLiteralResolution {
+                source_expression: id,
+                source_range: import_callable_range(&literal.source_range)?,
+                family: match literal.family {
+                    wire::CallableSequenceFamilyV1::List => SequenceLiteralFamily::List,
+                    wire::CallableSequenceFamilyV1::Array => SequenceLiteralFamily::Array,
+                    wire::CallableSequenceFamilyV1::Vector => SequenceLiteralFamily::Vector,
+                },
+                result_type: relocation.ty(literal.result_type)?,
+                element_type: relocation.ty(literal.element_type)?,
+                extent: literal.extent.map(|extent| relocation.ty(extent)).transpose()?,
+                construction: match &literal.construction {
+                    wire::CallableSequenceConstructionV1::Fixed { element_count } => SequenceConstructionPlan::Fixed {
+                        element_count: usize::try_from(*element_count).map_err(|_| referential("callable sequence element count exceeds address space"))?,
+                    },
+                    wire::CallableSequenceConstructionV1::Expanded => SequenceConstructionPlan::Expanded,
+                    wire::CallableSequenceConstructionV1::VectorIdentitySpread { source_range, extent } => SequenceConstructionPlan::VectorIdentitySpread {
+                        source_range: import_callable_range(source_range)?,
+                        extent: relocation.ty(*extent)?,
+                    },
+                },
+                exact_expansions,
+            },
+        ));
+    }
+    let sequence_literals = import_analysis_map(literals, importer.allocations, "callable sequence literals are not canonical")?;
+    let sequence_literals = importer.allocations.arc(sequence_literals).map_err(allocation_error)?;
+
+    let mut associated = importer.allocations.vector(record.associated_resolutions.len()).map_err(allocation_error)?;
+    for resolution in &record.associated_resolutions {
+        let family = resolution
+            .family
+            .as_ref()
+            .map(|family| -> Result<_, ArtifactError> {
+                Ok(crate::identity::AssociatedFamilyId::new(
+                    import_stable_declaration_with_allocation_budget(&family.owner, importer.allocations)?,
+                    import_associated_selector_with_allocation_budget(&family.selector, importer.allocations)?,
+                ))
+            })
+            .transpose()?;
+        let kind = match &resolution.kind {
+            wire::CallableAssociatedResolutionKindV1::ExactValue { member, value_type } => AssociatedResolutionKind::ExactValue {
+                member: import_associated_member_with_allocation_budget(member, importer.allocations)?,
+                value_type: relocation.ty(*value_type)?,
+            },
+            wire::CallableAssociatedResolutionKindV1::StaticInvoke {
+                member,
+                target,
+                result_type,
+                argument_mapping,
+            } => {
+                let argument_mapping = argument_mapping
+                    .as_ref()
+                    .map(|mapping| -> Result<_, ArtifactError> {
+                        let mut imported = importer.allocations.vector(mapping.len()).map_err(allocation_error)?;
+                        imported.extend_from_slice(mapping);
+                        Ok(imported.into_boxed_slice())
+                    })
+                    .transpose()?;
+                AssociatedResolutionKind::StaticInvoke {
+                    member: import_associated_member_with_allocation_budget(member, importer.allocations)?,
+                    target: import_invocation_target(target, importer.allocations)?,
+                    result_type: relocation.ty(*result_type)?,
+                    argument_mapping,
+                }
+            }
+        };
+        associated.push((
+            expression(resolution.expression)?,
+            AssociatedResolution {
+                owner_form: relocation.ty(resolution.owner_form)?,
+                lookup_owner: import_stable_declaration_with_allocation_budget(&resolution.lookup_owner, importer.allocations)?,
+                family,
+                kind,
+            },
+        ));
+    }
+    let associated_resolutions = import_analysis_map(associated, importer.allocations, "callable associated resolutions are not canonical")?;
+    let associated_resolutions = importer.allocations.arc(associated_resolutions).map_err(allocation_error)?;
+
+    let mut references = importer
+        .allocations
+        .vector(record.callable_reference_resolutions.len())
+        .map_err(allocation_error)?;
+    for resolution in &record.callable_reference_resolutions {
+        let mut members = importer.allocations.vector(resolution.members.len()).map_err(allocation_error)?;
+        for member in &resolution.members {
+            let conditional_capability = member
+                .conditional_capability
+                .as_ref()
+                .map(|capability| -> Result<_, ArtifactError> {
+                    if member.conditional.as_ref() != Some(&capability.selection) || capability.selection.impl_id != capability.applicability.impl_id {
+                        return Err(referential("callable reference capability disagrees with its selected implementation"));
+                    }
+                    Ok(crate::dispatch::ConditionalSelectedCallCapability {
+                        selection: import_conditional_dispatch_selection(&capability.selection, importer.allocations)?,
+                        applicability: import_callable_inherent_specialization(&capability.applicability, &record.conformance_evidence, &mut importer)?,
+                    })
+                })
+                .transpose()?;
+            members.push(BoundBehavioralMember {
+                operation: import_family_operation_shape_with_allocation_budget(&member.operation, importer.allocations)?,
+                member_kind: match member.member_kind {
+                    wire::CallableFamilyMemberKindV1::Value => crate::types::family::FamilyMemberTypeKind::Value,
+                    wire::CallableFamilyMemberKindV1::Callable => crate::types::family::FamilyMemberTypeKind::Callable,
+                },
+                target: import_invocation_target(&member.target, importer.allocations)?,
+                callable_type: relocation.ty(member.callable_type)?,
+                conditional: member
+                    .conditional
+                    .as_ref()
+                    .map(|selection| import_conditional_dispatch_selection(selection, importer.allocations))
+                    .transpose()?,
+                conditional_capability,
+                trait_dispatch: member
+                    .trait_dispatch
+                    .as_ref()
+                    .map(|selection| import_callable_trait_selection(selection, &record.conformance_evidence, &mut importer))
+                    .transpose()?,
+            });
+        }
+        references.push((
+            expression(resolution.expression)?,
+            CallableReferenceResolution {
+                kind: CallableReferenceResolutionKind::BoundFamily {
+                    family_type: relocation.ty(resolution.family_type)?,
+                    spec: import_behavioral_family_spec_with_allocation_budget(&resolution.spec, importer.allocations)?,
+                    members: members.into_boxed_slice(),
+                },
+            },
+        ));
+    }
+    let callable_reference_resolutions = import_analysis_map(references, importer.allocations, "callable reference resolutions are not canonical")?;
+    let callable_reference_resolutions = importer.allocations.arc(callable_reference_resolutions).map_err(allocation_error)?;
+    let family_applications = import_callable_family_applications(record, body, relocation, importer.allocations)?;
+    drop(importer);
+    allocations.commit_child(child).map_err(allocation_error)?;
+    Ok(ImportedCallableResolutionAuthority {
+        for_iteration_lanes,
+        positional_expansions,
+        known_invalid_positional_expansions,
+        sequence_literals,
+        associated_resolutions,
+        callable_reference_resolutions,
+        family_applications,
+    })
+}
+
+fn import_callable_analysis_records(
+    records: &[phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1],
+    relocation: &TypeRelocation,
+    store: &TypeStore,
+    source_plan_fingerprints: &BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<
+    (
+        crate::checker::analysis::CallableAnalysisTable,
+        BTreeMap<CallableId, BTreeMap<BindingId, SourceRange>>,
+    ),
+    ArtifactError,
+> {
+    use crate::checker::analysis::{BodyExitFacts, CallableAnalysis, ExpressionAnalysis, NormalReturnFact};
+    use crate::identity::{BodyId, ExpressionId, LocalExpressionId};
+
+    let mut child = allocations.child(allocations.remaining());
+    let mut rows = child.vector(records.len()).map_err(allocation_error)?;
+    let mut binding_ranges = BTreeMap::new();
+    for (body_index, record) in records.iter().enumerate() {
+        let callable = import_stable_callable_with_allocation_budget(&record.callable, &mut child)?;
+        let body = BodyId(u32::try_from(body_index).map_err(|_| referential("callable body ordinal exceeds portable range"))?);
+
+        let imported_bindings = import_callable_binding_rows(record, relocation, &mut child)?;
+        let mut binding_entries = child.vector(imported_bindings.len()).map_err(allocation_error)?;
+        let mut origin_entries = child.vector(imported_bindings.len()).map_err(allocation_error)?;
+        let mut formal_ranges = BTreeMap::new();
+        for imported in imported_bindings {
+            let binding = imported.state.binding;
+            if let Some(range) = imported.formal_range {
+                formal_ranges.insert(binding, range);
+            }
+            origin_entries.push((binding, imported.storage_origin));
+            binding_entries.push((binding, imported.state));
+        }
+        let bindings = import_analysis_map(binding_entries, &mut child, "callable binding rows are not canonical")?;
+        let binding_origins = import_analysis_map(origin_entries, &mut child, "callable binding origins are not canonical")?;
+        binding_ranges.insert(callable.clone(), formal_ranges);
+
+        let facts = import_callable_expression_facts(record, relocation, &mut child)?;
+        let statuses = import_callable_expression_statuses(&record.expressions, relocation, &mut child)?;
+        let dispatch =
+            import_callable_expression_dispatch_authority(record, relocation, store, source_plan_fingerprints, &mut child, limits.max_recursion_depth)?;
+        let specializations = import_callable_call_specializations(
+            &record.expressions,
+            &record.conformance_evidence,
+            relocation,
+            store,
+            source_plan_fingerprints,
+            &mut child,
+            limits.max_recursion_depth,
+        )?;
+        let denotations = import_callable_denotations(record, relocation, &mut child)?;
+        let mut specializations = specializations.into_iter().peekable();
+        let mut denotations = denotations.expressions.into_iter().peekable();
+        let mut expression_entries = child.vector(record.expressions.len()).map_err(allocation_error)?;
+        for (((wire, fact), (_, status)), authority) in record.expressions.iter().zip(facts).zip(statuses).zip(dispatch) {
+            if wire.ordinal != fact.ordinal || wire.ordinal != authority.ordinal {
+                return Err(referential("callable expression helper ordinals disagree"));
+            }
+            let id = ExpressionId::new(body, LocalExpressionId(wire.ordinal));
+            expression_entries.push((
+                id,
+                ExpressionAnalysis {
+                    id,
+                    range: fact.range,
+                    knowledge: fact.knowledge,
+                    callable: fact.callable,
+                    call_specialization: take_sparse(&mut specializations, wire.ordinal),
+                    conditional_dispatch: fact.conditional_dispatch,
+                    conditional_capability: authority.conditional_capability,
+                    trait_dispatch: authority.trait_dispatch,
+                    trait_dispatch_candidates: None,
+                    contextual_realization: None,
+                    denotation: take_sparse(&mut denotations, wire.ordinal),
+                    status,
+                    causal_invalidity: fact.causal_invalidity,
+                    explanation: authority.explanation,
+                    call: None,
+                    binding_read_safety: fact.binding_read_safety,
+                    binding_read: fact.binding_read.map(BindingId),
+                    binding_write: fact.binding_write.map(BindingId),
+                },
+            ));
+        }
+        if specializations.next().is_some() || denotations.next().is_some() {
+            return Err(referential("callable sparse expression authority references an absent expression"));
+        }
+        let expressions = import_analysis_map(expression_entries, &mut child, "callable expression rows are not canonical")?;
+        let resolutions = import_callable_resolution_authority(record, body, relocation, store, source_plan_fingerprints, limits, &mut child)?;
+        let proofs = proof::import_callable_proofs(record, body, relocation, limits, &mut child)?;
+        let flow_graph = import_callable_flow_graph_with_allocation_budget(&record.flow_graph, limits, &mut child)?;
+        let entry_flow = import_callable_flow_state_summary(&record.entry_flow, relocation, &mut child)?;
+        let mut normal_returns = child.vector(record.normal_returns.len()).map_err(allocation_error)?;
+        for exit in &record.normal_returns {
+            let status_record = phalcom_compiler_artifact::semantic::world::CallableExpressionRowV1 {
+                ordinal: 0,
+                range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 0 },
+                knowledge: exit.knowledge.clone(),
+                callable: None,
+                conditional_dispatch: None,
+                conditional_capability: None,
+                trait_dispatch: None,
+                status: exit.status.clone(),
+                causal_invalidity: exit.causal_invalidity.clone(),
+                explanation: None,
+                binding_read_safety: None,
+                binding_read: None,
+                binding_write: None,
+                denotation: None,
+                call_specialization: None,
+            };
+            let status = import_callable_expression_statuses(std::slice::from_ref(&status_record), relocation, &mut child)?
+                .pop()
+                .expect("one synthetic status row")
+                .1;
+            normal_returns.push(NormalReturnFact {
+                knowledge: import_type_knowledge_with_allocation_budget(&exit.knowledge, relocation, &mut child)?,
+                flow: import_callable_flow_state_summary(&exit.flow, relocation, &mut child)?,
+                status,
+                causal_invalidity: match exit.causal_invalidity {
+                    phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean => crate::checker::causal::CausalInvalidity::Clean,
+                    phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::One { cause } => {
+                        crate::checker::causal::CausalInvalidity::One(DiagnosticCauseId(cause))
+                    }
+                    phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Multiple => crate::checker::causal::CausalInvalidity::Multiple,
+                },
+                direct_result_dependency: exit
+                    .direct_result_dependency
+                    .as_ref()
+                    .map(|dependency| import_stable_callable_with_allocation_budget(dependency, &mut child))
+                    .transpose()?,
+            });
+        }
+        let mut throws = child.vector(record.throws.len()).map_err(allocation_error)?;
+        for flow in &record.throws {
+            throws.push(import_callable_flow_state_summary(flow, relocation, &mut child)?);
+        }
+        let body_source_owner = record
+            .body_source_owner
+            .as_ref()
+            .map(|owner| match owner {
+                phalcom_compiler_artifact::semantic::world::CallableAnalysisSourceOwnerV1::Module { module } => {
+                    Ok::<SourceOwner, ArtifactError>(SourceOwner::Module(import_stable_module_with_allocation_budget(module, &mut child)?))
+                }
+                phalcom_compiler_artifact::semantic::world::CallableAnalysisSourceOwnerV1::Callable { callable } => {
+                    Ok::<SourceOwner, ArtifactError>(SourceOwner::Callable(import_stable_callable_with_allocation_budget(callable, &mut child)?))
+                }
+            })
+            .transpose()?;
+        let body_range = SourceRange {
+            start: usize::try_from(record.body_range.start).map_err(|_| referential("callable body start exceeds address space"))?,
+            end: usize::try_from(record.body_range.end).map_err(|_| referential("callable body end exceeds address space"))?,
+        };
+        let constructor_super_initializer = record
+            .constructor_super_initializer
+            .as_ref()
+            .map(|resolution| {
+                Ok::<crate::checker::analysis::ConstructorSuperCallResolution, ArtifactError>(crate::checker::analysis::ConstructorSuperCallResolution {
+                    call_range: SourceRange {
+                        start: usize::try_from(resolution.call_range.start).map_err(|_| referential("constructor super-call start exceeds address space"))?,
+                        end: usize::try_from(resolution.call_range.end).map_err(|_| referential("constructor super-call end exceeds address space"))?,
+                    },
+                    initializer: import_stable_callable_with_allocation_budget(&resolution.initializer, &mut child)?,
+                })
+            })
+            .transpose()?;
+        let mut analysis = CallableAnalysis {
+            callable: callable.clone(),
+            body_range,
+            body_source_owner,
+            expressions,
+            bindings,
+            binding_origins,
+            for_iteration_lanes: resolutions.for_iteration_lanes,
+            positional_expansions: resolutions.positional_expansions,
+            known_invalid_positional_expansions: resolutions.known_invalid_positional_expansions,
+            sequence_literals: resolutions.sequence_literals,
+            associated_resolutions: resolutions.associated_resolutions,
+            callable_reference_resolutions: resolutions.callable_reference_resolutions,
+            family_applications: resolutions.family_applications,
+            match_resolutions: proofs.matches,
+            pattern_site_resolutions: proofs.sites,
+            local_proof_graph: proofs.graph,
+            flow_graph,
+            entry_flow,
+            exits: BodyExitFacts {
+                normal_returns,
+                throws,
+                unreachable: record.exits_unreachable,
+            },
+            return_validation: import_callable_return_validation(&record.return_validation),
+            diagnostics: Arc::from([]),
+            internal_incidents: Arc::from([]),
+            explanations: Arc::new(crate::explain::ExplanationArena::new()),
+            return_explanation: None,
+            dependencies: Arc::from([]),
+            semantic_dependencies: Arc::from([]),
+            constructor_super_initializer,
+            dependency_fingerprint: crate::db::ProductFingerprint::new(0),
+            status: import_callable_analysis_status(record.status.clone()),
+        };
+        analysis.dependency_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
+        rows.push((callable, child.arc(analysis).map_err(allocation_error)?));
+    }
+    let table = crate::checker::analysis::CallableAnalysisTable::from_budgeted_entries(rows, &mut child).map_err(|error| match error {
+        crate::checker::analysis::CallableAnalysisTableBuildError::DuplicateCallable => referential("callable analysis owner is duplicated after relocation"),
+        crate::checker::analysis::CallableAnalysisTableBuildError::Allocation(error) => allocation_error(error),
+        crate::checker::analysis::CallableAnalysisTableBuildError::ModuleIndex(_) => referential("callable analysis module index is not canonical"),
+    })?;
+    allocations.commit_child(child).map_err(allocation_error)?;
+    Ok((table, binding_ranges))
+}
+
 pub(super) struct ImportedAssociatedAuthority {
     pub associated_surfaces: crate::associated::AssociatedFamilyTable,
     pub type_member_declarations:
@@ -4129,7 +4908,6 @@ fn validate_and_import_semantic_world_inner(
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
     world.validate_with_allocation_budget(limits, allocations)?;
     ensure_complete_callable_analysis_payload(&world.callable_analyses)?;
-
     // 3. Fresh TypeStore with checked TypeRelocation
     let (mut type_store, type_relocation) = TypeStore::import_type_graph(&world.type_graph, limits)?;
 
@@ -4173,9 +4951,6 @@ fn validate_and_import_semantic_world_inner(
         }
     }
 
-    // Callable analysis imports are rejected before materialization until their
-    // complete body-fact payload and fresh dependency fingerprint are present.
-    let callable_analyses = crate::checker::analysis::CallableAnalysisTable::new();
     let enum_requirements = import_enum_requirements(
         &world.enum_requirements,
         &structural_contracts.enum_table,
@@ -4444,6 +5219,15 @@ fn validate_and_import_semantic_world_inner(
         }
     }
 
+    let (callable_analyses, callable_binding_ranges) = import_callable_analysis_records(
+        &world.callable_analyses,
+        &type_relocation,
+        &type_store,
+        &source_plan_fingerprints,
+        limits,
+        allocations,
+    )?;
+
     let mut witness_plans_map = BTreeMap::new();
     for witness in &world.witness_plans {
         let impl_id = from_stable_impl(&witness.impl_id).map_err(referential)?;
@@ -4628,6 +5412,8 @@ fn validate_and_import_semantic_world_inner(
         callable_definitions_by_module.into_iter().map(|(m, v)| (m, v.into_boxed_slice())).collect();
 
     let surfaces = dispatch_resolver.surfaces().clone();
+    let formal_projection =
+        crate::presentation::FormalSemanticProjection::from_callable_analysis_table_with_binding_ranges(&callable_analyses, &callable_binding_ranges);
     let snapshot = crate::snapshot::SemanticSnapshot {
         id: crate::identity::SnapshotId::new(crate::identity::WorkspaceId(1), crate::identity::SemanticRevision(1), type_store.id()),
         generation: 1,
@@ -4654,7 +5440,7 @@ fn validate_and_import_semantic_world_inner(
         semantic_graph: Arc::new(phalcom_modules::graph::SemanticGraph::default()),
         callable_analyses: Arc::new(callable_analyses),
         internal_incidents: Arc::from([]),
-        formal_projection: Arc::new(crate::presentation::FormalSemanticProjection::default()),
+        formal_projection: Arc::new(formal_projection),
         source_index: Arc::new(crate::source_index::SourceSemanticIndex::default()),
         advisory: Arc::new(crate::advisory::AdvisoryWorkspace::default()),
         module_products: Arc::new(crate::snapshot::ModuleQueryProducts::empty()),
@@ -5078,17 +5864,16 @@ mod tests {
                 },
             ],
             conformance_evidence: vec![],
-            unsupported_family_counts: phalcom_compiler_artifact::semantic::world::CallableAnalysisUnsupportedFamilyCountsV1 {
-                trait_dispatch_candidates: 0,
-                contextual_realizations: 0,
-                positional_expansions: 0,
-                known_invalid_positional_expansions: 0,
-                family_applications: 0,
-            },
             for_iteration_lanes: vec![],
+            positional_expansions: vec![],
+            known_invalid_positional_expansions: vec![],
             sequence_literals: vec![],
             associated_resolutions: vec![],
             callable_reference_resolutions: vec![],
+            family_applications: vec![],
+            local_proof_graph: None,
+            match_resolutions: vec![],
+            pattern_site_resolutions: vec![],
             entry_flow: phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1 {
                 bindings: vec![],
                 fields: vec![],
@@ -5281,17 +6066,16 @@ mod tests {
                 call_specialization: None,
             }],
             conformance_evidence: vec![],
-            unsupported_family_counts: phalcom_compiler_artifact::semantic::world::CallableAnalysisUnsupportedFamilyCountsV1 {
-                trait_dispatch_candidates: 0,
-                contextual_realizations: 0,
-                positional_expansions: 0,
-                known_invalid_positional_expansions: 0,
-                family_applications: 0,
-            },
             for_iteration_lanes: vec![],
+            positional_expansions: vec![],
+            known_invalid_positional_expansions: vec![],
             sequence_literals: vec![],
             associated_resolutions: vec![],
             callable_reference_resolutions: vec![],
+            family_applications: vec![],
+            local_proof_graph: None,
+            match_resolutions: vec![],
+            pattern_site_resolutions: vec![],
             entry_flow: phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1 {
                 bindings: vec![],
                 fields: vec![],
@@ -6144,8 +6928,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn callable_analysis_import_rejects_records_without_complete_body_facts() {
+    fn minimal_callable_analysis_record() -> phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1 {
         let callable = StableCallableRef {
             owner: StableCallableOwnerRef::Declaration(StableDeclarationRef {
                 module: StableModuleRef {
@@ -6160,7 +6943,7 @@ mod tests {
             side: StableDispatchSide::Instance,
             selector: "method".into(),
         };
-        let record = phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1 {
+        phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1 {
             callable,
             body_source_owner: None,
             body_range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 8 },
@@ -6175,17 +6958,16 @@ mod tests {
             constructor_super_initializer: None,
             expressions: Vec::new(),
             conformance_evidence: Vec::new(),
-            unsupported_family_counts: phalcom_compiler_artifact::semantic::world::CallableAnalysisUnsupportedFamilyCountsV1 {
-                trait_dispatch_candidates: 0,
-                contextual_realizations: 0,
-                positional_expansions: 0,
-                known_invalid_positional_expansions: 0,
-                family_applications: 0,
-            },
             for_iteration_lanes: Vec::new(),
+            positional_expansions: Vec::new(),
+            known_invalid_positional_expansions: Vec::new(),
             sequence_literals: Vec::new(),
             associated_resolutions: Vec::new(),
             callable_reference_resolutions: Vec::new(),
+            family_applications: Vec::new(),
+            local_proof_graph: None,
+            match_resolutions: Vec::new(),
+            pattern_site_resolutions: Vec::new(),
             entry_flow: phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1 {
                 bindings: Vec::new(),
                 fields: Vec::new(),
@@ -6195,11 +6977,117 @@ mod tests {
             throws: Vec::new(),
             return_validation: phalcom_compiler_artifact::semantic::world::ReturnContractValidationV1::NotApplicable,
             bindings: Vec::new(),
-        };
+        }
+    }
 
+    #[test]
+    fn callable_analysis_import_rejects_records_without_complete_body_facts() {
+        let record = minimal_callable_analysis_record();
         let error = ensure_complete_callable_analysis_payload(&[record]).expect_err("partial analysis payload must fail closed");
         assert!(error.to_string().contains("callable analysis body facts are not completely represented"));
         assert!(ensure_complete_callable_analysis_payload(&[]).is_ok());
+    }
+
+    #[test]
+    fn reconstructed_callable_table_retains_lowering_readers_and_relocated_fingerprint() {
+        use phalcom_compiler_artifact::module_world::SpanV1;
+        use phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId;
+        use phalcom_compiler_artifact::semantic::world as wire;
+
+        let limits = ValidationLimits::default();
+        let mut source_store = TypeStore::new();
+        let source_type = source_store.nominal(owner());
+        let types = TypeExportContext::new_full(&source_store).unwrap();
+        let graph = types.project_graph(&source_store, &limits).unwrap();
+        let (store, relocation) = TypeStore::import_type_graph(&graph, &limits).unwrap();
+        let portable_type = types.ty(source_type).unwrap();
+        let relocated_type = relocation.ty(portable_type).unwrap();
+        let mut record = minimal_callable_analysis_record();
+        let callable = import_exact_callable(&record.callable).unwrap();
+        let knowledge = wire::TypeKnowledgeV1::Known {
+            ty: portable_type,
+            status: wire::EvidenceStatusV1::Established,
+            origin: wire::EvidenceOriginV1::Syntax,
+            provenance: wire::EvidenceSetV1 {
+                ranges: vec![],
+                descriptions: vec![],
+            },
+        };
+        record.bindings.push(wire::CallableBindingRowV1 {
+            ordinal: 0,
+            name: "value".into(),
+            parameter: None,
+            range: SpanV1 { start: 2, end: 7 },
+            contract: None,
+            current: knowledge.clone(),
+            denotation: None,
+            consistency: wire::CallableBindingConsistencyV1::Validated,
+            causal_invalidity: wire::CallableCausalInvalidityV1::Clean,
+            mutable: true,
+            initialization: wire::CallableInitializationStateV1::DefinitelyInitialized,
+            version: 1,
+            explanation: None,
+            authority: wire::CallableBindingAuthorityV1::BodyLocalSource {
+                site_owner: wire::CallableAnalysisSourceOwnerV1::Callable {
+                    callable: record.callable.clone(),
+                },
+                site_local: 0,
+                declaration_range: SpanV1 { start: 2, end: 7 },
+            },
+        });
+        record.expressions.push(wire::CallableExpressionRowV1 {
+            ordinal: 0,
+            range: SpanV1 { start: 7, end: 8 },
+            knowledge,
+            callable: None,
+            conditional_dispatch: None,
+            conditional_capability: None,
+            trait_dispatch: None,
+            status: wire::CallableExpressionStatusV1::Ready,
+            causal_invalidity: wire::CallableCausalInvalidityV1::Clean,
+            explanation: None,
+            binding_read_safety: Some(wire::CallableBindingReadSafetyV1::ProvenInitialized),
+            binding_read: Some(0),
+            binding_write: Some(0),
+            denotation: Some(wire::SemanticDenotationV1::TypeForm { ty: portable_type }),
+            call_specialization: None,
+        });
+        record.sequence_literals.push(wire::CallableSequenceLiteralV1 {
+            expression: 0,
+            source_range: SpanV1 { start: 7, end: 8 },
+            family: wire::CallableSequenceFamilyV1::List,
+            result_type: portable_type,
+            element_type: portable_type,
+            extent: None,
+            construction: wire::CallableSequenceConstructionV1::Fixed { element_count: 1 },
+            exact_expansions: vec![],
+        });
+        let mut budget = AllocationBudget::new(1 << 20);
+        let (table, ranges) =
+            import_callable_analysis_records(std::slice::from_ref(&record), &relocation, &store, &BTreeMap::new(), &limits, &mut budget).unwrap();
+        let analysis = table.get(&callable).unwrap();
+        assert_eq!(table.iter_module(callable.module()).count(), 1);
+        assert!(analysis.expressions.is_frozen());
+        assert!(analysis.bindings.is_frozen());
+        assert_eq!(analysis.expressions.values().next().unwrap().knowledge.ty(), Some(relocated_type));
+        assert_eq!(analysis.expressions.values().next().unwrap().binding_read, Some(BindingId(0)));
+        assert_eq!(analysis.expressions.values().next().unwrap().binding_write, Some(BindingId(0)));
+        assert_eq!(analysis.sequence_literals.values().next().unwrap().element_type, relocated_type);
+        assert_eq!(
+            analysis.dependency_fingerprint,
+            crate::db::fingerprint::callable_body_product_fingerprint(analysis)
+        );
+        let projection = crate::presentation::FormalSemanticProjection::from_callable_analysis_table_with_binding_ranges(&table, &ranges);
+        assert_eq!(
+            projection.binding_attachment_range(&callable, BindingId(0)),
+            Some(SourceRange { start: 2, end: 7 })
+        );
+
+        record.expressions[0].binding_write = Some(1);
+        let mut rejected = AllocationBudget::new(1 << 20);
+        assert!(import_callable_analysis_records(&[record], &relocation, &store, &BTreeMap::new(), &limits, &mut rejected).is_err());
+        assert_eq!(rejected.requested(), 0);
+        let _ = ArtifactTypeId(0);
     }
 
     fn insert_family(

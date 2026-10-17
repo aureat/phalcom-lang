@@ -2539,6 +2539,24 @@ guards remain PATCH3-owned.
 
 # T6 — Transport flow boundaries and all callable resolution families
 
+### Approved proof-publication amendment — 2026-10-17
+
+The user resolved the local-proof identity incident: add a callable-owned immutable
+proof graph at ordinary semantic publication. Freeze reachable rigid definitions,
+kind/origin owners, and scope-parent closure from the query-local `RigidArena`.
+Assign deterministic owner-local ordinals by retained semantic traversal; rewrite
+all retained local terms, case instantiations, and branch proofs. Preserve nested
+scopes and independent openings. The arena, raw query IDs, mutable solver state,
+and inference variables must not enter published callable authority.
+
+Transport the frozen graph with match/pattern rows, validate owner closure and
+scope visibility, relocate canonical references, and charge immutable import
+backing transactionally. Hash canonical frozen proof terms and graph definitions,
+never query allocator numbering. Add alpha-renaming/history, independent-opening,
+nested-scope, malformed-owner/visibility, and allocation rollback discriminators.
+Return to the Universe artifact test immediately after this bounded owner repair.
+The graph is semantic proof authority, not required VM lowering data.
+
 ## Purpose
 
 Complete compiler-executable callable products beyond the basic expression/binding rows.

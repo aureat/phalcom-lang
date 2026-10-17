@@ -61,6 +61,11 @@ impl RigidArena {
         self.variables.get(id.index())
     }
 
+    /// Reads scope ancestry for the semantic publication freezer.
+    pub(crate) fn scope_parent(&self, id: RigidScopeId) -> Option<Option<RigidScopeId>> {
+        self.scopes.get(id.index()).map(|scope| scope.parent)
+    }
+
     pub fn scope_contains(&self, outer: RigidScopeId, inner: RigidScopeId) -> bool {
         let mut current = Some(inner);
         while let Some(scope) = current {
@@ -78,50 +83,50 @@ impl RigidArena {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct LocalTupleElement {
+pub struct LocalTupleElement<R = RigidTypeVariableId, K = FieldKey> {
     pub label: Option<Box<str>>,
-    pub ty: LocalType,
+    pub ty: LocalType<R, K>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct LocalRecordField {
-    pub key: FieldKey,
-    pub ty: LocalType,
+pub struct LocalRecordField<R = RigidTypeVariableId, K = FieldKey> {
+    pub key: K,
+    pub ty: LocalType<R, K>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct LocalCallableParameter {
+pub struct LocalCallableParameter<R = RigidTypeVariableId, K = FieldKey> {
     pub label: Option<Box<str>>,
-    pub ty: LocalType,
+    pub ty: LocalType<R, K>,
     pub rest: phalcom_ast::ast::RestMode,
 }
 
 /// A local type expression that may contain canonical types and scoped rigids.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum LocalType {
+pub enum LocalType<R = RigidTypeVariableId, K = FieldKey> {
     Canonical(TypeId),
-    Rigid(RigidTypeVariableId),
+    Rigid(R),
     Applied {
-        origin: Box<LocalType>,
-        arguments: Box<[LocalType]>,
+        origin: Box<LocalType<R, K>>,
+        arguments: Box<[LocalType<R, K>]>,
     },
     ExactCase {
         variant: VariantId,
-        enum_type: Box<LocalType>,
+        enum_type: Box<LocalType<R, K>>,
     },
-    Union(Box<[LocalType]>),
-    Tuple(Box<[LocalTupleElement]>),
-    Record(Box<[LocalRecordField]>),
+    Union(Box<[LocalType<R, K>]>),
+    Tuple(Box<[LocalTupleElement<R, K>]>),
+    Record(Box<[LocalRecordField<R, K>]>),
     Callable {
-        parameters: Box<[LocalCallableParameter]>,
-        return_type: Box<LocalType>,
+        parameters: Box<[LocalCallableParameter<R, K>]>,
+        return_type: Box<LocalType<R, K>>,
     },
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum LocalConstraint {
-    Subtype { lower: LocalType, upper: LocalType },
-    Equivalent { left: LocalType, right: LocalType },
+pub enum LocalConstraint<R = RigidTypeVariableId, K = FieldKey> {
+    Subtype { lower: LocalType<R, K>, upper: LocalType<R, K> },
+    Equivalent { left: LocalType<R, K>, right: LocalType<R, K> },
 }
 
 impl LocalType {
@@ -129,17 +134,19 @@ impl LocalType {
         Self::Rigid(id)
     }
 
-    pub fn free_rigids(&self) -> BTreeSet<RigidTypeVariableId> {
+    pub fn contains_rigid_from_scope(&self, arena: &RigidArena, scope: RigidScopeId) -> bool {
+        self.free_rigids().iter().any(|id| arena.variable_in_scope(*id, scope))
+    }
+}
+
+impl<R: Copy + Ord, K: PartialEq> LocalType<R, K> {
+    pub fn free_rigids(&self) -> BTreeSet<R> {
         let mut result = BTreeSet::new();
         self.collect_free_rigids(&mut result);
         result
     }
 
-    pub fn contains_rigid_from_scope(&self, arena: &RigidArena, scope: RigidScopeId) -> bool {
-        self.free_rigids().iter().any(|id| arena.variable_in_scope(*id, scope))
-    }
-
-    pub fn collect_free_rigids(&self, result: &mut BTreeSet<RigidTypeVariableId>) {
+    pub fn collect_free_rigids(&self, result: &mut BTreeSet<R>) {
         match self {
             Self::Rigid(id) => {
                 result.insert(*id);
@@ -164,11 +171,11 @@ impl LocalType {
 
     /// Compares local types modulo one-to-one rigid renaming.
     pub fn alpha_equivalent(&self, other: &Self) -> bool {
-        fn compare(
-            left: &LocalType,
-            right: &LocalType,
-            mapping: &mut BTreeMap<RigidTypeVariableId, RigidTypeVariableId>,
-            reverse: &mut BTreeMap<RigidTypeVariableId, RigidTypeVariableId>,
+        fn compare<R: Copy + Ord, K: PartialEq>(
+            left: &LocalType<R, K>,
+            right: &LocalType<R, K>,
+            mapping: &mut BTreeMap<R, R>,
+            reverse: &mut BTreeMap<R, R>,
         ) -> bool {
             match (left, right) {
                 (LocalType::Canonical(left), LocalType::Canonical(right)) => left == right,
@@ -250,7 +257,9 @@ impl LocalType {
 
         compare(self, other, &mut BTreeMap::new(), &mut BTreeMap::new())
     }
+}
 
+impl LocalType {
     pub fn materialize(&self, store: &mut TypeStore) -> Result<TypeId, RigidMaterializationError> {
         match self {
             Self::Canonical(ty) => Ok(*ty),
@@ -491,7 +500,7 @@ mod tests {
         let left = arena.fresh(left_scope, KindId::TYPE, RigidOrigin::Synthetic);
         let right = arena.fresh(right_scope, KindId::TYPE, RigidOrigin::Synthetic);
         let list = TypeId(0);
-        let left_type = LocalType::Applied {
+        let left_type: LocalType = LocalType::Applied {
             origin: Box::new(LocalType::Canonical(list)),
             arguments: Box::new([LocalType::Rigid(left)]),
         };

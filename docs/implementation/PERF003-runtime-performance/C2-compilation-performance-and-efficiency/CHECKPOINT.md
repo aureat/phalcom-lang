@@ -6,18 +6,15 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
 latest_completed_plan_verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P7.PATCH2
+active_plan: PERF003.C2.P7.PATCH1
 latest_completed_plan: PERF003.C2.P6
-next_plan: PERF003.C2.P7.PATCH2
+next_plan: PERF003.C2.P7.PATCH1
 next_action: >
-  Run the source-free canonical evaluator regression and complete the
-  source/canonical, fresh-store, source-denied, fingerprint, and malformed-layout
-  gates. Then continue the remaining independent G1-G8 owner-parity and
-  malformed-wire gates. T7-T10 owner transport and T11-T13 assembly/root work
-  are implemented, but no gate is promoted from compilation alone. Keep the
-  semantic importer partial until PATCH6 promotion, and preserve PATCH1
-  callable/Exact/Derived plus PATCH3 allocation guards until their named
-  acceptance gates pass.
+  Implement the approved callable-owned frozen proof graph, then finish
+  match/pattern transport and T7 causal/explanation/dependency closure before
+  completing T8 owner reconstruction. Preserve callable completeness and PATCH3
+  allocation guards. PATCH2's source-free canonical evaluator and G1-G8 gates
+  remain open; P7 is partial/unverified and P8 remains blocked.
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
 execution_tree_head: 2d0b51ee
 latest_tested_revision: dbde1d8c
@@ -25,6 +22,69 @@ latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
+
+## PATCH1 T6 proof ownership ruling — 2026-10-17
+
+The user approved a new immutable `CallableProofGraph`, owned by each published
+`CallableAnalysis`. At callable publication, collect reachable query-local proof
+identities, preserve scope ancestry, alpha-normalize by semantic occurrence, and
+rewrite retained match/pattern terms to callable-local scope/rigid ordinals.
+Independent existential openings stay distinct. The mutable `RigidArena` remains
+query-local; neither it nor its numeric IDs become persistent authority.
+
+This repairs ordinary in-memory publication as well as artifact transport. Import
+must relocate canonical type/kind/origin owners and budget the immutable graph.
+Validate closure, acyclicity, scope visibility, and wrong-owner references before
+publication. Fingerprints hash the frozen graph and rewritten terms. Required
+discriminators cover allocator-history independence, distinct openings, nested
+scopes, malformed references, and transactional allocation failure. Proof data is
+semantic authority; P8 executable lowering need not carry it into VM sections.
+
+The T6 incident's architectural decision is resolved; implementation is active.
+Callable completeness and global allocation guards remain required. P7 remains
+IN_PROGRESS / PARTIAL / UNVERIFIED and P8 remains blocked.
+
+## PATCH1 T6 family and expansion transport — 2026-10-16
+
+Continuation at `5c5da26166e09df7c7825f0343307cfab55922e0` adds portable
+family-application and positional-expansion products. Static selections retain
+optional targets; dynamic selections retain candidate order and optional result
+types. Executable expansions retain both iteration requirements and conformance
+evidence. Known-invalid expansions remain explicit products. Import uses charged
+frozen expression indexes and rolls back its child ledger on failure.
+
+`CallableAnalysisUnsupportedFamilyCountsV1` was removed from the wire. Unsupported
+expression products still reject at export preflight. The current semantic-world
+schema remains an intermediate guarded layout; version reconciliation is required
+before incompatible artifact publication. Neither callable completeness guard nor
+the global allocation guards changed. The inherited owner-assembly draft still
+defaults untransported match/pattern, explanation, diagnostic, and dependency
+products; it is not a complete imported owner.
+
+Verification:
+
+- `RUSTFLAGS='' cargo test -p phalcom-semantic --lib artifact:: -- --test-threads=1`:
+  37 passed, including both new source/export/fresh-relocation discriminators,
+  exact-fit/N-1 ledger checks, malformed-later-row rollback, and root coverage.
+- `RUSTFLAGS='' cargo test -p phalcom-compiler-artifact --test semantic_world_callable_analysis_test -- --test-threads=1`:
+  12 passed; four inherited decode tests fail with `Allocation(UnaccountedBoundary)`.
+  All three new resolution validation tests pass. Missing fields in ten older
+  expression fixtures were mechanically updated so this target compiles.
+- The named core `build_and_load_universe_telosc_compiles_source_free_inline_user_entry`
+  test compiles and still fails at the callable export completeness guard.
+  No artifact bytes or source-free user compilation are established.
+- Rustfmt checks restricted to changed lines and `git diff --check` pass. Full-file
+  rustfmt still reports inherited formatting drift outside those lines.
+
+T6 remains partial. Match candidates retain `CaseInstantiation`, whose rigid and
+scope handles are defined by `CheckerContext.rigids`; `CallableAnalysis` does not
+retain that arena. Persisting or omitting those proof views requires an explicit
+identity/ownership decision. The open packet is
+`P7-R1/PERF003.C2.P7.PATCH1-T6-local-proof-identity-incident.md`.
+No architectural fix was attempted, and no subagent was spawned.
+
+P7 remains **IN_PROGRESS / PARTIAL / UNVERIFIED**. The transported families have
+focused evidence; T6/T8 and P7 acceptance are not complete.
 
 
 ## Current P7 status — 2026-10-15

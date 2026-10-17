@@ -1,5 +1,34 @@
 # PERF003.C2.P7 implementer handoff
 
+## Latest continuation — 2026-10-16
+
+**P7: IN_PROGRESS / PARTIAL / UNVERIFIED. P8 remains blocked.**
+
+Work continues in `.worktrees/perf-universe-characterization` on
+`perf/universe-characterization` at `5c5da26166e09df7c7825f0343307cfab55922e0`.
+The current source and record edits are uncommitted. Do not spawn subagents.
+
+Family applications, executable positional expansions, and known-invalid
+positional expansions now have export, wire validation, fresh type relocation,
+and frozen importer indexes. The zero-only unsupported-family counter record was
+removed. Unsupported expression products still fail at export preflight. All
+callable completeness and global allocation guards remain active.
+
+The focused semantic artifact module passes 37 tests. The directly affected wire
+target passes 12 and fails four inherited decode tests at
+`Allocation(UnaccountedBoundary)`; its three new resolution validators pass.
+The required core test still fails at callable export completeness. Changed-line
+formatting and whitespace checks pass. These results do not prove whole-load
+allocation equality, complete callable parity, or source-free compilation.
+
+Next: resolve `P7-R1/PERF003.C2.P7.PATCH1-T6-local-proof-identity-incident.md`.
+Match candidates retain query-local rigid/scope handles without the defining
+arena in `CallableAnalysis`. Do not serialize those handles verbatim or drop
+their proof payloads. After the owner decision, complete match/pattern and T7
+causal/explanation/dependency transport, then finish the guarded T8 assembly.
+Its inherited default-empty products and formal projection are still a draft.
+Reconcile the final schema/version before publishing incompatible bytes.
+
 ## Current plan status — 2026-10-15
 
 **Status: IN_PROGRESS. Completion: PARTIAL. Verification: UNVERIFIED.**

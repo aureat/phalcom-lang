@@ -532,6 +532,75 @@ impl FormalSemanticProjection {
         Self::from_callable_analyses_with_attachments(analyses, None, Some(binding_ranges))
     }
 
+    /// Builds a source-free formal projection from an imported callable table
+    /// and owner-qualified declaration ranges carried by the artifact.
+    pub fn from_callable_analysis_table_with_binding_ranges(
+        analyses: &crate::checker::CallableAnalysisTable,
+        binding_ranges: &BTreeMap<CallableId, BTreeMap<BindingId, SourceRange>>,
+    ) -> Self {
+        let mut callables_by_module: BTreeMap<ModuleId, Vec<CallableId>> = BTreeMap::new();
+        for callable in analyses.keys() {
+            callables_by_module.entry(callable.module().clone()).or_default().push(callable.clone());
+        }
+        let mut modules = im::OrdMap::new();
+        for (module, mut callable_ids) in callables_by_module {
+            callable_ids.sort();
+            let mut sites = Vec::new();
+            let mut binding_attachments = BTreeMap::new();
+            for callable in callable_ids {
+                let Some(analysis) = analyses.get(&callable) else { continue };
+                sites.push(FormalFactSite {
+                    module: module.clone(),
+                    range: analysis.body_range,
+                    fact: FormalFactRef::Callable(analysis.callable.clone()),
+                    status: callable_status(analysis.status),
+                    causal_invalidity: callable_causal_invalidity(analysis),
+                    contract: None,
+                });
+                for expression in analysis.expressions.values() {
+                    sites.push(FormalFactSite {
+                        module: module.clone(),
+                        range: expression.range,
+                        fact: FormalFactRef::Expression {
+                            callable: analysis.callable.clone(),
+                            expression: expression.id,
+                        },
+                        status: expression_status(&expression.status),
+                        causal_invalidity: expression.causal_invalidity,
+                        contract: None,
+                    });
+                }
+                for binding in analysis.bindings.values() {
+                    let attached_range = binding_ranges.get(&analysis.callable).and_then(|ranges| ranges.get(&binding.binding)).copied();
+                    if let Some(range) = attached_range {
+                        binding_attachments.insert((analysis.callable.clone(), binding.binding), range);
+                    }
+                    sites.push(FormalFactSite {
+                        module: module.clone(),
+                        range: attached_range.unwrap_or(binding.range),
+                        fact: FormalFactRef::Binding {
+                            callable: analysis.callable.clone(),
+                            binding: binding.binding,
+                        },
+                        status: binding_status(binding),
+                        causal_invalidity: binding.causal_invalidity,
+                        contract: binding.contract.as_ref().map(|contract| FormalContractRelation {
+                            ty: contract.ty,
+                            origin: contract.origin,
+                            consistency: binding.consistency.clone(),
+                        }),
+                    });
+                }
+            }
+            sites.sort_by_key(|site| (site.module.clone(), site.range.start, site.range.len(), site.fact.clone()));
+            modules.insert(
+                module,
+                Arc::new(ModuleFormalProjection::new_with_binding_attachments(sites, binding_attachments)),
+            );
+        }
+        Self { modules }
+    }
+
     fn from_callable_analyses_with_attachments(
         analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
         source_index: Option<&SourceSemanticIndex>,
