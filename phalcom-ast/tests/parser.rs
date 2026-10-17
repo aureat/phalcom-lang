@@ -20,7 +20,7 @@
 use phalcom_ast::{
     ast::{
         AssociatedMemberSyntax, ClassMember, ExpansionMode, Expr, GenericArgumentSyntax, GenericConstraintSyntax, ImplementationKind, KindSyntax, MemberBody,
-        MetadataLiteral, RecordLiteralEntry, ReturnStatement, SetLiteralEntry, Statement, StaticDefinitionBody, SymbolLiteralKind, TypeAnnotationExpr,
+        MetadataLiteral, Pattern, RecordLiteralEntry, ReturnStatement, SetLiteralEntry, Statement, StaticDefinitionBody, SymbolLiteralKind, TypeAnnotationExpr,
         TypeCallableItem, TypeMemberArgumentSyntax, TypeMemberParameterDomainSyntax, TypeMemberResultSyntax, TypeMemberSelectorSyntax, TypeTupleItem,
         VarianceSyntax,
     },
@@ -856,6 +856,32 @@ fn for_loop_over_list() {
 #[test]
 fn for_loop_binding_and_iter_expression() {
     insta::assert_snapshot!(parse("for item in makeList(3) { total = total + item }"));
+}
+
+#[test]
+fn for_parentheses_group_patterns_instead_of_wrapping_the_header() {
+    let unwrapped = parse_source("for item in items {}", 0).expect("bare binding pattern should parse");
+    let Statement::For(for_statement) = &unwrapped.statements[0] else {
+        panic!("expected a for statement");
+    };
+    assert!(matches!(for_statement.lanes[0].pattern, Pattern::Name { .. }));
+
+    let grouped = parse_source("for (item) in items {}", 0).expect("grouped binding pattern should parse");
+    let Statement::For(for_statement) = &grouped.statements[0] else {
+        panic!("expected a for statement");
+    };
+    assert!(matches!(for_statement.lanes[0].pattern, Pattern::Name { .. }));
+
+    let tuple = parse_source("for (key, value) in entries {}", 0).expect("tuple pattern should parse");
+    let Statement::For(for_statement) = &tuple.statements[0] else {
+        panic!("expected a for statement");
+    };
+    assert!(matches!(for_statement.lanes[0].pattern, Pattern::Tuple { .. }));
+
+    assert!(
+        parse_source("for (item in items) {}", 0).is_err(),
+        "parentheses cannot wrap an entire for header"
+    );
 }
 
 #[test]

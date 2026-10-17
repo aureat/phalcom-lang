@@ -18,7 +18,7 @@ let plato = entities.insertWithKey |id| {
   Entity(id: id, name: "Plato")
 }
 
-for (entry in entities) {
+for entry in entities {
   let (id, entity) = entry
   System.print("\(id) => \(entity.name)")
 }
