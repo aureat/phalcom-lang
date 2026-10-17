@@ -3960,6 +3960,13 @@ passes its basic and dense-map modules and prints its completion marker.
 Detailed reproduction and evidence are in the
 [SlotMap incident packet](LANG007.C4-slotmap-match-lowering-incident-2026-10-17.md).
 
-This is focused package/runtime evidence only. LANG007.C4 remains
-`IN_PROGRESS / PARTIAL / UNVERIFIED`; the active P9 plan and broader C4 gates
-are unchanged.
+### 2026-10-17 — SlotMap incident closure gates
+
+The incident is closed. The indexer publication regression, the negative
+compiler test for a missing formal match-lowering record, and the SlotMap
+runtime program pass. The recommended full semantic and core crate tests,
+clippy, and repository-wide formatting checks did not pass. Their exact
+failures and the scoped formatting result are recorded in the incident packet.
+The full core test command stopped in the library target before integration
+tests ran. These results leave the incident resolved but do not close LANG007.C4
+or advance the active P9 plan. Checkpoint metadata remains unchanged.

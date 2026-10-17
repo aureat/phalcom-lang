@@ -509,10 +509,32 @@ fn adt_lower_10_executable_lowering_contains_no_gadt_proof_products() {
 }
 
 #[test]
-#[ignore = "GATED: typed missing-lowering injection seam is required"]
 fn adt_lower_11_missing_semantic_product_returns_typed_error() {
-    let result = compile_inline("class Test { run() { match 1 { 2 => 3 } } }\n");
-    assert!(result.is_err(), "invalid match must return a typed compilation error");
+    use phalcom_core::compiler::lib::CompilerError;
+    use phalcom_core::error::PhError;
+    use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
+    use std::sync::Arc;
+
+    let source = "data State { @variant Ready @variant Done }\nlet result = match State::Ready { State::Ready => 1 State::Done => 2 }\n";
+    let mut program =
+        ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("valid exhaustive match should produce formal lowering");
+
+    let module = program.modules.get_mut(&program.entry).expect("entry module");
+    let mut lowering = (*module.lowering).clone();
+    assert!(!lowering.matches.is_empty(), "fixture must start with formal match lowering");
+    lowering.matches.clear();
+    module.lowering = Arc::new(lowering);
+
+    let mut vm = super::vm_support::universe_vm();
+    vm.materialize_program(&program).expect("test program should materialize");
+    let error = vm
+        .compile_program_module_closure(&program.entry, source, &program)
+        .expect_err("compiler must reject a match without formal lowering");
+
+    assert!(
+        matches!(error, PhError::Compile(CompilerError::MissingMatchLoweringSemantics(_))),
+        "missing semantic product must retain its typed fail-closed error, got: {error:?}"
+    );
 }
 
 #[test]
