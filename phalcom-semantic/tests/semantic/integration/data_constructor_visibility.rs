@@ -204,6 +204,24 @@ fn module_constructor_access_requires_the_exact_defining_module() {
 }
 
 #[test]
+fn private_constructor_access_requires_the_exact_declaring_owner() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from("data Secret private(_ value: Int)\nclass Caller { @class make() -> Secret { Secret(42) } }\n");
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
+
+    let analysis = phalcom_semantic::analyze_single_module(module, source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
+    assert!(
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::MemberInaccessible),
+        "a different declaration in the same module must not call a private data constructor: {:?}",
+        analysis.snapshot.diagnostics
+    );
+}
+
+#[test]
 fn package_constructor_access_rejects_nested_and_sibling_packages() {
     for (consumer_path, packages) in [
         (

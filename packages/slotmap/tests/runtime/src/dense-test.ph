@@ -45,7 +45,7 @@ Test.expect(map.isEmpty, "dense clear empties the map")
 Test.expectEqual(map.get(stale), Option::None)
 
 let actuality = map.insert("Actuality")
-Test.expectEqual(map.get(stale), Option::None)
+Test.expectEqual(map.get(stale), Option<String>::None)
 Test.expectEqual(map.get(actuality), Option::Some("Actuality"))
 
 Test.pass("dense-slotmap-basic")

@@ -138,6 +138,42 @@ class Caller {
 }
 
 #[test]
+fn list_get_publishes_option_element_type_for_match_coverage() {
+    let source = r#"
+class Probe {
+  @class
+  inspect(_ values: List<Int>) -> Bool {
+    match values.get(0) {
+      Option::Some(_) => true
+      Option::None => false
+    }
+  }
+}
+"#;
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("canonical Universe source should analyze");
+    assert!(
+        analyzed
+            .semantic
+            .diagnostics
+            .get(&analyzed.entry)
+            .is_none_or(|diagnostics| diagnostics.is_empty()),
+        "typed List.get match should analyze without blocked coverage: {:?}",
+        analyzed.semantic.diagnostics.get(&analyzed.entry)
+    );
+
+    let get_call = analyzed
+        .semantic
+        .callable_analyses
+        .iter()
+        .filter(|(callable, _)| callable.owner.module() == &analyzed.entry)
+        .flat_map(|(_, analysis)| analysis.expressions.values())
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("values.get(0)"))
+        .expect("List.get call expression");
+    let get_result = get_call.knowledge.ty().expect("List.get should publish a known result type");
+    assert_eq!(analyzed.semantic.store.format_type(get_result), "Option<Int>");
+}
+
+#[test]
 fn tuple_iterator_preserves_specialized_element_type_through_both_protocols() {
     let source = r#"
 let tuple: Tuple<***(Int, String)> = (1, "value")

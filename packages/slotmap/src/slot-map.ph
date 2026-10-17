@@ -5,9 +5,9 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 /// `Tag` is a phantom type parameter used to create statically distinct key
 /// domains. A `SlotKey<Users>` cannot be passed to a `SlotMap<Orders, T>`.
 ///
-/// Keys are created only by this module. A key is valid exactly while the slot
-/// at `index` is occupied with the same `generation`.
-data SlotKey<Tag> private(
+/// Keys are created only by the slotmap package implementation. A key is valid
+/// exactly while the slot at `index` is occupied with the same `generation`.
+data SlotKey<Tag> package(
   index: Int,
   generation: Int
 )
@@ -24,7 +24,7 @@ data SlotState<T> {
   Vacant(_ next: Option<Int>)
 }
 
-data Slot<T> private(
+data Slot<T> module(
   generation: Int,
   state: SlotState<T>
 )
