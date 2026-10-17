@@ -573,6 +573,12 @@ fn world(status: CallableAnalysisStatusV1) -> SemanticWorldV3 {
         callable_signatures: vec![],
         callable_definitions: vec![],
         callable_analyses: vec![CallableAnalysisRecordV1 {
+            explanations: Vec::new(),
+            return_explanation: None,
+            diagnostic_cause_count: 0,
+            diagnostics: Vec::new(),
+            dependencies: Vec::new(),
+            semantic_dependencies: Vec::new(),
             callable: callable(),
             body_source_owner: None,
             body_range: SpanV1 { start: 0, end: 8 },
@@ -678,6 +684,98 @@ fn callable_analysis_status_is_preserved_by_semantic_world_codec() {
             SpanV1 { start: 7, end: 9 }
         );
     }
+}
+
+fn explanation_node() -> phalcom_compiler_artifact::semantic::world::CallableExplanationNodeV1 {
+    use phalcom_compiler_artifact::semantic::world::*;
+    CallableExplanationNodeV1 {
+        step: CallableExplanationStepV1::UnknownBoundary {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+            source: None,
+        },
+        rule: CallableDerivationRuleV1::UnknownPropagation,
+        status: EvidenceStatusV1::Established,
+        origin: EvidenceOriginV1::Syntax,
+        evidence: Vec::new(),
+        parents: Vec::new(),
+    }
+}
+
+#[test]
+fn callable_explanation_references_close_over_their_owner() {
+    let mut valid = world(CallableAnalysisStatusV1::Complete);
+    let analysis = &mut valid.callable_analyses[0];
+    analysis.explanations.push(explanation_node());
+    analysis.return_explanation = Some(0);
+    analysis.bindings[0].explanation = Some(0);
+    let mut expression = expression_row(0);
+    expression.explanation = Some(0);
+    analysis.expressions.push(expression);
+    valid.validate(&Default::default()).expect("owner-local explanation references are valid");
+    let encoded = valid.encode().expect("explanation references encode");
+    let decoded = SemanticWorldV3::decode(&encoded, &Default::default()).expect("explanation references decode");
+    assert_eq!(decoded.callable_analyses[0].explanations, valid.callable_analyses[0].explanations);
+    assert_eq!(decoded.callable_analyses[0].return_explanation, Some(0));
+    for field in ["expression", "binding", "return"] {
+        let mut absent = valid.clone();
+        let analysis = &mut absent.callable_analyses[0];
+        match field {
+            "expression" => analysis.expressions[0].explanation = Some(1),
+            "binding" => analysis.bindings[0].explanation = Some(1),
+            "return" => analysis.return_explanation = Some(1),
+            _ => unreachable!(),
+        }
+        assert!(absent.validate(&Default::default()).is_err(), "dangling {field} explanation must fail");
+    }
+}
+
+#[test]
+fn callable_explanation_edges_require_closed_acyclic_owners() {
+    use phalcom_compiler_artifact::semantic::world::*;
+    for edge in ["parent", "generic_constraint", "product_source"] {
+        let mut valid = world(CallableAnalysisStatusV1::Complete);
+        let mut node = explanation_node();
+        match edge {
+            "parent" => node.parents.push(1),
+            "generic_constraint" => {
+                node.step = CallableExplanationStepV1::GenericConflict {
+                    parameter: None,
+                    constraints: vec![1],
+                }
+            }
+            "product_source" => {
+                node.step = CallableExplanationStepV1::ProductComponent {
+                    source: 1,
+                    index: 0,
+                    result: TypeKnowledgeV1::Unknown {
+                        reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+                    },
+                }
+            }
+            _ => unreachable!(),
+        }
+        valid.callable_analyses[0].explanations = vec![node, explanation_node()];
+        valid.validate(&Default::default()).expect("acyclic explanation dependency is valid");
+        let mut absent = valid.clone();
+        absent.callable_analyses[0].explanations.pop();
+        assert!(absent.validate(&Default::default()).is_err(), "dangling {edge} must fail");
+        valid.callable_analyses[0].explanations[1].parents.push(0);
+        let error = valid.validate(&Default::default()).expect_err("explanation dependency cycle must fail");
+        assert!(error.to_string().contains("cycle"), "{edge}: {error}");
+    }
+}
+
+#[test]
+fn callable_explanation_suppressed_evidence_requires_a_cause_owner() {
+    use phalcom_compiler_artifact::semantic::world::CallableExplanationEvidenceV1;
+    let mut valid = world(CallableAnalysisStatusV1::Complete);
+    let mut node = explanation_node();
+    node.evidence.push(CallableExplanationEvidenceV1::Suppressed { cause: 0 });
+    valid.callable_analyses[0].explanations.push(node);
+    valid.callable_analyses[0].diagnostic_cause_count = 1;
+    valid.validate(&Default::default()).expect("suppressed evidence has a local cause owner");
+    valid.callable_analyses[0].diagnostic_cause_count = 0;
+    assert!(valid.validate(&Default::default()).is_err(), "absent diagnostic cause must fail");
 }
 
 #[test]

@@ -1,6 +1,8 @@
 //! Semantic-owned artifact import for structural primary contracts (`PERF003.C2.P7.T7.A`).
 
 pub(super) mod proof;
+mod explanation;
+mod diagnostic;
 
 use crate::data_semantics::{
     DataComponentSemantic, DataConstructorParameter, DataConstructorParameterContribution, DataConstructorSignature, DataConstructorTemplate, DataInfo,
@@ -902,12 +904,36 @@ fn import_associated_selector_with_allocation_budget(
 }
 
 fn ensure_complete_callable_analysis_payload(analyses: &[phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1]) -> Result<(), ArtifactError> {
-    if analyses.is_empty() {
-        return Ok(());
+    for analysis in analyses {
+        let has_explanation = |id: u32| (id as usize) < analysis.explanations.len();
+        if analysis.return_explanation.is_some_and(|id| !has_explanation(id))
+            || analysis
+                .expressions
+                .iter()
+                .filter_map(|expression| expression.explanation)
+                .any(|id| !has_explanation(id))
+            || analysis
+                .bindings
+                .iter()
+                .filter_map(|binding| binding.explanation)
+                .any(|id| !has_explanation(id))
+            || analysis.diagnostics.iter().any(|diagnostic| {
+                diagnostic.root_cause.is_some_and(|id| id >= analysis.diagnostic_cause_count)
+                    || diagnostic
+                        .explanations
+                        .iter()
+                        .any(|reference| reference.callable != analysis.callable || !has_explanation(reference.ordinal))
+            })
+            || analysis
+                .normal_returns
+                .iter()
+                .filter_map(|exit| exit.direct_result_dependency.as_ref())
+                .any(|dependency| !analysis.dependencies.contains(dependency))
+        {
+            return Err(referential("callable owner payload has a dangling explanation, cause, or dependency"));
+        }
     }
-    Err(referential(
-        "callable analysis body facts are not completely represented; refusing semantic image import",
-    ))
+    Ok(())
 }
 
 /// Reconstructs a callable flow graph into immutable, explicitly budgeted
@@ -3123,25 +3149,44 @@ fn import_static_semantic_dependency(
 ) -> Result<crate::checker::analysis::SemanticDependency, ArtifactError> {
     use crate::checker::analysis::SemanticDependency as Dependency;
     use phalcom_compiler_artifact::semantic::world::{ConformanceTargetV1, StaticSemanticDependencyV1 as Portable};
+    fn import_domain(
+        domain: &phalcom_compiler_artifact::semantic::world::StaticCaseDomainV1,
+        allocations: &mut AllocationBudget,
+    ) -> Result<crate::identity::StaticDomainDeclarationId, ArtifactError> {
+        use phalcom_compiler_artifact::semantic::world::StaticCaseDomainV1;
+        Ok(match domain {
+            StaticCaseDomainV1::Nominal { declaration } => {
+                crate::identity::StaticDomainDeclarationId::Nominal(import_stable_declaration_with_allocation_budget(declaration, allocations)?)
+            }
+            StaticCaseDomainV1::Associated { declaration } => {
+                crate::identity::StaticDomainDeclarationId::Associated(crate::identity::AssociatedStaticDomainDeclarationId::new(
+                    import_stable_declaration_with_allocation_budget(&declaration.owner, allocations)?,
+                    allocations.boxed_str(&declaration.name).map_err(allocation_error)?,
+                ))
+            }
+        })
+    }
     Ok(match dependency {
-        Portable::DeclarationShell { owner } => Dependency::DeclarationShell(from_stable_declaration(owner).map_err(referential)?),
-        Portable::TraitHeader { owner } => Dependency::TraitHeader(from_stable_declaration(owner).map_err(referential)?),
-        Portable::CallableSignature { callable } => Dependency::CallableSignature(from_stable_callable(callable).map_err(referential)?),
+        Portable::DeclarationShell { owner } => Dependency::DeclarationShell(import_stable_declaration_with_allocation_budget(owner, allocations)?),
+        Portable::TraitHeader { owner } => Dependency::TraitHeader(import_stable_declaration_with_allocation_budget(owner, allocations)?),
+        Portable::CallableSignature { callable } => Dependency::CallableSignature(import_stable_callable_with_allocation_budget(callable, allocations)?),
         Portable::FieldSignature { field } => Dependency::FieldSignature(crate::identity::FieldId::new(
-            from_stable_declaration(&field.owner).map_err(referential)?,
-            field.name.clone(),
+            import_stable_declaration_with_allocation_budget(&field.owner, allocations)?,
+            allocations.boxed_str(&field.name).map_err(allocation_error)?,
             from_stable_dispatch_side(field.side),
         )),
-        Portable::DeclarationSurface { owner } => Dependency::DeclarationSurface(from_stable_declaration(owner).map_err(referential)?),
-        Portable::TraitSurface { owner } => Dependency::TraitSurface(from_stable_declaration(owner).map_err(referential)?),
-        Portable::ConformanceDispatch { implementation } => Dependency::ConformanceDispatch(from_stable_impl(implementation).map_err(referential)?),
+        Portable::DeclarationSurface { owner } => Dependency::DeclarationSurface(import_stable_declaration_with_allocation_budget(owner, allocations)?),
+        Portable::TraitSurface { owner } => Dependency::TraitSurface(import_stable_declaration_with_allocation_budget(owner, allocations)?),
+        Portable::ConformanceDispatch { implementation } => {
+            Dependency::ConformanceDispatch(import_stable_impl_with_allocation_budget(implementation, allocations)?)
+        }
         Portable::TraitDispatchBucket { target, selector, side } => {
             let target_family = match target {
                 ConformanceTargetV1::Declaration { declaration } => {
-                    crate::trait_dispatch::TraitDispatchTargetFamily::Declaration(from_stable_declaration(declaration).map_err(referential)?)
+                    crate::trait_dispatch::TraitDispatchTargetFamily::Declaration(import_stable_declaration_with_allocation_budget(declaration, allocations)?)
                 }
                 ConformanceTargetV1::ExactEnumCase { variant } => {
-                    crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(from_stable_variant(variant).map_err(referential)?)
+                    crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(import_stable_variant_with_allocation_budget(variant, allocations)?)
                 }
             };
             Dependency::TraitDispatchBucket(crate::trait_dispatch::TraitDispatchBucketKey {
@@ -3151,44 +3196,48 @@ fn import_static_semantic_dependency(
             })
         }
         Portable::GenericConformance { subject, trait_ref } => {
-            let subject = import_type_term(subject, relocation)?;
+            let subject = import_type_term_with_allocation_budget(subject, relocation, allocations)?;
             let trait_ref = import_trait_ref_identity(trait_ref, relocation, allocations)?;
             Dependency::GenericConformance(crate::generic_evidence::GenericConformanceKey::new(subject, trait_ref))
         }
-        Portable::HierarchyEdge { owner } => Dependency::HierarchyEdge(from_stable_declaration(owner).map_err(referential)?),
-        Portable::LinkedInterface { module } => Dependency::LinkedInterface(from_stable_module(module).map_err(referential)?),
-        Portable::DataDeclaration { owner } => Dependency::DataDeclaration(from_stable_declaration(owner).map_err(referential)?),
-        Portable::EnumDeclaration { owner } => Dependency::EnumDeclaration(from_stable_declaration(owner).map_err(referential)?),
-        Portable::AssociatedSurface { owner } => Dependency::AssociatedSurface(from_stable_declaration(owner).map_err(referential)?),
+        Portable::HierarchyEdge { owner } => Dependency::HierarchyEdge(import_stable_declaration_with_allocation_budget(owner, allocations)?),
+        Portable::LinkedInterface { module } => Dependency::LinkedInterface(import_stable_module_with_allocation_budget(module, allocations)?),
+        Portable::DataDeclaration { owner } => Dependency::DataDeclaration(import_stable_declaration_with_allocation_budget(owner, allocations)?),
+        Portable::EnumDeclaration { owner } => Dependency::EnumDeclaration(import_stable_declaration_with_allocation_budget(owner, allocations)?),
+        Portable::AssociatedSurface { owner } => Dependency::AssociatedSurface(import_stable_declaration_with_allocation_budget(owner, allocations)?),
         Portable::TypeMemberDeclaration { owner, selector } => Dependency::TypeMemberDeclaration(crate::types::type_member::TypeMemberDeclarationId::new(
-            from_stable_declaration(owner).map_err(referential)?,
-            import_type_member_selector(selector),
+            import_stable_declaration_with_allocation_budget(owner, allocations)?,
+            import_type_member_selector_with_allocation_budget(selector, allocations)?,
         )),
-        Portable::StaticDomainCaseCatalog { domain } => Dependency::StaticDomainCaseCatalog(import_static_case_domain(domain)?),
+        Portable::StaticDomainCaseCatalog { domain } => Dependency::StaticDomainCaseCatalog(import_domain(domain, allocations)?),
         Portable::StaticCaseSignature { domain, selector } => Dependency::StaticCaseSignature(crate::identity::StaticCaseId::with_selector(
-            import_static_case_domain(domain)?,
+            import_domain(domain, allocations)?,
             import_exact_selector_with_budget(selector, allocations)?,
         )),
-        Portable::StaticDefinition { owner } => Dependency::StaticDefinition(from_stable_declaration(owner).map_err(referential)?),
+        Portable::StaticDefinition { owner } => Dependency::StaticDefinition(import_stable_declaration_with_allocation_budget(owner, allocations)?),
         Portable::StaticConstant { symbol } => Dependency::StaticConstant(crate::static_constant::StaticConstantId(phalcom_modules::linker::SymbolId {
-            module: from_stable_module(&symbol.module).map_err(referential)?,
+            module: import_stable_module_with_allocation_budget(&symbol.module, allocations)?,
             name: allocations.boxed_str(&symbol.name).map_err(allocation_error)?,
         })),
-        Portable::ModuleStaticBindingCatalog { module } => Dependency::ModuleStaticBindingCatalog(from_stable_module(module).map_err(referential)?),
-        Portable::ConstructorInitialization { owner } => Dependency::ConstructorInitialization(from_stable_declaration(owner).map_err(referential)?),
+        Portable::ModuleStaticBindingCatalog { module } => {
+            Dependency::ModuleStaticBindingCatalog(import_stable_module_with_allocation_budget(module, allocations)?)
+        }
+        Portable::ConstructorInitialization { owner } => {
+            Dependency::ConstructorInitialization(import_stable_declaration_with_allocation_budget(owner, allocations)?)
+        }
         Portable::ResolvedImport { module, local_id } => Dependency::ResolvedImport(phalcom_modules::identity::ImportSiteId::new(
-            from_stable_module(module).map_err(referential)?,
+            import_stable_module_with_allocation_budget(module, allocations)?,
             phalcom_modules::identity::ImportSiteLocalId(*local_id),
         )),
         Portable::LinkedName { module, name } => Dependency::LinkedName(
-            from_stable_module(module).map_err(referential)?,
+            import_stable_module_with_allocation_budget(module, allocations)?,
             allocations.string(name).map_err(allocation_error)?,
         ),
         Portable::PublicExport { module, name } => Dependency::PublicExport(
-            from_stable_module(module).map_err(referential)?,
+            import_stable_module_with_allocation_budget(module, allocations)?,
             allocations.string(name).map_err(allocation_error)?,
         ),
-        Portable::ModuleStaticBindings { module } => Dependency::ModuleStaticBindings(from_stable_module(module).map_err(referential)?),
+        Portable::ModuleStaticBindings { module } => Dependency::ModuleStaticBindings(import_stable_module_with_allocation_budget(module, allocations)?),
     })
 }
 
@@ -4501,7 +4550,7 @@ pub(super) fn import_callable_resolution_authority(
     })
 }
 
-fn import_callable_analysis_records(
+pub(super) fn import_callable_analysis_records(
     records: &[phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1],
     relocation: &TypeRelocation,
     store: &TypeStore,
@@ -4518,6 +4567,7 @@ fn import_callable_analysis_records(
     use crate::checker::analysis::{BodyExitFacts, CallableAnalysis, ExpressionAnalysis, NormalReturnFact};
     use crate::identity::{BodyId, ExpressionId, LocalExpressionId};
 
+    ensure_complete_callable_analysis_payload(records)?;
     let mut child = allocations.child(allocations.remaining());
     let mut rows = child.vector(records.len()).map_err(allocation_error)?;
     let mut binding_ranges = BTreeMap::new();
@@ -4671,6 +4721,22 @@ fn import_callable_analysis_records(
                 })
             })
             .transpose()?;
+        let explanations = explanation::import_explanations(&record.explanations, body, relocation, &mut child)?;
+        let mut diagnostics = child.vector(record.diagnostics.len()).map_err(allocation_error)?;
+        for diagnostic in &record.diagnostics {
+            diagnostics.push(diagnostic::import_diagnostic_with_allocation_budget(diagnostic, relocation, &mut child)?);
+        }
+        let diagnostics = budgeted_arc_slice(diagnostics, &mut child)?;
+        let mut dependencies = child.vector(record.dependencies.len()).map_err(allocation_error)?;
+        for dependency in &record.dependencies {
+            dependencies.push(import_stable_callable_with_allocation_budget(dependency, &mut child)?);
+        }
+        let dependencies = budgeted_arc_slice(dependencies, &mut child)?;
+        let mut semantic_dependencies = child.vector(record.semantic_dependencies.len()).map_err(allocation_error)?;
+        for dependency in &record.semantic_dependencies {
+            semantic_dependencies.push(import_static_semantic_dependency(dependency, relocation, &mut child)?);
+        }
+        let semantic_dependencies = budgeted_arc_slice(semantic_dependencies, &mut child)?;
         let mut analysis = CallableAnalysis {
             callable: callable.clone(),
             body_range,
@@ -4696,12 +4762,12 @@ fn import_callable_analysis_records(
                 unreachable: record.exits_unreachable,
             },
             return_validation: import_callable_return_validation(&record.return_validation),
-            diagnostics: Arc::from([]),
-            internal_incidents: Arc::from([]),
-            explanations: Arc::new(crate::explain::ExplanationArena::new()),
-            return_explanation: None,
-            dependencies: Arc::from([]),
-            semantic_dependencies: Arc::from([]),
+            diagnostics,
+            internal_incidents: budgeted_arc_slice(Vec::new(), &mut child)?,
+            explanations,
+            return_explanation: record.return_explanation.map(ExplanationId),
+            dependencies,
+            semantic_dependencies,
             constructor_super_initializer,
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status: import_callable_analysis_status(record.status.clone()),
@@ -6000,6 +6066,12 @@ mod tests {
             },
         };
         let mut record = CallableAnalysisRecordV1 {
+            explanations: Vec::new(),
+            return_explanation: None,
+            diagnostic_cause_count: 0,
+            diagnostics: Vec::new(),
+            dependencies: Vec::new(),
+            semantic_dependencies: Vec::new(),
             callable: crate::metadata::stable_identity::to_stable_callable(&callable),
             body_source_owner: None,
             body_range: SpanV1 { start: 0, end: 3 },
@@ -6023,6 +6095,8 @@ mod tests {
                     conditional_dispatch: None,
                     conditional_capability: None,
                     trait_dispatch: None,
+                    trait_dispatch_candidates: None,
+                    contextual_realization: None,
                     causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                     explanation: None,
                     binding_read_safety: None,
@@ -6042,6 +6116,8 @@ mod tests {
                     conditional_dispatch: None,
                     conditional_capability: None,
                     trait_dispatch: None,
+                    trait_dispatch_candidates: None,
+                    contextual_realization: None,
                     causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                     explanation: None,
                     binding_read_safety: None,
@@ -6061,6 +6137,8 @@ mod tests {
                     conditional_dispatch: None,
                     conditional_capability: None,
                     trait_dispatch: None,
+                    trait_dispatch_candidates: None,
+                    contextual_realization: None,
                     causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                     explanation: None,
                     binding_read_safety: None,
@@ -6218,6 +6296,12 @@ mod tests {
         let stable_declaration = crate::metadata::stable_identity::to_stable_declaration(&declaration);
         let module = stable_declaration.module.clone();
         let record = CallableAnalysisRecordV1 {
+            explanations: Vec::new(),
+            return_explanation: None,
+            diagnostic_cause_count: 0,
+            diagnostics: Vec::new(),
+            dependencies: Vec::new(),
+            semantic_dependencies: Vec::new(),
             callable: stable_callable.clone(),
             body_source_owner: None,
             body_range: SpanV1 { start: 0, end: 12 },
@@ -6254,6 +6338,8 @@ mod tests {
                 }),
                 conditional_capability: None,
                 trait_dispatch: None,
+                trait_dispatch_candidates: None,
+                contextual_realization: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::One { cause: 7 },
                 explanation: None,
                 binding_read_safety: Some(phalcom_compiler_artifact::semantic::world::CallableBindingReadSafetyV1::RuntimeCheckRequired),
@@ -6665,6 +6751,8 @@ mod tests {
                 conditional_dispatch: None,
                 conditional_capability: None,
                 trait_dispatch: None,
+                trait_dispatch_candidates: None,
+                contextual_realization: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                 explanation: None,
                 binding_read_safety: None,
@@ -6684,6 +6772,8 @@ mod tests {
                 conditional_dispatch: None,
                 conditional_capability: None,
                 trait_dispatch: None,
+                trait_dispatch_candidates: None,
+                contextual_realization: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                 explanation: None,
                 binding_read_safety: None,
@@ -6703,6 +6793,8 @@ mod tests {
                 conditional_dispatch: None,
                 conditional_capability: None,
                 trait_dispatch: None,
+                trait_dispatch_candidates: None,
+                contextual_realization: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                 explanation: None,
                 binding_read_safety: None,
@@ -6722,6 +6814,8 @@ mod tests {
                 conditional_dispatch: None,
                 conditional_capability: None,
                 trait_dispatch: None,
+                trait_dispatch_candidates: None,
+                contextual_realization: None,
                 causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::Clean,
                 explanation: None,
                 binding_read_safety: None,
@@ -7152,6 +7246,12 @@ mod tests {
             selector: "method".into(),
         };
         phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1 {
+            explanations: Vec::new(),
+            return_explanation: None,
+            diagnostic_cause_count: 0,
+            diagnostics: Vec::new(),
+            dependencies: Vec::new(),
+            semantic_dependencies: Vec::new(),
             callable,
             body_source_owner: None,
             body_range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 8 },
@@ -7189,10 +7289,11 @@ mod tests {
     }
 
     #[test]
-    fn callable_analysis_import_rejects_records_without_complete_body_facts() {
-        let record = minimal_callable_analysis_record();
-        let error = ensure_complete_callable_analysis_payload(&[record]).expect_err("partial analysis payload must fail closed");
-        assert!(error.to_string().contains("callable analysis body facts are not completely represented"));
+    fn callable_analysis_import_validates_complete_owner_links() {
+        let mut record = minimal_callable_analysis_record();
+        assert!(ensure_complete_callable_analysis_payload(std::slice::from_ref(&record)).is_ok());
+        record.return_explanation = Some(0);
+        assert!(ensure_complete_callable_analysis_payload(&[record]).is_err());
         assert!(ensure_complete_callable_analysis_payload(&[]).is_ok());
     }
 
@@ -7251,6 +7352,8 @@ mod tests {
             conditional_dispatch: None,
             conditional_capability: None,
             trait_dispatch: None,
+            trait_dispatch_candidates: None,
+            contextual_realization: None,
             status: wire::CallableExpressionStatusV1::Ready,
             causal_invalidity: wire::CallableCausalInvalidityV1::Clean,
             explanation: None,

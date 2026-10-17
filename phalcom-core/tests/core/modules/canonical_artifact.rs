@@ -150,6 +150,33 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
             semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.pattern_site_resolutions.len()).sum(),
         ),
         (
+            "flow_graph.edge.predicate",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .flat_map(|(_, analysis)| analysis.flow_graph.edge_entries())
+                .filter(|(_, edge)| edge.predicate.is_some())
+                .count(),
+        ),
+        (
+            "return_explanation",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .filter(|(_, analysis)| analysis.return_explanation.is_some())
+                .count(),
+        ),
+        (
+            "EvidenceRef::CallResolution",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .flat_map(|(_, analysis)| analysis.explanations.iter())
+                .flat_map(|(_, node)| node.evidence.iter())
+                .filter(|evidence| matches!(evidence, phalcom_semantic::explain::node::EvidenceRef::CallResolution(_)))
+                .count(),
+        ),
+        (
             "entry_flow_facts",
             semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.entry_flow.fact_count).sum(),
         ),
@@ -178,9 +205,18 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
             "Universe must exercise {family}"
         );
     }
+    for scaffold in ["expression.call", "flow_graph.edge.predicate", "EvidenceRef::CallResolution"] {
+        let count = callable_authority_counts
+            .iter()
+            .find(|(name, _)| *name == scaffold)
+            .expect("unused scaffold has an explicit census entry")
+            .1;
+        assert_eq!(count, 0, "canonical Universe must not publish unowned {scaffold} handles");
+    }
     let mut associated_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
     let mut callable_reference_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
     let mut trait_dispatch_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
+    let mut explanation_steps = std::collections::BTreeMap::<&'static str, usize>::new();
     let mut explanation_rules = std::collections::BTreeMap::<&'static str, usize>::new();
     let mut explanation_evidence = std::collections::BTreeMap::<&'static str, usize>::new();
     let mut pattern_kinds = std::collections::BTreeMap::<&'static str, usize>::new();
@@ -302,6 +338,40 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
             }
         }
         for (_, node) in analysis.explanations.iter() {
+            let step_kind = match &node.step {
+                phalcom_semantic::explain::node::ExplanationStep::Literal { .. } => "Literal",
+                phalcom_semantic::explain::node::ExplanationStep::ExpressionResult { .. } => "ExpressionResult",
+                phalcom_semantic::explain::node::ExplanationStep::BindingRead { .. } => "BindingRead",
+                phalcom_semantic::explain::node::ExplanationStep::Declared { .. } => "Declared",
+                phalcom_semantic::explain::node::ExplanationStep::BindingContract { .. } => "BindingContract",
+                phalcom_semantic::explain::node::ExplanationStep::TypeRequirement { .. } => "TypeRequirement",
+                phalcom_semantic::explain::node::ExplanationStep::TypeRelation { .. } => "TypeRelation",
+                phalcom_semantic::explain::node::ExplanationStep::CallableSelection { .. } => "CallableSelection",
+                phalcom_semantic::explain::node::ExplanationStep::UnionArm { .. } => "UnionArm",
+                phalcom_semantic::explain::node::ExplanationStep::CallableKind { .. } => "CallableKind",
+                phalcom_semantic::explain::node::ExplanationStep::CallableReturn { .. } => "CallableReturn",
+                phalcom_semantic::explain::node::ExplanationStep::SelfTypeSpecialization { .. } => "SelfTypeSpecialization",
+                phalcom_semantic::explain::node::ExplanationStep::ArgumentCheck { .. } => "ArgumentCheck",
+                phalcom_semantic::explain::node::ExplanationStep::CallShape { .. } => "CallShape",
+                phalcom_semantic::explain::node::ExplanationStep::MethodCall { .. } => "MethodCall",
+                phalcom_semantic::explain::node::ExplanationStep::UnresolvedCall { .. } => "UnresolvedCall",
+                phalcom_semantic::explain::node::ExplanationStep::GenericConstraint { .. } => "GenericConstraint",
+                phalcom_semantic::explain::node::ExplanationStep::GenericSolution { .. } => "GenericSolution",
+                phalcom_semantic::explain::node::ExplanationStep::GenericConflict { .. } => "GenericConflict",
+                phalcom_semantic::explain::node::ExplanationStep::CollectionSynthesis { .. } => "CollectionSynthesis",
+                phalcom_semantic::explain::node::ExplanationStep::ProductComponent { .. } => "ProductComponent",
+                phalcom_semantic::explain::node::ExplanationStep::FlowRefinement { .. } => "FlowRefinement",
+                phalcom_semantic::explain::node::ExplanationStep::BranchJoin { .. } => "BranchJoin",
+                phalcom_semantic::explain::node::ExplanationStep::LoopJoin { .. } => "LoopJoin",
+                phalcom_semantic::explain::node::ExplanationStep::IterationElement { .. } => "IterationElement",
+                phalcom_semantic::explain::node::ExplanationStep::ReturnCheck { .. } => "ReturnCheck",
+                phalcom_semantic::explain::node::ExplanationStep::CallableReturnSummary { .. } => "CallableReturnSummary",
+                phalcom_semantic::explain::node::ExplanationStep::UnknownBoundary { .. } => "UnknownBoundary",
+                phalcom_semantic::explain::node::ExplanationStep::DynamicBoundary { .. } => "DynamicBoundary",
+                phalcom_semantic::explain::node::ExplanationStep::InternalBlocked { .. } => "InternalBlocked",
+                phalcom_semantic::explain::node::ExplanationStep::Subtyping { .. } => "Subtyping",
+            };
+            *explanation_steps.entry(step_kind).or_default() += 1;
             *explanation_rules.entry(node.rule.as_str()).or_default() += 1;
             for evidence in &node.evidence {
                 let kind = match evidence {
@@ -336,6 +406,10 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
             count_pattern(&resolution.pattern, &mut pattern_kinds);
         }
     }
+    eprintln!("canonical callable authority counts: {callable_authority_counts:#?}");
+    eprintln!("canonical explanation rules: {explanation_rules:#?}");
+    eprintln!("canonical explanation steps: {explanation_steps:#?}");
+    eprintln!("canonical explanation evidence: {explanation_evidence:#?}");
     assert!(associated_kinds.get("static_invoke").copied().unwrap_or(0) > 0);
     assert!(callable_reference_kinds.get("bound_family").copied().unwrap_or(0) > 0);
     assert!(trait_dispatch_kinds.get("evidenced").copied().unwrap_or(0) > 0);
@@ -351,6 +425,45 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
         branch_proof_counts[2] > 0 && branch_proof_counts[3] > 0,
         "Universe must retain local branch bindings and equalities"
     );
+    let mut missing_surface_signatures = Vec::new();
+    let mut missing_signature_modules = std::collections::BTreeSet::new();
+    for (owner, surface) in semantic_snapshot.surfaces.iter() {
+        for member_surface in [&surface.instance, &surface.class] {
+            for callable in member_surface.callables.keys() {
+                if semantic_snapshot.callable_signatures.get(callable).is_some() {
+                    continue;
+                }
+                missing_signature_modules.insert(callable.module().clone());
+                let retained_kind = member_surface.callable_signatures.get(&callable.selector).map(|signature| &signature.kind);
+                let conditional_members = semantic_snapshot
+                    .dispatch
+                    .get_conditional_members(&phalcom_semantic::impls::InherentImplTarget::Declaration(owner.clone()))
+                    .map(|set| {
+                        set.members
+                            .iter()
+                            .filter(|member| &member.callable == callable)
+                            .map(|member| (member.signature_template.native_id.clone(), member.is_requirement, member.source_member))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                missing_surface_signatures.push((
+                    callable.clone(),
+                    retained_kind,
+                    semantic_snapshot.callable_definitions.get(callable).is_some(),
+                    conditional_members,
+                ));
+            }
+        }
+    }
+    missing_surface_signatures.sort_by(|left, right| left.0.cmp(&right.0));
+    eprintln!("canonical surface callables missing signatures (callable, retained kind, definition present, conditional native/requirement/source): {missing_surface_signatures:#?}");
+    for module in missing_signature_modules {
+        if let Some(diagnostics) = semantic_snapshot.diagnostics.get(&module) {
+            for diagnostic in diagnostics.iter() {
+                eprintln!("canonical missing-signature module {module}: {:?}: {}", diagnostic.code, diagnostic.message);
+            }
+        }
+    }
     let program = canonical_universe_program().expect("canonical universe program must compile");
     let view = program.compiler_image_view().expect("compiler image view must be present");
     let limits = ValidationLimits::default();

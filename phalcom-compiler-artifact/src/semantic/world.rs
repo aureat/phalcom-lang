@@ -1,6 +1,9 @@
 //! Combined semantic world section payload (`PERF003.C2.P7.T7.B/T8`).
 
 mod proof;
+mod explanation;
+mod callable_owner;
+pub use explanation::*;
 pub use proof::*;
 
 use crate::module_world::SpanV1;
@@ -1072,6 +1075,12 @@ record!(CallableAnalysisRecordV1 {
     normal_returns: Vec<CallableNormalReturnV1>,
     throws: Vec<CallableFlowStateSummaryV1>,
     return_validation: ReturnContractValidationV1,
+    explanations: Vec<CallableExplanationNodeV1>,
+    return_explanation: Option<u32>,
+    diagnostic_cause_count: u32,
+    diagnostics: Vec<CallableEvidenceDiagnosticV1>,
+    dependencies: Vec<StableCallableRef>,
+    semantic_dependencies: Vec<StaticSemanticDependencyV1>,
 });
 
 record!(EnumRequirementSourceV1 {
@@ -1858,6 +1867,8 @@ impl SemanticWorldV3 {
                 return Err(invalid("callable body source range is inverted"));
             }
             CallableAnalysisOrdinalContext::new(analysis).validate(limits, allocations)?;
+            callable_owner::validate_callable_owner(analysis, self, limits, allocations)?;
+            explanation::validate_explanations(analysis, self, limits, allocations)?;
             if analysis
                 .constructor_super_initializer
                 .as_ref()

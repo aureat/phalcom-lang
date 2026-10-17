@@ -1,6 +1,7 @@
 //! Semantic-owned artifact export for structural primary contracts (`PERF003.C2.P7.T7.A`).
 
 mod proof;
+mod explanation;
 
 use crate::data_semantics::{DataComponentSemantic, DataConstructorParameter, DataProductContribution, DataSemanticTable, DataShape};
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
@@ -2087,7 +2088,10 @@ impl CallableAnalysisOrdinalMap {
         {
             return Err(referential("callable flow graph entry or exit references an absent node"));
         }
-        for (_, node) in analysis.explanations.iter() {
+        for (id, node) in analysis.explanations.iter() {
+            if id != &node.id {
+                return Err(referential("callable explanation map key disagrees with its node identity"));
+            }
             if node.parents.iter().any(|parent| !has_explanation(parent)) {
                 return Err(referential("callable explanation references an absent parent"));
             }
@@ -2814,6 +2818,29 @@ fn export_callable_analysis_record(
         normal_returns,
         throws,
         return_validation,
+        explanations: explanation::export_explanations(analysis, &ordinals, types)?,
+        return_explanation: analysis
+            .return_explanation
+            .map(|id| {
+                ordinals
+                    .explanations
+                    .get(&id)
+                    .copied()
+                    .ok_or_else(|| referential("return explanation is absent"))
+            })
+            .transpose()?,
+        diagnostic_cause_count: u32::try_from(ordinals.diagnostic_causes.len()).map_err(|_| referential("too many diagnostic causes"))?,
+        diagnostics: analysis
+            .diagnostics
+            .iter()
+            .map(|diagnostic| export_semantic_diagnostic(diagnostic, Some(&ordinals), None, None, types))
+            .collect::<Result<_, _>>()?,
+        dependencies: analysis.dependencies.iter().map(to_stable_callable).collect(),
+        semantic_dependencies: analysis
+            .semantic_dependencies
+            .iter()
+            .map(|dependency| export_static_semantic_dependency(dependency, types))
+            .collect::<Result<_, _>>()?,
     })
 }
 
@@ -4397,7 +4424,7 @@ pub fn export_semantic_world(
                     let semantic = snapshot
                         .callable_signatures
                         .get(callable)
-                        .ok_or_else(|| referential("declaration dispatch callable has no canonical semantic signature"))?;
+                        .ok_or_else(|| referential(format!("declaration dispatch callable has no canonical semantic signature: {callable:?}")))?;
                     let projected = crate::checker::declaration_signature::project_semantic_signature(semantic);
                     let retained = member_surface
                         .callable_signatures
@@ -4743,26 +4770,12 @@ fn validate_semantic_world_export_coverage(snapshot: &SemanticSnapshot) -> Resul
         }
         let _local_counts = local_ids.local_counts();
     }
-    if !snapshot.callable_analyses.is_empty() {
-        return Err(referential(
-            "semantic artifact export does not yet encode complete callable analysis facts and cannot publish a complete image",
-        ));
-    }
-    for (_, plan) in snapshot.conformance_witness_plans.iter() {
-        if !plan.requirement_views.is_empty()
-            || plan.invalid_explicit_members
-            || !matches!(plan.completeness, crate::impls::ConformanceCompleteness::Complete)
-            || !plan.associated_type_plan.failures.is_empty()
-            || plan.requirements.values().any(|selection| {
-                matches!(
-                    selection,
-                    crate::impls::RequirementSelectionTemplate::InherentCallable { conditional_impl: Some(_), .. }
-                        | crate::impls::RequirementSelectionTemplate::InherentCallable { applicability: Some(_), .. }
-                        | crate::impls::RequirementSelectionTemplate::ConditionalInherent { .. }
-                )
-            })
-        {
-            return Err(referential("semantic artifact export cannot losslessly encode this conformance witness plan"));
+    for (owner, plan) in snapshot.conformance_witness_plans.iter() {
+        if owner != &plan.impl_id || plan.associated_type_plan.impl_id != plan.impl_id {
+            return Err(referential("conformance witness plan identity disagrees with its owner"));
+        }
+        if plan.fingerprint != crate::impls::conformance_witness_plan_fingerprint(plan) {
+            return Err(referential("conformance witness plan fingerprint is stale"));
         }
     }
     Ok(())
@@ -5326,6 +5339,111 @@ mod callable_analysis_status_tests {
     }
 
     #[test]
+    fn callable_owner_graph_round_trips_with_local_relocation() {
+        use crate::checker::analysis::{ExpressionAnalysis, SemanticDependency};
+        use crate::diagnostic::{DiagnosticCode, ExplanationRef, SemanticDiagnostic};
+        use crate::explain::node::{DerivationRule, EvidenceRef, ExplanationStep};
+        use crate::identity::{BodyId, CallableId, DeclarationId, DiagnosticCauseId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId};
+        use phalcom_common::{range::SourceRange, selector::Selector};
+        use std::sync::Arc;
+        let limits = ValidationLimits::default();
+        let owner = DeclarationId::new(
+            ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+                phalcom_modules::ModuleComponent::from_identifier("owner_graph").unwrap(),
+            ])),
+            "Owner".into(),
+        );
+        let callable = CallableId::method(owner.clone(), Selector::getter("value").unwrap(), DispatchSide::Instance);
+        let mut source = empty_callable_analysis(callable.clone());
+        let mut store = crate::types::store::TypeStore::new();
+        let ty = store.nominal_type(owner.clone());
+        let expression = ExpressionId::new(BodyId(73), LocalExpressionId(19));
+        source
+            .expressions
+            .insert_source(
+                expression,
+                ExpressionAnalysis::ready(expression, SourceRange::default(), TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)),
+            )
+            .unwrap();
+        let mut arena = crate::explain::ExplanationArena::new();
+        let cause = DiagnosticCauseId(91);
+        let first = arena
+            .alloc_full(
+                ExplanationStep::Literal { expression, ty },
+                DerivationRule::LiteralSynthesis,
+                EvidenceStatus::Established,
+                EvidenceOrigin::Syntax,
+                vec![EvidenceRef::TypeId(ty), EvidenceRef::Suppressed { cause }],
+                vec![],
+            )
+            .unwrap();
+        let last = arena
+            .alloc_full(
+                ExplanationStep::ProductComponent {
+                    source: first,
+                    index: 3,
+                    result: TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                },
+                DerivationRule::ProductDecomposition,
+                EvidenceStatus::Assumed,
+                EvidenceOrigin::PatternDecomposition,
+                vec![],
+                vec![first],
+            )
+            .unwrap();
+        source.expressions.get_source_mut(&expression).unwrap().unwrap().explanation = Some(first);
+        source.explanations = Arc::new(arena);
+        source.return_explanation = Some(last);
+        source.dependencies = Arc::from([callable.clone()]);
+        source.semantic_dependencies = Arc::from([SemanticDependency::DeclarationShell(owner)]);
+        source.diagnostics = Arc::from([SemanticDiagnostic::error_in(
+            callable.module().clone(),
+            DiagnosticCode::TypeMismatch,
+            "graph diagnostic",
+            SourceRange::default(),
+        )
+        .with_root_cause(cause)
+        .with_explanation(ExplanationRef::new(callable.clone(), first))]);
+        let mut types = TypeExportContext::new(&store);
+        crate::artifact::roots::register_callable_analysis_roots(&mut types, &source, &store).unwrap();
+        types.close_graph(&store, &limits).unwrap();
+        let record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &limits).unwrap();
+        assert_eq!(record.diagnostic_cause_count, 1);
+        assert_eq!(record.diagnostics[0].root_cause, Some(0));
+        let graph = types.project_graph(&store, &limits).unwrap();
+        let (imported_store, relocation) = crate::types::store::TypeStore::import_type_graph(&graph, &limits).unwrap();
+        let mut budget = phalcom_type_meta::allocation::AllocationBudget::new(1 << 20);
+        let (table, _) = crate::artifact::import::import_callable_analysis_records(
+            std::slice::from_ref(&record),
+            &relocation,
+            &imported_store,
+            &BTreeMap::new(),
+            &limits,
+            &mut budget,
+        )
+        .unwrap();
+        let imported = table.get(&callable).unwrap();
+        assert!(imported.explanations.is_frozen());
+        assert_eq!(imported.explanations.len(), 2);
+        assert_eq!(imported.return_explanation, Some(crate::identity::ExplanationId(1)));
+        assert_eq!(imported.diagnostics[0].root_cause, Some(DiagnosticCauseId(0)));
+        assert_eq!(imported.dependencies, source.dependencies);
+        assert_eq!(imported.semantic_dependencies, source.semantic_dependencies);
+        assert_eq!(
+            imported.dependency_fingerprint,
+            crate::db::fingerprint::callable_body_product_fingerprint(imported)
+        );
+        let mut imported_types = TypeExportContext::new(&imported_store);
+        crate::artifact::roots::register_callable_analysis_roots(&mut imported_types, imported, &imported_store).unwrap();
+        imported_types.close_graph(&imported_store, &limits).unwrap();
+        let reexported = export_callable_analysis_record(&callable, imported, &BTreeMap::new(), &imported_types, &limits).unwrap();
+        assert_eq!(
+            record, reexported,
+            "complete portable authority must survive fresh-store and local-ID relocation"
+        );
+    }
+
+    #[test]
     fn callable_analysis_record_preserves_expression_denotations() {
         use crate::checker::analysis::ExpressionAnalysis;
         use crate::identity::{BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId};
@@ -5837,6 +5955,7 @@ mod callable_analysis_status_tests {
         let mut allocations = phalcom_type_meta::allocation::AllocationBudget::new(1024 * 1024);
         let imported = crate::artifact::import::import_callable_expression_dispatch_authority(
             &enriched_record,
+            crate::identity::BodyId(0),
             &relocation,
             &imported_store,
             &BTreeMap::new(),

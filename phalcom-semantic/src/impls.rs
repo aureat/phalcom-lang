@@ -7314,3 +7314,22 @@ mod frozen_conformance_evidence_tests {
         assert_ne!(source_evidence, completed, "None and Some(empty) retain distinct proof provenance");
     }
 }
+
+#[cfg(test)]
+mod native_anchor_publication_tests {
+    #[test]
+    fn option_native_anchor_publishes_its_source_generic_contract() {
+        let baseline = crate::canonical_baseline::canonical_universe_semantic_baseline();
+        let owner = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Option);
+        let selector = phalcom_common::selector::Selector::try_decode_exact("match(some,none)").unwrap();
+        let callable = crate::identity::CallableId::method(owner.clone(), selector, crate::identity::DispatchSide::Instance);
+        let signature = baseline.callable_signatures().get(&callable).expect("required Option native anchor must publish its canonical source signature");
+        let native = phalcom_native_surface::NATIVE_SURFACES.iter().find(|record| record.owner() == phalcom_native_meta::UniverseKey::Option && record.selector() == "match(some,none)").unwrap();
+        assert_eq!(signature.native_id, Some(native.id()));
+        assert_eq!(signature.parameters.len(), 2);
+        assert_eq!(signature.generics.as_ref().expect("source R binder").parameters.len(), 1);
+        assert!(matches!(baseline.type_store().get(signature.parameters[0].declared_type.canonical_type().expect("source callback type")), crate::types::store::TypeData::Callable(_)));
+        assert!(signature.declared_return.canonical_type().is_some());
+        assert_eq!(baseline.dispatch().surface(&owner).unwrap().get_callable_id(crate::identity::DispatchSide::Instance, &callable.selector), Some(&callable));
+    }
+}
