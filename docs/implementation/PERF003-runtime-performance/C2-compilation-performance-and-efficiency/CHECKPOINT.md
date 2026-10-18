@@ -10,19 +10,50 @@ active_plan: PERF003.C2.P7.PATCH5-R
 latest_completed_plan: PERF003.C2.P7.PATCH4
 next_plan: PERF003.C2.P7.PATCH5-R
 next_action: >
-  PERF003.C2.P7.PATCH5-R R.T2 / R.G2 query reconstruction has exact
-  successful-path allocation parity on the c7 artifact. R.T3 / R.G3 is active:
-  formal-image publication now has exact allocation parity; continue the
-  source-free failure-atomicity discriminators. Keep the separate +23,011
-  whole-load residual outside N-P. Keep P7 IN_PROGRESS / PARTIAL / UNVERIFIED;
-  do not begin P8 or claim R.G3/R.G4.
+  PERF003.C2.P7.PATCH5-R R.T3 / R.G3 is complete and passed focused closure.
+  Continue with R.T4 whole-load exactness. Keep the +23,011 residual outside
+  N-P in owners C/A/H0. Keep P7 IN_PROGRESS / PARTIAL / UNVERIFIED and P8
+  BLOCKED; do not claim R.G4 or overall P7 completion.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: 97c419f4
-latest_tested_revision: 97c419f4
+execution_tree_head: 5dcc09f9
+latest_tested_revision: 5dcc09f9
 latest_tested_predecessor: c7d308b7
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
+
+## PATCH5-R R.T3 failure atomicity and R.G3 closure — 2026-10-18
+
+Source revision `5dcc09f9` passed the focused R.G3 checks. R.T3 is complete;
+R.G3 is PASS. The full P7 plan remains in progress.
+
+The finalizer test discovers its exact budget at runtime. At the current layout,
+the internal finalizer requests 245,643 bytes. Exact N succeeds; N−1 returns
+typed `AllocationError::Exhausted` at the final formal-image `Arc` request and
+leaves the parent debit at zero. A fresh
+exact-budget retry returns a source-free, complete image with the same world,
+query identities, and dependency fingerprints as the control image. A separate
+zero-budget failure during `ModuleQueryProducts` reconstruction keeps the
+allocation error typed, commits no parent bytes, and succeeds on the same exact-
+budget retry. Fingerprint validation failure also commits no child bytes.
+
+Real-loader failpoints after module import, semantic import, query import, and
+metadata validation each return an error without a `LoadedUniverseArtifact`.
+Retries of the same artifact succeed and reproduce the control world identity,
+query identities, and dependency fingerprints. The failpoints exist only in
+test builds.
+
+The c7 artifact census remains exact: semantic import is
+`264,140,626 / 264,140,626`; query reconstruction is
+`4,351,537 / 4,351,537` with QX zero; N-P publication is
+`245,707 / 245,707`. The loaded formal image is source-free and reader-compatible,
+advisory products are absent, module interfaces reuse canonical authority, and
+resolved/reverse import indexes use frozen backing.
+
+Whole load remains `366,789,570 / 366,812,581`, delta `+23,011`, entirely
+outside N-P: module materialization C `+22,985`, container/header A `+13`, and
+world identity H0 `+13`. R.G4 remains open. Next is R.T4 whole-load exactness.
+P7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; P8 remains `BLOCKED`.
 
 ## PERF003.C2.P7.PATCH5-R R.T3 formal-image allocation boundary — 2026-10-18
 

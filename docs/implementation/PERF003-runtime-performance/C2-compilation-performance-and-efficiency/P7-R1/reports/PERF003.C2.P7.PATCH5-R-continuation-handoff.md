@@ -187,3 +187,67 @@ yet PASS: publication failure injection, rollback, no-publication, and clean
 retryability remain to be verified. Next inspect the current failure-path
 coverage and add/run the smallest discriminators for those required cases.
 P7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; do not begin P8.
+
+## Superseding status: R.T3 failure atomicity / R.G3 closure (2026-10-18)
+
+Source revision `5dcc09f95711f9d16f97921cf7cd2582183e3b47` is tested. This
+section supersedes the prior R.G3 pending status. R.T3 is COMPLETE and R.G3 is
+PASS. P7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; P8 remains BLOCKED.
+
+The finalizer discriminator discovers N at runtime; current N is 245,643 bytes.
+Exact N succeeds and commits exactly N to the parent. N−1 returns
+`CanonicalImageError::Allocation(AllocationError::Exhausted)` at the final
+formal-image `Arc` request; the failed child commits zero bytes. A fresh
+exact-budget retry succeeds with the control world,
+query identities, dependency fingerprints, source-free completeness, and reader
+compatibility intact. An insufficient budget at P3
+`ModuleQueryProducts` reconstruction preserves the typed allocation error and
+also commits zero parent bytes; the exact-budget retry succeeds. A malformed
+dependency fingerprint is rejected without committing the child transaction.
+
+Four test-only failpoints exercise the real loader after module import, semantic
+import, query import, and metadata validation. Each injected call returns an
+error before a `LoadedUniverseArtifact` can be returned. Loading the same valid
+artifact after each failure succeeds and matches the control world identity,
+query identities, and dependency fingerprints. The failpoints use thread-local
+test state and compile out of production.
+
+The successful-path c7 census still matches its ledger:
+
+```text
+semantic import              264,140,626 / 264,140,626; delta 0
+query reconstruction          4,351,537 /   4,351,537; delta 0; QX 0
+formal publication N-P          245,707 /     245,707; delta 0
+```
+
+The real loaded image is source-free, complete, and reader-compatible. Advisory
+products are absent. Unlinked and linked interfaces share
+`CanonicalExternalModuleWorld`; resolved and reverse import indexes have frozen
+budgeted backing. The separate whole-load result remains
+`366,789,570 / 366,812,581`, delta `+23,011`, outside N-P: C `+22,985`, A `+13`,
+and H0 `+13`. Do not mark R.G4 PASS or claim whole-load exactness.
+
+Focused commands and results:
+
+```text
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib 'canonical_image::tests::' -- --test-threads=1
+PASS: 11 passed
+
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test artifact-allocation -- --nocapture --test-threads=1
+PASS: 1 passed
+
+PHALCOM_UNIVERSE_TELOSC_FOR_TEST=/tmp/perf003-patch5r-c7-baseline/universe.telosc RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib temporary_current_loaded_publication_allocation_census -- --nocapture --test-threads=1
+PASS: 1 passed; N-P 245,707 / 245,707; whole-load delta +23,011
+
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib modules::canonical_artifact::temporary_loaded_publication_allocation_census::loaded_artifact_prepublication_failures_are_retryable -- --nocapture --test-threads=1
+PASS: 1 passed; four injected failure/retry boundaries
+
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_canonical_artifact:: -- --test-threads=1
+PASS: 11 passed; source-free loading, query reader, user compilation, fresh-process denial, and corruption rejection included
+
+git diff --check
+PASS
+```
+
+R.T4 whole-load exactness is next. Keep the +23,011 outside-N-P owners C/A/H0
+separate while investigating that gate. Do not reopen R.T1–R.T3 or start P8.
