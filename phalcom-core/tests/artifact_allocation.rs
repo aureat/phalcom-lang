@@ -97,6 +97,10 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
         module_delta
     );
     let _modules = module_res.expect("module materialization must succeed");
+    assert_eq!(
+        independently_observed_module, module_requested,
+        "independent module materialization allocator requests must match its ledger exactly"
+    );
 
     let semantic_bytes = container
         .require_section(SectionKind::SemanticWorld)
@@ -231,12 +235,8 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
         "load with N - 1 budget must fail closed with budget exhaustion"
     );
 
-    // PATCH5 discriminator: during intermediate waves, observed != n is expected.
-    // At T9 (Wave 4), this assertion is made unconditional.
-    if std::env::var("STRICT_ALLOCATION_GATE").is_ok() {
-        assert_eq!(
-            observed, n,
-            "independent allocator requests must match production ledger exactly"
-        );
-    }
+    assert_eq!(
+        observed, n,
+        "independent allocator requests must match production ledger exactly"
+    );
 }
