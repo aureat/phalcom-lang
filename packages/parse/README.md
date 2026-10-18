@@ -121,19 +121,13 @@ work queue; none require changing this package's public semantics:
 1. Matching data whose type arguments contain associated-type projections
    of generic parameters retains a coverage witness and poisons pattern
    bindings (`Cursor<S>` values become unusable).
-2. Values of fixture-defined ADTs flowing through `ListSource<T>` rules
-   cannot be matched at the module level (witness retained) or passed to
-   `@class` methods ("associated family invocation lowering is not
-   implemented"). Builtin payloads (`Int`, `String`) are unaffected; the
-   expression-parser fixture therefore renders trees to strings during
-   parsing.
-3. Closures stored in escaping fields must not use `return` (DeadFrameError);
+2. Closures stored in escaping fields must not use `return` (DeadFrameError);
    all combinator bodies are flag/tail-expression structured.
-4. `and`/`or` compositions produce `Object`, not `Bool`, in value
+3. `and`/`or` compositions produce `Object`, not `Bool`, in value
    position; predicate closures wrap them in `if` expressions.
-5. Impl methods on `data` declarations do not dispatch at runtime;
+4. Impl methods on `data` declarations do not dispatch at runtime;
    behavior-carrying types (`Cursor`, `ParseError`) are classes.
-6. Trailing closures may not appear mid-argument-list; factory signatures
+5. Trailing closures may not appear mid-argument-list; factory signatures
    place closure parameters last.
 
 ## Testing
@@ -164,7 +158,15 @@ Array owner, and reads/parses its retained heap-backed elements after GC.
 Snapshot independence covers membership, order, and retained references;
 mutable token payloads are not recursively cloned.
 
-The complete-package command remains the integration gate. As of the P5 audit
-continuation (2026-10-11), it is blocked by inherited TextSource String/Substring
-and optional-byte consumer incompatibilities. The independent ListSource PASS
-does not certify those text adapters or the complete parser package.
+The complete-package command passes as of 2026-10-18: all 13 runtime fixtures
+and all three Rust-side package checks pass. `source-test.ph` uses one shared
+`SelectedToken` result for both `orElse` branches, supplies the required cursor
+offset, qualifies nested `Option<Token>::Some` constructors, and checks token
+variants by structural matching. The earlier associated-invocation failure
+came from an unqualified contextual `Some` inside an equality expression: with
+no expected enum owner, semantic analysis left the `Some` unresolved and never
+analyzed its nested `Token` constructor. The existing static variant
+construction lowering works once the fixture supplies `Option<Token>` as the
+owner. The equality expression was also an invalid oracle for fixture-defined
+`Token` values, which do not define value `==`; the fixture now inspects their
+variants and payloads directly.

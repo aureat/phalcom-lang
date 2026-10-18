@@ -7280,13 +7280,12 @@ impl<'source> Parser<'source> {
             let part = match segment {
                 StringSegment::Literal(value) => Expr::String { value, range: outer_range },
                 StringSegment::Expr { source, range } => {
-                    let interpolation_range = (self.offset + range.start..self.offset + range.end).into();
                     let inner = self.parse_interp_expr(&source, range)?;
                     Expr::GetProperty(Box::new(GetPropertyExpr {
                         object: inner,
                         property: "toString".to_string(),
                         property_range: None,
-                        range: interpolation_range,
+                        range: outer_range,
                     }))
                 }
             };

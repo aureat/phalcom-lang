@@ -2,6 +2,7 @@
 // TextSource and ListSource adapters, cursor utilities, select.
 import parse_tests.support.test as Testing
 from parse.core.cursor import Cursor
+from parse.core.result import RunResult
 from parse.run import Parse
 from parse.source.list_source import ListSource
 from parse.source.text_source import TextSource
@@ -45,6 +46,12 @@ data Token {
   Comma
 }
 
+data SelectedToken {
+  Integer(_ value: Int)
+
+  Word(_ text: String)
+}
+
 let tokens = List<Token>.new()
 tokens.append(Token::Integer(3))
 tokens.append(Token::Comma)
@@ -58,9 +65,33 @@ tokens.at(0, put: Token::Integer(7))
 tokens.remove(at: 3)
 Testing.Test.expect(tokenSource.size == 3, "ListSource snapshots its backing list")
 
-let tokenCursor = Cursor.new(tokenSource)
-Testing.Test.expect(tokenCursor.current == Some(Token::Integer(3)), "cursor current reads snapshot token")
-Testing.Test.expect(tokenCursor.advance.current == Some(Token::Comma), "cursor advance reads next snapshot token")
+let tokenCursor = Cursor.new(tokenSource, 0)
+let expectedCurrent: Option<Token> = Option<Token>::Some(Token::Integer(3))
+let expectedNext: Option<Token> = Option<Token>::Some(Token::Comma)
+match tokenCursor.current {
+  Option::Some(Token::Integer(value)) => {
+    Testing.Test.expect(value == 3, "cursor current reads snapshot token")
+  }
+  _ => { throw Error.new("cursor current should be the snapshot integer") }
+}
+match tokenCursor.advance.current {
+  Option::Some(Token::Comma) => {
+    ()
+  }
+  _ => { throw Error.new("cursor advance should read the next snapshot token") }
+}
+match expectedCurrent {
+  Option::Some(Token::Integer(value)) => {
+    Testing.Test.expect(value == 3, "qualified expected cursor token is an integer")
+  }
+  _ => { throw Error.new("qualified expected cursor token should be present") }
+}
+match expectedNext {
+  Option::Some(Token::Comma) => {
+    ()
+  }
+  _ => { throw Error.new("qualified expected next token should be a comma") }
+}
 
 let integerToken = ListSource<Token>.select("integer") |token| {
   let picked: Option<Int> = match token {
@@ -95,20 +126,40 @@ Testing.Test.expect(
   "comma does not match the first token"
 )
 
-let wordOrInteger = integerToken.orElse(
-  ListSource<Token>.select("word") |token| {
-    let picked: Option<String> = match token {
-      Token::Word(text) => { Some(text) }
-      _ => { None }
-    }
-    picked
+let integerChoice = ListSource<Token>.select("integer or word") |token| {
+  let picked: Option<SelectedToken> = match token {
+    Token::Integer(value) => { Some(SelectedToken::Integer(value)) }
+    _ => { None }
   }
-)
+  picked
+}
 
-Testing.Test.expectEqual(
-  Testing.Test.show(Parse.run(wordOrInteger, tokenSource)),
-  "ok:3"
-)
+let wordChoice = ListSource<Token>.select("integer or word") |token| {
+  let picked: Option<SelectedToken> = match token {
+    Token::Word(text) => { Some(SelectedToken::Word(text)) }
+    _ => { None }
+  }
+  picked
+}
+
+let wordOrInteger = integerChoice.orElse(wordChoice)
+
+match Parse.run(wordOrInteger, tokenSource) {
+  RunResult::Ok(SelectedToken::Integer(value)) => {
+    Testing.Test.expect(value == 3, "integer choice preserves typed payload")
+  }
+  _ => { throw Error.new("wordOrInteger should select an integer payload") }
+}
+
+let wordTokens = List<Token>.new()
+wordTokens.append(Token::Word("four"))
+let wordSource = ListSource<Token>.new(wordTokens)
+match Parse.run(wordOrInteger, wordSource) {
+  RunResult::Ok(SelectedToken::Word(text)) => {
+    Testing.Test.expect(text == "four", "word choice preserves typed payload")
+  }
+  _ => { throw Error.new("wordOrInteger should select a word payload") }
+}
 
 Testing.Test.expectEqual(
   Testing.Test.show(Parse.runAll(integerToken.then(commaToken).then(wordToken), tokenSource)),

@@ -1248,10 +1248,11 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::GetProperty(get_prop) => {
                 // 1. Ephemeral direct projection from constructor
-                if let Some((shape, path)) = self
-                    .functions
-                    .last()
-                    .and_then(|f| f.product_plan.ephemeral_projections.get(&get_prop.range).cloned())
+                if get_prop.property_range.is_some()
+                    && let Some((shape, path)) = self
+                        .functions
+                        .last()
+                        .and_then(|f| f.product_plan.ephemeral_projections.get(&get_prop.range).cloned())
                 {
                     let head_slot = self.reserve_ephemeral_virtual_slots(shape.leaf_count, get_prop.range)?;
                     let mut curr: &Expr = &get_prop.object;
@@ -1269,6 +1270,9 @@ impl<'vm> Compiler<'vm> {
                 let mut path = Vec::new();
                 let mut curr_expr: &Expr = &Expr::GetProperty(get_prop.clone());
                 while let Expr::GetProperty(gp) = curr_expr {
+                    if gp.property_range.is_none() {
+                        break;
+                    }
                     if let Some(lowering) = self.lowering() {
                         if let Some(AssociatedLoweringSpec::GetDataComponent { logical_index, .. }) = lowering
                             .associated
@@ -1297,22 +1301,26 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
 
-                if let Some(AssociatedLoweringSpec::GetDataComponent { logical_index, .. }) = self.lowering().and_then(|l| {
-                    l.associated
-                        .iter()
-                        .find(|(site, _)| site.range == get_prop.range && site.kind == LoweringSiteKind::AssociatedLookup)
-                        .map(|(_, spec)| spec.clone())
-                }) {
+                if get_prop.property_range.is_some()
+                    && let Some(AssociatedLoweringSpec::GetDataComponent { logical_index, .. }) = self.lowering().and_then(|l| {
+                        l.associated
+                            .iter()
+                            .find(|(site, _)| site.range == get_prop.range && site.kind == LoweringSiteKind::AssociatedLookup)
+                            .map(|(_, spec)| spec.clone())
+                    })
+                {
                     self.compile_expr(get_prop.object)?;
                     self.emit(Bytecode::GetDataComponent(logical_index as u16), get_prop.range);
                     return Ok(());
                 }
-                if let Some(AssociatedLoweringSpec::GetDataProductSlot { logical_index }) = self.lowering().and_then(|l| {
-                    l.associated
-                        .iter()
-                        .find(|(site, _)| site.range == get_prop.range && site.kind == LoweringSiteKind::AssociatedLookup)
-                        .map(|(_, spec)| spec.clone())
-                }) {
+                if get_prop.property_range.is_some()
+                    && let Some(AssociatedLoweringSpec::GetDataProductSlot { logical_index }) = self.lowering().and_then(|l| {
+                        l.associated
+                            .iter()
+                            .find(|(site, _)| site.range == get_prop.range && site.kind == LoweringSiteKind::AssociatedLookup)
+                            .map(|(_, spec)| spec.clone())
+                    })
+                {
                     self.compile_expr(get_prop.object)?;
                     self.emit(Bytecode::GetDataProductSlot(logical_index as u16), get_prop.range);
                     return Ok(());

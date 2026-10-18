@@ -7004,6 +7004,7 @@ impl SemanticWorkspaceSession {
                 &callable,
                 &unit,
                 &formal_inputs,
+                &default_field_lifecycle,
                 DownstreamCallableBodyState {
                     definitions: &callable_definitions,
                     store: Arc::make_mut(&mut self.store),
@@ -7091,6 +7092,7 @@ impl SemanticWorkspaceSession {
                     callable,
                     unit,
                     &reanalysis_formal_inputs,
+                    &default_field_lifecycle,
                     DownstreamCallableBodyState {
                         definitions: &callable_definitions,
                         store: Arc::make_mut(&mut self.store),
@@ -7251,6 +7253,7 @@ impl SemanticWorkspaceSession {
                     callable,
                     unit,
                     &formal_inputs,
+                    &default_field_lifecycle,
                     DownstreamCallableBodyState {
                         definitions: &callable_definitions,
                         store: Arc::make_mut(&mut self.store),
@@ -7514,6 +7517,7 @@ impl SemanticWorkspaceSession {
                 &callable,
                 unit,
                 &module_body_inputs,
+                &default_field_lifecycle,
                 DownstreamCallableBodyState {
                     definitions: &callable_definitions,
                     store: Arc::make_mut(&mut self.store),
@@ -12123,6 +12127,7 @@ fn revalidate_downstream_callable_body(
     callable: &CallableId,
     unit: &ParsedModuleUnit,
     formal_inputs: &FormalQueryInputs<'_>,
+    default_field_lifecycle: &crate::checker::field_lifecycle::FieldLifecycleTable,
     state: DownstreamCallableBodyState<'_>,
 ) -> Result<(), QueryOutcome<()>> {
     let DownstreamCallableBodyState {
@@ -12136,6 +12141,14 @@ fn revalidate_downstream_callable_body(
         budget,
         cancel,
     } = state;
+    // Constructor entry flow must always start from source field defaults,
+    // even when a later session pass rechecks the body after constructor
+    // lifecycle has been published. Other callables consume that finalized
+    // lifecycle as their field-read knowledge.
+    let mut body_formal_inputs = *formal_inputs;
+    if callable_signatures.get_for_body(callable).is_some_and(|signature| signature.is_constructor()) {
+        body_formal_inputs.field_lifecycle = Some(default_field_lifecycle);
+    }
     let definition = definitions.get(callable).cloned().map(Arc::new);
     if let Some(definition) = &definition {
         ready_or_error(query_callable_definition(db, definition.clone()))?;
@@ -12160,7 +12173,7 @@ fn revalidate_downstream_callable_body(
         type_parameters,
     };
     let key = QueryKey::CallableBody(callable.clone());
-    refresh_cached_body_dependencies(db, &key, formal_inputs, store)?;
+    refresh_cached_body_dependencies(db, &key, &body_formal_inputs, store)?;
     let previous_computation_revision = db.query_state(&key).and_then(|state| state.revision());
     let signature_id = crate::db::query::declaration_signature_id_for_body(db, callable, unit)
         .ok_or_else(|| QueryOutcome::Failed(format!("current callable body {callable:?} has no declaration signature identity")))?;
@@ -12195,7 +12208,7 @@ fn revalidate_downstream_callable_body(
             module: callable.module().clone(),
             budget,
             cancel,
-            formal_inputs: Some(formal_inputs),
+            formal_inputs: Some(&body_formal_inputs),
         },
     );
     match outcome {

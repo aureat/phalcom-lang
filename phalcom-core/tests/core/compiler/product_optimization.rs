@@ -23,6 +23,12 @@ fn run_inline_with_mode(source: &str, mode: ProductOptimizationMode) -> Result<(
     Ok((vm, mod_obj))
 }
 
+fn global_string(vm: &VM, module: phalcom_core::heap::ObjRef, name: &str) -> String {
+    let symbol = vm.interner.find(name).expect("global symbol");
+    let value = vm.heap.module(module).get(symbol).expect("global value");
+    vm.heap.string(value.as_obj().expect("global String object")).as_str().to_owned()
+}
+
 #[test]
 fn static_anonymous_product_lowering_is_projected_for_module_roots() {
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline("const t = (1, 2)\n".into())).expect("inline program compiles");
@@ -497,4 +503,25 @@ let res = Compute.run()
 
     assert_eq!(val_opt, Some(Value::int(200)));
     assert_eq!(val_opt, val_can);
+}
+
+#[test]
+fn interpolation_of_generic_data_projections_matches_with_product_optimization_modes() {
+    let source = r#"
+data Pair<A, B>(first: A, second: B)
+data Envelope<T>(pair: T)
+
+let pair = Pair(first: 7, second: 3)
+let first_text = "\(pair.first)"
+let both_text = "\(pair.first)/\(pair.second)"
+let nested_text = "\(Envelope(pair: pair).pair.second)"
+let direct_text = "\(Pair(first: 4, second: 8).second)"
+"#;
+    let (vm_optimized, module_optimized) = run_inline_with_mode(source, ProductOptimizationMode::Enabled).expect("optimized interpolation executes");
+    let (vm_canonical, module_canonical) = run_inline_with_mode(source, ProductOptimizationMode::Disabled).expect("canonical interpolation executes");
+
+    for (name, expected) in [("first_text", "7"), ("both_text", "7/3"), ("nested_text", "3"), ("direct_text", "8")] {
+        assert_eq!(global_string(&vm_optimized, module_optimized, name), expected, "optimized {name}");
+        assert_eq!(global_string(&vm_canonical, module_canonical, name), expected, "canonical {name}");
+    }
 }

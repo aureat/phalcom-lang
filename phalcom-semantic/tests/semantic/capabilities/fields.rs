@@ -387,6 +387,26 @@ class Cell {
 }
 
 #[test]
+fn generic_immutable_field_accepts_a_call_valued_constructor_write() {
+    let f = Fixture::new(
+        r#"
+class ListSource<T> {
+  _items: Slice<T>
+
+  @constructor
+  new(_ items: List<T>) {
+    let backing: Array<T> = <T>[*items]
+    _items = backing.slice(..)
+  }
+}
+"#,
+    );
+
+    f.assert_no_diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::ImmutableFieldAlreadyInitialized);
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
 fn immutable_field_write_outside_constructor_is_rejected_and_mutable_reassignment_remains_valid() {
     let immutable = Fixture::new(
         r#"

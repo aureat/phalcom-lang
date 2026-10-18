@@ -426,34 +426,58 @@ fn interpolated_string_parses() {
 }
 
 #[test]
-fn interpolated_string_to_string_sites_keep_distinct_segment_ranges() {
-    fn collect_to_string_ranges(expr: &Expr, ranges: &mut Vec<phalcom_common::range::SourceRange>) {
+fn interpolated_string_synthetic_getters_use_outer_range() {
+    fn collect_sites(
+        expr: &Expr,
+        getters: &mut Vec<phalcom_common::range::SourceRange>,
+        source_properties: &mut Vec<(String, phalcom_common::range::SourceRange)>,
+    ) {
         match expr {
             Expr::Binary(binary) => {
-                collect_to_string_ranges(&binary.left, ranges);
-                collect_to_string_ranges(&binary.right, ranges);
+                collect_sites(&binary.left, getters, source_properties);
+                collect_sites(&binary.right, getters, source_properties);
             }
-            Expr::GetProperty(property) if property.property == "toString" => ranges.push(property.range),
+            Expr::GetProperty(property) => {
+                if property.property == "toString" {
+                    assert_eq!(property.property_range, None);
+                    getters.push(property.range);
+                } else if let Some(property_range) = property.property_range {
+                    source_properties.push((property.property.clone(), property_range));
+                }
+                collect_sites(&property.object, getters, source_properties);
+            }
             _ => {}
         }
     }
 
-    let source = "let value = \"\\(key): \\(proposition)\"\n";
+    let source = "let value = \"prefix \\(pair.first): \\(other.second)\"\n";
     let program = parse_source(source, 0).expect("interpolated binding parses");
     let Statement::Let(binding) = &program.statements[0] else {
         panic!("expected binding");
     };
     let value = binding.value.as_ref().expect("interpolated initializer");
-    let mut ranges = Vec::new();
-    collect_to_string_ranges(value, &mut ranges);
+    let Expr::Binary(outer) = value else {
+        panic!("expected concatenation expression");
+    };
+    let outer_range = outer.range;
+    let mut getters = Vec::new();
+    let mut source_properties = Vec::new();
+    collect_sites(value, &mut getters, &mut source_properties);
 
-    assert_eq!(ranges.len(), 2);
-    let mut interpolations = ranges
+    assert_eq!(getters.len(), 2);
+    assert!(getters.iter().all(|range| *range == outer_range));
+    assert_eq!(
+        source.get(outer_range.start..outer_range.end),
+        Some("\"prefix \\(pair.first): \\(other.second)\"")
+    );
+
+    assert_eq!(source_properties.len(), 2);
+    let mut properties = source_properties
         .iter()
-        .map(|range| source.get(range.start..range.end).expect("range is source-backed"))
+        .map(|(property, range)| (property.as_str(), source.get(range.start..range.end).expect("property range is source-backed")))
         .collect::<Vec<_>>();
-    interpolations.sort_unstable();
-    assert_eq!(interpolations, ["key", "proposition"]);
+    properties.sort_unstable();
+    assert_eq!(properties, [("first", "first"), ("second", "second")]);
 }
 
 #[test]

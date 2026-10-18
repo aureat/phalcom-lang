@@ -735,6 +735,9 @@ impl<'a> ProductPlanner<'a> {
                 let mut path = Vec::new();
                 let mut curr_expr: &Expr = expr;
                 while let Expr::GetProperty(gp) = curr_expr {
+                    if gp.property_range.is_none() {
+                        break;
+                    }
                     if let Some(lowering) = self.lowering {
                         if let Some(AssociatedLoweringSpec::GetDataComponent { logical_index, .. }) = lowering
                             .associated

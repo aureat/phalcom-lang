@@ -35,6 +35,7 @@ use std::sync::Arc;
 /// This view owns no workspace state and constructs no parallel resolver, linker,
 /// or type store. It only exposes the current session inputs to prerequisite
 /// helpers.
+#[derive(Clone, Copy)]
 pub struct FormalQueryInputs<'a> {
     pub sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     pub source_resolution_input: InputFingerprint,
