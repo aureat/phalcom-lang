@@ -518,7 +518,7 @@ pub fn finish_loaded_universe_telosc(
 fn validate_reader_header(header: &TeloscHeaderV2) -> Result<(), TeloscArtifactError> {
     use phalcom_compiler_artifact::ValidationError;
     use phalcom_compiler_artifact::header::TeloscCapabilities as WireCapabilities;
-    if header.package_identity != TeloscPackageIdentity::universe() {
+    if !header.package_identity.is_exact_universe() {
         return Err(phalcom_compiler_artifact::ArtifactError::from(ValidationError::IncompatibleWorld("unsupported Universe package identity".into())).into());
     }
     for (kind, found, expected) in [

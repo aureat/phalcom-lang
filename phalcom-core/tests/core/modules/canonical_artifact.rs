@@ -800,7 +800,7 @@ fn loader_rejects_rehashed_incompatible_header_fields() {
     let limits = ValidationLimits::default();
     let built = build_universe_telosc(&view, &limits).unwrap();
     let parsed = TeloscContainerView::parse(&built.bytes, &limits).unwrap();
-    for field in 0..11 {
+    for field in 0..12 {
         let mut header = parsed.header().clone();
         match field {
             0 => header.semantic_model_version += 1,
@@ -819,6 +819,12 @@ fn loader_rejects_rehashed_incompatible_header_fields() {
             8 => header.capabilities.remove(TeloscCapabilities::CANONICAL_COMPILER_IMAGE_V1),
             9 => header.capabilities.insert(TeloscCapabilities::PRESENTATION),
             10 => header.native_catalog_fingerprint[0] ^= 0xff,
+            11 => {
+                header.package_identity = phalcom_compiler_artifact::identity::TeloscPackageIdentity::Builtin {
+                    namespace: "universe".into(),
+                    version: "0.2.0".into(),
+                }
+            }
             _ => unreachable!(),
         }
         let mut builder = TeloscContainerBuilder::new(header);

@@ -55,6 +55,14 @@ impl TeloscPackageIdentity {
             _ => false,
         }
     }
+
+    pub fn is_exact_universe(&self) -> bool {
+        matches!(
+            self,
+            Self::Builtin { namespace, version }
+                if namespace.as_ref() == "universe" && version.as_ref() == "0.1.0"
+        )
+    }
 }
 
 impl From<&StableProjectRef> for TeloscPackageIdentity {
