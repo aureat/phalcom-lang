@@ -388,9 +388,9 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     timings: &mut TeloscLoadTimings,
     allocations: &mut AllocationBudget,
 ) -> Result<Arc<LoadedUniverseArtifact>, TeloscArtifactError> {
+    let transaction_limit = usize::try_from(limits.max_total_allocation_bytes).unwrap_or(usize::MAX);
     let t_container = Instant::now();
-    let container = TeloscContainerView::parse_with_allocation_budget(bytes, limits, allocations)
-        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    let container = TeloscContainerView::parse_with_allocation_budget(bytes, limits, allocations)?;
     validate_reader_header(container.header())?;
     timings.container_validation = t_container.elapsed();
 
@@ -409,25 +409,19 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
         .map_err(|_| TeloscArtifactError::Capability("missing METADATA section"))?;
     validate_section_provenance(container.header(), module_world_sec, semantic_world_sec, query_image_sec, metadata_sec)?;
 
-    let module_world_v1 = phalcom_compiler_artifact::module_world::ModuleWorldV1::decode_with_allocation_budget(module_world_sec, limits, allocations)
-        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
-    let modules = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_world_v1, limits, allocations)
-        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    let module_world_v1 = phalcom_compiler_artifact::module_world::ModuleWorldV1::decode_with_allocation_budget(module_world_sec, limits, allocations)?;
+    let modules = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_world_v1, limits, allocations)?;
     #[cfg(test)]
     maybe_fail_after(LoaderTestBoundary::AfterModuleImport)?;
 
-    let world_v2 = SemanticWorldV3::decode_with_allocation_budget(semantic_world_sec, limits, allocations)
-        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
-    let parts = validate_and_import_semantic_world_with_allocation_budget(world_v2, limits, allocations)
-        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    let world_v2 = SemanticWorldV3::decode_with_allocation_budget(semantic_world_sec, limits, allocations)?;
+    let parts = validate_and_import_semantic_world_with_allocation_budget(world_v2, limits, allocations)?;
     #[cfg(test)]
     maybe_fail_after(LoaderTestBoundary::AfterSemanticImport)?;
 
-    let query_v1 = QueryImageV1::decode_with_allocation_budget(query_image_sec, limits, allocations)
-        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    let query_v1 = QueryImageV1::decode_with_allocation_budget(query_image_sec, limits, allocations)?;
 
-    let meta_v1 = MetadataSectionV1::decode_with_allocation_budget(metadata_sec, limits, allocations)
-        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    let meta_v1 = MetadataSectionV1::decode_with_allocation_budget(metadata_sec, limits, allocations)?;
     timings.section_validation = t_section.elapsed();
 
     let t_reloc = Instant::now();
@@ -435,7 +429,7 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
         .header()
         .package_identity
         .clone_with_allocation_budget(allocations)
-        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+        .map_err(|error| allocation_error(error, transaction_limit))?;
     let compatibility = phalcom_compiler_artifact::CanonicalCompatibilityIdentity {
         package,
         source_digest: container.header().source_digest,
@@ -464,12 +458,10 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     let bundle_limits = phalcom_type_meta::ValidationLimits::default();
     let expected_package_digest = *container.header().package_identity.digest().as_bytes();
     let metadata_bundle = meta_v1
-        .decode_bundle_with_allocation_budget(&preflight_limits, &bundle_limits, &expected_package_digest, allocations)
-        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+        .decode_bundle_with_allocation_budget(&preflight_limits, &bundle_limits, &expected_package_digest, allocations)?;
     #[cfg(test)]
     maybe_fail_after(LoaderTestBoundary::AfterMetadataValidation)?;
 
-    let transaction_limit = usize::try_from(limits.max_total_allocation_bytes).unwrap_or(usize::MAX);
     let modules = allocations.arc(modules).map_err(|error| allocation_error(error, transaction_limit))?;
     let formal_image = CanonicalUniverseFormalImage::from_loaded_artifact(world_id, modules, parts.snapshot, query_image, fingerprints, allocations)?;
 

@@ -4,6 +4,7 @@ use phalcom_compiler_artifact::section::SectionKind;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
 use phalcom_core::modules::canonical_artifact::{
     build_universe_telosc, load_universe_telosc_from_bytes, load_universe_telosc_from_bytes_with_allocation_summary,
+    TeloscArtifactError,
 };
 use phalcom_core::modules::canonical_universe::canonical_universe_program;
 use phalcom_semantic::artifact::import::validate_and_import_semantic_world_with_allocation_budget;
@@ -224,16 +225,55 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
         observed.abs_diff(n)
     );
 
-    // 4. Verify N - 1 strictly fails
+    // 4. Verify N - 1 strictly fails with typed cumulative allocation exhaustion
     let limits_minus_one = ValidationLimits {
         max_total_allocation_bytes: (n - 1) as u64,
         ..limits
     };
-    let failed = load_universe_telosc_from_bytes(&artifact_bytes, &limits_minus_one);
-    assert!(
-        failed.is_err(),
-        "load with N - 1 budget must fail closed with budget exhaustion"
+    let (failed_cumulative, failed_cumulative_requested) =
+        load_universe_telosc_from_bytes_with_allocation_summary(&artifact_bytes, &limits_minus_one);
+    match failed_cumulative {
+        Err(TeloscArtifactError::BudgetExceeded { limit_bytes }) => {
+            assert_eq!(limit_bytes, n - 1, "cumulative exhaustion must record limit N - 1");
+        }
+        Err(other) => panic!("expected TeloscArtifactError::BudgetExceeded, got {other:?}"),
+        Ok(_) => panic!("load with N - 1 budget must fail closed with budget exhaustion"),
+    }
+    assert!(failed_cumulative_requested <= n - 1, "failed load must not exceed limit");
+
+    // Clean retry after cumulative allocation failure
+    let retry_cumulative = load_universe_telosc_from_bytes(&artifact_bytes, &limits_exact)
+        .expect("clean retry after cumulative allocation exhaustion must succeed");
+    drop(retry_cumulative);
+
+    // 5. Verify local stage limit failure is distinct from cumulative exhaustion
+    let limits_local_stage = ValidationLimits {
+        max_total_allocation_bytes: n as u64,
+        max_decoded_section_bytes: 400_000,
+        ..limits
+    };
+    let (failed_local, failed_local_requested) =
+        load_universe_telosc_from_bytes_with_allocation_summary(&artifact_bytes, &limits_local_stage);
+    match failed_local {
+        Err(TeloscArtifactError::Artifact(phalcom_compiler_artifact::ArtifactError::Allocation(
+            phalcom_type_meta::allocation::AllocationError::Exhausted,
+        ))) => {}
+        Err(other) => panic!("expected typed local AllocationError::Exhausted, got {other:?}"),
+        Ok(_) => panic!("load with insufficient section budget must fail closed"),
+    }
+    // Failed child transaction must not commit its debit to parent:
+    // The failed stage (MODULE_WORLD materialization) requests 823,059 bytes;
+    // verify parent ledger only contains the preceding stages (301 + 377,691 = 377,992 bytes)
+    // and does NOT include the uncommitted 823,059 debit.
+    assert_eq!(
+        failed_local_requested, 377_992,
+        "failed child transaction must not commit its debit to parent"
     );
+
+    // Clean retry after local stage allocation failure
+    let retry_local = load_universe_telosc_from_bytes(&artifact_bytes, &limits_exact)
+        .expect("clean retry after local stage allocation exhaustion must succeed");
+    drop(retry_local);
 
     assert_eq!(
         observed, n,

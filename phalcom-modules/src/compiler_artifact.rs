@@ -631,15 +631,7 @@ pub fn load_module_world_with_allocation_budget(
 }
 
 fn allocation_error(error: AllocationError) -> ArtifactError {
-    ArtifactError::LimitExceeded(
-        match error {
-            AllocationError::Exhausted => "module materialization allocation budget exceeded",
-            AllocationError::Overflow => "module materialization allocation layout overflow",
-            AllocationError::Failed => "module materialization allocation failed",
-            AllocationError::UnaccountedBoundary => "semantic artifact operation has an unaccounted allocation boundary",
-        }
-        .into(),
-    )
+    ArtifactError::Allocation(error)
 }
 
 fn load_module_world_inner(
