@@ -15,8 +15,8 @@ next_action: >
   R.G3 formal-image publication and failure atomicity. Keep P7 IN_PROGRESS /
   PARTIAL / UNVERIFIED; do not begin P8 or claim R.G3/R.G4.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: 33c99229
-latest_tested_revision: 33c99229 plus the scoped R.T2 working-tree changes recorded below
+execution_tree_head: 0706f3b2
+latest_tested_revision: 0706f3b2 (tested source tree; lifecycle-only follow-up below)
 latest_tested_predecessor: c7d308b7
 ---
 
@@ -2424,6 +2424,8 @@ budget. Frozen surface and ordered-map fingerprint paths retain their existing
 sort order without temporary sorting vectors.
 
 Focused evidence on the tested worktree based on `33c99229`:
+
+The tested source tree was committed and pushed as `0706f3b2`.
 
 - `cargo check -p phalcom-type-meta --lib`, `cargo check -p phalcom-semantic --lib`,
   and `cargo check -p phalcom-core --lib` passed with cleared local compiler flags.
