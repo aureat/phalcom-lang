@@ -4,7 +4,7 @@ use crate::canonical_image::{CanonicalImageError, CanonicalQueryEntry, Canonical
 use crate::db::key::QueryKey;
 use crate::db::product::{CallableSignatureProduct, DeclarationSurfaceProduct, SemanticProduct};
 use crate::db::{DependencyEdge, InputFingerprint, ProductFingerprint};
-use crate::metadata::stable_identity::from_stable_callable;
+use crate::artifact::import::import_stable_callable_with_allocation_budget;
 use crate::snapshot::SemanticSnapshot;
 use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::error::QueryImageError;
@@ -16,19 +16,35 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-const QUERY_RECONSTRUCTION_CENSUS_PHASES: usize = 5;
+const QUERY_RECONSTRUCTION_CENSUS_PHASES: usize = 6;
 static QUERY_RECONSTRUCTION_CENSUS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static QUERY_RECONSTRUCTION_CENSUS_OBSERVED: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
-    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
 ];
 static QUERY_RECONSTRUCTION_CENSUS_LEDGER: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
-    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+];
+static QUERY_RECONSTRUCTION_CENSUS_ALLOCATOR_BEFORE: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
+    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+];
+static QUERY_RECONSTRUCTION_CENSUS_ALLOCATOR_AFTER: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
+    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+];
+static QUERY_RECONSTRUCTION_CENSUS_LEDGER_BEFORE: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
+    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+];
+static QUERY_RECONSTRUCTION_CENSUS_LEDGER_AFTER: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
+    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
 ];
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct QueryReconstructionCensusRow {
+    pub allocator_before: usize,
+    pub allocator_after: usize,
     pub observed_bytes: usize,
+    pub ledger_before: usize,
+    pub ledger_after: usize,
     pub ledger_bytes: usize,
 }
 
@@ -39,13 +55,21 @@ pub struct QueryReconstructionCensus {
     pub owner_key_resolution: QueryReconstructionCensusRow,
     pub product_reconstruction: QueryReconstructionCensusRow,
     pub entry_assembly: QueryReconstructionCensusRow,
-    pub loaded_validation_and_publication: QueryReconstructionCensusRow,
+    pub loaded_validation: QueryReconstructionCensusRow,
+    pub query_image_publication: QueryReconstructionCensusRow,
 }
 
 #[doc(hidden)]
 pub fn reset_query_reconstruction_census() {
     QUERY_RECONSTRUCTION_CENSUS_ACTIVE.store(false, Ordering::Relaxed);
-    for row in QUERY_RECONSTRUCTION_CENSUS_OBSERVED.iter().chain(QUERY_RECONSTRUCTION_CENSUS_LEDGER.iter()) {
+    for row in QUERY_RECONSTRUCTION_CENSUS_OBSERVED
+        .iter()
+        .chain(QUERY_RECONSTRUCTION_CENSUS_LEDGER.iter())
+        .chain(QUERY_RECONSTRUCTION_CENSUS_ALLOCATOR_BEFORE.iter())
+        .chain(QUERY_RECONSTRUCTION_CENSUS_ALLOCATOR_AFTER.iter())
+        .chain(QUERY_RECONSTRUCTION_CENSUS_LEDGER_BEFORE.iter())
+        .chain(QUERY_RECONSTRUCTION_CENSUS_LEDGER_AFTER.iter())
+    {
         row.store(0, Ordering::Relaxed);
     }
     QUERY_RECONSTRUCTION_CENSUS_ACTIVE.store(true, Ordering::Relaxed);
@@ -55,7 +79,11 @@ pub fn reset_query_reconstruction_census() {
 pub fn take_query_reconstruction_census() -> QueryReconstructionCensus {
     QUERY_RECONSTRUCTION_CENSUS_ACTIVE.store(false, Ordering::Relaxed);
     let row = |index: usize| QueryReconstructionCensusRow {
+        allocator_before: QUERY_RECONSTRUCTION_CENSUS_ALLOCATOR_BEFORE[index].load(Ordering::Relaxed),
+        allocator_after: QUERY_RECONSTRUCTION_CENSUS_ALLOCATOR_AFTER[index].load(Ordering::Relaxed),
         observed_bytes: QUERY_RECONSTRUCTION_CENSUS_OBSERVED[index].load(Ordering::Relaxed),
+        ledger_before: QUERY_RECONSTRUCTION_CENSUS_LEDGER_BEFORE[index].load(Ordering::Relaxed),
+        ledger_after: QUERY_RECONSTRUCTION_CENSUS_LEDGER_AFTER[index].load(Ordering::Relaxed),
         ledger_bytes: QUERY_RECONSTRUCTION_CENSUS_LEDGER[index].load(Ordering::Relaxed),
     };
     QueryReconstructionCensus {
@@ -63,7 +91,8 @@ pub fn take_query_reconstruction_census() -> QueryReconstructionCensus {
         owner_key_resolution: row(1),
         product_reconstruction: row(2),
         entry_assembly: row(3),
-        loaded_validation_and_publication: row(4),
+        loaded_validation: row(4),
+        query_image_publication: row(5),
     }
 }
 
@@ -79,10 +108,16 @@ fn record_census_phase(phase: usize, before: (Option<usize>, usize), allocations
     if !QUERY_RECONSTRUCTION_CENSUS_ACTIVE.load(Ordering::Relaxed) {
         return;
     }
-    if let (Some(start), Some(end)) = (before.0, phalcom_type_meta::allocation::current_observed_bytes()) {
+    let observed_after = phalcom_type_meta::allocation::current_observed_bytes();
+    if let (Some(start), Some(end)) = (before.0, observed_after) {
         QUERY_RECONSTRUCTION_CENSUS_OBSERVED[phase].fetch_add(end - start, Ordering::Relaxed);
+        QUERY_RECONSTRUCTION_CENSUS_ALLOCATOR_BEFORE[phase].store(start, Ordering::Relaxed);
+        QUERY_RECONSTRUCTION_CENSUS_ALLOCATOR_AFTER[phase].store(end, Ordering::Relaxed);
     }
-    QUERY_RECONSTRUCTION_CENSUS_LEDGER[phase].fetch_add(allocations.requested() - before.1, Ordering::Relaxed);
+    let ledger_after = allocations.requested();
+    QUERY_RECONSTRUCTION_CENSUS_LEDGER[phase].fetch_add(ledger_after - before.1, Ordering::Relaxed);
+    QUERY_RECONSTRUCTION_CENSUS_LEDGER_BEFORE[phase].store(before.1, Ordering::Relaxed);
+    QUERY_RECONSTRUCTION_CENSUS_LEDGER_AFTER[phase].store(ledger_after, Ordering::Relaxed);
 }
 
 fn incomplete(message: impl Into<String>) -> CanonicalImageError {
@@ -286,10 +321,14 @@ fn resolve_query_key(key: &PortableQueryKeyV1, allocations: &mut AllocationBudge
             QueryKey::DeclarationShell(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
         }
         PortableQueryKindV1::CallableDefinition => {
-            QueryKey::CallableDefinition(from_stable_callable(&decode_owner::<StableCallableRef>(key, "callable", allocations)?).map_err(incomplete)?)
+            QueryKey::CallableDefinition(
+                import_stable_callable_with_allocation_budget(&decode_owner::<StableCallableRef>(key, "callable", allocations)?, allocations)?,
+            )
         }
         PortableQueryKindV1::CallableSignature => {
-            QueryKey::CallableSignature(from_stable_callable(&decode_owner::<StableCallableRef>(key, "callable", allocations)?).map_err(incomplete)?)
+            QueryKey::CallableSignature(
+                import_stable_callable_with_allocation_budget(&decode_owner::<StableCallableRef>(key, "callable", allocations)?, allocations)?,
+            )
         }
         PortableQueryKindV1::FieldSignature => {
             QueryKey::FieldSignature(consume_stable_field(decode_owner::<StableFieldRef>(key, "field", allocations)?, allocations)?)
@@ -663,22 +702,24 @@ fn reconstruct_query_image_inner(
 ) -> Result<(Arc<CanonicalSemanticQueryImage>, BTreeMap<QueryKey, ProductFingerprint>), CanonicalImageError> {
     let closure_start = census_checkpoint(allocations);
     validate_query_image_closure_with_allocation_budget(image, limits, allocations)?;
+    record_census_phase(0, closure_start, allocations);
 
+    let owner_start = census_checkpoint(allocations);
+    let mut keys = allocations.vector::<QueryKey>(image.supported_roots.len()).map_err(allocation_error)?;
+    for root in &image.supported_roots {
+        keys.push(resolve_query_key(&root.key, allocations)?);
+    }
+    record_census_phase(1, owner_start, allocations);
+
+    let product_start = census_checkpoint(allocations);
     let mut roots = allocations
         .vector::<(QueryKey, Arc<SemanticProduct>, ProductFingerprint, InputFingerprint)>(image.supported_roots.len())
         .map_err(allocation_error)?;
-    record_census_phase(0, closure_start, allocations);
-
-    for root in &image.supported_roots {
-        let owner_start = census_checkpoint(allocations);
-        let query_key = resolve_query_key(&root.key, allocations)?;
-        record_census_phase(1, owner_start, allocations);
-
-        let product_start = census_checkpoint(allocations);
+    for query_key in keys {
         let (product, product_fingerprint, input_fingerprint) = product_and_fingerprints(snapshot, &query_key, modules)?;
-        record_census_phase(2, product_start, allocations);
         roots.push((query_key, product, product_fingerprint, input_fingerprint));
     }
+    record_census_phase(2, product_start, allocations);
 
     let entry_start = census_checkpoint(allocations);
     let mut entries = BTreeMap::new();
@@ -717,7 +758,9 @@ fn reconstruct_query_image_inner(
     let validation_start = census_checkpoint(allocations);
     let query_image =
         CanonicalSemanticQueryImage::from_loaded_artifact_entries(world.clone(), entries, snapshot.store.clone(), snapshot.static_values.clone())?;
-    let query_image = allocations.arc(query_image).map_err(allocation_error)?;
     record_census_phase(4, validation_start, allocations);
+    let publication_start = census_checkpoint(allocations);
+    let query_image = allocations.arc(query_image).map_err(allocation_error)?;
+    record_census_phase(5, publication_start, allocations);
     Ok((query_image, fingerprints))
 }

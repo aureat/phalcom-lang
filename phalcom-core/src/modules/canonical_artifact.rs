@@ -624,8 +624,13 @@ mod temporary_loaded_publication_allocation_census {
     fn print_query_row(name: &str, row: phalcom_semantic::artifact::query::QueryReconstructionCensusRow) -> isize {
         let signed = row.observed_bytes as isize - row.ledger_bytes as isize;
         eprintln!(
-            "  CENSUS {name}: ledger={} observed={} signed_delta={signed}",
-            row.ledger_bytes, row.observed_bytes
+            "  CENSUS {name}: ledger_before={} ledger_after={} ledger_delta={} allocator_before={} allocator_after={} allocator_delta={} signed_delta={signed}",
+            row.ledger_before,
+            row.ledger_after,
+            row.ledger_bytes,
+            row.allocator_before,
+            row.allocator_after,
+            row.observed_bytes,
         );
         signed
     }
@@ -713,10 +718,9 @@ mod temporary_loaded_publication_allocation_census {
         signed_stage_total += signed;
         let metadata_dto = metadata_dto_result.expect("METADATA DTO decode must succeed");
 
-        let mut world_id = None;
         phalcom_type_meta::allocation::register_allocation_probe(observed_requested_bytes);
         phalcom_semantic::artifact::query::reset_query_reconstruction_census();
-        let (query_result, observed, signed) = measure_stage("H-K query reconstruction", &mut allocations, |budget| {
+        let (world_result, observed, signed) = measure_stage("H0 query semantic-world identity setup", &mut allocations, |_budget| {
             let header = parsed.header();
             let compatibility = phalcom_compiler_artifact::CanonicalCompatibilityIdentity {
                 package: header.package_identity.clone(),
@@ -731,7 +735,13 @@ mod temporary_loaded_publication_allocation_census {
                 native_catalog_fingerprint: header.native_catalog_fingerprint,
                 type_metadata_schema_version: header.type_metadata_schema_version,
             };
-            let world = CanonicalSemanticWorldId::for_artifact_world(1, header.source_digest, compatibility);
+            Ok::<_, TeloscArtifactError>(CanonicalSemanticWorldId::for_artifact_world(1, header.source_digest, compatibility))
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        let world = world_result.expect("artifact semantic world identity must be constructed");
+        let query_ledger_before = allocations.requested();
+        let (query_result, observed, signed) = measure_stage("H-K query reconstruction", &mut allocations, |budget| {
             let reconstructed = reconstruct_query_image_with_allocation_budget(
                 &query_dto,
                 &parts.snapshot,
@@ -740,19 +750,35 @@ mod temporary_loaded_publication_allocation_census {
                 &limits,
                 budget,
             );
-            world_id = Some(world);
             reconstructed
         });
         independent_total += observed;
         signed_stage_total += signed;
         let (query_image, fingerprints) = query_result.expect("query reconstruction must succeed");
+        let query_ledger_delta = allocations.requested() - query_ledger_before;
         let query_census = phalcom_semantic::artifact::query::take_query_reconstruction_census();
         signed_stage_total -= signed;
-        signed_stage_total += print_query_row("H closure/root", query_census.closure_and_roots);
-        signed_stage_total += print_query_row("I owner-key decode", query_census.owner_key_resolution);
-        signed_stage_total += print_query_row("J product reconstruction", query_census.product_reconstruction);
-        signed_stage_total += print_query_row("K entry/dependency assembly", query_census.entry_assembly);
-        signed_stage_total += print_query_row("L loaded query-image validation/publication", query_census.loaded_validation_and_publication);
+        let mut query_rows_observed = 0usize;
+        let mut query_rows_ledger = 0usize;
+        for (name, row) in [
+            ("Q0 closure/root validation", query_census.closure_and_roots),
+            ("Q1 owner decode + QueryKey reconstruction", query_census.owner_key_resolution),
+            ("Q2 product_and_fingerprints", query_census.product_reconstruction),
+            ("Q3 dependency/entry/fingerprint assembly", query_census.entry_assembly),
+            ("Q4 CanonicalSemanticQueryImage loaded validation", query_census.loaded_validation),
+            ("Q5 query image Arc publication", query_census.query_image_publication),
+        ] {
+            query_rows_observed += row.observed_bytes;
+            query_rows_ledger += row.ledger_bytes;
+            signed_stage_total += print_query_row(name, row);
+        }
+        let query_x_observed = observed - query_rows_observed;
+        let query_x_ledger = query_ledger_delta - query_rows_ledger;
+        let query_x_signed = query_x_observed as isize - query_x_ledger as isize;
+        eprintln!("  CENSUS QX boundary/unclassified: ledger_delta={query_x_ledger} allocator_delta={query_x_observed} signed_delta={query_x_signed}");
+        assert_eq!(0, query_x_observed, "query census allocator boundary must be zero");
+        assert_eq!(0, query_x_ledger, "query census ledger boundary must be zero");
+        assert_eq!(0, query_x_signed, "query census signed boundary must be zero");
 
         let preflight_limits = MetadataPreflightLimits {
             max_metadata_bytes: limits.max_metadata_bytes as usize,
@@ -777,7 +803,7 @@ mod temporary_loaded_publication_allocation_census {
             let modules = budget.arc(modules).map_err(|error| allocation_error(error, budget_limit))?;
             module_arc_observed = observed_requested_bytes().saturating_sub(before_arc);
             CanonicalUniverseFormalImage::from_loaded_artifact(
-                world_id.take().expect("artifact world id retained"),
+                world,
                 modules,
                 parts.snapshot,
                 query_image,

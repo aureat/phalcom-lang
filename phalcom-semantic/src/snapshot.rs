@@ -332,6 +332,43 @@ pub enum ModuleQueryProductsBuildError {
     DuplicateKey,
 }
 
+fn import_path_with_allocation_budget(
+    path: &phalcom_ast::ast::ImportPath,
+    allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+) -> Result<String, phalcom_type_meta::allocation::AllocationError> {
+    use phalcom_ast::ast::ImportRoot;
+
+    let absolute = matches!(&path.root, ImportRoot::Absolute(_));
+    let root_len = match &path.root {
+        ImportRoot::Absolute(segment) => segment.name.len(),
+        ImportRoot::Relative { dots, .. } => usize::from(*dots),
+    };
+    let len = path.segments.iter().enumerate().try_fold(root_len, |len, (index, segment)| {
+        let separator_len = usize::from(index > 0 || absolute);
+        len.checked_add(separator_len)?.checked_add(segment.name.len())
+    }).ok_or(phalcom_type_meta::allocation::AllocationError::Overflow)?;
+    allocations.reserve_array::<u8>(len)?;
+    let mut text = String::new();
+    if text.try_reserve_exact(len).is_err() {
+        return Err(phalcom_type_meta::allocation::AllocationError::Failed);
+    }
+    match &path.root {
+        ImportRoot::Absolute(segment) => text.push_str(&segment.name),
+        ImportRoot::Relative { dots, .. } => {
+            for _ in 0..*dots {
+                text.push('.');
+            }
+        }
+    }
+    for (index, segment) in path.segments.iter().enumerate() {
+        if index > 0 || absolute {
+            text.push('.');
+        }
+        text.push_str(&segment.name);
+    }
+    Ok(text)
+}
+
 pub struct ModuleQueryProductsInputs {
     pub universe: Arc<ProjectUniverse>,
     pub unlinked: Arc<BTreeMap<ModuleId, UnlinkedModuleInterface>>,
@@ -428,7 +465,7 @@ impl ModuleQueryProducts {
             for import in &interface.imports {
                 if let Some(edge) = edges.iter().find(|edge| edge.range == import.range()) {
                     resolved_entries.push((
-                        (module.clone_with_allocation_budget(allocations)?, allocations.string(import.path())?),
+                        (module.clone_with_allocation_budget(allocations)?, import_path_with_allocation_budget(import.path(), allocations)?),
                         edge.to.clone_with_allocation_budget(allocations)?,
                     ));
                 }

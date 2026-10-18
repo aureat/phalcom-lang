@@ -10,15 +10,16 @@ active_plan: PERF003.C2.P7.PATCH5-R
 latest_completed_plan: PERF003.C2.P7.PATCH4
 next_plan: PERF003.C2.P7.PATCH5-R
 next_action: >
-  PERF003.C2.P7.PATCH5-R R.T1 / PERF007 semantic world import allocation gap
-  is 100.000% closed with exact zero delta (264,140,594 ledger bytes ==
-  264,140,594 observed bytes). Exact N equality and N-1 typed allocation
-  failure rejection verified. Next action is advancing to Wave 4 / T9
-  whole-load container and module world allocation budgeting.
+  PERF003.C2.P7.PATCH5-R R.T2 / R.G2 query reconstruction is active. The
+  semantic import stage remains exact at 264,140,626 ledger bytes ==
+  264,140,626 observed bytes on the current ModuleQueryProducts layout; its
+  prior c7 layout measured 264,140,594 == 264,140,594 on the same artifact.
+  Exact semantic N/N-1 behavior passed at the current layout. Query census is
+  reconciled with QX = 0; close Q1-Q4 ownership deltas before R.G2 acceptance.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: dde0e8ba
-latest_tested_revision: dde0e8ba
-latest_tested_predecessor: 733001c4
+execution_tree_head: 586d0fc9
+latest_tested_revision: 586d0fc9 (working tree contains focused census edits)
+latest_tested_predecessor: c7d308b7
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
@@ -736,7 +737,7 @@ After:
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | ModuleLoweringInputView, module-indexed callable analyses/definitions/declarations/data/enums, reverse-target occurrence resolution, precomputed TraitRequirementLayout, and direct inherent impl domain indexing implemented and certified. |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
 | `PERF003.C2.P7` (normalized) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | PATCH4 source-free compiler lifecycle remains implemented, but current independent allocation measurement finds a 205,461,325-byte full-load accounting delta and successful realistic-package parity is not established. PATCH5-R owns remaining closure. |
-| `PERF003.C2.P7.PATCH5-R` | Corrective compiler-only Universe artifact closure | Loaded compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | Active from revision `9cbba391`; R.G0 baseline passed. R.T1 is partial and R.G1 currently fails semantic import allocation equality by 2,468,555 bytes. R.G2-R.G7 remain unverified. |
+| `PERF003.C2.P7.PATCH5-R` | Corrective compiler-only Universe artifact closure | Loaded compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | R.G0 baseline passed. R.T1's semantic-import allocator equality is exact on the current layout at `264,140,626 / 264,140,626`; the prior c7 layout was `264,140,594 / 264,140,594` on the same artifact. Consultation `INC-PATCH5R-E-BASELINE-20261018` classifies the +32 as the `ModuleQueryProducts` representation-size change. R.T2/R.G2 is active; R.G3-R.G7 remain unverified. |
 | `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | PLANNED | NOT_STARTED | UNVERIFIED | Detailed plan prepared; BUILD depends on complete P7 compiler interfaces; deferred P7/P8 acceptance still controls closure |
 
 ## P7 flow-graph allocation ruling — 2026-10-15
@@ -914,6 +915,20 @@ not change iteration analysis and the three graph-construction tests passed.
 ---
 
 ## 6. Consultations and amendments
+
+- `INC-PATCH5R-E-BASELINE-20261018` (2026-10-18): The handoff's exact
+  `264,140,594` semantic-import guard differed by 32 bytes on the current
+  `ModuleQueryProducts` layout, while allocator and ledger still matched.
+  A detached c7 build produced artifact `85ffcea0d504f88e20fc329a17752e0e5f9d5062a2b82ead377ddcf69546f5dc`
+  (15,785,886 bytes). The c7 test measured `264,140,594 / 264,140,594`; the
+  current `586d0fc9` worktree measured `264,140,626 / 264,140,626` on those
+  same bytes. The intervening `ModuleQueryProducts` change wraps four inline
+  `Arc` fields in source/frozen enums, adding 32 bytes to the snapshot owner
+  allocated during semantic import. The adviser classified 594 as a
+  historical layout baseline and approved updating the current baseline to
+  626. Keep exact allocator-to-ledger equality and semantic N/N-1 behavior; do
+  not reshape the representation to preserve the old struct size. No plan
+  amendment is required; resume R.T2.
 
 - P7 StaticApplication owner/transport continuation (2026-10-15): the user
   confirmed `CheckedStaticBody` as the sole owner; no copy into
@@ -2323,3 +2338,53 @@ R.T1 audit target but have not been checked or tested. Per the user's direction,
 leave these source edits untouched and uncommitted. Before making further R.T1
 changes, inspect and validate the current diff. G1 remains failed with the
 2,468,555-byte semantic import delta until rerun evidence proves otherwise.
+
+## PERF003.C2.P7.PATCH5-R current query census and semantic-import baseline — 2026-10-18
+
+The entry above is historical. The handoff's `264,140,594` semantic-import
+guard was rechecked and escalated because current code measured 32 bytes more.
+Consultation `INC-PATCH5R-E-BASELINE-20261018` resolved the difference: on the
+same c7-generated artifact, c7 measures `264,140,594 / 264,140,594`, while the
+current `586d0fc9` worktree measures `264,140,626 / 264,140,626`. Four
+`ModuleQueryProducts` fields now store source/frozen enums around their `Arc`s,
+increasing the inline snapshot owner by 32 bytes. This is an intentional layout
+change. Exact allocator-to-ledger equality remains required; do not charge an
+estimated correction or redesign the representation to retain the historical
+size.
+
+The reproducible c7 artifact was generated in a detached checkout with a
+separate Cargo target directory. It is 15,785,886 bytes with digest
+`85ffcea0d504f88e20fc329a17752e0e5f9d5062a2b82ead377ddcf69546f5dc`. The older
+15,775,219-byte artifact referenced by the initial R.T0 record is incompatible
+with current code and fails semantic import validation; do not use it for this
+comparison.
+
+Current semantic-import evidence:
+
+- The exact `phalcom-core --test artifact-allocation` discriminator passed on
+  the c7-generated artifact. Type graph import was `765,031 / 765,031`.
+  Semantic import was `264,140,626 / 264,140,626`; exact N and typed semantic
+  N-1 rejection passed.
+- The non-strict whole-load discriminator returned success with ledger
+  `363,522,816`, observed `369,436,895`, and delta `5,914,079`. This does not
+  pass R.G4.
+
+Current query reconstruction census on that artifact reconciles exactly, with
+QX = 0:
+
+| Stage | Ledger | Observed | Delta |
+|---|---:|---:|---:|
+| Q0 closure/root validation | 48,275 | 48,275 | 0 |
+| Q1 owner decode and QueryKey reconstruction | 519,468 | 604,831 | +85,363 |
+| Q2 product reconstruction | 355,304 | 2,315,271 | +1,959,967 |
+| Q3 dependency/entry/fingerprint assembly | 161,376 | 1,993,361 | +1,831,985 |
+| Q4 loaded query-image validation | 0 | 2,010,985 | +2,010,985 |
+| Q5 query image Arc publication | 368 | 368 | 0 |
+| QX boundary/unclassified | 0 | 0 | 0 |
+| **Whole query reconstruction** | **1,084,791** | **6,973,091** | **+5,888,300** |
+
+The semantic-world identity setup allocates 13 bytes outside the query
+reconstruction function. R.G2 remains `UNVERIFIED`; R.G3-R.G7 remain
+`UNVERIFIED`. Continue R.T2 with budgeted query-owner reconstruction, then
+close product and validation ownership. P7 remains `IN_PROGRESS / PARTIAL /
+UNVERIFIED`; do not begin P8.

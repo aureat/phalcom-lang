@@ -935,7 +935,7 @@ impl CanonicalUniverseFormalImage {
             queries,
             dependency_fingerprints,
             type_prefix,
-        });
+        })?;
         record_publication_census(5, formal_image_start, &transaction);
         allocations.commit_child(transaction)?;
         Ok(image)
