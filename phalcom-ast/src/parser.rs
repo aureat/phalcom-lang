@@ -9217,6 +9217,19 @@ impl<'source> Parser<'source> {
                 return self.parse_lexical_block().map(MatchArmBody::Block);
             }
         }
+        if matches!(self.peek(), Token::Throw | Token::Return) {
+            let start = self.cur_start();
+            let stmt = match self.peek() {
+                Token::Throw => self.parse_throw()?,
+                Token::Return => self.parse_return()?,
+                _ => unreachable!(),
+            };
+            let range = (start..self.prev_end).into();
+            return Ok(MatchArmBody::Block(crate::ast::LexicalBlock {
+                body: vec![stmt],
+                range,
+            }));
+        }
         self.parse_expr().map(|expr| MatchArmBody::Expression(Box::new(expr)))
     }
 

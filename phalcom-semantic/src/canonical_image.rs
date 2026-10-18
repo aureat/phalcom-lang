@@ -1084,6 +1084,7 @@ impl CanonicalUniverseFormalImage {
             .entry(key)
             .map(|entry| entry.product_fingerprint)
             .or_else(|| self.dependency_fingerprints.get(key).copied())
+            .or_else(|| aggregate_structural_fingerprint(&self.snapshot, key))
     }
 
     /// Optional source-backed tooling capability; never used for canonical linking.
@@ -1444,6 +1445,14 @@ pub(crate) fn aggregate_structural_fingerprint(snapshot: &SemanticSnapshot, key:
             .type_member_declarations
             .get(id)
             .map(|product| fingerprint::type_member_declaration_product_fingerprint(product)),
+        QueryKey::HierarchyEdge(id) => {
+            if snapshot.declarations.contains(id) {
+                let super_decl = snapshot.hierarchy.superclass(id).cloned();
+                Some(fingerprint::hierarchy_edge_product_fingerprint(id, &super_decl, None))
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }

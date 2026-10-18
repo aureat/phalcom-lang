@@ -354,7 +354,7 @@ fn cmd_cold_single(mode: &str, workload: &str, artifact: &Path, sample_id: usize
                     image.clone(),
                 ),
                 "slotmap" => ProgramCompiler::compile_entry_selection_with_image(
-                    EntrySelection::Package(PathBuf::from("packages/slotmap")),
+                    EntrySelection::Project(PathBuf::from("packages/slotmap")),
                     image.clone(),
                 ),
                 _ => panic!("Unknown workload {workload}"),
@@ -388,7 +388,7 @@ fn cmd_cold_single(mode: &str, workload: &str, artifact: &Path, sample_id: usize
                     "let s = \"hello\"; let opt = Option.some(s); print(opt);".into(),
                 )),
                 "synthetic_pkg" => loaded.compile_user_entry(EntrySelection::Package(synthetic_dir)),
-                "slotmap" => loaded.compile_user_entry(EntrySelection::Package(PathBuf::from("packages/slotmap"))),
+                "slotmap" => loaded.compile_user_entry(EntrySelection::Project(PathBuf::from("packages/slotmap"))),
                 _ => panic!("Unknown workload {workload}"),
             };
             let compile_dur = t_comp.elapsed();
@@ -656,43 +656,53 @@ fn cmd_slotmap_eval(artifact: &Path) {
     println!("=== Evaluating packages/slotmap and packages/slotmap/tests/runtime ===");
     let limits = ValidationLimits::default();
 
-    println!("1. Loading source formal image...");
-    let source_image = (*phalcom_semantic::canonical_image::canonical_universe_formal_image().expect("source image")).clone();
-
-    println!("2. Loading artifact formal image...");
+    println!("1. Loading artifact formal image...");
     let loaded = load_universe_telosc(artifact, &limits).expect("loaded artifact");
 
-    // Case 1: packages/slotmap
-    println!("Testing packages/slotmap under Source-backed...");
-    let src_res1 = ProgramCompiler::compile_entry_selection_with_image(
-        EntrySelection::Package(PathBuf::from("packages/slotmap")),
-        source_image.clone(),
-    );
-    println!("Testing packages/slotmap under Artifact-backed...");
-    let art_res1 = loaded.compile_user_entry(EntrySelection::Package(PathBuf::from("packages/slotmap")));
+    println!("2. Loading canonical source formal image...");
+    let source_image = phalcom_semantic::canonical_image::canonical_universe_formal_image().expect("source image");
 
-    let src_err1 = src_res1.err().map(|e| e.to_string()).unwrap_or_else(|| "OK".into());
-    let art_err1 = art_res1.err().map(|e| e.to_string()).unwrap_or_else(|| "OK".into());
-    println!("packages/slotmap Source error: {src_err1}");
-    println!("packages/slotmap Artifact error: {art_err1}");
-    assert_eq!(src_err1, art_err1, "Parity check failed for packages/slotmap!");
+    // Case 1: packages/slotmap
+    println!("Testing packages/slotmap under Artifact-backed...");
+    let art_prog1 = loaded
+        .compile_user_entry(EntrySelection::Project(PathBuf::from("packages/slotmap")))
+        .expect("artifact compilation of packages/slotmap");
+    println!("packages/slotmap Artifact compilation: SUCCESS ({} modules)", art_prog1.modules.len());
+
+    println!("Testing packages/slotmap under Source-backed...");
+    let src_prog1 = ProgramCompiler::compile_entry_selection_with_image(
+        EntrySelection::Project(PathBuf::from("packages/slotmap")),
+        (*source_image).clone(),
+    )
+    .expect("source compilation of packages/slotmap");
+    println!("packages/slotmap Source compilation: SUCCESS ({} modules)", src_prog1.modules.len());
+    assert_eq!(
+        src_prog1.modules.len(),
+        art_prog1.modules.len(),
+        "Compiled module count parity failed for packages/slotmap!"
+    );
 
     // Case 2: packages/slotmap/tests/runtime
-    println!("Testing packages/slotmap/tests/runtime under Source-backed...");
-    let src_res2 = ProgramCompiler::compile_entry_selection_with_image(
-        EntrySelection::Project(PathBuf::from("packages/slotmap/tests/runtime")),
-        source_image.clone(),
-    );
     println!("Testing packages/slotmap/tests/runtime under Artifact-backed...");
-    let art_res2 = loaded.compile_user_entry(EntrySelection::Project(PathBuf::from("packages/slotmap/tests/runtime")));
+    let art_prog2 = loaded
+        .compile_user_entry(EntrySelection::Project(PathBuf::from("packages/slotmap/tests/runtime")))
+        .expect("artifact compilation of packages/slotmap/tests/runtime");
+    println!("packages/slotmap/tests/runtime Artifact compilation: SUCCESS ({} modules)", art_prog2.modules.len());
 
-    let src_err2 = src_res2.err().map(|e| e.to_string()).unwrap_or_else(|| "OK".into());
-    let art_err2 = art_res2.err().map(|e| e.to_string()).unwrap_or_else(|| "OK".into());
-    println!("packages/slotmap/tests/runtime Source error: {src_err2}");
-    println!("packages/slotmap/tests/runtime Artifact error: {art_err2}");
-    assert_eq!(src_err2, art_err2, "Parity check failed for packages/slotmap/tests/runtime!");
+    println!("Testing packages/slotmap/tests/runtime under Source-backed...");
+    let src_prog2 = ProgramCompiler::compile_entry_selection_with_image(
+        EntrySelection::Project(PathBuf::from("packages/slotmap/tests/runtime")),
+        (*source_image).clone(),
+    )
+    .expect("source compilation of packages/slotmap/tests/runtime");
+    println!("packages/slotmap/tests/runtime Source compilation: SUCCESS ({} modules)", src_prog2.modules.len());
+    assert_eq!(
+        src_prog2.modules.len(),
+        art_prog2.modules.len(),
+        "Compiled module count parity failed for packages/slotmap/tests/runtime!"
+    );
 
-    println!("Slotmap evaluation complete: 100% parity verified between source-backed and artifact-backed!");
+    println!("Slotmap evaluation complete: 100% positive compilation parity verified between source-backed and artifact-backed!");
 }
 
 fn cmd_allocation_check(artifact: &Path) {

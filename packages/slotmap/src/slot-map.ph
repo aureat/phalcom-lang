@@ -7,7 +7,7 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 ///
 /// Keys are created only by this module. A key is valid exactly while the slot
 /// at `index` is occupied with the same `generation`.
-data SlotKey<Tag> private(
+data SlotKey<Tag> package(
   index: Int,
   generation: Int
 )
@@ -26,7 +26,7 @@ data SlotState<T> {
   Vacant(_ next: Option<Int>)
 }
 
-data Slot<T> private(
+data Slot<T> package(
   generation: Int,
   state: SlotState<T>
 )
@@ -58,17 +58,16 @@ class SlotMap<Tag, T> {
 
   /// Returns true exactly when `key` currently denotes an occupied slot.
   containsKey(_ key: SlotKey<Tag>) -> Bool {
-    match _slots.get(key.index) {
-      Option::None => false
-      Option::Some(slot) => {
-        if slot.generation != key.generation {
-          false
-        } else {
-          match slot.state {
-            SlotState::Occupied(_) => true
-            SlotState::Vacant(_) => false
-          }
-        }
+    if key.index < 0 or key.index >= _slots.size {
+      return false
+    }
+    let slot = _slots[key.index]
+    if slot.generation != key.generation {
+      false
+    } else {
+      match slot.state {
+        SlotState::Occupied(_) => true
+        SlotState::Vacant(_) => false
       }
     }
   }
@@ -76,17 +75,16 @@ class SlotMap<Tag, T> {
   /// Returns the value addressed by `key`, or None for an out-of-range,
   /// removed, or stale-generation key.
   get(_ key: SlotKey<Tag>) -> Option<T> {
-    match _slots.get(key.index) {
-      Option::None => Option::None
-      Option::Some(slot) => {
-        if slot.generation != key.generation {
-          Option::None
-        } else {
-          match slot.state {
-            SlotState::Occupied(value) => Option::Some(value)
-            SlotState::Vacant(_) => Option::None
-          }
-        }
+    if key.index < 0 or key.index >= _slots.size {
+      return Option::None
+    }
+    let slot = _slots[key.index]
+    if slot.generation != key.generation {
+      Option::None
+    } else {
+      match slot.state {
+        SlotState::Occupied(value) => Option::Some(value)
+        SlotState::Vacant(_) => Option::None
       }
     }
   }
@@ -159,25 +157,24 @@ class SlotMap<Tag, T> {
   /// freelist. Therefore every previously issued key for that occupancy remains
   /// stale even when this slot is reused later.
   remove(_ key: SlotKey<Tag>) -> Option<T> {
-    match _slots.get(key.index) {
-      Option::None => Option::None
-      Option::Some(slot) => {
-        if slot.generation != key.generation {
-          Option::None
-        } else {
-          match slot.state {
-            SlotState::Vacant(_) => Option::None
+    if key.index < 0 or key.index >= _slots.size {
+      return Option::None
+    }
+    let slot = _slots[key.index]
+    if slot.generation != key.generation {
+      Option::None
+    } else {
+      match slot.state {
+        SlotState::Vacant(_) => Option::None
 
-            SlotState::Occupied(value) => {
-              _slots[key.index] = Slot<T>(
-                generation: slot.generation + 1,
-                state: SlotState::Vacant(_free)
-              )
-              _free = Option::Some(key.index)
-              _len = _len - 1
-              Option::Some(value)
-            }
-          }
+        SlotState::Occupied(value) => {
+          _slots[key.index] = Slot<T>(
+            generation: slot.generation + 1,
+            state: SlotState::Vacant(_free)
+          )
+          _free = Option::Some(key.index)
+          _len = _len - 1
+          Option::Some(value)
         }
       }
     }

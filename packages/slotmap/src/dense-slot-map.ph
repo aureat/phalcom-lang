@@ -9,7 +9,7 @@ data DenseSlotState {
   Vacant(_ next: Option<Int>)
 }
 
-data DenseSlot private(
+data DenseSlot package(
   generation: Int,
   state: DenseSlotState
 )
@@ -42,35 +42,34 @@ class DenseSlotMap<Tag, T> {
 
   isEmpty -> Bool { _values.size == 0 }
 
+  /// Returns true exactly when `key` currently denotes an occupied slot.
   containsKey(_ key: SlotKey<Tag>) -> Bool {
-    match _slots.get(key.index) {
-      Option::None => false
-      Option::Some(slot) => {
-        if slot.generation != key.generation {
-          false
-        } else {
-          match slot.state {
-            DenseSlotState::Occupied(_) => true
-            DenseSlotState::Vacant(_) => false
-          }
-        }
+    if key.index < 0 or key.index >= _slots.size {
+      return false
+    }
+    let slot = _slots[key.index]
+    if slot.generation != key.generation {
+      false
+    } else {
+      match slot.state {
+        DenseSlotState::Occupied(_) => true
+        DenseSlotState::Vacant(_) => false
       }
     }
   }
 
   get(_ key: SlotKey<Tag>) -> Option<T> {
-    match _slots.get(key.index) {
-      Option::None => Option::None
-      Option::Some(slot) => {
-        if slot.generation != key.generation {
-          Option::None
-        } else {
-          match slot.state {
-            DenseSlotState::Vacant(_) => Option::None
-            DenseSlotState::Occupied(denseIndex) => {
-              Option::Some(_values[denseIndex])
-            }
-          }
+    if key.index < 0 or key.index >= _slots.size {
+      return Option::None
+    }
+    let slot = _slots[key.index]
+    if slot.generation != key.generation {
+      Option::None
+    } else {
+      match slot.state {
+        DenseSlotState::Vacant(_) => Option::None
+        DenseSlotState::Occupied(denseIndex) => {
+          Option::Some(_values[denseIndex])
         }
       }
     }
@@ -136,45 +135,44 @@ class DenseSlotMap<Tag, T> {
   }
 
   remove(_ key: SlotKey<Tag>) -> Option<T> {
-    match _slots.get(key.index) {
-      Option::None => Option::None
-      Option::Some(slot) => {
-        if slot.generation != key.generation {
-          Option::None
-        } else {
-          match slot.state {
-            DenseSlotState::Vacant(_) => Option::None
+    if key.index < 0 or key.index >= _slots.size {
+      return Option::None
+    }
+    let slot = _slots[key.index]
+    if slot.generation != key.generation {
+      Option::None
+    } else {
+      match slot.state {
+        DenseSlotState::Vacant(_) => Option::None
 
-            DenseSlotState::Occupied(denseIndex) => {
-              let lastIndex = _values.size - 1
-              let removed = _values[denseIndex]
+        DenseSlotState::Occupied(denseIndex) => {
+          let lastIndex = _values.size - 1
+          let removed = _values[denseIndex]
 
-              if denseIndex != lastIndex {
-                let movedKey = _keys[lastIndex]
-                let movedValue = _values[lastIndex]
+          if denseIndex != lastIndex {
+            let movedKey = _keys[lastIndex]
+            let movedValue = _values[lastIndex]
 
-                _keys[denseIndex] = movedKey
-                _values[denseIndex] = movedValue
+            _keys[denseIndex] = movedKey
+            _values[denseIndex] = movedValue
 
-                let movedSlot = _slots[movedKey.index]
-                _slots[movedKey.index] = DenseSlot(
-                  generation: movedSlot.generation,
-                  state: DenseSlotState::Occupied(denseIndex)
-                )
-              }
-
-              _keys.popLast
-              _values.popLast
-
-              _slots[key.index] = DenseSlot(
-                generation: slot.generation + 1,
-                state: DenseSlotState::Vacant(_free)
-              )
-              _free = Option::Some(key.index)
-
-              Option::Some(removed)
-            }
+            let movedSlot = _slots[movedKey.index]
+            _slots[movedKey.index] = DenseSlot(
+              generation: movedSlot.generation,
+              state: DenseSlotState::Occupied(denseIndex)
+            )
           }
+
+          _keys.popLast
+          _values.popLast
+
+          _slots[key.index] = DenseSlot(
+            generation: slot.generation + 1,
+            state: DenseSlotState::Vacant(_free)
+          )
+          _free = Option::Some(key.index)
+
+          Option::Some(removed)
         }
       }
     }

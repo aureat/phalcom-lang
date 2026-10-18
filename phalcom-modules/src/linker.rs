@@ -906,7 +906,7 @@ impl<'a> LinkContext<'a> {
         self.resolved
             .get(&(module.clone(), path.to_string()))
             .cloned()
-            .filter(|target| self.linker.interfaces.contains_key(target))
+            .filter(|target| self.linker.interfaces.contains_key(target) || self.linker.is_external(target))
             .ok_or_else(|| LinkError::UnresolvedImport {
                 module: module.clone(),
                 path: path.to_string(),
