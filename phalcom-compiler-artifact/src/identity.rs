@@ -2,6 +2,7 @@
 
 use crate::digest::{ArtifactDigest, ArtifactHasher};
 use crate::error::ValidationError;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::StableProjectRef;
 use serde::{Deserialize, Serialize};
 
@@ -63,6 +64,22 @@ impl TeloscPackageIdentity {
                 if namespace.as_ref() == "universe" && version.as_ref() == "0.1.0"
         )
     }
+
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, AllocationError> {
+        match self {
+            Self::Builtin { namespace, version } => Ok(Self::Builtin {
+                namespace: allocations.boxed_str(namespace)?,
+                version: allocations.boxed_str(version)?,
+            }),
+            Self::Package { package, version } => Ok(Self::Package {
+                package: allocations.boxed_str(package)?,
+                version: allocations.boxed_str(version)?,
+            }),
+        }
+    }
 }
 
 impl From<&StableProjectRef> for TeloscPackageIdentity {
@@ -105,6 +122,25 @@ pub struct CanonicalCompatibilityIdentity {
 }
 
 impl CanonicalCompatibilityIdentity {
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, AllocationError> {
+        Ok(Self {
+            package: self.package.clone_with_allocation_budget(allocations)?,
+            source_digest: self.source_digest,
+            interface_digest: self.interface_digest,
+            semantic_digest: self.semantic_digest,
+            semantic_model_version: self.semantic_model_version,
+            stable_identity_schema: self.stable_identity_schema,
+            module_semantic_abi: self.module_semantic_abi,
+            semantic_artifact_abi: self.semantic_artifact_abi,
+            native_surface_schema_version: self.native_surface_schema_version,
+            native_catalog_fingerprint: self.native_catalog_fingerprint,
+            type_metadata_schema_version: self.type_metadata_schema_version,
+        })
+    }
+
     /// Validates cross-process compatibility between two environments.
     pub fn check_compatible(&self, other: &Self) -> Result<(), ValidationError> {
         if self.package != other.package {

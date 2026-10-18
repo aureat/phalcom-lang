@@ -431,8 +431,13 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     timings.section_validation = t_section.elapsed();
 
     let t_reloc = Instant::now();
+    let package = container
+        .header()
+        .package_identity
+        .clone_with_allocation_budget(allocations)
+        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
     let compatibility = phalcom_compiler_artifact::CanonicalCompatibilityIdentity {
-        package: container.header().package_identity.clone(),
+        package,
         source_digest: container.header().source_digest,
         interface_digest: container.header().interface_digest,
         semantic_digest: container.header().semantic_digest,
@@ -787,10 +792,14 @@ mod temporary_loaded_publication_allocation_census {
 
         phalcom_type_meta::allocation::register_allocation_probe(observed_requested_bytes);
         phalcom_semantic::artifact::query::reset_query_reconstruction_census();
-        let (world_result, observed, signed) = measure_stage("H0 query semantic-world identity setup", &mut allocations, |_budget| {
+        let (world_result, observed, signed) = measure_stage("H0 query semantic-world identity setup", &mut allocations, |budget| {
             let header = parsed.header();
+            let package = header
+                .package_identity
+                .clone_with_allocation_budget(budget)
+                .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
             let compatibility = phalcom_compiler_artifact::CanonicalCompatibilityIdentity {
-                package: header.package_identity.clone(),
+                package,
                 source_digest: header.source_digest,
                 interface_digest: header.interface_digest,
                 semantic_digest: header.semantic_digest,

@@ -195,36 +195,13 @@ impl CanonicalSemanticWorldId {
     }
 
     pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
-        use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
-
         let provenance = match &self.provenance {
             CanonicalWorldProvenance::Source(sources) => CanonicalWorldProvenance::Source(Arc::clone(sources)),
             CanonicalWorldProvenance::Artifact { source_digest, compatibility } => {
-                let package = match &compatibility.package {
-                    TeloscPackageIdentity::Builtin { namespace, version } => TeloscPackageIdentity::Builtin {
-                        namespace: allocations.boxed_str(namespace)?,
-                        version: allocations.boxed_str(version)?,
-                    },
-                    TeloscPackageIdentity::Package { package, version } => TeloscPackageIdentity::Package {
-                        package: allocations.boxed_str(package)?,
-                        version: allocations.boxed_str(version)?,
-                    },
-                };
+                let compatibility = compatibility.clone_with_allocation_budget(allocations)?;
                 CanonicalWorldProvenance::Artifact {
                     source_digest: *source_digest,
-                    compatibility: phalcom_compiler_artifact::CanonicalCompatibilityIdentity {
-                        package,
-                        source_digest: compatibility.source_digest,
-                        interface_digest: compatibility.interface_digest,
-                        semantic_digest: compatibility.semantic_digest,
-                        semantic_model_version: compatibility.semantic_model_version,
-                        stable_identity_schema: compatibility.stable_identity_schema,
-                        module_semantic_abi: compatibility.module_semantic_abi,
-                        semantic_artifact_abi: compatibility.semantic_artifact_abi,
-                        native_surface_schema_version: compatibility.native_surface_schema_version,
-                        native_catalog_fingerprint: compatibility.native_catalog_fingerprint,
-                        type_metadata_schema_version: compatibility.type_metadata_schema_version,
-                    },
+                    compatibility,
                 }
             }
         };
