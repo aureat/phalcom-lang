@@ -15,7 +15,8 @@ next_action: >
   perf/universe-characterization. R.T0 is complete and R.G0 is PASS as a
   baseline-recording gate only. R.T1 is partially implemented; its isolated
   semantic import equality check still reports a 2,468,555-byte delta. Continue
-  tracing and closing semantic owner allocations before advancing to R.T2.
+  inspecting and verifying the in-progress static operational importer budget
+  edits before advancing to R.T2.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
 execution_tree_head: 5f1037cf
 latest_tested_revision: 5f1037cf
@@ -2299,3 +2300,15 @@ library source checked by Cargo is unchanged from that commit. The exact
 allocation test result was captured before removing only the test-only
 backtrace sampler; no post-cleanup test rerun was performed. The sampler did
 not contribute to the allocation equality assertion.
+
+## PERF003.C2.P7.PATCH5-R preserved follow-up edits — 2026-10-18
+
+After the partial source/evidence commit and lifecycle synchronization push,
+additional uncommitted edits appeared in `phalcom-semantic/src/artifact/import.rs`
+and `phalcom-semantic/src/artifact/operational.rs`. They thread the allocation
+budget into static-definition signature/program import and recursively budget
+operational nodes, boxes, vectors, and owned identities. They align with the
+R.T1 audit target but have not been checked or tested. Per the user's direction,
+leave these source edits untouched and uncommitted. Before making further R.T1
+changes, inspect and validate the current diff. G1 remains failed with the
+2,468,555-byte semantic import delta until rerun evidence proves otherwise.

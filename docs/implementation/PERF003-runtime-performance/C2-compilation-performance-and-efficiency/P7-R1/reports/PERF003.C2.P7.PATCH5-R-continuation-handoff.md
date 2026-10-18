@@ -6,7 +6,7 @@ Continue this task from the handoff below. The original implementation plan is a
 
 - Deliver the full `PERF003.C2.P7.PATCH5-R` plan, including gates `R.G0`–`R.G7`; a partial allocation fix is not plan completion.
 - Work in `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization` on branch `perf/universe-characterization`.
-- The user explicitly requested inline implementation with no subagents. Continue inline. The partial implementation and evidence are committed as `5f1037cf` (`feat(perf): budget semantic artifact imports`); lifecycle records are synchronized in a follow-up commit included in this delivery. Resume from the current branch HEAD without resetting or cleaning.
+- The user explicitly requested inline implementation with no subagents. Continue inline. The partial implementation and evidence are committed as `5f1037cf` (`feat(perf): budget semantic artifact imports`); lifecycle-only follow-ups record the current partial state and preserved source edits. Resume from the current branch HEAD without resetting or cleaning.
 - Treat the attached plan as the architecture contract, especially §1, §3, §5–§11, and §13. Preserve unrelated dirty files and existing implementation/evidence work.
 
 ## Current state
@@ -16,6 +16,7 @@ Continue this task from the handoff below. The original implementation plan is a
 - Current exact semantic discriminator remains short by `2,468,555` bytes: observed `266,069,278`, ledger `263,600,723`.
 - The semantic import diagnostic conversion now budgets its source spans, owned strings, and vectors. `RUSTFLAGS='' cargo check -p phalcom-semantic --lib` passed after this edit. The exact Universe discriminator did not change, so that edit is not the cause of the remaining gap on this fixture.
 - PATCH5-R source, plan, baseline/evidence, and partial checkpoint state are committed. The implementation commit is `5f1037cf`; the following lifecycle-only commit records that R.T1 remains partial and unverified. Continue implementation on the same branch from its current HEAD.
+- There are additional uncommitted edits in `phalcom-semantic/src/artifact/import.rs` and `phalcom-semantic/src/artifact/operational.rs` that thread `AllocationBudget` into static operational imports. They appeared after the pushed commits and were preserved at the user's direction. They have not been checked or tested. Inspect and validate this exact diff before changing either file; do not assume it is complete or attribute the G1 gap to it.
 
 ## Evidence and decisions
 
@@ -50,7 +51,7 @@ Continue this task from the handoff below. The original implementation plan is a
 ## Resume plan
 
 1. Read the attached PATCH5-R plan §5 and the existing P7-R1 baseline/command-log reports; do not repeat R.T0.
-2. Continue the R.T1.2 complete-owner allocation audit from `validate_and_import_semantic_world_inner`. First thread `AllocationBudget` through static operational signature/program import (including recursive `import_op`, owned module/symbol identities, boxes, nested vectors, and `Arc` publication), preserving exact semantics and charge-before-allocation behavior.
+2. Continue the R.T1.2 complete-owner allocation audit from `validate_and_import_semantic_world_inner`. Start by inspecting the preserved uncommitted changes in `phalcom-semantic/src/artifact/import.rs` and `phalcom-semantic/src/artifact/operational.rs`. They begin threading `AllocationBudget` through static operational signature/program import, recursive `import_op`, owned module/symbol identities, boxes, nested vectors, and `Arc` publication. Validate the current diff and preserve exact semantics and charge-before-allocation behavior before extending it.
 3. Re-run `RUSTFLAGS='' cargo check -p phalcom-semantic --lib`, then the exact full-Universe semantic discriminator. Record the new observed/ledger values and classify each remaining owner family; do not weaken equality or infer a cause from heuristic backtraces.
 4. Continue auditing the other active owner paths named in R.T1.2 (associated/type members, static definitions/constants, constructor initialization, module/owner indexes, snapshot retention) until no allocation remains unresolved and equality is zero.
 5. Only then complete G1 proofs: successful exact `N`, typed `N-1`, failed-child rollback/no publication, malformed input rejection, source-free owner parity, and canonical prefix/fork/overlay behavior. Keep R.G1 marked failed/unverified until all conditions pass.
