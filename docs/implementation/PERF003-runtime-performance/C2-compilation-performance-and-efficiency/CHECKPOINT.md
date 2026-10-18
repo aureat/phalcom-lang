@@ -12,17 +12,60 @@ next_plan: PERF003.C2.P7.PATCH5-R
 next_action: >
   PERF003.C2.P7.PATCH5-R R.T2 / R.G2 query reconstruction has exact
   successful-path allocation parity on the c7 artifact. R.T3 / R.G3 is active:
-  isolate and close the separately measured +1,232 formal-image publication
-  residual, preserving the +23,011 outside that stage as a distinct whole-load
-  residual. Keep P7 IN_PROGRESS / PARTIAL / UNVERIFIED; do not begin P8 or
-  claim R.G3/R.G4.
+  formal-image publication now has exact allocation parity; continue the
+  source-free failure-atomicity discriminators. Keep the separate +23,011
+  whole-load residual outside N-P. Keep P7 IN_PROGRESS / PARTIAL / UNVERIFIED;
+  do not begin P8 or claim R.G3/R.G4.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: 0706f3b2
-latest_tested_revision: 0706f3b2 (tested source tree; lifecycle-only follow-up below)
+execution_tree_head: 97c419f4
+latest_tested_revision: 97c419f4
 latest_tested_predecessor: c7d308b7
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
+
+## PERF003.C2.P7.PATCH5-R R.T3 formal-image allocation boundary — 2026-10-18
+
+The loaded formal-image publication discriminator now reconciles exactly on the
+c7 artifact. The prior `+1,232` N-P residual came from `has_source_free_artifact_contents()`
+boxing four iterator adapters (`TraitSurfaceTable`, `TraitHeaderTable`,
+`TypeAliasTable`, and `StaticDefinitionTable`) on each of its two calls. The
+completeness checks now use allocation-free lengths/emptiness queries; the
+predicate and its semantic conditions are unchanged.
+
+Focused evidence from
+`temporary_current_loaded_publication_allocation_census`:
+
+| Boundary | Ledger | Observed | Delta |
+|---|---:|---:|---:|
+| Snapshot clone | 0 | 0 | 0 |
+| Status/content promotion | 0 | 0 | 0 |
+| ModuleQueryProducts reconstruction | 244,779 | 244,779 | 0 |
+| ModuleQueryProducts Arc/publication | 128 | 128 | 0 |
+| Source-free completeness | 0 | 0 | 0 |
+| Advisory validation | 0 | 0 | 0 |
+| Query-reader validation | 0 | 0 | 0 |
+| Fingerprint validation | 0 | 0 | 0 |
+| Final `Arc<SemanticSnapshot>` | 384 | 384 | 0 |
+| `Arc<CanonicalUniverseFormalImage>` | 352 | 352 | 0 |
+| Module Arc at the outer boundary | 64 | 64 | 0 |
+| N-P formal publication total | 245,707 | 245,707 | 0 |
+
+The same isolated run retained semantic import equality at
+`264,140,626 / 264,140,626` and query reconstruction equality at
+`4,351,537 / 4,351,537`, with QX zero. Whole load remains
+`366,789,570` ledger / `366,812,581` observed, delta `+23,011`, entirely
+outside N-P: module materialization C `+22,985`, container/header A `+13`, and
+query-world identity setup H0 `+13`.
+
+Command:
+`PHALCOM_UNIVERSE_TELOSC_FOR_TEST=/tmp/perf003-patch5r-c7-baseline/universe.telosc RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib temporary_current_loaded_publication_allocation_census -- --nocapture --test-threads=1`
+— PASS (1 selected test).
+
+This closes successful-path publication allocation accounting, not R.G3.
+Failure injection/rollback and retryability discriminators remain to be
+established. P7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; R.G4 and P8 are
+not claimed.
 
 ## PERF007 / PATCH5-R R.T1 semantic world import allocation gap closed (delta == 0) — 2026-10-18
 

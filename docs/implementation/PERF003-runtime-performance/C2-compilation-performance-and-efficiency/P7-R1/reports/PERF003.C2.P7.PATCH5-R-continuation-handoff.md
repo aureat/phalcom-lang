@@ -149,3 +149,41 @@ promotion, completeness, advisory checks, reader construction, and fingerprint
 validation), then correct only the measured owner. Preserve the exact semantic
 import guard (`264,140,626 / 264,140,626`), the R.G2 PASS, and P7's
 `IN_PROGRESS / PARTIAL / UNVERIFIED` status. Do not begin P8.
+
+## Superseding status — R.T3 publication allocation exactness — 2026-10-18
+
+The R.T3 source correction is committed as `97c419f4` and was tested against
+`/tmp/perf003-patch5r-c7-baseline/universe.telosc`. The earlier statement that
+no R.T3 source changes had been made is historical.
+
+The isolated publication census passes with N-P exact:
+
+```text
+P1 snapshot clone                         0 / 0
+P2 status/content promotion               0 / 0
+P3 ModuleQueryProducts reconstruction 244,779 / 244,779
+P4 ModuleQueryProducts Arc/publication   128 / 128
+P5 source-free completeness               0 / 0
+P6 advisory validation                    0 / 0
+P7 query-reader validation                0 / 0
+P8 fingerprint validation                 0 / 0
+P9 Arc<SemanticSnapshot>                 384 / 384
+P10 Arc<CanonicalUniverseFormalImage>    352 / 352
+outer Module Arc                         64 / 64
+N-P total                           245,707 / 245,707; delta 0
+```
+
+The prior `+1,232` was caused by four `Box<dyn Iterator>` allocations in
+`has_source_free_artifact_contents()`, repeated once for status promotion and
+once for the final completeness check. Replacing those existence probes with
+allocation-free length/emptiness queries removed the measured residual without
+changing the checks. The same run retained semantic import
+`264,140,626 / 264,140,626` and query reconstruction
+`4,351,537 / 4,351,537` with QX zero.
+
+Whole load is still `366,789,570` ledger / `366,812,581` observed, delta
+`+23,011`, entirely outside N-P (C `+22,985`, A `+13`, H0 `+13`). R.G3 is not
+yet PASS: publication failure injection, rollback, no-publication, and clean
+retryability remain to be verified. Next inspect the current failure-path
+coverage and add/run the smallest discriminators for those required cases.
+P7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; do not begin P8.
