@@ -5,12 +5,23 @@ use super::store::TypeStore;
 use super::variance::Variance;
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{CallableId, DeclarationId, DispatchSide};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TypeParameterOwner {
     Declaration(DeclarationId),
     Callable(CallableId),
     Impl(crate::identity::ImplId),
+}
+
+impl TypeParameterOwner {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(match self {
+            Self::Declaration(owner) => Self::Declaration(owner.clone_with_allocation_budget(allocations)?),
+            Self::Callable(owner) => Self::Callable(owner.clone_with_allocation_budget(allocations)?),
+            Self::Impl(owner) => Self::Impl(owner.clone_with_allocation_budget(allocations)?),
+        })
+    }
 }
 
 /// Source binding shape for a generic parameter.
@@ -271,6 +282,82 @@ pub enum GenericSignaturePublicationError {
 }
 
 impl GenericSignature {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        fn copy_boxed<T: Copy>(values: &[T], allocations: &mut AllocationBudget) -> Result<Box<[T]>, AllocationError> {
+            let mut cloned = allocations.vector(values.len())?;
+            cloned.extend_from_slice(values);
+            allocations.boxed_slice(cloned)
+        }
+
+        fn clone_owner(owner: &TypeParameterOwner, allocations: &mut AllocationBudget) -> Result<TypeParameterOwner, AllocationError> {
+            Ok(match owner {
+                TypeParameterOwner::Declaration(owner) => TypeParameterOwner::Declaration(owner.clone_with_allocation_budget(allocations)?),
+                TypeParameterOwner::Callable(owner) => TypeParameterOwner::Callable(owner.clone_with_allocation_budget(allocations)?),
+                TypeParameterOwner::Impl(owner) => TypeParameterOwner::Impl(owner.clone_with_allocation_budget(allocations)?),
+            })
+        }
+
+        fn clone_term(term: &TypeTerm, allocations: &mut AllocationBudget) -> Result<TypeTerm, AllocationError> {
+            Ok(match term {
+                TypeTerm::Canonical(ty) => TypeTerm::Canonical(*ty),
+                TypeTerm::Infer(variable) => TypeTerm::Infer(*variable),
+                TypeTerm::SelfType(term) => TypeTerm::SelfType(SelfTypeTerm {
+                    owner: term.owner.clone_with_allocation_budget(allocations)?,
+                    side: term.side,
+                    role: term.role,
+                }),
+            })
+        }
+
+        fn clone_constraint(constraint: &GenericConstraint, allocations: &mut AllocationBudget) -> Result<GenericConstraint, AllocationError> {
+            Ok(match constraint {
+                GenericConstraint::Subtype { lower, upper } => GenericConstraint::Subtype {
+                    lower: clone_term(lower, allocations)?,
+                    upper: clone_term(upper, allocations)?,
+                },
+                GenericConstraint::Equivalent { left, right } => GenericConstraint::Equivalent {
+                    left: clone_term(left, allocations)?,
+                    right: clone_term(right, allocations)?,
+                },
+                GenericConstraint::Conforms { subject, trait_ref } => {
+                    let mut arguments = allocations.vector(trait_ref.arguments.len())?;
+                    arguments.extend_from_slice(&trait_ref.arguments);
+                    GenericConstraint::Conforms {
+                        subject: clone_term(subject, allocations)?,
+                        trait_ref: crate::traits::TraitRef {
+                            declaration: trait_ref.declaration.clone_with_allocation_budget(allocations)?,
+                            arguments: allocations.boxed_slice(arguments)?,
+                        },
+                    }
+                }
+            })
+        }
+
+        let mut parameter_kind_shapes = allocations.vector(self.parameter_kind_shapes.len())?;
+        for shape in &self.parameter_kind_shapes {
+            parameter_kind_shapes.push(allocations.boxed_str(shape)?);
+        }
+        let mut constraint_shapes = allocations.vector(self.constraint_shapes.len())?;
+        for shape in &self.constraint_shapes {
+            constraint_shapes.push(allocations.boxed_str(shape)?);
+        }
+        let mut constraints = allocations.vector(self.constraints.len())?;
+        for constraint in &self.constraints {
+            constraints.push(clone_constraint(constraint, allocations)?);
+        }
+
+        Ok(Self {
+            owner: clone_owner(&self.owner, allocations)?,
+            parameters: copy_boxed(&self.parameters, allocations)?,
+            parameter_kinds: copy_boxed(&self.parameter_kinds, allocations)?,
+            parameter_kind_shapes: allocations.boxed_slice(parameter_kind_shapes)?,
+            parameter_variances: copy_boxed(&self.parameter_variances, allocations)?,
+            parameter_modes: copy_boxed(&self.parameter_modes, allocations)?,
+            constraint_shapes: allocations.boxed_slice(constraint_shapes)?,
+            constraints: allocations.boxed_slice(constraints)?,
+        })
+    }
+
     pub fn new(owner: TypeParameterOwner, parameters: Box<[TypeParameterId]>) -> Self {
         let parameter_count = parameters.len();
         Self {

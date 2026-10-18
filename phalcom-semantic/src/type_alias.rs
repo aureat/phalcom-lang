@@ -5,6 +5,7 @@ use crate::identity::DeclarationId;
 use crate::types::id::{KindId, TypeId};
 use crate::types::parameter::GenericSignature;
 use phalcom_modules::identity::ModuleId;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedMap, SortedMapEntriesError};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -23,6 +24,7 @@ pub struct TypeAliasInfo {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TypeAliasTable {
     parent: Option<Arc<Self>>,
+    frozen: Option<Arc<BudgetedSortedMap<DeclarationId, TypeAliasInfo>>>,
     aliases: BTreeMap<DeclarationId, TypeAliasInfo>,
     module_aliases: BTreeMap<ModuleId, BTreeSet<DeclarationId>>,
 }
@@ -40,14 +42,34 @@ impl TypeAliasTable {
         }
     }
 
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        mut entries: Vec<(DeclarationId, TypeAliasInfo)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, FrozenTypeAliasTableError> {
+        if entries.is_empty() {
+            return Ok(Self::new());
+        }
+        entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let frozen = BudgetedSortedMap::from_sorted_entries(entries).map_err(|error| match error {
+            SortedMapEntriesError::DuplicateKey => FrozenTypeAliasTableError::DuplicateDeclaration,
+            SortedMapEntriesError::OutOfOrder => unreachable!("entries were sorted before frozen construction"),
+        })?;
+        let frozen = allocations.arc(frozen).map_err(FrozenTypeAliasTableError::Allocation)?;
+        Ok(Self {
+            frozen: Some(frozen),
+            ..Self::default()
+        })
+    }
+
     /// Number of aliases owned by this workspace, excluding the parent.
     pub fn local_len(&self) -> usize {
-        self.aliases.len()
+        self.aliases.len() + self.frozen.as_ref().map_or(0, |aliases| aliases.len())
     }
 
     pub fn insert(&mut self, info: TypeAliasInfo) {
         assert!(
-            !self.parent.as_ref().is_some_and(|parent| parent.contains_key(&info.declaration)),
+            !self.parent.as_ref().is_some_and(|parent| parent.contains_key(&info.declaration))
+                && !self.frozen.as_ref().is_some_and(|frozen| frozen.contains_key(&info.declaration)),
             "cannot overwrite a canonical alias"
         );
         self.module_aliases
@@ -81,7 +103,10 @@ impl TypeAliasTable {
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&TypeAliasInfo> {
-        self.aliases.get(declaration).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
+        self.aliases
+            .get(declaration)
+            .or_else(|| self.frozen.as_ref().and_then(|frozen| frozen.get(declaration)))
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
     }
 
     pub fn form(&self, declaration: &DeclarationId) -> Option<TypeId> {
@@ -96,19 +121,22 @@ impl TypeAliasTable {
         self.get(declaration).is_some()
     }
 
-    pub fn declarations_for_module(&self, module: &ModuleId) -> Box<dyn Iterator<Item = &DeclarationId> + '_> {
-        let local = self.module_aliases.get(module).into_iter().flat_map(|declarations| declarations.iter());
-        match &self.parent {
-            Some(parent) => Box::new(parent.declarations_for_module(module).chain(local)),
-            None => Box::new(local),
-        }
+    pub fn declarations_for_module<'a>(&'a self, module: &'a ModuleId) -> Box<dyn Iterator<Item = &'a DeclarationId> + 'a> {
+        Box::new(self.iter().filter_map(move |(declaration, _)| (&declaration.module == module).then_some(declaration)))
     }
 
     /// Iterates canonical and local aliases in stable parent-then-local order.
     pub fn iter(&self) -> Box<dyn Iterator<Item = (&DeclarationId, &TypeAliasInfo)> + '_> {
+        let frozen = self.frozen.iter().flat_map(|entries| entries.iter());
         match &self.parent {
-            Some(parent) => Box::new(parent.iter().chain(self.aliases.iter())),
-            None => Box::new(self.aliases.iter()),
+            Some(parent) => Box::new(parent.iter().chain(frozen).chain(self.aliases.iter())),
+            None => Box::new(frozen.chain(self.aliases.iter())),
         }
     }
+}
+
+#[derive(Debug)]
+pub(crate) enum FrozenTypeAliasTableError {
+    Allocation(AllocationError),
+    DuplicateDeclaration,
 }

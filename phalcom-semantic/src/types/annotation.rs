@@ -4195,7 +4195,7 @@ fn resolve_type_member_projection(
     let cancel = crate::types::outcome::CancellationToken::new();
     let empty_hier = crate::types::relation::MapTypeHierarchy::new();
     let conformance_index = crate::impls::ConformanceIndex::new();
-    let witness_plans = std::collections::BTreeMap::new();
+    let witness_plans = crate::impls::ConformanceWitnessPlans::default();
     let trait_surfaces = crate::traits::TraitSurfaceTable::new();
     let mode = crate::types::projection::ProjectionNormalizationMode::Exact {
         conformance_index: &conformance_index,

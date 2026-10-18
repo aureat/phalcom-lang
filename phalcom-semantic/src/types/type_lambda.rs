@@ -7,7 +7,8 @@ use super::store::{PackFormationError, StaticArgument, TypeData, TypeStore};
 use super::substitution::TypeSubstitution;
 use crate::diagnostic::SemanticSourceSpan;
 use crate::field_key::FieldKey;
-use im::{HashMap, Vector};
+use im::Vector;
+use super::overlay::PersistentHashMapOverlay;
 
 /// Representation of scoped types inside a type lambda body arena.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -193,9 +194,9 @@ impl FrozenTypeLambdaPrefix {
 pub struct TypeLambdaArena {
     frozen: Option<Arc<FrozenTypeLambdaPrefix>>,
     scoped_types: Vector<ScopedTypeData>,
-    scoped_to_id: HashMap<ScopedTypeData, ScopedTypeId>,
+    scoped_to_id: PersistentHashMapOverlay<ScopedTypeData, ScopedTypeId>,
     lambdas: Vector<TypeLambdaData>,
-    lambda_to_id: HashMap<TypeLambdaData, TypeLambdaId>,
+    lambda_to_id: PersistentHashMapOverlay<TypeLambdaData, TypeLambdaId>,
     provenance: Vector<TypeLambdaProvenance>,
 }
 
@@ -224,9 +225,9 @@ impl TypeLambdaArena {
         Self {
             frozen: Some(frozen),
             scoped_types: Vector::new(),
-            scoped_to_id: HashMap::new(),
+            scoped_to_id: PersistentHashMapOverlay::default(),
             lambdas: Vector::new(),
-            lambda_to_id: HashMap::new(),
+            lambda_to_id: PersistentHashMapOverlay::default(),
             provenance: Vector::new(),
         }
     }

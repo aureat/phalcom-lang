@@ -18,7 +18,7 @@ use crate::enum_semantics::{
 };
 use crate::identity::{
     BindingId, CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DataConstructorId, DeclarationId, DiagnosticCauseId, DispatchSide,
-    ExplanationId, SourceOwner, SourceSiteId, SourceSiteLocalId, VariantConstructorId, VariantFieldId, VariantId,
+    ExplanationId, SourceOwner, SourceSiteId, SourceSiteLocalId, VariantConstructorId, VariantFieldId,
 };
 use crate::metadata::stable_identity::{
     from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_impl, from_stable_module, from_stable_project, from_stable_variant,
@@ -40,8 +40,11 @@ use phalcom_compiler_artifact::semantic::type_store::{ParameterModeV1, Parameter
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
+
+#[cfg(test)]
+use crate::identity::VariantId;
 
 fn referential(message: impl Into<String>) -> ArtifactError {
     ValidationError::ReferentialIntegrity(message.into()).into()
@@ -107,7 +110,7 @@ pub(crate) fn import_trait_ref_identity(
     ))
 }
 
-fn import_stable_module_with_allocation_budget(
+pub(crate) fn import_stable_module_with_allocation_budget(
     stable: &phalcom_type_meta::identity::StableModuleRef,
     allocations: &mut AllocationBudget,
 ) -> Result<crate::identity::ModuleId, ArtifactError> {
@@ -128,7 +131,7 @@ fn import_stable_module_with_allocation_budget(
     })
 }
 
-fn import_stable_declaration_with_allocation_budget(
+pub(crate) fn import_stable_declaration_with_allocation_budget(
     stable: &phalcom_type_meta::identity::StableDeclarationRef,
     allocations: &mut AllocationBudget,
 ) -> Result<crate::identity::DeclarationId, ArtifactError> {
@@ -140,7 +143,10 @@ fn import_stable_declaration_with_allocation_budget(
     Ok(crate::identity::DeclarationId::new(module, name))
 }
 
-fn import_stable_selector_with_allocation_budget(text: &str, allocations: &mut AllocationBudget) -> Result<phalcom_common::selector::Selector, ArtifactError> {
+pub(crate) fn import_stable_selector_with_allocation_budget(
+    text: &str,
+    allocations: &mut AllocationBudget,
+) -> Result<phalcom_common::selector::Selector, ArtifactError> {
     use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorSlot};
 
     if text.is_empty() {
@@ -245,7 +251,7 @@ fn is_canonical_unescaped_selector_label(label: &str) -> bool {
         })
 }
 
-fn import_stable_variant_with_allocation_budget(
+pub(crate) fn import_stable_variant_with_allocation_budget(
     stable: &phalcom_type_meta::identity::StableVariantRef,
     allocations: &mut AllocationBudget,
 ) -> Result<crate::identity::VariantId, ArtifactError> {
@@ -254,7 +260,7 @@ fn import_stable_variant_with_allocation_budget(
     Ok(crate::identity::VariantId::new(owner, selector))
 }
 
-fn import_stable_impl_with_allocation_budget(
+pub(crate) fn import_stable_impl_with_allocation_budget(
     stable: &phalcom_type_meta::identity::StableImplRef,
     allocations: &mut AllocationBudget,
 ) -> Result<crate::identity::ImplId, ArtifactError> {
@@ -264,7 +270,10 @@ fn import_stable_impl_with_allocation_budget(
     ))
 }
 
-fn import_stable_callable_with_allocation_budget(stable: &StableCallableRef, allocations: &mut AllocationBudget) -> Result<CallableId, ArtifactError> {
+pub(crate) fn import_stable_callable_with_allocation_budget(
+    stable: &StableCallableRef,
+    allocations: &mut AllocationBudget,
+) -> Result<CallableId, ArtifactError> {
     let owner = match &stable.owner {
         StableCallableOwnerRef::Declaration(owner) => CallableOwnerId::Declaration(import_stable_declaration_with_allocation_budget(owner, allocations)?),
         StableCallableOwnerRef::Variant(variant) => CallableOwnerId::Variant(import_stable_variant_with_allocation_budget(variant, allocations)?),
@@ -384,6 +393,38 @@ pub fn import_constraint(constraint: &GenericConstraintV1, relocation: &TypeRelo
     })
 }
 
+fn import_constraint_with_allocation_budget(
+    constraint: &GenericConstraintV1,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<GenericConstraint, ArtifactError> {
+    Ok(match constraint {
+        GenericConstraintV1::Subtype { lower, upper } => GenericConstraint::Subtype {
+            lower: import_type_term_with_allocation_budget(lower, relocation, allocations)?,
+            upper: import_type_term_with_allocation_budget(upper, relocation, allocations)?,
+        },
+        GenericConstraintV1::Equivalent { left, right } => GenericConstraint::Equivalent {
+            left: import_type_term_with_allocation_budget(left, relocation, allocations)?,
+            right: import_type_term_with_allocation_budget(right, relocation, allocations)?,
+        },
+        GenericConstraintV1::Conforms { subject, trait_ref } => {
+            let subject = import_type_term_with_allocation_budget(subject, relocation, allocations)?;
+            let declaration = import_stable_declaration_with_allocation_budget(&trait_ref.declaration, allocations)?;
+            let mut arguments = allocations.vector(trait_ref.arguments.len()).map_err(allocation_error)?;
+            for &argument in &trait_ref.arguments {
+                arguments.push(relocation.ty(argument)?);
+            }
+            GenericConstraint::Conforms {
+                subject,
+                trait_ref: crate::traits::TraitRef {
+                    declaration,
+                    arguments: allocations.boxed_slice(arguments).map_err(allocation_error)?,
+                },
+            }
+        }
+    })
+}
+
 pub fn import_generic_signature(sig: &GenericSignatureV1, relocation: &TypeRelocation, store: &TypeStore) -> Result<GenericSignature, ArtifactError> {
     let owner = import_parameter_owner(&sig.owner)?;
     let parameters = sig
@@ -421,6 +462,69 @@ pub fn import_generic_signature(sig: &GenericSignatureV1, relocation: &TypeReloc
     };
     reconstructed.validate_publishable(store).map_err(|e| referential(format!("{e:?}")))?;
     Ok(reconstructed)
+}
+
+fn import_generic_signature_with_allocation_budget(
+    sig: &GenericSignatureV1,
+    relocation: &TypeRelocation,
+    store: &TypeStore,
+    allocations: &mut AllocationBudget,
+) -> Result<GenericSignature, ArtifactError> {
+    let owner = import_parameter_owner_with_allocation_budget(&sig.owner, allocations)?;
+    let mut parameters = allocations.vector(sig.parameters.len()).map_err(allocation_error)?;
+    for &parameter in &sig.parameters {
+        parameters.push(relocation.parameter(parameter)?);
+    }
+    let mut parameter_kinds = allocations.vector(sig.parameter_kinds.len()).map_err(allocation_error)?;
+    for &kind in &sig.parameter_kinds {
+        parameter_kinds.push(relocation.kind(kind)?);
+    }
+    let mut parameter_kind_shapes = allocations.vector(sig.parameter_kind_shapes.len()).map_err(allocation_error)?;
+    for shape in &sig.parameter_kind_shapes {
+        parameter_kind_shapes.push(allocations.boxed_str(shape).map_err(allocation_error)?);
+    }
+    let mut parameter_variances = allocations.vector(sig.parameter_variances.len()).map_err(allocation_error)?;
+    parameter_variances.extend(sig.parameter_variances.iter().map(import_variance));
+    let mut parameter_modes = allocations.vector(sig.parameter_modes.len()).map_err(allocation_error)?;
+    parameter_modes.extend(sig.parameter_modes.iter().map(import_mode));
+    let mut constraint_shapes = allocations.vector(sig.constraint_shapes.len()).map_err(allocation_error)?;
+    for shape in &sig.constraint_shapes {
+        constraint_shapes.push(allocations.boxed_str(shape).map_err(allocation_error)?);
+    }
+    let mut constraints = allocations.vector(sig.constraints.len()).map_err(allocation_error)?;
+    for constraint in &sig.constraints {
+        constraints.push(import_constraint_with_allocation_budget(constraint, relocation, allocations)?);
+    }
+
+    let reconstructed = GenericSignature {
+        owner,
+        parameters: allocations.boxed_slice(parameters).map_err(allocation_error)?,
+        parameter_kinds: allocations.boxed_slice(parameter_kinds).map_err(allocation_error)?,
+        parameter_kind_shapes: allocations.boxed_slice(parameter_kind_shapes).map_err(allocation_error)?,
+        parameter_variances: allocations.boxed_slice(parameter_variances).map_err(allocation_error)?,
+        parameter_modes: allocations.boxed_slice(parameter_modes).map_err(allocation_error)?,
+        constraint_shapes: allocations.boxed_slice(constraint_shapes).map_err(allocation_error)?,
+        constraints: allocations.boxed_slice(constraints).map_err(allocation_error)?,
+    };
+    reconstructed
+        .validate_publishable(store)
+        .map_err(|_| referential("generic signature is not publishable"))?;
+    Ok(reconstructed)
+}
+
+fn import_parameter_owner_with_allocation_budget(
+    owner: &ParameterOwnerV1,
+    allocations: &mut AllocationBudget,
+) -> Result<TypeParameterOwner, ArtifactError> {
+    Ok(match owner {
+        ParameterOwnerV1::Declaration { owner } => {
+            TypeParameterOwner::Declaration(import_stable_declaration_with_allocation_budget(owner, allocations)?)
+        }
+        ParameterOwnerV1::Callable { owner } => {
+            TypeParameterOwner::Callable(import_stable_callable_with_allocation_budget(owner, allocations)?)
+        }
+        ParameterOwnerV1::Impl { owner } => TypeParameterOwner::Impl(import_stable_impl_with_allocation_budget(owner, allocations)?),
+    })
 }
 
 pub fn import_declared_type_state(state: &DeclaredTypeStateV1, relocation: &TypeRelocation) -> Result<DeclaredTypeState, ArtifactError> {
@@ -472,6 +576,45 @@ pub fn import_declared_type_fact(fact: &DeclaredTypeFactV1, relocation: &TypeRel
         state: import_declared_type_state(&fact.state, relocation)?,
         basis: import_declared_type_basis(&fact.basis),
     })
+}
+
+fn import_declared_type_fact_with_allocation_budget(
+    fact: &DeclaredTypeFactV1,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<DeclaredTypeFact, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::aggregates::{DeclaredTypeStateV1, DynamicReasonV1, UnknownReasonV1};
+
+    let state = match &fact.state {
+        DeclaredTypeStateV1::Known { term } => DeclaredTypeState::Known(import_type_term_with_allocation_budget(term, relocation, allocations)?),
+        DeclaredTypeStateV1::Dynamic { reason } => DeclaredTypeState::Dynamic(match reason {
+            DynamicReasonV1::ExplicitEscape => DynamicReason::ExplicitEscape,
+            DynamicReasonV1::DynamicRestPack => DynamicReason::DynamicRestPack,
+            DynamicReasonV1::RuntimeReflection => DynamicReason::RuntimeReflection,
+        }),
+        DeclaredTypeStateV1::Unknown { reason } => DeclaredTypeState::Unknown(match reason {
+            UnknownReasonV1::NoTypeEvidence => UnknownReason::NoTypeEvidence,
+            UnknownReasonV1::MissingInitializer => UnknownReason::MissingInitializer,
+            UnknownReasonV1::UnannotatedDeclaration => UnknownReason::UnannotatedDeclaration,
+            UnknownReasonV1::UnresolvedName { name } => UnknownReason::UnresolvedName(
+                allocations.boxed_str(name).map_err(allocation_error)?,
+            ),
+            UnknownReasonV1::DynamicMessageSend => UnknownReason::DynamicMessageSend,
+            UnknownReasonV1::OpaqueNative => UnknownReason::OpaqueNative,
+            UnknownReasonV1::RecursiveFixpoint => UnknownReason::RecursiveFixpoint,
+            UnknownReasonV1::UncheckedExpression => UnknownReason::UncheckedExpression,
+            UnknownReasonV1::SyntaxError => UnknownReason::SyntaxError,
+            UnknownReasonV1::UnderconstrainedTypeVariable => UnknownReason::UnderconstrainedTypeVariable,
+            UnknownReasonV1::InferenceConflict => UnknownReason::InferenceConflict,
+            UnknownReasonV1::InferenceAmbiguous => UnknownReason::InferenceAmbiguous,
+            UnknownReasonV1::InferenceBlocked => UnknownReason::InferenceBlocked,
+            UnknownReasonV1::InferenceCancelled => UnknownReason::InferenceCancelled,
+            UnknownReasonV1::InferenceBudgetExceeded => UnknownReason::InferenceBudgetExceeded,
+            UnknownReasonV1::SuppressedByInvalidCause => UnknownReason::SuppressedByInvalidCause,
+            UnknownReasonV1::ExistentialEscape => UnknownReason::ExistentialEscape,
+        }),
+    };
+    Ok(DeclaredTypeFact { state, basis: import_declared_type_basis(&fact.basis) })
 }
 
 pub fn import_visibility(visibility: &VisibilityV1) -> Visibility {
@@ -531,6 +674,21 @@ pub fn import_static_data(
     })
 }
 
+fn import_static_data_with_allocation_budget(
+    wire: &StaticAlgebraicDeclarationV1,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::algebraic_semantics::StaticAlgebraicDeclarationInfo, ArtifactError> {
+    let mut constructors = allocations.vector(wire.constructors.len()).map_err(allocation_error)?;
+    for &constructor in &wire.constructors {
+        constructors.push(relocation.constructor(constructor)?);
+    }
+    Ok(crate::algebraic_semantics::StaticAlgebraicDeclarationInfo {
+        domain: relocation.domain(wire.domain)?,
+        constructors: allocations.boxed_slice(constructors).map_err(allocation_error)?,
+    })
+}
+
 pub fn import_case_environment(env: &CaseEnvironmentV1, relocation: &TypeRelocation) -> Result<CaseTypeEnvironment, ArtifactError> {
     let mut bindings = BTreeMap::new();
     for b in &env.bindings {
@@ -545,7 +703,118 @@ pub fn import_case_environment(env: &CaseEnvironmentV1, relocation: &TypeRelocat
         .collect::<Result<Vec<_>, _>>()?
         .into_boxed_slice();
 
-    Ok(CaseTypeEnvironment { bindings, equalities })
+    Ok(CaseTypeEnvironment { bindings: bindings.into(), equalities })
+}
+
+fn import_case_environment_with_allocation_budget(
+    env: &CaseEnvironmentV1,
+    relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<CaseTypeEnvironment, ArtifactError> {
+    let mut bindings = allocations.vector(env.bindings.len()).map_err(allocation_error)?;
+    for binding in &env.bindings {
+        bindings.push((relocation.parameter(binding.parameter)?, relocation.ty(binding.ty)?));
+    }
+    let bindings = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(bindings, allocations)
+        .map_err(|error| match error {
+            crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+            crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("case environment binding parameter is duplicated"),
+        })?;
+    let mut equalities = allocations.vector(env.equalities.len()).map_err(allocation_error)?;
+    for equality in &env.equalities {
+        equalities.push(import_constraint_with_allocation_budget(equality, relocation, allocations)?);
+    }
+    Ok(CaseTypeEnvironment {
+        bindings,
+        equalities: allocations.boxed_slice(equalities).map_err(allocation_error)?,
+    })
+}
+
+fn clone_data_component_with_allocation_budget(
+    component: &DataComponentSemantic,
+    allocations: &mut AllocationBudget,
+) -> Result<DataComponentSemantic, ArtifactError> {
+    Ok(DataComponentSemantic {
+        id: component.id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+        local_name: allocations.boxed_str(&component.local_name).map_err(allocation_error)?,
+        external_label: component
+            .external_label
+            .as_deref()
+            .map(|label| allocations.boxed_str(label).map_err(allocation_error))
+            .transpose()?,
+        declared_type: component.declared_type.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+        source: None,
+    })
+}
+
+fn clone_data_expansion_with_allocation_budget(
+    expansion: &DataProductExpansionSemantic,
+    allocations: &mut AllocationBudget,
+) -> Result<DataProductExpansionSemantic, ArtifactError> {
+    Ok(DataProductExpansionSemantic {
+        mode: expansion.mode,
+        operand: expansion.operand.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+        source: None,
+    })
+}
+
+fn clone_variant_family_with_allocation_budget(
+    family: &crate::identity::VariantFamilyId,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::identity::VariantFamilyId, ArtifactError> {
+    Ok(crate::identity::VariantFamilyId::new(
+        family.owner.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+        allocations.boxed_str(&family.base_name).map_err(allocation_error)?,
+    ))
+}
+
+fn debug_boxed_str_with_allocation_budget<T: std::fmt::Debug>(
+    value: &T,
+    allocations: &mut AllocationBudget,
+) -> Result<Box<str>, ArtifactError> {
+    use std::fmt::Write as _;
+
+    struct Length(usize);
+    impl std::fmt::Write for Length {
+        fn write_str(&mut self, value: &str) -> std::fmt::Result {
+            self.0 = self.0.checked_add(value.len()).ok_or(std::fmt::Error)?;
+            Ok(())
+        }
+    }
+    struct Buffer<'a>(&'a mut Vec<u8>);
+    impl std::fmt::Write for Buffer<'_> {
+        fn write_str(&mut self, value: &str) -> std::fmt::Result {
+            if self.0.capacity().saturating_sub(self.0.len()) < value.len() {
+                return Err(std::fmt::Error);
+            }
+            self.0.extend_from_slice(value.as_bytes());
+            Ok(())
+        }
+    }
+
+    let mut length = Length(0);
+    std::write!(&mut length, "{value:?}").map_err(|_| referential("debug-formatted type alias identity is too large"))?;
+    let mut bytes = allocations.vector(length.0).map_err(allocation_error)?;
+    {
+        let mut buffer = Buffer(&mut bytes);
+        std::write!(&mut buffer, "{value:?}").map_err(|_| allocation_error(AllocationError::Failed))?;
+    }
+    if bytes.len() != length.0 {
+        return Err(referential("debug-formatted type alias identity changed during materialization"));
+    }
+    let bytes = Vec::from(allocations.boxed_slice(bytes).map_err(allocation_error)?);
+    let formatted = String::from_utf8(bytes).map_err(|_| referential("debug formatter produced invalid UTF-8"))?;
+    Ok(formatted.into_boxed_str())
+}
+
+fn generic_signature_for_declaration<'a>(
+    signatures: &'a crate::ordered_map::OrderedMap<TypeParameterOwner, GenericSignature>,
+    declaration: &DeclarationId,
+) -> Option<&'a GenericSignature> {
+    signatures.iter().find_map(|(owner, signature)| match owner {
+        TypeParameterOwner::Declaration(owner) if owner == declaration => Some(signature),
+        _ => None,
+    })
 }
 
 /// Loaded authority populated from structural primary contracts.
@@ -556,7 +825,7 @@ pub struct LoadedStructuralContracts {
     pub type_aliases: TypeAliasTable,
     pub data_table: DataSemanticTable,
     pub enum_table: EnumSemanticTable,
-    pub generic_signatures: BTreeMap<TypeParameterOwner, GenericSignature>,
+    pub generic_signatures: crate::ordered_map::OrderedMap<TypeParameterOwner, GenericSignature>,
 }
 
 /// Reconstructs all structural primary contracts into a fresh set of semantic tables.
@@ -565,102 +834,139 @@ pub fn import_structural_primary_contracts(
     store: &mut TypeStore,
     type_relocation: &TypeRelocation,
     limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
 ) -> Result<LoadedStructuralContracts, ArtifactError> {
-    contracts.validate(limits)?;
+    contracts.validate_with_allocation_budget(limits, allocations)?;
     type_relocation.verify_store(store)?;
 
-    let mut generic_signatures = BTreeMap::new();
+    let mut generic_signature_entries = allocations.vector(contracts.generic_signatures.len()).map_err(allocation_error)?;
     for sig_wire in &contracts.generic_signatures {
-        let sig = import_generic_signature(sig_wire, type_relocation, store)?;
-        generic_signatures.insert(sig.owner.clone(), sig);
+        let sig = import_generic_signature_with_allocation_budget(sig_wire, type_relocation, store, allocations)?;
+        let key = sig.owner.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+        generic_signature_entries.push((key, sig));
     }
+    let generic_signatures = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(generic_signature_entries, allocations)
+        .map_err(|error| match error {
+            crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+            crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("generic signature owner is duplicated after relocation"),
+        })?;
 
-    let mut data_table = DataSemanticTable::new();
+    let mut data_entries = allocations.vector(contracts.data_contracts.len()).map_err(allocation_error)?;
     for data_wire in &contracts.data_contracts {
-        let owner = from_stable_declaration(&data_wire.owner).map_err(referential)?;
+        let owner = import_stable_declaration_with_allocation_budget(&data_wire.owner, allocations)?;
         let root_form = type_relocation.ty(data_wire.root_form)?;
         let generic_signature = data_wire
             .generic_signature
             .as_ref()
-            .map(|s| import_generic_signature(s, type_relocation, store))
+            .map(|s| import_generic_signature_with_allocation_budget(s, type_relocation, store, allocations))
             .transpose()?;
-        let static_data = data_wire.static_data.as_ref().map(|s| import_static_data(s, type_relocation)).transpose()?;
+        let static_data = data_wire
+            .static_data
+            .as_ref()
+            .map(|s| import_static_data_with_allocation_budget(s, type_relocation, allocations))
+            .transpose()?;
         let shape = import_data_shape(&data_wire.shape);
 
-        let mut components = Vec::with_capacity(data_wire.components.len());
+        let mut components = allocations.vector(data_wire.components.len()).map_err(allocation_error)?;
         for (idx, c) in data_wire.components.iter().enumerate() {
-            let id = DataComponentId::new(owner.clone(), idx as u32);
-            let declared_type = import_declared_type_fact(&c.declared_type, type_relocation)?;
+            let id = DataComponentId::new(owner.clone_with_allocation_budget(allocations).map_err(allocation_error)?, idx as u32);
+            let declared_type = import_declared_type_fact_with_allocation_budget(&c.declared_type, type_relocation, allocations)?;
             components.push(DataComponentSemantic {
                 id,
-                local_name: c.local_name.clone(),
-                external_label: c.external_label.clone(),
+                local_name: allocations.boxed_str(&c.local_name).map_err(allocation_error)?,
+                external_label: c
+                    .external_label
+                    .as_deref()
+                    .map(|label| allocations.boxed_str(label).map_err(allocation_error))
+                    .transpose()?,
                 declared_type,
                 source: None,
             });
         }
 
-        let constructor_id = DataConstructorId::new(owner.clone());
+        let constructor_id = DataConstructorId::new(owner.clone_with_allocation_budget(allocations).map_err(allocation_error)?);
         let constructor_visibility = import_visibility(&data_wire.constructor_visibility);
-        let mut constructor_parameters = Vec::with_capacity(data_wire.constructor_parameters.len());
+        let mut constructor_parameters = allocations.vector(data_wire.constructor_parameters.len()).map_err(allocation_error)?;
         for (idx, p) in data_wire.constructor_parameters.iter().enumerate() {
-            let component = DataComponentId::new(owner.clone(), idx as u32);
-            let declared_type = import_declared_type_fact(&p.declared_type, type_relocation)?;
+            let component = DataComponentId::new(owner.clone_with_allocation_budget(allocations).map_err(allocation_error)?, idx as u32);
+            let declared_type = import_declared_type_fact_with_allocation_budget(&p.declared_type, type_relocation, allocations)?;
             constructor_parameters.push(DataConstructorParameter {
                 component,
-                external_label: p.external_label.clone(),
-                local_name: p.local_name.clone(),
+                external_label: p
+                    .external_label
+                    .as_deref()
+                    .map(|label| allocations.boxed_str(label).map_err(allocation_error))
+                    .transpose()?,
+                local_name: allocations.boxed_str(&p.local_name).map_err(allocation_error)?,
                 declared_type,
             });
         }
         let constructor_result_type = type_relocation.ty(data_wire.constructor_result_type)?;
         let constructor = DataConstructorSignature {
-            constructor: constructor_id.clone(),
+            constructor: constructor_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
             visibility: constructor_visibility,
-            parameters: constructor_parameters.into_boxed_slice(),
+            parameters: allocations.boxed_slice(constructor_parameters).map_err(allocation_error)?,
             result_type_template: constructor_result_type,
             source: None,
         };
 
-        let mut shape_contributions = Vec::with_capacity(data_wire.shape_contributions.len());
-        let mut constructor_param_contributions = Vec::with_capacity(data_wire.shape_contributions.len());
+        let has_expansions = data_wire
+            .shape_contributions
+            .iter()
+            .any(|contribution| matches!(contribution, DataProductContributionV1::Expansion { .. }));
+        let mut shape_contributions = allocations.vector(data_wire.shape_contributions.len()).map_err(allocation_error)?;
+        let mut constructor_param_contributions = if has_expansions {
+            Some(allocations.vector(data_wire.shape_contributions.len()).map_err(allocation_error)?)
+        } else {
+            None
+        };
         let mut component_iter = components.iter();
 
         for contrib in &data_wire.shape_contributions {
             match contrib {
                 DataProductContributionV1::Component { .. } => {
                     let comp = component_iter.next().ok_or_else(|| referential("shape contribution component index error"))?;
-                    shape_contributions.push(DataProductContribution::Component(comp.clone()));
-                    constructor_param_contributions.push(DataConstructorParameterContribution::Parameter(DataConstructorParameter {
-                        component: comp.id.clone(),
-                        external_label: comp.external_label.clone(),
-                        local_name: comp.local_name.clone(),
-                        declared_type: comp.declared_type.clone(),
-                    }));
+                    shape_contributions.push(DataProductContribution::Component(clone_data_component_with_allocation_budget(comp, allocations)?));
+                    if let Some(parameters) = &mut constructor_param_contributions {
+                        parameters.push(DataConstructorParameterContribution::Parameter(DataConstructorParameter {
+                            component: comp.id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                            external_label: comp
+                                .external_label
+                                .as_deref()
+                                .map(|label| allocations.boxed_str(label).map_err(allocation_error))
+                                .transpose()?,
+                            local_name: allocations.boxed_str(&comp.local_name).map_err(allocation_error)?,
+                            declared_type: comp.declared_type.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                        }));
+                    }
                 }
                 DataProductContributionV1::Expansion { mode, operand } => {
-                    let operand = import_declared_type_fact(operand, type_relocation)?;
+                    let operand = import_declared_type_fact_with_allocation_budget(operand, type_relocation, allocations)?;
                     let exp = DataProductExpansionSemantic {
                         mode: import_expansion_mode(mode),
                         operand,
                         source: None,
                     };
-                    shape_contributions.push(DataProductContribution::Expansion(exp.clone()));
-                    constructor_param_contributions.push(DataConstructorParameterContribution::Expansion(exp));
+                    shape_contributions.push(DataProductContribution::Expansion(clone_data_expansion_with_allocation_budget(&exp, allocations)?));
+                    if let Some(parameters) = &mut constructor_param_contributions {
+                        parameters.push(DataConstructorParameterContribution::Expansion(exp));
+                    }
                 }
             }
         }
 
         let shape_template = DataProductShapeTemplate {
             shape,
-            contributions: shape_contributions.into_boxed_slice(),
+            contributions: allocations.boxed_slice(shape_contributions).map_err(allocation_error)?,
         };
 
         let constructor_template = if shape_template.has_expansions() {
             Some(DataConstructorTemplate {
                 constructor: constructor_id,
                 visibility: constructor_visibility,
-                parameters: constructor_param_contributions.into_boxed_slice(),
+                parameters: allocations
+                    .boxed_slice(constructor_param_contributions.expect("expansion template parameters were allocated"))
+                    .map_err(allocation_error)?,
                 result_type_template: constructor_result_type,
                 source: None,
             })
@@ -674,37 +980,52 @@ pub fn import_structural_primary_contracts(
             generic_signature,
             static_data,
             shape,
-            components: components.into_boxed_slice(),
+            components: allocations.boxed_slice(components).map_err(allocation_error)?,
             constructor,
             shape_template,
             constructor_template,
             source: None,
         };
-        data_table.insert_data(Arc::new(data_info));
+        let key = data_info.owner.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+        data_entries.push((key, allocations.arc(data_info).map_err(allocation_error)?));
     }
 
-    let mut enum_table = EnumSemanticTable::new();
-    let mut loaded_variants: BTreeMap<VariantId, Arc<VariantInfo>> = BTreeMap::new();
+    let data_table = DataSemanticTable::from_frozen_entries_with_allocation_budget(data_entries, allocations).map_err(|error| match error {
+        crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
+        crate::parent_map::FrozenParentMapError::DuplicateKey => referential("data declaration owner is duplicated after relocation"),
+    })?;
+
+    let mut variant_entries = allocations.vector(contracts.variant_contracts.len()).map_err(allocation_error)?;
 
     for variant_wire in &contracts.variant_contracts {
-        let variant_id = from_stable_variant(&variant_wire.variant).map_err(referential)?;
+        let variant_id = import_stable_variant_with_allocation_budget(&variant_wire.variant, allocations)?;
         let type_handle = type_relocation.variant(variant_wire.variant_type)?;
         if store.variant_identity(type_handle) != &variant_id {
             return Err(referential("relocated variant type handle does not match variant identity in TypeStore"));
         }
 
-        let family = variant_id.family();
+        let family = match &variant_id.selector.base {
+            phalcom_common::selector::SelectorBase::Named(name) => Some(crate::identity::VariantFamilyId::new(
+                variant_id.owner.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                allocations.boxed_str(name).map_err(allocation_error)?,
+            )),
+            phalcom_common::selector::SelectorBase::Subscript => None,
+        };
         let shape = import_variant_shape(&variant_wire.shape);
         let payload_kind = import_payload_kind(&variant_wire.payload_kind);
 
-        let mut fields = Vec::with_capacity(variant_wire.fields.len());
+        let mut fields = allocations.vector(variant_wire.fields.len()).map_err(allocation_error)?;
         for (idx, f) in variant_wire.fields.iter().enumerate() {
-            let id = VariantFieldId::new(variant_id.clone(), idx as u32);
-            let declared_type = import_declared_type_fact(&f.declared_type, type_relocation)?;
+            let id = VariantFieldId::new(variant_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, idx as u32);
+            let declared_type = import_declared_type_fact_with_allocation_budget(&f.declared_type, type_relocation, allocations)?;
             fields.push(VariantFieldSemantic {
                 id,
-                local_name: f.local_name.clone(),
-                external_label: f.external_label.clone(),
+                local_name: allocations.boxed_str(&f.local_name).map_err(allocation_error)?,
+                external_label: f
+                    .external_label
+                    .as_deref()
+                    .map(|label| allocations.boxed_str(label).map_err(allocation_error))
+                    .transpose()?,
                 declared_type,
                 source: None,
             });
@@ -712,29 +1033,33 @@ pub fn import_structural_primary_contracts(
 
         let result_type_template = type_relocation.ty(variant_wire.result_type)?;
         let exact_case_template = type_relocation.ty(variant_wire.exact_case_type)?;
-        let case_environment = import_case_environment(&variant_wire.case_environment, type_relocation)?;
+        let case_environment = import_case_environment_with_allocation_budget(&variant_wire.case_environment, type_relocation, allocations)?;
 
         let constructor = if let Some(cw) = &variant_wire.constructor {
             let generic_signature = cw
                 .generic_signature
                 .as_ref()
-                .map(|s| import_generic_signature(s, type_relocation, store))
+                .map(|s| import_generic_signature_with_allocation_budget(s, type_relocation, store, allocations))
                 .transpose()?;
-            let mut parameters = Vec::with_capacity(cw.parameters.len());
+            let mut parameters = allocations.vector(cw.parameters.len()).map_err(allocation_error)?;
             for (idx, p) in cw.parameters.iter().enumerate() {
-                let field = VariantFieldId::new(variant_id.clone(), idx as u32);
-                let declared_type = import_declared_type_fact(&p.declared_type, type_relocation)?;
+                let field = VariantFieldId::new(variant_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, idx as u32);
+                let declared_type = import_declared_type_fact_with_allocation_budget(&p.declared_type, type_relocation, allocations)?;
                 parameters.push(VariantConstructorParameter {
                     field,
-                    external_label: p.external_label.clone(),
-                    local_name: p.local_name.clone(),
+                    external_label: p
+                        .external_label
+                        .as_deref()
+                        .map(|label| allocations.boxed_str(label).map_err(allocation_error))
+                        .transpose()?,
+                    local_name: allocations.boxed_str(&p.local_name).map_err(allocation_error)?,
                     declared_type,
                 });
             }
             Some(VariantConstructorSignature {
-                constructor: VariantConstructorId::new(variant_id.clone()),
+                constructor: VariantConstructorId::new(variant_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
                 generic_signature,
-                parameters: parameters.into_boxed_slice(),
+                parameters: allocations.boxed_slice(parameters).map_err(allocation_error)?,
                 result_type_template: type_relocation.ty(cw.result_type)?,
                 exact_case_template: type_relocation.ty(cw.exact_case_type)?,
                 source: None,
@@ -749,102 +1074,144 @@ pub fn import_structural_primary_contracts(
             payload: import_visibility(&variant_wire.visibility.payload),
         };
 
-        let variant_info = Arc::new(VariantInfo {
+        let variant_info = VariantInfo {
             id: variant_id.clone(),
             type_handle,
             family,
             shape,
             payload_kind,
-            fields: fields.into_boxed_slice(),
+            fields: allocations.boxed_slice(fields).map_err(allocation_error)?,
             result_type_template,
             exact_case_template,
             case_environment,
             constructor,
             visibility,
             source: None,
-        });
-        enum_table.insert_variant(variant_info.clone());
-        loaded_variants.insert(variant_id, variant_info);
+        };
+        let key = variant_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+        variant_entries.push((key, allocations.arc(variant_info).map_err(allocation_error)?));
     }
+    variant_entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
 
+    let mut enum_entries = allocations.vector(contracts.enum_contracts.len()).map_err(allocation_error)?;
     for enum_wire in &contracts.enum_contracts {
-        let owner = from_stable_declaration(&enum_wire.owner).map_err(referential)?;
+        let owner = import_stable_declaration_with_allocation_budget(&enum_wire.owner, allocations)?;
         let root_form = type_relocation.ty(enum_wire.root_form)?;
         let generic_signature = enum_wire
             .generic_signature
             .as_ref()
-            .map(|s| import_generic_signature(s, type_relocation, store))
+            .map(|s| import_generic_signature_with_allocation_budget(s, type_relocation, store, allocations))
             .transpose()?;
-        let static_data = enum_wire.static_data.as_ref().map(|s| import_static_data(s, type_relocation)).transpose()?;
+        let static_data = enum_wire
+            .static_data
+            .as_ref()
+            .map(|s| import_static_data_with_allocation_budget(s, type_relocation, allocations))
+            .transpose()?;
         let default_result_type = type_relocation.ty(enum_wire.default_result_type)?;
 
-        let mut variant_ids = Vec::with_capacity(enum_wire.variants.len());
-        let mut variant_families = Vec::new();
-        let mut seen_families = BTreeSet::new();
+        let mut variant_ids = allocations.vector(enum_wire.variants.len()).map_err(allocation_error)?;
+        let mut variant_families = allocations.vector(enum_wire.variants.len()).map_err(allocation_error)?;
 
         for v_stable in &enum_wire.variants {
-            let v_id = from_stable_variant(v_stable).map_err(referential)?;
-            if !loaded_variants.contains_key(&v_id) {
-                return Err(referential(format!("missing variant {:?} referenced by enum {:?}", v_id, owner)));
-            }
-            if let Some(fam) = v_id.family() {
-                if seen_families.insert(fam.clone()) {
-                    variant_families.push(fam);
-                }
+            let v_id = import_stable_variant_with_allocation_budget(v_stable, allocations)?;
+            let variant_position = variant_entries.binary_search_by(|(key, _)| key.cmp(&v_id));
+            let Ok(variant_position) = variant_position else {
+                return Err(referential("enum references a missing structural variant"));
+            };
+            if let Some(family) = variant_entries[variant_position].1.family.as_ref()
+                && !variant_families.iter().any(|existing| existing == family)
+            {
+                variant_families.push(clone_variant_family_with_allocation_budget(family, allocations)?);
             }
             variant_ids.push(v_id);
         }
 
-        let enum_info = Arc::new(EnumInfo {
+        let enum_info = EnumInfo {
             owner,
             root_form,
             generic_signature,
             static_data,
             default_result_type,
-            variants: variant_ids.into_boxed_slice(),
-            variant_families: variant_families.into_boxed_slice(),
+            variants: allocations.boxed_slice(variant_ids).map_err(allocation_error)?,
+            variant_families: allocations.boxed_slice(variant_families).map_err(allocation_error)?,
             source: None,
-        });
-        enum_table.insert_enum(enum_info);
+        };
+        let key = enum_info.owner.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+        enum_entries.push((key, allocations.arc(enum_info).map_err(allocation_error)?));
     }
 
-    let mut hierarchy = MapTypeHierarchy::new();
-    let mut type_aliases = TypeAliasTable::new();
+    let enum_table = EnumSemanticTable::from_frozen_entries_with_allocation_budget(enum_entries, variant_entries, allocations).map_err(|error| match error {
+        crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
+        crate::parent_map::FrozenParentMapError::DuplicateKey => referential("enum or variant owner is duplicated after relocation"),
+    })?;
+
+    let alias_count = contracts.hierarchy_and_aliases.iter().filter(|entry| entry.aliased_type.is_some()).count();
+    let mut alias_entries = allocations.vector(alias_count).map_err(allocation_error)?;
+    let mut superclass_entries = allocations
+        .vector::<(crate::identity::DeclarationId, crate::identity::DeclarationId)>(contracts.hierarchy_and_aliases.len())
+        .map_err(allocation_error)?;
+    let mut hierarchy_declaration_count = 0usize;
 
     for entry in &contracts.hierarchy_and_aliases {
-        let decl = from_stable_declaration(&entry.declaration).map_err(referential)?;
+        let decl = import_stable_declaration_with_allocation_budget(&entry.declaration, allocations)?;
         if let Some(superclass_ref) = &entry.superclass {
-            let super_decl = from_stable_declaration(superclass_ref).map_err(referential)?;
-            hierarchy.insert(decl.clone(), super_decl);
+            let super_decl = import_stable_declaration_with_allocation_budget(superclass_ref, allocations)?;
+            superclass_entries.push((decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?, super_decl));
+            hierarchy_declaration_count = hierarchy_declaration_count.checked_add(1).ok_or_else(|| allocation_error(AllocationError::Overflow))?;
         }
         if let Some(alias_wire) = entry.aliased_type {
             let form = type_relocation.ty(alias_wire)?;
             let kind = store.kind_of(form);
-            let kind_shape = format!("{kind:?}").into_boxed_str();
-            let structural_form = format!("{form:?}").into_boxed_str();
+            let kind_shape = debug_boxed_str_with_allocation_budget(&kind, allocations)?;
+            let structural_form = debug_boxed_str_with_allocation_budget(&form, allocations)?;
+            let generic_signature = generic_signature_for_declaration(&generic_signatures, &decl)
+                .map(|signature| signature.clone_with_allocation_budget(allocations).map_err(allocation_error))
+                .transpose()?;
             let alias_info = TypeAliasInfo {
-                declaration: decl.clone(),
+                declaration: decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
                 kind,
                 kind_shape,
-                generic_signature: generic_signatures.get(&TypeParameterOwner::Declaration(decl.clone())).cloned(),
+                generic_signature,
                 form,
                 structural_form,
                 dependencies: Box::new([]),
-                source: SemanticSourceSpan::new(decl.module.clone(), phalcom_common::range::SourceRange::default()),
+                source: SemanticSourceSpan::new(
+                    decl.module.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                    phalcom_common::range::SourceRange::default(),
+                ),
             };
-            type_aliases.insert(alias_info);
+            let key = decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+            alias_entries.push((key, alias_info));
         }
     }
+    let type_aliases = TypeAliasTable::from_frozen_entries_with_allocation_budget(alias_entries, allocations).map_err(|error| match error {
+        crate::type_alias::FrozenTypeAliasTableError::Allocation(error) => allocation_error(error),
+        crate::type_alias::FrozenTypeAliasTableError::DuplicateDeclaration => referential("type alias owner is duplicated after relocation"),
+    })?;
+    let hierarchy = MapTypeHierarchy::from_frozen_entries_with_allocation_budget(
+        superclass_entries,
+        allocations.vector(0).map_err(allocation_error)?,
+        hierarchy_declaration_count,
+        allocations,
+    )
+    .map_err(|error| match error {
+        crate::types::relation::FrozenTypeHierarchyError::Allocation(error) => allocation_error(error),
+        crate::types::relation::FrozenTypeHierarchyError::DuplicateSuperclass => referential("hierarchy declaration is duplicated after identity relocation"),
+        crate::types::relation::FrozenTypeHierarchyError::DuplicateTemplate => referential("supertype template owner is duplicated after identity relocation"),
+    })?;
 
-    let mut declaration_table = DeclarationTypeTable::new();
+    let mut declaration_entries = allocations
+        .vector::<(crate::identity::DeclarationId, DeclarationTypeInfo)>(contracts.declaration_shells.len())
+        .map_err(allocation_error)?;
     for shell in &contracts.declaration_shells {
-        let decl = from_stable_declaration(&shell.declaration).map_err(referential)?;
+        let decl = import_stable_declaration_with_allocation_budget(&shell.declaration, allocations)?;
         let form = type_relocation.ty(shell.self_type)?;
         let class_object_type = store.class_object_type(decl.clone());
         let kind = store.kind_of(form);
         let generic_sig = generic_signatures.get(&TypeParameterOwner::Declaration(decl.clone())).cloned();
         let generic_binder_header = generic_sig.as_ref().map(|s| GenericBinderHeader::from_signature(store, s));
         let supertype_template = hierarchy.supertype_template(&decl).cloned();
+        let key = decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
 
         let info = DeclarationTypeInfo {
             declaration: decl,
@@ -856,8 +1223,14 @@ pub fn import_structural_primary_contracts(
             generic_signature: generic_sig,
             supertype_template,
         };
-        declaration_table.insert(info);
+        declaration_entries.push((key, info));
     }
+    let declaration_table = DeclarationTypeTable::from_frozen_entries_with_allocation_budget(declaration_entries, allocations).map_err(|error| match error {
+        crate::declarations::FrozenDeclarationTypeTableError::Allocation(error) => allocation_error(error),
+        crate::declarations::FrozenDeclarationTypeTableError::DuplicateDeclaration => {
+            referential("declaration shell owner is duplicated after stable-identity relocation")
+        }
+    })?;
 
     Ok(LoadedStructuralContracts {
         declaration_table,
@@ -870,7 +1243,7 @@ pub fn import_structural_primary_contracts(
 }
 
 use crate::artifact::validate::{compute_witness_layout_fingerprint, validate_pending_static_references};
-use crate::static_value::{StaticRelocation, StaticValueStore, import_static_value_graph};
+use crate::static_value::{StaticRelocation, StaticValueStore, import_static_value_graph_with_allocation_budget};
 use phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1;
 use phalcom_compiler_artifact::semantic::world::{
     AssociatedFamilyKindV1, AssociatedMemberV1, AssociatedStaticDomainRecordV1, AssociatedSurfaceRecordV1, ConformanceTargetV1, IntrinsicTypeOperationV1,
@@ -1079,6 +1452,7 @@ pub fn import_callable_flow_graph_with_allocation_budget(
     Ok(graph)
 }
 
+#[cfg(test)]
 fn import_exact_callable(callable: &StableCallableRef) -> Result<CallableId, ArtifactError> {
     let selector =
         phalcom_common::selector::Selector::try_decode_exact(&callable.selector).map_err(|_| referential("artifact callable selector is not canonical"))?;
@@ -1097,6 +1471,15 @@ fn import_exact_callable(callable: &StableCallableRef) -> Result<CallableId, Art
     ))
 }
 
+fn import_exact_callable_with_allocation_budget(
+    callable: &StableCallableRef,
+    allocations: &mut AllocationBudget,
+) -> Result<CallableId, ArtifactError> {
+    // The budgeted stable-identity parser enforces the exact canonical
+    // selector grammar while charging every owned identity component.
+    import_stable_callable_with_allocation_budget(callable, allocations)
+}
+
 #[derive(Clone)]
 enum CallableEvidenceImportState {
     Unvisited,
@@ -1107,7 +1490,7 @@ enum CallableEvidenceImportState {
 struct CallableEvidenceImporter<'a> {
     relocation: &'a TypeRelocation,
     store: &'a TypeStore,
-    source_plan_fingerprints: &'a BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+    source_plan_fingerprints: &'a [(crate::identity::ImplId, crate::db::ProductFingerprint)],
     allocations: &'a mut AllocationBudget,
     states: Vec<CallableEvidenceImportState>,
     max_depth: usize,
@@ -1118,7 +1501,7 @@ impl<'a> CallableEvidenceImporter<'a> {
         evidence_count: usize,
         relocation: &'a TypeRelocation,
         store: &'a TypeStore,
-        source_plan_fingerprints: &'a BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+        source_plan_fingerprints: &'a [(crate::identity::ImplId, crate::db::ProductFingerprint)],
         allocations: &'a mut AllocationBudget,
         max_depth: usize,
     ) -> Result<Self, ArtifactError> {
@@ -1233,11 +1616,12 @@ impl<'a> CallableEvidenceImporter<'a> {
     ) -> Result<crate::generic_evidence::GenericConformanceEvidence, ArtifactError> {
         use phalcom_compiler_artifact::semantic::world::CallableAssociatedTypeBindingValueV1 as Value;
 
-        let source_impl = from_stable_impl(&evidence.source_impl).map_err(referential)?;
+        let source_impl = import_stable_impl_with_allocation_budget(&evidence.source_impl, self.allocations)?;
         let source_plan_fingerprint = self
             .source_plan_fingerprints
-            .get(&source_impl)
-            .copied()
+            .iter()
+            .find(|(impl_id, _)| impl_id == &source_impl)
+            .map(|(_, fingerprint)| *fingerprint)
             .ok_or_else(|| referential("callable Exact conformance evidence has no reconstructed source witness plan"))?;
         let exact_target = self.relocation.ty(evidence.exact_target)?;
         let exact_trait_ref = import_trait_ref_identity(&evidence.exact_trait_ref, self.relocation, self.allocations)?;
@@ -1245,7 +1629,7 @@ impl<'a> CallableEvidenceImporter<'a> {
 
         let mut requirement_views = self.allocations.vector(evidence.requirement_views.len()).map_err(allocation_error)?;
         for view in &evidence.requirement_views {
-            let requirement = import_callable_requirement_identity(&view.requirement)?;
+            let requirement = import_callable_requirement_identity_with_allocation_budget(&view.requirement, self.allocations)?;
             if requirement.owner != exact_trait_ref.declaration {
                 return Err(referential("Exact conformance requirement view belongs to another trait"));
             }
@@ -1253,10 +1637,14 @@ impl<'a> CallableEvidenceImporter<'a> {
                 requirement.clone(),
                 crate::traits::InstantiatedTraitRequirement {
                     requirement,
-                    callable: import_exact_callable(&view.callable)?,
+                    callable: import_exact_callable_with_allocation_budget(&view.callable, self.allocations)?,
                     signature: import_callable_signature(&view.signature, self.relocation, self.store, self.allocations)?,
                     visibility: import_visibility(&view.visibility),
-                    default_callable: view.default_callable.as_ref().map(import_exact_callable).transpose()?,
+                    default_callable: view
+                        .default_callable
+                        .as_ref()
+                        .map(|callable| import_exact_callable_with_allocation_budget(callable, self.allocations))
+                        .transpose()?,
                 },
             ));
         }
@@ -1264,7 +1652,7 @@ impl<'a> CallableEvidenceImporter<'a> {
 
         let mut requirements = self.allocations.vector(evidence.requirements.len()).map_err(allocation_error)?;
         for entry in &evidence.requirements {
-            let requirement = import_callable_requirement_identity(&entry.requirement)?;
+            let requirement = import_callable_requirement_identity_with_allocation_budget(&entry.requirement, self.allocations)?;
             if requirement.owner != exact_trait_ref.declaration {
                 return Err(referential("Exact conformance requirement selection belongs to another trait"));
             }
@@ -1296,7 +1684,7 @@ impl<'a> CallableEvidenceImporter<'a> {
 
         let mut trait_header_contract = self.allocations.vector(evidence.trait_header_contract.len()).map_err(allocation_error)?;
         for constraint in &evidence.trait_header_contract {
-            trait_header_contract.push(import_constraint(constraint, self.relocation)?);
+            trait_header_contract.push(import_constraint_with_allocation_budget(constraint, self.relocation, self.allocations)?);
         }
         let trait_header_contract = trait_header_contract.into_boxed_slice();
         let trait_header_conformance_proofs = evidence
@@ -1478,7 +1866,7 @@ pub(crate) fn import_callable_call_specializations(
     evidence_nodes: &[phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1],
     relocation: &TypeRelocation,
     store: &TypeStore,
-    source_plan_fingerprints: &BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+    source_plan_fingerprints: &[(crate::identity::ImplId, crate::db::ProductFingerprint)],
     allocations: &mut AllocationBudget,
     max_depth: usize,
 ) -> Result<Vec<(u32, crate::checker::analysis::CallSpecialization)>, ArtifactError> {
@@ -1689,7 +2077,7 @@ pub(crate) fn import_callable_expression_dispatch_authority(
     body: crate::identity::BodyId,
     relocation: &TypeRelocation,
     store: &TypeStore,
-    source_plan_fingerprints: &BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+    source_plan_fingerprints: &[(crate::identity::ImplId, crate::db::ProductFingerprint)],
     allocations: &mut AllocationBudget,
     max_depth: usize,
 ) -> Result<Vec<ImportedCallableExpressionDispatchAuthority>, ArtifactError> {
@@ -1737,7 +2125,7 @@ pub(crate) fn import_callable_expression_dispatch_authority(
             .map(|site| -> Result<_, ArtifactError> {
                 Ok(match site {
                     PortableTraitDispatch::AbstractRequirement { requirement } => crate::trait_dispatch::TraitDispatchSite::AbstractRequirement {
-                        requirement: import_callable_requirement_identity(requirement)?,
+                        requirement: import_callable_requirement_identity_with_allocation_budget(requirement, importer.allocations)?,
                     },
                     PortableTraitDispatch::Assumed {
                         conformance,
@@ -1745,7 +2133,7 @@ pub(crate) fn import_callable_expression_dispatch_authority(
                         signature,
                     } => crate::trait_dispatch::TraitDispatchSite::Assumed(crate::trait_dispatch::AssumedTraitDispatchSelection {
                         conformance: import_generic_conformance_key_with_allocation_budget(conformance, relocation, importer.allocations)?,
-                        requirement: import_callable_requirement_identity(requirement)?,
+                        requirement: import_callable_requirement_identity_with_allocation_budget(requirement, importer.allocations)?,
                         signature: import_callable_signature(signature, relocation, store, importer.allocations)?,
                     }),
                     PortableTraitDispatch::Evidenced { selection } => {
@@ -1759,7 +2147,7 @@ pub(crate) fn import_callable_expression_dispatch_authority(
                             .map_err(allocation_error)?;
                         for target in &selection.requirement_targets {
                             targets.push((
-                                import_callable_requirement_identity(&target.requirement)?,
+                                import_callable_requirement_identity_with_allocation_budget(&target.requirement, importer.allocations)?,
                                 import_callable_requirement_selection(&target.selection, &record.conformance_evidence, &mut importer, 0)?,
                             ));
                         }
@@ -1772,7 +2160,10 @@ pub(crate) fn import_callable_expression_dispatch_authority(
                             source_impl: from_stable_impl(&selection.source_impl).map_err(referential)?,
                             exact_target: relocation.ty(selection.exact_target)?,
                             exact_trait_ref: import_trait_ref_identity(&selection.exact_trait_ref, relocation, importer.allocations)?,
-                            requirement: import_callable_requirement_identity(&selection.requirement)?,
+                            requirement: import_callable_requirement_identity_with_allocation_budget(
+                                &selection.requirement,
+                                importer.allocations,
+                            )?,
                             callable: selection
                                 .callable
                                 .as_ref()
@@ -1841,7 +2232,7 @@ fn import_callable_trait_dispatch_candidate(
         .map_err(allocation_error)?;
     for target in &candidate.requirement_targets {
         targets.push((
-            import_callable_requirement_identity(&target.requirement)?,
+            import_callable_requirement_identity_with_allocation_budget(&target.requirement, importer.allocations)?,
             import_callable_requirement_selection(&target.selection, evidence_nodes, importer, 0)?,
         ));
     }
@@ -1876,7 +2267,7 @@ fn import_callable_trait_dispatch_candidate(
     Ok(crate::trait_dispatch::TraitEvidencedMemberCandidate {
         exact_target: importer.relocation.ty(candidate.exact_target)?,
         exact_trait_ref: import_trait_ref_identity(&candidate.exact_trait_ref, importer.relocation, importer.allocations)?,
-        requirement: import_callable_requirement_identity(&candidate.requirement)?,
+        requirement: import_callable_requirement_identity_with_allocation_budget(&candidate.requirement, importer.allocations)?,
         source_impl: from_stable_impl(&candidate.source_impl).map_err(referential)?,
         evidence,
         evidence_fingerprint,
@@ -1928,7 +2319,7 @@ fn import_callable_contextual_realization(
                 signature,
             } => RealizationCapabilitySelection::Assumed(crate::trait_dispatch::AssumedTraitDispatchSelection {
                 conformance: import_generic_conformance_key_with_allocation_budget(conformance, importer.relocation, importer.allocations)?,
-                requirement: import_callable_requirement_identity(requirement)?,
+                requirement: import_callable_requirement_identity_with_allocation_budget(requirement, importer.allocations)?,
                 signature: import_callable_signature(signature, importer.relocation, importer.store, importer.allocations)?,
             }),
         })
@@ -2044,9 +2435,27 @@ fn import_source_span(source: &phalcom_compiler_artifact::semantic::world::EnumR
     ))
 }
 
+fn import_source_span_with_allocation_budget(
+    source: &phalcom_compiler_artifact::semantic::world::EnumRequirementSourceV1,
+    allocations: &mut AllocationBudget,
+) -> Result<SemanticSourceSpan, ArtifactError> {
+    let module = import_stable_module_with_allocation_budget(&source.module, allocations)?;
+    if source.range.start > source.range.end {
+        return Err(referential("callable source span is inverted"));
+    }
+    Ok(SemanticSourceSpan::new(
+        module,
+        phalcom_common::range::SourceRange {
+            start: usize::try_from(source.range.start).map_err(|_| referential("callable source start exceeds address space"))?,
+            end: usize::try_from(source.range.end).map_err(|_| referential("callable source end exceeds address space"))?,
+        },
+    ))
+}
+
 pub(crate) fn import_trait_surface_diagnostic(
     record: &phalcom_compiler_artifact::semantic::world::CallableEvidenceDiagnosticV1,
     relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
 ) -> Result<crate::diagnostic::SemanticDiagnostic, ArtifactError> {
     use crate::diagnostic::{DiagnosticFix, DiagnosticGuidance, DiagnosticLabel, DiagnosticSeverity, ExplanationRef, SemanticDiagnostic};
     use phalcom_compiler_artifact::semantic::world::{CallableDiagnosticSeverityV1, CallableEvidenceDiagnosticGuidanceV1};
@@ -2061,27 +2470,22 @@ pub(crate) fn import_trait_surface_diagnostic(
         })
     };
     let code = DiagnosticCode::from_stable_code(&record.code).ok_or_else(|| referential("trait surface diagnostic has an unknown stable code"))?;
-    let primary = import_source_span(&record.primary)?;
+    let primary = import_source_span_with_allocation_budget(&record.primary, allocations)?;
     let primary_range = range(&record.primary_range)?;
     if primary.range != primary_range {
         return Err(referential("trait surface diagnostic primary range disagrees with its source span"));
     }
-    let labels = record
-        .labels
-        .iter()
-        .map(|label| {
-            Ok(DiagnosticLabel {
-                span: import_source_span(&label.source)?,
-                range: range(&label.range)?,
-                message: label.message.to_string(),
-            })
-        })
-        .collect::<Result<Vec<_>, ArtifactError>>()?;
-    let guidance = record
-        .guidance
-        .iter()
-        .map(|guidance| {
-            Ok(match guidance {
+    let mut labels = allocations.vector(record.labels.len()).map_err(allocation_error)?;
+    for label in &record.labels {
+        labels.push(DiagnosticLabel {
+            span: import_source_span_with_allocation_budget(&label.source, allocations)?,
+            range: range(&label.range)?,
+            message: allocations.string(&label.message).map_err(allocation_error)?,
+        });
+    }
+    let mut imported_guidance = allocations.vector(record.guidance.len()).map_err(allocation_error)?;
+    for guidance in &record.guidance {
+        imported_guidance.push(match guidance {
                 CallableEvidenceDiagnosticGuidanceV1::ChangeAnnotation { range: source_range, ty } => DiagnosticGuidance::ChangeAnnotation {
                     range: range(source_range)?,
                     ty: relocation.ty(*ty)?,
@@ -2090,7 +2494,7 @@ pub(crate) fn import_trait_surface_diagnostic(
                     expected: relocation.ty(*expected)?,
                 },
                 CallableEvidenceDiagnosticGuidanceV1::UseCallableShape { callable } => DiagnosticGuidance::UseCallableShape {
-                    callable: import_exact_callable(callable)?,
+                    callable: import_exact_callable_with_allocation_budget(callable, allocations)?,
                 },
                 CallableEvidenceDiagnosticGuidanceV1::EstablishTypeEvidence { range: source_range, expected } => DiagnosticGuidance::EstablishTypeEvidence {
                     range: range(source_range)?,
@@ -2099,33 +2503,41 @@ pub(crate) fn import_trait_surface_diagnostic(
                 CallableEvidenceDiagnosticGuidanceV1::ResolveGenericParameter { parameter } => DiagnosticGuidance::ResolveGenericParameter {
                     parameter: relocation.parameter(*parameter)?,
                 },
-            })
-        })
-        .collect::<Result<Vec<_>, ArtifactError>>()?;
-    let explanations = record
-        .explanations
-        .iter()
-        .map(|reference| {
-            Ok(ExplanationRef::new(
-                import_exact_callable(&reference.callable)?,
+            });
+    }
+    let guidance = imported_guidance;
+    let mut explanations = allocations.vector(record.explanations.len()).map_err(allocation_error)?;
+    for reference in &record.explanations {
+        explanations.push(ExplanationRef::new(
+                import_exact_callable_with_allocation_budget(&reference.callable, allocations)?,
                 crate::identity::ExplanationId(reference.ordinal),
-            ))
-        })
-        .collect::<Result<Vec<_>, ArtifactError>>()?;
-    let fixes = record
-        .fixes
-        .iter()
-        .map(|fix| {
-            Ok(DiagnosticFix {
-                message: fix.message.to_string(),
-                replacement: fix
-                    .replacement
-                    .as_ref()
-                    .map(|replacement| Ok::<_, ArtifactError>((range(&replacement.range)?, replacement.text.to_string())))
-                    .transpose()?,
+            ));
+    }
+    let mut fixes = allocations.vector(record.fixes.len()).map_err(allocation_error)?;
+    for fix in &record.fixes {
+        let replacement = fix
+            .replacement
+            .as_ref()
+            .map(|replacement| {
+                Ok::<_, ArtifactError>((
+                    range(&replacement.range)?,
+                    allocations.string(&replacement.text).map_err(allocation_error)?,
+                ))
             })
-        })
-        .collect::<Result<Vec<_>, ArtifactError>>()?;
+            .transpose()?;
+        fixes.push(DiagnosticFix {
+            message: allocations.string(&fix.message).map_err(allocation_error)?,
+            replacement,
+        });
+    }
+    let mut notes = allocations.vector(record.notes.len()).map_err(allocation_error)?;
+    for note in &record.notes {
+        notes.push(allocations.string(note).map_err(allocation_error)?);
+    }
+    let mut helps = allocations.vector(record.helps.len()).map_err(allocation_error)?;
+    for help in &record.helps {
+        helps.push(allocations.string(help).map_err(allocation_error)?);
+    }
     Ok(SemanticDiagnostic {
         code,
         severity: match record.severity {
@@ -2134,12 +2546,12 @@ pub(crate) fn import_trait_surface_diagnostic(
             CallableDiagnosticSeverityV1::Information => DiagnosticSeverity::Information,
             CallableDiagnosticSeverityV1::Hint => DiagnosticSeverity::Hint,
         },
-        message: record.message.to_string(),
+        message: allocations.string(&record.message).map_err(allocation_error)?,
         primary,
         primary_range,
         labels,
-        notes: record.notes.iter().map(ToString::to_string).collect(),
-        helps: record.helps.iter().map(ToString::to_string).collect(),
+        notes,
+        helps,
         guidance,
         explanations,
         fixes,
@@ -2147,15 +2559,12 @@ pub(crate) fn import_trait_surface_diagnostic(
     })
 }
 
-fn import_callable_requirement_identity(
+fn import_callable_requirement_identity_with_allocation_budget(
     identity: &phalcom_compiler_artifact::semantic::world::CallableRequirementIdentityV1,
+    allocations: &mut AllocationBudget,
 ) -> Result<crate::traits::TraitRequirementId, ArtifactError> {
-    let owner = from_stable_declaration(&identity.owner).map_err(referential)?;
-    let selector =
-        phalcom_common::selector::Selector::try_decode_exact(&identity.selector).map_err(|_| referential("callable requirement selector is not canonical"))?;
-    if selector.encode() != identity.selector.as_ref() {
-        return Err(referential("callable requirement selector is not canonically encoded"));
-    }
+    let owner = import_stable_declaration_with_allocation_budget(&identity.owner, allocations)?;
+    let selector = import_stable_selector_with_allocation_budget(&identity.selector, allocations)?;
     let side = match identity.side {
         0 => DispatchSide::Instance,
         1 => DispatchSide::Class,
@@ -2267,11 +2676,11 @@ fn import_callable_effective_inherent_witness(
         let generic_signature = domain
             .generic_signature
             .as_ref()
-            .map(|signature| import_generic_signature(signature, importer.relocation, importer.store))
+            .map(|signature| import_generic_signature_with_allocation_budget(signature, importer.relocation, importer.store, importer.allocations))
             .transpose()?;
         let mut constraints = importer.allocations.vector(domain.constraints.len()).map_err(allocation_error)?;
         for constraint in &domain.constraints {
-            constraints.push(import_constraint(constraint, importer.relocation)?);
+            constraints.push(import_constraint_with_allocation_budget(constraint, importer.relocation, importer.allocations)?);
         }
         Some(
             importer
@@ -2294,7 +2703,7 @@ fn import_callable_effective_inherent_witness(
         .map(|specialization| import_callable_inherent_specialization(specialization, evidence_nodes, importer))
         .transpose()?;
     Ok(crate::impls::EffectiveInherentWitness {
-        callable: import_exact_callable(&witness.callable)?,
+        callable: import_exact_callable_with_allocation_budget(&witness.callable, importer.allocations)?,
         signature: import_callable_signature(&witness.signature, importer.relocation, importer.store, importer.allocations)?,
         visibility: import_visibility(&witness.visibility),
         owner: from_stable_declaration(&witness.owner).map_err(referential)?,
@@ -2320,14 +2729,14 @@ fn import_callable_requirement_selection(
     }
     Ok(match selection {
         Portable::ConformanceCallable { callable } => crate::impls::RequirementSelectionTemplate::ConformanceCallable {
-            callable: import_exact_callable(callable)?,
+            callable: import_exact_callable_with_allocation_budget(callable, importer.allocations)?,
         },
         Portable::InherentCallable {
             callable,
             conditional_impl,
             applicability,
         } => crate::impls::RequirementSelectionTemplate::InherentCallable {
-            callable: import_exact_callable(callable)?,
+            callable: import_exact_callable_with_allocation_budget(callable, importer.allocations)?,
             conditional_impl: conditional_impl.as_ref().map(|id| from_stable_impl(id).map_err(referential)).transpose()?,
             applicability: applicability
                 .as_ref()
@@ -2353,7 +2762,7 @@ fn import_callable_requirement_selection(
             specialized_type: importer.relocation.ty(*specialized_type)?,
         },
         Portable::TraitDefault { callable } => crate::impls::RequirementSelectionTemplate::TraitDefault {
-            callable: import_exact_callable(callable)?,
+            callable: import_exact_callable_with_allocation_budget(callable, importer.allocations)?,
         },
     })
 }
@@ -2372,13 +2781,18 @@ fn import_callable_derived_conformance_rule(
     let target_parameter = importer.relocation.parameter(rule.target_parameter)?;
     let target_template = importer.relocation.ty(rule.target_template)?;
     let trait_ref = import_trait_ref_identity(&rule.trait_ref, importer.relocation, importer.allocations)?;
-    let generic_signature = import_generic_signature(&rule.generic_signature, importer.relocation, importer.store)?;
+    let generic_signature = import_generic_signature_with_allocation_budget(
+        &rule.generic_signature,
+        importer.relocation,
+        importer.store,
+        importer.allocations,
+    )?;
     let associated_type_plan =
         import_callable_associated_type_plan(&rule.associated_type_plan, &impl_id, &trait_ref.declaration, importer.relocation, importer.allocations)?;
 
     let mut requirement_views = importer.allocations.vector(rule.requirement_views.len()).map_err(allocation_error)?;
     for view in &rule.requirement_views {
-        let requirement = import_callable_requirement_identity(&view.requirement)?;
+        let requirement = import_callable_requirement_identity_with_allocation_budget(&view.requirement, importer.allocations)?;
         if requirement.owner != trait_ref.declaration {
             return Err(referential("derived rule requirement view belongs to another trait"));
         }
@@ -2386,10 +2800,14 @@ fn import_callable_derived_conformance_rule(
             requirement.clone(),
             crate::traits::InstantiatedTraitRequirement {
                 requirement,
-                callable: import_exact_callable(&view.callable)?,
+                callable: import_exact_callable_with_allocation_budget(&view.callable, importer.allocations)?,
                 signature: import_callable_signature(&view.signature, importer.relocation, importer.store, importer.allocations)?,
                 visibility: import_visibility(&view.visibility),
-                default_callable: view.default_callable.as_ref().map(import_exact_callable).transpose()?,
+                default_callable: view
+                    .default_callable
+                    .as_ref()
+                    .map(|callable| import_exact_callable_with_allocation_budget(callable, importer.allocations))
+                    .transpose()?,
             },
         ));
     }
@@ -2397,7 +2815,7 @@ fn import_callable_derived_conformance_rule(
 
     let mut requirements = importer.allocations.vector(rule.requirements.len()).map_err(allocation_error)?;
     for entry in &rule.requirements {
-        let requirement = import_callable_requirement_identity(&entry.requirement)?;
+        let requirement = import_callable_requirement_identity_with_allocation_budget(&entry.requirement, importer.allocations)?;
         if requirement.owner != trait_ref.declaration {
             return Err(referential("derived rule selection belongs to another trait"));
         }
@@ -2424,7 +2842,7 @@ fn import_derived_conformance_rule_record(
     record: &phalcom_compiler_artifact::semantic::world::DerivedConformanceRuleRecordV1,
     relocation: &TypeRelocation,
     store: &TypeStore,
-    source_plan_fingerprints: &BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+    source_plan_fingerprints: &[(crate::identity::ImplId, crate::db::ProductFingerprint)],
     allocations: &mut AllocationBudget,
     max_depth: usize,
 ) -> Result<crate::derived_conformance::DerivedConformanceRule, ArtifactError> {
@@ -2515,7 +2933,7 @@ fn import_callable_associated_type_plan(
     let diagnostics = plan
         .diagnostics
         .iter()
-        .map(|diagnostic| import_trait_surface_diagnostic(diagnostic, relocation))
+        .map(|diagnostic| import_trait_surface_diagnostic(diagnostic, relocation, allocations))
         .collect::<Result<Vec<_>, _>>()?
         .into_boxed_slice();
     Ok(crate::impls::ConformanceAssociatedTypePlan::from_parts(
@@ -2540,7 +2958,7 @@ fn import_callable_conformance_completeness(
                 imported.push(match failure {
                     CallableConformanceFailureV1::Behavioral { requirement, reason } => {
                         crate::impls::ConformanceFailure::Behavioral(crate::impls::RequirementFailure {
-                            requirement: import_callable_requirement_identity(requirement)?,
+                            requirement: import_callable_requirement_identity_with_allocation_budget(requirement, allocations)?,
                             reason: allocations.boxed_str(reason).map_err(allocation_error)?,
                         })
                     }
@@ -2712,8 +3130,8 @@ fn import_callable_signature(
     allocations: &mut AllocationBudget,
 ) -> Result<crate::signature::CallableSemanticSignature, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world::{ImplementationKindV1, ParameterContractV1, RestValueContractV1, ReturnContractValidationV1};
-    let callable = import_exact_callable(&record.callable)?;
-    let owner = from_stable_declaration(&record.owner).map_err(referential)?;
+    let callable = import_exact_callable_with_allocation_budget(&record.callable, allocations)?;
+    let owner = import_stable_declaration_with_allocation_budget(&record.owner, allocations)?;
     let side = match record.side {
         0 => DispatchSide::Instance,
         1 => DispatchSide::Class,
@@ -2722,12 +3140,12 @@ fn import_callable_signature(
     let generics = record
         .generics
         .as_ref()
-        .map(|generics| import_generic_signature(generics, relocation, store))
+        .map(|generics| import_generic_signature_with_allocation_budget(generics, relocation, store, allocations))
         .transpose()?;
-    let mut parameters = Vec::with_capacity(record.parameters.len());
+    let mut parameters = allocations.vector(record.parameters.len()).map_err(allocation_error)?;
     for parameter in &record.parameters {
-        let parameter_callable = import_exact_callable(&parameter.callable)?;
-        let declared_type = import_declared_type_fact(&parameter.declared_type, relocation)?;
+        let parameter_callable = import_exact_callable_with_allocation_budget(&parameter.callable, allocations)?;
+        let declared_type = import_declared_type_fact_with_allocation_budget(&parameter.declared_type, relocation, allocations)?;
         let rest = match parameter.rest_mode {
             0 => phalcom_ast::ast::RestMode::None,
             1 => phalcom_ast::ast::RestMode::Positional,
@@ -2736,7 +3154,11 @@ fn import_callable_signature(
             _ => return Err(referential("callable parameter rest mode is invalid")),
         };
         let contract = match &parameter.contract {
-            ParameterContractV1::Fixed { fact } => crate::signature::ParameterContract::Fixed(import_declared_type_fact(fact, relocation)?),
+            ParameterContractV1::Fixed { fact } => crate::signature::ParameterContract::Fixed(import_declared_type_fact_with_allocation_budget(
+                fact,
+                relocation,
+                allocations,
+            )?),
             ParameterContractV1::Rest { mode, contract } => {
                 let mode = match mode {
                     1 => phalcom_ast::ast::RestMode::Positional,
@@ -2748,7 +3170,9 @@ fn import_callable_signature(
                     mode,
                     contract: match contract {
                         RestValueContractV1::Unconstrained => crate::signature::RestValueContract::Unconstrained,
-                        RestValueContractV1::Element { fact } => crate::signature::RestValueContract::Element(import_declared_type_fact(fact, relocation)?),
+                        RestValueContractV1::Element { fact } => crate::signature::RestValueContract::Element(
+                            import_declared_type_fact_with_allocation_budget(fact, relocation, allocations)?,
+                        ),
                         RestValueContractV1::Lane { ty } => crate::signature::RestValueContract::Lane(relocation.ty(*ty)?),
                         RestValueContractV1::Invalid { reason } => {
                             crate::signature::RestValueContract::Invalid(import_unknown_reason_with_allocation_budget(reason, allocations)?)
@@ -2757,18 +3181,26 @@ fn import_callable_signature(
                 }
             }
         };
-        let source = parameter.source.as_ref().map(import_source_span).transpose()?;
+        let source = parameter
+            .source
+            .as_ref()
+            .map(|source| import_source_span_with_allocation_budget(source, allocations))
+            .transpose()?;
         parameters.push(crate::signature::CallableParameterSemantic {
             id: crate::identity::CallableParameterId::new(parameter_callable, parameter.index),
-            local_name: parameter.local_name.clone(),
-            external_label: parameter.external_label.clone(),
+            local_name: allocations.boxed_str(&parameter.local_name).map_err(allocation_error)?,
+            external_label: parameter
+                .external_label
+                .as_deref()
+                .map(|label| allocations.boxed_str(label).map_err(allocation_error))
+                .transpose()?,
             rest,
             declared_type,
             contract,
             source,
         });
     }
-    let declared_return = import_declared_type_fact(&record.declared_return, relocation)?;
+    let declared_return = import_declared_type_fact_with_allocation_budget(&record.declared_return, relocation, allocations)?;
     let return_validation = match &record.return_validation {
         ReturnContractValidationV1::NotApplicable => crate::signature::ReturnContractValidation::NotApplicable,
         ReturnContractValidationV1::Unchecked => crate::signature::ReturnContractValidation::Unchecked,
@@ -2785,7 +3217,11 @@ fn import_callable_signature(
         .as_ref()
         .map(|knowledge| import_type_knowledge_with_allocation_budget(knowledge, relocation, allocations))
         .transpose()?;
-    let source = record.source.as_ref().map(import_source_span).transpose()?;
+    let source = record
+        .source
+        .as_ref()
+        .map(|source| import_source_span_with_allocation_budget(source, allocations))
+        .transpose()?;
     let implementation = match record.implementation {
         ImplementationKindV1::Phalcom => phalcom_common::modifier::ImplementationKind::Phalcom,
         ImplementationKindV1::Native => phalcom_common::modifier::ImplementationKind::Native,
@@ -2797,9 +3233,9 @@ fn import_callable_signature(
         callable,
         owner,
         side,
-        selector: import_exact_callable(&record.callable)?.selector,
+        selector: import_stable_selector_with_allocation_budget(&record.callable.selector, allocations)?,
         generics,
-        parameters: parameters.into_boxed_slice(),
+        parameters: allocations.boxed_slice(parameters).map_err(allocation_error)?,
         declared_return,
         return_validation,
         inferred_return,
@@ -2848,7 +3284,7 @@ fn import_callable_definition(
             let generic_signature = context
                 .generic_signature
                 .as_ref()
-                .map(|signature| import_generic_signature(signature, relocation, store))
+                .map(|signature| import_generic_signature_with_allocation_budget(signature, relocation, store, allocations))
                 .transpose()?;
             let covering = context
                 .covering
@@ -2922,7 +3358,7 @@ fn import_enum_requirements(
             if slot.is_some() {
                 return Err(referential("enum requirement source order is duplicated"));
             }
-            let callable = import_exact_callable(&record.requirement)?;
+            let callable = import_exact_callable_with_allocation_budget(&record.requirement, allocations)?;
             let crate::identity::CallableOwnerId::Declaration(callable_owner) = &callable.owner else {
                 return Err(referential("enum root requirement is not declaration-owned"));
             };
@@ -2992,7 +3428,7 @@ fn import_enum_requirements(
                 }
                 let status = match &record.status {
                     phalcom_compiler_artifact::semantic::world::CaseRequirementStatusV1::Satisfied { implementation } => {
-                        let implementation = import_exact_callable(implementation)?;
+                        let implementation = import_exact_callable_with_allocation_budget(implementation, allocations)?;
                         if implementation.owner != CallableOwnerId::Variant(variant.clone())
                             || implementation.side != DispatchSide::Instance
                             || implementation.selector != requirement.id.selector
@@ -3003,7 +3439,7 @@ fn import_enum_requirements(
                     }
                     phalcom_compiler_artifact::semantic::world::CaseRequirementStatusV1::Missing => CaseRequirementStatus::Missing,
                     phalcom_compiler_artifact::semantic::world::CaseRequirementStatusV1::Incompatible { implementation } => {
-                        let implementation = import_exact_callable(implementation)?;
+                        let implementation = import_exact_callable_with_allocation_budget(implementation, allocations)?;
                         if implementation.owner != CallableOwnerId::Variant(variant.clone())
                             || implementation.side != DispatchSide::Instance
                             || implementation.selector != requirement.id.selector
@@ -4167,7 +4603,7 @@ fn import_callable_trait_selection(
     let mut targets = importer.allocations.vector(selection.requirement_targets.len()).map_err(allocation_error)?;
     for target in &selection.requirement_targets {
         targets.push((
-            import_callable_requirement_identity(&target.requirement)?,
+            import_callable_requirement_identity_with_allocation_budget(&target.requirement, importer.allocations)?,
             import_callable_requirement_selection(&target.selection, evidence_nodes, importer, 0)?,
         ));
     }
@@ -4176,7 +4612,7 @@ fn import_callable_trait_selection(
         source_impl: from_stable_impl(&selection.source_impl).map_err(referential)?,
         exact_target: importer.relocation.ty(selection.exact_target)?,
         exact_trait_ref: import_trait_ref_identity(&selection.exact_trait_ref, importer.relocation, importer.allocations)?,
-        requirement: import_callable_requirement_identity(&selection.requirement)?,
+        requirement: import_callable_requirement_identity_with_allocation_budget(&selection.requirement, importer.allocations)?,
         callable: selection
             .callable
             .as_ref()
@@ -4199,7 +4635,7 @@ fn import_callable_iteration_requirement(
     use phalcom_compiler_artifact::semantic::world::CallableForIterationRequirementV1 as Portable;
     Ok(match requirement {
         Portable::AbstractRequirement { requirement, signature } => Native::AbstractRequirement {
-            requirement: import_callable_requirement_identity(requirement)?,
+            requirement: import_callable_requirement_identity_with_allocation_budget(requirement, importer.allocations)?,
             signature: import_callable_signature(signature, importer.relocation, importer.store, importer.allocations)?,
         },
         Portable::Evidence {
@@ -4210,7 +4646,7 @@ fn import_callable_iteration_requirement(
         } => Native::Evidence {
             conformance: import_generic_conformance_key_with_allocation_budget(conformance, importer.relocation, importer.allocations)?,
             evidence: importer.evidence(evidence_nodes, *evidence, 0)?,
-            requirement: import_callable_requirement_identity(requirement)?,
+            requirement: import_callable_requirement_identity_with_allocation_budget(requirement, importer.allocations)?,
             signature: import_callable_signature(signature, importer.relocation, importer.store, importer.allocations)?,
         },
     })
@@ -4296,7 +4732,7 @@ pub(super) fn import_callable_resolution_authority(
     body: crate::identity::BodyId,
     relocation: &TypeRelocation,
     store: &TypeStore,
-    source_plan_fingerprints: &BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+    source_plan_fingerprints: &[(crate::identity::ImplId, crate::db::ProductFingerprint)],
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedCallableResolutionAuthority, ArtifactError> {
@@ -4550,13 +4986,13 @@ pub(super) fn import_callable_analysis_records(
     records: &[phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1],
     relocation: &TypeRelocation,
     store: &TypeStore,
-    source_plan_fingerprints: &BTreeMap<crate::identity::ImplId, crate::db::ProductFingerprint>,
+    source_plan_fingerprints: &[(crate::identity::ImplId, crate::db::ProductFingerprint)],
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<
     (
         crate::checker::analysis::CallableAnalysisTable,
-        BTreeMap<CallableId, BTreeMap<BindingId, SourceRange>>,
+            crate::parent_map::ParentMap<CallableId, crate::ordered_map::OrderedMap<BindingId, SourceRange>>,
     ),
     ArtifactError,
 > {
@@ -4566,7 +5002,7 @@ pub(super) fn import_callable_analysis_records(
     ensure_complete_callable_analysis_payload(records)?;
     let mut child = allocations.child(allocations.remaining());
     let mut rows = child.vector(records.len()).map_err(allocation_error)?;
-    let mut binding_ranges = BTreeMap::new();
+    let mut binding_range_entries = child.vector(records.len()).map_err(allocation_error)?;
     for (body_index, record) in records.iter().enumerate() {
         let callable = import_stable_callable_with_allocation_budget(&record.callable, &mut child)?;
         let body = BodyId(u32::try_from(body_index).map_err(|_| referential("callable body ordinal exceeds portable range"))?);
@@ -4574,18 +5010,23 @@ pub(super) fn import_callable_analysis_records(
         let imported_bindings = import_callable_binding_rows(record, relocation, &mut child)?;
         let mut binding_entries = child.vector(imported_bindings.len()).map_err(allocation_error)?;
         let mut origin_entries = child.vector(imported_bindings.len()).map_err(allocation_error)?;
-        let mut formal_ranges = BTreeMap::new();
+        let mut formal_range_entries = child.vector(imported_bindings.len()).map_err(allocation_error)?;
         for imported in imported_bindings {
             let binding = imported.state.binding;
             if let Some(range) = imported.formal_range {
-                formal_ranges.insert(binding, range);
+                formal_range_entries.push((binding, range));
             }
             origin_entries.push((binding, imported.storage_origin));
             binding_entries.push((binding, imported.state));
         }
         let bindings = import_analysis_map(binding_entries, &mut child, "callable binding rows are not canonical")?;
         let binding_origins = import_analysis_map(origin_entries, &mut child, "callable binding origins are not canonical")?;
-        binding_ranges.insert(callable.clone(), formal_ranges);
+        let formal_ranges = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(formal_range_entries, &mut child)
+            .map_err(|error| match error {
+                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("callable binding source range is duplicated"),
+            })?;
+        binding_range_entries.push((callable.clone_with_allocation_budget(&mut child).map_err(allocation_error)?, formal_ranges));
 
         let facts = import_callable_expression_facts(record, relocation, &mut child)?;
         let statuses = import_callable_expression_statuses(&record.expressions, relocation, &mut child)?;
@@ -4776,6 +5217,10 @@ pub(super) fn import_callable_analysis_records(
         crate::checker::analysis::CallableAnalysisTableBuildError::Allocation(error) => allocation_error(error),
         crate::checker::analysis::CallableAnalysisTableBuildError::ModuleIndex(_) => referential("callable analysis module index is not canonical"),
     })?;
+    let binding_ranges = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(binding_range_entries, &mut child).map_err(|error| match error {
+        crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
+        crate::parent_map::FrozenParentMapError::DuplicateKey => referential("callable binding range owner is duplicated"),
+    })?;
     allocations.commit_child(child).map_err(allocation_error)?;
     Ok((table, binding_ranges))
 }
@@ -4923,7 +5368,7 @@ fn import_static_definition_owners(
         let diagnostics = record
             .diagnostics
             .iter()
-            .map(|diagnostic| import_trait_surface_diagnostic(diagnostic, type_relocation))
+            .map(|diagnostic| import_trait_surface_diagnostic(diagnostic, type_relocation, allocations))
             .collect::<Result<Vec<_>, _>>()?;
         let source_range = SourceRange {
             start: usize::try_from(record.source.start).map_err(|_| referential("static definition source start exceeds address space"))?,
@@ -4963,7 +5408,17 @@ fn import_static_constant_symbol(
     allocations: &mut AllocationBudget,
 ) -> Result<phalcom_modules::linker::SymbolId, ArtifactError> {
     Ok(phalcom_modules::linker::SymbolId {
-        module: from_stable_module(&symbol.module).map_err(referential)?,
+        module: import_stable_module_with_allocation_budget(&symbol.module, allocations)?,
+        name: allocations.boxed_str(&symbol.name).map_err(allocation_error)?,
+    })
+}
+
+fn clone_static_symbol_with_allocation_budget(
+    symbol: &phalcom_modules::linker::SymbolId,
+    allocations: &mut AllocationBudget,
+) -> Result<phalcom_modules::linker::SymbolId, ArtifactError> {
+    Ok(phalcom_modules::linker::SymbolId {
+        module: symbol.module.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
         name: allocations.boxed_str(&symbol.name).map_err(allocation_error)?,
     })
 }
@@ -5022,7 +5477,7 @@ fn import_static_constant_owners(
         let diagnostics = record
             .diagnostics
             .iter()
-            .map(|diagnostic| import_trait_surface_diagnostic(diagnostic, type_relocation))
+            .map(|diagnostic| import_trait_surface_diagnostic(diagnostic, type_relocation, allocations))
             .collect::<Result<Vec<_>, _>>()?;
         let product = crate::static_constant::StaticConstantProduct {
             id,
@@ -5048,24 +5503,42 @@ fn import_module_static_binding_indexes(
     allocations: &mut AllocationBudget,
 ) -> Result<crate::parent_map::ParentMap<crate::identity::ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world::ModuleStaticBindingPhaseV1;
-    let mut rows_by_body = BTreeMap::<phalcom_type_meta::identity::StableCallableRef, Vec<ImportedCallableBindingRow>>::new();
-    let mut indexes = crate::parent_map::ParentMap::default();
+    let body_reference_count = records
+        .iter()
+        .try_fold(0usize, |count, record| count.checked_add(record.bindings.len()))
+        .ok_or_else(|| allocation_error(AllocationError::Overflow))?;
+    let mut body_refs = allocations
+        .vector::<&phalcom_type_meta::identity::StableCallableRef>(body_reference_count)
+        .map_err(allocation_error)?;
     for record in records {
-        let module = from_stable_module(&record.module).map_err(referential)?;
-        let mut bindings = BTreeMap::new();
+        body_refs.extend(record.bindings.iter().map(|binding| &binding.source_body));
+    }
+    body_refs.sort_unstable();
+    body_refs.dedup();
+    let mut rows_by_body = allocations
+        .vector::<(&phalcom_type_meta::identity::StableCallableRef, Vec<ImportedCallableBindingRow>)>(body_refs.len())
+        .map_err(allocation_error)?;
+    for body in body_refs {
+        let source_record = callable_records
+            .binary_search_by(|candidate| candidate.callable.cmp(body))
+            .ok()
+            .map(|position| &callable_records[position])
+            .ok_or_else(|| referential("module static binding references an absent callable-analysis owner"))?;
+        rows_by_body.push((body, import_callable_binding_rows(source_record, type_relocation, allocations)?));
+    }
+    let mut indexes = allocations
+        .vector::<(crate::identity::ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>)>(records.len())
+        .map_err(allocation_error)?;
+    for record in records {
+        let module = import_stable_module_with_allocation_budget(&record.module, allocations)?;
+        let mut binding_entries = allocations
+            .vector::<(phalcom_modules::linker::SymbolId, crate::module_bindings::ModuleBindingFact)>(record.bindings.len())
+            .map_err(allocation_error)?;
         for binding in &record.bindings {
-            if !rows_by_body.contains_key(&binding.source_body) {
-                let source_record = callable_records
-                    .binary_search_by(|candidate| candidate.callable.cmp(&binding.source_body))
-                    .ok()
-                    .map(|position| &callable_records[position])
-                    .ok_or_else(|| referential("module static binding references an absent callable-analysis owner"))?;
-                let rows = import_callable_binding_rows(source_record, type_relocation, allocations)?;
-                rows_by_body.insert(binding.source_body.clone(), rows);
-            }
-            let imported_body = rows_by_body
-                .get(&binding.source_body)
-                .ok_or_else(|| referential("module static binding callable rows were not reconstructed"))?;
+            let body_index = rows_by_body
+                .binary_search_by(|(body, _)| (**body).cmp(&binding.source_body))
+                .map_err(|_| referential("module static binding callable rows were not reconstructed"))?;
+            let imported_body = &rows_by_body[body_index].1;
             let row = imported_body
                 .get(binding.source_binding_ordinal as usize)
                 .ok_or_else(|| referential("module static binding ordinal is out of range"))?;
@@ -5077,7 +5550,7 @@ fn import_module_static_binding_indexes(
             let symbol = import_static_constant_symbol(&binding.symbol, allocations)?;
             let fact = crate::module_bindings::ModuleBindingFact {
                 symbol: symbol.clone(),
-                source_body: from_stable_callable(&binding.source_body).map_err(referential)?,
+                source_body: import_stable_callable_with_allocation_budget(&binding.source_body, allocations)?,
                 source_binding: row.state.binding,
                 phase: match binding.phase {
                     ModuleStaticBindingPhaseV1::StaticConstant => crate::module_bindings::ModuleBindingPhase::StaticConstant,
@@ -5101,27 +5574,36 @@ fn import_module_static_binding_indexes(
                     })
                     .transpose()?,
             };
-            if fact.declaration_range.start > fact.declaration_range.end
-                || fact.initializer_range.is_some_and(|range| range.start > range.end)
-                || bindings.insert(symbol, fact).is_some()
-            {
+            if fact.declaration_range.start > fact.declaration_range.end || fact.initializer_range.is_some_and(|range| range.start > range.end) {
                 return Err(referential("module static-binding owner is duplicate or has an invalid range"));
             }
+            binding_entries.push((clone_static_symbol_with_allocation_budget(&symbol, allocations)?, fact));
         }
-        let mut visible_names = BTreeMap::new();
+        let mut visible_entries = allocations
+            .vector::<(Box<str>, phalcom_modules::linker::SymbolId)>(record.visible_names.len())
+            .map_err(allocation_error)?;
         for visible in &record.visible_names {
             let symbol = import_static_constant_symbol(&visible.symbol, allocations)?;
             let name = allocations.boxed_str(&visible.name).map_err(allocation_error)?;
-            if visible_names.insert(name, symbol).is_some() {
-                return Err(referential("module visible static-binding name is duplicated"));
-            }
+            visible_entries.push((name, symbol));
         }
-        let index = crate::module_bindings::ModuleStaticBindingIndex::from_artifact_parts(module.clone(), bindings, visible_names).map_err(referential)?;
-        if indexes.insert(module, allocations.arc(index).map_err(allocation_error)?).is_some() {
-            return Err(referential("module static-binding index owner is duplicated"));
-        }
+        let bindings = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(binding_entries, allocations)
+            .map_err(|error| match error {
+                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("module static-binding owner is duplicated"),
+            })?;
+        let visible_names = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(visible_entries, allocations)
+            .map_err(|error| match error {
+                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("module visible static-binding name is duplicated"),
+            })?;
+        let index = crate::module_bindings::ModuleStaticBindingIndex::from_frozen_artifact_parts(module.clone(), bindings, visible_names).map_err(referential)?;
+        indexes.push((module, allocations.arc(index).map_err(allocation_error)?));
     }
-    Ok(indexes)
+    crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(indexes, allocations).map_err(|error| match error {
+        crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
+        crate::parent_map::FrozenParentMapError::DuplicateKey => referential("module static-binding index owner is duplicated"),
+    })
 }
 
 pub struct ValidatedSemanticParts {
@@ -5179,21 +5661,24 @@ fn validate_and_import_semantic_world_inner(
     world.validate_with_allocation_budget(limits, allocations)?;
     ensure_complete_callable_analysis_payload(&world.callable_analyses)?;
     // 3. Fresh TypeStore with checked TypeRelocation
-    let (mut type_store, type_relocation) = TypeStore::import_type_graph(&world.type_graph, limits)?;
+    let (mut type_store, type_relocation) =
+        TypeStore::import_type_graph_with_allocation_budget(&world.type_graph, limits, allocations)?;
 
     // 4. Structural primary contracts (shells, hierarchy, aliases, data/enum contracts, signatures)
-    let structural_contracts = import_structural_primary_contracts(&world.structural_contracts, &mut type_store, &type_relocation, limits)?;
+    let structural_contracts =
+        import_structural_primary_contracts(&world.structural_contracts, &mut type_store, &type_relocation, limits, allocations)?;
 
     // 5. Fresh StaticValueStore through validated factories
-    let (static_values, static_relocation) = import_static_value_graph(
+    let (static_values, static_relocation) = import_static_value_graph_with_allocation_budget(
         &world.static_values,
         &type_store,
         &type_relocation,
         &structural_contracts.data_table,
         &structural_contracts.enum_table,
-        &|decl_ref| from_stable_declaration(decl_ref).map_err(referential),
-        &|var_ref| from_stable_variant(var_ref).map_err(referential),
+        &|decl_ref, allocations| import_stable_declaration_with_allocation_budget(decl_ref, allocations),
+        &|var_ref, allocations| import_stable_variant_with_allocation_budget(var_ref, allocations),
         limits,
+        allocations,
     )?;
 
     // Cross-validate pending static references
@@ -5208,18 +5693,38 @@ fn validate_and_import_semantic_world_inner(
     }
 
     // 8. Reconstruct callable signatures and definitions (P7.T7.B)
-    let mut callable_signatures = crate::signature::CallableSignatureTable::new();
+    let mut callable_signature_entries = allocations
+        .vector(world.callable_signatures.len())
+        .map_err(allocation_error)?;
     for rec in &world.callable_signatures {
         let sig = import_callable_signature(rec, &type_relocation, &type_store, allocations)?;
-        callable_signatures.insert(sig);
+        callable_signature_entries.push(sig);
     }
-    let mut callable_definitions_map = std::collections::HashMap::with_capacity(world.callable_definitions.len());
+    let callable_signatures = crate::signature::CallableSignatureTable::from_frozen_entries_with_allocation_budget(
+        callable_signature_entries,
+        allocations,
+    )
+    .map_err(|error| match error {
+        crate::signature::FrozenCallableSignaturesError::Allocation(error) => allocation_error(error),
+        crate::signature::FrozenCallableSignaturesError::DuplicateCallable => {
+            referential("callable signature owner is duplicated after stable-identity relocation")
+        }
+    })?;
+    let mut callable_definition_entries = allocations
+        .vector::<(crate::identity::CallableId, crate::impls::EffectiveCallableDefinition)>(world.callable_definitions.len())
+        .map_err(allocation_error)?;
     for record in &world.callable_definitions {
         let definition = import_callable_definition(record, &type_relocation, &type_store, allocations)?;
-        if callable_definitions_map.insert(definition.callable.clone(), definition).is_some() {
-            return Err(referential("callable definition owner is duplicated after stable-identity relocation"));
-        }
+        let key = definition.callable.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+        callable_definition_entries.push((key, definition));
     }
+    let callable_definitions_map = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(callable_definition_entries, allocations)
+        .map_err(|error| match error {
+            crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
+            crate::parent_map::FrozenParentMapError::DuplicateKey => {
+                referential("callable definition owner is duplicated after stable-identity relocation")
+            }
+        })?;
 
     let enum_requirements = import_enum_requirements(
         &world.enum_requirements,
@@ -5230,42 +5735,49 @@ fn validate_and_import_semantic_world_inner(
     )?;
 
     // 10. Reconstruct trait surfaces and trait headers (P7.T7.B)
-    let mut trait_surfaces = crate::traits::TraitSurfaceTable::new();
-    let mut trait_headers = crate::traits::TraitHeaderTable::new();
+    let mut trait_surface_entries = allocations
+        .vector::<(DeclarationId, Arc<crate::traits::TraitSurface>)>(world.trait_surfaces.len())
+        .map_err(allocation_error)?;
+    let mut trait_header_entries = allocations
+        .vector::<(DeclarationId, Arc<crate::traits::TraitHeader>)>(world.trait_surfaces.len())
+        .map_err(allocation_error)?;
     for rec in &world.trait_surfaces {
-        let decl = from_stable_declaration(&rec.declaration).map_err(referential)?;
+        let decl = import_stable_declaration_with_allocation_budget(&rec.declaration, allocations)?;
         let generic_signature = if let Some(g) = &rec.generic_signature {
-            Some(import_generic_signature(g, &type_relocation, &mut type_store)?)
+            Some(import_generic_signature_with_allocation_budget(g, &type_relocation, &type_store, allocations)?)
         } else {
             None
         };
-        let mut surface = crate::traits::TraitSurface::new(decl.clone(), generic_signature.clone());
+        let mut associated_entries = allocations
+            .vector::<(crate::traits::AssociatedTypeRequirementId, crate::traits::TraitAssociatedTypeRequirement)>(rec.associated_types.len())
+            .map_err(allocation_error)?;
         for associated in &rec.associated_types {
-            let owner = from_stable_declaration(&associated.requirement.owner).map_err(referential)?;
+            let owner = import_stable_declaration_with_allocation_budget(&associated.requirement.owner, allocations)?;
+            if owner != decl {
+                return Err(referential("trait associated-type owner does not match its surface"));
+            }
             let requirement = crate::traits::AssociatedTypeRequirementId::new(owner, associated.requirement.index);
             let domain = match &associated.domain {
                 TypeMemberDomainV1::Kind { kind } => crate::types::type_member::TypeMemberDomain::Kind(type_relocation.kind(*kind)?),
                 TypeMemberDomainV1::ValueType { ty } => crate::types::type_member::TypeMemberDomain::ValueType(type_relocation.ty(*ty)?),
             };
-            if surface
-                .associated_types
-                .insert(
-                    requirement.clone(),
-                    crate::traits::TraitAssociatedTypeRequirement {
-                        requirement,
-                        name: associated.name.clone(),
-                        domain,
-                        source: import_source_span(&associated.source)?,
-                    },
-                )
-                .is_some()
-            {
-                return Err(referential("trait associated-type owner is duplicated after identity relocation"));
-            }
+            let key = requirement.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+            associated_entries.push((
+                key,
+                crate::traits::TraitAssociatedTypeRequirement {
+                    requirement,
+                    name: allocations.boxed_str(&associated.name).map_err(allocation_error)?,
+                    domain,
+                    source: import_source_span_with_allocation_budget(&associated.source, allocations)?,
+                },
+            ));
         }
+        let mut member_entries = allocations
+            .vector::<(crate::traits::TraitRequirementId, crate::traits::TraitSurfaceMember)>(rec.members.len())
+            .map_err(allocation_error)?;
         for member in &rec.members {
-            let callable = from_stable_callable(&member.callable).map_err(referential)?;
-            let owner = from_stable_declaration(&member.requirement.owner).map_err(referential)?;
+            let callable = import_stable_callable_with_allocation_budget(&member.callable, allocations)?;
+            let owner = import_stable_declaration_with_allocation_budget(&member.requirement.owner, allocations)?;
             let side = match member.requirement.side {
                 0 => crate::identity::DispatchSide::Instance,
                 1 => crate::identity::DispatchSide::Class,
@@ -5273,152 +5785,274 @@ fn validate_and_import_semantic_world_inner(
             };
             let requirement = crate::traits::TraitRequirementId {
                 owner,
-                selector: callable.selector.clone(),
+                selector: import_stable_selector_with_allocation_budget(&member.requirement.selector, allocations)?,
                 side,
             };
+            if requirement.owner != decl
+                || !matches!(&callable.owner, CallableOwnerId::Declaration(owner) if owner == &requirement.owner)
+                || requirement.selector != callable.selector
+                || requirement.side != callable.side
+            {
+                return Err(referential("trait requirement identity does not match its canonical callable"));
+            }
+            let key = requirement.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
             let signature = import_callable_signature(&member.signature, &type_relocation, &type_store, allocations)?;
             let source_member_index =
                 usize::try_from(member.source_member_index).map_err(|_| referential("trait source member index exceeds address space"))?;
-            let default_source = member.default_source.as_ref().map(import_source_span).transpose()?;
-            if surface
-                .members
-                .insert(
-                    requirement.clone(),
-                    crate::traits::TraitSurfaceMember {
-                        requirement,
-                        callable,
-                        signature,
-                        visibility: import_visibility(&member.visibility),
-                        source: import_source_span(&member.source)?,
-                        source_member_index,
-                        default_present: member.default_present,
-                        default_source,
-                    },
-                )
-                .is_some()
-            {
-                return Err(referential("trait member owner is duplicated after identity relocation"));
-            }
+            let default_source = member
+                .default_source
+                .as_ref()
+                .map(|source| import_source_span_with_allocation_budget(source, allocations))
+                .transpose()?;
+            member_entries.push((
+                key,
+                crate::traits::TraitSurfaceMember {
+                    requirement,
+                    callable,
+                    signature,
+                    visibility: import_visibility(&member.visibility),
+                    source: import_source_span_with_allocation_budget(&member.source, allocations)?,
+                    source_member_index,
+                    default_present: member.default_present,
+                    default_source,
+                },
+            ));
         }
-        surface.diagnostics = rec
-            .diagnostics
-            .iter()
-            .map(|diagnostic| import_trait_surface_diagnostic(diagnostic, &type_relocation))
-            .collect::<Result<Vec<_>, _>>()?
-            .into_boxed_slice();
-        surface.finalize_requirement_layout();
-        trait_surfaces.insert(Arc::new(surface));
-        trait_headers.insert(Arc::new(crate::traits::TraitHeader {
-            declaration: decl.clone(),
-            generic_signature,
-            source: import_source_span(&rec.header_source)?,
-        }));
+        let members = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(member_entries, allocations)
+            .map_err(|error| match error {
+                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("trait member owner is duplicated after identity relocation"),
+            })?;
+        let associated_types = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(associated_entries, allocations)
+            .map_err(|error| match error {
+                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => {
+                    referential("trait associated-type owner is duplicated after identity relocation")
+                }
+            })?;
+        let mut diagnostics = allocations.vector(rec.diagnostics.len()).map_err(allocation_error)?;
+        for diagnostic in &rec.diagnostics {
+            diagnostics.push(import_trait_surface_diagnostic(diagnostic, &type_relocation, allocations)?);
+        }
+        let diagnostics = allocations.boxed_slice(diagnostics).map_err(allocation_error)?;
+        let surface_decl = decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+        let surface = crate::traits::TraitSurface::from_frozen_import_parts(surface_decl, generic_signature, members, associated_types, diagnostics, allocations)
+            .map_err(|error| match error {
+                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("trait requirement layout contains a duplicate identity"),
+            })?;
+        let surface_key = decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+        trait_surface_entries.push((surface_key, allocations.arc(surface).map_err(allocation_error)?));
+        let header_source = import_source_span_with_allocation_budget(&rec.header_source, allocations)?;
+        let header_declaration = decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+        let header_generic_signature = rec
+            .generic_signature
+            .as_ref()
+            .map(|signature| import_generic_signature_with_allocation_budget(signature, &type_relocation, &type_store, allocations))
+            .transpose()?;
+        let header = allocations.arc(crate::traits::TraitHeader {
+            declaration: header_declaration,
+            generic_signature: header_generic_signature,
+            source: header_source,
+        }).map_err(allocation_error)?;
+        let header_key = decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+        trait_header_entries.push((header_key, header));
     }
+    let trait_surfaces = crate::traits::TraitSurfaceTable::from_frozen_entries_with_allocation_budget(trait_surface_entries, allocations)
+        .map_err(|error| match error {
+            crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
+            crate::parent_map::FrozenParentMapError::DuplicateKey => referential("trait surface owner is duplicated after identity relocation"),
+        })?;
+    let trait_headers = crate::traits::TraitHeaderTable::from_frozen_entries_with_allocation_budget(trait_header_entries, allocations)
+        .map_err(|error| match error {
+            crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
+            crate::parent_map::FrozenParentMapError::DuplicateKey => referential("trait header owner is duplicated after identity relocation"),
+        })?;
 
     // 11. Reconstruct surfaces, dispatch resolver, and field signatures (P7.T7.B)
-    let mut dispatch_resolver = crate::dispatch::SurfaceDispatchResolver::new();
-    let mut field_signatures = crate::signature::FieldSignatureTable::new();
+    let field_signature_capacity = world
+        .dispatch_surfaces
+        .iter()
+        .try_fold(0usize, |total, surface| total.checked_add(surface.fields.len()))
+        .ok_or_else(|| allocation_error(AllocationError::Overflow))?;
+    let mut field_signature_entries = allocations
+        .vector::<(crate::identity::FieldId, crate::signature::FieldSemanticSignature)>(field_signature_capacity)
+        .map_err(allocation_error)?;
+    let mut dispatch_surface_entries = allocations
+        .vector::<(DeclarationId, crate::surface::DeclarationSurface)>(world.dispatch_surfaces.len())
+        .map_err(allocation_error)?;
+    let mut type_declaration_entries = allocations
+        .vector::<(crate::types::id::TypeId, DeclarationId)>(world.structural_contracts.declaration_shells.len())
+        .map_err(allocation_error)?;
     for rec in &world.dispatch_surfaces {
-        let decl = from_stable_declaration(&rec.declaration).map_err(referential)?;
-        let mut surface = crate::surface::DeclarationSurface::new(Some(decl.clone()));
+        let decl = import_stable_declaration_with_allocation_budget(&rec.declaration, allocations)?;
+        let mut surface = crate::surface::DeclarationSurface::new(Some(decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?));
         for (side, facts) in [
             (crate::identity::DispatchSide::Instance, &rec.instance_callables),
             (crate::identity::DispatchSide::Class, &rec.class_callables),
         ] {
+            let side_wire = match side {
+                crate::identity::DispatchSide::Instance => 0,
+                crate::identity::DispatchSide::Class => 1,
+            };
+            let field_count = rec.fields.iter().filter(|field| field.side == side_wire).count();
+            let mut members = crate::surface::FrozenMemberSurfaceBuilder::new(field_count, facts.len(), allocations).map_err(allocation_error)?;
             for fact in facts {
-                let cid = from_stable_callable(&fact.callable).map_err(referential)?;
+                let cid = import_stable_callable_with_allocation_budget(&fact.callable, allocations)?;
                 let semantic = callable_signatures
                     .get(&cid)
                     .ok_or_else(|| referential("declaration dispatch callable has no imported semantic signature"))?;
-                let mut projected = crate::checker::declaration_signature::project_semantic_signature(semantic);
-                let knowledge = import_type_knowledge_with_allocation_budget(&fact.knowledge, &type_relocation, allocations)?;
-                projected.return_type = knowledge;
-                surface.add_callable_with_visibility(side, projected, import_visibility(&fact.visibility));
+                let mut projected = crate::checker::declaration_signature::project_semantic_signature_with_allocation_budget(semantic, allocations)
+                    .map_err(allocation_error)?;
+                projected.return_type = import_type_knowledge_with_allocation_budget(&fact.knowledge, &type_relocation, allocations)?;
+                members.add_callable(cid, projected, import_visibility(&fact.visibility), allocations).map_err(allocation_error)?;
             }
-        }
-        for f in &rec.fields {
-            let f_owner = from_stable_declaration(&f.owner).map_err(referential)?;
-            let f_side = match f.side {
-                0 => crate::identity::DispatchSide::Instance,
-                1 => crate::identity::DispatchSide::Class,
-                _ => return Err(referential("declaration field dispatch side is invalid")),
-            };
-            let field_id = crate::identity::FieldId::new(f_owner.clone(), f.name.clone(), f_side);
-            let knowledge = import_type_knowledge_with_allocation_budget(&f.knowledge, &type_relocation, allocations)?;
-            surface.add_field_with_visibility(f_side, f.name.clone(), knowledge, import_visibility(&f.visibility));
-            if let (Some(declared_type), Some(mutable)) = (&f.declared_type, f.mutable) {
-                let declared_type = import_declared_type_fact(declared_type, &type_relocation)?;
-                let source = f
-                    .source
-                    .as_ref()
-                    .map(|source| {
-                        if source.start > source.end {
-                            return Err(referential("declaration field source span is inverted"));
-                        }
-                        Ok(SemanticSourceSpan::new(
-                            f_owner.module.clone(),
-                            SourceRange {
-                                start: usize::try_from(source.start).map_err(|_| referential("declaration field source start exceeds address space"))?,
-                                end: usize::try_from(source.end).map_err(|_| referential("declaration field source end exceeds address space"))?,
-                            },
-                        ))
-                    })
-                    .transpose()?;
-                field_signatures.insert(crate::signature::FieldSemanticSignature {
-                    field: field_id,
-                    owner: f_owner,
-                    side: f_side,
-                    name: f.name.clone(),
-                    mutable,
-                    declared_type,
-                    source,
-                });
+            for field in rec.fields.iter().filter(|field| field.side == side_wire) {
+                let owner = import_stable_declaration_with_allocation_budget(&field.owner, allocations)?;
+                let field_side = side;
+                let field_id = crate::identity::FieldId::new(
+                    owner.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                    allocations.boxed_str(&field.name).map_err(allocation_error)?,
+                    field_side,
+                );
+                let knowledge = import_type_knowledge_with_allocation_budget(&field.knowledge, &type_relocation, allocations)?;
+                members
+                    .add_field(
+                        field_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                        knowledge,
+                        import_visibility(&field.visibility),
+                        allocations,
+                    )
+                    .map_err(allocation_error)?;
+                if let (Some(declared_type), Some(mutable)) = (&field.declared_type, field.mutable) {
+                    let declared_type = import_declared_type_fact_with_allocation_budget(declared_type, &type_relocation, allocations)?;
+                    let source = field
+                        .source
+                        .as_ref()
+                        .map(|source| {
+                            if source.start > source.end {
+                                return Err(referential("declaration field source span is inverted"));
+                            }
+                            Ok(SemanticSourceSpan::new(
+                                owner.module.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                                SourceRange {
+                                    start: usize::try_from(source.start)
+                                        .map_err(|_| referential("declaration field source start exceeds address space"))?,
+                                    end: usize::try_from(source.end)
+                                        .map_err(|_| referential("declaration field source end exceeds address space"))?,
+                                },
+                            ))
+                        })
+                        .transpose()?;
+                    let signature = crate::signature::FieldSemanticSignature {
+                        field: field_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                        owner: owner.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                        side: field_side,
+                        name: allocations.boxed_str(&field.name).map_err(allocation_error)?,
+                        mutable,
+                        declared_type,
+                        source,
+                    };
+                    field_signature_entries.push((field_id, signature));
+                }
             }
+            let members = members.finish(allocations).map_err(|error| match error {
+                crate::surface::FrozenSurfaceMapError::Allocation(error) => allocation_error(error),
+                crate::surface::FrozenSurfaceMapError::DuplicateKey => referential("declaration member surface contains duplicate relocated identities"),
+            })?;
+            *surface.surface_mut(side) = members;
         }
         if let Some(type_form) = structural_contracts.declaration_table.form(&decl) {
-            dispatch_resolver.register_type(type_form, decl.clone());
+            type_declaration_entries.push((type_form, decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?));
         }
-        dispatch_resolver.register_surface(decl, surface);
+        let surface_key = decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+        dispatch_surface_entries.push((surface_key, surface));
     }
+    let dispatch_resolver = crate::dispatch::SurfaceDispatchResolver::from_frozen_import_entries_with_allocation_budget(
+        dispatch_surface_entries,
+        type_declaration_entries,
+        allocations,
+    )
+    .map_err(|error| match error {
+        crate::dispatch::FrozenDispatchImportError::Allocation(error) => allocation_error(error),
+        crate::dispatch::FrozenDispatchImportError::DuplicateOwner => referential("dispatch surface owner is duplicated after relocation"),
+        crate::dispatch::FrozenDispatchImportError::DuplicateType => referential("dispatch type registration is duplicated after relocation"),
+        crate::dispatch::FrozenDispatchImportError::DuplicateConditionalTarget => {
+            referential("conditional inherent target is duplicated after identity relocation")
+        }
+        crate::dispatch::FrozenDispatchImportError::DuplicateDomain => {
+            referential("inherent implementation domain is duplicated after identity relocation")
+        }
+    })?;
+    let field_signatures = crate::signature::FieldSignatureTable::from_frozen_entries_with_allocation_budget(field_signature_entries, allocations)
+        .map_err(|error| match error {
+            crate::signature::FrozenFieldSignatureTableError::Allocation(error) => allocation_error(error),
+            crate::signature::FrozenFieldSignatureTableError::DuplicateField => referential("field signature owner is duplicated after identity relocation"),
+        })?;
 
+    let domain_count = world.conditional_inherent_sets.iter().try_fold(0usize, |count, set| count.checked_add(set.domains.len()))
+        .ok_or_else(|| allocation_error(AllocationError::Overflow))?;
+    let mut conditional_member_entries = allocations
+        .vector::<(crate::impls::InherentImplTarget, Arc<crate::impls::ConditionalInherentMemberSet>)>(
+            world.conditional_inherent_sets.len(),
+        )
+        .map_err(allocation_error)?;
+    let mut inherent_domain_entries = allocations
+        .vector::<(crate::identity::ImplId, Arc<crate::impls::InherentImplDomain>)>(domain_count)
+        .map_err(allocation_error)?;
     for set_record in &world.conditional_inherent_sets {
         use phalcom_compiler_artifact::semantic::world::InherentImplTargetV1;
         let target = match &set_record.target {
             InherentImplTargetV1::Declaration { declaration } => {
-                crate::impls::InherentImplTarget::Declaration(from_stable_declaration(declaration).map_err(referential)?)
+                crate::impls::InherentImplTarget::Declaration(import_stable_declaration_with_allocation_budget(declaration, allocations)?)
             }
-            InherentImplTargetV1::ExactEnumCase { variant } => {
-                crate::impls::InherentImplTarget::ExactEnumCase(from_stable_variant(variant).map_err(referential)?)
-            }
+            InherentImplTargetV1::ExactEnumCase { variant } => crate::impls::InherentImplTarget::ExactEnumCase(
+                import_stable_variant_with_allocation_budget(variant, allocations)?,
+            ),
         };
-        let mut domains = std::collections::BTreeMap::new();
+        let mut domain_entries = allocations
+            .vector::<(crate::identity::ImplId, Arc<crate::impls::InherentImplDomain>)>(set_record.domains.len())
+            .map_err(allocation_error)?;
         for domain in &set_record.domains {
-            let impl_id = from_stable_impl(&domain.impl_id).map_err(referential)?;
+            let impl_id = import_stable_impl_with_allocation_budget(&domain.impl_id, allocations)?;
             let generic_signature = domain
                 .generic_signature
                 .as_ref()
-                .map(|signature| import_generic_signature(signature, &type_relocation, &type_store))
+                .map(|signature| import_generic_signature_with_allocation_budget(signature, &type_relocation, &type_store, allocations))
                 .transpose()?;
-            let constraints = domain
-                .constraints
-                .iter()
-                .map(|constraint| import_constraint(constraint, &type_relocation))
-                .collect::<Result<Vec<_>, _>>()?
-                .into_boxed_slice();
-            let imported = Arc::new(crate::impls::InherentImplDomain {
-                impl_id: impl_id.clone(),
-                target: target.clone(),
+            let mut constraints = allocations.vector(domain.constraints.len()).map_err(allocation_error)?;
+            for constraint in &domain.constraints {
+                constraints.push(import_constraint_with_allocation_budget(constraint, &type_relocation, allocations)?);
+            }
+            let domain_target = match &target {
+                crate::impls::InherentImplTarget::Declaration(declaration) => {
+                    crate::impls::InherentImplTarget::Declaration(declaration.clone_with_allocation_budget(allocations).map_err(allocation_error)?)
+                }
+                crate::impls::InherentImplTarget::ExactEnumCase(variant) => {
+                    crate::impls::InherentImplTarget::ExactEnumCase(variant.clone_with_allocation_budget(allocations).map_err(allocation_error)?)
+                }
+            };
+            let domain_impl_id = impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+            let constraints = allocations.boxed_slice(constraints).map_err(allocation_error)?;
+            let imported = allocations.arc(crate::impls::InherentImplDomain {
+                impl_id: domain_impl_id,
+                target: domain_target,
                 head_type: type_relocation.ty(domain.head_type)?,
                 generic_signature,
                 constraints,
-            });
-            if domains.insert(impl_id, imported).is_some() {
-                return Err(referential("conditional inherent domain is duplicated after identity relocation"));
-            }
+            })
+            .map_err(allocation_error)?;
+            inherent_domain_entries.push((impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, Arc::clone(&imported)));
+            domain_entries.push((impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, imported));
         }
-        let mut members = crate::impls::ConditionalInherentMemberSet::new(Some(target.clone()));
+        let domains = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(domain_entries, allocations)
+            .map_err(|error| match error {
+                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("conditional inherent domain is duplicated after identity relocation"),
+            })?;
+        let mut members = allocations.vector(set_record.members.len()).map_err(allocation_error)?;
         for member in &set_record.members {
-            let impl_id = from_stable_impl(&member.impl_id).map_err(referential)?;
+            let impl_id = import_stable_impl_with_allocation_budget(&member.impl_id, allocations)?;
             let domain = domains
                 .get(&impl_id)
                 .cloned()
@@ -5426,94 +6060,156 @@ fn validate_and_import_semantic_world_inner(
             let signature_template = import_callable_signature(&member.signature, &type_relocation, &type_store, allocations)?;
             let source_member =
                 usize::try_from(member.source_member_index).map_err(|_| referential("conditional inherent source ordinal exceeds address space"))?;
-            members.add_member(crate::impls::ConditionalInherentMember {
+            members.push(crate::impls::ConditionalInherentMember {
                 impl_id,
                 domain,
                 is_conditionally_applicable: member.is_conditionally_applicable,
-                callable: from_stable_callable(&member.callable).map_err(referential)?,
+                callable: import_stable_callable_with_allocation_budget(&member.callable, allocations)?,
                 signature_template,
                 visibility: import_visibility(&member.visibility),
                 source_member,
                 is_requirement: member.is_requirement,
             });
         }
-        dispatch_resolver.register_conditional_members(target, Arc::new(members));
+        let set_target = match &target {
+            crate::impls::InherentImplTarget::Declaration(declaration) => {
+                crate::impls::InherentImplTarget::Declaration(declaration.clone_with_allocation_budget(allocations).map_err(allocation_error)?)
+            }
+            crate::impls::InherentImplTarget::ExactEnumCase(variant) => {
+                crate::impls::InherentImplTarget::ExactEnumCase(variant.clone_with_allocation_budget(allocations).map_err(allocation_error)?)
+            }
+        };
+        let members = crate::impls::ConditionalInherentMemberSet::from_frozen_import_parts_with_allocation_budget(Some(set_target), members, allocations)
+            .map_err(|error| match error {
+                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("conditional inherent member selector is duplicated"),
+            })?;
+        let target_key = match &target {
+            crate::impls::InherentImplTarget::Declaration(declaration) => {
+                crate::impls::InherentImplTarget::Declaration(declaration.clone_with_allocation_budget(allocations).map_err(allocation_error)?)
+            }
+            crate::impls::InherentImplTarget::ExactEnumCase(variant) => {
+                crate::impls::InherentImplTarget::ExactEnumCase(variant.clone_with_allocation_budget(allocations).map_err(allocation_error)?)
+            }
+        };
+        conditional_member_entries.push((target_key, allocations.arc(members).map_err(allocation_error)?));
     }
+    let dispatch_resolver = dispatch_resolver
+        .with_frozen_conditional_import_entries(conditional_member_entries, inherent_domain_entries, allocations)
+        .map_err(|error| match error {
+            crate::dispatch::FrozenDispatchImportError::Allocation(error) => allocation_error(error),
+            crate::dispatch::FrozenDispatchImportError::DuplicateOwner => referential("dispatch surface owner is duplicated after relocation"),
+            crate::dispatch::FrozenDispatchImportError::DuplicateType => referential("dispatch type registration is duplicated after relocation"),
+            crate::dispatch::FrozenDispatchImportError::DuplicateConditionalTarget => {
+                referential("conditional inherent target is duplicated after identity relocation")
+            }
+            crate::dispatch::FrozenDispatchImportError::DuplicateDomain => {
+                referential("inherent implementation domain is duplicated after identity relocation")
+            }
+        })?;
 
-    // 12. Reconstruct conformance index (P7.T7.B)
-    let mut conformance_index = crate::impls::ConformanceIndex::new();
+    // 12. Reconstruct immutable conformance heads without source B-tree indexes.
+    let mut conformance_entries = allocations
+        .vector::<(crate::identity::ImplId, crate::impls::ConformanceContribution)>(world.conformance_heads.len())
+        .map_err(allocation_error)?;
     for rec in &world.conformance_heads {
-        let impl_id = from_stable_impl(&rec.impl_id).map_err(referential)?;
-        let source_module = from_stable_module(&rec.source_module).map_err(referential)?;
+        let impl_id = import_stable_impl_with_allocation_budget(&rec.impl_id, allocations)?;
+        let source_module = import_stable_module_with_allocation_budget(&rec.source_module, allocations)?;
         let target = match &rec.target {
             ConformanceTargetV1::Declaration { declaration } => {
-                crate::impls::ConformanceTarget::Declaration(from_stable_declaration(declaration).map_err(referential)?)
+                crate::impls::ConformanceTarget::Declaration(import_stable_declaration_with_allocation_budget(declaration, allocations)?)
             }
             ConformanceTargetV1::ExactEnumCase { variant } => {
-                crate::impls::ConformanceTarget::ExactEnumCase(from_stable_variant(variant).map_err(referential)?)
+                crate::impls::ConformanceTarget::ExactEnumCase(import_stable_variant_with_allocation_budget(variant, allocations)?)
             }
         };
         let target_head = type_relocation.ty(rec.target_type)?;
-        let trait_decl = from_stable_declaration(&rec.trait_ref.declaration).map_err(referential)?;
-        let mut args = Vec::new();
+        let trait_decl = import_stable_declaration_with_allocation_budget(&rec.trait_ref.declaration, allocations)?;
+        let mut args = allocations.vector(rec.trait_ref.arguments.len()).map_err(allocation_error)?;
         for &a in &rec.trait_ref.arguments {
             args.push(type_relocation.ty(a)?);
         }
         let generic_signature = if let Some(g) = &rec.generic_signature {
-            Some(import_generic_signature(g, &type_relocation, &mut type_store)?)
+            Some(import_generic_signature_with_allocation_budget(g, &type_relocation, &type_store, allocations)?)
         } else {
             None
         };
-        conformance_index.insert(crate::impls::ConformanceContribution {
-            impl_id: impl_id.clone(),
+        let key = impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+        let source_span_module = source_module.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+        conformance_entries.push((key, crate::impls::ConformanceContribution {
+            impl_id,
             source_module,
-            trait_ref: crate::traits::TraitRef::new(trait_decl, args),
+            trait_ref: crate::traits::TraitRef::new(trait_decl, allocations.boxed_slice(args).map_err(allocation_error)?),
             target,
             target_head,
             generic_signature,
             authorized: rec.authorized,
             eligible: rec.eligible,
-            source: crate::diagnostic::SemanticSourceSpan::new(impl_id.module.clone(), phalcom_common::range::SourceRange::default()),
+            source: crate::diagnostic::SemanticSourceSpan::new(source_span_module, phalcom_common::range::SourceRange::default()),
             diagnostics: Box::new([]),
-        });
+        }));
     }
+    let conformance_index = crate::impls::ConformanceIndex::from_frozen_entries_with_allocation_budget(conformance_entries, allocations)
+        .map_err(|error| match error {
+            crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
+            crate::parent_map::FrozenParentMapError::DuplicateKey => referential("conformance head is duplicated after identity relocation"),
+        })?;
 
-    let mut witness_plans_map = BTreeMap::new();
-    let mut source_plan_fingerprints = BTreeMap::new();
+    let mut witness_plan_entries = allocations
+        .vector::<(crate::identity::ImplId, Arc<crate::impls::ConformanceWitnessPlan>)>(world.witness_plans.len())
+        .map_err(allocation_error)?;
+    let mut source_plan_fingerprints = allocations
+        .vector::<(crate::identity::ImplId, crate::db::ProductFingerprint)>(world.witness_plans.len())
+        .map_err(allocation_error)?;
     for witness in &world.witness_plans {
-        let impl_id = from_stable_impl(&witness.impl_id).map_err(referential)?;
-        let source_module = from_stable_module(&witness.source_module).map_err(referential)?;
-        let trait_decl = from_stable_declaration(&witness.trait_ref_template.declaration).map_err(referential)?;
-        let mut trait_args = Vec::with_capacity(witness.trait_ref_template.arguments.len());
+        let impl_id = import_stable_impl_with_allocation_budget(&witness.impl_id, allocations)?;
+        let source_module = import_stable_module_with_allocation_budget(&witness.source_module, allocations)?;
+        let trait_decl = import_stable_declaration_with_allocation_budget(&witness.trait_ref_template.declaration, allocations)?;
+        let mut trait_args = allocations.vector(witness.trait_ref_template.arguments.len()).map_err(allocation_error)?;
         for &a in &witness.trait_ref_template.arguments {
             trait_args.push(type_relocation.ty(a)?);
         }
-        let trait_ref_template = crate::traits::TraitRef::new(trait_decl.clone(), trait_args);
+        let trait_ref_template = crate::traits::TraitRef::new(
+            trait_decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+            allocations.boxed_slice(trait_args).map_err(allocation_error)?,
+        );
         let target_template = type_relocation.ty(witness.target_template)?;
         let generic_signature = if let Some(g) = &witness.generic_signature {
-            Some(import_generic_signature(g, &type_relocation, &mut type_store)?)
+            Some(import_generic_signature_with_allocation_budget(g, &type_relocation, &type_store, allocations)?)
         } else {
             None
         };
-        let mut requirement_views = BTreeMap::new();
+        let mut requirement_view_entries = allocations
+            .vector::<(crate::traits::TraitRequirementId, crate::traits::InstantiatedTraitRequirement)>(witness.requirement_views.len())
+            .map_err(allocation_error)?;
         for view in &witness.requirement_views {
-            let requirement = import_callable_requirement_identity(&view.requirement)?;
+            let requirement = import_callable_requirement_identity_with_allocation_budget(&view.requirement, allocations)?;
             if requirement.owner != trait_decl {
                 return Err(referential("witness requirement view belongs to another trait"));
             }
+            let key = requirement.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
             let signature = import_callable_signature(&view.signature, &type_relocation, &type_store, allocations)?;
             let imported = crate::traits::InstantiatedTraitRequirement {
                 requirement: requirement.clone(),
-                callable: import_exact_callable(&view.callable)?,
+                callable: import_exact_callable_with_allocation_budget(&view.callable, allocations)?,
                 signature,
                 visibility: import_visibility(&view.visibility),
-                default_callable: view.default_callable.as_ref().map(import_exact_callable).transpose()?,
+                default_callable: view
+                    .default_callable
+                    .as_ref()
+                    .map(|callable| import_exact_callable_with_allocation_budget(callable, allocations))
+                    .transpose()?,
             };
-            if requirement_views.insert(requirement, imported).is_some() {
-                return Err(referential("witness requirement view is duplicated"));
-            }
+            requirement_view_entries.push((key, imported));
         }
-        let mut requirements = BTreeMap::new();
+        let requirement_views = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(requirement_view_entries, allocations)
+            .map_err(|error| match error {
+                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("witness requirement view is duplicated"),
+            })?;
+        let mut requirement_entries = allocations
+            .vector::<(crate::traits::TraitRequirementId, crate::impls::RequirementSelectionTemplate)>(witness.requirements.len())
+            .map_err(allocation_error)?;
         let mut evidence_importer = CallableEvidenceImporter::new(
             witness.conformance_evidence.len(),
             &type_relocation,
@@ -5523,31 +6219,35 @@ fn validate_and_import_semantic_world_inner(
             limits.max_recursion_depth,
         )?;
         for entry in &witness.requirements {
-            let requirement = import_callable_requirement_identity(&entry.requirement)?;
+            let requirement = import_callable_requirement_identity_with_allocation_budget(&entry.requirement, evidence_importer.allocations)?;
             if requirement.owner != trait_decl {
                 return Err(referential("witness requirement selection belongs to another trait"));
             }
+            let key = requirement.clone_with_allocation_budget(evidence_importer.allocations).map_err(allocation_error)?;
             let selection = import_callable_requirement_selection(
                 &entry.selection,
                 &witness.conformance_evidence,
                 &mut evidence_importer,
                 0,
             )?;
-            if requirements.insert(requirement, selection).is_some() {
-                return Err(referential("witness requirement selection is duplicated"));
-            }
+            requirement_entries.push((key, selection));
         }
         drop(evidence_importer);
+        let requirements = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(requirement_entries, allocations)
+            .map_err(|error| match error {
+                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("witness requirement selection is duplicated"),
+            })?;
         let associated_type_plan = import_callable_associated_type_plan(&witness.associated_type_plan, &impl_id, &trait_decl, &type_relocation, allocations)?;
         let completeness = import_callable_conformance_completeness(&witness.completeness, &type_relocation, allocations)?;
         let diagnostics = witness
             .diagnostics
             .iter()
-            .map(|diagnostic| import_trait_surface_diagnostic(diagnostic, &type_relocation))
+            .map(|diagnostic| import_trait_surface_diagnostic(diagnostic, &type_relocation, allocations))
             .collect::<Result<Vec<_>, _>>()?
             .into_boxed_slice();
         let plan = crate::impls::ConformanceWitnessPlan::from_parts(
-            impl_id.clone(),
+            impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
             source_module,
             target_template,
             trait_ref_template,
@@ -5559,9 +6259,15 @@ fn validate_and_import_semantic_world_inner(
             completeness,
             diagnostics,
         );
-        source_plan_fingerprints.insert(impl_id.clone(), plan.fingerprint);
-        witness_plans_map.insert(impl_id, Arc::new(plan));
+        source_plan_fingerprints.push((impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, plan.fingerprint));
+        witness_plan_entries.push((impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, allocations.arc(plan).map_err(allocation_error)?));
     }
+
+    let witness_plans_map = crate::impls::ConformanceWitnessPlans::from_frozen_entries_with_allocation_budget(witness_plan_entries, allocations)
+        .map_err(|error| match error {
+            crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
+            crate::parent_map::FrozenParentMapError::DuplicateKey => referential("witness plan is duplicated after identity relocation"),
+        })?;
 
     let (callable_analyses, callable_binding_ranges) = import_callable_analysis_records(
         &world.callable_analyses,
@@ -5587,7 +6293,11 @@ fn validate_and_import_semantic_world_inner(
         }
         derived_conformance_rules.insert(rule);
     }
-    let trait_dispatch_index = crate::trait_dispatch::TraitDispatchIndex::build(&conformance_index, &trait_surfaces);
+    let trait_dispatch_index = crate::trait_dispatch::TraitDispatchIndex::build_with_allocation_budget(&conformance_index, &trait_surfaces, allocations)
+        .map_err(|error| match error {
+            crate::trait_dispatch::FrozenTraitDispatchIndexError::Allocation(error) => allocation_error(error),
+            crate::trait_dispatch::FrozenTraitDispatchIndexError::DuplicateBucket => referential("trait dispatch index contains a duplicate bucket"),
+        })?;
 
     let mut constructor_initializations = crate::signature::ConstructorInitializationTable::default();
     for rec in &world.constructor_initializations {
@@ -5656,7 +6366,7 @@ fn validate_and_import_semantic_world_inner(
     let module_static_bindings = import_module_static_binding_indexes(&world.module_static_bindings, &world.callable_analyses, &type_relocation, allocations)?;
 
     let mut callable_definitions_by_module: BTreeMap<crate::identity::ModuleId, Vec<crate::identity::CallableId>> = BTreeMap::new();
-    for callable in callable_definitions_map.keys() {
+    for (callable, _) in callable_definitions_map.iter_local() {
         callable_definitions_by_module
             .entry(callable.owner.module().clone())
             .or_default()
@@ -5670,51 +6380,64 @@ fn validate_and_import_semantic_world_inner(
         callable_definitions_by_module.into_iter().map(|(m, v)| (m, v.into_boxed_slice())).collect();
 
     let surfaces = dispatch_resolver.surfaces().clone();
-    let formal_projection =
-        crate::presentation::FormalSemanticProjection::from_callable_analysis_table_with_binding_ranges(&callable_analyses, &callable_binding_ranges);
+    let formal_projection = crate::presentation::FormalSemanticProjection::from_callable_analysis_table_with_binding_ranges_and_allocation_budget(
+        &callable_analyses,
+        &callable_binding_ranges,
+        allocations,
+    )
+    .map_err(|error| match error {
+        crate::presentation::FormalSemanticProjectionBuildError::Allocation(error) => allocation_error(error),
+        crate::presentation::FormalSemanticProjectionBuildError::DuplicateFact => {
+            referential("formal projection contains a duplicate callable fact")
+        }
+        crate::presentation::FormalSemanticProjectionBuildError::DuplicateModule => {
+            referential("formal projection contains a duplicate module")
+        }
+    })?;
+    let formal_projection = allocations.arc(formal_projection).map_err(allocation_error)?;
     let snapshot = crate::snapshot::SemanticSnapshot {
         id: crate::identity::SnapshotId::new(crate::identity::WorkspaceId(1), crate::identity::SemanticRevision(1), type_store.id()),
         generation: 1,
-        store: Arc::new(type_store.clone()),
-        sources: Arc::new(BTreeMap::new()),
-        presentation_sources: Arc::new(BTreeMap::new()),
+        store: allocations.arc(type_store.clone()).map_err(allocation_error)?,
+        sources: allocations.arc(BTreeMap::new()).map_err(allocation_error)?,
+        presentation_sources: allocations.arc(BTreeMap::new()).map_err(allocation_error)?,
         surfaces,
-        dispatch: Arc::new(dispatch_resolver),
-        callable_signatures: Arc::new(callable_signatures),
-        constructor_initializations: Arc::new(constructor_initializations),
-        callable_definitions: Arc::new(crate::parent_map::ParentMap::from(&callable_definitions_map)),
-        callable_definitions_by_module: Arc::new(callable_definitions_by_module),
-        conformance_index: Arc::new(conformance_index),
-        conformance_witness_plans: Arc::new(witness_plans_map),
-        derived_conformance_rules: Arc::new(derived_conformance_rules),
-        trait_dispatch_index: Arc::new(trait_dispatch_index),
-        field_signatures: Arc::new(field_signatures),
-        declarations: Arc::new(structural_contracts.declaration_table.clone()),
-        type_aliases: Arc::new(structural_contracts.type_aliases.clone()),
-        trait_headers: Arc::new(trait_headers),
-        trait_surfaces: Arc::new(trait_surfaces),
-        hierarchy: Arc::new(structural_contracts.hierarchy.clone()),
-        diagnostics: Arc::new(BTreeMap::new()),
-        semantic_graph: Arc::new(phalcom_modules::graph::SemanticGraph::default()),
-        callable_analyses: Arc::new(callable_analyses),
+        dispatch: allocations.arc(dispatch_resolver).map_err(allocation_error)?,
+        callable_signatures: allocations.arc(callable_signatures).map_err(allocation_error)?,
+        constructor_initializations: allocations.arc(constructor_initializations).map_err(allocation_error)?,
+        callable_definitions: allocations.arc(callable_definitions_map).map_err(allocation_error)?,
+        callable_definitions_by_module: allocations.arc(callable_definitions_by_module).map_err(allocation_error)?,
+        conformance_index: allocations.arc(conformance_index).map_err(allocation_error)?,
+        conformance_witness_plans: allocations.arc(witness_plans_map).map_err(allocation_error)?,
+        derived_conformance_rules: allocations.arc(derived_conformance_rules).map_err(allocation_error)?,
+        trait_dispatch_index: allocations.arc(trait_dispatch_index).map_err(allocation_error)?,
+        field_signatures: allocations.arc(field_signatures).map_err(allocation_error)?,
+        declarations: allocations.arc(structural_contracts.declaration_table.clone()).map_err(allocation_error)?,
+        type_aliases: allocations.arc(structural_contracts.type_aliases.clone()).map_err(allocation_error)?,
+        trait_headers: allocations.arc(trait_headers).map_err(allocation_error)?,
+        trait_surfaces: allocations.arc(trait_surfaces).map_err(allocation_error)?,
+        hierarchy: allocations.arc(structural_contracts.hierarchy.clone()).map_err(allocation_error)?,
+        diagnostics: allocations.arc(BTreeMap::new()).map_err(allocation_error)?,
+        semantic_graph: allocations.arc(phalcom_modules::graph::SemanticGraph::default()).map_err(allocation_error)?,
+        callable_analyses: allocations.arc(callable_analyses).map_err(allocation_error)?,
         internal_incidents: Arc::from([]),
-        formal_projection: Arc::new(formal_projection),
-        source_index: Arc::new(crate::source_index::SourceSemanticIndex::default()),
-        advisory: Arc::new(crate::advisory::AdvisoryWorkspace::default()),
-        module_products: Arc::new(crate::snapshot::ModuleQueryProducts::empty()),
-        data_semantics: Arc::new(structural_contracts.data_table.clone()),
-        enum_semantics: Arc::new(structural_contracts.enum_table.clone()),
-        enum_requirements: Arc::new(enum_requirements),
-        associated_surfaces: Arc::new(associated_surfaces),
-        type_member_declarations: Arc::new(type_member_declarations),
-        associated_static_domains: Arc::new(associated_static_domains),
-        static_case_catalogs: Arc::new(static_case_catalogs),
-        static_case_signatures: Arc::new(static_case_signatures),
-        static_definitions: Arc::new(static_definitions),
-        static_constants: Arc::new(static_constants),
-        static_values: Arc::new(static_values.clone()),
-        module_static_bindings: Arc::new(module_static_bindings),
-        semantic_structure_shards: Arc::new(BTreeMap::new()),
+        formal_projection,
+        source_index: allocations.arc(crate::source_index::SourceSemanticIndex::default()).map_err(allocation_error)?,
+        advisory: allocations.arc(crate::advisory::AdvisoryWorkspace::default()).map_err(allocation_error)?,
+        module_products: allocations.arc(crate::snapshot::ModuleQueryProducts::empty()).map_err(allocation_error)?,
+        data_semantics: allocations.arc(structural_contracts.data_table.clone()).map_err(allocation_error)?,
+        enum_semantics: allocations.arc(structural_contracts.enum_table.clone()).map_err(allocation_error)?,
+        enum_requirements: allocations.arc(enum_requirements).map_err(allocation_error)?,
+        associated_surfaces: allocations.arc(associated_surfaces).map_err(allocation_error)?,
+        type_member_declarations: allocations.arc(type_member_declarations).map_err(allocation_error)?,
+        associated_static_domains: allocations.arc(associated_static_domains).map_err(allocation_error)?,
+        static_case_catalogs: allocations.arc(static_case_catalogs).map_err(allocation_error)?,
+        static_case_signatures: allocations.arc(static_case_signatures).map_err(allocation_error)?,
+        static_definitions: allocations.arc(static_definitions).map_err(allocation_error)?,
+        static_constants: allocations.arc(static_constants).map_err(allocation_error)?,
+        static_values: allocations.arc(static_values.clone()).map_err(allocation_error)?,
+        module_static_bindings: allocations.arc(module_static_bindings).map_err(allocation_error)?,
+        semantic_structure_shards: allocations.arc(BTreeMap::new()).map_err(allocation_error)?,
         // Imported rows are not promoted to Complete until every canonical
         // source-free owner family passes the final completeness check below.
         status: crate::snapshot::SnapshotStatus::Partial { blocked_modules: 0 },
@@ -6867,7 +7590,7 @@ mod tests {
             lambdas: vec![],
         };
         let store = TypeStore::new();
-        let source_plan_fingerprints = BTreeMap::from([(source_impl.clone(), crate::db::ProductFingerprint::new(37))]);
+        let source_plan_fingerprints = vec![(source_impl.clone(), crate::db::ProductFingerprint::new(37))];
         let mut allocations = AllocationBudget::new(8192);
         let restored = import_callable_call_specializations(
             &expressions,
@@ -6909,10 +7632,11 @@ mod tests {
         assert_eq!(evidence.source_impl, source_impl);
         assert_eq!(evidence.exact_target, relocated_type);
         assert_eq!(evidence.exact_trait_ref.arguments.as_ref(), &[relocated_type]);
-        validate_relocated_conformance_evidence_fingerprint(evidence, source_plan_fingerprints[&source_impl]).unwrap();
+        let source_plan_fingerprint = source_plan_fingerprints.iter().find(|(impl_id, _)| impl_id == &source_impl).unwrap().1;
+        validate_relocated_conformance_evidence_fingerprint(evidence, source_plan_fingerprint).unwrap();
         let mut stale_evidence = evidence.as_ref().clone();
         stale_evidence.fingerprint = crate::db::ProductFingerprint::new(stale_evidence.fingerprint.raw().wrapping_add(1));
-        let error = validate_relocated_conformance_evidence_fingerprint(&stale_evidence, source_plan_fingerprints[&source_impl])
+        let error = validate_relocated_conformance_evidence_fingerprint(&stale_evidence, source_plan_fingerprint)
             .expect_err("a stale post-relocation Exact fingerprint must be rejected");
         assert!(error.to_string().contains("fingerprint is stale after relocation"));
         let crate::checker::analysis::GenericCallConformanceSource::Derived { evidence: derived } = &restored[0].1.conformances[3].source else {
@@ -6976,7 +7700,7 @@ mod tests {
             &evidence_nodes,
             &relocation,
             &store,
-            &BTreeMap::new(),
+            &[],
             &mut negative_allocations,
             16,
         )

@@ -96,7 +96,7 @@ impl ModuleStaticBindingCatalog {
         Self {
             module: index.module().clone(),
             bindings,
-            visible_names: index.visible_names.clone(),
+            visible_names: index.visible_symbol_bindings().map(|(name, symbol)| (name.into(), symbol.clone())).collect(),
         }
     }
 
@@ -175,25 +175,20 @@ pub struct ModuleBindingFact {
 #[derive(Clone, Debug)]
 pub struct ModuleStaticBindingIndex {
     module: ModuleId,
-    bindings: BTreeMap<SymbolId, ModuleBindingFact>,
-    visible_names: BTreeMap<Box<str>, SymbolId>,
+    bindings: crate::ordered_map::OrderedMap<SymbolId, ModuleBindingFact>,
+    visible_names: crate::ordered_map::OrderedMap<Box<str>, SymbolId>,
 }
 
 impl ModuleStaticBindingIndex {
-    /// Reconstructs a final index from already validated artifact owner rows.
-    pub(crate) fn from_artifact_parts(
+    pub(crate) fn from_frozen_artifact_parts(
         module: ModuleId,
-        bindings: BTreeMap<SymbolId, ModuleBindingFact>,
-        visible_names: BTreeMap<Box<str>, SymbolId>,
+        bindings: crate::ordered_map::OrderedMap<SymbolId, ModuleBindingFact>,
+        visible_names: crate::ordered_map::OrderedMap<Box<str>, SymbolId>,
     ) -> Result<Self, &'static str> {
         if bindings.iter().any(|(symbol, fact)| symbol != &fact.symbol) || visible_names.values().any(|symbol| !bindings.contains_key(symbol)) {
             return Err("module binding artifact parts contain a mismatched owner or dangling visible name");
         }
-        Ok(Self {
-            module,
-            bindings,
-            visible_names,
-        })
+        Ok(Self { module, bindings, visible_names })
     }
 
     /// Builds the stable module handoff from the final ordinary `<main>`
@@ -235,11 +230,11 @@ impl ModuleStaticBindingIndex {
             };
             bindings.entry(symbol.clone()).or_insert(fact);
         }
-        let visible_names = bindings.keys().map(|symbol| (symbol.name.clone(), symbol.clone())).collect();
+        let visible_names: BTreeMap<Box<str>, SymbolId> = bindings.keys().map(|symbol| (symbol.name.clone(), symbol.clone())).collect();
         Self {
             module: module.clone(),
-            bindings,
-            visible_names,
+            bindings: bindings.into(),
+            visible_names: visible_names.into(),
         }
     }
 
@@ -268,8 +263,13 @@ impl ModuleStaticBindingIndex {
     /// the key used to seed the ordinary checker scope for this module.
     pub fn insert_imported_binding(&mut self, local_name: &str, fact: ModuleBindingFact) {
         let symbol = fact.symbol.clone();
-        self.bindings.entry(symbol.clone()).or_insert(fact);
-        self.visible_names.entry(local_name.into()).or_insert(symbol);
+        if !self.bindings.contains_key(&symbol) {
+            self.bindings.insert(symbol.clone(), fact);
+        }
+        let local_name: Box<str> = local_name.into();
+        if !self.visible_names.contains_key(&local_name) {
+            self.visible_names.insert(local_name, symbol);
+        }
     }
 
     pub fn module(&self) -> &ModuleId {

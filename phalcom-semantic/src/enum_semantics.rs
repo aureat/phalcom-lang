@@ -144,6 +144,21 @@ impl EnumSemanticTable {
         Self::default()
     }
 
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        enums: Vec<(DeclarationId, Arc<EnumInfo>)>,
+        variants: Vec<(VariantId, Arc<VariantInfo>)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, crate::parent_map::FrozenParentMapError> {
+        let enums = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(enums, allocations)?;
+        let variants = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(variants, allocations)?;
+        Ok(Self {
+            enums: Arc::new(enums),
+            variants: Arc::new(variants),
+            module_enums: std::collections::HashMap::new(),
+            parent: None,
+        })
+    }
+
     pub fn insert_enum(&mut self, info: Arc<EnumInfo>) {
         self.module_enums.entry(info.owner.module.clone()).or_default().insert(info.owner.clone());
         Arc::make_mut(&mut self.enums).insert(info.owner.clone(), info);
@@ -174,9 +189,10 @@ impl EnumSemanticTable {
             .get(module)
             .into_iter()
             .flat_map(move |ids| ids.iter().filter_map(move |id| self.enums.get(id).map(|info| (id, info))));
+        let frozen_iter = self.enums.iter_frozen().filter(move |(owner, _)| &owner.module == module);
         match &self.parent {
-            Some(parent) => Box::new(parent.iter_module(module).chain(local_iter)),
-            None => Box::new(local_iter),
+            Some(parent) => Box::new(parent.iter_module(module).chain(frozen_iter).chain(local_iter)),
+            None => Box::new(frozen_iter.chain(local_iter)),
         }
     }
 }

@@ -331,6 +331,13 @@ impl ImplId {
     pub fn new(module: ModuleId, local: ImplLocalId) -> Self {
         Self { module, local }
     }
+
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            module: self.module.clone_with_allocation_budget(allocations)?,
+            local: self.local,
+        })
+    }
 }
 
 /// Owner identity of a callable member.
@@ -346,6 +353,14 @@ pub enum CallableOwnerId {
 }
 
 impl CallableOwnerId {
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(match self {
+            Self::Declaration(declaration) => Self::Declaration(declaration.clone_with_allocation_budget(allocations)?),
+            Self::Variant(variant) => Self::Variant(variant.clone_with_allocation_budget(allocations)?),
+            Self::Conformance(implementation) => Self::Conformance(implementation.clone_with_allocation_budget(allocations)?),
+        })
+    }
+
     pub fn declaration(&self) -> &DeclarationId {
         match self {
             Self::Declaration(decl) => decl,
@@ -446,6 +461,34 @@ impl CallableId {
             selector,
             side,
         }
+    }
+
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let owner = self.owner.clone_with_allocation_budget(allocations)?;
+        let base = match &self.selector.base {
+            phalcom_common::selector::SelectorBase::Named(name) => {
+                phalcom_common::selector::SelectorBase::Named(allocations.string(name)?)
+            }
+            phalcom_common::selector::SelectorBase::Subscript => phalcom_common::selector::SelectorBase::Subscript,
+        };
+        let mut slots = allocations.vector(self.selector.slots.len())?;
+        for slot in self.selector.slots.iter() {
+            slots.push(match slot {
+                phalcom_common::selector::SelectorSlot::Positional => phalcom_common::selector::SelectorSlot::Positional,
+                phalcom_common::selector::SelectorSlot::Label(label) => {
+                    phalcom_common::selector::SelectorSlot::Label(allocations.string(label)?)
+                }
+            });
+        }
+        Ok(Self {
+            owner,
+            selector: Selector {
+                base,
+                kind: self.selector.kind,
+                slots: allocations.boxed_slice(slots)?,
+            },
+            side: self.side,
+        })
     }
 
     pub fn method(owner: DeclarationId, selector: Selector, side: DispatchSide) -> Self {
@@ -570,6 +613,14 @@ impl FieldId {
             name: name.into(),
             side,
         }
+    }
+
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            name: allocations.boxed_str(&self.name)?,
+            side: self.side,
+        })
     }
 }
 

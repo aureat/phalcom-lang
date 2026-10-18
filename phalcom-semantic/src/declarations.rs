@@ -11,6 +11,7 @@ use phalcom_ast::ast::{ExpansionMode, GenericParameterSyntax, Statement};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, UniverseSourceProvider};
 use phalcom_native_meta::types::KindSpec;
 use phalcom_native_meta::universe::{UNIVERSE_BINDINGS, UniverseBindingKind, UniverseKey};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedMap, SortedMapEntriesError};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -180,10 +181,17 @@ impl NominalDeclarationHeader {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DeclarationTypeTable {
     parent: Option<Arc<DeclarationTypeTable>>,
+    frozen: Option<Arc<BudgetedSortedMap<DeclarationId, DeclarationTypeInfo>>>,
     entries: HashMap<DeclarationId, DeclarationTypeInfo>,
     intrinsic_static_domains: HashMap<DeclarationId, KindId>,
     intrinsic_type_owners: HashMap<DeclarationId, IntrinsicTypeOwner>,
     module_declarations: HashMap<ModuleId, std::collections::BTreeSet<DeclarationId>>,
+}
+
+#[derive(Debug)]
+pub(crate) enum FrozenDeclarationTypeTableError {
+    Allocation(AllocationError),
+    DuplicateDeclaration,
 }
 
 impl DeclarationTypeTable {
@@ -195,11 +203,32 @@ impl DeclarationTypeTable {
     pub fn with_parent(parent: Arc<DeclarationTypeTable>) -> Self {
         Self {
             parent: Some(parent),
+            frozen: None,
             entries: HashMap::new(),
             intrinsic_static_domains: HashMap::new(),
             intrinsic_type_owners: HashMap::new(),
             module_declarations: HashMap::new(),
         }
+    }
+
+    /// Builds immutable artifact authority from a pre-budgeted entry buffer.
+    /// Sorting retains the same identity ordering without allocating tree nodes.
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        mut entries: Vec<(DeclarationId, DeclarationTypeInfo)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, FrozenDeclarationTypeTableError> {
+        entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let frozen = BudgetedSortedMap::from_sorted_entries(entries).map_err(|error| match error {
+            SortedMapEntriesError::DuplicateKey => FrozenDeclarationTypeTableError::DuplicateDeclaration,
+            SortedMapEntriesError::OutOfOrder => unreachable!("entries were sorted before frozen construction"),
+        })?;
+        let frozen = allocations
+            .arc(frozen)
+            .map_err(FrozenDeclarationTypeTableError::Allocation)?;
+        Ok(Self {
+            frozen: Some(frozen),
+            ..Self::default()
+        })
     }
 
     /// Read-only handle to the parent table, if parented.
@@ -209,16 +238,16 @@ impl DeclarationTypeTable {
 
     /// Number of local overlay entries.
     pub fn local_len(&self) -> usize {
-        self.entries.len()
+        self.entries.len() + self.frozen.as_ref().map_or(0, |entries| entries.len())
     }
 
     /// Total number of unique declarations accessible through this table and its parents.
     pub fn len(&self) -> usize {
-        self.entries.len() + self.parent.as_ref().map_or(0, |p| p.len())
+        self.local_len() + self.parent.as_ref().map_or(0, |p| p.len())
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty() && self.parent.as_ref().is_none_or(|p| p.is_empty())
+        self.local_len() == 0 && self.parent.as_ref().is_none_or(|p| p.is_empty())
     }
 
     /// Replaces the complete declaration product and all independently
@@ -261,7 +290,8 @@ impl DeclarationTypeTable {
 
     fn store_authoritative(&mut self, info: DeclarationTypeInfo) {
         debug_assert!(
-            self.parent.as_ref().map_or(true, |p| !p.contains(&info.declaration)),
+            self.parent.as_ref().map_or(true, |p| !p.contains(&info.declaration))
+                && self.frozen.as_ref().is_none_or(|entries| !entries.contains_key(&info.declaration)),
             "local mutation cannot overwrite canonical parent declaration: {:?}",
             info.declaration
         );
@@ -341,6 +371,7 @@ impl DeclarationTypeTable {
         self.entries
             .get(declaration)
             .and_then(|info| info.binding.runtime_owner)
+            .or_else(|| self.frozen.as_ref().and_then(|entries| entries.get(declaration)).and_then(|info| info.binding.runtime_owner))
             .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_runtime_owner(declaration)))
     }
 
@@ -353,6 +384,7 @@ impl DeclarationTypeTable {
         self.entries
             .get(declaration)
             .map(|info| info.binding.semantic_form)
+            .or_else(|| self.frozen.as_ref().and_then(|entries| entries.get(declaration)).map(|info| info.binding.semantic_form))
             .or_else(|| self.parent.as_ref().and_then(|p| p.semantic_form(declaration)))
     }
 
@@ -360,6 +392,16 @@ impl DeclarationTypeTable {
         self.intrinsic_type_owners
             .get(declaration)
             .copied()
+            .or_else(|| {
+                self.frozen
+                    .as_ref()
+                    .and_then(|entries| entries.get(declaration))
+                    .and_then(|info| match info.binding.runtime_owner {
+                        Some(IntrinsicRuntimeOwner::Tuple) => Some(IntrinsicTypeOwner::Tuple),
+                        Some(IntrinsicRuntimeOwner::Record) => Some(IntrinsicTypeOwner::Record),
+                        Some(IntrinsicRuntimeOwner::Pack) | None => None,
+                    })
+            })
             .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_type_owner(declaration)))
     }
 
@@ -367,6 +409,18 @@ impl DeclarationTypeTable {
         self.intrinsic_type_owners
             .iter()
             .find_map(|(declaration, candidate)| (*candidate == owner).then(|| declaration.clone()))
+            .or_else(|| {
+                self.frozen.as_ref().and_then(|entries| {
+                    entries.iter().find_map(|(declaration, info)| {
+                        let candidate = match info.binding.runtime_owner {
+                            Some(IntrinsicRuntimeOwner::Tuple) => Some(IntrinsicTypeOwner::Tuple),
+                            Some(IntrinsicRuntimeOwner::Record) => Some(IntrinsicTypeOwner::Record),
+                            Some(IntrinsicRuntimeOwner::Pack) | None => None,
+                        };
+                        (candidate == Some(owner)).then(|| declaration.clone())
+                    })
+                })
+            })
             .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_type_owner_declaration(owner)))
     }
 
@@ -401,11 +455,16 @@ impl DeclarationTypeTable {
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&DeclarationTypeInfo> {
-        self.entries.get(declaration).or_else(|| self.parent.as_ref().and_then(|p| p.get(declaration)))
+        self.entries
+            .get(declaration)
+            .or_else(|| self.frozen.as_ref().and_then(|entries| entries.get(declaration)))
+            .or_else(|| self.parent.as_ref().and_then(|p| p.get(declaration)))
     }
 
     pub fn contains(&self, declaration: &DeclarationId) -> bool {
-        self.entries.contains_key(declaration) || self.parent.as_ref().is_some_and(|p| p.contains(declaration))
+        self.entries.contains_key(declaration)
+            || self.frozen.as_ref().is_some_and(|entries| entries.contains_key(declaration))
+            || self.parent.as_ref().is_some_and(|p| p.contains(declaration))
     }
 
     pub fn form(&self, declaration: &DeclarationId) -> Option<TypeId> {
@@ -443,11 +502,17 @@ impl DeclarationTypeTable {
 
     /// Iterates declarations belonging to the specified module without full-table scanning.
     pub fn iter_module<'a>(&'a self, module: &'a ModuleId) -> Box<dyn Iterator<Item = (&'a DeclarationId, &'a DeclarationTypeInfo)> + 'a> {
-        let local_iter = self
+        let frozen_iter = self
+            .frozen
+            .iter()
+            .flat_map(|entries| entries.iter())
+            .filter(move |(id, _)| &id.module == module);
+        let map_iter = self
             .module_declarations
             .get(module)
             .into_iter()
             .flat_map(move |ids| ids.iter().filter_map(move |id| self.entries.get(id).map(|info| (id, info))));
+        let local_iter = frozen_iter.chain(map_iter);
         match &self.parent {
             Some(parent) => Box::new(parent.iter_module(module).chain(local_iter)),
             None => Box::new(local_iter),
@@ -466,8 +531,8 @@ impl DeclarationTypeTable {
     }
 
     /// Iterates only local overlay declarations (excluding parent entries).
-    pub fn iter_local(&self) -> std::collections::hash_map::Iter<'_, DeclarationId, DeclarationTypeInfo> {
-        self.entries.iter()
+    pub fn iter_local(&self) -> impl Iterator<Item = (&DeclarationId, &DeclarationTypeInfo)> {
+        self.frozen.iter().flat_map(|entries| entries.iter()).chain(self.entries.iter())
     }
 
     /// Iterates over all declarations across parent authority and local overlay.
@@ -478,7 +543,7 @@ impl DeclarationTypeTable {
             tables.push(t);
             curr = t.parent.as_deref();
         }
-        tables.into_iter().rev().flat_map(|t| t.entries.iter())
+        tables.into_iter().rev().flat_map(|table| table.iter_local())
     }
 }
 

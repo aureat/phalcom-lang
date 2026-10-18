@@ -168,7 +168,8 @@ mod tests {
         for severity in [CallableDiagnosticSeverityV1::Error, CallableDiagnosticSeverityV1::Warning,
             CallableDiagnosticSeverityV1::Information, CallableDiagnosticSeverityV1::Hint] {
             record.severity = severity;
-            let expected = import_trait_surface_diagnostic(&record, &relocation).unwrap();
+            let mut expected_allocations = AllocationBudget::new(1 << 20);
+            let expected = import_trait_surface_diagnostic(&record, &relocation, &mut expected_allocations).unwrap();
             let mut allocations = AllocationBudget::new(1 << 20);
             let actual = import_diagnostic_with_allocation_budget(&record, &relocation, &mut allocations).unwrap();
             assert_eq!(actual, expected);

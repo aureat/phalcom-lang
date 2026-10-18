@@ -466,6 +466,17 @@ pub fn register_structural_primary_roots(
             product_subkey: 0,
         };
         types.register_type_root(lineage, key, info.form)?;
+
+        // DeclarationTypeInfo retains the canonical class-object form beside
+        // the source-facing declaration form. Preserve it in the portable
+        // type prefix so import can relocate it without extending the frozen
+        // store through an unbudgeted local interning mutation.
+        let key = CanonicalTypeRootKey {
+            family_tag: CanonicalRootFamilyTag::DeclarationShell,
+            owner: StableOwnerRef::Declaration(to_stable_declaration(decl_id)),
+            product_subkey: 1,
+        };
+        types.register_type_root(lineage, key, info.class_object_type)?;
     }
 
     for (decl_id, info) in type_aliases.iter() {
@@ -519,6 +530,45 @@ pub fn register_structural_primary_roots(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod structural_type_roots_tests {
+    use super::*;
+    use crate::declarations::NominalDeclarationHeader;
+    use crate::identity::{DeclarationId, ModuleId};
+    use crate::types::store::TypeStore;
+
+    #[test]
+    fn declaration_shell_roots_retain_class_object_types_in_the_frozen_prefix() {
+        let limits = ValidationLimits::default();
+        let declaration = DeclarationId::new(ModuleId::universe_root(), "ArtifactShellRoot".into());
+        let mut source_store = TypeStore::new();
+        let header = NominalDeclarationHeader::from_signature(&mut source_store, declaration.clone(), None);
+        let class_object_type = header.class_object_type;
+        let mut declarations = DeclarationTypeTable::new();
+        declarations.insert(header.into_type_info(None));
+
+        let mut roots = TypeExportContext::new(&source_store);
+        register_structural_primary_roots(
+            &mut roots,
+            &DataSemanticTable::new(),
+            &EnumSemanticTable::new(),
+            &declarations,
+            &MapTypeHierarchy::new(),
+            &TypeAliasTable::new(),
+        )
+        .expect("register structural roots");
+        roots.close_graph(&source_store, &limits).expect("close type roots");
+        roots.ty(class_object_type).expect("class-object type is part of the portable graph");
+
+        let graph = roots.project_graph(&source_store, &limits).expect("project type graph");
+        let (imported_store, _) = TypeStore::import_type_graph(&graph, &limits).expect("import frozen type prefix");
+        assert!(
+            imported_store.class_object_type_id(&declaration).is_some(),
+            "the frozen prefix must contain the class-object form used by declaration-shell import"
+        );
+    }
 }
 
 /// Projects all structural primary contracts into a bounded, deterministic wire DTO.

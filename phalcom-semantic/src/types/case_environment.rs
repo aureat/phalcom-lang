@@ -1,6 +1,7 @@
 //! GADT case equality environment computation and normalization.
 
 use crate::identity::DeclarationId;
+use crate::ordered_map::OrderedMap;
 use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::parameter::{GenericConstraint, TypeTerm};
 use crate::types::store::{TypeData, TypeStore};
@@ -10,13 +11,13 @@ use std::collections::BTreeMap;
 /// Per-variant GADT type equality environment.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct CaseTypeEnvironment {
-    pub bindings: BTreeMap<TypeParameterId, TypeId>,
+    pub bindings: OrderedMap<TypeParameterId, TypeId>,
     pub equalities: Box<[GenericConstraint]>,
 }
 
 impl CaseTypeEnvironment {
-    pub fn new(bindings: BTreeMap<TypeParameterId, TypeId>, equalities: Box<[GenericConstraint]>) -> Self {
-        Self { bindings, equalities }
+    pub fn new(bindings: impl Into<OrderedMap<TypeParameterId, TypeId>>, equalities: Box<[GenericConstraint]>) -> Self {
+        Self { bindings: bindings.into(), equalities }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -133,7 +134,7 @@ pub fn derive_case_environment(
         .collect();
 
     Ok(CaseTypeEnvironment {
-        bindings,
+        bindings: bindings.into(),
         equalities: equalities.into_boxed_slice(),
     })
 }

@@ -14,12 +14,13 @@ use super::variance::Variance;
 use crate::identity::{AssociatedStaticDomainDeclarationId, DeclarationId, VariantId};
 use crate::scalar::StaticInt;
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
-use im::{HashMap, Vector};
+use im::Vector;
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use super::type_lambda::FrozenTypeLambdaPrefix;
+use super::overlay::PersistentHashMapOverlay;
 use phalcom_type_meta::allocation::BudgetedSortedMap;
 
 fn canonical_complete_pack_source_member(selector: &TypeMemberSelector) -> TypeMemberDeclarationId {
@@ -442,24 +443,24 @@ pub struct TypeStore {
     id: TypeStoreId,
     frozen: Option<Arc<FrozenTypeStorePrefix>>,
     types: Vector<TypeData>,
-    type_to_id: HashMap<(TypeData, KindId), TypeId>,
+    type_to_id: PersistentHashMapOverlay<(TypeData, KindId), TypeId>,
     kinds: Vector<KindData>,
-    kind_to_id: HashMap<KindData, KindId>,
+    kind_to_id: PersistentHashMapOverlay<KindData, KindId>,
     type_kinds: Vector<KindId>,
     type_parameters: Vector<TypeParameterData>,
-    parameter_to_id: HashMap<(TypeParameterOwner, u32), TypeParameterId>,
-    parameter_variances: HashMap<(DeclarationId, u32), Variance>,
+    parameter_to_id: PersistentHashMapOverlay<(TypeParameterOwner, u32), TypeParameterId>,
+    parameter_variances: PersistentHashMapOverlay<(DeclarationId, u32), Variance>,
     lambda_arena: TypeLambdaArena,
     row_arena: Vector<RecordRowData>,
-    row_interner: HashMap<RecordRowData, RecordRowId>,
+    row_interner: PersistentHashMapOverlay<RecordRowData, RecordRowId>,
     family_arena: Vector<FamilyType>,
-    family_interner: HashMap<FamilyType, FamilyTypeId>,
+    family_interner: PersistentHashMapOverlay<FamilyType, FamilyTypeId>,
     variant_identities: Vector<VariantId>,
-    variant_identity_to_id: HashMap<VariantId, VariantTypeId>,
+    variant_identity_to_id: PersistentHashMapOverlay<VariantId, VariantTypeId>,
     static_domains: Vector<StaticDomainData>,
-    static_domain_to_id: HashMap<StaticDomainData, StaticDomainId>,
+    static_domain_to_id: PersistentHashMapOverlay<StaticDomainData, StaticDomainId>,
     static_constructors: Vector<AlgebraicStaticConstructorData>,
-    static_constructor_to_id: HashMap<AlgebraicStaticConstructorData, AlgebraicStaticConstructorId>,
+    static_constructor_to_id: PersistentHashMapOverlay<AlgebraicStaticConstructorData, AlgebraicStaticConstructorId>,
     const_int_domain: StaticDomainId,
 
     never_id: TypeId,
@@ -496,24 +497,24 @@ impl TypeStore {
             id: TypeStoreId(NEXT_TYPE_STORE_ID.fetch_add(1, Ordering::Relaxed)),
             frozen: None,
             types: Vector::new(),
-            type_to_id: HashMap::new(),
+            type_to_id: PersistentHashMapOverlay::default(),
             kinds: Vector::new(),
-            kind_to_id: HashMap::new(),
+            kind_to_id: PersistentHashMapOverlay::default(),
             type_kinds: Vector::new(),
             type_parameters: Vector::new(),
-            parameter_to_id: HashMap::new(),
-            parameter_variances: HashMap::new(),
+            parameter_to_id: PersistentHashMapOverlay::default(),
+            parameter_variances: PersistentHashMapOverlay::default(),
             lambda_arena: TypeLambdaArena::new(),
             row_arena: Vector::new(),
-            row_interner: HashMap::new(),
+            row_interner: PersistentHashMapOverlay::default(),
             family_arena: Vector::new(),
-            family_interner: HashMap::new(),
+            family_interner: PersistentHashMapOverlay::default(),
             variant_identities: Vector::new(),
-            variant_identity_to_id: HashMap::new(),
+            variant_identity_to_id: PersistentHashMapOverlay::default(),
             static_domains: Vector::new(),
-            static_domain_to_id: HashMap::new(),
+            static_domain_to_id: PersistentHashMapOverlay::default(),
             static_constructors: Vector::new(),
-            static_constructor_to_id: HashMap::new(),
+            static_constructor_to_id: PersistentHashMapOverlay::default(),
             const_int_domain: StaticDomainId::from_index(0),
             never_id: TypeId::DUMMY,
             unit_id: TypeId::DUMMY,
@@ -545,24 +546,24 @@ impl TypeStore {
         Self {
             id: prefix.id,
             types: Vector::new(),
-            type_to_id: HashMap::new(),
+            type_to_id: PersistentHashMapOverlay::default(),
             kinds: Vector::new(),
-            kind_to_id: HashMap::new(),
+            kind_to_id: PersistentHashMapOverlay::default(),
             type_kinds: Vector::new(),
             type_parameters: Vector::new(),
-            parameter_to_id: HashMap::new(),
-            parameter_variances: HashMap::new(),
+            parameter_to_id: PersistentHashMapOverlay::default(),
+            parameter_variances: PersistentHashMapOverlay::default(),
             lambda_arena: TypeLambdaArena::from_frozen(prefix.lambda_arena.clone()),
             row_arena: Vector::new(),
-            row_interner: HashMap::new(),
+            row_interner: PersistentHashMapOverlay::default(),
             family_arena: Vector::new(),
-            family_interner: HashMap::new(),
+            family_interner: PersistentHashMapOverlay::default(),
             variant_identities: Vector::new(),
-            variant_identity_to_id: HashMap::new(),
+            variant_identity_to_id: PersistentHashMapOverlay::default(),
             static_domains: Vector::new(),
-            static_domain_to_id: HashMap::new(),
+            static_domain_to_id: PersistentHashMapOverlay::default(),
             static_constructors: Vector::new(),
-            static_constructor_to_id: HashMap::new(),
+            static_constructor_to_id: PersistentHashMapOverlay::default(),
             const_int_domain: prefix.const_int_domain,
             never_id: prefix.never_id,
             unit_id: prefix.unit_id,
@@ -1131,7 +1132,7 @@ impl TypeStore {
                 }
             }
         }
-        for ((parameter_owner, index), parameter) in &self.parameter_to_id {
+        for ((parameter_owner, index), parameter) in self.parameter_to_id.iter() {
             if parameter_owner == owner {
                 parameters.push((*index, *parameter));
             }

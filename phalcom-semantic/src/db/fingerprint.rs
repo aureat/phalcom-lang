@@ -338,10 +338,21 @@ pub(crate) fn hash_generic_signature(signature: &GenericSignature, hasher: &mut 
     } else {
         "legacy-generic-parameter-metadata-absent".hash(hasher);
     }
-    let mut sorted_constraints = signature.constraints.to_vec();
-    sorted_constraints.sort();
-    for constraint in &sorted_constraints {
-        constraint.hash(hasher);
+    // Hash in the same sorted order as the canonical source fingerprint
+    // without cloning a temporary Vec. The quadratic selection pass is over
+    // the small generic-constraint list and keeps this query deterministic
+    // without an unbudgeted allocation on artifact import.
+    let mut emitted = 0;
+    while emitted < signature.constraints.len() {
+        let next = signature.constraints.iter().find(|candidate| {
+            signature.constraints.iter().filter(|other| *other < *candidate).count() == emitted
+        });
+        let Some(next) = next else { break };
+        let duplicates = signature.constraints.iter().filter(|candidate| *candidate == next).count();
+        for _ in 0..duplicates {
+            next.hash(hasher);
+        }
+        emitted += duplicates;
     }
 }
 

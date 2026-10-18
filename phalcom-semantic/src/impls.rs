@@ -1043,7 +1043,7 @@ fn normalize_exact_requirement_signature(
     target: TypeId,
     associated_types: &AnalysisMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
     index: &ConformanceIndex,
-    plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    plans: &ConformanceWitnessPlans,
     trait_surfaces: &TraitSurfaceTable,
     declarations: &DeclarationTypeTable,
     hierarchy: &dyn TypeHierarchy,
@@ -1128,7 +1128,7 @@ pub(crate) fn project_inferred_trait_default_signature(
     canonical_signature: &CallableSemanticSignature,
     trait_surfaces: &TraitSurfaceTable,
     conformance_index: &ConformanceIndex,
-    witness_plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    witness_plans: &ConformanceWitnessPlans,
     declarations: &DeclarationTypeTable,
     hierarchy: &dyn TypeHierarchy,
 ) -> Option<CallableSemanticSignature> {
@@ -1931,8 +1931,8 @@ pub struct ConformanceWitnessPlan {
     pub generic_signature: Option<GenericSignature>,
     /// Source-level trait requirements after binding the trait arguments and
     /// symbolic `Self` to the conformance head template.
-    pub requirement_views: BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
-    pub requirements: BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+    pub requirement_views: crate::ordered_map::OrderedMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+    pub requirements: crate::ordered_map::OrderedMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
     pub associated_type_plan: ConformanceAssociatedTypePlan,
     pub fingerprint: ProductFingerprint,
     pub invalid_explicit_members: bool,
@@ -1940,32 +1940,39 @@ pub struct ConformanceWitnessPlan {
     pub diagnostics: Box<[SemanticDiagnostic]>,
 }
 
+/// Frozen canonical witness plans with source-local workspace overlays.
+pub type ConformanceWitnessPlans = crate::parent_map::ParentMap<ImplId, Arc<ConformanceWitnessPlan>>;
+
 impl ConformanceWitnessPlan {
     /// Constructs an imported witness only after its associated plan,
     /// requirement views, selections, and completeness payload are complete.
     /// The semantic fingerprint is always recomputed from those native parts.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn from_parts(
+    pub(crate) fn from_parts<RV, R>(
         impl_id: ImplId,
         source_module: crate::identity::ModuleId,
         target_template: TypeId,
         trait_ref_template: TraitRef,
         generic_signature: Option<GenericSignature>,
-        requirement_views: BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
-        requirements: BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+        requirement_views: RV,
+        requirements: R,
         associated_type_plan: ConformanceAssociatedTypePlan,
         invalid_explicit_members: bool,
         completeness: ConformanceCompleteness,
         diagnostics: Box<[SemanticDiagnostic]>,
-    ) -> Self {
+    ) -> Self
+    where
+        RV: Into<crate::ordered_map::OrderedMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>>,
+        R: Into<crate::ordered_map::OrderedMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>>,
+    {
         let mut plan = Self {
             impl_id,
             source_module,
             target_template,
             trait_ref_template,
             generic_signature,
-            requirement_views,
-            requirements,
+            requirement_views: requirement_views.into(),
+            requirements: requirements.into(),
             associated_type_plan,
             fingerprint: ProductFingerprint::default(),
             invalid_explicit_members,
@@ -2252,7 +2259,7 @@ pub fn build_conformance_witness_plan(
                 })
                 .collect::<AnalysisMap<_, _>>();
 
-            let witness_plans_map: BTreeMap<crate::identity::ImplId, std::sync::Arc<ConformanceWitnessPlan>> = all_associated_type_plans
+            let witness_plans_map: ConformanceWitnessPlans = all_associated_type_plans
                 .iter()
                 .map(|(impl_id, p)| {
                     let (target_template, trait_ref_template, generic_signature) = if let Some(contrib) = conformance_index.get(impl_id) {
@@ -2275,8 +2282,8 @@ pub fn build_conformance_witness_plan(
                             target_template,
                             trait_ref_template,
                             generic_signature,
-                            requirement_views: BTreeMap::new(),
-                            requirements: BTreeMap::new(),
+                            requirement_views: crate::ordered_map::OrderedMap::default(),
+                            requirements: crate::ordered_map::OrderedMap::default(),
                             associated_type_plan: p.clone(),
                             fingerprint: ProductFingerprint::default(),
                             invalid_explicit_members: false,
@@ -2410,8 +2417,8 @@ pub fn build_conformance_witness_plan(
         target_template: contribution.target_head,
         trait_ref_template: contribution.trait_ref.clone(),
         generic_signature: contribution.generic_signature.clone(),
-        requirement_views,
-        requirements,
+        requirement_views: requirement_views.into(),
+        requirements: requirements.into(),
         associated_type_plan,
         fingerprint: ProductFingerprint::default(),
         invalid_explicit_members,
@@ -2431,7 +2438,7 @@ pub fn conformance_witness_plan_fingerprint(plan: &ConformanceWitnessPlan) -> Pr
     plan.source_module.hash(&mut hasher);
     plan.target_template.hash(&mut hasher);
     plan.trait_ref_template.hash(&mut hasher);
-    format!("{:?}", plan.generic_signature).hash(&mut hasher);
+    hash_debug_value(&plan.generic_signature, &mut hasher);
     plan.requirement_views.len().hash(&mut hasher);
     for (requirement, view) in &plan.requirement_views {
         requirement.hash(&mut hasher);
@@ -2442,10 +2449,10 @@ pub fn conformance_witness_plan_fingerprint(plan: &ConformanceWitnessPlan) -> Pr
         view.visibility.hash(&mut hasher);
         view.default_callable.hash(&mut hasher);
     }
-    format!("{:?}", plan.requirements).hash(&mut hasher);
+    hash_debug_map(plan.requirements.iter(), &mut hasher);
     plan.associated_type_plan.fingerprint.hash(&mut hasher);
     plan.invalid_explicit_members.hash(&mut hasher);
-    format!("{:?}", plan.completeness).hash(&mut hasher);
+    hash_debug_value(&plan.completeness, &mut hasher);
     ProductFingerprint::new(hasher.finish())
 }
 
@@ -2470,8 +2477,8 @@ pub(crate) fn conformance_evidence_fingerprint(
     row_bindings.sort_by_key(|(parameter, _)| **parameter);
     row_bindings.hash(&mut hasher);
     environment.self_binding.hash(&mut hasher);
-    format!("{:?}", requirement_views.iter().collect::<Vec<_>>()).hash(&mut hasher);
-    format!("{:?}", requirements.iter().collect::<Vec<_>>()).hash(&mut hasher);
+    hash_debug_pairs(requirement_views.iter(), &mut hasher);
+    hash_debug_pairs(requirements.iter(), &mut hasher);
     for (requirement, binding) in associated_types {
         requirement.hash(&mut hasher);
         binding.value.hash(&mut hasher);
@@ -2479,6 +2486,60 @@ pub(crate) fn conformance_evidence_fingerprint(
     }
     trait_header_contract.hash(&mut hasher);
     ProductFingerprint::new(hasher.finish())
+}
+
+struct HashFormatWriter<'a>(&'a mut DefaultHasher);
+
+impl std::fmt::Write for HashFormatWriter<'_> {
+    fn write_str(&mut self, value: &str) -> std::fmt::Result {
+        self.0.write(value.as_bytes());
+        Ok(())
+    }
+}
+
+fn hash_debug_value(value: &impl std::fmt::Debug, hasher: &mut DefaultHasher) {
+    use std::fmt::Write as _;
+    let mut writer = HashFormatWriter(hasher);
+    let _ = write!(writer, "{value:?}");
+    writer.0.write_u8(0xff);
+}
+
+fn hash_debug_pairs<'a, K: std::fmt::Debug + 'a, V: std::fmt::Debug + 'a>(
+    entries: impl IntoIterator<Item = (&'a K, &'a V)>,
+    hasher: &mut DefaultHasher,
+) {
+    use std::fmt::Write as _;
+    let mut writer = HashFormatWriter(hasher);
+    writer.write_str("[").expect("hash formatter is infallible");
+    let mut first = true;
+    for (key, value) in entries {
+        if !first {
+            writer.write_str(", ").expect("hash formatter is infallible");
+        }
+        first = false;
+        write!(writer, "({key:?}, {value:?})").expect("hash formatter is infallible");
+    }
+    writer.write_str("]").expect("hash formatter is infallible");
+    writer.0.write_u8(0xff);
+}
+
+fn hash_debug_map<'a, K: std::fmt::Debug + 'a, V: std::fmt::Debug + 'a>(
+    entries: impl IntoIterator<Item = (&'a K, &'a V)>,
+    hasher: &mut DefaultHasher,
+) {
+    use std::fmt::Write as _;
+    let mut writer = HashFormatWriter(hasher);
+    writer.write_str("{").expect("hash formatter is infallible");
+    let mut first = true;
+    for (key, value) in entries {
+        if !first {
+            writer.write_str(", ").expect("hash formatter is infallible");
+        }
+        first = false;
+        write!(writer, "{key:?}: {value:?}").expect("hash formatter is infallible");
+    }
+    writer.write_str("}").expect("hash formatter is infallible");
+    writer.0.write_u8(0xff);
 }
 
 fn normalize_exact_contract_term(
@@ -2535,7 +2596,7 @@ fn normalize_exact_trait_contract_constraint(
 /// repeating witness/default selection.
 pub fn resolve_conformance_evidence(
     index: &ConformanceIndex,
-    plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    plans: &ConformanceWitnessPlans,
     trait_surface: &TraitSurface,
     declarations: &DeclarationTypeTable,
     store: &mut TypeStore,
@@ -2553,7 +2614,7 @@ pub fn resolve_conformance_evidence(
 /// applications without rebuilding a second conformance query.
 pub fn resolve_conformance_evidence_with_surfaces(
     index: &ConformanceIndex,
-    plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    plans: &ConformanceWitnessPlans,
     trait_surfaces: &TraitSurfaceTable,
     declarations: &DeclarationTypeTable,
     store: &mut TypeStore,
@@ -3015,7 +3076,7 @@ fn specialize_inherent_applicability(
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConformanceIndex {
     parent: Option<Arc<Self>>,
-    contributions: BTreeMap<ImplId, ConformanceContribution>,
+    contributions: crate::parent_map::ParentMap<ImplId, ConformanceContribution>,
     by_trait: BTreeMap<DeclarationId, BTreeSet<ImplId>>,
     by_trait_family: BTreeMap<DeclarationId, BTreeMap<DeclarationId, BTreeSet<ImplId>>>,
     open_by_trait: BTreeMap<DeclarationId, BTreeSet<ImplId>>,
@@ -3025,6 +3086,16 @@ pub struct ConformanceIndex {
 impl ConformanceIndex {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<(ImplId, ConformanceContribution)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, crate::parent_map::FrozenParentMapError> {
+        Ok(Self {
+            contributions: crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(entries, allocations)?,
+            ..Self::default()
+        })
     }
 
     /// Attaches an immutable canonical head index while keeping local secondary
@@ -3115,7 +3186,8 @@ impl ConformanceIndex {
     pub fn remove_source(&mut self, module: &crate::identity::ModuleId) {
         let source_impls = self
             .contributions
-            .keys()
+            .iter_source_local()
+            .map(|(impl_id, _)| impl_id)
             .filter(|impl_id| &impl_id.module == module)
             .cloned()
             .collect::<Vec<_>>();
@@ -3207,6 +3279,36 @@ impl ConformanceIndex {
     /// Returns pairs of eligible source heads whose joint target and trait
     /// patterns overlap. No precedence or specialization rule is applied.
     pub fn overlap_conflicts(&self, store: &mut TypeStore) -> Vec<(ImplId, ImplId)> {
+        if self.contributions.frozen_len() != 0 {
+            let contributions = self
+                .iter()
+                .filter_map(|(impl_id, contribution)| contribution.is_lookup_eligible().then_some((impl_id, contribution)))
+                .collect::<Vec<_>>();
+            let mut conflicts = Vec::new();
+            for (position, (first_id, first)) in contributions.iter().enumerate() {
+                for (second_id, second) in contributions.iter().skip(position + 1) {
+                    if first.trait_ref.declaration != second.trait_ref.declaration
+                        || first.trait_ref.arguments.len() != second.trait_ref.arguments.len()
+                    {
+                        continue;
+                    }
+                    let mut bindings = HashMap::new();
+                    if unify_conformance_head(store, first.target_head, second.target_head, &mut bindings)
+                        && first
+                            .trait_ref
+                            .arguments
+                            .iter()
+                            .zip(second.trait_ref.arguments.iter())
+                            .all(|(&left, &right)| unify_conformance_head(store, left, right, &mut bindings))
+                    {
+                        conflicts.push(((*first_id).clone(), (*second_id).clone()));
+                    }
+                }
+            }
+            conflicts.sort();
+            conflicts.dedup();
+            return conflicts;
+        }
         let mut conflicts = self.parent.as_ref().map_or_else(Vec::new, |parent| parent.overlap_conflicts(store));
         let mut candidate_pairs = BTreeSet::new();
         for (trait_declaration, local_ids) in &self.by_trait {
@@ -3269,6 +3371,12 @@ impl ConformanceIndex {
         let mut candidates = self.parent.as_ref().map_or_else(BTreeSet::new, |parent| {
             parent.candidates_for_query(store, target, trait_declaration).into_iter().collect()
         });
+        candidates.extend(
+            self.contributions
+                .iter_frozen()
+                .filter(|(_, contribution)| contribution.trait_ref.declaration == *trait_declaration)
+                .map(|(impl_id, _)| impl_id.clone()),
+        );
         if let Some(by_trait) = self.by_trait.get(trait_declaration) {
             if let Some(family) = nominal_conformance_family(store, target) {
                 candidates.extend(self.open_by_trait.get(trait_declaration).into_iter().flat_map(|ids| ids.iter().cloned()));
@@ -4559,7 +4667,37 @@ pub struct ConditionalInherentMember {
 pub struct ConditionalInherentMemberSet {
     pub target: Option<InherentImplTarget>,
     pub members: Vec<ConditionalInherentMember>,
-    pub by_selector: HashMap<(DispatchSide, Selector), Vec<usize>>,
+    pub by_selector: ConditionalInherentSelectorIndex,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ConditionalInherentSelectorIndex {
+    source: HashMap<(DispatchSide, Selector), Vec<usize>>,
+    frozen: Option<crate::ordered_map::OrderedMap<(DispatchSide, Selector), Vec<usize>>>,
+}
+
+impl ConditionalInherentSelectorIndex {
+    fn insert(&mut self, key: (DispatchSide, Selector), index: usize) {
+        assert!(self.frozen.is_none(), "cannot mutate a frozen conditional selector index");
+        self.source.entry(key).or_default().push(index);
+    }
+
+    fn get(&self, key: &(DispatchSide, Selector)) -> Option<&[usize]> {
+        self.source
+            .get(key)
+            .map(Vec::as_slice)
+            .or_else(|| self.frozen.as_ref().and_then(|entries| entries.get(key).map(Vec::as_slice)))
+    }
+
+    fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<((DispatchSide, Selector), Vec<usize>)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, crate::ordered_map::FrozenOrderedMapError> {
+        Ok(Self {
+            source: HashMap::new(),
+            frozen: Some(crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(entries, allocations)?),
+        })
+    }
 }
 
 impl ConditionalInherentMemberSet {
@@ -4567,8 +4705,54 @@ impl ConditionalInherentMemberSet {
         Self {
             target,
             members: Vec::new(),
-            by_selector: HashMap::new(),
+            by_selector: ConditionalInherentSelectorIndex::default(),
         }
+    }
+
+    pub(crate) fn from_frozen_import_parts_with_allocation_budget(
+        target: Option<InherentImplTarget>,
+        members: Vec<ConditionalInherentMember>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, crate::ordered_map::FrozenOrderedMapError> {
+        let mut ordered = allocations
+            .vector::<((DispatchSide, Selector), usize)>(members.len())
+            .map_err(crate::ordered_map::FrozenOrderedMapError::Allocation)?;
+        for (index, member) in members.iter().enumerate() {
+            ordered.push((
+                (
+                    member.signature_template.side,
+                    crate::traits::clone_selector_with_allocation_budget(&member.signature_template.callable.selector, allocations)
+                        .map_err(crate::ordered_map::FrozenOrderedMapError::Allocation)?,
+                ),
+                index,
+            ));
+        }
+        ordered.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let mut index_entries = allocations
+            .vector::<((DispatchSide, Selector), Vec<usize>)>(ordered.len())
+            .map_err(crate::ordered_map::FrozenOrderedMapError::Allocation)?;
+        let mut start = 0;
+        while start < ordered.len() {
+            let mut end = start + 1;
+            while end < ordered.len() && ordered[start].0 == ordered[end].0 {
+                end += 1;
+            }
+            let mut indices = allocations
+                .vector::<usize>(end - start)
+                .map_err(crate::ordered_map::FrozenOrderedMapError::Allocation)?;
+            indices.extend(ordered[start..end].iter().map(|(_, index)| *index));
+            index_entries.push((
+                (
+                    ordered[start].0.0,
+                    crate::traits::clone_selector_with_allocation_budget(&ordered[start].0.1, allocations)
+                        .map_err(crate::ordered_map::FrozenOrderedMapError::Allocation)?,
+                ),
+                indices,
+            ));
+            start = end;
+        }
+        let by_selector = ConditionalInherentSelectorIndex::from_frozen_entries_with_allocation_budget(index_entries, allocations)?;
+        Ok(Self { target, members, by_selector })
     }
 
     pub fn add_member(&mut self, member: ConditionalInherentMember) {
@@ -4576,11 +4760,11 @@ impl ConditionalInherentMemberSet {
         let selector = member.signature_template.callable.selector.clone();
         let index = self.members.len();
         self.members.push(member);
-        self.by_selector.entry((side, selector)).or_default().push(index);
+        self.by_selector.insert((side, selector), index);
     }
 
     pub fn get_members(&self, side: DispatchSide, selector: &Selector) -> Option<&[usize]> {
-        self.by_selector.get(&(side, selector.clone())).map(|v| v.as_slice())
+        self.by_selector.get(&(side, selector.clone()))
     }
 
     pub fn get_member(&self, side: DispatchSide, selector: &Selector) -> Option<&ConditionalInherentMember> {
@@ -5509,7 +5693,7 @@ pub fn check_impl_domain_applicability(
 pub struct ConditionalImplProofContext<'a> {
     pub lexical_evidence: Option<&'a crate::generic_evidence::GenericEvidenceEnvironment>,
     pub conformance_index: Option<&'a ConformanceIndex>,
-    pub witness_plans: Option<&'a BTreeMap<ImplId, std::sync::Arc<ConformanceWitnessPlan>>>,
+    pub witness_plans: Option<&'a ConformanceWitnessPlans>,
     pub trait_surfaces: Option<&'a TraitSurfaceTable>,
     pub derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>,
     pub declarations: Option<&'a DeclarationTypeTable>,
@@ -7342,5 +7526,36 @@ mod native_anchor_publication_tests {
         assert!(matches!(baseline.type_store().get(signature.parameters[0].declared_type.canonical_type().expect("source callback type")), crate::types::store::TypeData::Callable(_)));
         assert!(signature.declared_return.canonical_type().is_some());
         assert_eq!(baseline.dispatch().surface(&owner).unwrap().get_callable_id(crate::identity::DispatchSide::Instance, &callable.selector), Some(&callable));
+    }
+}
+
+#[cfg(test)]
+mod streaming_fingerprint_format_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::hash::Hash;
+
+    fn fingerprint_hash(write: impl FnOnce(&mut DefaultHasher)) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        write(&mut hasher);
+        hasher.finish()
+    }
+
+    #[test]
+    fn streaming_debug_hash_matches_string_hash_for_values_maps_and_pair_lists() {
+        let value = Some(vec!["alpha", "βeta", "gamma"]);
+        let expected_value = fingerprint_hash(|hasher| format!("{value:?}").hash(hasher));
+        let actual_value = fingerprint_hash(|hasher| hash_debug_value(&value, hasher));
+        assert_eq!(actual_value, expected_value);
+
+        let map = BTreeMap::from([("first", 3u32), ("second", 8u32)]);
+        let expected_map = fingerprint_hash(|hasher| format!("{map:?}").hash(hasher));
+        let actual_map = fingerprint_hash(|hasher| hash_debug_map(map.iter(), hasher));
+        assert_eq!(actual_map, expected_map);
+
+        let pairs = map.iter().collect::<Vec<_>>();
+        let expected_pairs = fingerprint_hash(|hasher| format!("{pairs:?}").hash(hasher));
+        let actual_pairs = fingerprint_hash(|hasher| hash_debug_pairs(map.iter(), hasher));
+        assert_eq!(actual_pairs, expected_pairs);
     }
 }

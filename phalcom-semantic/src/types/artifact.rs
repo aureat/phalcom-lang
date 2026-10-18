@@ -351,7 +351,7 @@ impl ExportIds {
         let mut walker = ExportGraphWalker::new(store, limits);
         walker.visit_builtin_seed()?;
         let mut all_roots = roots.clone();
-        for ((owner, index), parameter) in &store.parameter_to_id {
+        for ((owner, index), parameter) in store.parameter_to_id.iter() {
             let key = CanonicalTypeRootKey {
                 family_tag: CanonicalRootFamilyTag::ParameterCurrentSlot,
                 owner: stable_parameter_owner(owner)?,
@@ -1865,9 +1865,9 @@ impl<'a, 'b> Import<'a, 'b> {
             labeled_remainder: self.remainder(&value.labeled)?,
         })
     }
-    fn field(&mut self, value: &FieldV1) -> Result<RecordRowField, ArtifactError> {
+    fn field_with_allocation_budget(&mut self, value: &FieldV1) -> Result<RecordRowField, ArtifactError> {
         Ok(RecordRowField {
-            key: key_in(&value.key, self.limits)?,
+            key: key_in_with_allocation_budget(&value.key, self.limits, self.allocations)?,
             ty: self.ty(value.ty)?,
             presence: presence_in(&value.presence),
         })
@@ -1876,7 +1876,7 @@ impl<'a, 'b> Import<'a, 'b> {
         let mut result = self.allocations.vector(values.len()).map_err(|e| ArtifactError::Allocation(e))?;
         for value in values {
             result.push(ScopedRecordField {
-                key: key_in(&value.key, self.limits)?,
+                key: key_in_with_allocation_budget(&value.key, self.limits, self.allocations)?,
                 ty: self.scoped(value.ty)?,
                 presence: presence_in(&value.presence),
             });
@@ -1920,7 +1920,7 @@ impl<'a, 'b> Import<'a, 'b> {
         })
     }
     fn build_kind(&mut self, id: ArtifactKindId) -> Result<KindId, ArtifactError> {
-        let data = match self.graph.kinds[id.0 as usize].clone() {
+        let data = match &self.graph.kinds[id.0 as usize] {
             KindV1::Type => KindData::Type,
             KindV1::RecordRow => KindData::RecordRow,
             KindV1::TypePack => KindData::TypePack,
@@ -1931,18 +1931,18 @@ impl<'a, 'b> Import<'a, 'b> {
                     return Err(invalid("empty kind arrow"));
                 }
                 KindData::Arrow {
-                    parameters: self.kind_list(&parameters)?,
-                    result: self.kind(result)?,
+                    parameters: self.kind_list(parameters)?,
+                    result: self.kind(*result)?,
                 }
             }
-            KindV1::StaticDomain { domain } => KindData::StaticDomain(self.domain(domain)?),
+            KindV1::StaticDomain { domain } => KindData::StaticDomain(self.domain(*domain)?),
         };
         self.decoded_kinds[id.0 as usize] = Some(data);
         Ok(KindId(id.0))
     }
     fn build_parameter(&mut self, id: ArtifactTypeParameterId) -> Result<TypeParameterId, ArtifactError> {
-        let data = self.graph.parameters[id.0 as usize].clone();
-        let owner = owner_in(&data.owner)?;
+        let data = &self.graph.parameters[id.0 as usize];
+        let owner = owner_in_with_allocation_budget(&data.owner, self.allocations)?;
         let kind = self.kind(data.kind)?;
         if !crate::types::parameter::expansion_mode_accepts_kind(mode_in(&data.mode), kind) {
             return Err(invalid("parameter expansion mode has incompatible kind"));
@@ -1961,23 +1961,26 @@ impl<'a, 'b> Import<'a, 'b> {
         Ok(TypeParameterId(id.0))
     }
     fn build_domain(&mut self, id: ArtifactStaticDomainId) -> Result<StaticDomainId, ArtifactError> {
-        let data = match self.graph.static_domains[id.0 as usize].clone() {
+        let data = match &self.graph.static_domains[id.0 as usize] {
             StaticDomainV1::ConstInt => StaticDomainData::ConstInt,
             StaticDomainV1::Nominal { declaration } => StaticDomainData::Nominal {
-                declaration: declaration_in(&declaration)?,
+                declaration: declaration_in_with_allocation_budget(declaration, self.allocations)?,
             },
             StaticDomainV1::Associated { declaration, arguments } => StaticDomainData::Associated {
-                declaration: AssociatedStaticDomainDeclarationId::new(declaration_in(&declaration.owner)?, declaration.name),
-                owner_arguments: self.args(&arguments)?,
+                declaration: AssociatedStaticDomainDeclarationId::new(
+                    declaration_in_with_allocation_budget(&declaration.owner, self.allocations)?,
+                    self.allocations.boxed_str(&declaration.name).map_err(ArtifactError::Allocation)?,
+                ),
+                owner_arguments: self.args(arguments)?,
             },
         };
         self.decoded_domains[id.0 as usize] = Some(data);
         Ok(StaticDomainId(id.0))
     }
     fn build_constructor(&mut self, id: ArtifactStaticConstructorId) -> Result<AlgebraicStaticConstructorId, ArtifactError> {
-        let data = self.graph.static_constructors[id.0 as usize].clone();
+        let data = &self.graph.static_constructors[id.0 as usize];
         let domain = self.domain(data.domain)?;
-        let declaration = declaration_in(&data.declaration)?;
+        let declaration = declaration_in_with_allocation_budget(&data.declaration, self.allocations)?;
         let kinds = self.kind_list(&data.parameter_kinds)?;
         if data.case_name.is_empty() {
             return Err(invalid("empty static constructor name"));
@@ -1994,15 +1997,18 @@ impl<'a, 'b> Import<'a, 'b> {
     }
     fn build_variant(&mut self, id: ArtifactVariantTypeId) -> Result<VariantTypeId, ArtifactError> {
         let data = &self.graph.variants[id.0 as usize];
-        let owner = declaration_in(&data.owner)?;
-        let selector = Selector::try_decode_exact(&data.selector).map_err(|error| invalid(error.to_string()))?;
+        let owner = declaration_in_with_allocation_budget(&data.owner, self.allocations)?;
+        let selector = crate::artifact::import::import_stable_selector_with_allocation_budget(&data.selector, self.allocations)?;
         let variant = VariantId::new(owner, selector);
         self.decoded_variants[id.0 as usize] = Some(variant);
         Ok(VariantTypeId(id.0))
     }
     fn build_row(&mut self, id: ArtifactRecordRowId) -> Result<RecordRowId, ArtifactError> {
-        let data = self.graph.rows[id.0 as usize].clone();
-        let fields = data.fields.iter().map(|field| self.field(field)).collect::<Result<Vec<_>, _>>()?;
+        let data = &self.graph.rows[id.0 as usize];
+        let mut fields = self.allocations.vector(data.fields.len()).map_err(ArtifactError::Allocation)?;
+        for field in &data.fields {
+            fields.push(self.field_with_allocation_budget(field)?);
+        }
         if fields
             .windows(2)
             .any(|pair| pair[0].key.canonical_cmp(&pair[1].key) != std::cmp::Ordering::Less)
@@ -2019,29 +2025,24 @@ impl<'a, 'b> Import<'a, 'b> {
             RowTailV1::Parameter { parameter } => RecordRowTail::Parameter(self.parameter(parameter)?),
             RowTailV1::Projection { ty } => RecordRowTail::Projection(self.ty(ty)?),
         };
-        let mut fields_vec = self.allocations.vector(fields.len()).map_err(|e| ArtifactError::Allocation(e))?;
-        fields_vec.extend(fields);
-        let fields = self.allocations.boxed_slice(fields_vec).map_err(|e| ArtifactError::Allocation(e))?;
+        let fields = self.allocations.boxed_slice(fields).map_err(ArtifactError::Allocation)?;
         let row_data = RecordRowData { fields, tail };
         self.decoded_rows[id.0 as usize] = Some(row_data);
         Ok(RecordRowId(id.0))
     }
     fn build_family(&mut self, id: ArtifactFamilyTypeId) -> Result<FamilyTypeId, ArtifactError> {
-        let data = self.graph.families[id.0 as usize].clone();
-        let members = data
-            .members
-            .iter()
-            .map(|member| {
-                Ok(FamilyMemberType {
-                    operation: operation_in(&member.operation)?,
-                    member_kind: match member.kind {
-                        FamilyMemberKindV1::Value => FamilyMemberTypeKind::Value,
-                        FamilyMemberKindV1::Callable => FamilyMemberTypeKind::Callable,
-                    },
-                    ty: self.ty(member.ty)?,
-                })
-            })
-            .collect::<Result<Vec<_>, ArtifactError>>()?;
+        let data = &self.graph.families[id.0 as usize];
+        let mut members = self.allocations.vector(data.members.len()).map_err(ArtifactError::Allocation)?;
+        for member in &data.members {
+            members.push(FamilyMemberType {
+                operation: operation_in_with_allocation_budget(&member.operation, self.allocations)?,
+                member_kind: match member.kind {
+                    FamilyMemberKindV1::Value => FamilyMemberTypeKind::Value,
+                    FamilyMemberKindV1::Callable => FamilyMemberTypeKind::Callable,
+                },
+                ty: self.ty(member.ty)?,
+            });
+        }
         if members.windows(2).any(|pair| pair[0].operation >= pair[1].operation) {
             return Err(invalid("family operations are not unique and ordered"));
         }
@@ -2053,45 +2054,43 @@ impl<'a, 'b> Import<'a, 'b> {
                 }
             }
         }
-        let mut members_vec = self.allocations.vector(members.len()).map_err(|e| ArtifactError::Allocation(e))?;
-        members_vec.extend(members);
-        let members = self.allocations.boxed_slice(members_vec).map_err(|e| ArtifactError::Allocation(e))?;
+        let members = self.allocations.boxed_slice(members).map_err(ArtifactError::Allocation)?;
         let family = FamilyType::new(members);
         self.decoded_families[id.0 as usize] = Some(family);
         Ok(FamilyTypeId(id.0))
     }
     fn build_type(&mut self, id: ArtifactTypeId) -> Result<TypeId, ArtifactError> {
-        let entry = self.graph.types[id.0 as usize].clone();
+        let entry = &self.graph.types[id.0 as usize];
         let kind = self.kind(entry.kind)?;
-        let data = match entry.form {
+        let data = match &entry.form {
             TypeV1::Never => TypeData::Never,
             TypeV1::Unit => TypeData::Unit,
             TypeV1::ClassObject { declaration } => TypeData::ClassObject {
-                declaration: declaration_in(&declaration)?,
+                declaration: declaration_in_with_allocation_budget(declaration, self.allocations)?,
             },
             TypeV1::Nominal { declaration } => TypeData::Nominal {
-                declaration: declaration_in(&declaration)?,
+                declaration: declaration_in_with_allocation_budget(declaration, self.allocations)?,
             },
-            TypeV1::StaticDomainForm { domain } => TypeData::StaticDomainForm { domain: self.domain(domain)? },
+            TypeV1::StaticDomainForm { domain } => TypeData::StaticDomainForm { domain: self.domain(*domain)? },
             TypeV1::Applied { origin, arguments } => TypeData::Applied {
-                origin: self.ty(origin)?,
-                arguments: self.args(&arguments)?,
+                origin: self.ty(*origin)?,
+                arguments: self.args(arguments)?,
             },
             TypeV1::ExactCase { variant, enum_type } => TypeData::ExactCase {
-                variant: self.variant(variant)?,
-                enum_type: self.ty(enum_type)?,
+                variant: self.variant(*variant)?,
+                enum_type: self.ty(*enum_type)?,
             },
             TypeV1::Union { members } => {
-                let mut members = self.type_list(&members)?.into_vec();
+                let mut members = self.type_list(members)?.into_vec();
                 members.sort_unstable();
                 if members.len() < 2 || members.windows(2).any(|pair| pair[0] == pair[1]) {
                     return Err(invalid("noncanonical union members"));
                 }
                 TypeData::Union(self.allocations.boxed_slice(members).map_err(|e| ArtifactError::Allocation(e))?)
             }
-            TypeV1::Tuple { tuple } => TypeData::Tuple(self.tuple(&tuple)?),
-            TypeV1::Record { row } => TypeData::Record(self.row(row)?),
-            TypeV1::TypePack { members } => TypeData::TypePack(self.type_list(&members)?),
+            TypeV1::Tuple { tuple } => TypeData::Tuple(self.tuple(tuple)?),
+            TypeV1::Record { row } => TypeData::Record(self.row(*row)?),
+            TypeV1::TypePack { members } => TypeData::TypePack(self.type_list(members)?),
             TypeV1::LabeledTypePack { members } => {
                 let mut elements = self.allocations.vector(members.len()).map_err(|e| ArtifactError::Allocation(e))?;
                 for value in members {
@@ -2104,17 +2103,17 @@ impl<'a, 'b> Import<'a, 'b> {
                 TypeData::LabeledTypePack(self.allocations.boxed_slice(elements).map_err(|e| ArtifactError::Allocation(e))?)
             }
             TypeV1::CompleteTypePack { positionals, labeled } => TypeData::CompleteTypePack {
-                positionals: self.ty(positionals)?,
-                labeled: self.ty(labeled)?,
+                positionals: self.ty(*positionals)?,
+                labeled: self.ty(*labeled)?,
             },
-            TypeV1::TypePackConcat { members } => TypeData::TypePackConcat(self.type_list(&members)?),
-            TypeV1::LabeledTypePackConcat { members } => TypeData::LabeledTypePackConcat(self.type_list(&members)?),
+            TypeV1::TypePackConcat { members } => TypeData::TypePackConcat(self.type_list(members)?),
+            TypeV1::LabeledTypePackConcat { members } => TypeData::LabeledTypePackConcat(self.type_list(members)?),
             TypeV1::TupleFromPacks { positionals, labeled } => TypeData::TupleFromPacks {
-                positionals: self.ty(positionals)?,
-                labeled: self.ty(labeled)?,
+                positionals: self.ty(*positionals)?,
+                labeled: self.ty(*labeled)?,
             },
             TypeV1::Pack { pack } => {
-                let tuple = self.tuple(&pack)?;
+                let tuple = self.tuple(pack)?;
                 TypeData::Pack(PackType {
                     elements: tuple.elements,
                     positional_remainder: tuple.positional_remainder,
@@ -2122,13 +2121,13 @@ impl<'a, 'b> Import<'a, 'b> {
                 })
             }
             TypeV1::PackFromPacks { positionals, labeled } => TypeData::PackFromPacks {
-                positionals: self.ty(positionals)?,
-                labeled: self.ty(labeled)?,
+                positionals: self.ty(*positionals)?,
+                labeled: self.ty(*labeled)?,
             },
             TypeV1::CallableFromPacks { positionals, labeled, result } => TypeData::CallableFromPacks {
-                positionals: self.ty(positionals)?,
-                labeled: self.ty(labeled)?,
-                return_type: self.ty(result)?,
+                positionals: self.ty(*positionals)?,
+                labeled: self.ty(*labeled)?,
+                return_type: self.ty(*result)?,
             },
             TypeV1::Callable { callable } => {
                 let mut parameters = self.allocations.vector(callable.parameters.len()).map_err(|e| ArtifactError::Allocation(e))?;
@@ -2149,11 +2148,11 @@ impl<'a, 'b> Import<'a, 'b> {
                     return_type: self.ty(callable.result)?,
                 })
             }
-            TypeV1::Family { family } => TypeData::Family(self.family(family)?),
-            TypeV1::Parameter { parameter } => TypeData::Parameter(self.parameter(parameter)?),
-            TypeV1::Lambda { lambda } => TypeData::Lambda(self.lambda(lambda)?),
+            TypeV1::Family { family } => TypeData::Family(self.family(*family)?),
+            TypeV1::Parameter { parameter } => TypeData::Parameter(self.parameter(*parameter)?),
+            TypeV1::Lambda { lambda } => TypeData::Lambda(self.lambda(*lambda)?),
             TypeV1::SelfType { self_type } => TypeData::SelfType(SelfTypeTerm {
-                owner: declaration_in(&self_type.owner)?,
+                owner: declaration_in_with_allocation_budget(&self_type.owner, self.allocations)?,
                 side: from_stable_dispatch_side(self_type.side),
                 role: match self_type.role {
                     SelfRoleV1::InstanceType => SelfRole::InstanceType,
@@ -2161,8 +2160,8 @@ impl<'a, 'b> Import<'a, 'b> {
                 },
             }),
             TypeV1::AssociatedProjection { projection } => {
-                let trait_owner = declaration_in(&projection.trait_owner)?;
-                let requirement_owner = declaration_in(&projection.requirement_owner)?;
+                let trait_owner = declaration_in_with_allocation_budget(&projection.trait_owner, self.allocations)?;
+                let requirement_owner = declaration_in_with_allocation_budget(&projection.requirement_owner, self.allocations)?;
                 if trait_owner != requirement_owner {
                     return Err(invalid("associated requirement owner differs from its trait"));
                 }
@@ -2176,53 +2175,52 @@ impl<'a, 'b> Import<'a, 'b> {
                 })
             }
             TypeV1::TypeMemberProjection { projection } => {
-                let arguments = projection
-                    .arguments
-                    .iter()
-                    .map(|argument| {
-                        Ok(match argument {
-                            TypeMemberArgumentV1::Type { ty } => TypeMemberArgument::Type(self.ty(*ty)?),
-                            TypeMemberArgumentV1::ConstInt { decimal } => TypeMemberArgument::Const(ConstTerm::Int(integer_in(decimal, self.limits)?)),
-                            TypeMemberArgumentV1::RecordRow { row } => TypeMemberArgument::RecordRow(self.row(*row)?),
-                        })
-                    })
-                    .collect::<Result<Vec<_>, ArtifactError>>()?;
-                let mut args_vec = self.allocations.vector(arguments.len()).map_err(|e| ArtifactError::Allocation(e))?;
-                args_vec.extend(arguments);
-                let arguments = self.allocations.boxed_slice(args_vec).map_err(|e| ArtifactError::Allocation(e))?;
+                let mut arguments = self.allocations.vector(projection.arguments.len()).map_err(ArtifactError::Allocation)?;
+                for argument in &projection.arguments {
+                    arguments.push(match argument {
+                        TypeMemberArgumentV1::Type { ty } => TypeMemberArgument::Type(self.ty(*ty)?),
+                        TypeMemberArgumentV1::ConstInt { decimal } => TypeMemberArgument::Const(ConstTerm::Int(
+                            integer_in_with_allocation_budget(decimal, self.limits, self.allocations)?,
+                        )),
+                        TypeMemberArgumentV1::RecordRow { row } => TypeMemberArgument::RecordRow(self.row(*row)?),
+                    });
+                }
+                let arguments = self.allocations.boxed_slice(arguments).map_err(ArtifactError::Allocation)?;
 
                 TypeData::TypeMemberProjection(TypeLevelProjection {
                     subject: match projection.subject {
                         ProjectionSubjectV1::Type { ty } => ProjectionSubject::Type(self.ty(ty)?),
                         ProjectionSubjectV1::RecordRow { row } => ProjectionSubject::RecordRow(self.row(row)?),
                     },
-                    selector: selector_in(&projection.selector),
+                    selector: selector_in_with_allocation_budget(&projection.selector, self.allocations)?,
                     arguments,
                     source_declaration: projection
                         .source
                         .as_ref()
                         .map(|source| {
                             Ok::<_, ArtifactError>(TypeMemberDeclarationId::new(
-                                declaration_in(&source.owner)?,
+                                declaration_in_with_allocation_budget(&source.owner, self.allocations)?,
                                 if source.selector.as_ref() == "[]" {
                                     TypeMemberSelector::Subscript
                                 } else {
-                                    TypeMemberSelector::Named(source.selector.clone())
+                                    TypeMemberSelector::Named(
+                                        self.allocations.boxed_str(&source.selector).map_err(ArtifactError::Allocation)?,
+                                    )
                                 },
                             ))
                         })
                         .transpose()?,
                 })
             }
-            TypeV1::ConstInt { decimal } => TypeData::ConstInt(integer_in(&decimal, self.limits)?),
+            TypeV1::ConstInt { decimal } => TypeData::ConstInt(integer_in_with_allocation_budget(decimal, self.limits, self.allocations)?),
             TypeV1::StaticData {
                 domain,
                 constructor,
                 arguments,
             } => TypeData::StaticData(AlgebraicStaticTerm {
-                domain: self.domain(domain)?,
-                constructor: self.constructor(constructor)?,
-                arguments: self.args(&arguments)?,
+                domain: self.domain(*domain)?,
+                constructor: self.constructor(*constructor)?,
+                arguments: self.args(arguments)?,
             }),
         };
         self.validate_type(&data, kind)?;
@@ -2231,16 +2229,16 @@ impl<'a, 'b> Import<'a, 'b> {
         Ok(TypeId(id.0))
     }
     fn build_scoped(&mut self, id: ArtifactScopedTypeId) -> Result<ScopedTypeId, ArtifactError> {
-        let data = match self.graph.scoped[id.0 as usize].clone() {
-            ScopedTypeV1::Bound { depth, index } => ScopedTypeData::Bound { depth, index },
-            ScopedTypeV1::Free { ty } => ScopedTypeData::Free(self.ty(ty)?),
+        let data = match &self.graph.scoped[id.0 as usize] {
+            ScopedTypeV1::Bound { depth, index } => ScopedTypeData::Bound { depth: *depth, index: *index },
+            ScopedTypeV1::Free { ty } => ScopedTypeData::Free(self.ty(*ty)?),
             ScopedTypeV1::Applied { origin, arguments } => ScopedTypeData::Applied {
-                origin: self.scoped(origin)?,
-                arguments: self.scope_list(&arguments)?,
+                origin: self.scoped(*origin)?,
+                arguments: self.scope_list(arguments)?,
             },
-            ScopedTypeV1::Union { members } => ScopedTypeData::Union(self.scope_list(&members)?),
-            ScopedTypeV1::Tuple { elements } => ScopedTypeData::Tuple(self.scoped_elements(&elements)?),
-            ScopedTypeV1::Record { fields } => ScopedTypeData::Record(self.scoped_fields(&fields)?),
+            ScopedTypeV1::Union { members } => ScopedTypeData::Union(self.scope_list(members)?),
+            ScopedTypeV1::Tuple { elements } => ScopedTypeData::Tuple(self.scoped_elements(elements)?),
+            ScopedTypeV1::Record { fields } => ScopedTypeData::Record(self.scoped_fields(fields)?),
             ScopedTypeV1::OpenRecord { row } => {
                 let fields = self.scoped_fields(&row.fields)?;
                 let tail = match self.scoped_tail(&row.tail)? {
@@ -2279,7 +2277,7 @@ impl<'a, 'b> Import<'a, 'b> {
                 positional_remainder: self.scoped_remainder(&pack.positionals)?,
                 labeled_remainder: self.scoped_remainder(&pack.labeled)?,
             }),
-            ScopedTypeV1::TypePack { members } => ScopedTypeData::TypePack(self.scope_list(&members)?),
+            ScopedTypeV1::TypePack { members } => ScopedTypeData::TypePack(self.scope_list(members)?),
             ScopedTypeV1::LabeledTypePack { members } => {
                 let mut elements = self.allocations.vector(members.len()).map_err(|e| ArtifactError::Allocation(e))?;
                 for member in members {
@@ -2292,39 +2290,39 @@ impl<'a, 'b> Import<'a, 'b> {
                 ScopedTypeData::LabeledTypePack(self.allocations.boxed_slice(elements).map_err(|e| ArtifactError::Allocation(e))?)
             }
             ScopedTypeV1::CompleteTypePack { positionals, labeled } => ScopedTypeData::CompleteTypePack {
-                positionals: self.scoped(positionals)?,
-                labeled: self.scoped(labeled)?,
+                positionals: self.scoped(*positionals)?,
+                labeled: self.scoped(*labeled)?,
             },
-            ScopedTypeV1::TypePackConcat { members } => ScopedTypeData::TypePackConcat(self.scope_list(&members)?),
-            ScopedTypeV1::LabeledTypePackConcat { members } => ScopedTypeData::LabeledTypePackConcat(self.scope_list(&members)?),
+            ScopedTypeV1::TypePackConcat { members } => ScopedTypeData::TypePackConcat(self.scope_list(members)?),
+            ScopedTypeV1::LabeledTypePackConcat { members } => ScopedTypeData::LabeledTypePackConcat(self.scope_list(members)?),
             ScopedTypeV1::TupleFromPacks { positionals, labeled } => ScopedTypeData::TupleFromPacks {
-                positionals: self.scoped(positionals)?,
-                labeled: self.scoped(labeled)?,
+                positionals: self.scoped(*positionals)?,
+                labeled: self.scoped(*labeled)?,
             },
             ScopedTypeV1::PackFromPacks { positionals, labeled } => ScopedTypeData::PackFromPacks {
-                positionals: self.scoped(positionals)?,
-                labeled: self.scoped(labeled)?,
+                positionals: self.scoped(*positionals)?,
+                labeled: self.scoped(*labeled)?,
             },
             ScopedTypeV1::CallableFromPacks { positionals, labeled, result } => ScopedTypeData::CallableFromPacks {
-                positionals: self.scoped(positionals)?,
-                labeled: self.scoped(labeled)?,
-                return_type: self.scoped(result)?,
+                positionals: self.scoped(*positionals)?,
+                labeled: self.scoped(*labeled)?,
+                return_type: self.scoped(*result)?,
             },
             ScopedTypeV1::PackProjection { subject, lane } => ScopedTypeData::PackProjection {
-                subject: self.scoped(subject)?,
+                subject: self.scoped(*subject)?,
                 lane: match lane {
                     PackLaneV1::Positionals => ScopedPackProjectionLane::Positionals,
                     PackLaneV1::Labeled => ScopedPackProjectionLane::Labeled,
                     PackLaneV1::Complete => ScopedPackProjectionLane::Complete,
                 },
             },
-            ScopedTypeV1::Lambda { lambda } => ScopedTypeData::Lambda(self.lambda(lambda)?),
+            ScopedTypeV1::Lambda { lambda } => ScopedTypeData::Lambda(self.lambda(*lambda)?),
         };
         self.decoded_scoped[id.0 as usize] = Some(data);
         Ok(ScopedTypeId(id.0))
     }
     fn build_lambda(&mut self, id: ArtifactTypeLambdaId) -> Result<TypeLambdaId, ArtifactError> {
-        let value = self.graph.lambdas[id.0 as usize].clone();
+        let value = &self.graph.lambdas[id.0 as usize];
         if value.parameter_kinds.len() != value.parameter_modes.len() {
             return Err(invalid("lambda binder kind/mode count mismatch"));
         }
@@ -2496,66 +2494,141 @@ impl<'a, 'b> Import<'a, 'b> {
         Ok(())
     }
 }
-fn declaration_in(value: &StableDeclarationRef) -> Result<DeclarationId, ArtifactError> {
+fn declaration_in_with_allocation_budget(
+    value: &StableDeclarationRef,
+    allocations: &mut AllocationBudget,
+) -> Result<DeclarationId, ArtifactError> {
     if value.path.len() != 1 || value.path[0].is_empty() {
         return Err(invalid("invalid canonical declaration path"));
     }
-    module_in(&value.module)?;
-    from_stable_declaration(value).map_err(invalid)
+    let module = module_in_with_allocation_budget(&value.module, allocations)?;
+    let name = allocations.boxed_str(&value.path[0]).map_err(ArtifactError::Allocation)?;
+    Ok(DeclarationId::new(module, name))
 }
-fn module_in(value: &StableModuleRef) -> Result<ModuleId, ArtifactError> {
+fn module_in_with_allocation_budget(
+    value: &StableModuleRef,
+    allocations: &mut AllocationBudget,
+) -> Result<ModuleId, ArtifactError> {
     if !matches!(&value.project, StableProjectRef::Builtin { namespace, version } if namespace.as_ref() == "universe" && version.as_ref() == "0.1.0") {
         return Err(invalid("canonical type owner has incompatible project identity"));
     }
-    from_stable_module(value).map_err(invalid)
+    crate::artifact::import::import_stable_module_with_allocation_budget(value, allocations)
 }
-fn callable_in(value: &StableCallableRef) -> Result<CallableId, ArtifactError> {
-    let selector = Selector::try_decode_exact(&value.selector).map_err(|error| invalid(error.to_string()))?;
+fn callable_in_with_allocation_budget(
+    value: &StableCallableRef,
+    allocations: &mut AllocationBudget,
+) -> Result<CallableId, ArtifactError> {
     let owner = match &value.owner {
-        StableCallableOwnerRef::Declaration(owner) => CallableOwnerId::Declaration(declaration_in(owner)?),
+        StableCallableOwnerRef::Declaration(owner) => {
+            CallableOwnerId::Declaration(declaration_in_with_allocation_budget(owner, allocations)?)
+        }
         StableCallableOwnerRef::Variant(variant) => CallableOwnerId::Variant(VariantId::new(
-            declaration_in(&variant.owner)?,
-            Selector::try_decode_exact(&variant.selector).map_err(|error| invalid(error.to_string()))?,
+            declaration_in_with_allocation_budget(&variant.owner, allocations)?,
+            crate::artifact::import::import_stable_selector_with_allocation_budget(&variant.selector, allocations)?,
         )),
         StableCallableOwnerRef::Conformance(owner) => {
-            module_in(&owner.module)?;
-            CallableOwnerId::Conformance(from_stable_impl(owner).map_err(invalid)?)
+            let module = module_in_with_allocation_budget(&owner.module, allocations)?;
+            CallableOwnerId::Conformance(crate::identity::ImplId::new(
+                module,
+                crate::identity::ImplLocalId(owner.local_id),
+            ))
         }
     };
     Ok(CallableId {
         owner,
         side: from_stable_dispatch_side(value.side),
-        selector,
+        selector: crate::artifact::import::import_stable_selector_with_allocation_budget(&value.selector, allocations)?,
     })
 }
-fn owner_in(value: &ParameterOwnerV1) -> Result<TypeParameterOwner, ArtifactError> {
+fn owner_in_with_allocation_budget(
+    value: &ParameterOwnerV1,
+    allocations: &mut AllocationBudget,
+) -> Result<TypeParameterOwner, ArtifactError> {
     Ok(match value {
-        ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(declaration_in(owner)?),
-        ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(callable_in(owner)?),
+        ParameterOwnerV1::Declaration { owner } => {
+            TypeParameterOwner::Declaration(declaration_in_with_allocation_budget(owner, allocations)?)
+        }
+        ParameterOwnerV1::Callable { owner } => {
+            TypeParameterOwner::Callable(callable_in_with_allocation_budget(owner, allocations)?)
+        }
         ParameterOwnerV1::Impl { owner } => {
-            module_in(&owner.module)?;
-            TypeParameterOwner::Impl(from_stable_impl(owner).map_err(invalid)?)
+            let module = module_in_with_allocation_budget(&owner.module, allocations)?;
+            TypeParameterOwner::Impl(crate::identity::ImplId::new(
+                module,
+                crate::identity::ImplLocalId(owner.local_id),
+            ))
         }
     })
 }
-fn integer_in(decimal: &str, limits: &ValidationLimits) -> Result<StaticInt, ArtifactError> {
+fn integer_in_with_allocation_budget(
+    decimal: &str,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<StaticInt, ArtifactError> {
     if decimal.len() > limits.max_string_bytes {
         return Err(invalid("static integer exceeds byte budget"));
     }
-    let value = decimal
-        .parse::<num_bigint::BigInt>()
-        .map(StaticInt::new)
-        .map_err(|_| invalid("invalid static integer"))?;
-    if value.to_string() != decimal {
+    let (negative, digits) = match decimal.strip_prefix('-') {
+        Some(digits) => (true, digits),
+        None => (false, decimal),
+    };
+    if digits.is_empty()
+        || !digits.bytes().all(|byte| byte.is_ascii_digit())
+        || (digits.len() > 1 && digits.starts_with('0'))
+        || (negative && digits == "0")
+    {
         return Err(invalid("static integer is not normalized decimal"));
     }
-    Ok(value)
+    if let Ok(small) = decimal.parse::<i64>() {
+        return Ok(StaticInt::Small(small));
+    }
+
+    let limbs = digits
+        .len()
+        .checked_mul(4)
+        .and_then(|bits| bits.checked_add(31))
+        .map(|bits| bits / 32)
+        .ok_or(ArtifactError::Allocation(phalcom_type_meta::allocation::AllocationError::Overflow))?;
+    let mut words = allocations.vector::<u32>(limbs).map_err(ArtifactError::Allocation)?;
+    words.push(0);
+    for byte in digits.bytes() {
+        let mut carry = u64::from(byte - b'0');
+        for word in &mut words {
+            let product = u64::from(*word) * 10 + carry;
+            *word = product as u32;
+            carry = product >> 32;
+        }
+        if carry != 0 {
+            words.push(carry as u32);
+        }
+    }
+    let sign = if negative {
+        num_bigint::Sign::Minus
+    } else {
+        num_bigint::Sign::Plus
+    };
+    #[cfg(target_pointer_width = "64")]
+    {
+        // `BigInt::new` packs pairs of public base-2^32 words into an internal
+        // `Vec<u64>` on 64-bit targets. Its `BigDigits::extend` allocates only
+        // when that packed vector needs more than the inline digit.
+        let packed_digits = words.len().div_ceil(2);
+        if packed_digits > 1 {
+            allocations.reserve_array::<u64>(packed_digits).map_err(ArtifactError::Allocation)?;
+        }
+    }
+    let value = num_bigint::BigInt::new(sign, words);
+    StaticInt::new_with_allocation_budget(value, allocations).map_err(ArtifactError::Allocation)
 }
-fn key_in(value: &FieldKeyV1, limits: &ValidationLimits) -> Result<FieldKey, ArtifactError> {
+fn key_in_with_allocation_budget(
+    value: &FieldKeyV1,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<FieldKey, ArtifactError> {
     Ok(match value {
-        FieldKeyV1::Symbol { value } => FieldKey::symbol(value.as_str()),
-        FieldKeyV1::String { value } => FieldKey::string(value.as_str()),
-        FieldKeyV1::Int { decimal } => FieldKey::int(integer_in(decimal, limits)?),
+        FieldKeyV1::Symbol { value } => FieldKey::Symbol(allocations.arc_str(value).map_err(ArtifactError::Allocation)?),
+        FieldKeyV1::String { value } => FieldKey::String(allocations.arc_str(value).map_err(ArtifactError::Allocation)?),
+        FieldKeyV1::Int { decimal } => FieldKey::int(integer_in_with_allocation_budget(decimal, limits, allocations)?),
         FieldKeyV1::Bool { value } => FieldKey::bool(*value),
     })
 }
@@ -2588,13 +2661,19 @@ fn rest_in(value: &RestModeV1) -> RestMode {
         RestModeV1::Complete => RestMode::Complete,
     }
 }
-fn selector_in(value: &TypeMemberSelectorV1) -> TypeMemberSelector {
-    match value {
-        TypeMemberSelectorV1::Named { name } => TypeMemberSelector::Named(name.clone().into()),
+fn selector_in_with_allocation_budget(
+    value: &TypeMemberSelectorV1,
+    allocations: &mut AllocationBudget,
+) -> Result<TypeMemberSelector, ArtifactError> {
+    Ok(match value {
+        TypeMemberSelectorV1::Named { name } => TypeMemberSelector::Named(allocations.boxed_str(name).map_err(ArtifactError::Allocation)?),
         TypeMemberSelectorV1::Subscript => TypeMemberSelector::Subscript,
-    }
+    })
 }
-fn operation_in(value: &OperationV1) -> Result<FamilyOperationShape, ArtifactError> {
+fn operation_in_with_allocation_budget(
+    value: &OperationV1,
+    allocations: &mut AllocationBudget,
+) -> Result<FamilyOperationShape, ArtifactError> {
     let kind = match value.kind {
         SelectorKindV1::Getter => SelectorKind::Getter,
         SelectorKindV1::Setter => SelectorKind::Setter,
@@ -2602,19 +2681,27 @@ fn operation_in(value: &OperationV1) -> Result<FamilyOperationShape, ArtifactErr
         SelectorKindV1::SubscriptGet => SelectorKind::SubscriptGet,
         SelectorKindV1::SubscriptSet => SelectorKind::SubscriptSet,
     };
-    let slots = value
-        .slots
-        .iter()
-        .map(|slot| match slot {
-            SelectorSlotV1::Positional => SelectorSlot::Positional,
-            SelectorSlotV1::Label { name } => SelectorSlot::Label(name.clone()),
-        })
-        .collect::<Box<[_]>>();
+    let mut slots = allocations.vector(value.slots.len()).map_err(ArtifactError::Allocation)?;
+    let mut validation_slots = allocations.vector(value.slots.len()).map_err(ArtifactError::Allocation)?;
+    for slot in &value.slots {
+        match slot {
+            SelectorSlotV1::Positional => {
+                slots.push(SelectorSlot::Positional);
+                validation_slots.push(SelectorSlot::Positional);
+            }
+            SelectorSlotV1::Label { name } => {
+                slots.push(SelectorSlot::Label(allocations.string(name).map_err(ArtifactError::Allocation)?));
+                validation_slots.push(SelectorSlot::Label(allocations.string(name).map_err(ArtifactError::Allocation)?));
+            }
+        }
+    }
+    let slots = allocations.boxed_slice(slots).map_err(ArtifactError::Allocation)?;
+    let validation_slots = allocations.boxed_slice(validation_slots).map_err(ArtifactError::Allocation)?;
     let base = match kind {
         SelectorKind::SubscriptGet | SelectorKind::SubscriptSet => SelectorBase::Subscript,
-        _ => SelectorBase::Named("artifact".into()),
+        _ => SelectorBase::Named(allocations.string("artifact").map_err(ArtifactError::Allocation)?),
     };
-    Selector::new(base, kind, slots.clone()).map_err(|error| invalid(error.to_string()))?;
+    Selector::new(base, kind, validation_slots).map_err(|_| invalid("invalid family operation selector"))?;
     Ok(FamilyOperationShape { kind, slots })
 }
 fn complete<T: Copy>(values: Vec<Option<T>>, allocations: &mut AllocationBudget) -> Result<Vec<T>, ArtifactError> {
@@ -2954,7 +3041,7 @@ impl TypeStore {
         // Variances
         let mut variances_vec = allocations.vector(graph.variance_overrides.len()).map_err(ArtifactError::Allocation)?;
         for value in &graph.variance_overrides {
-            let owner = declaration_in(&value.owner)?;
+            let owner = declaration_in_with_allocation_budget(&value.owner, allocations)?;
             variances_vec.push(((owner, value.index), variance_in(&value.variance)));
         }
         variances_vec.sort_unstable_by(|a, b| a.0.cmp(&b.0));
@@ -2992,7 +3079,7 @@ impl TypeStore {
         let prefix_arc = allocations.arc(prefix).map_err(ArtifactError::Allocation)?;
         let store = TypeStore::from_frozen(prefix_arc);
 
-        validate_scoped_roots(&store, limits)?;
+        validate_scoped_roots(&store, limits, allocations)?;
 
         let relocation = TypeRelocation {
             store_id: store.id(),
@@ -3015,15 +3102,19 @@ impl TypeStore {
 /// Checks de Bruijn addressability in complete global lambda roots, retaining
 /// outer binder contexts while traversing nested lambda bodies. Arena fragments
 /// are not incorrectly treated as independently closed lambda roots.
-fn validate_scoped_roots(store: &TypeStore, limits: &ValidationLimits) -> Result<(), ArtifactError> {
-    struct Validator<'a> {
+fn validate_scoped_roots(
+    store: &TypeStore,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<(), ArtifactError> {
+    struct Validator<'a, 'b> {
         arena: &'a TypeLambdaArena,
         limits: &'a ValidationLimits,
-        seen: BTreeSet<(ScopedTypeId, Vec<usize>)>,
-        remaining_bytes: u64,
+        allocations: &'b mut AllocationBudget,
+        seen: Vec<(ScopedTypeId, Box<[usize]>)>,
         calls: usize,
     }
-    impl Validator<'_> {
+    impl Validator<'_, '_> {
         fn bound(&self, depth: u32, index: u32, context: &[usize]) -> Result<(), ArtifactError> {
             if context.get(depth as usize).is_none_or(|width| index as usize >= *width) {
                 return Err(invalid("out-of-scope lambda binder reference"));
@@ -3032,7 +3123,11 @@ fn validate_scoped_roots(store: &TypeStore, limits: &ValidationLimits) -> Result
         }
         fn lambda(&mut self, id: TypeLambdaId, context: &[usize], depth: usize) -> Result<(), ArtifactError> {
             let lambda = self.arena.get_lambda(id);
-            let mut nested = Vec::with_capacity(context.len() + 1);
+            let nested_len = context
+                .len()
+                .checked_add(1)
+                .ok_or(ArtifactError::Allocation(phalcom_type_meta::allocation::AllocationError::Overflow))?;
+            let mut nested = self.allocations.vector(nested_len).map_err(ArtifactError::Allocation)?;
             nested.push(lambda.parameter_kinds.len());
             nested.extend_from_slice(context);
             self.walk(lambda.body, &nested, depth + 1)
@@ -3054,16 +3149,17 @@ fn validate_scoped_roots(store: &TypeStore, limits: &ValidationLimits) -> Result
             if self.calls > self.limits.max_semantic_entries_per_family {
                 return Err(invalid("lambda validation work budget exceeded"));
             }
-            let key = (id, context.to_vec());
-            if self.seen.contains(&key) {
+            let position = self.seen.binary_search_by(|(seen_id, seen_context)| {
+                seen_id.cmp(&id).then_with(|| seen_context.as_ref().cmp(context))
+            });
+            let Err(position) = position else {
                 return Ok(());
-            }
-            let allocation = 64_u64 + (context.len() as u64) * std::mem::size_of::<usize>() as u64;
-            self.remaining_bytes = self
-                .remaining_bytes
-                .checked_sub(allocation)
-                .ok_or_else(|| invalid("lambda validation memory budget exceeded"))?;
-            self.seen.insert(key);
+            };
+            let mut retained_context = self.allocations.vector(context.len()).map_err(ArtifactError::Allocation)?;
+            retained_context.extend_from_slice(context);
+            let retained_context = self.allocations.boxed_slice(retained_context).map_err(ArtifactError::Allocation)?;
+            self.allocations.grow_vector_exact(&mut self.seen, 1).map_err(ArtifactError::Allocation)?;
+            self.seen.insert(position, (id, retained_context));
             let arena = self.arena;
             let next = depth + 1;
             match arena.get_scoped(id) {
@@ -3158,8 +3254,8 @@ fn validate_scoped_roots(store: &TypeStore, limits: &ValidationLimits) -> Result
     let mut validator = Validator {
         arena: &store.lambda_arena,
         limits,
-        seen: BTreeSet::new(),
-        remaining_bytes: limits.max_decoded_section_bytes,
+        allocations,
+        seen: Vec::new(),
         calls: 0,
     };
     for i in 0..store.type_count() {

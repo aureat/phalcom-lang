@@ -6,15 +6,19 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
 latest_completed_plan_verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P7.PATCH5
+active_plan: PERF003.C2.P7.PATCH5-R
 latest_completed_plan: PERF003.C2.P7.PATCH4
-next_plan: PERF003.C2.P7.PATCH5
+next_plan: PERF003.C2.P7.PATCH5-R
 next_action: >
-  Complete Task T6 semantic owner closure, Wave 3 query image publication, and
-  Wave 4 exact allocator parity verification.
-prepared_against_revision: a134a0650461b2dd6760a8d42a2e944be505849f
-execution_tree_head: a134a065
-latest_tested_revision: a134a065
+  PERF003.C2.P7.PATCH5-R is active from revision
+  9cbba391a4482052dec476b327619c957a028b19 on
+  perf/universe-characterization. R.T0 is complete and R.G0 is PASS as a
+  baseline-recording gate only. R.T1 is partially implemented; its isolated
+  semantic import equality check still reports a 2,468,555-byte delta. Continue
+  tracing and closing semantic owner allocations before advancing to R.T2.
+prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
+execution_tree_head: 9cbba391a4482052dec476b327619c957a028b19
+latest_tested_revision: 9cbba391a4482052dec476b327619c957a028b19
 latest_tested_predecessor: e4503086b97669d25cbaea21dcbc7e7740e2b260
 ---
 
@@ -719,7 +723,8 @@ After:
 | `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Explicit compiler image product contract, zero-copy parent overlays across all core tables, canonical persistence inventory/capabilities, query classification, CanonicalCompilerImageView boundary, and observability cardinality guards (CanonicalAggregateEntriesCopied == 0) implemented and certified. |
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | ModuleLoweringInputView, module-indexed callable analyses/definitions/declarations/data/enums, reverse-target occurrence resolution, precomputed TraitRequirementLayout, and direct inherent impl domain indexing implemented and certified. |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
-| `PERF003.C2.P7` (normalized) | Telosc persisted semantic compiler image | Compiler artifact | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Deterministic container v2 publication, schema-3 export/import, source-free ModuleQueryProducts synthesis, witness plan fingerprint canonicalization, exact cumulative allocation accounting, atomic publication with mandatory self-load verification, inline and package user compilation, and fresh-process source-denied compilation fully certified. |
+| `PERF003.C2.P7` (normalized) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | PATCH4 source-free compiler lifecycle remains implemented, but current independent allocation measurement finds a 205,461,325-byte full-load accounting delta and successful realistic-package parity is not established. PATCH5-R owns remaining closure. |
+| `PERF003.C2.P7.PATCH5-R` | Corrective compiler-only Universe artifact closure | Loaded compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | Active from revision `9cbba391`; R.G0 baseline passed. R.T1 is partial and R.G1 currently fails semantic import allocation equality by 2,468,555 bytes. R.G2-R.G7 remain unverified. |
 | `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | PLANNED | NOT_STARTED | UNVERIFIED | Detailed plan prepared; BUILD depends on complete P7 compiler interfaces; deferred P7/P8 acceptance still controls closure |
 
 ## P7 flow-graph allocation ruling — 2026-10-15
@@ -2227,4 +2232,65 @@ Progress:
    - Test suites in `phalcom-modules` (`tests/topology.rs`, `tests/query.rs`) updated to `ModuleAuthorityMap`/`Set` interfaces and pass.
 
 Immediate Next Action:
-Execute Task T6 to wire budgeted type and static value import closures into `validate_and_import_semantic_world_inner` and remove `require_semantic_import_allocation_accounting()`.
+The original PATCH5 continuation is superseded by PATCH5-R. Its R.T0 baseline
+and current next action are recorded below.
+
+## PERF003.C2.P7.PATCH5-R baseline — 2026-10-17
+
+PATCH5-R started from `9cbba391a4482052dec476b327619c957a028b19` on
+`perf/universe-characterization`, equal to the fetched remote revision. Before
+checkpoint updates, the only worktree item was the user-supplied untracked
+PATCH5-R plan. The worktree's `AGENTS-old.md` reference is absent; the current
+`AGENTS.md` was followed.
+
+R.G0 baseline capture is **PASS**. The independent whole-load allocator test
+reproduced the first strict mismatch: the ledger charged `323,324,452` bytes,
+while the test allocator observed `528,785,777` requested bytes, a delta of
+`205,461,325`. Root ownership remains to be traced through R.T1-R.T3.
+
+Baseline blockers are recorded in
+`P7-R1/reports/PERF003.C2.P7.PATCH5-R-first-failure-ledger.md`; exact commands
+and results are in `P7-R1/reports/PERF003.C2.P7.PATCH5-R-command-log.md`.
+The complete baseline summary is in
+`P7-R1/reports/PERF003.C2.P7.PATCH5-R-baseline.md`.
+
+Focused baseline checks passed for the affected libraries, allocation helpers,
+module topology/query tests, semantic allocation test, artifact generation,
+artifact source-free user compilation, and minimal inline compilation through
+both source and artifact paths. `cargo test --workspace --no-run` is blocked by
+the pre-existing `phalcom-core/examples/perf_workloads.rs` missing-`main`
+error. SlotMap parity is not established: the current harness selects
+`EntrySelection::Package` for a `project.toml` root and compares matching
+errors; the CLI path separately reports the invalid `for (entry in ...)`
+fixture syntax. Runtime bootstrap still fails at the P8 `ProductKind` boundary.
+
+The earlier normalized-P7 `COMPLETE` row is superseded by the verified
+allocation discrepancy and the missing successful real-package parity. P7 is
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; PATCH5-R remains active. R.G1-R.G7 are
+`UNVERIFIED`, and P8 remains blocked. The next action is R.T1 semantic owner
+closure. No production code changed during R.T0.
+
+## PERF003.C2.P7.PATCH5-R R.T1 progress — 2026-10-18
+
+R.G0 remains **PASS** as a baseline-recording gate. R.T1 is **PARTIAL** and
+R.G1 is **FAIL**: the isolated canonical-Universe semantic import measured
+`266,069,278` allocator-requested bytes while its child ledger charged
+`263,600,723`, leaving `2,468,555` bytes unaccounted. The type-graph import
+discriminator remains exact at `765,031` observed and charged bytes.
+
+Focused evidence on the current implementation worktree:
+
+- `RUSTFLAGS='' cargo check -p phalcom-semantic --lib` passed.
+- `PHALCOM_UNIVERSE_TELOSC_FOR_TEST=/tmp/perf003-patch5r-universe.telosc RUSTFLAGS='' cargo test -p phalcom-core --test artifact-allocation full_universe_telosc_load_allocation_equality_and_n_minus_one -- --nocapture` failed the semantic exact-equality assertion with the values above. The test output is `/tmp/perf003-patch5r-import-check9.log`.
+- `git diff --check` passed after lifecycle edits.
+
+The diagnostic backtrace sampler was removed because its stack-frame heuristic
+could not distinguish precharged allocations from uncharged ones. The test
+retains the independent allocator counter and cached artifact-path hooks. The
+remaining allocation owner is not yet proven; the static operational importer
+is a known audit target, not an established root cause.
+
+No G1 completion is claimed. Exact semantic N/N-1, malformed-world rejection,
+child rollback/no publication, owner parity, and canonical fork/overlay proofs
+remain outstanding. R.G2-R.G7 are `UNVERIFIED`. Continue R.T1; do not begin R.T2
+until G1 passes. The active worktree changes have not yet been committed.

@@ -1,6 +1,7 @@
 //! Bounded deterministic source-range interval lookup.
 
 use phalcom_common::range::SourceRange;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 
 /// One range-index entry with deterministic tie-breaking priority.
 #[derive(Clone, Copy, Debug)]
@@ -54,6 +55,37 @@ impl<T: Copy> RangeIndex<T> {
             max_end_prefix.push(max_end);
         }
         Self { entries, max_end_prefix }
+    }
+
+    /// Builds a range index with its two retained buffers allocated against a
+    /// caller-owned artifact load transaction.
+    pub fn new_with_allocation_budget(
+        entries: impl IntoIterator<Item = RangeEntry<T>>,
+        expected: usize,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, AllocationError> {
+        let mut ordered = allocations.vector(expected)?;
+        for (ordinal, mut entry) in entries.into_iter().enumerate() {
+            if ordinal == ordered.capacity() {
+                allocations.grow_vector_exact(&mut ordered, 1)?;
+            }
+            entry.ordinal = ordinal;
+            ordered.push(entry);
+        }
+        ordered.sort_unstable_by(|left, right| {
+            (left.range.start, left.range.len(), left.priority, left.ordinal)
+                .cmp(&(right.range.start, right.range.len(), right.priority, right.ordinal))
+        });
+        let mut max_end_prefix = allocations.vector(ordered.len())?;
+        let mut max_end = 0;
+        for entry in &ordered {
+            max_end = max_end.max(entry.range.end);
+            max_end_prefix.push(max_end);
+        }
+        Ok(Self {
+            entries: ordered,
+            max_end_prefix,
+        })
     }
 
     /// Number of indexed ranges.

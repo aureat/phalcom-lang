@@ -1659,7 +1659,7 @@ impl SemanticWorldV3 {
 
     fn validate_inner(&self, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
         self.type_graph.validate(limits)?;
-        self.structural_contracts.validate(limits)?;
+        self.structural_contracts.validate_with_allocation_budget(limits, allocations)?;
         self.static_values.validate(limits)?;
         if self.witness_plans.len() > limits.max_semantic_entries_per_family
             || self.derived_conformance_rules.len() > limits.max_semantic_entries_per_family

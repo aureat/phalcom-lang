@@ -4,7 +4,7 @@ use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, SourceSiteId, SourceSiteRef, TypeId, WorkspaceId};
-use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan, EffectiveCallableDefinition};
+use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, EffectiveCallableDefinition};
 use crate::module_bindings::ModuleStaticBindingIndex;
 use crate::presentation::{FormalFactRef, FormalFactSite, FormalSemanticProjection, SemanticSiteView};
 use crate::semantic_shard::ModuleSemanticStructureShard;
@@ -221,7 +221,7 @@ pub struct SemanticSnapshot {
     pub conformance_index: Arc<ConformanceIndex>,
     /// Source witness/default selections, keyed by the declaring conformance
     /// identity. Exact evidence is derived only from this canonical plan.
-    pub conformance_witness_plans: Arc<BTreeMap<crate::identity::ImplId, Arc<ConformanceWitnessPlan>>>,
+    pub conformance_witness_plans: Arc<crate::impls::ConformanceWitnessPlans>,
     /// Guarded derived conformance rules published for this semantic snapshot.
     pub derived_conformance_rules: Arc<crate::derived_conformance::DerivedConformanceRuleIndex>,
     /// Bounded ordinary receiver/selector discovery for trait evidence.
@@ -305,7 +305,7 @@ impl SemanticSnapshot {
             callable_definitions: Arc::new(crate::parent_map::ParentMap::default()),
             callable_definitions_by_module: Arc::new(BTreeMap::new()),
             conformance_index: Arc::new(ConformanceIndex::new()),
-            conformance_witness_plans: Arc::new(BTreeMap::new()),
+            conformance_witness_plans: Arc::new(crate::impls::ConformanceWitnessPlans::default()),
             derived_conformance_rules: Arc::new(crate::derived_conformance::DerivedConformanceRuleIndex::new()),
             trait_dispatch_index: Arc::new(TraitDispatchIndex::default()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
@@ -372,7 +372,7 @@ impl SemanticSnapshot {
             callable_definitions: Arc::new(crate::parent_map::ParentMap::default()),
             callable_definitions_by_module: Arc::new(BTreeMap::new()),
             conformance_index: Arc::new(ConformanceIndex::new()),
-            conformance_witness_plans: Arc::new(BTreeMap::new()),
+            conformance_witness_plans: Arc::new(crate::impls::ConformanceWitnessPlans::default()),
             derived_conformance_rules: Arc::new(crate::derived_conformance::DerivedConformanceRuleIndex::new()),
             trait_dispatch_index: Arc::new(TraitDispatchIndex::default()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
@@ -547,7 +547,7 @@ impl SemanticSnapshot {
         self
     }
 
-    pub fn with_conformance_witness_plans(mut self, plans: Arc<BTreeMap<crate::identity::ImplId, Arc<ConformanceWitnessPlan>>>) -> Self {
+    pub fn with_conformance_witness_plans(mut self, plans: Arc<crate::impls::ConformanceWitnessPlans>) -> Self {
         self.conformance_witness_plans = plans;
         self
     }
@@ -845,7 +845,7 @@ impl SemanticSnapshot {
             && self.trait_surfaces.iter().next().is_some()
             && self.trait_headers.iter().next().is_some()
             && self.declarations.iter().next().is_some()
-            && !self.hierarchy.superclasses.is_empty()
+            && !self.hierarchy.is_empty()
             && !self.dispatch.surfaces().is_empty()
             && !self.data_semantics.data_decls.is_empty()
             && !self.enum_semantics.enums.is_empty()

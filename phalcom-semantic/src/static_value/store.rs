@@ -17,6 +17,51 @@ use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+/// Lazily allocated persistent-map overlay. Frozen artifact stores begin with
+/// no local interner roots; the first session-local insertion creates only the
+/// affected map.
+#[derive(Clone)]
+struct LazyHashMap<K, V>(Option<HashMap<K, V>>);
+
+impl<K, V> std::fmt::Debug for LazyHashMap<K, V> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("LazyHashMap(..)")
+    }
+}
+
+impl<K, V> Default for LazyHashMap<K, V> {
+    fn default() -> Self {
+        Self(None)
+    }
+}
+
+impl<K, V> LazyHashMap<K, V> {
+    fn get<Q: ?Sized>(&self, key: &Q) -> Option<&V>
+    where
+        K: std::borrow::Borrow<Q> + Hash + Eq,
+        Q: Hash + Eq,
+    {
+        self.0.as_ref().and_then(|map| map.get(key))
+    }
+
+    fn insert(&mut self, key: K, value: V) -> Option<V>
+    where
+        K: Hash + Eq + Clone,
+        V: Clone,
+    {
+        self.0.get_or_insert_with(HashMap::new).insert(key, value)
+    }
+
+    #[cfg(test)]
+    fn ptr_eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Some(left), Some(right)) => left.ptr_eq(right),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
 static NEXT_STATIC_VALUE_STORE_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Identity of one append-only static-value store lineage.
@@ -397,25 +442,25 @@ pub struct StaticValueStore {
     id: StaticValueStoreId,
     frozen: Option<Arc<FrozenStaticValuePrefix>>,
     values: Vector<StaticValueData>,
-    interner: HashMap<StaticValueData, StaticValueId>,
+    interner: LazyHashMap<StaticValueData, StaticValueId>,
     strings: Vector<Box<str>>,
-    string_ids: HashMap<Box<str>, StaticStringId>,
+    string_ids: LazyHashMap<Box<str>, StaticStringId>,
     symbols: Vector<Box<str>>,
-    symbol_ids: HashMap<Box<str>, StaticSymbolId>,
+    symbol_ids: LazyHashMap<Box<str>, StaticSymbolId>,
     tuples: Vector<Box<[StaticValueRef]>>,
-    tuple_ids: HashMap<Box<[StaticValueRef]>, StaticTupleId>,
+    tuple_ids: LazyHashMap<Box<[StaticValueRef]>, StaticTupleId>,
     sequences: Vector<StaticSequenceData>,
-    sequence_ids: HashMap<StaticSequenceData, StaticSequenceId>,
+    sequence_ids: LazyHashMap<StaticSequenceData, StaticSequenceId>,
     records: Vector<Box<[StaticRecordField]>>,
-    record_ids: HashMap<Box<[StaticRecordField]>, StaticRecordId>,
+    record_ids: LazyHashMap<Box<[StaticRecordField]>, StaticRecordId>,
     data_values: Vector<StaticDataValue>,
-    data_value_ids: HashMap<StaticDataValue, StaticDataValueId>,
+    data_value_ids: LazyHashMap<StaticDataValue, StaticDataValueId>,
     variant_values: Vector<StaticVariantValue>,
-    variant_value_ids: HashMap<StaticVariantValue, StaticVariantValueId>,
+    variant_value_ids: LazyHashMap<StaticVariantValue, StaticVariantValueId>,
     pack_backings: Vector<StaticPackBacking>,
-    pack_backing_ids: HashMap<StaticPackBacking, StaticPackBackingId>,
+    pack_backing_ids: LazyHashMap<StaticPackBacking, StaticPackBackingId>,
     packs: Vector<StaticPackData>,
-    pack_ids: HashMap<StaticPackData, StaticPackId>,
+    pack_ids: LazyHashMap<StaticPackData, StaticPackId>,
 }
 
 impl Default for StaticValueStore {
@@ -462,25 +507,25 @@ impl StaticValueStore {
             id: Self::fresh_id(),
             frozen: None,
             values: Vector::new(),
-            interner: HashMap::new(),
+            interner: LazyHashMap::default(),
             strings: Vector::new(),
-            string_ids: HashMap::new(),
+            string_ids: LazyHashMap::default(),
             symbols: Vector::new(),
-            symbol_ids: HashMap::new(),
+            symbol_ids: LazyHashMap::default(),
             tuples: Vector::new(),
-            tuple_ids: HashMap::new(),
+            tuple_ids: LazyHashMap::default(),
             sequences: Vector::new(),
-            sequence_ids: HashMap::new(),
+            sequence_ids: LazyHashMap::default(),
             records: Vector::new(),
-            record_ids: HashMap::new(),
+            record_ids: LazyHashMap::default(),
             data_values: Vector::new(),
-            data_value_ids: HashMap::new(),
+            data_value_ids: LazyHashMap::default(),
             variant_values: Vector::new(),
-            variant_value_ids: HashMap::new(),
+            variant_value_ids: LazyHashMap::default(),
             pack_backings: Vector::new(),
-            pack_backing_ids: HashMap::new(),
+            pack_backing_ids: LazyHashMap::default(),
             packs: Vector::new(),
-            pack_ids: HashMap::new(),
+            pack_ids: LazyHashMap::default(),
         }
     }
 
@@ -490,25 +535,25 @@ impl StaticValueStore {
             id: prefix.id,
             frozen: Some(prefix),
             values: Vector::new(),
-            interner: HashMap::new(),
+            interner: LazyHashMap::default(),
             strings: Vector::new(),
-            string_ids: HashMap::new(),
+            string_ids: LazyHashMap::default(),
             symbols: Vector::new(),
-            symbol_ids: HashMap::new(),
+            symbol_ids: LazyHashMap::default(),
             tuples: Vector::new(),
-            tuple_ids: HashMap::new(),
+            tuple_ids: LazyHashMap::default(),
             sequences: Vector::new(),
-            sequence_ids: HashMap::new(),
+            sequence_ids: LazyHashMap::default(),
             records: Vector::new(),
-            record_ids: HashMap::new(),
+            record_ids: LazyHashMap::default(),
             data_values: Vector::new(),
-            data_value_ids: HashMap::new(),
+            data_value_ids: LazyHashMap::default(),
             variant_values: Vector::new(),
-            variant_value_ids: HashMap::new(),
+            variant_value_ids: LazyHashMap::default(),
             pack_backings: Vector::new(),
-            pack_backing_ids: HashMap::new(),
+            pack_backing_ids: LazyHashMap::default(),
             packs: Vector::new(),
-            pack_ids: HashMap::new(),
+            pack_ids: LazyHashMap::default(),
         }
     }
 

@@ -12,14 +12,13 @@ use crate::checker::analysis_map::AnalysisMap;
 use crate::declarations::DeclarationTypeTable;
 use crate::generic_evidence::{GenericConformanceKey, GenericEvidenceEnvironment};
 use crate::identity::ImplId;
-use crate::impls::{AssociatedTypeBindingValue, ConformanceAssociatedTypePlan, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan};
+use crate::impls::{AssociatedTypeBindingValue, ConformanceAssociatedTypePlan, ConformanceIndex, ConformanceResolution};
 use crate::traits::{TraitRef, TraitSurfaceTable};
 use crate::types::parameter::TypeTerm;
 use crate::types::type_member::{
     IntrinsicTypeOperation, IntrinsicTypeOwner, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
 };
-use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
+use std::collections::HashSet;
 
 /// Authority used to normalize canonical associated projections.
 pub enum ProjectionNormalizationMode<'a> {
@@ -34,7 +33,7 @@ pub enum ProjectionNormalizationMode<'a> {
     /// An exact target and trait application consume published conformance evidence.
     Exact {
         conformance_index: &'a ConformanceIndex,
-        witness_plans: &'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+        witness_plans: &'a crate::impls::ConformanceWitnessPlans,
         trait_surfaces: &'a TraitSurfaceTable,
         derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>,
         declarations: &'a DeclarationTypeTable,
@@ -44,7 +43,7 @@ pub enum ProjectionNormalizationMode<'a> {
     Generic {
         evidence: &'a GenericEvidenceEnvironment,
         conformance_index: Option<&'a ConformanceIndex>,
-        witness_plans: Option<&'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
+        witness_plans: Option<&'a crate::impls::ConformanceWitnessPlans>,
         trait_surfaces: &'a TraitSurfaceTable,
         derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>,
         declarations: &'a DeclarationTypeTable,

@@ -14,6 +14,7 @@ pub mod instantiation;
 pub mod kind;
 pub mod native;
 pub mod outcome;
+pub(crate) mod overlay;
 pub mod parameter;
 pub mod projection;
 pub mod proof;

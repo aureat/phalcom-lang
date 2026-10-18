@@ -344,6 +344,63 @@ impl SurfaceDispatchResolver {
         Self::default()
     }
 
+    /// Builds the immutable dispatch authority retained by an imported
+    /// semantic snapshot without growing source-oriented native maps.
+    pub(crate) fn from_frozen_import_entries_with_allocation_budget(
+        surfaces: Vec<(DeclarationId, DeclarationSurface)>,
+        type_declarations: Vec<(TypeId, DeclarationId)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, FrozenDispatchImportError> {
+        let surfaces = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(surfaces, allocations)
+            .map_err(|error| match error {
+                crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
+                crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateOwner,
+            })?;
+        let type_declarations = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(type_declarations, allocations)
+            .map_err(|error| match error {
+                crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
+                crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateType,
+            })?;
+        Ok(Self {
+            surfaces: allocations.arc(surfaces).map_err(FrozenDispatchImportError::Allocation)?,
+            conditional_members: allocations
+                .arc(crate::parent_map::ParentMap::default())
+                .map_err(FrozenDispatchImportError::Allocation)?,
+            type_declarations: allocations.arc(type_declarations).map_err(FrozenDispatchImportError::Allocation)?,
+            inherent_impl_domains: allocations
+                .arc(crate::parent_map::ParentMap::default())
+                .map_err(FrozenDispatchImportError::Allocation)?,
+            conditional_targets_by_owner: HashMap::new(),
+            module_surfaces: HashMap::new(),
+            declaration_types: HashMap::new(),
+        })
+    }
+
+    pub(crate) fn with_frozen_conditional_import_entries(
+        mut self,
+        conditional_members: Vec<(InherentImplTarget, Arc<ConditionalInherentMemberSet>)>,
+        inherent_impl_domains: Vec<(crate::identity::ImplId, Arc<crate::impls::InherentImplDomain>)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, FrozenDispatchImportError> {
+        let conditional_members = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(conditional_members, allocations)
+            .map_err(|error| match error {
+                crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
+                crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateConditionalTarget,
+            })?;
+        let inherent_impl_domains = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(inherent_impl_domains, allocations)
+            .map_err(|error| match error {
+                crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
+                crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateDomain,
+            })?;
+        self.conditional_members = allocations
+            .arc(conditional_members)
+            .map_err(FrozenDispatchImportError::Allocation)?;
+        self.inherent_impl_domains = allocations
+            .arc(inherent_impl_domains)
+            .map_err(FrozenDispatchImportError::Allocation)?;
+        Ok(self)
+    }
+
     /// Attaches canonical dispatch products without copying surfaces or registrations.
     pub fn with_parent(parent: Arc<Self>) -> Self {
         Self {
@@ -583,6 +640,15 @@ impl SurfaceDispatchResolver {
         }
         None
     }
+}
+
+#[derive(Debug)]
+pub(crate) enum FrozenDispatchImportError {
+    Allocation(phalcom_type_meta::allocation::AllocationError),
+    DuplicateOwner,
+    DuplicateType,
+    DuplicateConditionalTarget,
+    DuplicateDomain,
 }
 
 #[cfg(test)]

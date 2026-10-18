@@ -3,7 +3,10 @@
 mod artifact;
 mod store;
 
-pub use artifact::{StaticExportContext, StaticRelocation, import_static_value_graph};
+pub use artifact::{
+    BudgetedDeclarationResolver, BudgetedVariantResolver, StaticExportContext, StaticRelocation, import_static_value_graph,
+    import_static_value_graph_with_allocation_budget,
+};
 pub use store::{
     StaticDataValue, StaticDataValueId, StaticFloat, StaticInt, StaticPackBacking, StaticPackBackingId, StaticPackData, StaticPackId, StaticRecordField,
     StaticRecordId, StaticSequenceData, StaticSequenceFamily, StaticSequenceId, StaticStringId, StaticSymbolId, StaticTupleId, StaticValueData, StaticValueId,

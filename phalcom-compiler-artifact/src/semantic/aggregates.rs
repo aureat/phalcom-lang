@@ -14,9 +14,8 @@ use crate::semantic::type_store::{
     ParameterModeV1, ParameterOwnerV1, SelfTypeV1, VarianceV1,
 };
 use crate::{ArtifactError, BinaryReader, BinaryWriter, ValidationError, ValidationLimits};
-use phalcom_type_meta::allocation::AllocationBudget;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{StableDeclarationRef, StableVariantRef};
-use std::collections::BTreeSet;
 
 pub const STRUCTURAL_PRIMARY_CONTRACTS_SCHEMA_V1: u32 = 1;
 
@@ -245,6 +244,19 @@ impl StructuralPrimaryContractsV1 {
     /// and bounded cross references. Graph references into the type/static
     /// graphs are checked against those graphs by the semantic loader.
     pub fn validate(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+        let allocation_limit = usize::try_from(limits.max_decoded_section_bytes)
+            .map_err(|_| invalid("structural contract allocation limit exceeds address space"))?;
+        let mut allocations = AllocationBudget::new(allocation_limit);
+        self.validate_with_allocation_budget(limits, &mut allocations)
+    }
+
+    /// Validates structural rows while charging duplicate-detection scratch to
+    /// the caller's semantic import transaction.
+    pub fn validate_with_allocation_budget(
+        &self,
+        limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
+    ) -> Result<(), ArtifactError> {
         let total = self.declaration_shells.len()
             .checked_add(self.hierarchy_and_aliases.len())
             .and_then(|n| n.checked_add(self.generic_signatures.len()))
@@ -285,7 +297,9 @@ impl StructuralPrimaryContractsV1 {
                 validate_signature(signature, limits)?;
             }
         }
-        let mut variant_rows = BTreeSet::new();
+        let mut variant_rows = allocations
+            .vector::<&StableVariantRef>(self.variant_contracts.len())
+            .map_err(structural_allocation_error)?;
         for variant in &self.variant_contracts {
             validate_owner(&variant.variant.owner, limits)?;
             validate_name(&variant.variant.selector, limits)?;
@@ -316,10 +330,20 @@ impl StructuralPrimaryContractsV1 {
                 previous_parameter = Some(binding.parameter.0);
             }
             validate_constraint_list(&variant.case_environment.equalities, limits)?;
-            if !variant_rows.insert(variant.variant.clone()) {
-                return Err(invalid("duplicate structural variant row"));
-            }
+            variant_rows.push(&variant.variant);
         }
+        variant_rows.sort_unstable();
+        if variant_rows.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(invalid("duplicate structural variant row"));
+        }
+        let membership_count = self
+            .enum_contracts
+            .iter()
+            .try_fold(0usize, |count, enum_info| count.checked_add(enum_info.variants.len()))
+            .ok_or_else(|| invalid("enum variant membership count overflow"))?;
+        let mut variant_memberships = allocations
+            .vector::<&StableVariantRef>(membership_count)
+            .map_err(structural_allocation_error)?;
         for enum_info in &self.enum_contracts {
             validate_owner(&enum_info.owner, limits)?;
             if let Some(signature) = &enum_info.generic_signature {
@@ -333,19 +357,28 @@ impl StructuralPrimaryContractsV1 {
                     return Err(invalid("enum variant membership names a foreign owner"));
                 }
                 validate_name(&variant.selector, limits)?;
-                if !variant_rows.remove(variant) {
+                if variant_rows.binary_search(&variant).is_err() {
                     return Err(invalid("enum variant has no structural variant row"));
                 }
+                variant_memberships.push(variant);
             }
         }
         if self.enum_contracts.windows(2).any(|pair| pair[0].owner >= pair[1].owner) {
             return Err(invalid("enum contracts must be unique and sorted by owner"));
         }
-        if !variant_rows.is_empty() {
+        variant_memberships.sort_unstable();
+        if variant_memberships.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(invalid("enum variant membership is duplicated"));
+        }
+        if variant_rows != variant_memberships {
             return Err(invalid("structural variant row belongs to no enum contract"));
         }
         Ok(())
     }
+}
+
+fn structural_allocation_error(error: AllocationError) -> ArtifactError {
+    ArtifactError::Allocation(error)
 }
 
 pub(crate) fn validate_signature(signature: &GenericSignatureV1, limits: &ValidationLimits) -> Result<(), ArtifactError> {

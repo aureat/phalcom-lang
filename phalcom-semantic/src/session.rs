@@ -13246,7 +13246,7 @@ fn publish_conformance_witness_plans(
     declarations: &DeclarationTypeTable,
     conformance_index: &crate::impls::ConformanceIndex,
     callable_signatures: &crate::signature::CallableSignatureTable,
-    conformance_witness_plans: &mut BTreeMap<crate::identity::ImplId, Arc<crate::impls::ConformanceWitnessPlan>>,
+    conformance_witness_plans: &mut crate::impls::ConformanceWitnessPlans,
     conformance_witness_bodies: &BTreeSet<CallableId>,
     conformance_witness_visibilities: &BTreeMap<CallableId, crate::surface::MemberVisibility>,
     conformance_invalid_witnesses: &BTreeMap<crate::identity::ImplId, BTreeSet<crate::traits::TraitRequirementId>>,

@@ -2,6 +2,7 @@
 
 use super::id::TypeId;
 use phalcom_common::range::SourceRange;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 
 /// Epistemic degree of knowledge established for a value or expression.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -15,6 +16,28 @@ pub enum TypeKnowledge {
 }
 
 impl TypeKnowledge {
+    /// Clones owned provenance through the caller's artifact allocation ledger.
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(match self {
+            Self::Known(evidence) => {
+                let mut ranges = allocations.vector(evidence.provenance.ranges.len())?;
+                ranges.extend_from_slice(&evidence.provenance.ranges);
+                let mut descriptions = allocations.vector(evidence.provenance.descriptions.len())?;
+                for description in &evidence.provenance.descriptions {
+                    descriptions.push(allocations.string(description)?);
+                }
+                Self::Known(TypeEvidence {
+                    ty: evidence.ty,
+                    status: evidence.status,
+                    origin: evidence.origin,
+                    provenance: EvidenceSet { ranges, descriptions },
+                })
+            }
+            Self::Unknown(reason) => Self::Unknown(reason.clone_with_allocation_budget(allocations)?),
+            Self::Dynamic(reason) => Self::Dynamic(reason.clone()),
+        })
+    }
+
     /// Reconstructs a portable type-evidence product without changing its
     /// epistemic status, origin, or provenance.
     pub(crate) fn known_with_evidence(ty: TypeId, status: EvidenceStatus, origin: EvidenceOrigin, provenance: EvidenceSet) -> Self {
@@ -425,6 +448,13 @@ pub enum ContractAssumptionEligibility {
 }
 
 impl UnknownReason {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(match self {
+            Self::UnresolvedName(name) => Self::UnresolvedName(allocations.boxed_str(name)?),
+            other => other.clone(),
+        })
+    }
+
     pub fn contract_assumption_eligibility(&self) -> ContractAssumptionEligibility {
         match self {
             Self::NoTypeEvidence => ContractAssumptionEligibility::MaySupplyAssumption,

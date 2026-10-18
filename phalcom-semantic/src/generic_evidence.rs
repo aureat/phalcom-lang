@@ -4,7 +4,7 @@
 use crate::checker::analysis_map::AnalysisMap;
 use crate::declarations::DeclarationTypeTable;
 use crate::identity::ImplId;
-use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan};
+use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution};
 use crate::traits::{TraitRef, TraitRequirementId, TraitSurfaceTable};
 use crate::types::evidence::UnknownReason;
 use crate::types::id::TypeId;
@@ -561,7 +561,7 @@ pub struct StructuralConformanceContext<'a> {
 pub struct ConformanceProofContext<'a> {
     pub lexical_evidence: Option<&'a GenericEvidenceEnvironment>,
     pub conformance_index: Option<&'a ConformanceIndex>,
-    pub witness_plans: Option<&'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
+    pub witness_plans: Option<&'a crate::impls::ConformanceWitnessPlans>,
     pub trait_surfaces: Option<&'a TraitSurfaceTable>,
     pub derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>,
     pub declarations: Option<&'a DeclarationTypeTable>,
@@ -578,7 +578,7 @@ impl<'a> ConformanceProofContext<'a> {
     pub fn new(
         lexical_evidence: Option<&'a GenericEvidenceEnvironment>,
         conformance_index: Option<&'a ConformanceIndex>,
-        witness_plans: Option<&'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
+        witness_plans: Option<&'a crate::impls::ConformanceWitnessPlans>,
         trait_surfaces: Option<&'a TraitSurfaceTable>,
         declarations: Option<&'a DeclarationTypeTable>,
         hierarchy: Option<&'a dyn TypeHierarchy>,
@@ -1321,7 +1321,7 @@ pub fn query_generic_conformance_proof(
     trait_ref: &TraitRef,
     environment: Option<&GenericEvidenceEnvironment>,
     conformance_index: Option<&ConformanceIndex>,
-    witness_plans: Option<&BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
+    witness_plans: Option<&crate::impls::ConformanceWitnessPlans>,
     trait_surfaces: Option<&TraitSurfaceTable>,
     derived_rules: Option<&crate::derived_conformance::DerivedConformanceRuleIndex>,
     declarations: Option<&DeclarationTypeTable>,
@@ -1348,7 +1348,7 @@ pub fn query_generic_conformance_proof_with_structural(
     trait_ref: &TraitRef,
     environment: Option<&GenericEvidenceEnvironment>,
     conformance_index: Option<&ConformanceIndex>,
-    witness_plans: Option<&BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
+    witness_plans: Option<&crate::impls::ConformanceWitnessPlans>,
     trait_surfaces: Option<&TraitSurfaceTable>,
     derived_rules: Option<&crate::derived_conformance::DerivedConformanceRuleIndex>,
     declarations: Option<&DeclarationTypeTable>,

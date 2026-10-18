@@ -330,7 +330,7 @@ pub struct StaticEvaluator<'a> {
     hierarchy: Option<&'a dyn TypeHierarchy>,
     conformance: Option<(
         &'a crate::impls::ConformanceIndex,
-        &'a BTreeMap<crate::identity::ImplId, std::sync::Arc<crate::impls::ConformanceWitnessPlan>>,
+        &'a crate::impls::ConformanceWitnessPlans,
         &'a crate::traits::TraitSurfaceTable,
         &'a crate::declarations::DeclarationTypeTable,
     )>,
@@ -1100,7 +1100,7 @@ impl<'a> StaticEvaluator<'a> {
     pub fn with_conformance(
         mut self,
         conformance_index: &'a crate::impls::ConformanceIndex,
-        witness_plans: &'a BTreeMap<crate::identity::ImplId, std::sync::Arc<crate::impls::ConformanceWitnessPlan>>,
+        witness_plans: &'a crate::impls::ConformanceWitnessPlans,
         trait_surfaces: &'a crate::traits::TraitSurfaceTable,
         declarations: &'a crate::declarations::DeclarationTypeTable,
     ) -> Self {
