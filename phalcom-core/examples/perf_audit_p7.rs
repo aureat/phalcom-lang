@@ -676,11 +676,9 @@ fn cmd_slotmap_eval(artifact: &Path) {
     )
     .expect("source compilation of packages/slotmap");
     println!("packages/slotmap Source compilation: SUCCESS ({} modules)", src_prog1.modules.len());
-    assert_eq!(
-        src_prog1.modules.len(),
-        art_prog1.modules.len(),
-        "Compiled module count parity failed for packages/slotmap!"
-    );
+    println!("Verifying packages/slotmap structural product parity...");
+    phalcom_core::modules::parity::assert_compiled_program_parity(&src_prog1, &art_prog1);
+    println!("packages/slotmap structural product parity: VERIFIED (topology, interfaces, exports, lowering, bindings match)");
 
     // Case 2: packages/slotmap/tests/runtime
     println!("Testing packages/slotmap/tests/runtime under Artifact-backed...");
@@ -696,13 +694,11 @@ fn cmd_slotmap_eval(artifact: &Path) {
     )
     .expect("source compilation of packages/slotmap/tests/runtime");
     println!("packages/slotmap/tests/runtime Source compilation: SUCCESS ({} modules)", src_prog2.modules.len());
-    assert_eq!(
-        src_prog2.modules.len(),
-        art_prog2.modules.len(),
-        "Compiled module count parity failed for packages/slotmap/tests/runtime!"
-    );
+    println!("Verifying packages/slotmap/tests/runtime structural product parity...");
+    phalcom_core::modules::parity::assert_compiled_program_parity(&src_prog2, &art_prog2);
+    println!("packages/slotmap/tests/runtime structural product parity: VERIFIED (topology, interfaces, exports, lowering, bindings match)");
 
-    println!("Slotmap evaluation complete: 100% positive compilation parity verified between source-backed and artifact-backed!");
+    println!("Slotmap evaluation complete: 100% normalized compilation product parity verified between source-backed and artifact-backed!");
 }
 
 fn cmd_allocation_check(artifact: &Path) {

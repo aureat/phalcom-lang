@@ -219,6 +219,9 @@ pub(crate) fn canonical_compiler_image_view() -> Result<Option<CanonicalCompiler
 }
 
 fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, CanonicalUniverseBuildError> {
+    if std::env::var_os("PHALCOM_DENY_SOURCE_BOOTSTRAP").is_some() {
+        panic!("Canonical universe program source bootstrap attempted while denied by PHALCOM_DENY_SOURCE_BOOTSTRAP");
+    }
     #[cfg(any(test, feature = "test-timings"))]
     crate::instrumentation::record_canonical_universe_product_build();
     #[cfg(test)]

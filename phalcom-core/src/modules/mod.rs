@@ -14,11 +14,14 @@ pub mod context;
 pub mod initialize;
 pub mod linkage;
 pub mod materialize;
+pub mod parity;
 pub mod reflection_cache;
 pub mod reflection_metadata;
 pub mod registry;
 pub mod semantic_lowering;
 mod static_constant;
+
+pub use parity::{assert_compile_error_parity, assert_compiled_program_parity, assert_semantic_diagnostics_parity, compare_compiled_programs};
 
 pub use artifact::{ClassBlueprint, EnumBlueprint, ModuleMaterializationPlan, RuntimeDeclarationBlueprint, VariantBlueprint};
 pub use canonical_universe::{CanonicalCompatibilityIdentity, CanonicalCompilerImageView, CanonicalUniverseProgram, canonical_universe_program};

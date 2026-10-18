@@ -909,6 +909,9 @@ impl UniverseSourceProvider {
 
     /// Returns the embedded source text for a canonical Universe module.
     pub fn source_text(&self, id: &ModuleId) -> Result<std::sync::Arc<str>, ModuleLoadError> {
+        if std::env::var_os("PHALCOM_DENY_SOURCE_BOOTSTRAP").is_some() {
+            panic!("UniverseSourceProvider source read attempted while denied by PHALCOM_DENY_SOURCE_BOOTSTRAP");
+        }
         use std::sync::Arc;
         self.validate_id(id)?;
         let _node = self

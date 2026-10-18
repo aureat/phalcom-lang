@@ -25,6 +25,9 @@ impl PreludeTypeMap {
     /// Builds the canonical prelude from explicit native policy plus canonical
     /// source identity.
     pub fn canonical_universe() -> Self {
+        if let Some(prelude) = CANONICAL_UNIVERSE_PRELUDE.get() {
+            return (**prelude).clone();
+        }
         let provider = UniverseSourceProvider::new();
         let catalog = UniverseSourceDeclarationCatalog::build(&provider).expect("canonical Universe source declaration catalog must build");
         let mut entries = BTreeMap::new();
@@ -78,6 +81,75 @@ impl PreludeTypeMap {
         entries.insert("Conforms".into(), DeclarationId::new(proof_module, "Conforms".into()));
 
         Self { entries }
+    }
+
+    /// Builds the canonical prelude by validating candidate declarations against a predicate.
+    pub fn from_declarations<F>(mut contains_decl: F) -> Self
+    where
+        F: FnMut(&DeclarationId) -> bool,
+    {
+        let mut entries = BTreeMap::new();
+
+        for binding in phalcom_native_meta::UNIVERSE_BINDINGS.iter().filter(|binding| binding.prelude) {
+            let path: Vec<crate::identity::ModuleComponent> = binding
+                .key
+                .source_path()
+                .iter()
+                .map(|component| crate::identity::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                .collect();
+            let module = ModuleId::universe(crate::identity::ModulePath::from_components(path));
+            let name = binding.key.name();
+            let decl = DeclarationId::new(module, name.into());
+            if contains_decl(&decl) {
+                entries.insert(binding.name.into(), decl);
+            }
+        }
+
+        let unit_module = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("option").expect("canonical Universe component"),
+            ModuleComponent::from_identifier("unit").expect("canonical Universe component"),
+        ]));
+        let unit_decl = DeclarationId::new(unit_module, "Unit".into());
+        assert!(contains_decl(&unit_decl), "canonical Unit alias must exist in Universe");
+        entries.insert("Unit".into(), unit_decl);
+
+        let duration_module = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("time").expect("canonical Universe component"),
+            ModuleComponent::from_identifier("duration").expect("canonical Universe component"),
+        ]));
+        entries.insert("Duration".into(), DeclarationId::new(duration_module, "Duration".into()));
+        let timestamp_module = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("time").expect("canonical Universe component"),
+            ModuleComponent::from_identifier("timestamp").expect("canonical Universe component"),
+        ]));
+        entries.insert("Timestamp".into(), DeclarationId::new(timestamp_module, "Timestamp".into()));
+
+        let duplicate_key_error_module = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("errors").expect("canonical Universe component"),
+            ModuleComponent::from_identifier("argument").expect("canonical Universe component"),
+        ]));
+        entries.insert(
+            "DuplicateKeyError".into(),
+            DeclarationId::new(duplicate_key_error_module, "DuplicateKeyError".into()),
+        );
+
+        let proof_module = crate::core_surface::universe_module(&["core", "proof"]);
+        entries.insert("Equivalent".into(), DeclarationId::new(proof_module.clone(), "Equivalent".into()));
+        entries.insert("Subtype".into(), DeclarationId::new(proof_module.clone(), "Subtype".into()));
+        entries.insert("Conforms".into(), DeclarationId::new(proof_module, "Conforms".into()));
+
+        Self { entries }
+    }
+
+    /// Initializes the process-stable canonical prelude map from an authoritative snapshot.
+    pub fn initialize_from_snapshot(snapshot: &crate::snapshot::SemanticSnapshot) {
+        CANONICAL_UNIVERSE_PRELUDE.get_or_init(|| {
+            Arc::new(Self::from_declarations(|decl| {
+                snapshot.declarations.contains(decl)
+                    || snapshot.type_aliases.contains_key(decl)
+                    || snapshot.trait_headers.contains(decl)
+            }))
+        });
     }
 
     /// Returns the single process-stable canonical prelude map.

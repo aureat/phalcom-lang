@@ -324,3 +324,80 @@ fn tolerant_runtime_cycle_preserves_independent_survivor_order() {
     // X/Y cycle is blocked in res_x, diagnostic reported
     assert!(!res_x.diagnostics.is_empty() || !res_x.blocked_modules.is_empty());
 }
+
+/// Tests for external linker target acceptance:
+/// - Valid canonical external target -> accepted
+/// - Valid local target -> accepted
+/// - Unknown/non-authoritative target -> rejected with LinkError::UnresolvedImport
+#[test]
+fn external_linker_target_acceptance_positive_and_negative() {
+    use phalcom_modules::canonical_products::CanonicalExternalModuleWorld;
+    use phalcom_modules::authority::ModuleAuthorityMap;
+    use phalcom_modules::ModuleTopology;
+
+    // 1. Construct external world with module `ext`
+    let ext_mod = module("ext");
+    let ext_iface_map = interfaces(&[(ext_mod.clone(), "class ExtItem {}\nexport ExtItem\n")]);
+    let ext_linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), ext_iface_map.clone());
+    let ext_linked = Arc::new(ext_linker.link(ext_mod.clone(), &BTreeMap::new()).expect("link external"));
+
+    let mut iface_auth = ModuleAuthorityMap::new();
+    iface_auth.insert(ext_mod.clone(), Arc::new(ext_iface_map[&ext_mod].clone()));
+    let topology = Arc::new(ModuleTopology::from_parts(
+        phalcom_modules::ResolverGeneration(0),
+        &ext_linked.universe,
+        &ext_iface_map,
+        &BTreeMap::new(),
+    ));
+    let ext_world = Arc::new(CanonicalExternalModuleWorld::from_parts(ext_linked, iface_auth, topology).expect("ext world"));
+
+    // 2. Local module importing from external `ext` and local `helper`
+    let local_mod = module("local");
+    let local_helper = module("helper");
+    let local_iface_map = interfaces(&[
+        (local_mod.clone(), "from .ext import ExtItem\nfrom .helper import HelperItem\n"),
+        (local_helper.clone(), "class HelperItem {}\nexport HelperItem\n"),
+    ]);
+
+    let valid_resolved = BTreeMap::from([
+        ((local_mod.clone(), ".ext".to_string()), ext_mod.clone()),
+        ((local_mod.clone(), ".helper".to_string()), local_helper.clone()),
+    ]);
+
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), local_iface_map.clone())
+        .with_external_modules(ext_world.clone());
+
+    // Positive case: valid canonical external target and valid local target both accepted
+    let linked = linker.link(local_mod.clone(), &valid_resolved).expect("valid targets must link");
+    assert!(linked.modules.contains_key(&local_mod));
+    assert!(linked.modules.contains_key(&local_helper));
+    // External module does not become local linking work
+    assert!(!linked.modules.contains_key(&ext_mod));
+    assert_eq!(
+        linked.modules[&local_mod].linked_reads,
+        vec![
+            LinkedReadSpec::Binding(SymbolId {
+                module: ext_mod.clone(),
+                name: "ExtItem".into(),
+            }),
+            LinkedReadSpec::Binding(SymbolId {
+                module: local_helper.clone(),
+                name: "HelperItem".into(),
+            }),
+        ]
+    );
+
+    // Negative case: resolved import pointing to an unknown/non-authoritative target
+    let unknown_mod = module("nonexistent_target");
+    let invalid_resolved = BTreeMap::from([
+        ((local_mod.clone(), ".ext".to_string()), unknown_mod.clone()),
+        ((local_mod.clone(), ".helper".to_string()), local_helper.clone()),
+    ]);
+    let err = linker.link(local_mod.clone(), &invalid_resolved).expect_err("unknown target must be rejected");
+    assert!(
+        matches!(err, LinkError::UnresolvedImport { ref module, ref path, .. }
+            if module == &local_mod && path == ".ext"),
+        "expected UnresolvedImport for unknown target, got {:?}",
+        err
+    );
+}

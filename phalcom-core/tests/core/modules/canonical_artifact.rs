@@ -1,7 +1,9 @@
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_core::modules::canonical_artifact::{build_universe_telosc, load_universe_telosc, load_universe_telosc_from_bytes, write_universe_telosc};
 use phalcom_core::modules::canonical_universe::canonical_universe_program;
-use phalcom_core::modules::compile::EntrySelection;
+use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
+use phalcom_core::modules::parity::{assert_compile_error_parity, assert_compiled_program_parity};
+use phalcom_semantic::canonical_image::canonical_universe_formal_image;
 use tempfile::tempdir;
 
 #[test]
@@ -563,6 +565,13 @@ fn fresh_process_target_runner() {
     let pkg_path = std::env::var("PHALCOM_TEST_PACKAGE_PATH").expect("package path");
     let limits = ValidationLimits::default();
 
+    // Verify 0 source bootstrap attempts prior to loading
+    assert_eq!(
+        phalcom_semantic::canonical_image::canonical_universe_formal_image_build_count(),
+        0,
+        "source bootstrap build count before loading must be 0"
+    );
+
     let loaded = load_universe_telosc(&std::path::PathBuf::from(telosc_path), &limits)
         .expect("load_universe_telosc in fresh process must succeed");
     assert!(loaded.formal_image.sources().is_empty(), "fresh process loaded image has no sources");
@@ -571,22 +580,59 @@ fn fresh_process_target_runner() {
         "fresh process loaded snapshot is source-free complete"
     );
 
+    // Verify 0 source bootstrap attempts after loading artifact
+    assert_eq!(
+        phalcom_semantic::canonical_image::canonical_universe_formal_image_build_count(),
+        0,
+        "source bootstrap build count after loading must be 0"
+    );
+
     let compiled = loaded
         .compile_user_entry(EntrySelection::Package(std::path::PathBuf::from(pkg_path)))
         .expect("compile package in fresh process against loaded artifact must succeed");
     assert!(!compiled.modules.is_empty(), "compiled modules must be non-empty");
+
+    // If SlotMap project is passed, compile it in the fresh source-denied process:
+    if let Ok(slotmap_path) = std::env::var("PHALCOM_TEST_SLOTMAP_PATH") {
+        let compiled_slotmap = loaded
+            .compile_user_entry(EntrySelection::Project(std::path::PathBuf::from(slotmap_path)))
+            .expect("compile slotmap project in fresh process against loaded artifact must succeed");
+        assert_eq!(compiled_slotmap.modules.len(), 4, "slotmap project modules count must be 4");
+    }
+
+    // Verify 0 source bootstrap attempts after package compilation
+    assert_eq!(
+        phalcom_semantic::canonical_image::canonical_universe_formal_image_build_count(),
+        0,
+        "source bootstrap build count after package compilation must be 0"
+    );
 }
 
 #[test]
 fn fresh_process_source_denied_artifact_compilation() {
-    let program = canonical_universe_program().expect("canonical universe program");
-    let view = program.compiler_image_view().expect("compiler image view");
-    let limits = ValidationLimits::default();
-    let built = build_universe_telosc(&view, &limits).expect("build_universe_telosc must succeed");
-
-    let dir = tempdir().unwrap();
-    let telosc_path = dir.path().join("universe.telosc");
-    write_universe_telosc(&telosc_path, &built).expect("write_universe_telosc must succeed");
+    let (_dir, telosc_path) = if let Ok(path) = std::env::var("PHALCOM_UNIVERSE_TELOSC_FOR_TEST").map(std::path::PathBuf::from) {
+        if path.is_file() {
+            (None, path)
+        } else {
+            let program = canonical_universe_program().expect("canonical universe program");
+            let view = program.compiler_image_view().expect("compiler image view");
+            let limits = ValidationLimits::default();
+            let built = build_universe_telosc(&view, &limits).expect("build_universe_telosc must succeed");
+            let dir = tempdir().unwrap();
+            let telosc_path = dir.path().join("universe.telosc");
+            write_universe_telosc(&telosc_path, &built).expect("write_universe_telosc must succeed");
+            (Some(dir), telosc_path)
+        }
+    } else {
+        let program = canonical_universe_program().expect("canonical universe program");
+        let view = program.compiler_image_view().expect("compiler image view");
+        let limits = ValidationLimits::default();
+        let built = build_universe_telosc(&view, &limits).expect("build_universe_telosc must succeed");
+        let dir = tempdir().unwrap();
+        let telosc_path = dir.path().join("universe.telosc");
+        write_universe_telosc(&telosc_path, &built).expect("write_universe_telosc must succeed");
+        (Some(dir), telosc_path)
+    };
 
     let pkg_dir = tempdir().unwrap();
     std::fs::write(pkg_dir.path().join("package.ph"), "expose .main\n").expect("write package.ph");
@@ -596,15 +642,25 @@ fn fresh_process_source_denied_artifact_compilation() {
     )
     .expect("write main.ph");
 
+    let slotmap_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("packages/slotmap");
+
     let current_exe = std::env::current_exe().expect("current test executable");
-    let output = std::process::Command::new(current_exe)
-        .arg("--exact")
+    let mut cmd = std::process::Command::new(current_exe);
+    cmd.arg("--exact")
         .arg("modules_canonical_artifact::fresh_process_target_runner")
         .arg("--nocapture")
+        .env("PHALCOM_DENY_SOURCE_BOOTSTRAP", "1")
         .env("PHALCOM_TEST_TELOSC_PATH", &telosc_path)
-        .env("PHALCOM_TEST_PACKAGE_PATH", pkg_dir.path())
-        .output()
-        .expect("spawn fresh process target runner");
+        .env("PHALCOM_TEST_PACKAGE_PATH", pkg_dir.path());
+
+    if slotmap_pkg.exists() {
+        cmd.env("PHALCOM_TEST_SLOTMAP_PATH", slotmap_pkg);
+    }
+
+    let output = cmd.output().expect("spawn fresh process target runner");
 
     if !output.status.success() {
         panic!(
@@ -614,6 +670,81 @@ fn fresh_process_source_denied_artifact_compilation() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+}
+
+#[test]
+fn source_backed_and_artifact_backed_compiler_program_parity() {
+    let program = canonical_universe_program().expect("canonical universe program");
+    let view = program.compiler_image_view().expect("compiler image view");
+    let limits = ValidationLimits::default();
+    let built = build_universe_telosc(&view, &limits).expect("build");
+    let loaded = load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load");
+    let source_image = canonical_universe_formal_image().expect("canonical universe formal image");
+
+    // 1. Real package: packages/slotmap (4 modules)
+    let slotmap_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("packages/slotmap");
+    assert!(slotmap_pkg.exists(), "packages/slotmap must exist");
+    let entry = EntrySelection::Project(slotmap_pkg);
+    let src_slotmap = ProgramCompiler::compile_entry_selection_with_image(entry.clone(), source_image.clone())
+        .expect("source compilation of packages/slotmap");
+    let art_slotmap = loaded
+        .compile_user_entry(entry)
+        .expect("artifact compilation of packages/slotmap");
+    assert_eq!(src_slotmap.modules.len(), 4);
+    assert_compiled_program_parity(&src_slotmap, &art_slotmap);
+
+    // 2. Real package: packages/slotmap/tests/runtime (8 modules)
+    let slotmap_tests_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("packages/slotmap/tests/runtime");
+    assert!(slotmap_tests_pkg.exists(), "packages/slotmap/tests/runtime must exist");
+    let entry = EntrySelection::Project(slotmap_tests_pkg);
+    let src_tests = ProgramCompiler::compile_entry_selection_with_image(entry.clone(), source_image.clone())
+        .expect("source compilation of slotmap runtime tests");
+    let art_tests = loaded
+        .compile_user_entry(entry)
+        .expect("artifact compilation of slotmap runtime tests");
+    assert_eq!(src_tests.modules.len(), 8);
+    assert_compiled_program_parity(&src_tests, &art_tests);
+}
+
+#[test]
+fn source_backed_and_artifact_backed_negative_diagnostic_parity() {
+    let program = canonical_universe_program().expect("canonical universe program");
+    let view = program.compiler_image_view().expect("compiler image view");
+    let limits = ValidationLimits::default();
+    let built = build_universe_telosc(&view, &limits).expect("build");
+    let loaded = load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load");
+    let source_image = canonical_universe_formal_image().expect("canonical universe formal image");
+
+    // Invalid program exercising canonical semantic authority:
+    // Calling List.withCapacity with incompatible argument type String instead of Int
+    let invalid_entry = EntrySelection::Inline(
+        r#"
+let list = List.withCapacity("not an int");
+"#
+        .into(),
+    );
+
+    let src_res = ProgramCompiler::compile_entry_selection_with_image(invalid_entry.clone(), source_image.clone());
+    let art_res = loaded.compile_user_entry(invalid_entry);
+
+    let src_err = src_res.expect_err("source compilation must fail on type mismatch with canonical Option");
+    let art_err = art_res.expect_err("artifact compilation must fail on type mismatch with canonical Option");
+
+    match (&src_err, &art_err) {
+        (ProgramCompileError::Semantic(src_diags), ProgramCompileError::Semantic(art_diags)) => {
+            assert!(!src_diags.by_module.is_empty(), "must have semantic diagnostics");
+            assert_eq!(src_diags.by_module.len(), art_diags.by_module.len());
+        }
+        _ => panic!("Expected semantic errors, got src: {:?}, art: {:?}", src_err, art_err),
+    }
+
+    assert_compile_error_parity(&src_err, &art_err);
 }
 
 #[test]

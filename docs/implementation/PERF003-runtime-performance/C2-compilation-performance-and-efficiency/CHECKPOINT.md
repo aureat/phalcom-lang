@@ -10,10 +10,12 @@ active_plan: PERF003.C2.P7.PATCH5-R
 latest_completed_plan: PERF003.C2.P7.PATCH4
 next_plan: PERF003.C2.P7.PATCH5-R
 next_action: >
-  PERF003.C2.P7.PATCH5-R R.T4 / R.G4 is complete and passed focused closure.
-  Whole-load exactness is established at 366,789,583 / 366,789,583 (delta 0).
-  Next is R.T5 source-vs-artifact compiler parity. Keep P7 IN_PROGRESS / PARTIAL / UNVERIFIED
-  and P8 BLOCKED; do not claim overall P7 completion.
+  PERF003.C2.P7.PATCH5-R R.T5 is COMPLETE; R.G5 is PASS.
+  All proof obligations (positive real-package topology parity, negative diagnostic parity,
+  Case B List.get formalization, zero source-bootstrap fresh process proof, query authority consumption,
+  prefix/fork invariants, core regressions, and mandatory R.G4 allocation regression) are certified.
+  Next is R.T6 performance benchmarking and characterization under repeatable fresh-process conditions.
+  Keep P7 IN_PROGRESS / PARTIAL / UNVERIFIED and P8 BLOCKED; do not claim overall P7 completion.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
 execution_tree_head: 06d2b229
 latest_tested_revision: 06d2b229
@@ -21,6 +23,64 @@ latest_tested_predecessor: 5dcc09f9
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
+
+## PATCH5-R R.T5 closure hardening and R.G5 certification — 2026-10-18
+
+All R.G5 proof obligations for `PERF003.C2.P7.PATCH5-R` have been resolved, tested, and certified.
+R.T5 is COMPLETE; R.G5 is PASS. P7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; P8 remains `BLOCKED`.
+
+1. **Baseline Preservation (§1):**
+   - `packages/slotmap` compiles cleanly under both source-backed and artifact-backed engines (4 / 4 modules).
+   - `packages/slotmap/tests/runtime` compiles cleanly under both source-backed and artifact-backed engines (8 / 8 modules).
+
+2. **`List<T>.get` Contract Formalization (§2):**
+   - Formally proved Case B: `List.get` intentionally returns an inferred anonymous variant union `Some | None`.
+   - Added focused semantic regression test `list_get_returns_inferred_anonymous_variant_union_contract` in `phalcom-semantic/src/canonical_image.rs:2355`.
+   - Verified that the SlotMap indexed access rewrite `_slots[key.index]` is a legitimate use-site pattern rather than an API defect workaround.
+
+3. **Normalized Product Parity (§3):**
+   - Created normalized compiler product comparison infrastructure in `phalcom-core/src/modules/parity.rs` checking logical topologies, module identities, entry paths, imports, exports, lowering shapes, and bindings without pointer, Arc, or process-local store ID dependencies.
+   - Tested and verified in `source_backed_and_artifact_backed_compiler_program_parity` in `phalcom-core/tests/core/modules/canonical_artifact.rs:661` for both `packages/slotmap` and `packages/slotmap/tests/runtime`.
+
+4. **Negative Diagnostic Parity (§4):**
+   - Added `source_backed_and_artifact_backed_negative_diagnostic_parity` in `phalcom-core/tests/core/modules/canonical_artifact.rs:735`.
+   - Verified exact structured rejection parity (`DiagnosticCode::ArgumentMismatch`, identical primary span, message, severity, labels) across both engines when invoking canonical `List.withCapacity("not an int")`.
+
+5. **Source-Free Prelude & Zero Source Bootstrap in Fresh Process (§5):**
+   - Discovered that `PreludeTypeMap::canonical_universe()` was previously parsing all 44 Universe source files on cold start.
+   - Replaced with `PreludeTypeMap::initialize_from_snapshot(&image.snapshot)`, checking `snapshot.declarations`, `snapshot.type_aliases` (for `Unit`), and `snapshot.trait_headers`.
+   - Added and verified `fresh_process_source_denied_artifact_compilation` in `phalcom-core/tests/core/modules/canonical_artifact.rs:611` under `PHALCOM_DENY_SOURCE_BOOTSTRAP=1`:
+     - 0 source bootstrap builds before loading
+     - 0 source bootstrap builds after loading
+     - 0 source units retained in formal image (`sources().is_empty()`)
+     - complete source-free snapshot verified
+     - multi-file user package compiled successfully
+     - `packages/slotmap` project compiled successfully
+     - 0 source bootstrap builds after all compilations
+
+6. **HierarchyEdge & Canonical Query Authority (§6, §8):**
+   - Added `hierarchy_edge_fingerprint_fallback_and_query_authority_consumption` in `phalcom-semantic/src/canonical_image.rs:2391`.
+   - Verified fingerprint consistency across source and artifact images and consumption through `CanonicalQueryReader`.
+
+7. **Immutable Prefix & Fork Invariants (§7):**
+   - Added `type_store_and_static_value_store_prefix_and_fork_invariants` in `phalcom-semantic/src/canonical_image.rs:2428`.
+   - Proved forks from canonical prefix P mutate locally without affecting P or each other.
+
+8. **Direct Regressions for Core Fixes (§8, §9):**
+   - Linker external target acceptance tested in `phalcom-modules/tests/linker.rs`.
+   - Match arm return/throw block wrapping tested in `phalcom-ast/tests/match_syntax.rs`.
+
+9. **Mandatory R.G4 Allocation Regression (§10):**
+   - Re-executed `artifact-allocation` test against `/tmp/perf003-patch5r-c7-baseline/universe.telosc`:
+     - Module materialization: ledger 823,059, observed 823,059, delta 0
+     - Type graph import: ledger 765,031, observed 765,031, delta 0
+     - Semantic import exact check: ledger 264,140,626, observed 264,140,626, delta 0
+     - Full load allocation discriminator: ledger (N) 366,789,583, observed 366,789,583, delta 0
+     - N-1 budget exhaustion: verified
+   - Result: PASS.
+
+10. **Performance Characterization Status (§11):**
+    - Cold timing observations retained as preliminary characterization only; no production speedup claims certified until R.G6.
 
 ## PATCH5-R R.T4 whole-load exactness and R.G4 closure — 2026-10-18
 

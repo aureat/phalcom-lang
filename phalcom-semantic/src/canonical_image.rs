@@ -1238,6 +1238,7 @@ impl CanonicalUniverseFormalImage {
         })?;
         record_publication_census(9, formal_image_start, &transaction);
         allocations.commit_child(transaction)?;
+        crate::prelude::PreludeTypeMap::initialize_from_snapshot(&image.snapshot);
         Ok(image)
     }
 }
@@ -1352,6 +1353,9 @@ fn build_catching_panics(provider: &UniverseSourceProvider) -> Result<Arc<Canoni
 }
 
 fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseFormalImage>, CanonicalImageError> {
+    if std::env::var_os("PHALCOM_DENY_SOURCE_BOOTSTRAP").is_some() {
+        panic!("Canonical source bootstrap attempted while denied by PHALCOM_DENY_SOURCE_BOOTSTRAP");
+    }
     let private;
     let foundation = if provider.is_canonical() {
         canonical_universe_semantic_baseline()
@@ -1432,6 +1436,7 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
         BUILDS.fetch_add(1, Ordering::Relaxed);
     }
     image_counter!(CanonicalImageBuilds, 1);
+    crate::prelude::PreludeTypeMap::initialize_from_snapshot(&image.snapshot);
     Ok(image)
 }
 
@@ -2349,5 +2354,156 @@ mod negative_fact_tests {
         assert_eq!(first_ref.value_id(), second_ref.value_id());
         assert!(!first.extends_canonical_prefix(&second));
         assert!(!second.extends_canonical_prefix(&first));
+    }
+
+    #[test]
+    fn list_get_returns_inferred_anonymous_variant_union_contract() {
+        let image = canonical_universe_formal_image().unwrap();
+        let snapshot = image.snapshot();
+        let list_decl = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::List);
+        let surface = snapshot.surfaces.get(&list_decl).expect("List surface");
+        let get_sig = surface
+            .instance
+            .callable_signatures
+            .iter()
+            .find(|(sel, sig)| format!("{:?}", sel).contains("get") && sig.parameters.len() == 1)
+            .map(|(_, sig)| sig)
+            .expect("List.get(_) signature");
+        assert_eq!(get_sig.parameters.len(), 1);
+        assert_eq!(get_sig.parameters[0].local_name.as_str(), "index");
+        let crate::types::evidence::TypeKnowledge::Known(ref ev) = get_sig.return_type else {
+            panic!("expected known return type for List.get");
+        };
+        // Case B proof: return type is inferred flow-type, not declared annotation.
+        assert_eq!(ev.origin(), crate::types::evidence::EvidenceOrigin::Flow);
+        let crate::types::store::TypeData::Union(members) = snapshot.store.get(ev.ty()) else {
+            panic!("expected Union type data for List.get return");
+        };
+        assert_eq!(members.len(), 2);
+        let member_types: Vec<_> = members.iter().map(|m| snapshot.store.get(*m)).collect();
+        let has_some = member_types.iter().any(|td| {
+            matches!(td, crate::types::store::TypeData::Nominal { declaration, .. } if declaration.name.as_ref() == "Some")
+        });
+        let has_none = member_types.iter().any(|td| {
+            matches!(td, crate::types::store::TypeData::ClassObject { declaration } if declaration.name.as_ref() == "None")
+        });
+        assert!(has_some, "Union must contain Some");
+        assert!(has_none, "Union must contain None");
+    }
+
+    #[test]
+    fn hierarchy_edge_fingerprint_fallback_and_query_authority_consumption() {
+        let image = canonical_universe_formal_image().unwrap().clone();
+        let list_decl = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::List);
+        let key = QueryKey::HierarchyEdge(list_decl);
+
+        // 1. Existing declaration resolves to hierarchy-edge fingerprint
+        let fp = image.dependency_fingerprint(&key);
+        assert!(fp.is_some(), "existing declaration must yield hierarchy-edge fingerprint");
+
+        // 2. Missing declaration resolves to None
+        let missing_decl = phalcom_modules::DeclarationId::new(
+            ModuleId::universe_root(),
+            Box::from("MissingDeclNonexistent"),
+        );
+        let missing_key = QueryKey::HierarchyEdge(missing_decl);
+        assert_eq!(image.dependency_fingerprint(&missing_key), None);
+
+        // 3. Structural fallback returns valid fingerprint for existing declaration and None for missing
+        let structural_fp = aggregate_structural_fingerprint(image.snapshot(), &key);
+        assert!(structural_fp.is_some());
+        assert_eq!(aggregate_structural_fingerprint(image.snapshot(), &missing_key), None);
+        // Authority is not mutated across repeated queries
+        assert_eq!(image.dependency_fingerprint(&key), fp);
+
+        // 4. Query reader consumption and database reuse
+        let reader = image.reader().expect("valid reader");
+        let (first_key, first_entry) = image.query_image().entries().next().expect("entry");
+        let product = reader.product(first_key).expect("product");
+        assert_eq!(reader.product_fingerprint(first_key), Some(first_entry.product_fingerprint));
+
+        let mut db = SemanticDb::with_canonical_image(crate::identity::WorkspaceId::from_raw(99), image.clone());
+        assert_eq!(db.dependency_fingerprint(&key), fp);
+        assert!(db.validate_ready(first_key));
+        assert_eq!(
+            db.product_origin(first_key),
+            Some(crate::db::SemanticProductOrigin::Canonical(image.world().clone()))
+        );
+        assert!(Arc::ptr_eq(db.product(first_key).unwrap(), product));
+    }
+
+    #[test]
+    fn type_store_and_static_value_store_prefix_and_fork_invariants() {
+        let image = canonical_universe_formal_image().unwrap();
+        let p_types = image.snapshot().store.clone();
+        let p_vals = image.snapshot().static_values.clone();
+
+        // 1. TypeStore fork and isolation
+        let p_type_count = p_types.type_count();
+        let mut fork_a = p_types.fork_from_baseline();
+        let fork_b = p_types.fork_from_baseline();
+
+        // P and B unchanged before mutation
+        assert_eq!(p_types.type_count(), p_type_count);
+        assert_eq!(fork_b.type_count(), p_type_count);
+
+        // Insert user-local material into A
+        let local_decl = phalcom_modules::DeclarationId::new(
+            ModuleId::universe_root(),
+            Box::from("LocalTypePrefixTest"),
+        );
+        let user_type = fork_a.intern_with_kind(
+            crate::types::store::TypeData::Nominal {
+                declaration: local_decl,
+            },
+            crate::KindId(0),
+        );
+        assert!(user_type.0 as usize >= p_type_count);
+
+        // Assert: P unchanged, B unchanged, A sees local suffix
+        assert_eq!(p_types.type_count(), p_type_count);
+        assert_eq!(fork_b.type_count(), p_type_count);
+        assert_eq!(fork_a.type_count(), p_type_count + 1);
+
+        // A and B still see canonical P
+        for i in 0..p_type_count {
+            let tid = crate::TypeId(i as u32);
+            assert_eq!(fork_a.get(tid), p_types.get(tid));
+            assert_eq!(fork_b.get(tid), p_types.get(tid));
+        }
+
+        // Reader-binding prefix extensions
+        assert!(fork_a.extends_canonical_prefix(&p_types));
+        assert!(fork_b.extends_canonical_prefix(&p_types));
+        assert!(!p_types.extends_canonical_prefix(&fork_a));
+        assert!(!fork_b.extends_canonical_prefix(&fork_a));
+
+        // 2. StaticValueStore fork and isolation
+        let p_val_count = p_vals.value_count();
+        let mut val_fork_a = p_vals.as_ref().clone();
+        let val_fork_b = p_vals.as_ref().clone();
+
+        assert_eq!(p_vals.value_count(), p_val_count);
+        assert_eq!(val_fork_b.value_count(), p_val_count);
+
+        // Insert user-local material into A
+        let _user_val = val_fork_a.intern_string("user_local_material_for_prefix_test");
+        assert!(val_fork_a.value_count() > p_val_count);
+
+        // Assert: P unchanged, B unchanged
+        assert_eq!(p_vals.value_count(), p_val_count);
+        assert_eq!(val_fork_b.value_count(), p_val_count);
+
+        // A and B still see canonical P
+        for i in 0..p_val_count {
+            let vid = crate::static_value::StaticValueId(i as u32);
+            assert_eq!(val_fork_a.get_value(vid), p_vals.get_value(vid));
+            assert_eq!(val_fork_b.get_value(vid), p_vals.get_value(vid));
+        }
+
+        assert!(val_fork_a.extends_canonical_prefix(&p_vals));
+        assert!(val_fork_b.extends_canonical_prefix(&p_vals));
+        assert!(!p_vals.extends_canonical_prefix(&val_fork_a));
+        assert!(!val_fork_b.extends_canonical_prefix(&val_fork_a));
     }
 }
