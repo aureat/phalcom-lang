@@ -66,6 +66,38 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     // is deliberately outside the allocator measurement; the importer receives
     // an already materialized SemanticWorldV3 just as the core loader does.
     let container = TeloscContainerView::parse(&artifact_bytes, &limits).expect("parse generated artifact");
+
+    // Isolate MODULE_WORLD materialization
+    let module_bytes = container
+        .require_section(SectionKind::ModuleWorld)
+        .expect("artifact must contain MODULE_WORLD");
+    let mut decode_module_budget = AllocationBudget::new(usize::MAX);
+    let module_dto = phalcom_compiler_artifact::module_world::ModuleWorldV1::decode_with_allocation_budget(
+        module_bytes,
+        &limits,
+        &mut decode_module_budget,
+    )
+    .expect("decode canonical Universe module world");
+    let mut module_transaction = AllocationBudget::new(usize::MAX);
+    REQUESTED_BYTES.store(0, Ordering::Relaxed);
+    MEASURING.store(true, Ordering::Relaxed);
+    let module_res = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(
+        &module_dto,
+        &limits,
+        &mut module_transaction,
+    );
+    MEASURING.store(false, Ordering::Relaxed);
+    let independently_observed_module = REQUESTED_BYTES.load(Ordering::Relaxed);
+    let module_requested = module_transaction.requested();
+    let module_delta = independently_observed_module as isize - module_requested as isize;
+    eprintln!(
+        "MODULE MATERIALIZATION:\n  ledger requested: {}\n  independently observed: {}\n  signed delta: {}",
+        module_requested,
+        independently_observed_module,
+        module_delta
+    );
+    let _modules = module_res.expect("module materialization must succeed");
+
     let semantic_bytes = container
         .require_section(SectionKind::SemanticWorld)
         .expect("artifact must contain SEMANTIC_WORLD");
