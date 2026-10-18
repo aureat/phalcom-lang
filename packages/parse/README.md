@@ -99,11 +99,12 @@ expression.define(digitValue.orElse(expression.between(lparen, rparen)))
 
 The design document sketches concrete combinator *types*
 (`MapParser<S, P, U>`, `ZipParser<S, P, Q>`, ...) as the static spine,
-with `Parser<S>` as the composition interface. The current compiler has
-two blockers on that path (see "Known compiler limitations"): trait
-methods returning associated-type-projected data cannot be matched, and
-generic conformance dispatch is unreliable (the same class of failure
-recorded for the `hypothesis` package in LANG007.C4.P4.R1).
+with `Parser<S>` as the composition interface. The current implementation
+uses the simpler, typed `Rule<S, T>` closure composition described below.
+Earlier work found limits around matching generic values whose types contain
+associated projections and around generic conformance dispatch; these remain
+narrow compiler constraints, not a restriction on fixture-defined ADTs flowing
+through `ListSource<T>`.
 
 v1 therefore composes through `Rule<S, T>` directly: every combinator is
 an inherent `Rule` method that builds a composed run closure. This keeps
@@ -118,9 +119,12 @@ repair can restore the concrete static spine without changing call sites.
 These shape the implementation and are recorded here for the compiler
 work queue; none require changing this package's public semantics:
 
-1. Matching data whose type arguments contain associated-type projections
-   of generic parameters retains a coverage witness and poisons pattern
-   bindings (`Cursor<S>` values become unusable).
+1. Earlier generic-projection tests observed that matching data whose type
+   arguments contain associated-type projections can retain a coverage
+   witness and poison match bindings. That narrower generic context is distinct
+   from the package's concrete token-backed
+   `Cursor<ListSource<Token>>.current` path, which now passes when the
+   `Option<Token>` variant owner is explicit.
 2. Closures stored in escaping fields must not use `return` (DeadFrameError);
    all combinator bodies are flag/tail-expression structured.
 3. `and`/`or` compositions produce `Object`, not `Bool`, in value
@@ -129,6 +133,13 @@ work queue; none require changing this package's public semantics:
    behavior-carrying types (`Cursor`, `ParseError`) are classes.
 5. Trailing closures may not appear mid-argument-list; factory signatures
    place closure parameters last.
+6. Dynamic associated-family invocation
+   (`AssociatedResolutionKind::DynamicInvoke` through
+   `AssociatedLoweringSpec::DynamicInvoke` to `compile_associated_invoke`) is
+   not implemented. The parse package's tested `Option<Token>::Some`
+   construction uses the existing statically resolved variant path when its
+   `Option<Token>` owner is explicit; this package integration does not require
+   dynamic family selection.
 
 ## Testing
 

@@ -6,7 +6,7 @@ checkpoint: COLL006.C1
 plan: P5
 status: COMPLETE
 completion: IMPLEMENTED
-verification: BASELINE_BLOCKED
+verification: FOCUSED_TESTED
 repository: aureat/phalcom-lang
 branch: feat/telos-collection-upgrade
 recorded_against_revision: 78cfd9202f5dea7dd2713bff71d3e475f20810d6
@@ -2123,6 +2123,30 @@ the complete package command, and compare any remaining failure against
 contemporaneous main under the checkpoint residual policy. It must not claim
 full parser integration certification without the clean complete-package result.
 
+### G6 closure amendment — 2026-10-18
+
+The current `main` tree completed the required package gate. The exact command
+selected four Rust integration checks and passed all four; its runtime corpus
+passed all 13 fixtures. This supersedes the earlier blocked disposition above.
+G6.A remains PASS, G6.B is PASS, and aggregate G6 is PASS. P5 is therefore
+`COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+
+The remaining Cursor fixture issue was missing semantic context at an
+unqualified `Some(...)` constructor inside an equality expression. With no
+expected enum owner, `Option<Token>` was not available to resolve the nested
+`Token` constructor. The fixture now spells the owner as
+`Option<Token>::Some(...)` and checks variants/payloads structurally, avoiding
+an unrelated value-equality requirement. This uses the existing canonical
+associated resolution and static variant-construction lowering path. It does
+not add generic or dynamic associated-family invocation, reconstruct AST
+spelling in the compiler, erase generic arguments, or weaken lowering
+invariants. Dynamic associated-family invocation remains separate follow-up
+work and is not a blocker for G6.B.
+
+The package gate and focused regressions are complete. Workspace tests,
+Clippy, and release certification were not run, so P5 verification remains
+`FOCUSED_TESTED`, not `RELEASE_COMPLETE`.
+
 ---
 
 # T8 — Conversion/API convergence within P5 bounds
@@ -2236,6 +2260,12 @@ verification: BASELINE_BLOCKED
 ```
 
 or the precise lifecycle classification dictated by the current convention.
+
+Current final state (2026-10-18): all P5 gates, including the complete
+parse-package gate, pass. Record P5 as
+`COMPLETE / IMPLEMENTED / FOCUSED_TESTED`; workspace tests, Clippy, and release
+certification remain unrun. The `BASELINE_BLOCKED` example above describes
+the earlier conditional state and is not the current P5 classification.
 
 Do not mark workspace/release certification that was not actually run.
 
@@ -2789,7 +2819,7 @@ Do not force this exact history if the branch workflow prefers fewer commits. Th
 - [x] backing is independent Array snapshot
 - [x] caller mutation isolation retained (independent G6.A fixture)
 - [x] G6.A parser snapshot/GC acceptance passes
-- [ ] G6.B complete parse package passes (retained inherited integration blocker)
+- [x] G6.B complete parse package passes (4/4 Rust integration checks; 13/13 runtime fixtures)
 - [x] P14 lifecycle wording amended
 
 ## Representation/performance
@@ -2871,8 +2901,8 @@ parser_snapshot:
   consumer_view: "Slice<T>"
   caller_list_mutation_isolated: true
   snapshot_acceptance_g6_a: pass
-  parse_package_gate_g6_b: BASELINE_BLOCKED # permitted by the G6 amendment; retain original gate
-  aggregate_g6: BASELINE_BLOCKED
+  parse_package_gate_g6_b: PASS # 4/4 Rust integration checks; 13/13 runtime fixtures (2026-10-18)
+  aggregate_g6: PASS
 
 runtime:
   value_size_regressed: false

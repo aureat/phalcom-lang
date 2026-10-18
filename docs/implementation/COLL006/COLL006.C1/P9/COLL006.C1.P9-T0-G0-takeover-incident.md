@@ -116,3 +116,15 @@ exact evidence. P8 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`, P9 T0 is
 partial, and G0 remains blocked. P9 production implementation has not started.
 The next action is to classify or resolve the P8 T8 residuals, pass G8, and
 complete P8 T9 lifecycle records before resuming P9 G0.
+
+## Parser-package finding closure — 2026-10-18
+
+The parser-package observations above are historical. The current
+`modules_parse_package` gate passes 4/4 Rust integration checks and 13/13
+runtime fixtures. The ListSource immutable-field failure is resolved. The
+token-backed Cursor issue was missing contextual owner evidence for
+`Some(...)`; explicit `Option<Token>::Some(...)` uses the existing static
+variant path. See the P5 G6 closeout and P9 residual/verification ledgers for
+the current disposition. These results close the P5 package residual but do
+not alter the P8 predecessor gate: P9 G0 remains blocked until P8 G8 and T9
+closeout are complete.

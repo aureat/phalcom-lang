@@ -204,3 +204,33 @@ Until a decision arrives, keep P5 `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`,
 G6.A `PASS`, and G6.B/aggregate G6 `BASELINE_BLOCKED`. P6's API consultation
 remains independent and in progress; do not implement its new public APIs
 without its decision.
+
+## Resolution — 2026-10-18
+
+The failure was a missing semantic context problem at the call site. The
+unqualified `Some(...)` appeared inside an equality expression with no expected
+enum owner, so semantic analysis could not resolve the nested `Token`
+constructor. The fixture now uses `Option<Token>::Some(...)`, supplying the
+exact contextual owner while preserving the distinction between expected
+type constraints and owner evidence. It checks the resulting ADT by structural
+matching rather than requiring a separate `Token` value-equality protocol.
+
+The full package gate passes 4/4 Rust integration checks and 13/13 runtime
+fixtures. The established architecture remains intact:
+
+```text
+semantic resolution
+    -> canonical AssociatedResolution
+    -> semantic-lowering projection
+    -> AssociatedLoweringSpec
+    -> compiler emission
+    -> existing VM construction/invocation machinery
+```
+
+No compiler fallback, AST-spelling reconstruction, generic erasure, or
+lowering-invariant weakening was introduced. This closes P5 G6.B for the
+statically owned constructor path. Dynamic associated-family invocation remains
+an unsupported compiler capability for a separate plan; it was not required
+by this package path. P5 is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`, and the
+checkpoint retains workspace tests, Clippy, and release certification as not
+run.

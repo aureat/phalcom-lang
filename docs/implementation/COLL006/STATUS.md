@@ -7,15 +7,15 @@ verification: BASELINE_BLOCKED
 
 # COLL006 status
 
-COLL006 implementation is in progress within C1. P1–P6 are complete at their
-bounded scope. P7 is active: T0–T4/G2–G4 have recorded focused evidence, and
-the consolidated main checkout now contains Bag implementation files whose
-T5 completion and verification still need to be reconciled. Bijection remains
-outstanding.
+COLL006 implementation is in progress within C1. P1–P7 are complete at their
+bounded scopes. P8 is active, with T8/G8 integration and T9 lifecycle closeout
+still outstanding. P9 has not passed G0 because P8 remains its hard
+predecessor. P5's parse-package gate is closed at its declared integration
+boundary; the wider C1 checkpoint remains open.
 
 | Checkpoint | State | Active plan | Next action |
 |---|---|---|---|
-| `COLL006.C1` | `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` | `COLL006.C1.P7` | reconcile the present Bag implementation against P7 T5, then continue Bijection; retain P5 G6.B/aggregate G6 and D1/D2/D4 residuals for P9 |
+| `COLL006.C1` | `IN_PROGRESS / PARTIAL / UNVERIFIED` | `COLL006.C1.P8` | classify or resolve P8 T8/G8 residuals and complete P8 T9; P5 G6.B passes, while wider C1 residuals remain |
 
 ## Current program truth
 
@@ -23,9 +23,11 @@ outstanding.
 - `COLL006.C1.P2` is complete: Array runtime storage, direct construction, private spread builder, and focused semantic/runtime evidence are recorded in its walkthrough.
 - `COLL006.C1.P3` is complete for its bounded scope: shared exact static integer identity, heterogeneous generic formation, Vector semantic/runtime/lowering, inference publication, and focused post-convergence evidence are recorded in its walkthrough and checkpoint ledger.
 - `COLL006.C1.P4` is complete: bare brackets now default to `Array<T>` at runtime and `Vector<T, N>` in static initializers; static sequences, frozen const Arrays, List migration, and focused stabilization are recorded in its walkthrough.
-- `COLL006.C1.P5` is `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`. The user-approved audit amendment separates G6.A independent snapshot acceptance (PASS) from G6.B complete parse-package certification (BASELINE_BLOCKED). The standalone fixture and native GC owner test pass; T9 focused regressions and workspace all-target check pass, with unrelated collection-contract and formatting baselines retained. See the P5 walkthrough/handoff and checkpoint for exact evidence.
+- `COLL006.C1.P5` is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. G6.A and G6.B pass; the complete parse-package gate passes 4/4 Rust integration checks and 13/13 runtime fixtures. Workspace tests, Clippy, and release certification were not run. See the P5 walkthrough/handoff and checkpoint for exact evidence.
 - `COLL006.C1.P6` is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`, as recorded in the checkpoint and P6 walkthrough.
-- `COLL006.C1.P7` is `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` for the previously verified T0–T4/G2–G4 slices. Bag implementation files are present in the consolidated main tree without a T5 completion claim; Bijection remains outstanding. No runtime tests were run during consolidation; library-only checks passed, while the core test-target compile remains blocked by the unchanged `phalcom-core/src/vm/send.rs:1960` baseline call.
+- `COLL006.C1.P7` is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`; see the checkpoint ledger and P7 walkthrough for its accepted scope and evidence.
+- `COLL006.C1.P8` remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; current T8/G8 evidence and T9 closeout remain outstanding. Its residuals are recorded in the P8 checkpoint continuation and P9 residual ledger.
+- `COLL006.C1.P9` remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; G0 is blocked pending P8 G8 and P8 lifecycle closeout. The P5 parse-package residual is resolved and must not be reported as an active blocker.
 - `COLL006.C1-CHECKPOINT.md` is the canonical shared state document for C1.
 
 ## Ratified target semantics
@@ -68,9 +70,9 @@ RangeMap<K,V>
 
 ## Next planning order
 
-1. Reconcile and complete P7 T5 against the Bag implementation now present in the consolidated tree, then implement Bijection under P7.
-2. Keep P5 G6.B/aggregate G6 baseline-blocked until the parser migration failures are repaired and the complete package command passes; retain the P9 recheck/main-comparison obligation.
+1. Resolve or baseline-classify P8 T8/G8 residuals and complete P8 T9.
+2. Resume P9 T0/G0 only after its P8 predecessor gate and handoff are complete.
 3. Preserve the P14 reconciliation: private Array snapshot + read-only Slice, with no `ImmutableSequence<T>` or runtime-sized Vector snapshot.
-4. Keep advanced associative/persistent collection work in later C1 plans.
+4. Keep dynamic associated-family invocation separate from the completed static parser-package path and assign it an independent plan if pursued.
 
 P4 is `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`: D4 prevents a clean aggregate `static_constants` result. D1/D2 remain suspected unrelated verification residuals pending P9 comparison. None blocks P5 execution. No release certification is claimed.

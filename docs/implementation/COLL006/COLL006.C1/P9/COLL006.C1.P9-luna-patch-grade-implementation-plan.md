@@ -1097,6 +1097,15 @@ RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package
 
 If failing, consume existing consultation and identify current owner. Because P5 explicitly handed this to P9, do not classify it external merely because main also fails.
 
+**Current result (2026-10-18): RESOLVED for the P5 package path.** The
+mandatory gate passes 4/4 Rust integration checks and 13/13 runtime fixtures.
+The failure was missing contextual owner evidence for unqualified
+`Some(...)` inside equality; explicit `Option<Token>::Some(...)` uses the
+existing static variant-construction route. See the P5 closeout in the
+checkpoint, P5 walkthrough, and P9 residual/verification ledgers. Dynamic
+associated-family invocation remains a separate compiler follow-up outside
+this package acceptance.
+
 ## `R-P7-NUMERIC-HASH-LAW`
 
 Re-run exact observed-law cases:
@@ -1586,12 +1595,12 @@ Was residual ownership recorded?
 - [ ] GC convergence complete
 - [ ] callback/re-entry convergence complete
 - [ ] performance evidence complete
-- [ ] parser package rerun
+- [x] parser package rerun — 4/4 Rust integration checks; 13/13 runtime fixtures (2026-10-18)
 - [ ] native surface rerun
 - [ ] focused C1 gate green
 
 ## Residuals
-- [ ] `R-PARSE-ASSOCIATED-INVOKE` closed/classified
+- [x] `R-PARSE-ASSOCIATED-INVOKE` closed/classified for the P5 package path
 - [ ] `R-P7-NUMERIC-HASH-LAW` closed/classified
 - [ ] D1/D2/D4 re-discovered
 - [ ] P8 residuals closed/classified

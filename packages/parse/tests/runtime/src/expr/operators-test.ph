@@ -1,11 +1,9 @@
 // test: expr-operators
 // Lexed token source, typed selection, operator chains, defer recursion.
 //
-// Renders the parsed expression tree as a string during parsing, because
-// fixture-defined ADTs cannot yet flow through generic-source rules
-// (module-level match coverage retains a witness; @class calls with such
-// values report unimplemented associated-family lowering). String output
-// keeps every parser-level mechanism under test.
+// Renders the parsed expression tree as a string during parsing so this fixture
+// can focus on tokenization, recursive combinator composition, precedence, and
+// backtracking without adding an evaluator to the grammar.
 import parse_tests.support.test as Testing
 from parse.core.rule import Rule
 from parse.run import Parse

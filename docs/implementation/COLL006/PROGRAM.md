@@ -11,7 +11,7 @@ verification: BASELINE_BLOCKED
 
 COLL006 owns Telos's coherent extension of collection semantics across source syntax, contextual typing and inference, static evaluation, compiler lowering, native storage, collection protocols, persistent data structures, and standard-library collection APIs.
 
-The current program state is `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`. P1–P5 are complete at their bounded implementation scope. P5 supplies Slice/Buffer views/storage and independent ListSource snapshot acceptance: G6.A passes, while G6.B and aggregate G6 retain unchanged pre-P5 parser migration failures. P6 is next. The checkpoint owns exact verification evidence, the parser recheck obligation for P9, and inherited D1/D2/D4 residuals.
+The current program state is `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`. P1–P7 are complete at their bounded implementation scopes. P5 supplies Slice/Buffer views/storage and the private Array plus Slice `ListSource<T>` snapshot; G6.A, G6.B, and aggregate G6 pass. The parse-package gate passes 4/4 Rust integration checks and 13/13 runtime fixtures. P8 is active; P9 remains gated on P8 closeout. The C1 checkpoint owns exact verification evidence and wider residuals. Workspace tests, Clippy, and release certification have not been run.
 
 ## 1. Program ownership
 

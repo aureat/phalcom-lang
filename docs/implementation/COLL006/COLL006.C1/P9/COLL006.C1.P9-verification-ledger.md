@@ -66,3 +66,25 @@ The original P9 T0 starting anchor remains `06017339c36d4f8b06016b1d89aa9d299667
 - These T8 failures have not been compared against an equivalent P8 baseline and remain `AMBIGUOUS`; see the P8 checkpoint evidence and P9 residual ledger for exact failure names.
 
 T0 remains **PARTIAL** and G0 **BLOCKED** until P8 satisfies G8 and completes its lifecycle handoff. No P9 production work is authorized by the current gate state.
+
+## P5 parse-package residual closure — 2026-10-18
+
+This current result supersedes the parser-package status in the historical T0
+observations above. It closes the inherited P5 G6.B residual; it does not
+complete P9 T0/G0 or the broader C1 checkpoint.
+
+| Discriminator | Result | What it establishes |
+|---|---|---|
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package -- --nocapture` on `main` | **PASS**, 4/4 Rust integration checks; 13/13 runtime fixtures | The declared parse-package integration gate passes, including typed Mini-TOML composition, `ListSource<T>` snapshot behavior, token-backed Cursor use, and fixture-defined ADT construction through `Option<Token>`. |
+
+The failure was caused by a call-site context gap: `Some(...)` in an equality
+expression had no expected enum owner, so semantic analysis could not resolve
+the nested `Token` constructor. Writing `Option<Token>::Some(...)` supplies the
+owner and uses the existing static variant-construction path. The fixture now
+checks the Token variant and payload structurally, without requiring a
+separate value-equality protocol. The canonical associated-resolution to
+lowering path remains intact. Dynamic associated-family invocation remains a
+separate unsupported capability and was not exercised by this package gate.
+
+No workspace tests, Clippy, or release certification were run. Package
+integration is PASS; broader workspace/release verification remains NOT RUN.

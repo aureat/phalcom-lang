@@ -5,7 +5,7 @@ checkpoint: COLL006.C1
 kind: walkthrough
 status: COMPLETE
 completion: IMPLEMENTED
-verification: BASELINE_BLOCKED
+verification: FOCUSED_TESTED
 ---
 
 # COLL006.C1.P5 — Slice, Buffer, and parser snapshot convergence
@@ -52,6 +52,12 @@ The audit continuation also adds Buffer reservation reuse coverage required by
 P5's remaining performance checklist. Snapshotting preserves references, not
 recursive deep copies. That continuation was committed and pushed as
 `dea2cd1d`; the audit follow-up below is a later, user-directed correction.
+
+**Current final state (2026-10-18):** P5 is
+`COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. G6.A, G6.B, and aggregate G6 pass.
+The complete parse-package gate passes 4/4 Rust integration checks and all 13
+runtime fixtures. This current state supersedes the historical blocked result
+recorded below.
 
 ## Initial P5 T9 verification snapshot — 2026-10-11
 
@@ -150,3 +156,42 @@ The earlier `R-PARSE-TEXT` and `R-PARSE-BYTES` adapter issues are corrected;
 P9 must rerun the package gate after the associated-invocation owner work and
 complete its residual comparison. Workspace tests, Clippy, and release
 certification remain deferred to P9.
+
+## Final package-gate closure — 2026-10-18
+
+The prior status above records the then-current failure and is superseded by
+this closeout. The final package gate and its runtime corpus now pass:
+
+| Evidence | Result |
+|---|---|
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package -- --nocapture` | 4/4 Rust integration checks passed |
+| Runtime fixture corpus selected by the package gate | 13/13 fixtures passed, including Mini-TOML and token-backed Cursor coverage |
+| `cargo test -p phalcom-ast --test integration interpolated_string_synthetic_getters_use_outer_range` | 1 passed |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core interpolation_of_generic_data_projections_matches_with_product_optimization_modes -- --nocapture` | Passed |
+| `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic generic_immutable_field_accepts_a_call_valued_constructor_write -- --nocapture` | Passed |
+
+The package corpus exercises recursive typed Mini-TOML parser composition,
+generic `select<U>`, `Cursor<ListSource<Token>>::current`, exact nested
+`Option<Token>` variant construction, and the Array/Slice snapshot path. The
+snapshot owner's forced-GC evidence is also covered by the separate G6.A Rust
+selector recorded earlier in this walkthrough.
+
+The remaining fixture failure was not evidence of a missing runtime or generic
+associated-invocation mechanism. `Some(...)` in the equality expression had no
+expected enum owner, so semantic analysis could not resolve its nested
+`Token` constructor. Explicit `Option<Token>::Some(...)` supplies that context
+and follows the canonical static variant path. Structural matching checks the
+variant and payload without requiring fixture-defined `Token` equality. The
+semantic-to-compiler associated-lowering contract remains intact. Dynamic
+associated-family invocation is a separate, still-open compiler capability and
+does not block the static construction path covered here.
+
+`ListSource<T>` retains the P5 snapshot design: caller `List<T>` is copied into
+a private `Array<T>`, and the source retains a `Slice<T>` view whose owner
+survives collection. No recursive payload cloning is implied. No compiler
+fallback, AST-spelling reconstruction, generic erasure, or weakened lowering
+invariant was introduced.
+
+No workspace test suite, Clippy gate, or release certification ran for this
+closeout. The package is complete at its declared integration gate; verification
+is `FOCUSED_TESTED`, not `RELEASE_COMPLETE`.

@@ -19,7 +19,7 @@ It combines the language-level homogeneous-sequence literal upgrade with the run
 
 This record is the **single durable shared state authority** for all numbered plans belonging to `COLL006.C1`.
 
-P1–P7 are complete at their bounded implementation scope. P5 supplies Slice/Buffer and independent parser snapshot acceptance; its complete-package integration residual remains outstanding for P9. P6 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED (`MutableBag`, `IndexedDict`, `OrderedSet`). P7 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED, fulfilling requirements for `PersistentHashNode`, `Bag<T>`, and `Bijection<K,V>`, with exact 14 approved bindings per TDR-0093, passing focused test suites (G2 PersistentHashNode GC, G3 persistent hash HAMT engine, G5 Bag, G6 Bijection, G7 collections aggregate), and current native surface at 488 declarations. Active plan transitions to `COLL006.C1.P8`.
+P1–P7 are complete at their bounded implementation scope. P5 supplies Slice/Buffer and the private Array plus Slice parser snapshot. Its full parse-package gate now passes: 4/4 Rust integration checks and all 13 runtime fixtures. The associated-invocation incident was a missing contextual owner at the fixture call site; explicit `Option<Token>::Some` uses the existing static variant-construction path. Dynamic associated-family invocation remains a separate compiler gap and is not required by this package gate. P6 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED (`MutableBag`, `IndexedDict`, `OrderedSet`). P7 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED, fulfilling requirements for `PersistentHashNode`, `Bag<T>`, and `Bijection<K,V>`, with exact 14 approved bindings per TDR-0093, passing focused test suites (G2 PersistentHashNode GC, G3 persistent hash HAMT engine, G5 Bag, G6 Bijection, G7 collections aggregate), and current native surface at 488 declarations. P8 remains active; P9 awaits its predecessor gate.
 
 ---
 
@@ -331,11 +331,11 @@ The ledger records current C1 execution state. Proposed successor plans retain t
 | `COLL006.C1.P2` | `Array<T>` runtime/native representation, explicit/contextual Array literals, direct lowering, iteration, GC | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Complete runtime fixed-after-construction homogeneous sequence |
 | `COLL006.C1.P3` | `Vector<T,N>` runtime/native representation, static extent inference/cardinality proof, constructors, equality/hash, direct lowering | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Vector runtime/static formation, solved-only publication, negative extent rejection, Array homogeneous contracts, union/deferred publication, incremental parity, and focused runtime/compiler gates pass |
 | `COLL006.C1.P4` | Static homogeneous sequence model; const Vector; const Array; materialization; repository-wide bracket-default cutover/migration | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T10/T11 cutover and stabilization complete; G7 focused evidence passes except inherited D4 static-constant failures |
-| `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 owned implementation and focused evidence complete; G6.A PASS; G6.B and aggregate G6 retain the parse-package baseline blocker |
+| `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T9 complete; G6.A and G6.B pass; complete parse-package gate passes 4/4 Rust integration checks and 13/13 runtime fixtures; workspace tests, Clippy, and release certification not run |
 | `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T7 complete; exact 29 bindings (TDR-0092); G3 (MutableBag), G4 (IndexedDict), G5 (OrderedSet), G6 (mutable-key admission matrix) passed; oracles resolved; walkthrough and handoff created; P7 is next |
 | `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T8 complete; exact 14 bindings (TDR-0093); G2 (PersistentHashNode), G3 (persistent_hash HAMT), G4 (TDR-0093 floor), G5 (Bag), G6 (Bijection), G7 (collections aggregate) passed; native surface 488; walkthrough and handoff created; P8 is next |
 | `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | IN_PROGRESS | PARTIAL | UNVERIFIED | Earlier T3/T5, T6/G6, and T7/G7 evidence predates current review fixes to entries typing, iterator traversal, and unordered comparison handling; T8/G8 and T9 closeout remain |
-| `COLL006.C1.P9` | API/conversion convergence, `Entry<K,V>` migration boundary, diagnostics, property/GC/performance certification, docs/checkpoint closure | IN_PROGRESS | PARTIAL | UNVERIFIED | T0 takeover is partial; G0 remains blocked until P8 G8 passes and P8 T9 produces its final walkthrough/handoff and residual record |
+| `COLL006.C1.P9` | API/conversion convergence, `Entry<K,V>` migration boundary, diagnostics, property/GC/performance certification, docs/checkpoint closure | IN_PROGRESS | PARTIAL | UNVERIFIED | T0 takeover is partial; G0 remains blocked until P8 G8 passes and P8 T9 produces its final walkthrough/handoff and residual record. The inherited P5 parse-package residual is closed at its declared gate; broader C1 work remains. |
 
 Corrective plans required to make the C1 acceptance objective truthful remain inside C1 rather than creating a new checkpoint.
 
@@ -641,6 +641,17 @@ Expected policy:
 | `COLL006.C1.P3.G1` | Static generic formation and Vector semantic identity | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic coll006` | 22 passed | Includes 7 new P3 tests; proves concrete/symbolic/large static arguments, partial holes, eight Vector literal/context combinations, and retained P1/P2 compatibility |
 | `COLL006.C1.P3.G2` | Initial core compile gate | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --all-targets` | Passed before adding the final runtime test file | Compile evidence for initial runtime/lowering slice; does not prove execution |
 | `COLL006.C1.P3.G3` | Vector runtime gate | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_vector` | INCOMPLETE: user-aborted during compilation | No runtime result or selected-test count was obtained |
+| `COLL006.C1.P5.G6.B` | Complete `packages/parse` package integration | `RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package` | PASS: 4/4 Rust integration checks; 13/13 runtime fixtures | Covers recursive typed Mini-TOML composition, generic `select<U>`, token-backed `Cursor.current`, `ListSource<T>` snapshot isolation, and fixture-defined `Token` construction through `Option<Token>` |
+
+The `Option<Token>` failure was caused by an unqualified `Some(...)` at an
+equality call site with no expected enum owner. The checker therefore had no
+context to resolve the nested `Token` constructor. Supplying the exact owner
+restores the existing static variant-construction route; structural pattern
+matching verifies variants and payloads without assuming `Token` implements
+value equality. No generic associated-invocation mechanism or lowering
+invariant changed. Dynamic associated-family invocation remains separate work
+and does not block this package gate. Workspace tests, Clippy, and release
+certification were not run.
 
 ### P4 T11/G7 stabilization evidence — 2026-10-09
 
@@ -857,6 +868,30 @@ the current residual handoff; do not amend P9. P9 remains at T0/G0 until those
 items pass. See `P9/COLL006.C1.P9-T0-G0-takeover-incident.md` for the evidence
 and the read-only architectural consultation.
 
+### COLL006.C1.A14 — P5 parse-package constructor context
+
+**Incident:** P5 G6.B was held on an associated-invocation diagnosis after the
+token-backed Cursor fixture failed to resolve an unqualified `Some(...)` in an
+equality expression. **Decision:** this path needs an explicit contextual
+owner, `Option<Token>::Some(...)`; it does not need a new generic associated
+invocation mechanism. Expected-type constraints remain distinct from owner
+evidence, and heterogeneous equality must not propagate the left operand's
+type indiscriminately into the right operand. The fixture checks Token cases
+and payloads structurally, without requiring a Token equality protocol.
+
+**Architectural consequence:** preserve semantic resolution → canonical
+`AssociatedResolution` → semantic-lowering projection → `AssociatedLoweringSpec`
+→ compiler emission → existing VM construction/invocation machinery. Do not
+add compiler fallback, AST-spelling reconstruction, generic erasure, or weaken
+lowering invariants. Dynamic associated-family invocation is a separate
+compiler capability and remains outside P5 acceptance.
+
+**Plan/status amendment:** P5 G6.A, G6.B, and aggregate G6 are PASS;
+`COLL006.C1.P5` is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. The current
+package gate passed 4/4 Rust integration checks and 13/13 runtime fixtures.
+Workspace tests, Clippy, and release certification remain NOT RUN. The broader
+C1 checkpoint and P9 remain open on P8 and other residuals.
+
 ---
 
 ## 16. Fixed / flexible / verify-first classification
@@ -941,11 +976,12 @@ The implementer cannot self-waive a triggered consultation.
 ```text
 active plan:           COLL006.C1.P8 T8/G8 residual classification; P9 T0/G0 remains blocked pending P8 closeout
 latest completed plan: COLL006.C1.P7; P8 T3/T5 and T7/G7 had focused evidence before current unverified review fixes; T8/G8 and T9 remain
-execution blockers:    P8 focused integration gate is outstanding; P5 associated-invocation behavior remains masked by an earlier ListSource error
+execution blockers:    P8 focused integration gate is outstanding; P9 G0 remains blocked pending P8 closeout
 verification residuals: D4 — computed Record-key failures block a clean aggregate static_constants PASS;
                          D1 — metadata failure, still suspected unrelated;
                          D2 — reflection/module fixture failures, still suspected unrelated;
-                         R-PARSE-ASSOCIATED-INVOKE — owning compiler-layer consultation prepared (assigned to P9);
+                         P5 G6.B parse-package integration — closed PASS at the declared package gate;
+                         dynamic associated-family invocation — separate compiler follow-up, outside P5 package acceptance;
                          R-P7-NUMERIC-HASH-LAW — numeric hash divergence for >= 2^53, LargeInt, and NaN payloads documented and isolated
 next action:           resolve or baseline-classify P8 T8 residuals; pass G8, finish P8 T9 records, then resume P9 T0/G0 revalidation
 ```

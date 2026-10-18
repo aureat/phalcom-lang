@@ -143,3 +143,12 @@ Please advise which disposition is correct:
 2. **Amend P5 acceptance:** define the minimum independent, non-circular validation that proves the ListSource snapshot contract, permit that evidence to close the P5-owned behavior, and retain the full parse-package command as an inherited blocker outside P5. If selected, specify the required plan/checkpoint amendment and whether G6 itself may be marked complete.
 
 Please also identify the owning work item/team for (a) the `TextSource.slice` String/Substring mismatch and (b) the `Some`/`Int` comparison failure, if known. No implementation fix is requested in this consultation.
+
+## Current disposition — 2026-10-18
+
+The earlier parse adapter and fixture issues were corrected, and the full
+`modules_parse_package` gate now passes 4/4 Rust integration checks and 13/13
+runtime fixtures. G6.A, G6.B, and aggregate G6 are PASS. This current result
+supersedes the consultation's original blocked-state recommendation; the
+checkpoint and P5 walkthrough record the evidence and the later diagnosis of
+the token-constructor failure.
