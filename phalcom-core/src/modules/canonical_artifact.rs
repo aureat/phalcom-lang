@@ -399,7 +399,7 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
 
     let transaction_limit = usize::try_from(limits.max_total_allocation_bytes).unwrap_or(usize::MAX);
     let modules = allocations.arc(modules).map_err(|error| allocation_error(error, transaction_limit))?;
-    let formal_image = CanonicalUniverseFormalImage::from_loaded_artifact(world_id, modules, parts.snapshot, query_image, fingerprints)?;
+    let formal_image = CanonicalUniverseFormalImage::from_loaded_artifact(world_id, modules, parts.snapshot, query_image, fingerprints, allocations)?;
 
     timings.relocation = t_reloc.elapsed();
 
@@ -556,5 +556,313 @@ fn canonical_source_digest(formal: &CanonicalUniverseFormalImage) -> Result<Arti
             Ok(hasher.finalize())
         }
         CanonicalWorldProvenance::Artifact { source_digest, .. } => Ok(*source_digest),
+    }
+}
+
+#[cfg(test)]
+mod temporary_loaded_publication_allocation_census {
+    use super::*;
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    struct CountingAllocator;
+
+    static MEASURING: AtomicBool = AtomicBool::new(false);
+    static REQUESTED_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+    fn record_request(bytes: usize) {
+        if MEASURING.load(Ordering::Relaxed) {
+            REQUESTED_BYTES.fetch_add(bytes, Ordering::Relaxed);
+        }
+    }
+
+    fn observed_requested_bytes() -> usize {
+        REQUESTED_BYTES.load(Ordering::Relaxed)
+    }
+
+    // SAFETY: The wrapper forwards every original allocator operation unchanged
+    // and records only the requested layout size while the census is enabled.
+    unsafe impl GlobalAlloc for CountingAllocator {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            record_request(layout.size());
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(pointer, layout) }
+        }
+
+        unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            record_request(new_size);
+            unsafe { System.realloc(pointer, layout, new_size) }
+        }
+    }
+
+    #[global_allocator]
+    static GLOBAL: CountingAllocator = CountingAllocator;
+
+    fn measure_stage<T>(
+        name: &'static str,
+        allocations: &mut AllocationBudget,
+        operation: impl FnOnce(&mut AllocationBudget) -> T,
+    ) -> (T, usize, isize) {
+        let ledger_before = allocations.requested();
+        REQUESTED_BYTES.store(0, Ordering::Relaxed);
+        MEASURING.store(true, Ordering::Relaxed);
+        let output = operation(allocations);
+        MEASURING.store(false, Ordering::Relaxed);
+        let observed = observed_requested_bytes();
+        let ledger_delta = allocations.requested() - ledger_before;
+        let signed_delta = observed as isize - ledger_delta as isize;
+        eprintln!(
+            "CENSUS {name}: ledger_before={ledger_before} ledger_after={} ledger_delta={ledger_delta} allocator_before=0 allocator_after={observed} allocator_delta={observed} signed_delta={signed_delta} output_retained=yes",
+            allocations.requested()
+        );
+        (output, observed, signed_delta)
+    }
+
+    fn print_query_row(name: &str, row: phalcom_semantic::artifact::query::QueryReconstructionCensusRow) -> isize {
+        let signed = row.observed_bytes as isize - row.ledger_bytes as isize;
+        eprintln!(
+            "  CENSUS {name}: ledger={} observed={} signed_delta={signed}",
+            row.ledger_bytes, row.observed_bytes
+        );
+        signed
+    }
+
+    #[test]
+    fn temporary_current_loaded_publication_allocation_census() {
+        let limits = ValidationLimits::default();
+        let artifact_bytes = if let Some(path) = std::env::var_os("PHALCOM_UNIVERSE_TELOSC_FOR_TEST") {
+            std::fs::read(path).expect("read prebuilt canonical Universe artifact")
+        } else {
+            let program = crate::modules::canonical_universe::canonical_universe_program()
+                .expect("canonical Universe program must compile");
+            let view = program.compiler_image_view().expect("compiler image view must be present");
+            build_universe_telosc(&view, &limits)
+                .expect("build canonical Universe artifact")
+                .bytes
+        };
+        assert!(!artifact_bytes.is_empty());
+        let budget_limit = usize::try_from(limits.max_total_allocation_bytes).unwrap_or(usize::MAX);
+
+        let mut allocations = AllocationBudget::new(budget_limit);
+        let mut independent_total = 0usize;
+        let mut signed_stage_total = 0isize;
+        let mut container = None;
+
+        let (container_result, observed, signed) = measure_stage("A container/root + header/provenance", &mut allocations, |budget| {
+            let parsed = TeloscContainerView::parse_with_allocation_budget(&artifact_bytes, &limits, budget)?;
+            validate_reader_header(parsed.header())?;
+            let module = parsed.require_section(SectionKind::ModuleWorld).map_err(|_| TeloscArtifactError::Capability("missing MODULE_WORLD section"))?;
+            let semantic = parsed.require_section(SectionKind::SemanticWorld).map_err(|_| TeloscArtifactError::Capability("missing SEMANTIC_WORLD section"))?;
+            let query = parsed.require_section(SectionKind::QueryImage).map_err(|_| TeloscArtifactError::Capability("missing QUERY_IMAGE section"))?;
+            let metadata = parsed.require_section(SectionKind::Metadata).map_err(|_| TeloscArtifactError::Capability("missing METADATA section"))?;
+            validate_section_provenance(parsed.header(), module, semantic, query, metadata)?;
+            container = Some(parsed);
+            Ok::<_, TeloscArtifactError>(())
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        container_result.expect("container parse and provenance validation must succeed");
+        let parsed = container.as_ref().expect("container retained for census");
+        let module_bytes = parsed.require_section(SectionKind::ModuleWorld).expect("MODULE_WORLD section");
+        let semantic_bytes = parsed.require_section(SectionKind::SemanticWorld).expect("SEMANTIC_WORLD section");
+        let query_bytes = parsed.require_section(SectionKind::QueryImage).expect("QUERY_IMAGE section");
+        let metadata_bytes = parsed.require_section(SectionKind::Metadata).expect("METADATA section");
+
+        let (module_dto_result, observed, signed) = measure_stage("B MODULE_WORLD DTO decode", &mut allocations, |budget| {
+            phalcom_compiler_artifact::module_world::ModuleWorldV1::decode_with_allocation_budget(module_bytes, &limits, budget)
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        let module_dto = module_dto_result.expect("MODULE_WORLD DTO decode must succeed");
+
+        let (module_result, observed, signed) = measure_stage("C module native materialization", &mut allocations, |budget| {
+            phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_dto, &limits, budget)
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        let modules = module_result.expect("MODULE_WORLD materialization must succeed");
+
+        let (semantic_dto_result, observed, signed) = measure_stage("D SEMANTIC_WORLD DTO decode", &mut allocations, |budget| {
+            SemanticWorldV3::decode_with_allocation_budget(semantic_bytes, &limits, budget)
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        let semantic_dto = semantic_dto_result.expect("SEMANTIC_WORLD DTO decode must succeed");
+
+        let (semantic_result, observed, signed) = measure_stage("E semantic native import", &mut allocations, |budget| {
+            validate_and_import_semantic_world_with_allocation_budget(semantic_dto, &limits, budget)
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        let parts = semantic_result.expect("SEMANTIC_WORLD import must succeed");
+
+        let (query_dto_result, observed, signed) = measure_stage("F QUERY_IMAGE DTO decode", &mut allocations, |budget| {
+            QueryImageV1::decode_with_allocation_budget(query_bytes, &limits, budget)
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        let query_dto = query_dto_result.expect("QUERY_IMAGE DTO decode must succeed");
+
+        let (metadata_dto_result, observed, signed) = measure_stage("G METADATA DTO decode", &mut allocations, |budget| {
+            MetadataSectionV1::decode_with_allocation_budget(metadata_bytes, &limits, budget)
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        let metadata_dto = metadata_dto_result.expect("METADATA DTO decode must succeed");
+
+        let mut world_id = None;
+        phalcom_type_meta::allocation::register_allocation_probe(observed_requested_bytes);
+        phalcom_semantic::artifact::query::reset_query_reconstruction_census();
+        let (query_result, observed, signed) = measure_stage("H-K query reconstruction", &mut allocations, |budget| {
+            let header = parsed.header();
+            let compatibility = phalcom_compiler_artifact::CanonicalCompatibilityIdentity {
+                package: header.package_identity.clone(),
+                source_digest: header.source_digest,
+                interface_digest: header.interface_digest,
+                semantic_digest: header.semantic_digest,
+                semantic_model_version: header.semantic_model_version,
+                stable_identity_schema: header.stable_identity_schema,
+                module_semantic_abi: header.module_semantic_abi,
+                semantic_artifact_abi: header.semantic_artifact_abi,
+                native_surface_schema_version: header.native_surface_schema_version,
+                native_catalog_fingerprint: header.native_catalog_fingerprint,
+                type_metadata_schema_version: header.type_metadata_schema_version,
+            };
+            let world = CanonicalSemanticWorldId::for_artifact_world(1, header.source_digest, compatibility);
+            let reconstructed = reconstruct_query_image_with_allocation_budget(
+                &query_dto,
+                &parts.snapshot,
+                &world,
+                &modules,
+                &limits,
+                budget,
+            );
+            world_id = Some(world);
+            reconstructed
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        let (query_image, fingerprints) = query_result.expect("query reconstruction must succeed");
+        let query_census = phalcom_semantic::artifact::query::take_query_reconstruction_census();
+        signed_stage_total -= signed;
+        signed_stage_total += print_query_row("H closure/root", query_census.closure_and_roots);
+        signed_stage_total += print_query_row("I owner-key decode", query_census.owner_key_resolution);
+        signed_stage_total += print_query_row("J product reconstruction", query_census.product_reconstruction);
+        signed_stage_total += print_query_row("K entry/dependency assembly", query_census.entry_assembly);
+        signed_stage_total += print_query_row("L loaded query-image validation/publication", query_census.loaded_validation_and_publication);
+
+        let preflight_limits = MetadataPreflightLimits {
+            max_metadata_bytes: limits.max_metadata_bytes as usize,
+            max_token_count: u32::try_from(limits.max_semantic_entries_per_family).unwrap_or(u32::MAX),
+            max_container_count: u32::try_from(limits.max_semantic_entries_per_family).unwrap_or(u32::MAX),
+            max_nesting_depth: u16::try_from(limits.max_recursion_depth).unwrap_or(u16::MAX),
+        };
+        let bundle_limits = phalcom_type_meta::ValidationLimits::default();
+        let expected_package_digest = *parsed.header().package_identity.digest().as_bytes();
+        let (bundle_result, observed, signed) = measure_stage("M metadata bundle decode/materialization", &mut allocations, |budget| {
+            metadata_dto.decode_bundle_with_allocation_budget(&preflight_limits, &bundle_limits, &expected_package_digest, budget)
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        let metadata_bundle = bundle_result.expect("metadata bundle decode must succeed");
+
+        phalcom_semantic::canonical_image::reset_loaded_publication_census();
+        let mut module_arc_observed = 0usize;
+        let formal_ledger_before = allocations.requested();
+        let (formal_result, observed, signed) = measure_stage("N-P formal image/module-query publication", &mut allocations, |budget| {
+            let before_arc = observed_requested_bytes();
+            let modules = budget.arc(modules).map_err(|error| allocation_error(error, budget_limit))?;
+            module_arc_observed = observed_requested_bytes().saturating_sub(before_arc);
+            CanonicalUniverseFormalImage::from_loaded_artifact(
+                world_id.take().expect("artifact world id retained"),
+                modules,
+                parts.snapshot,
+                query_image,
+                fingerprints,
+                budget,
+            )
+            .map_err(TeloscArtifactError::from)
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        let formal_image = formal_result.expect("formal image publication must succeed");
+        let formal_ledger_delta = allocations.requested() - formal_ledger_before;
+        let publication = phalcom_semantic::canonical_image::take_loaded_publication_census();
+        let publication_rows = [
+            ("P1 snapshot clone/status", publication.snapshot_clone_status, publication.snapshot_clone_status_ledger),
+            ("P2 ModuleQueryProducts reconstruction", publication.module_query_products, publication.module_query_products_ledger),
+            (
+                "P3 ModuleQueryProducts Arc/publication",
+                publication.module_query_products_publication,
+                publication.module_query_products_publication_ledger,
+            ),
+            ("P4 completeness/query validation", publication.completeness_validation, publication.completeness_validation_ledger),
+            ("P5 final Arc<SemanticSnapshot>", publication.snapshot_arc, publication.snapshot_arc_ledger),
+            ("P6 Arc<CanonicalUniverseFormalImage>", publication.formal_image_arc, publication.formal_image_arc_ledger),
+        ];
+        let publication_observed = publication_rows.iter().map(|(_, observed, _)| *observed).sum::<usize>();
+        let publication_ledger = publication_rows.iter().map(|(_, _, ledger)| *ledger).sum::<usize>();
+        assert_eq!(publication_observed + module_arc_observed, observed, "formal publication sub-census must match its outer stage");
+        assert_eq!(publication_ledger + 64, formal_ledger_delta, "formal publication sub-ledger must match its outer stage");
+        let mut module_query_signed = 0isize;
+        for (name, observed, ledger) in publication_rows {
+            let signed = observed as isize - ledger as isize;
+            eprintln!("  CENSUS {name}: ledger={ledger} observed={observed} signed_delta={signed}");
+            if name.starts_with("P2 ") || name.starts_with("P3 ") {
+                module_query_signed += signed;
+            }
+        }
+        eprintln!(
+            "  CENSUS formal image module Arc: ledger=64 observed={module_arc_observed} signed_delta={}",
+            module_arc_observed as isize - 64
+        );
+        let formal_module_query_signed = module_query_signed;
+        let formal_remaining_signed = signed - formal_module_query_signed;
+        eprintln!("  CENSUS M ModuleQueryProducts reconstruction/publication: signed_delta={formal_module_query_signed}");
+        eprintln!("  CENSUS N remaining formal publication: signed_delta={formal_remaining_signed}");
+        signed_stage_total -= signed;
+        signed_stage_total += formal_module_query_signed + formal_remaining_signed;
+
+        let (loaded_result, observed, signed) = measure_stage("O final LoadedUniverseArtifact publication", &mut allocations, |budget| {
+            let metadata = budget.arc(metadata_bundle).map_err(|error| allocation_error(error, budget_limit))?;
+            finish_loaded_universe_telosc(
+                TeloscCapabilities::compiler_only_v1(),
+                &metadata_dto,
+                &preflight_limits,
+                &expected_package_digest,
+                budget,
+                formal_image,
+                metadata,
+                TeloscLoadTimings::default(),
+            )
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        let loaded = loaded_result.expect("final artifact publication must succeed");
+
+        let stage_ledger_total = allocations.requested();
+        eprintln!(
+            "CURRENT STAGE CENSUS TOTAL: ledger={stage_ledger_total} observed={independent_total} signed_delta={}",
+            independent_total as isize - stage_ledger_total as isize
+        );
+        drop(loaded);
+
+        REQUESTED_BYTES.store(0, Ordering::Relaxed);
+        MEASURING.store(true, Ordering::Relaxed);
+        let (production_result, production_ledger) = load_universe_telosc_from_bytes_with_allocation_summary(&artifact_bytes, &limits);
+        MEASURING.store(false, Ordering::Relaxed);
+        let production_observed = observed_requested_bytes();
+        drop(production_result.expect("production whole load must succeed"));
+        let whole_signed = production_observed as isize - production_ledger as isize;
+        let boundary_signed = whole_signed - signed_stage_total;
+        eprintln!(
+            "WHOLE LOAD: ledger={production_ledger} observed={production_observed} signed_delta={whole_signed}\nSTAGE SIGNED DELTA SUM={signed_stage_total}\nO UNCLASSIFIED/BOUNDARY={boundary_signed}\nRECONCILED={}",
+            signed_stage_total + boundary_signed
+        );
+        assert_eq!(stage_ledger_total, production_ledger, "manual stage ledger must equal production ledger");
+        assert_eq!(signed_stage_total + boundary_signed, whole_signed, "stage deltas plus boundary must exactly reconcile");
     }
 }

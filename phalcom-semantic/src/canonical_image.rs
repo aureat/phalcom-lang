@@ -17,9 +17,82 @@ use phalcom_modules::canonical_products::{CanonicalExternalModuleWorld, Canonica
 use phalcom_modules::{ModuleId, UniverseSourceProvider};
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use thiserror::Error;
+
+const LOADED_PUBLICATION_CENSUS_PHASES: usize = 6;
+static LOADED_PUBLICATION_CENSUS_ACTIVE: AtomicBool = AtomicBool::new(false);
+static LOADED_PUBLICATION_CENSUS_OBSERVED: [AtomicUsize; LOADED_PUBLICATION_CENSUS_PHASES] = [
+    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+];
+static LOADED_PUBLICATION_CENSUS_LEDGER: [AtomicUsize; LOADED_PUBLICATION_CENSUS_PHASES] = [
+    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+];
+
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LoadedPublicationCensus {
+    pub snapshot_clone_status: usize,
+    pub snapshot_clone_status_ledger: usize,
+    pub module_query_products: usize,
+    pub module_query_products_ledger: usize,
+    pub module_query_products_publication: usize,
+    pub module_query_products_publication_ledger: usize,
+    pub completeness_validation: usize,
+    pub completeness_validation_ledger: usize,
+    pub snapshot_arc: usize,
+    pub snapshot_arc_ledger: usize,
+    pub formal_image_arc: usize,
+    pub formal_image_arc_ledger: usize,
+}
+
+#[doc(hidden)]
+pub fn reset_loaded_publication_census() {
+    LOADED_PUBLICATION_CENSUS_ACTIVE.store(false, Ordering::Relaxed);
+    for row in &LOADED_PUBLICATION_CENSUS_OBSERVED {
+        row.store(0, Ordering::Relaxed);
+    }
+    for row in &LOADED_PUBLICATION_CENSUS_LEDGER {
+        row.store(0, Ordering::Relaxed);
+    }
+    LOADED_PUBLICATION_CENSUS_ACTIVE.store(true, Ordering::Relaxed);
+}
+
+#[doc(hidden)]
+pub fn take_loaded_publication_census() -> LoadedPublicationCensus {
+    LOADED_PUBLICATION_CENSUS_ACTIVE.store(false, Ordering::Relaxed);
+    let row = |index: usize| LOADED_PUBLICATION_CENSUS_OBSERVED[index].load(Ordering::Relaxed);
+    let ledger = |index: usize| LOADED_PUBLICATION_CENSUS_LEDGER[index].load(Ordering::Relaxed);
+    LoadedPublicationCensus {
+        snapshot_clone_status: row(0),
+        snapshot_clone_status_ledger: ledger(0),
+        module_query_products: row(1),
+        module_query_products_ledger: ledger(1),
+        module_query_products_publication: row(2),
+        module_query_products_publication_ledger: ledger(2),
+        completeness_validation: row(3),
+        completeness_validation_ledger: ledger(3),
+        snapshot_arc: row(4),
+        snapshot_arc_ledger: ledger(4),
+        formal_image_arc: row(5),
+        formal_image_arc_ledger: ledger(5),
+    }
+}
+
+fn publication_census_checkpoint(allocations: &phalcom_type_meta::allocation::AllocationBudget) -> Option<(usize, usize)> {
+    if !LOADED_PUBLICATION_CENSUS_ACTIVE.load(Ordering::Relaxed) {
+        return None;
+    }
+    Some((phalcom_type_meta::allocation::current_observed_bytes()?, allocations.requested()))
+}
+
+fn record_publication_census(phase: usize, before: Option<(usize, usize)>, allocations: &phalcom_type_meta::allocation::AllocationBudget) {
+    if let (Some((observed_before, ledger_before)), Some((observed_after, ledger_after))) = (before, publication_census_checkpoint(allocations)) {
+        LOADED_PUBLICATION_CENSUS_OBSERVED[phase].fetch_add(observed_after - observed_before, Ordering::Relaxed);
+        LOADED_PUBLICATION_CENSUS_LEDGER[phase].fetch_add(ledger_after - ledger_before, Ordering::Relaxed);
+    }
+}
 
 /// Provenance backing an in-process semantic world.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -129,6 +202,9 @@ pub enum CanonicalImageError {
     /// A portable artifact failed bounded structural or allocation validation.
     #[error("canonical artifact validation: {0}")]
     Artifact(#[from] phalcom_compiler_artifact::ArtifactError),
+    /// Loaded publication exceeded or failed its explicit allocation ledger.
+    #[error("canonical artifact publication allocation: {0}")]
+    Allocation(#[from] phalcom_type_meta::allocation::AllocationError),
     /// A reader requested products from another semantic world.
     #[error("canonical query reader has a foreign semantic world")]
     ForeignSemanticWorld,
@@ -791,32 +867,44 @@ impl CanonicalUniverseFormalImage {
         snapshot: Arc<SemanticSnapshot>,
         queries: Arc<CanonicalSemanticQueryImage>,
         dependency_fingerprints: BTreeMap<QueryKey, ProductFingerprint>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
     ) -> Result<Arc<Self>, CanonicalImageError> {
         if !matches!(world.provenance, CanonicalWorldProvenance::Artifact { .. }) {
             return Err(CanonicalImageError::ForeignSemanticWorld);
         }
+        let mut transaction = allocations.child(allocations.remaining());
+        let snapshot_start = publication_census_checkpoint(&transaction);
         let mut snapshot_obj = (*snapshot).clone();
+        record_publication_census(0, snapshot_start, &transaction);
         if snapshot_obj.module_products.unlinked.is_empty() {
-            let module_products = Arc::new(crate::snapshot::ModuleQueryProducts::from_external_modules(&modules));
+            let module_products_start = publication_census_checkpoint(&transaction);
+            let module_products = crate::snapshot::ModuleQueryProducts::from_external_modules_with_allocation_budget(modules.clone(), &mut transaction)
+                .map_err(|error| CanonicalImageError::IncompletePublication(error.to_string()))?;
+            record_publication_census(1, module_products_start, &transaction);
+            let module_products_publish_start = publication_census_checkpoint(&transaction);
+            let module_products = transaction.arc(module_products)?;
             snapshot_obj = snapshot_obj.with_module_products(module_products);
+            record_publication_census(2, module_products_publish_start, &transaction);
         }
+        let status_start = publication_census_checkpoint(&transaction);
         if snapshot_obj.status.is_partial() && snapshot_obj.has_source_free_artifact_contents() {
             snapshot_obj = snapshot_obj.with_status(crate::snapshot::SnapshotStatus::Complete);
         }
-        let snapshot = Arc::new(snapshot_obj);
-        if !snapshot.is_source_free_artifact_complete() {
+        record_publication_census(0, status_start, &transaction);
+        let validation_start = publication_census_checkpoint(&transaction);
+        if !snapshot_obj.is_source_free_artifact_complete() {
             return Err(CanonicalImageError::IncompletePublication(
                 "loaded artifact snapshot failed source-free completeness check".into(),
             ));
         }
-        if !snapshot.advisory.modules.is_empty() || !snapshot.advisory.callables.is_empty() {
+        if !snapshot_obj.advisory.modules.is_empty() || !snapshot_obj.advisory.callables.is_empty() {
             return Err(CanonicalImageError::IncompletePublication(
                 "suppressed advisory products present in loaded compiler image".into(),
             ));
         }
-        queries.reader(&world, &snapshot.store, &snapshot.static_values)?;
+        queries.reader(&world, &snapshot_obj.store, &snapshot_obj.static_values)?;
         for (key, fp) in &dependency_fingerprints {
-            if let Some(expected) = aggregate_structural_fingerprint(&snapshot, key) {
+            if let Some(expected) = aggregate_structural_fingerprint(&snapshot_obj, key) {
                 if expected != *fp {
                     return Err(CanonicalImageError::IncompletePublication(format!(
                         "loaded dependency fingerprint disagrees with relocated aggregate: {key:?}"
@@ -829,11 +917,16 @@ impl CanonicalUniverseFormalImage {
                 )));
             }
         }
+        record_publication_census(3, validation_start, &transaction);
         let type_prefix = CanonicalTypePrefixId {
-            store: snapshot.store.id(),
-            types: snapshot.store.len(),
+            store: snapshot_obj.store.id(),
+            types: snapshot_obj.store.len(),
         };
-        Ok(Arc::new(Self {
+        let snapshot_arc_start = publication_census_checkpoint(&transaction);
+        let snapshot = transaction.arc(snapshot_obj)?;
+        record_publication_census(4, snapshot_arc_start, &transaction);
+        let formal_image_start = publication_census_checkpoint(&transaction);
+        let image = transaction.arc(Self {
             world,
             modules,
             build_sources: BTreeMap::new(),
@@ -842,7 +935,10 @@ impl CanonicalUniverseFormalImage {
             queries,
             dependency_fingerprints,
             type_prefix,
-        }))
+        });
+        record_publication_census(5, formal_image_start, &transaction);
+        allocations.commit_child(transaction)?;
+        Ok(image)
     }
 }
 
