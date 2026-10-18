@@ -145,6 +145,22 @@ impl StaticValueGraphV1 {
     /// Validates scalar representations, all local edges, and the static DAG.
     /// Returns dependency-first value order for factory-based reconstruction.
     pub fn validate(&self, limits: &ValidationLimits) -> Result<Vec<ArtifactStaticValueId>, ArtifactError> {
+        self.validate_inner(limits, ValidationScratch::Untracked)
+    }
+
+    /// Validates the graph while charging traversal scratch to the enclosing
+    /// semantic import transaction. The ordinary validator is retained for
+    /// standalone wire validation, while semantic loading must account for the
+    /// actual vectors used by the cycle/dependency traversal.
+    pub fn validate_with_allocation_budget(
+        &self,
+        limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Vec<ArtifactStaticValueId>, ArtifactError> {
+        self.validate_inner(limits, ValidationScratch::Budgeted(allocations))
+    }
+
+    fn validate_inner(&self, limits: &ValidationLimits, mut scratch: ValidationScratch<'_>) -> Result<Vec<ArtifactStaticValueId>, ArtifactError> {
         let mut budget = GraphBudget::new(limits);
         budget.collection::<StaticValueV1>(self.values.len(), limits.max_static_values)?;
         budget.collection::<String>(self.strings.len(), limits.max_semantic_entries_per_family)?;
@@ -217,13 +233,15 @@ impl StaticValueGraphV1 {
             if backing.labels.len() != backing.labeled_values.len() {
                 return Err(malformed("static pack labels and values have different lengths"));
             }
-            let mut labels = std::collections::BTreeSet::new();
+            let mut labels = scratch.vector::<&str>(backing.labels.len())?;
             for label in &backing.labels {
                 check_index(label.0, self.symbols.len(), "pack label")?;
                 budget.scratch(std::mem::size_of::<usize>() * 4)?;
-                if !labels.insert(self.symbols[label.0 as usize].as_str()) {
-                    return Err(malformed("duplicate static pack label"));
-                }
+                labels.push(self.symbols[label.0 as usize].as_str());
+            }
+            labels.sort_unstable();
+            if labels.windows(2).any(|pair| pair[0] == pair[1]) {
+                return Err(malformed("duplicate static pack label"));
             }
         }
         for pack in &self.packs {
@@ -257,7 +275,6 @@ impl StaticValueGraphV1 {
         }
         // Traverse structural arenas as graph nodes too. Many slices may share
         // a large backing; following its children once avoids quadratic work.
-        let mut nodes = Vec::new();
         let mut offsets = [0usize; 8];
         let extents = [self.values.len(), self.tuples.len(), self.sequences.len(), self.records.len(),
             self.data_values.len(), self.variant_values.len(), self.packs.len(), self.pack_backings.len()];
@@ -269,12 +286,10 @@ impl StaticValueGraphV1 {
         budget.scratch(total.checked_mul(std::mem::size_of::<usize>() + 1).ok_or_else(|| invalid("static graph scratch overflow"))?)?;
         budget.scratch(self.values.len().checked_mul(std::mem::size_of::<ArtifactStaticValueId>()).ok_or_else(|| invalid("static order overflow"))?)?;
         budget.scratch(total.checked_mul(std::mem::size_of::<(usize, StaticChildren<'_>)>()).ok_or_else(|| invalid("static stack overflow"))?)?;
-        nodes.try_reserve_exact(total).map_err(|_| invalid("static graph scratch allocation failed"))?;
+        let mut nodes = scratch.vector::<(u8, usize)>(total)?;
         nodes.resize(total, (0u8, 0usize));
-        let mut order = Vec::new();
-        order.try_reserve_exact(self.values.len()).map_err(|_| invalid("static order allocation failed"))?;
-        let mut stack = Vec::new();
-        stack.try_reserve_exact(total).map_err(|_| invalid("static stack allocation failed"))?;
+        let mut order = scratch.vector::<ArtifactStaticValueId>(self.values.len())?;
+        let mut stack = scratch.vector::<(usize, StaticChildren<'_>)>(total)?;
         for root in 0..total {
             if nodes[root].0 != 0 { continue; }
             nodes[root].0 = 1;
@@ -462,5 +477,23 @@ impl<'a> GraphBudget<'a> {
             if segment.is_empty() { return Err(malformed("empty static owner path segment")); }
         }
         Ok(())
+    }
+}
+
+enum ValidationScratch<'a> {
+    Untracked,
+    Budgeted(&'a mut AllocationBudget),
+}
+
+impl ValidationScratch<'_> {
+    fn vector<T>(&mut self, count: usize) -> Result<Vec<T>, ArtifactError> {
+        match self {
+            Self::Untracked => {
+                let mut values = Vec::new();
+                values.try_reserve_exact(count).map_err(|_| invalid("static graph scratch allocation failed"))?;
+                Ok(values)
+            }
+            Self::Budgeted(allocations) => allocations.vector(count).map_err(ArtifactError::Allocation),
+        }
     }
 }

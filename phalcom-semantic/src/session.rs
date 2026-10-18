@@ -2868,7 +2868,7 @@ impl SemanticWorkspaceSession {
         associated_scope.finish(SemanticPerfOutcome::Success);
         // Case identity is structural source authority. Publish it before the
         // alias/header/member signature scheduler reads any annotation.
-        let mut static_case_catalogs = aggregate_snapshot.map_or_else(BTreeMap::new, |snapshot| (*snapshot.static_case_catalogs).clone());
+        let mut static_case_catalogs = aggregate_snapshot.map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| (*snapshot.static_case_catalogs).clone());
         for (module_id, shard) in &self.semantic_structure_shards {
             let mut candidates = BTreeMap::<crate::identity::StaticDomainDeclarationId, Vec<&phalcom_ast::ast::AlgebraicDef>>::new();
             for statement in &shard.source.program.statements {
@@ -2938,7 +2938,7 @@ impl SemanticWorkspaceSession {
         }
         resolver.update_static_case_catalogs(&static_case_catalogs);
         let static_case_sources = collect_static_case_sources(&self.semantic_structure_shards, &resolver, &static_case_catalogs);
-        let mut static_case_signatures_table = aggregate_snapshot.map_or_else(BTreeMap::new, |snapshot| (*snapshot.static_case_signatures).clone());
+        let mut static_case_signatures_table = aggregate_snapshot.map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| (*snapshot.static_case_signatures).clone());
         for case in &signature_case_work {
             static_case_signatures_table.remove(case);
         }
@@ -5168,7 +5168,7 @@ impl SemanticWorkspaceSession {
         let mut enum_requirements_table = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_enum_requirements.clone(), |snapshot| (*snapshot.enum_requirements).clone());
-        let mut associated_static_domains_table = aggregate_snapshot.map_or_else(BTreeMap::new, |snapshot| (*snapshot.associated_static_domains).clone());
+        let mut associated_static_domains_table = aggregate_snapshot.map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| (*snapshot.associated_static_domains).clone());
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             data_semantics.remove_module(module);
             enum_semantics.remove_module(module);
@@ -9126,9 +9126,9 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_enum_requirements(Arc::new(enum_requirements_table));
         snapshot_obj = snapshot_obj.with_associated_surfaces(Arc::new(associated_surfaces_table));
         snapshot_obj = snapshot_obj.with_type_member_declarations(Arc::new(type_member_declarations_table));
-        snapshot_obj = snapshot_obj.with_associated_static_domains(Arc::new(associated_static_domains_table));
-        snapshot_obj = snapshot_obj.with_static_case_catalogs(Arc::new(static_case_catalogs));
-        snapshot_obj = snapshot_obj.with_static_case_signatures(Arc::new(static_case_signatures_table));
+        snapshot_obj.associated_static_domains = Arc::new(associated_static_domains_table);
+        snapshot_obj.static_case_catalogs = Arc::new(static_case_catalogs);
+        snapshot_obj.static_case_signatures = Arc::new(static_case_signatures_table);
         snapshot_obj = snapshot_obj.with_type_aliases(Arc::new(type_aliases));
         snapshot_obj = snapshot_obj.with_static_definitions(Arc::new(static_definitions_table));
         snapshot_obj = snapshot_obj.with_static_constants(Arc::new(static_constants_table));
@@ -9899,13 +9899,13 @@ type StaticCaseSource = (ModuleId, DeclarationId, phalcom_ast::ast::AlgebraicDef
 fn collect_static_case_sources(
     shards: &BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
     resolver: &LinkedTypeResolver,
-    catalogs: &BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>,
+    catalogs: &crate::ordered_map::OrderedMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>,
 ) -> BTreeMap<crate::identity::StaticCaseId, StaticCaseSource> {
     fn add_definition(
         module: &ModuleId,
         owner: &DeclarationId,
         definition: &phalcom_ast::ast::AlgebraicDef,
-        catalogs: &BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>,
+        catalogs: &crate::ordered_map::OrderedMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>,
         sources: &mut BTreeMap<crate::identity::StaticCaseId, StaticCaseSource>,
     ) {
         let domain = match definition.phase {
@@ -10047,7 +10047,7 @@ fn collect_static_case_signature_dependencies(
     annotation: &TypeAnnotation,
     module: &ModuleId,
     resolver: &dyn TypeResolver,
-    catalogs: &BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>,
+    catalogs: &crate::ordered_map::OrderedMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>,
     dependencies: &mut BTreeSet<TypeSignatureDependencyNode>,
 ) {
     use phalcom_ast::ast::{GenericArgumentSyntax, TypeCallableItem, TypeMemberArgumentSyntax, TypeTupleItem};
@@ -10999,7 +10999,7 @@ fn service_type_member_demands(
     declarations: &DeclarationTypeTable,
     surfaces: &crate::associated::AssociatedFamilyTable,
     members: &mut crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
-    static_case_signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
+    static_case_signatures: &crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
     cycle_members: &BTreeSet<crate::types::type_member::TypeMemberDeclarationId>,
     member_definitions: &BTreeMap<crate::types::type_member::TypeMemberDeclarationId, (ModuleId, &phalcom_ast::ast::TypeMemberDef)>,
     sources: &BTreeMap<ModuleId, Arc<crate::source::ParsedModuleUnit>>,

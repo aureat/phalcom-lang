@@ -21,6 +21,25 @@ pub struct TypeAliasInfo {
     pub source: SemanticSourceSpan,
 }
 
+impl TypeAliasInfo {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let mut dependencies = allocations.vector(self.dependencies.len())?;
+        for dependency in &self.dependencies {
+            dependencies.push(dependency.clone_with_allocation_budget(allocations)?);
+        }
+        Ok(Self {
+            declaration: self.declaration.clone_with_allocation_budget(allocations)?,
+            kind: self.kind,
+            kind_shape: allocations.boxed_str(&self.kind_shape)?,
+            generic_signature: self.generic_signature.as_ref().map(|signature| signature.clone_with_allocation_budget(allocations)).transpose()?,
+            form: self.form,
+            structural_form: allocations.boxed_str(&self.structural_form)?,
+            dependencies: allocations.boxed_slice(dependencies)?,
+            source: SemanticSourceSpan { module: self.source.module.clone_with_allocation_budget(allocations)?, range: self.source.range },
+        })
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TypeAliasTable {
     parent: Option<Arc<Self>>,

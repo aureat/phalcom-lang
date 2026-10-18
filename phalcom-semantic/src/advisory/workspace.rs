@@ -91,6 +91,21 @@ impl Default for AdvisoryWorkspace {
 }
 
 impl AdvisoryWorkspace {
+    /// Combines empty module and callable maps with budget accounting.
+    pub fn empty_with_allocation_budget(
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        let mut hasher = DefaultHasher::new();
+        AdvisoryProductStatus::Complete.hash(&mut hasher);
+        let fingerprint = ProductFingerprint::new(hasher.finish());
+        Ok(Self {
+            modules: allocations.arc(BTreeMap::new())?,
+            callables: allocations.arc(BTreeMap::new())?,
+            status: AdvisoryProductStatus::Complete,
+            fingerprint,
+        })
+    }
+
     /// Combines immutable module shards and callable summaries into one facade.
     pub fn from_parts(
         modules: BTreeMap<ModuleId, Arc<AdvisoryModuleProduct>>,

@@ -119,7 +119,6 @@ pub struct NativeCatalogFingerprint(pub [u8; 16]);
 pub struct NativeSurfaceCatalog {
     records: &'static [NativeSurfaceRecord],
     index: OnceLock<BTreeMap<PrimitiveKey, usize>>,
-    selector_index: OnceLock<BTreeMap<(UniverseKey, NativeDispatch, String), usize>>,
     selector_only_index: OnceLock<BTreeMap<String, usize>>,
 }
 
@@ -128,7 +127,6 @@ impl NativeSurfaceCatalog {
         Self {
             records,
             index: OnceLock::new(),
-            selector_index: OnceLock::new(),
             selector_only_index: OnceLock::new(),
         }
     }
@@ -149,14 +147,9 @@ impl NativeSurfaceCatalog {
     }
 
     pub fn find_selector(&self, owner: UniverseKey, side: NativeDispatch, selector: &str) -> Option<&'static NativeSurfaceRecord> {
-        let index = self.selector_index.get_or_init(|| {
-            self.records
-                .iter()
-                .enumerate()
-                .map(|(index, record)| ((record.owner(), record.side(), record.selector().to_owned()), index))
-                .collect()
-        });
-        index.get(&(owner, side, selector.to_owned())).and_then(|index| self.records.get(*index))
+        self.records
+            .iter()
+            .find(|record| record.owner() == owner && record.side() == side && record.selector() == selector)
     }
 
     /// Finds the first canonical row for a selector when owner information is

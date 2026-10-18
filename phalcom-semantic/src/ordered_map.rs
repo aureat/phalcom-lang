@@ -72,9 +72,22 @@ impl<K: Ord, V> OrderedMap<K, V> {
         self.source.remove(key)
     }
 
+    /// Mutates only source/local entries; frozen canonical authority is shared.
+    pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
+    where K: Borrow<Q>, Q: Ord + ?Sized {
+        self.source.get_mut(key)
+    }
+
+    pub fn retain(&mut self, predicate: impl FnMut(&K, &mut V) -> bool) {
+        self.source.retain(predicate);
+    }
+
     pub fn iter(&self) -> OrderedMapIter<'_, K, V> {
         match &self.frozen {
-            Some(entries) => OrderedMapIter::Frozen(entries.as_entries().iter()),
+            Some(entries) => OrderedMapIter::Merged {
+                frozen: entries.as_entries().iter().peekable(),
+                local: self.source.iter().peekable(),
+            },
             None => OrderedMapIter::Source(self.source.iter()),
         }
     }
@@ -104,28 +117,40 @@ impl<K: Ord, V> From<BTreeMap<K, V>> for OrderedMap<K, V> {
 
 pub enum OrderedMapIter<'a, K, V> {
     Source(std::collections::btree_map::Iter<'a, K, V>),
-    Frozen(std::slice::Iter<'a, (K, V)>),
+    Merged {
+        frozen: std::iter::Peekable<std::slice::Iter<'a, (K, V)>>,
+        local: std::iter::Peekable<std::collections::btree_map::Iter<'a, K, V>>,
+    },
 }
 
-impl<'a, K, V> Iterator for OrderedMapIter<'a, K, V> {
+impl<'a, K: Ord, V> Iterator for OrderedMapIter<'a, K, V> {
     type Item = (&'a K, &'a V);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             Self::Source(iter) => iter.next(),
-            Self::Frozen(iter) => iter.next().map(|(key, value)| (key, value)),
+            Self::Merged { frozen, local } => {
+                if local.peek().is_some_and(|(key, _)| frozen.peek().is_none_or(|(frozen_key, _)| *key < frozen_key)) {
+                    local.next()
+                } else {
+                    frozen.next().map(|(key, value)| (key, value))
+                }
+            }
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self {
             Self::Source(iter) => iter.size_hint(),
-            Self::Frozen(iter) => iter.size_hint(),
+            Self::Merged { frozen, local } => {
+                let count = frozen.len() + local.len();
+                (count, Some(count))
+            }
         }
     }
 }
 
-impl<K, V> ExactSizeIterator for OrderedMapIter<'_, K, V> {}
+impl<K: Ord, V> ExactSizeIterator for OrderedMapIter<'_, K, V> {}
 
 impl<K: Hash + Ord, V: Hash> Hash for OrderedMap<K, V> {
     fn hash<H: Hasher>(&self, state: &mut H) {

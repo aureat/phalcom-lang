@@ -44,29 +44,29 @@ pub struct WorkspaceSymbolEntry {
 /// Incrementally maintained persistent workspace symbol index.
 #[derive(Clone, Debug, Default)]
 pub struct WorkspaceSymbolIndex {
-    entries: im::OrdMap<WorkspaceSymbolId, Arc<WorkspaceSymbolEntry>>,
-    by_module: im::OrdMap<ModuleId, Arc<[WorkspaceSymbolId]>>,
-    trigrams: im::OrdMap<[char; 3], im::OrdSet<WorkspaceSymbolId>>,
+    entries: Option<im::OrdMap<WorkspaceSymbolId, Arc<WorkspaceSymbolEntry>>>,
+    by_module: Option<im::OrdMap<ModuleId, Arc<[WorkspaceSymbolId]>>>,
+    trigrams: Option<im::OrdMap<[char; 3], im::OrdSet<WorkspaceSymbolId>>>,
 }
 
 impl WorkspaceSymbolIndex {
     /// Creates an empty workspace symbol index.
     pub fn new() -> Self {
         Self {
-            entries: im::OrdMap::new(),
-            by_module: im::OrdMap::new(),
-            trigrams: im::OrdMap::new(),
+            entries: None,
+            by_module: None,
+            trigrams: None,
         }
     }
 
     /// Number of indexed workspace symbols.
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.entries.as_ref().map_or(0, |e| e.len())
     }
 
     /// Whether the index is empty.
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.as_ref().map_or(true, |e| e.is_empty())
     }
 
     /// Replaces or removes symbols contributed by one module.
@@ -75,9 +75,9 @@ impl WorkspaceSymbolIndex {
         stats.workspace_symbol_entries_removed += old.len();
         stats.workspace_symbol_entries_added += new.len();
 
-        let mut entries = self.entries.clone();
-        let mut by_module = self.by_module.clone();
-        let mut trigrams = self.trigrams.clone();
+        let mut entries = self.entries.clone().unwrap_or_default();
+        let mut by_module = self.by_module.clone().unwrap_or_default();
+        let mut trigrams = self.trigrams.clone().unwrap_or_default();
 
         // 1. Remove old entries
         for entry in old {
@@ -114,7 +114,11 @@ impl WorkspaceSymbolIndex {
             by_module.insert(module.clone(), Arc::from(new_ids.into_boxed_slice()));
         }
 
-        Self { entries, by_module, trigrams }
+        Self {
+            entries: if entries.is_empty() { None } else { Some(entries) },
+            by_module: if by_module.is_empty() { None } else { Some(by_module) },
+            trigrams: if trigrams.is_empty() { None } else { Some(trigrams) },
+        }
     }
 
     /// Searches symbols using case-insensitive substring matching.
@@ -122,6 +126,9 @@ impl WorkspaceSymbolIndex {
         if limit == 0 {
             return Vec::new();
         }
+        let (Some(entries), Some(trigrams)) = (&self.entries, &self.trigrams) else {
+            return Vec::new();
+        };
         let normalized_query = query.trim().to_lowercase();
         let chars: Vec<char> = normalized_query.chars().collect();
 
@@ -130,7 +137,7 @@ impl WorkspaceSymbolIndex {
             let mut candidate_set: Option<im::OrdSet<WorkspaceSymbolId>> = None;
             for i in 0..=chars.len() - 3 {
                 let tri = [chars[i], chars[i + 1], chars[i + 2]];
-                if let Some(set) = self.trigrams.get(&tri) {
+                if let Some(set) = trigrams.get(&tri) {
                     candidate_set = match candidate_set {
                         None => Some(set.clone()),
                         Some(current) => Some(current.intersection(set.clone())),
@@ -143,7 +150,7 @@ impl WorkspaceSymbolIndex {
             let mut results = Vec::new();
             if let Some(candidates) = candidate_set {
                 for id in &candidates {
-                    if let Some(entry) = self.entries.get(id) {
+                    if let Some(entry) = entries.get(id) {
                         if entry.normalized_name.contains(&normalized_query) {
                             results.push(entry.as_ref());
                             if results.len() >= limit {
@@ -155,11 +162,11 @@ impl WorkspaceSymbolIndex {
             }
             results
         } else if normalized_query.is_empty() {
-            self.entries.values().take(limit).map(AsRef::as_ref).collect()
+            entries.values().take(limit).map(AsRef::as_ref).collect()
         } else {
             // Short query (1 or 2 chars): iterate indexed symbol entries directly without touching source shards
             let mut results = Vec::new();
-            for entry in self.entries.values() {
+            for entry in entries.values() {
                 if entry.normalized_name.contains(&normalized_query) {
                     results.push(entry.as_ref());
                     if results.len() >= limit {

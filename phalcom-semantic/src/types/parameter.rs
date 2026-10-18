@@ -61,6 +61,40 @@ pub struct GenericBinderHeader {
 }
 
 impl GenericBinderHeader {
+    pub(crate) fn from_signature_with_allocation_budget(
+        store: &TypeStore,
+        signature: &GenericSignature,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, AllocationError> {
+        let metadata_complete = signature.parameter_kinds.len() == signature.parameters.len()
+            && signature.parameter_variances.len() == signature.parameters.len()
+            && signature.parameter_modes.len() == signature.parameters.len();
+        let mut parameters = allocations.vector(signature.parameters.len())?;
+        parameters.extend_from_slice(&signature.parameters);
+        let mut kinds = allocations.vector(signature.parameters.len())?;
+        let mut variances = allocations.vector(signature.parameters.len())?;
+        let mut modes = allocations.vector(signature.parameters.len())?;
+        for (index, parameter) in signature.parameters.iter().enumerate() {
+            if metadata_complete {
+                kinds.push(signature.parameter_kinds[index]);
+                variances.push(signature.parameter_variances[index]);
+                modes.push(signature.parameter_modes[index]);
+            } else {
+                let data = store.type_parameter(*parameter);
+                kinds.push(data.kind);
+                variances.push(data.variance);
+                modes.push(data.mode);
+            }
+        }
+        Ok(Self {
+            owner: signature.owner.clone_with_allocation_budget(allocations)?,
+            parameters: allocations.boxed_slice(parameters)?,
+            parameter_kinds: allocations.boxed_slice(kinds)?,
+            parameter_variances: allocations.boxed_slice(variances)?,
+            parameter_modes: allocations.boxed_slice(modes)?,
+        })
+    }
+
     pub fn from_signature(store: &TypeStore, signature: &GenericSignature) -> Self {
         let metadata_complete = signature.parameter_kinds.len() == signature.parameters.len()
             && signature.parameter_variances.len() == signature.parameters.len()

@@ -151,9 +151,15 @@ impl EnumSemanticTable {
     ) -> Result<Self, crate::parent_map::FrozenParentMapError> {
         let enums = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(enums, allocations)?;
         let variants = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(variants, allocations)?;
+        let enums = allocations
+            .arc(enums)
+            .map_err(crate::parent_map::FrozenParentMapError::Allocation)?;
+        let variants = allocations
+            .arc(variants)
+            .map_err(crate::parent_map::FrozenParentMapError::Allocation)?;
         Ok(Self {
-            enums: Arc::new(enums),
-            variants: Arc::new(variants),
+            enums,
+            variants,
             module_enums: std::collections::HashMap::new(),
             parent: None,
         })

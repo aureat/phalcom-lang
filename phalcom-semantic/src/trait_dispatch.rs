@@ -204,18 +204,20 @@ impl TraitDispatchIndex {
                     .map_err(FrozenTraitDispatchIndexError::Allocation)?;
                 let selector = crate::traits::clone_selector_with_allocation_budget(&member.requirement.selector, allocations)
                     .map_err(FrozenTraitDispatchIndexError::Allocation)?;
+                let impl_id = impl_id.clone_with_allocation_budget(allocations).map_err(FrozenTraitDispatchIndexError::Allocation)?;
                 let entry = TraitDispatchContribution {
-                    impl_id: impl_id.clone_with_allocation_budget(allocations).map_err(FrozenTraitDispatchIndexError::Allocation)?,
+                    impl_id,
                     target_family: target_for_entry,
                     trait_declaration,
                     requirement,
                     selector,
                     side: member.requirement.side,
                 };
+                let selector_for_key = crate::traits::clone_selector_with_allocation_budget(&entry.selector, allocations)
+                    .map_err(FrozenTraitDispatchIndexError::Allocation)?;
                 let key = TraitDispatchBucketKey {
                     target_family: target_for_key,
-                    selector: crate::traits::clone_selector_with_allocation_budget(&entry.selector, allocations)
-                        .map_err(FrozenTraitDispatchIndexError::Allocation)?,
+                    selector: selector_for_key,
                     side: entry.side,
                 };
                 flattened.push((key, entry));
@@ -232,26 +234,21 @@ impl TraitDispatchIndex {
         let mut buckets = allocations
             .vector::<(TraitDispatchBucketKey, Box<[TraitDispatchContribution]>)>(bucket_count)
             .map_err(FrozenTraitDispatchIndexError::Allocation)?;
-        let mut ordered = flattened.into_iter().peekable();
-        while let Some((key, contribution)) = ordered.next() {
+        while let Some((last_key, last_contrib)) = flattened.pop() {
+            let additional_count = flattened.iter().rev().take_while(|(k, _)| k == &last_key).count();
+            let total_count = additional_count + 1;
             let mut contributions = allocations
-                .vector::<TraitDispatchContribution>(0)
+                .vector::<TraitDispatchContribution>(total_count)
                 .map_err(FrozenTraitDispatchIndexError::Allocation)?;
-            allocations
-                .grow_vector_exact(&mut contributions, 1)
-                .map_err(FrozenTraitDispatchIndexError::Allocation)?;
-            contributions.push(contribution);
-            while ordered.peek().is_some_and(|(next_key, _)| next_key == &key) {
-                allocations
-                    .grow_vector_exact(&mut contributions, 1)
-                    .map_err(FrozenTraitDispatchIndexError::Allocation)?;
-                if let Some((_, contribution)) = ordered.next() {
-                    contributions.push(contribution);
-                }
+            for _ in 0..additional_count {
+                contributions.push(flattened.pop().unwrap().1);
             }
+            contributions.push(last_contrib);
+            contributions.reverse();
             let contributions = allocations.boxed_slice(contributions).map_err(FrozenTraitDispatchIndexError::Allocation)?;
-            buckets.push((key, contributions));
+            buckets.push((last_key, contributions));
         }
+        buckets.reverse();
         let buckets = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(buckets, allocations).map_err(|error| match error {
             crate::ordered_map::FrozenOrderedMapError::Allocation(error) => FrozenTraitDispatchIndexError::Allocation(error),
             crate::ordered_map::FrozenOrderedMapError::DuplicateKey => FrozenTraitDispatchIndexError::DuplicateBucket,
@@ -736,18 +733,17 @@ pub(crate) fn inherent_specialization_fingerprint(applicability: &crate::impls::
     applicability.impl_id.hash(&mut hasher);
     applicability.receiver.hash(&mut hasher);
     applicability.owner_view.hash(&mut hasher);
-    let mut bindings = applicability.bindings.iter().map(|(parameter, ty)| (*parameter, *ty)).collect::<Vec<_>>();
-    bindings.sort();
-    bindings.hash(&mut hasher);
+    applicability.bindings.len().hash(&mut hasher);
+    for (parameter, ty) in applicability.bindings.iter() {
+        parameter.hash(&mut hasher);
+        ty.hash(&mut hasher);
+    }
     applicability.environment.self_binding.hash(&mut hasher);
-    let mut environment_bindings = applicability
-        .environment
-        .bindings
-        .iter()
-        .map(|(parameter, ty)| (*parameter, *ty))
-        .collect::<Vec<_>>();
-    environment_bindings.sort();
-    environment_bindings.hash(&mut hasher);
+    applicability.environment.bindings.len().hash(&mut hasher);
+    for (parameter, ty) in applicability.environment.bindings.iter() {
+        parameter.hash(&mut hasher);
+        ty.hash(&mut hasher);
+    }
     ProductFingerprint::new(hasher.finish())
 }
 

@@ -1131,7 +1131,7 @@ mod tests {
         trait_surfaces.insert(Arc::new(surface));
         let trait_dispatch = crate::trait_dispatch::TraitDispatchIndex::default();
         let conformance_index = crate::impls::ConformanceIndex::new();
-        let witness_plans = BTreeMap::new();
+        let witness_plans = crate::parent_map::ParentMap::default();
         let derived_conformance_rules = crate::derived_conformance::DerivedConformanceRuleIndex::new();
         let conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
             trait_dispatch: &trait_dispatch,

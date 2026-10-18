@@ -1,7 +1,7 @@
 //! Artifact export, import, and lowering for checked operational static templates (`PERF003.C2.P7.T7.B`).
 
 use crate::identity::VariantId;
-use crate::metadata::stable_identity::{from_stable_declaration, from_stable_module, to_stable_declaration, to_stable_module};
+use crate::metadata::stable_identity::{to_stable_declaration, to_stable_module};
 use crate::static_definition::{
     CanonicalCheckedStaticApplication, CanonicalStaticApplicationArgument, CanonicalStaticProgram,
     CheckedStaticApplication, CheckedStaticApplicationArgument, CheckedStaticBody, OperationalNode, OperationalTarget,
@@ -18,6 +18,11 @@ use phalcom_ast::ast::{
 };
 use phalcom_compiler_artifact::semantic::operational::*;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
+use phalcom_type_meta::allocation::AllocationBudget;
+use super::import::{
+    import_generic_signature_with_allocation_budget, import_stable_declaration_with_allocation_budget,
+    import_stable_module_with_allocation_budget, import_stable_selector_with_allocation_budget,
+};
 
 fn referential(message: impl Into<String>) -> ArtifactError {
     ValidationError::ReferentialIntegrity(message.into()).into()
@@ -748,17 +753,17 @@ fn import_unary_op(op: &StaticUnaryOpV1) -> StaticUnaryOp {
     }
 }
 
-fn import_target(target: &OperationalTargetV1) -> Result<OperationalTarget, ArtifactError> {
+fn import_target(target: &OperationalTargetV1, allocations: &mut AllocationBudget) -> Result<OperationalTarget, ArtifactError> {
     Ok(match target {
         OperationalTargetV1::Declaration { target } => OperationalTarget::Declaration(
-            from_stable_declaration(target).map_err(referential)?,
+            import_stable_declaration_with_allocation_budget(target, allocations)?,
         ),
         OperationalTargetV1::DataConstructor { owner } => OperationalTarget::DataConstructor(
-            from_stable_declaration(owner).map_err(referential)?,
+            import_stable_declaration_with_allocation_budget(owner, allocations)?,
         ),
         OperationalTargetV1::VariantConstructor { owner, selector } => {
-            let decl = from_stable_declaration(owner).map_err(referential)?;
-            let v_selector = phalcom_common::selector::Selector::decode(selector);
+            let decl = import_stable_declaration_with_allocation_budget(owner, allocations)?;
+            let v_selector = import_stable_selector_with_allocation_budget(selector, allocations)?;
             OperationalTarget::VariantConstructor(VariantId::new(decl, v_selector))
         }
     })
@@ -768,6 +773,7 @@ fn import_op(
     op: &OperationalOpV1,
     static_relocation: &StaticRelocation,
     type_relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
 ) -> Result<OperationalNode, ArtifactError> {
     Ok(match op {
         OperationalOpV1::Constant { value } => {
@@ -775,92 +781,100 @@ fn import_op(
         }
         OperationalOpV1::ReadStaticConstant { module, name } => OperationalNode::ReadStaticConstant(
             phalcom_modules::linker::SymbolId {
-                module: from_stable_module(module).map_err(referential)?,
-                name: name.clone().into_boxed_str(),
+                module: import_stable_module_with_allocation_budget(module, allocations)?,
+                name: allocations.boxed_str(name)?,
             },
         ),
         OperationalOpV1::ReadParameter { index } => OperationalNode::ReadParameter(*index),
         OperationalOpV1::ReadLocal { slot } => OperationalNode::ReadLocal(*slot),
         OperationalOpV1::WriteLocal { slot, value } => OperationalNode::WriteLocal(
             *slot,
-            Box::new(import_op(value, static_relocation, type_relocation)?),
+            import_boxed_op(value, static_relocation, type_relocation, allocations)?,
         ),
         OperationalOpV1::TypeForm { ty } => {
             OperationalNode::TypeForm(type_relocation.ty(*ty)?)
         }
         OperationalOpV1::Binary { op, left, right } => OperationalNode::Binary {
             op: import_binary_op(op),
-            left: Box::new(import_op(left, static_relocation, type_relocation)?),
-            right: Box::new(import_op(right, static_relocation, type_relocation)?),
+            left: import_boxed_op(left, static_relocation, type_relocation, allocations)?,
+            right: import_boxed_op(right, static_relocation, type_relocation, allocations)?,
         },
         OperationalOpV1::Unary { op, operand } => OperationalNode::Unary {
             op: import_unary_op(op),
-            operand: Box::new(import_op(operand, static_relocation, type_relocation)?),
+            operand: import_boxed_op(operand, static_relocation, type_relocation, allocations)?,
         },
         OperationalOpV1::If { condition, then_branch, else_branch } => OperationalNode::If {
-            condition: Box::new(import_op(condition, static_relocation, type_relocation)?),
-            then_branch: Box::new(import_op(then_branch, static_relocation, type_relocation)?),
+            condition: import_boxed_op(condition, static_relocation, type_relocation, allocations)?,
+            then_branch: import_boxed_op(then_branch, static_relocation, type_relocation, allocations)?,
             else_branch: else_branch
                 .as_ref()
-                .map(|b| import_op(b, static_relocation, type_relocation).map(Box::new))
+                .map(|b| import_boxed_op(b, static_relocation, type_relocation, allocations))
                 .transpose()?,
         },
         OperationalOpV1::Tuple { elements } => OperationalNode::Tuple {
-            elements: elements
-                .iter()
-                .map(|e| import_op(e, static_relocation, type_relocation))
-                .collect::<Result<Vec<_>, _>>()?,
+            elements: import_ops(elements, static_relocation, type_relocation, allocations)?,
         },
         OperationalOpV1::Sequence { result_type, elements } => OperationalNode::Sequence {
             result_type: type_relocation.ty(*result_type)?,
-            elements: elements
-                .iter()
-                .map(|e| import_op(e, static_relocation, type_relocation))
-                .collect::<Result<Vec<_>, _>>()?,
+            elements: import_ops(elements, static_relocation, type_relocation, allocations)?,
         },
         OperationalOpV1::StaticConstruction { target, result_type, arguments } => {
             OperationalNode::StaticConstruction {
-                target: import_target(target)?,
+                target: import_target(target, allocations)?,
                 result_type: type_relocation.ty(*result_type)?,
-                arguments: arguments
-                    .iter()
-                    .map(|a| import_op(a, static_relocation, type_relocation))
-                    .collect::<Result<Vec<_>, _>>()?,
+                arguments: import_ops(arguments, static_relocation, type_relocation, allocations)?,
             }
         }
         OperationalOpV1::MemberProjection { target, member } => {
             OperationalNode::MemberProjection {
-                target: Box::new(import_op(target, static_relocation, type_relocation)?),
-                member: member.clone(),
+                target: import_boxed_op(target, static_relocation, type_relocation, allocations)?,
+                member: allocations.boxed_str(member)?,
             }
         }
         OperationalOpV1::StaticApplication { application_ordinal, arguments } => {
             OperationalNode::StaticApplication {
                 application_ordinal: *application_ordinal,
-                arguments: arguments
-                    .iter()
-                    .map(|a| import_op(a, static_relocation, type_relocation))
-                    .collect::<Result<Vec<_>, _>>()?,
+                arguments: import_ops(arguments, static_relocation, type_relocation, allocations)?,
             }
         }
         OperationalOpV1::Block { local_count, statements, result } => OperationalNode::Block {
             local_count: *local_count,
-            statements: statements
-                .iter()
-                .map(|s| import_op(s, static_relocation, type_relocation))
-                .collect::<Result<Vec<_>, _>>()?,
+            statements: import_ops(statements, static_relocation, type_relocation, allocations)?,
             result: result
                 .as_ref()
-                .map(|r| import_op(r, static_relocation, type_relocation).map(Box::new))
+                .map(|r| import_boxed_op(r, static_relocation, type_relocation, allocations))
                 .transpose()?,
         },
         OperationalOpV1::Return { value } => OperationalNode::Return(
             value
                 .as_ref()
-                .map(|v| import_op(v, static_relocation, type_relocation).map(Box::new))
+                .map(|v| import_boxed_op(v, static_relocation, type_relocation, allocations))
                 .transpose()?,
         ),
     })
+}
+
+fn import_boxed_op(
+    op: &OperationalOpV1,
+    static_relocation: &StaticRelocation,
+    type_relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<Box<OperationalNode>, ArtifactError> {
+    let node = import_op(op, static_relocation, type_relocation, allocations)?;
+    Ok(allocations.boxed(node)?)
+}
+
+fn import_ops(
+    ops: &[OperationalOpV1],
+    static_relocation: &StaticRelocation,
+    type_relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<Vec<OperationalNode>, ArtifactError> {
+    let mut nodes = allocations.vector(ops.len())?;
+    for op in ops {
+        nodes.push(import_op(op, static_relocation, type_relocation, allocations)?);
+    }
+    Ok(nodes)
 }
 
 fn export_source_range(range: phalcom_common::range::SourceRange) -> Result<phalcom_compiler_artifact::module_world::SpanV1, ArtifactError> {
@@ -936,29 +950,26 @@ pub(crate) fn import_static_definition_signature(
     signature: &phalcom_compiler_artifact::semantic::world::StaticDefinitionSignatureV1,
     types: &TypeRelocation,
     store: &TypeStore,
+    allocations: &mut AllocationBudget,
 ) -> Result<StaticDefinitionSignature, ArtifactError> {
-    use phalcom_compiler_artifact::semantic::world::StaticParameterV1;
-    let parameters = signature
-        .parameters
-        .iter()
-        .map(|parameter: &StaticParameterV1| {
-            Ok(crate::static_definition::StaticParameter {
-                name: parameter.name.to_string(),
+    let mut parameters = allocations.vector(signature.parameters.len())?;
+    for parameter in &signature.parameters {
+        parameters.push(crate::static_definition::StaticParameter {
+                name: allocations.string(&parameter.name)?,
                 domain: import_static_value_domain(&parameter.domain, types)?,
                 mode: crate::artifact::import::import_mode(&parameter.mode),
                 index: parameter.index,
                 type_parameter_id: parameter.type_parameter.map(|id| types.parameter(id)).transpose()?,
                 range: import_source_range(&parameter.source)?,
-            })
-        })
-        .collect::<Result<Vec<_>, ArtifactError>>()?;
+            });
+    }
     Ok(StaticDefinitionSignature {
-        parameters: parameters.into_boxed_slice(),
+        parameters: allocations.boxed_slice(parameters)?,
         result_domain: import_static_value_domain(&signature.result_domain, types)?,
         generic_signature: signature
             .generic_signature
             .as_ref()
-            .map(|signature| crate::artifact::import::import_generic_signature(signature, types, store))
+            .map(|signature| import_generic_signature_with_allocation_budget(signature, types, store, allocations))
             .transpose()?,
         where_clause: None,
     })
@@ -1037,17 +1048,15 @@ pub(crate) fn import_canonical_static_program(
     type_relocation: &TypeRelocation,
     type_store: &TypeStore,
     dependencies: Vec<crate::checker::analysis::SemanticDependency>,
+    allocations: &mut AllocationBudget,
 ) -> Result<CanonicalStaticProgram, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world::CanonicalStaticApplicationArgumentV1 as Argument;
-    let applications = program
-        .applications
-        .iter()
-        .map(|application| {
-            let arguments = application
-                .arguments
-                .iter()
-                .map(|argument| {
-                    Ok(match argument {
+    let owner = StaticBodyId(import_stable_declaration_with_allocation_budget(&program.owner, allocations)?);
+    let mut applications = allocations.vector(program.applications.len())?;
+    for application in &program.applications {
+            let mut arguments = allocations.vector(application.arguments.len())?;
+            for argument in &application.arguments {
+                    arguments.push(match argument {
                         Argument::KindedTerm { parameter_index, term } => CanonicalStaticApplicationArgument::KindedTerm {
                             parameter_index: *parameter_index,
                             term: type_relocation.ty(*term)?,
@@ -1059,40 +1068,37 @@ pub(crate) fn import_canonical_static_program(
                         Argument::Value { parameter_index } => CanonicalStaticApplicationArgument::Value {
                             parameter_index: *parameter_index,
                         },
-                    })
-                })
-                .collect::<Result<Vec<_>, ArtifactError>>()?;
-            Ok(CanonicalCheckedStaticApplication {
+                    });
+            }
+            applications.push(CanonicalCheckedStaticApplication {
                 id: crate::static_definition::StaticApplicationId {
-                    body: StaticBodyId(from_stable_declaration(&program.owner).map_err(referential)?),
+                    body: StaticBodyId(owner.0.clone_with_allocation_budget(allocations)?),
                     ordinal: application.ordinal,
                 },
                 source_range: import_source_range(&application.source)?,
-                target: from_stable_declaration(&application.target).map_err(referential)?,
-                signature: import_static_definition_signature(&application.signature, type_relocation, type_store)?,
-                arguments: arguments.into_boxed_slice(),
-            })
-        })
-        .collect::<Result<Vec<_>, ArtifactError>>()?;
-    let static_constant_reads = program
-        .static_constant_reads
-        .iter()
-        .map(|symbol| {
-            Ok(phalcom_modules::linker::SymbolId {
-                module: from_stable_module(&symbol.module).map_err(referential)?,
-            name: symbol.name.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, ArtifactError>>()?;
+                target: import_stable_declaration_with_allocation_budget(&application.target, allocations)?,
+                signature: import_static_definition_signature(&application.signature, type_relocation, type_store, allocations)?,
+                arguments: allocations.boxed_slice(arguments)?,
+            });
+    }
+    let mut static_constant_reads = allocations.vector(program.static_constant_reads.len())?;
+    for symbol in &program.static_constant_reads {
+        static_constant_reads.push(phalcom_modules::linker::SymbolId {
+            module: import_stable_module_with_allocation_budget(&symbol.module, allocations)?,
+            name: allocations.boxed_str(&symbol.name)?,
+        });
+    }
+    let mut kinded_parameters = allocations.vector(program.kinded_parameters.len())?;
+    kinded_parameters.extend_from_slice(&program.kinded_parameters);
     Ok(CanonicalStaticProgram {
-        owner: StaticBodyId(from_stable_declaration(&program.owner).map_err(referential)?),
+        owner,
         parameter_count: program.parameter_count,
         local_count: program.local_count,
-        root: import_op(&program.root, static_relocation, type_relocation)?,
-        applications: applications.into(),
-        kinded_parameters: program.kinded_parameters.clone().into(),
-        static_constant_reads: static_constant_reads.into(),
-        dependencies: dependencies.into(),
+        root: import_op(&program.root, static_relocation, type_relocation, allocations)?,
+        applications: allocations.arc_slice(applications)?,
+        kinded_parameters: allocations.arc_slice(kinded_parameters)?,
+        static_constant_reads: allocations.arc_slice(static_constant_reads)?,
+        dependencies: allocations.arc_slice(dependencies)?,
         result: import_static_value_domain(&program.result, type_relocation)?,
         input_fingerprint: crate::db::key::InputFingerprint(program.input_fingerprint),
         module_binding_fingerprint: program.module_binding_fingerprint.map(crate::db::ProductFingerprint),

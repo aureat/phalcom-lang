@@ -543,8 +543,11 @@ impl DataSemanticTable {
         allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
     ) -> Result<Self, crate::parent_map::FrozenParentMapError> {
         let data_decls = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(entries, allocations)?;
+        let data_decls = allocations
+            .arc(data_decls)
+            .map_err(crate::parent_map::FrozenParentMapError::Allocation)?;
         Ok(Self {
-            data_decls: Arc::new(data_decls),
+            data_decls,
             module_data: std::collections::HashMap::new(),
             parent: None,
         })

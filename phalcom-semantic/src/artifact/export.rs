@@ -3884,7 +3884,7 @@ pub(super) fn export_associated_authority(
         crate::types::type_member::TypeMemberDeclarationId,
         std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>,
     >,
-    static_domain_products: &BTreeMap<
+    static_domain_products: &crate::ordered_map::OrderedMap<
         crate::identity::AssociatedStaticDomainDeclarationId,
         std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>,
     >,
@@ -5481,7 +5481,7 @@ mod callable_analysis_status_tests {
             std::slice::from_ref(&record),
             &relocation,
             &imported_store,
-            &BTreeMap::new(),
+            &[],
             &limits,
             &mut budget,
         )
@@ -5817,7 +5817,7 @@ mod callable_analysis_status_tests {
             BodyId(0),
             &relocation,
             &fresh_store,
-            &BTreeMap::new(),
+            &[],
             &limits,
             &mut budget,
         )
@@ -5862,7 +5862,7 @@ mod callable_analysis_status_tests {
                 BodyId(0),
                 &relocation,
                 &fresh_store,
-                &BTreeMap::new(),
+                &[],
                 &limits,
                 &mut limited,
             );
@@ -5877,7 +5877,7 @@ mod callable_analysis_status_tests {
                 BodyId(0),
                 &relocation,
                 &fresh_store,
-                &BTreeMap::new(),
+                &[],
                 &limits,
                 &mut rejected,
             )
@@ -6022,7 +6022,7 @@ mod callable_analysis_status_tests {
             crate::identity::BodyId(0),
             &relocation,
             &imported_store,
-            &BTreeMap::new(),
+            &[],
             &mut allocations,
             ValidationLimits::default().max_recursion_depth,
         )

@@ -90,12 +90,8 @@ impl<K: Ord, V> ParentMap<K, V> {
     }
 
     /// Iterates parent entries followed by local entries in deterministic order.
-    pub fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
-        let local = self.frozen.iter().flat_map(|frozen| frozen.iter()).chain(self.local.iter());
-        match &self.parent {
-            Some(parent) => Box::new(parent.iter().chain(local)),
-            None => Box::new(local),
-        }
+    pub fn iter(&self) -> ParentMapIter<'_, K, V> {
+        ParentMapIter::new(self)
     }
 
     /// Iterates only contributions owned by this workspace.
@@ -123,11 +119,8 @@ impl<K: Ord, V> ParentMap<K, V> {
     }
 
     /// Iterates only the immutable canonical parent, without local entries.
-    pub fn iter_parent(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
-        match &self.parent {
-            Some(parent) => parent.iter(),
-            None => Box::new(std::iter::empty()),
-        }
+    pub fn iter_parent(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.parent.as_ref().into_iter().flat_map(|parent| parent.iter())
     }
 
     /// Iterates all visible keys.
@@ -199,9 +192,78 @@ impl<K: Ord + Hash + Eq + Clone, V: Clone> From<&HashMap<K, V>> for ParentMap<K,
     }
 }
 
+/// Non-allocating iterator over a `ParentMap` hierarchy.
+pub struct ParentMapIter<'a, K, V> {
+    maps: [&'a ParentMap<K, V>; 8],
+    map_count: usize,
+    current_map_idx: usize,
+    frozen_iter: Option<std::slice::Iter<'a, (K, V)>>,
+    local_iter: Option<std::collections::btree_map::Iter<'a, K, V>>,
+}
+
+impl<'a, K: Ord, V> ParentMapIter<'a, K, V> {
+    fn new(start: &'a ParentMap<K, V>) -> Self {
+        let mut maps = [start; 8];
+        let mut count = 0;
+        let mut curr = Some(start);
+        while let Some(m) = curr {
+            if count < 8 {
+                maps[count] = m;
+                count += 1;
+            }
+            curr = m.parent.as_deref();
+        }
+        maps[..count].reverse();
+        let mut iter = Self {
+            maps,
+            map_count: count,
+            current_map_idx: 0,
+            frozen_iter: None,
+            local_iter: None,
+        };
+        iter.init_current_map();
+        iter
+    }
+
+    fn init_current_map(&mut self) {
+        if self.current_map_idx < self.map_count {
+            let map = self.maps[self.current_map_idx];
+            self.frozen_iter = map.frozen.as_ref().map(|f| f.as_entries().iter());
+            self.local_iter = Some(map.local.iter());
+        } else {
+            self.frozen_iter = None;
+            self.local_iter = None;
+        }
+    }
+}
+
+impl<'a, K: Ord, V> Iterator for ParentMapIter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.current_map_idx < self.map_count {
+            if let Some(frozen) = &mut self.frozen_iter {
+                if let Some((k, v)) = frozen.next() {
+                    return Some((k, v));
+                }
+                self.frozen_iter = None;
+            }
+            if let Some(local) = &mut self.local_iter {
+                if let Some((k, v)) = local.next() {
+                    return Some((k, v));
+                }
+                self.local_iter = None;
+            }
+            self.current_map_idx += 1;
+            self.init_current_map();
+        }
+        None
+    }
+}
+
 impl<'a, K: Ord, V> IntoIterator for &'a ParentMap<K, V> {
     type Item = (&'a K, &'a V);
-    type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
+    type IntoIter = ParentMapIter<'a, K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()

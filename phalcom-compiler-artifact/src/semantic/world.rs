@@ -1660,7 +1660,7 @@ impl SemanticWorldV3 {
     fn validate_inner(&self, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
         self.type_graph.validate(limits)?;
         self.structural_contracts.validate_with_allocation_budget(limits, allocations)?;
-        self.static_values.validate(limits)?;
+        self.static_values.validate_with_allocation_budget(limits, allocations)?;
         if self.witness_plans.len() > limits.max_semantic_entries_per_family
             || self.derived_conformance_rules.len() > limits.max_semantic_entries_per_family
             || self.callable_signatures.len() > limits.max_semantic_entries_per_family
@@ -1846,7 +1846,7 @@ impl SemanticWorldV3 {
                         CaseRequirementStatusV1::Missing | CaseRequirementStatusV1::Blocked => None,
                     };
                     if let Some(implementation) = implementation {
-                        if implementation.owner != StableCallableOwnerRef::Variant(result.variant.clone())
+                        if !matches!(&implementation.owner, StableCallableOwnerRef::Variant(variant) if variant == &result.variant)
                             || implementation.side != StableDispatchSide::Instance
                             || implementation.selector != result.requirement.selector
                         {
@@ -2558,17 +2558,18 @@ impl SemanticWorldV3 {
         {
             return Err(invalid("conditional dispatch selection has an invalid or inconsistent side"));
         }
-        let target = match &selection.callable.owner {
-            StableCallableOwnerRef::Declaration(declaration) if declaration == &selection.declaring_owner => InherentImplTargetV1::Declaration {
-                declaration: declaration.clone(),
-            },
-            StableCallableOwnerRef::Variant(variant) if variant.owner == selection.declaring_owner => {
-                InherentImplTargetV1::ExactEnumCase { variant: variant.clone() }
-            }
+        match &selection.callable.owner {
+            StableCallableOwnerRef::Declaration(declaration) if declaration == &selection.declaring_owner => {}
+            StableCallableOwnerRef::Variant(variant) if variant.owner == selection.declaring_owner => {}
             _ => return Err(invalid("conditional dispatch selection callable does not belong to its declaring owner")),
-        };
+        }
         if self.conditional_inherent_sets.iter().any(|set| {
-            set.target == target
+            let target_matches = match (&set.target, &selection.callable.owner) {
+                (InherentImplTargetV1::Declaration { declaration }, StableCallableOwnerRef::Declaration(decl)) => declaration == decl,
+                (InherentImplTargetV1::ExactEnumCase { variant }, StableCallableOwnerRef::Variant(var)) => variant == var,
+                _ => false,
+            };
+            target_matches
                 && set.members.iter().any(|member| {
                     member.impl_id == selection.impl_id
                         && member.callable == selection.callable
@@ -2643,7 +2644,7 @@ fn validate_static_definition_signature(
     }
     if let Some(signature) = &signature.generic_signature {
         crate::semantic::aggregates::validate_signature(signature, limits)?;
-        if signature.owner != (crate::semantic::type_store::ParameterOwnerV1::Declaration { owner: owner.clone() })
+        if !matches!(&signature.owner, crate::semantic::type_store::ParameterOwnerV1::Declaration { owner: o } if o == owner)
             || signature.parameters.len() != kinded_count
             || signature
                 .parameter_kinds
@@ -3480,7 +3481,7 @@ fn validate_callable_definition(definition: &CallableDefinitionRecordV1, type_gr
                 return Err(invalid("inherent callable body context references an absent source target head"));
             }
             if let Some(signature) = &context.generic_signature
-                && signature.owner != (crate::semantic::type_store::ParameterOwnerV1::Impl { owner: impl_id.clone() })
+                && !matches!(&signature.owner, crate::semantic::type_store::ParameterOwnerV1::Impl { owner: o } if o == impl_id)
             {
                 return Err(invalid("inherent callable body generic signature has the wrong impl owner"));
             }
@@ -3540,8 +3541,8 @@ fn validate_covering_impl_substitution(
             .parameters
             .get(binding.declaration_parameter.0 as usize)
             .ok_or_else(|| invalid("covering impl substitution references an absent declaration parameter"))?;
-        if impl_parameter.owner != (crate::semantic::type_store::ParameterOwnerV1::Impl { owner: impl_id.clone() })
-            || declaration_parameter.owner != (crate::semantic::type_store::ParameterOwnerV1::Declaration { owner: declaration.clone() })
+        if !matches!(&impl_parameter.owner, crate::semantic::type_store::ParameterOwnerV1::Impl { owner: o } if o == impl_id)
+            || !matches!(&declaration_parameter.owner, crate::semantic::type_store::ParameterOwnerV1::Declaration { owner: o } if o == declaration)
             || impl_parameter.kind != declaration_parameter.kind
         {
             return Err(invalid("covering impl substitution parameter owner or kind is invalid"));
@@ -3574,10 +3575,10 @@ fn validate_trait_surface(
     }
     validate_trait_source(&surface.header_source, &surface.declaration)?;
     if let Some(signature) = &surface.generic_signature
-        && signature.owner
-            != (crate::semantic::type_store::ParameterOwnerV1::Declaration {
-                owner: surface.declaration.clone(),
-            })
+        && !matches!(
+            &signature.owner,
+            crate::semantic::type_store::ParameterOwnerV1::Declaration { owner } if owner == &surface.declaration
+        )
     {
         return Err(invalid("trait header generic signature has the wrong declaration owner"));
     }
@@ -3598,7 +3599,7 @@ fn validate_trait_surface(
             || member.requirement.selector.is_empty()
             || member.requirement.selector.len() > limits.max_string_bytes
             || member.requirement.side != expected_side
-            || member.callable.owner != StableCallableOwnerRef::Declaration(surface.declaration.clone())
+            || !matches!(&member.callable.owner, StableCallableOwnerRef::Declaration(declaration) if declaration == &surface.declaration)
             || member.callable.selector != member.requirement.selector
             || member.signature.callable != member.callable
             || member.signature.owner != surface.declaration
@@ -3706,10 +3707,10 @@ fn validate_witness_plan(
         if signature.parameters.len() > limits.max_semantic_entries_per_family
             || signature.constraints.len() > limits.max_semantic_entries_per_family
             || signature.parameters.len() != signature.parameter_modes.len()
-            || signature.owner
-                != (crate::semantic::type_store::ParameterOwnerV1::Impl {
-                    owner: witness.impl_id.clone(),
-                })
+            || !matches!(
+                &signature.owner,
+                crate::semantic::type_store::ParameterOwnerV1::Impl { owner } if owner == &witness.impl_id
+            )
             || signature.parameters.iter().any(|parameter| {
                 usize::try_from(parameter.0)
                     .ok()
@@ -3926,7 +3927,7 @@ fn validate_derived_conformance_rule(
     if type_graph
         .parameters
         .get(parameter_index)
-        .is_none_or(|parameter| parameter.owner != crate::semantic::type_store::ParameterOwnerV1::Impl { owner: rule.impl_id.clone() })
+        .is_none_or(|parameter| !matches!(&parameter.owner, crate::semantic::type_store::ParameterOwnerV1::Impl { owner } if owner == &rule.impl_id))
     {
         return Err(invalid("derived rule target parameter is not owned by its implementation"));
     }
@@ -3934,7 +3935,7 @@ fn validate_derived_conformance_rule(
         type_index(*argument)?;
     }
     let signature = &rule.generic_signature;
-    if signature.owner != (crate::semantic::type_store::ParameterOwnerV1::Impl { owner: rule.impl_id.clone() })
+    if !matches!(&signature.owner, crate::semantic::type_store::ParameterOwnerV1::Impl { owner } if owner == &rule.impl_id)
         || signature.parameters.len() > limits.max_semantic_entries_per_family
         || signature.constraints.len() > limits.max_semantic_entries_per_family
         || signature.parameters.len() != signature.parameter_modes.len()
@@ -4035,7 +4036,7 @@ fn validate_derived_conformance_rule(
 }
 
 fn is_canonical_requirement_selector(selector: &str) -> bool {
-    phalcom_common::selector::Selector::try_decode_exact(selector).is_ok_and(|decoded| decoded.encode() == selector)
+    phalcom_common::selector::is_canonical_exact_selector(selector)
 }
 
 fn validate_witness_selection(
@@ -4058,7 +4059,7 @@ fn validate_witness_selection(
     };
     match selection {
         CallableRequirementSelectionV1::ConformanceCallable { callable } => {
-            if callable.owner != StableCallableOwnerRef::Conformance(witness_impl.clone()) || !callable_valid(callable) {
+            if !matches!(&callable.owner, StableCallableOwnerRef::Conformance(owner) if owner == witness_impl) || !callable_valid(callable) {
                 return Err(invalid("conformance witness selection references a callable owned by another implementation"));
             }
         }
@@ -4440,13 +4441,11 @@ fn is_valid_diagnostic_explanation_callable(
         .binary_search_by(|signature| signature.callable.cmp(callable))
         .is_ok()
         || (callable.side == StableDispatchSide::Instance && {
-            let class_side = StableCallableRef {
-                owner: callable.owner.clone(),
-                side: StableDispatchSide::Class,
-                selector: callable.selector.clone(),
-            };
             callable_signatures
-                .binary_search_by(|signature| signature.callable.cmp(&class_side))
+                .binary_search_by(|signature| {
+                    (&signature.callable.owner, signature.callable.side, &signature.callable.selector)
+                        .cmp(&(&callable.owner, StableDispatchSide::Class, &callable.selector))
+                })
                 .is_ok_and(|idx| {
                     callable_signatures[idx].declared_return.basis
                         == crate::semantic::aggregates::DeclaredTypeBasisV1::ConstructorSemantics
@@ -4642,7 +4641,7 @@ fn validate_declaration_surface(
             return Err(invalid("declaration surface callable rows must be unique and sorted"));
         }
         for fact in callables {
-            if fact.callable.owner != StableCallableOwnerRef::Declaration(surface.declaration.clone())
+            if !matches!(&fact.callable.owner, StableCallableOwnerRef::Declaration(declaration) if declaration == &surface.declaration)
                 || fact.callable.side != if side == 0 { StableDispatchSide::Instance } else { StableDispatchSide::Class }
                 || callable_signatures
                     .binary_search_by(|signature| signature.callable.cmp(&fact.callable))
@@ -4757,7 +4756,7 @@ fn validate_conditional_inherent_set(
             return Err(invalid("conditional inherent domain identity, head, or constraints are invalid"));
         }
         if let Some(signature) = &domain.generic_signature {
-            if signature.owner != (crate::semantic::type_store::ParameterOwnerV1::Impl { owner: domain.impl_id.clone() }) {
+            if !matches!(&signature.owner, crate::semantic::type_store::ParameterOwnerV1::Impl { owner } if owner == &domain.impl_id) {
                 return Err(invalid("conditional inherent domain generic signature has the wrong impl owner"));
             }
             if signature.parameters.iter().any(|parameter| {
@@ -4778,11 +4777,10 @@ fn validate_conditional_inherent_set(
         if u32::try_from(member_order).ok() != Some(member.member_order)
             || set.domains[domain_index].target != set.target
             || member.signature.callable != member.callable
-            || member.signature.owner
-                != match &set.target {
-                    InherentImplTargetV1::Declaration { declaration } => declaration.clone(),
-                    InherentImplTargetV1::ExactEnumCase { variant } => variant.owner.clone(),
-                }
+            || match &set.target {
+                InherentImplTargetV1::Declaration { declaration } => &member.signature.owner != declaration,
+                InherentImplTargetV1::ExactEnumCase { variant } => &member.signature.owner != &variant.owner,
+            }
             || member.signature.side
                 != match member.callable.side {
                     StableDispatchSide::Instance => 0,

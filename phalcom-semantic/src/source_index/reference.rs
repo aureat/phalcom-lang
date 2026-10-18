@@ -187,38 +187,38 @@ impl ModuleReferenceContribution {
 /// Persistent workspace-wide reference index.
 #[derive(Clone, Debug, Default)]
 pub struct ReferenceIndex {
-    by_target: im::OrdMap<SemanticTargetId, Arc<TargetReferenceSet>>,
+    by_target: Option<im::OrdMap<SemanticTargetId, Arc<TargetReferenceSet>>>,
 }
 
 impl ReferenceIndex {
     /// Creates a reference index with empty target sets.
     pub fn new() -> Self {
-        Self { by_target: im::OrdMap::new() }
+        Self { by_target: None }
     }
 
     /// Returns definitions for a target.
     pub fn definitions(&self, target: &SemanticTargetId) -> &[SourceSiteId] {
-        self.by_target.get(target).map_or(&[], |set| &set.definitions)
+        self.by_target.as_ref().and_then(|m| m.get(target)).map_or(&[], |set| &set.definitions)
     }
 
     /// Returns lexical references for a target.
     pub fn lexical_references(&self, target: &SemanticTargetId) -> &[SourceSiteId] {
-        self.by_target.get(target).map_or(&[], |set| &set.lexical_references)
+        self.by_target.as_ref().and_then(|m| m.get(target)).map_or(&[], |set| &set.lexical_references)
     }
 
     /// Returns semantic references for a target.
     pub fn semantic_references(&self, target: &SemanticTargetId) -> &[SourceSiteId] {
-        self.by_target.get(target).map_or(&[], |set| &set.semantic_references)
+        self.by_target.as_ref().and_then(|m| m.get(target)).map_or(&[], |set| &set.semantic_references)
     }
 
     /// Returns target reference set for one target, if any.
     pub fn target_set(&self, target: &SemanticTargetId) -> Option<&Arc<TargetReferenceSet>> {
-        self.by_target.get(target)
+        self.by_target.as_ref().and_then(|m| m.get(target))
     }
 
     /// Returns all targets in the index.
     pub fn targets(&self) -> impl Iterator<Item = &SemanticTargetId> {
-        self.by_target.keys()
+        self.by_target.as_ref().into_iter().flat_map(|m| m.keys())
     }
 
     /// Replaces or retires a module contribution incrementally.
@@ -229,7 +229,7 @@ impl ReferenceIndex {
         new: Option<&ModuleReferenceContribution>,
         stats: &mut SourceIndexUpdateStats,
     ) -> Self {
-        let mut by_target = self.by_target.clone();
+        let mut by_target = self.by_target.clone().unwrap_or_default();
 
         let mut touched_targets = std::collections::BTreeSet::new();
         if let Some(old) = old {
@@ -296,7 +296,9 @@ impl ReferenceIndex {
             }
         }
 
-        Self { by_target }
+        Self {
+            by_target: if by_target.is_empty() { None } else { Some(by_target) },
+        }
     }
 }
 

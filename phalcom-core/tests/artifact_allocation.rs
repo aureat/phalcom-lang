@@ -119,6 +119,7 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     let mut exact_transaction = AllocationBudget::new(semantic_requested);
     REQUESTED_BYTES.store(0, Ordering::Relaxed);
     MEASURING.store(true, Ordering::Relaxed);
+    phalcom_type_meta::allocation::register_allocation_probe(|| REQUESTED_BYTES.load(Ordering::Relaxed));
     let imported = validate_and_import_semantic_world_with_allocation_budget(
         semantic_world_for_measurement,
         &exact_semantic_limits,
@@ -126,6 +127,12 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     );
     MEASURING.store(false, Ordering::Relaxed);
     let independently_observed_semantic = REQUESTED_BYTES.load(Ordering::Relaxed);
+    eprintln!(
+        "SEMANTIC IMPORT EXACT CHECK:\n  ledger requested: {}\n  independently observed: {}\n  delta: {}",
+        semantic_requested,
+        independently_observed_semantic,
+        independently_observed_semantic.abs_diff(semantic_requested)
+    );
     let imported = imported.expect("semantic import at exact ledger budget must succeed");
     assert_eq!(
         independently_observed_semantic, semantic_requested,

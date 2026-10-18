@@ -244,7 +244,7 @@ pub struct MetadataExporter<'a> {
     algebraic_data: Option<&'a DataSemanticTable>,
     algebraic_enums: Option<&'a EnumSemanticTable>,
     associated_static_domains:
-        Option<&'a BTreeMap<AssociatedStaticDomainDeclarationId, std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
+        Option<&'a crate::ordered_map::OrderedMap<AssociatedStaticDomainDeclarationId, std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
     aliases: Option<&'a TypeAliasTable>,
     callables: Option<&'a CallableSignatureTable>,
     fields: Option<&'a FieldSignatureTable>,
@@ -444,7 +444,7 @@ impl<'a> MetadataExporter<'a> {
     /// membership authority.
     pub fn with_associated_static_domains(
         mut self,
-        domains: &'a BTreeMap<AssociatedStaticDomainDeclarationId, std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>,
+        domains: &'a crate::ordered_map::OrderedMap<AssociatedStaticDomainDeclarationId, std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>,
     ) -> Self {
         self.associated_static_domains = Some(domains);
         self

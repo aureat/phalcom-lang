@@ -596,6 +596,13 @@ impl CallableParameterId {
     pub fn new(callable: CallableId, index: u32) -> Self {
         Self { callable, index }
     }
+
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            callable: self.callable.clone_with_allocation_budget(allocations)?,
+            index: self.index,
+        })
+    }
 }
 
 /// Canonical field identity.

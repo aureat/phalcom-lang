@@ -887,7 +887,7 @@ impl<'a> ExportGraphWalker<'a> {
             type_order,
             value,
             ArtifactTypeId,
-            self.store.types.len(),
+            self.store.type_count(),
             self.limits.max_type_nodes,
             "type"
         );
@@ -896,7 +896,7 @@ impl<'a> ExportGraphWalker<'a> {
             return Ok(());
         }
         let result = (|| {
-            self.visit_kind(self.store.type_kinds[value.index()])?;
+            self.visit_kind(self.store.kind_of(value))?;
             match self.store.get(value).clone() {
                 TypeData::Never | TypeData::Unit | TypeData::ClassObject { .. } | TypeData::Nominal { .. } | TypeData::SelfType(_) | TypeData::ConstInt(_) => {}
                 TypeData::StaticDomainForm { domain } => self.visit_domain(domain)?,
@@ -990,7 +990,7 @@ impl<'a> ExportGraphWalker<'a> {
             kind_order,
             value,
             ArtifactKindId,
-            self.store.kinds.len(),
+            self.store.kind_count(),
             self.limits.max_kind_nodes,
             "kind"
         );
@@ -1021,7 +1021,7 @@ impl<'a> ExportGraphWalker<'a> {
             parameter_order,
             value,
             ArtifactTypeParameterId,
-            self.store.type_parameters.len(),
+            self.store.parameter_count(),
             self.limits.max_parameters,
             "parameter"
         );
@@ -1029,7 +1029,7 @@ impl<'a> ExportGraphWalker<'a> {
         if !self.enter(node, inserted)? {
             return Ok(());
         }
-        let kind = self.store.type_parameters[value.index()].kind;
+        let kind = self.store.type_parameter(value).kind;
         let result = self.visit_kind(kind);
         self.leave(node, result)
     }
@@ -1041,7 +1041,7 @@ impl<'a> ExportGraphWalker<'a> {
             row_order,
             value,
             ArtifactRecordRowId,
-            self.store.row_arena.len(),
+            self.store.row_count(),
             self.limits.max_semantic_entries_per_family,
             "record row"
         );
@@ -1049,7 +1049,7 @@ impl<'a> ExportGraphWalker<'a> {
         if !self.enter(node, inserted)? {
             return Ok(());
         }
-        let row = self.store.row_arena[value.index()].clone();
+        let row = self.store.record_row(value).clone();
         let result = (|| {
             for field in row.fields.iter() {
                 self.visit_type(field.ty)?;
@@ -1076,7 +1076,7 @@ impl<'a> ExportGraphWalker<'a> {
             family_order,
             value,
             ArtifactFamilyTypeId,
-            self.store.family_arena.len(),
+            self.store.family_count(),
             self.limits.max_semantic_entries_per_family,
             "family"
         );
@@ -1084,7 +1084,7 @@ impl<'a> ExportGraphWalker<'a> {
         if !self.enter(node, inserted)? {
             return Ok(());
         }
-        let members = self.store.family_arena[value.index()].members.clone();
+        let members = self.store.get_family(value).members.clone();
         let result = (|| {
             for member in members.iter() {
                 self.visit_type(member.ty)?;
@@ -1101,7 +1101,7 @@ impl<'a> ExportGraphWalker<'a> {
             variant_order,
             value,
             ArtifactVariantTypeId,
-            self.store.variant_identities.len(),
+            self.store.variant_count(),
             self.limits.max_semantic_entries_per_family,
             "variant"
         );
@@ -1119,7 +1119,7 @@ impl<'a> ExportGraphWalker<'a> {
             domain_order,
             value,
             ArtifactStaticDomainId,
-            self.store.static_domains.len(),
+            self.store.static_domain_count(),
             self.limits.max_semantic_entries_per_family,
             "static domain"
         );
@@ -1127,7 +1127,7 @@ impl<'a> ExportGraphWalker<'a> {
         if !self.enter(node, inserted)? {
             return Ok(());
         }
-        let domain = self.store.static_domains[value.index()].clone();
+        let domain = self.store.static_domain(value).cloned().ok_or_else(|| invalid("missing static domain"))?;
         let result = (|| {
             if let StaticDomainData::Associated { owner_arguments, .. } = domain {
                 for argument in owner_arguments.iter().copied() {
@@ -1146,7 +1146,7 @@ impl<'a> ExportGraphWalker<'a> {
             constructor_order,
             value,
             ArtifactStaticConstructorId,
-            self.store.static_constructors.len(),
+            self.store.static_constructor_count(),
             self.limits.max_semantic_entries_per_family,
             "static constructor"
         );
@@ -1154,7 +1154,7 @@ impl<'a> ExportGraphWalker<'a> {
         if !self.enter(node, inserted)? {
             return Ok(());
         }
-        let constructor = self.store.static_constructors[value.index()].clone();
+        let constructor = self.store.static_constructor(value).cloned().ok_or_else(|| invalid("missing static constructor"))?;
         let result = (|| {
             self.visit_domain(constructor.domain)?;
             for kind in constructor.parameter_kinds.iter().copied() {
@@ -2560,7 +2560,7 @@ fn owner_in_with_allocation_budget(
         }
     })
 }
-fn integer_in_with_allocation_budget(
+pub(crate) fn integer_in_with_allocation_budget(
     decimal: &str,
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,

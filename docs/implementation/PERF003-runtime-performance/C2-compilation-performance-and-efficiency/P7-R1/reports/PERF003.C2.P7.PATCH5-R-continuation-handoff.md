@@ -13,20 +13,26 @@ Continue this task from the handoff below. The original implementation plan is a
 
 - Status: implementation in progress. `R.T1` is not complete; `R.G1` currently fails independent semantic-import allocation equality.
 - Verified progress: prior implementation work in this worktree wired budget-aware type graph and static-value graph import, and added frozen owner/index machinery across semantic imports. The type graph discriminator has reported exact equality (`765031` ledger bytes / `765031` observed bytes).
-- Current exact semantic discriminator remains short by `2,468,555` bytes: observed `266,069,278`, ledger `263,600,723`.
-- The semantic import diagnostic conversion now budgets its source spans, owned strings, and vectors. `RUSTFLAGS='' cargo check -p phalcom-semantic --lib` passed after this edit. The exact Universe discriminator did not change, so that edit is not the cause of the remaining gap on this fixture.
+- Current exact semantic discriminator remains short by `1,143,494` bytes: observed `265,533,280`, ledger `264,389,786`. This is the latest measured result after the current uncommitted edits; exact equality is still failing.
+- The semantic import diagnostic conversion budgets its source spans, owned strings, and vectors. The exact Universe discriminator did not change after that edit, so it is not the cause of the remaining gap on this fixture.
+- The current worktree compiles with `RUSTFLAGS='' cargo check -p phalcom-semantic --lib` and the exact discriminator compiles/runs. The semantic library emits seven known dead-code warnings in `artifact/import.rs`; these are nonblocking and are not the active allocation failure.
+- Recent inline implementation work converted the proof and explanation import `Vec`-to-boxed-slice paths to budgeted `map_boxed` helpers, corrected several remaining stable-identity imports to charged variants, added budgeted static-value validation traversal scratch, and charged frozen data/enum table wrapper `Arc` allocations. These changes compile, but the measured gap remains active.
+- Latest focused test output is deterministic:
+  `TYPE GRAPH IMPORT: ledger=765031 observed=765031 delta=0`
+  followed by semantic equality failure at `phalcom-core/tests/artifact_allocation.rs:130` with `left: 265533280`, `right: 264389786`.
 - PATCH5-R source, plan, baseline/evidence, and partial checkpoint state are committed. The implementation commit is `5f1037cf`; the following lifecycle-only commit records that R.T1 remains partial and unverified. Continue implementation on the same branch from its current HEAD.
-- There are additional uncommitted edits in `phalcom-semantic/src/artifact/import.rs` and `phalcom-semantic/src/artifact/operational.rs` that thread `AllocationBudget` into static operational imports. They appeared after the pushed commits and were preserved at the user's direction. They have not been checked or tested. Inspect and validate this exact diff before changing either file; do not assume it is complete or attribute the G1 gap to it.
+- There are additional uncommitted edits in `phalcom-semantic/src/artifact/import.rs` and `phalcom-semantic/src/artifact/operational.rs` that thread `AllocationBudget` into static operational imports. The current semantic crate check and exact discriminator compile with these edits, but they do not close equality. Inspect the exact diff before extending either file; do not assume the operational path is complete or attribute the whole G1 gap to it.
 
 ## Evidence and decisions
 
 - Worktree and branch: `git branch --show-current` -> `perf/universe-characterization`; working directory is the requested worktree.
 - Focused crate check: `RUSTFLAGS='' cargo check -p phalcom-semantic --lib` -> passed.
-- Full semantic import discriminator:
+- Full semantic import discriminator (latest result supersedes the older saved log values below):
   `PHALCOM_UNIVERSE_TELOSC_FOR_TEST=/tmp/perf003-patch5r-universe.telosc RUSTFLAGS='' cargo test -p phalcom-core --test artifact-allocation full_universe_telosc_load_allocation_equality_and_n_minus_one -- --nocapture`
-  -> failed exact equality: observed `266069278`, ledger `263600723`; saved output is `/tmp/perf003-patch5r-import-check9.log`.
+  -> latest run failed exact equality: observed `265533280`, ledger `264389786`, delta `1143494`.
 - Earlier run also confirmed type graph equality and the same semantic mismatch: `/tmp/perf003-patch5r-import-check8.log`.
 - `git diff --check` -> passed at handoff creation.
+- `git diff --check` -> passed after the latest uncommitted edits.
 - The allocator backtrace labels in `phalcom-core/tests/artifact_allocation.rs` are only a temporary heuristic: budgeted allocations can also appear without an `AllocationBudget` stack frame because the budget is charged before the allocator call. Do not treat `UNBUDGETED REQUEST` samples as proof of an uncharged allocation.
 - The temporary allocator backtrace sampler has been removed because its heuristic could not distinguish precharged requests from uncharged ones. Cached artifact-path hooks remain. Strict equality is still conditional, as R.T4 has not been reached; that gate later requires unconditional equality and typed N−1 behavior.
 - `require_semantic_import_allocation_accounting()` still returns `Ok(())`; the plan says remove it only after successful-path accounting is actually closed.
@@ -51,9 +57,11 @@ Continue this task from the handoff below. The original implementation plan is a
 ## Resume plan
 
 1. Read the attached PATCH5-R plan §5 and the existing P7-R1 baseline/command-log reports; do not repeat R.T0.
-2. Continue the R.T1.2 complete-owner allocation audit from `validate_and_import_semantic_world_inner`. Start by inspecting the preserved uncommitted changes in `phalcom-semantic/src/artifact/import.rs` and `phalcom-semantic/src/artifact/operational.rs`. They begin threading `AllocationBudget` through static operational signature/program import, recursive `import_op`, owned module/symbol identities, boxes, nested vectors, and `Arc` publication. Validate the current diff and preserve exact semantics and charge-before-allocation behavior before extending it.
-3. Re-run `RUSTFLAGS='' cargo check -p phalcom-semantic --lib`, then the exact full-Universe semantic discriminator. Record the new observed/ledger values and classify each remaining owner family; do not weaken equality or infer a cause from heuristic backtraces.
-4. Continue auditing the other active owner paths named in R.T1.2 (associated/type members, static definitions/constants, constructor initialization, module/owner indexes, snapshot retention) until no allocation remains unresolved and equality is zero.
+2. Continue the R.T1.2 complete-owner allocation audit from `validate_and_import_semantic_world_inner`. Inspect the current dirty diff in `phalcom-semantic/src/artifact/import.rs`, `phalcom-semantic/src/artifact/operational.rs`, `phalcom-compiler-artifact/src/semantic/static_value.rs`, `phalcom-compiler-artifact/src/semantic/world.rs`, and the frozen table implementations before changing anything. The active operational importer path remains the first concrete audit target.
+3. Re-run the exact discriminator after each coherent owner-family correction:
+   `PHALCOM_UNIVERSE_TELOSC_FOR_TEST=/tmp/perf003-patch5r-universe.telosc RUSTFLAGS='' cargo test -p phalcom-core --test artifact-allocation full_universe_telosc_load_allocation_equality_and_n_minus_one -- --nocapture`
+   Record the new observed/ledger values and classify each remaining owner family; do not weaken equality or infer a cause from heuristic backtraces.
+4. Audit remaining direct/native allocation boundaries in the successful path, especially nested static operational products, validator scratch, snapshot/index wrappers, and any `Arc::new`, `Box::new`, native map/set construction, or `Vec` collection reachable from semantic import. Convert only confirmed import-path ownership to budgeted helpers; preserve source-session mutability and frozen-owner architecture.
 5. Only then complete G1 proofs: successful exact `N`, typed `N-1`, failed-child rollback/no publication, malformed input rejection, source-free owner parity, and canonical prefix/fork/overlay behavior. Keep R.G1 marked failed/unverified until all conditions pass.
 6. Continue R.T2–R.T7 in the plan’s dependency order. Run focused checks first and broaden only at the plan’s named gates. Keep checkpoint, walkthrough/handoff, reports, and final classifications truthful; do not claim full PATCH5-R completion unless all mandatory gates pass.
 
@@ -63,3 +71,22 @@ Continue this task from the handoff below. The original implementation plan is a
 - Do not treat the allocator stack heuristic as a trustworthy budget classifier. Budget helpers precharge before entering the allocator, so absence of an `AllocationBudget` frame is inconclusive.
 - Preserve the plan’s frozen-owner rules: no estimated B-tree byte charges, and no native map construction followed by conversion to frozen storage. Build charged contiguous entries, sort in place, reject duplicates, and retain only allowed local overlays.
 - Preserve all dirty source and evidence files, including the supplied plan and existing checkpoint work.
+
+## Exact latest verification
+
+```text
+RUSTFLAGS='' cargo check -p phalcom-semantic --lib
+PASS (seven known dead-code warnings)
+
+PHALCOM_UNIVERSE_TELOSC_FOR_TEST=/tmp/perf003-patch5r-universe.telosc \
+RUSTFLAGS='' cargo test -p phalcom-core --test artifact-allocation \
+full_universe_telosc_load_allocation_equality_and_n_minus_one -- --nocapture
+FAIL: observed=265533280, ledger=264389786, delta=1143494
+
+git diff --check
+PASS
+```
+
+The type-graph sub-discriminator remains exact (`ledger=765031 observed=765031`).
+The semantic `N-1` assertion was not reached because successful-path equality
+still fails. `R.G1` and all later gates remain unverified.

@@ -20,6 +20,16 @@ impl EnumRequirementId {
     pub fn new(owner: DeclarationId, selector: Selector) -> Self {
         Self { owner, selector }
     }
+
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(Self {
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            selector: crate::traits::clone_selector_with_allocation_budget(&self.selector, allocations)?,
+        })
+    }
 }
 
 /// A required behavioral method signature declared on an enum root.

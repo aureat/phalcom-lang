@@ -154,6 +154,15 @@ pub struct StaticDefinition {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticBodyId(pub DeclarationId);
 
+impl StaticBodyId {
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(Self(self.0.clone_with_allocation_budget(allocations)?))
+    }
+}
+
 /// Query-local identity for one nested static-definition application in a
 /// checked static body. The ordinal follows the body's structural walk; source
 /// ranges remain provenance and are not used as target identity.
@@ -161,6 +170,18 @@ pub struct StaticBodyId(pub DeclarationId);
 pub struct StaticApplicationId {
     pub body: StaticBodyId,
     pub ordinal: u32,
+}
+
+impl StaticApplicationId {
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(Self {
+            body: self.body.clone_with_allocation_budget(allocations)?,
+            ordinal: self.ordinal,
+        })
+    }
 }
 
 /// One already-checked argument aligned with its target parameter.
@@ -270,11 +291,21 @@ pub struct StaticDefinitionProduct {
 #[derive(Clone, Debug, Default)]
 pub struct StaticDefinitionTable {
     parent: Option<Arc<Self>>,
-    definitions: BTreeMap<DeclarationId, Arc<StaticDefinitionProduct>>,
+    definitions: crate::ordered_map::OrderedMap<DeclarationId, Arc<StaticDefinitionProduct>>,
     module_definitions: BTreeMap<ModuleId, BTreeSet<DeclarationId>>,
 }
 
 impl StaticDefinitionTable {
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<(DeclarationId, Arc<StaticDefinitionProduct>)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, crate::ordered_map::FrozenOrderedMapError> {
+        Ok(Self {
+            definitions: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(entries, allocations)?,
+            ..Self::default()
+        })
+    }
+
     pub fn new() -> Self {
         Self::default()
     }

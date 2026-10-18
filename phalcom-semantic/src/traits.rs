@@ -62,6 +62,17 @@ impl TraitRef {
         }
     }
 
+    pub(crate) fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        let declaration = self.declaration.clone_with_allocation_budget(allocations)?;
+        let mut arguments = allocations.vector(self.arguments.len())?;
+        arguments.extend_from_slice(&self.arguments);
+        let arguments = allocations.boxed_slice(arguments)?;
+        Ok(Self { declaration, arguments })
+    }
+
     /// Forms a canonical trait reference verifying declaration identity, arity,
     /// and argument kinds without checking or discharging trait generic constraints.
     pub fn form_identity(
@@ -171,6 +182,41 @@ pub(crate) fn clone_selector_with_allocation_budget(
     }
     let slots = allocations.boxed_slice(slots)?;
     Ok(Selector { base, kind: selector.kind, slots })
+}
+
+pub(crate) fn clone_selector_pattern_with_allocation_budget(
+    pattern: &phalcom_common::selector::SelectorPattern,
+    allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+) -> Result<phalcom_common::selector::SelectorPattern, phalcom_type_meta::allocation::AllocationError> {
+    use phalcom_common::selector::{SelectorBase, SelectorSlot, SelectorPattern};
+
+    let base = match &pattern.base {
+        SelectorBase::Named(name) => SelectorBase::Named(allocations.string(name)?),
+        SelectorBase::Subscript => SelectorBase::Subscript,
+    };
+    let mut prefix = allocations.vector(pattern.prefix.len())?;
+    for slot in pattern.prefix.iter() {
+        prefix.push(match slot {
+            SelectorSlot::Positional => SelectorSlot::Positional,
+            SelectorSlot::Label(label) => SelectorSlot::Label(allocations.string(label)?),
+        });
+    }
+    let prefix = allocations.boxed_slice(prefix)?;
+    let mut suffix = allocations.vector(pattern.suffix.len())?;
+    for slot in pattern.suffix.iter() {
+        suffix.push(match slot {
+            SelectorSlot::Positional => SelectorSlot::Positional,
+            SelectorSlot::Label(label) => SelectorSlot::Label(allocations.string(label)?),
+        });
+    }
+    let suffix = allocations.boxed_slice(suffix)?;
+    Ok(SelectorPattern {
+        base,
+        kind: pattern.kind.clone(),
+        prefix,
+        suffix,
+        has_gap: pattern.has_gap,
+    })
 }
 
 /// Stable identity for one associated type declaration owned by a trait.
@@ -511,7 +557,7 @@ impl TraitSurfaceTable {
     pub fn iter(&self) -> Box<dyn Iterator<Item = (&DeclarationId, &Arc<TraitSurface>)> + '_> {
         match &self.parent {
             Some(parent) => Box::new(parent.iter().chain(self.entries.iter_local())),
-            None => self.entries.iter(),
+            None => Box::new(self.entries.iter()),
         }
     }
 }
@@ -1002,7 +1048,7 @@ impl TraitHeaderTable {
     pub fn iter(&self) -> Box<dyn Iterator<Item = (&DeclarationId, &Arc<TraitHeader>)> + '_> {
         match &self.parent {
             Some(parent) => Box::new(parent.iter().chain(self.entries.iter_local())),
-            None => self.entries.iter(),
+            None => Box::new(self.entries.iter()),
         }
     }
 }

@@ -10,7 +10,6 @@ use crate::enum_semantics::EnumSemanticTable;
 use crate::field_key::FieldKey;
 use crate::identity::{DeclarationId, VariantId};
 use crate::metadata::stable_identity::{to_stable_declaration, to_stable_variant};
-use crate::scalar::StaticInt;
 use crate::static_value::store::{
     FrozenStaticValuePrefix, StaticDataValue, StaticDataValueId, StaticFloat, StaticPackBacking, StaticPackBackingId,
     StaticPackData, StaticPackId, StaticRecordField, StaticRecordId, StaticSequenceData, StaticSequenceFamily, StaticSequenceId,
@@ -18,7 +17,6 @@ use crate::static_value::store::{
     StaticValueStoreError, StaticValueStoreId, StaticVariantValue, StaticVariantValueId,
 };
 use crate::types::store::artifact::{TypeExportContext, TypeRelocation};
-use num_bigint::BigInt;
 use phalcom_compiler_artifact::semantic::static_value::*;
 use phalcom_compiler_artifact::semantic::type_store::{CanonicalTypeRootKey, FieldKeyV1};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
@@ -639,7 +637,7 @@ pub fn import_static_value_graph_with_allocation_budget(
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<(StaticValueStore, StaticRelocation), ArtifactError> {
-    let _order = graph.validate(limits)?;
+    let _order = graph.validate_with_allocation_budget(limits, allocations)?;
     let store_id = StaticValueStore::fresh_id();
 
     // 1. Strings
@@ -755,7 +753,7 @@ pub fn import_static_value_graph_with_allocation_budget(
     for record in &graph.records {
         let mut fields_vec = allocations.vector(record.len()).map_err(ArtifactError::Allocation)?;
         for field in record {
-            let key = key_from_wire_budgeted(&field.key, allocations)?;
+            let key = key_from_wire_budgeted(&field.key, limits, allocations)?;
             let value = relocation.value(field.value)?;
             fields_vec.push(StaticRecordField { key, value });
         }
@@ -916,8 +914,8 @@ pub fn import_static_value_graph_with_allocation_budget(
                 StaticValueData::Char(scalar)
             }
             StaticValueV1::Int { decimal } => {
-                let value = BigInt::parse_bytes(decimal.as_bytes(), 10).ok_or_else(|| referential("unparseable static integer decimal"))?;
-                StaticValueData::Int(StaticInt::new_with_allocation_budget(value, allocations).map_err(ArtifactError::Allocation)?)
+                let value = crate::types::store::artifact::integer_in_with_allocation_budget(decimal, limits, allocations)?;
+                StaticValueData::Int(value)
             }
             StaticValueV1::Float { bits } => StaticValueData::Float(StaticFloat::from_bits(*bits)),
             StaticValueV1::String { id } => StaticValueData::String(StaticStringId(id.0)),
@@ -998,13 +996,17 @@ pub fn import_static_value_graph(
     )
 }
 
-fn key_from_wire_budgeted(key: &FieldKeyV1, allocations: &mut AllocationBudget) -> Result<FieldKey, ArtifactError> {
+fn key_from_wire_budgeted(
+    key: &FieldKeyV1,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<FieldKey, ArtifactError> {
     Ok(match key {
         FieldKeyV1::Symbol { value } => FieldKey::Symbol(allocations.arc_str(value).map_err(ArtifactError::Allocation)?),
         FieldKeyV1::String { value } => FieldKey::String(allocations.arc_str(value).map_err(ArtifactError::Allocation)?),
         FieldKeyV1::Int { decimal } => {
-            let value = BigInt::parse_bytes(decimal.as_bytes(), 10).ok_or_else(|| referential("unparseable static record key"))?;
-            FieldKey::int(StaticInt::new_with_allocation_budget(value, allocations).map_err(ArtifactError::Allocation)?)
+            let value = crate::types::store::artifact::integer_in_with_allocation_budget(decimal, limits, allocations)?;
+            FieldKey::int(value)
         }
         FieldKeyV1::Bool { value } => FieldKey::bool(*value),
     })

@@ -481,3 +481,19 @@ impl std::ops::DerefMut for ChildAllocationBudget {
         &mut self.budget
     }
 }
+
+static PROBE: std::sync::atomic::AtomicPtr<()> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+pub fn register_allocation_probe(probe: fn() -> usize) {
+    PROBE.store(probe as *mut (), std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn current_observed_bytes() -> Option<usize> {
+    let ptr = PROBE.load(std::sync::atomic::Ordering::SeqCst);
+    if ptr.is_null() {
+        None
+    } else {
+        let f: fn() -> usize = unsafe { std::mem::transmute(ptr) };
+        Some(f())
+    }
+}

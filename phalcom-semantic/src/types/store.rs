@@ -747,12 +747,14 @@ impl TypeStore {
     }
 
     pub fn get_parameter_variance(&self, decl: &DeclarationId, index: u32) -> Option<Variance> {
-        let key = (decl.clone(), index);
-        if let Some(&variance) = self.parameter_variances.get(&key) {
-            return Some(variance);
-        }
         if let Some(frozen) = &self.frozen {
-            if let Some(&variance) = frozen.parameter_variances.get(&key) {
+            if let Ok(idx) = frozen.parameter_variances.as_entries().binary_search_by(|((d, i), _)| (d, *i).cmp(&(decl, index))) {
+                return Some(frozen.parameter_variances.as_entries()[idx].1);
+            }
+        }
+        if !self.parameter_variances.is_empty() {
+            let key = (decl.clone(), index);
+            if let Some(&variance) = self.parameter_variances.get(&key) {
                 return Some(variance);
             }
         }
@@ -760,12 +762,14 @@ impl TypeStore {
     }
 
     pub fn find_type_parameter_id(&self, owner: &TypeParameterOwner, index: u32) -> Option<TypeParameterId> {
-        let key = (owner.clone(), index);
-        if let Some(&id) = self.parameter_to_id.get(&key) {
-            return Some(id);
-        }
         if let Some(frozen) = &self.frozen {
             if let Some(id) = frozen.find_parameter(owner, index) {
+                return Some(id);
+            }
+        }
+        if !self.parameter_to_id.is_empty() {
+            let key = (owner.clone(), index);
+            if let Some(&id) = self.parameter_to_id.get(&key) {
                 return Some(id);
             }
         }
@@ -1304,6 +1308,21 @@ impl TypeStore {
                 KindId::TYPE,
             ))
             .copied()
+    }
+
+    /// Returns an already-interned class-object type without mutating the store.
+    pub(crate) fn class_object_type_id_with_allocation_budget(
+        &self,
+        declaration: &DeclarationId,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Option<TypeId>, phalcom_type_meta::allocation::AllocationError> {
+        let data = TypeData::ClassObject { declaration: declaration.clone_with_allocation_budget(allocations)? };
+        if let Some(frozen) = &self.frozen
+            && let Some(id) = frozen.find_type(&data, KindId::TYPE)
+        {
+            return Ok(Some(id));
+        }
+        Ok(self.type_to_id.get(&(data, KindId::TYPE)).copied())
     }
 
     /// Returns an already-interned class-object type without mutating the store.

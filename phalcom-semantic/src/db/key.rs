@@ -250,4 +250,94 @@ impl QueryKey {
             Self::CheckedStaticBody(_) => QueryKind::CheckedStaticBody,
         }
     }
+
+    pub(crate) fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        use crate::generic_evidence::GenericConformanceKey;
+        use crate::trait_dispatch::{TraitDispatchBucketKey, TraitDispatchTargetFamily};
+        use phalcom_common::selector::{Selector, SelectorBase, SelectorSlot};
+
+        Ok(match self {
+            Self::CallableSignature(id) => Self::CallableSignature(id.clone_with_allocation_budget(allocations)?),
+            Self::FieldSignature(id) => Self::FieldSignature(id.clone_with_allocation_budget(allocations)?),
+            Self::GenericConformance(key) => Self::GenericConformance(GenericConformanceKey::new(
+                key.subject.clone(),
+                key.trait_ref.clone_with_allocation_budget(allocations)?,
+            )),
+            Self::TraitDispatchBucket(key) => {
+                let target_family = match &key.target_family {
+                    TraitDispatchTargetFamily::Declaration(decl) => {
+                        TraitDispatchTargetFamily::Declaration(decl.clone_with_allocation_budget(allocations)?)
+                    }
+                    TraitDispatchTargetFamily::ExactEnumCase(var) => {
+                        TraitDispatchTargetFamily::ExactEnumCase(var.clone_with_allocation_budget(allocations)?)
+                    }
+                };
+                let base = match &key.selector.base {
+                    SelectorBase::Named(name) => SelectorBase::Named(allocations.string(name)?),
+                    SelectorBase::Subscript => SelectorBase::Subscript,
+                };
+                let mut slots = allocations.vector(key.selector.slots.len())?;
+                for slot in key.selector.slots.iter() {
+                    slots.push(match slot {
+                        SelectorSlot::Positional => SelectorSlot::Positional,
+                        SelectorSlot::Label(label) => SelectorSlot::Label(allocations.string(label)?),
+                    });
+                }
+                let selector = Selector {
+                    base,
+                    kind: key.selector.kind,
+                    slots: allocations.boxed_slice(slots)?,
+                };
+                Self::TraitDispatchBucket(TraitDispatchBucketKey {
+                    target_family,
+                    selector,
+                    side: key.side,
+                })
+            }
+            Self::ParsedModule(id) => Self::ParsedModule(id.clone_with_allocation_budget(allocations)?),
+            Self::UnlinkedInterface(id) => Self::UnlinkedInterface(id.clone_with_allocation_budget(allocations)?),
+            Self::ResolvedImports(id) => Self::ResolvedImports(id.clone_with_allocation_budget(allocations)?),
+            Self::LinkedInterface(id) => Self::LinkedInterface(id.clone_with_allocation_budget(allocations)?),
+            Self::DeclarationShell(id) => Self::DeclarationShell(id.clone_with_allocation_budget(allocations)?),
+            Self::SemanticComponent(id) => Self::SemanticComponent(id.clone_with_allocation_budget(allocations)?),
+            Self::DeclarationSurface(id) => Self::DeclarationSurface(id.clone_with_allocation_budget(allocations)?),
+            Self::TraitHeader(id) => Self::TraitHeader(id.clone_with_allocation_budget(allocations)?),
+            Self::TraitSurface(id) => Self::TraitSurface(id.clone_with_allocation_budget(allocations)?),
+            Self::ConformanceDispatch(id) => Self::ConformanceDispatch(id.clone_with_allocation_budget(allocations)?),
+            Self::CallableDefinition(id) => Self::CallableDefinition(id.clone_with_allocation_budget(allocations)?),
+            Self::HierarchyEdge(id) => Self::HierarchyEdge(id.clone_with_allocation_budget(allocations)?),
+            Self::ConstructorInitialization(id) => Self::ConstructorInitialization(id.clone_with_allocation_budget(allocations)?),
+            Self::CallableBody(id) => Self::CallableBody(id.clone_with_allocation_budget(allocations)?),
+            Self::CallableEffects(id) => Self::CallableEffects(id.clone_with_allocation_budget(allocations)?),
+            Self::CallableControl(id) => Self::CallableControl(id.clone_with_allocation_budget(allocations)?),
+            Self::CallableTermination(id) => Self::CallableTermination(id.clone_with_allocation_budget(allocations)?),
+            Self::CallableContracts(id) => Self::CallableContracts(id.clone_with_allocation_budget(allocations)?),
+            Self::VerificationConditions(id) => Self::VerificationConditions(id.clone_with_allocation_budget(allocations)?),
+            Self::SourceStructure(id) => Self::SourceStructure(id.clone_with_allocation_budget(allocations)?),
+            Self::SourceFormalAttachment(id) => Self::SourceFormalAttachment(id.clone_with_allocation_budget(allocations)?),
+            Self::AdvisoryCallable(id) => Self::AdvisoryCallable(id.clone_with_allocation_budget(allocations)?),
+            Self::AdvisoryModule(id) => Self::AdvisoryModule(id.clone_with_allocation_budget(allocations)?),
+            Self::ModuleDiagnostics(id) => Self::ModuleDiagnostics(id.clone_with_allocation_budget(allocations)?),
+            Self::ModuleMetadata(id) => Self::ModuleMetadata(id.clone_with_allocation_budget(allocations)?),
+            Self::DataDeclaration(id) => Self::DataDeclaration(id.clone_with_allocation_budget(allocations)?),
+            Self::EnumDeclaration(id) => Self::EnumDeclaration(id.clone_with_allocation_budget(allocations)?),
+            Self::EnumRequirements(id) => Self::EnumRequirements(id.clone_with_allocation_budget(allocations)?),
+            Self::TypeMemberDeclaration(id) => Self::TypeMemberDeclaration(id.clone()),
+            Self::StaticDomainCaseCatalog(id) => Self::StaticDomainCaseCatalog(id.clone()),
+            Self::StaticCaseSignature(id) => Self::StaticCaseSignature(id.clone()),
+            Self::AssociatedStaticDomainDeclaration(id) => Self::AssociatedStaticDomainDeclaration(id.clone()),
+            Self::AssociatedSurface(id) => Self::AssociatedSurface(id.clone_with_allocation_budget(allocations)?),
+            Self::ResolvedImport(id) => Self::ResolvedImport(id.clone()),
+            Self::LinkedName(id, name) => Self::LinkedName(id.clone_with_allocation_budget(allocations)?, allocations.string(name)?),
+            Self::PublicExport(id, name) => Self::PublicExport(id.clone_with_allocation_budget(allocations)?, allocations.string(name)?),
+            Self::StaticDefinition(id) => Self::StaticDefinition(id.clone_with_allocation_budget(allocations)?),
+            Self::StaticConstant(id) => Self::StaticConstant(id.clone()),
+            Self::ModuleStaticBindingCatalog(id) => Self::ModuleStaticBindingCatalog(id.clone_with_allocation_budget(allocations)?),
+            Self::ModuleStaticBindings(id) => Self::ModuleStaticBindings(id.clone_with_allocation_budget(allocations)?),
+            Self::CheckedStaticBody(id) => Self::CheckedStaticBody(id.clone()),
+        })
+    }
 }

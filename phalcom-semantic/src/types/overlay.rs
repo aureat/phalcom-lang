@@ -43,6 +43,10 @@ impl<K: Eq + Hash + Clone, V: Clone> PersistentHashMapOverlay<K, V> {
         self.map.iter().flat_map(|map| map.iter())
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.map.as_ref().map_or(true, |m| m.is_empty())
+    }
+
     #[cfg(test)]
     pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
         match (&self.map, &other.map) {

@@ -181,7 +181,23 @@ impl Ord for StaticInt {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         match (self, other) {
             (Self::Small(a), Self::Small(b)) => a.cmp(b),
-            _ => self.to_bigint().cmp(&other.to_bigint()),
+            (Self::Small(a), Self::Large(b)) => match i64::try_from(b.as_ref()).ok() {
+                Some(b_i64) => a.cmp(&b_i64),
+                None => match b.sign() {
+                    num_bigint::Sign::Minus => std::cmp::Ordering::Greater,
+                    num_bigint::Sign::NoSign => std::cmp::Ordering::Equal,
+                    num_bigint::Sign::Plus => std::cmp::Ordering::Less,
+                },
+            },
+            (Self::Large(a), Self::Small(b)) => match i64::try_from(a.as_ref()).ok() {
+                Some(a_i64) => a_i64.cmp(b),
+                None => match a.sign() {
+                    num_bigint::Sign::Minus => std::cmp::Ordering::Less,
+                    num_bigint::Sign::NoSign => std::cmp::Ordering::Equal,
+                    num_bigint::Sign::Plus => std::cmp::Ordering::Greater,
+                },
+            },
+            (Self::Large(a), Self::Large(b)) => a.as_ref().cmp(b.as_ref()),
         }
     }
 }

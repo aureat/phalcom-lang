@@ -25,6 +25,12 @@ use std::sync::Arc;
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticConstantId(pub SymbolId);
 
+impl std::borrow::Borrow<SymbolId> for StaticConstantId {
+    fn borrow(&self) -> &SymbolId {
+        &self.0
+    }
+}
+
 impl StaticConstantId {
     pub fn new(module: ModuleId, name: impl Into<Box<str>>) -> Self {
         Self(SymbolId { module, name: name.into() })
@@ -167,12 +173,22 @@ impl StaticConstantProduct {
 #[derive(Clone, Debug, Default)]
 pub struct StaticConstantTable {
     parent: Option<Arc<Self>>,
-    constants: BTreeMap<StaticConstantId, Arc<StaticConstantProduct>>,
+    constants: crate::ordered_map::OrderedMap<StaticConstantId, Arc<StaticConstantProduct>>,
     by_symbol: BTreeMap<SymbolId, StaticConstantId>,
     module_constants: BTreeMap<ModuleId, BTreeSet<StaticConstantId>>,
 }
 
 impl StaticConstantTable {
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<(StaticConstantId, Arc<StaticConstantProduct>)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, crate::ordered_map::FrozenOrderedMapError> {
+        Ok(Self {
+            constants: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(entries, allocations)?,
+            ..Self::default()
+        })
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -209,6 +225,7 @@ impl StaticConstantTable {
         self.by_symbol
             .get(symbol)
             .and_then(|id| self.constants.get(id))
+            .or_else(|| self.constants.get(symbol))
             .or_else(|| self.parent.as_ref().and_then(|parent| parent.get_by_symbol(symbol)))
     }
 
@@ -220,11 +237,8 @@ impl StaticConstantTable {
         }
     }
 
-    pub fn module_constants<'a>(&'a self, module: &ModuleId) -> Box<dyn Iterator<Item = &'a Arc<StaticConstantProduct>> + 'a> {
-        let local = self.module_constants
-            .get(module)
-            .into_iter()
-            .flat_map(move |ids| ids.iter().filter_map(|id| self.constants.get(id)));
+    pub fn module_constants<'a>(&'a self, module: &'a ModuleId) -> Box<dyn Iterator<Item = &'a Arc<StaticConstantProduct>> + 'a> {
+        let local = self.constants.iter().filter_map(move |(id, product)| (&id.0.module == module).then_some(product));
         match &self.parent {
             Some(parent) => Box::new(parent.module_constants(module).chain(local)),
             None => Box::new(local),

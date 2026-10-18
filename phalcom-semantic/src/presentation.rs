@@ -552,9 +552,9 @@ impl ModuleFormalProjection {
 /// Indexed machine-readable formal source projection with persistent module roots.
 #[derive(Clone, Debug, Default)]
 pub struct FormalSemanticProjection {
-    modules: im::OrdMap<ModuleId, Arc<ModuleFormalProjection>>,
+    modules: Option<im::OrdMap<ModuleId, Arc<ModuleFormalProjection>>>,
     frozen_modules: Option<Arc<BudgetedSortedMap<ModuleId, Arc<ModuleFormalProjection>>>>,
-    retired_modules: im::OrdSet<ModuleId>,
+    retired_modules: Option<im::OrdSet<ModuleId>>,
 }
 
 impl FormalSemanticProjection {
@@ -728,7 +728,7 @@ impl FormalSemanticProjection {
             );
         }
         Self {
-            modules,
+            modules: Some(modules),
             ..Self::default()
         }
     }
@@ -833,11 +833,20 @@ impl FormalSemanticProjection {
                         },
                         status: binding_status(binding),
                         causal_invalidity: binding.causal_invalidity,
-                        contract: binding.contract.as_ref().map(|contract| FormalContractRelation {
-                            ty: contract.ty,
-                            origin: contract.origin,
-                            consistency: binding.consistency.clone(),
-                        }),
+                        contract: binding
+                            .contract
+                            .as_ref()
+                            .map(|contract| -> Result<_, FormalSemanticProjectionBuildError> {
+                                Ok(FormalContractRelation {
+                                    ty: contract.ty,
+                                    origin: contract.origin,
+                                    consistency: binding
+                                        .consistency
+                                        .clone_with_allocation_budget(allocations)
+                                        .map_err(FormalSemanticProjectionBuildError::Allocation)?,
+                                })
+                            })
+                            .transpose()?,
                     });
                 }
             }
@@ -866,8 +875,9 @@ impl FormalSemanticProjection {
             .arc(frozen_modules)
             .map_err(FormalSemanticProjectionBuildError::Allocation)?;
         Ok(Self {
+            modules: None,
             frozen_modules: Some(frozen_modules),
-            ..Self::default()
+            retired_modules: None,
         })
     }
 
@@ -892,32 +902,37 @@ impl FormalSemanticProjection {
             modules.insert(module, Arc::new(projection));
         }
         Self {
-            modules,
+            modules: Some(modules),
             ..Self::default()
         }
     }
 
     /// Replaces or adds one module's formal projection shard.
     pub fn replace_module(&mut self, module: ModuleId, projection: Arc<ModuleFormalProjection>) {
-        self.retired_modules.remove(&module);
-        self.modules.insert(module, projection);
+        if let Some(retired) = &mut self.retired_modules {
+            retired.remove(&module);
+        }
+        self.modules.get_or_insert_with(im::OrdMap::new).insert(module, projection);
     }
 
     /// Retires one module's formal projection shard.
     pub fn retire_module(&mut self, module: &ModuleId) {
-        self.modules.remove(module);
+        if let Some(modules) = &mut self.modules {
+            modules.remove(module);
+        }
         if self.frozen_modules.as_ref().is_some_and(|modules| modules.contains_key(module)) {
-            self.retired_modules.insert(module.clone());
+            self.retired_modules.get_or_insert_with(im::OrdSet::new).insert(module.clone());
         }
     }
 
     /// Returns one module's formal projection shard.
     pub fn module(&self, module: &ModuleId) -> Option<&ModuleFormalProjection> {
         self.modules
-            .get(module)
+            .as_ref()
+            .and_then(|modules| modules.get(module))
             .map(AsRef::as_ref)
             .or_else(|| {
-                if self.retired_modules.contains(module) {
+                if self.retired_modules.as_ref().is_some_and(|retired| retired.contains(module)) {
                     None
                 } else {
                     self.frozen_modules.as_ref()?.get(module).map(AsRef::as_ref)
@@ -927,36 +942,46 @@ impl FormalSemanticProjection {
 
     /// Returns one module's formal projection shard Arc.
     pub fn module_arc(&self, module: &ModuleId) -> Option<Arc<ModuleFormalProjection>> {
-        self.modules.get(module).cloned().or_else(|| {
-            if self.retired_modules.contains(module) {
-                None
-            } else {
-                self.frozen_modules.as_ref()?.get(module).cloned()
-            }
-        })
+        self.modules
+            .as_ref()
+            .and_then(|modules| modules.get(module))
+            .cloned()
+            .or_else(|| {
+                if self.retired_modules.as_ref().is_some_and(|retired| retired.contains(module)) {
+                    None
+                } else {
+                    self.frozen_modules.as_ref()?.get(module).cloned()
+                }
+            })
     }
 
     /// Returns iterator over module formal projections.
     pub fn modules(&self) -> impl Iterator<Item = (&ModuleId, &Arc<ModuleFormalProjection>)> {
-        let source = self.modules.iter();
+        let source = self.modules.as_ref().into_iter().flat_map(|modules| modules.iter());
         let frozen = self
             .frozen_modules
             .iter()
             .flat_map(|modules| modules.iter())
-            .filter(|(module, _)| !self.modules.contains_key(module) && !self.retired_modules.contains(module));
+            .filter(|(module, _)| {
+                !self.modules.as_ref().is_some_and(|m| m.contains_key(module))
+                    && !self.retired_modules.as_ref().is_some_and(|r| r.contains(module))
+            });
         source.chain(frozen)
     }
 
     /// Returns the number of module projection shards without traversing them.
     pub fn module_count(&self) -> usize {
-        self.modules.len()
+        self.modules.as_ref().map_or(0, |modules| modules.len())
             + self
                 .frozen_modules
                 .as_ref()
                 .map_or(0, |modules| {
                     modules
                         .iter()
-                        .filter(|(module, _)| !self.modules.contains_key(module) && !self.retired_modules.contains(module))
+                        .filter(|(module, _)| {
+                            !self.modules.as_ref().is_some_and(|m| m.contains_key(module))
+                                && !self.retired_modules.as_ref().is_some_and(|r| r.contains(module))
+                        })
                         .count()
                 })
     }

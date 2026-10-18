@@ -58,26 +58,24 @@ pub(in crate::artifact) fn import_callable_proofs(
                 expression,
                 scrutinee: import.knowledge(&resolution.scrutinee)?,
                 initial_space: import.space(&resolution.initial_space)?,
-                arms: import
-                    .map(&resolution.arms, |import, arm| {
-                        Ok(native::MatchArmResolution {
-                            arm_index: arm.arm_index,
-                            pattern: import.pattern(&arm.pattern)?,
-                            reachable_space: import.space(&arm.reachable_space)?,
-                            residual_after: import.space(&arm.residual_after)?,
-                            bindings: import.bindings(&arm.bindings)?,
-                            proof: import.proof(&arm.proof)?,
-                            usefulness: usefulness(&arm.usefulness),
-                            branch_result: import.knowledge(&arm.branch_result)?,
-                        })
-                    })?
-                    .into_boxed_slice(),
+                arms: import.map_boxed(&resolution.arms, |import, arm| {
+                    Ok(native::MatchArmResolution {
+                        arm_index: arm.arm_index,
+                        pattern: import.pattern(&arm.pattern)?,
+                        reachable_space: import.space(&arm.reachable_space)?,
+                        residual_after: import.space(&arm.residual_after)?,
+                        bindings: import.bindings(&arm.bindings)?,
+                        proof: import.proof(&arm.proof)?,
+                        usefulness: usefulness(&arm.usefulness),
+                        branch_result: import.knowledge(&arm.branch_result)?,
+                    })
+                })?,
                 result: import.knowledge(&resolution.result)?,
                 exhaustiveness: match &resolution.exhaustiveness {
                     wire::CallableExhaustivenessV1::Proven => native::ExhaustivenessResult::Proven,
                     wire::CallableExhaustivenessV1::Blocked { reason } => native::ExhaustivenessResult::Blocked(import.reason(reason)?),
                     wire::CallableExhaustivenessV1::Missing { witnesses } => {
-                        native::ExhaustivenessResult::Missing(import.map(witnesses, |import, witness| import.witness(witness))?.into_boxed_slice())
+                        native::ExhaustivenessResult::Missing(import.map_boxed(witnesses, |import, witness| import.witness(witness))?)
                     }
                 },
             },
@@ -129,6 +127,10 @@ impl ProofImport<'_> {
         }
         Ok(result)
     }
+    fn map_boxed<T, U>(&mut self, source: &[T], convert: impl FnMut(&mut Self, &T) -> Result<U, ArtifactError>) -> Result<Box<[U]>, ArtifactError> {
+        let source = self.map(source, convert)?;
+        self.allocations.boxed_slice(source).map_err(allocation_error)
+    }
     fn knowledge(&mut self, value: &wire::TypeKnowledgeV1) -> Result<TypeKnowledge, ArtifactError> {
         import_type_knowledge_with_allocation_budget(value, self.relocation, self.allocations)
     }
@@ -151,7 +153,7 @@ impl ProofImport<'_> {
                 let origin = self.allocations.boxed(origin).map_err(allocation_error)?;
                 LocalType::Applied {
                     origin,
-                    arguments: self.map(arguments, |import, term| import.local(term))?.into_boxed_slice(),
+                    arguments: self.map_boxed(arguments, |import, term| import.local(term))?,
                 }
             }
             L::ExactCase { variant, enum_type } => {
@@ -162,28 +164,26 @@ impl ProofImport<'_> {
                     enum_type: self.allocations.boxed(enum_type).map_err(allocation_error)?,
                 }
             }
-            L::Union { members } => LocalType::Union(self.map(members, |import, term| import.local(term))?.into_boxed_slice()),
+            L::Union { members } => LocalType::Union(self.map_boxed(members, |import, term| import.local(term))?),
             L::Tuple { elements } => LocalType::Tuple(
-                self.map(elements, |import, element| {
+                self.map_boxed(elements, |import, element| {
                     Ok(LocalTupleElement {
                         label: import.label(&element.label)?,
                         ty: import.local(&element.ty)?,
                     })
-                })?
-                .into_boxed_slice(),
+                })?,
             ),
             L::Record { fields } => LocalType::Record(
-                self.map(fields, |import, field| {
+                self.map_boxed(fields, |import, field| {
                     Ok(LocalRecordField {
                         key: import.key(&field.key)?,
                         ty: import.local(&field.ty)?,
                     })
-                })?
-                .into_boxed_slice(),
+                })?,
             ),
             L::Callable { parameters, return_type } => {
                 let parameters = self
-                    .map(parameters, |import, parameter| {
+                    .map_boxed(parameters, |import, parameter| {
                         Ok(LocalCallableParameter {
                             label: import.label(&parameter.label)?,
                             ty: import.local(&parameter.ty)?,
@@ -195,8 +195,7 @@ impl ProofImport<'_> {
                                 _ => return Err(referential("invalid local callable rest mode")),
                             },
                         })
-                    })?
-                    .into_boxed_slice();
+                    })?;
                 let return_type = self.local(return_type)?;
                 LocalType::Callable {
                     parameters,
@@ -241,7 +240,7 @@ impl ProofImport<'_> {
             bindings,
             local_bindings,
             equalities: self
-                .map(&proof.equalities, |import, equality| {
+                .map_boxed(&proof.equalities, |import, equality| {
                     Ok(match equality {
                         wire::CallableProofConstraintV1::Equal { left, right } => {
                             crate::types::TypeConstraint::Equal(import.relocation.ty(*left)?, import.relocation.ty(*right)?)
@@ -254,11 +253,8 @@ impl ProofImport<'_> {
                             import_exact_selector_with_budget(selector, import.allocations)?,
                         ),
                     })
-                })?
-                .into_boxed_slice(),
-            local_equalities: self
-                .map(&proof.local_equalities, |import, constraint| import.constraint(constraint))?
-                .into_boxed_slice(),
+                })?,
+            local_equalities: self.map_boxed(&proof.local_equalities, |import, constraint| import.constraint(constraint))?,
         })
     }
     fn case(&mut self, case: &wire::CallableCaseInstantiationV1) -> Result<FrozenCaseInstantiation, ArtifactError> {
@@ -270,16 +266,13 @@ impl ProofImport<'_> {
             variant: import_stable_variant_with_allocation_budget(&case.variant, self.allocations)?,
             scope: ProofScopeOrdinal(case.scope),
             local_rigids: import_analysis_map(local_rigids, self.allocations, "relocated case rigids are duplicated")?,
-            payload_types: self.map(&case.payload_types, |import, term| import.local(term))?.into_boxed_slice(),
+            payload_types: self.map_boxed(&case.payload_types, |import, term| import.local(term))?,
             result_type: self.local(&case.result_type)?,
-            constraints: self
-                .map(&case.constraints, |import, constraint| import.constraint(constraint))?
-                .into_boxed_slice(),
+            constraints: self.map_boxed(&case.constraints, |import, constraint| import.constraint(constraint))?,
         })
     }
     fn bindings(&mut self, bindings: &[wire::CallablePatternBindingV1]) -> Result<Box<[FrozenPatternBinding]>, ArtifactError> {
-        Ok(self
-            .map(bindings, |import, binding| {
+        self.map_boxed(bindings, |import, binding| {
                 Ok(native::PatternBindingResolution {
                     binding: BindingId(binding.binding),
                     name: import.allocations.boxed_str(&binding.name).map_err(allocation_error)?,
@@ -287,8 +280,7 @@ impl ProofImport<'_> {
                     local_type: binding.local_type.as_ref().map(|term| import.local(term)).transpose()?,
                     source: import_callable_range(&binding.source)?,
                 })
-            })?
-            .into_boxed_slice())
+            })
     }
     fn pattern(&mut self, pattern: &wire::CallablePatternV1) -> Result<FrozenPatternResolution, ArtifactError> {
         use wire::CallablePatternV1 as P;
@@ -324,13 +316,12 @@ impl ProofImport<'_> {
                                 _ => return Err(referential("variant family requires a named selector")),
                             },
                         ))
-                    })
-                    .transpose()?,
+                })
+                .transpose()?,
                 owner_candidates: self
-                    .map(owner_candidates, |import, owner| {
+                    .map_boxed(owner_candidates, |import, owner| {
                         import_stable_declaration_with_allocation_budget(owner, import.allocations)
-                    })?
-                    .into_boxed_slice(),
+                    })?,
                 selector: match selector {
                     wire::CallableVariantSelectorV1::WholeFamily => native::VariantSelectorConstraint::WholeFamily,
                     wire::CallableVariantSelectorV1::Exact { selector } => {
@@ -341,12 +332,12 @@ impl ProofImport<'_> {
                     }
                 },
                 candidates: self
-                    .map(candidates, |import, candidate| {
+                    .map_boxed(candidates, |import, candidate| {
                         Ok(native::ResolvedVariantCandidate {
                             variant: import_stable_variant_with_allocation_budget(&candidate.variant, import.allocations)?,
                             exact_case: import.relocation.ty(candidate.exact_case)?,
                             fields: import
-                                .map(&candidate.fields, |import, field| {
+                                .map_boxed(&candidate.fields, |import, field| {
                                     let child = import.pattern(&field.child)?;
                                     Ok(native::ResolvedFieldPattern {
                                         field: crate::identity::VariantFieldId::new(
@@ -357,21 +348,19 @@ impl ProofImport<'_> {
                                         local_type: field.local_type.as_ref().map(|term| import.local(term)).transpose()?,
                                         child: import.allocations.boxed(child).map_err(allocation_error)?,
                                     })
-                                })?
-                                .into_boxed_slice(),
+                                })?,
                             proof: import.proof(&candidate.proof)?,
                             case_instantiation: candidate.case_instantiation.as_ref().map(|case| import.case(case)).transpose()?,
                         })
-                    })?
-                    .into_boxed_slice(),
+                    })?,
                 blocked: blocked.as_ref().map(|reason| self.reason(reason)).transpose()?,
             }),
             P::Or { alternatives } => native::PatternResolution::Or(native::ResolvedOrPattern {
-                alternatives: self.map(alternatives, |import, pattern| import.pattern(pattern))?.into_boxed_slice(),
+                alternatives: self.map_boxed(alternatives, |import, pattern| import.pattern(pattern))?,
             }),
-            P::Tuple { elements } => native::PatternResolution::Tuple(self.map(elements, |import, pattern| import.pattern(pattern))?.into_boxed_slice()),
+            P::Tuple { elements } => native::PatternResolution::Tuple(self.map_boxed(elements, |import, pattern| import.pattern(pattern))?),
             P::List { prefix, rest } => native::PatternResolution::List(native::ResolvedListPattern {
-                prefix: self.map(prefix, |import, pattern| import.pattern(pattern))?.into_boxed_slice(),
+                prefix: self.map_boxed(prefix, |import, pattern| import.pattern(pattern))?,
                 rest: rest
                     .as_ref()
                     .map(|pattern| {
@@ -381,17 +370,16 @@ impl ProofImport<'_> {
                     .transpose()?,
             }),
             P::Record { fields } => native::PatternResolution::Record(
-                self.map(fields, |import, field| {
+                self.map_boxed(fields, |import, field| {
                     let child = import.pattern(&field.child)?;
                     Ok(native::ResolvedRecordFieldPattern {
                         label: import.allocations.boxed_str(&field.label).map_err(allocation_error)?,
                         child: import.allocations.boxed(child).map_err(allocation_error)?,
                     })
-                })?
-                .into_boxed_slice(),
+                })?,
             ),
             P::Map { entries } => native::PatternResolution::Map(
-                self.map(entries, |import, entry| {
+                self.map_boxed(entries, |import, entry| {
                     let child = import.pattern(&entry.child)?;
                     Ok(native::ResolvedMapEntryPattern {
                         key: match &entry.key {
@@ -408,8 +396,7 @@ impl ProofImport<'_> {
                         },
                         child: import.allocations.boxed(child).map_err(allocation_error)?,
                     })
-                })?
-                .into_boxed_slice(),
+                })?,
             ),
         })
     }
@@ -421,12 +408,12 @@ impl ProofImport<'_> {
             S::Char { value } => native::PatternSpaceSummary::Char(char::from_u32(*value).ok_or_else(|| referential("invalid pattern-space character"))?),
             S::Blocked { reason } => native::PatternSpaceSummary::Blocked(self.reason(reason)?),
             S::Opaque { ty } => native::PatternSpaceSummary::Opaque(self.relocation.ty(*ty)?),
-            S::Union { members } => native::PatternSpaceSummary::Union(self.map(members, |import, space| import.space(space))?.into_boxed_slice()),
-            S::Tuple { elements } => native::PatternSpaceSummary::Tuple(self.map(elements, |import, space| import.space(space))?.into_boxed_slice()),
+            S::Union { members } => native::PatternSpaceSummary::Union(self.map_boxed(members, |import, space| import.space(space))?),
+            S::Tuple { elements } => native::PatternSpaceSummary::Tuple(self.map_boxed(elements, |import, space| import.space(space))?),
             S::Variant { variant, exact_case, fields } => native::PatternSpaceSummary::Variant {
                 variant: import_stable_variant_with_allocation_budget(variant, self.allocations)?,
                 exact_case: self.relocation.ty(*exact_case)?,
-                fields: self.map(fields, |import, space| import.space(space))?.into_boxed_slice(),
+                fields: self.map_boxed(fields, |import, space| import.space(space))?,
             },
         })
     }
@@ -436,12 +423,12 @@ impl ProofImport<'_> {
             W::Wildcard => native::CoverageWitness::Wildcard,
             W::Char { value } => native::CoverageWitness::Char(char::from_u32(*value).ok_or_else(|| referential("invalid coverage character"))?),
             W::Opaque { ty } => native::CoverageWitness::Opaque(self.relocation.ty(*ty)?),
-            W::Tuple { elements } => native::CoverageWitness::Tuple(self.map(elements, |import, witness| import.witness(witness))?.into_boxed_slice()),
-            W::List { elements } => native::CoverageWitness::List(self.map(elements, |import, witness| import.witness(witness))?.into_boxed_slice()),
+            W::Tuple { elements } => native::CoverageWitness::Tuple(self.map_boxed(elements, |import, witness| import.witness(witness))?),
+            W::List { elements } => native::CoverageWitness::List(self.map_boxed(elements, |import, witness| import.witness(witness))?),
             W::Variant { variant, exact_case, fields } => native::CoverageWitness::Variant {
                 variant: import_stable_variant_with_allocation_budget(variant, self.allocations)?,
                 exact_case: self.relocation.ty(*exact_case)?,
-                fields: self.map(fields, |import, witness| import.witness(witness))?.into_boxed_slice(),
+                fields: self.map_boxed(fields, |import, witness| import.witness(witness))?,
             },
         })
     }

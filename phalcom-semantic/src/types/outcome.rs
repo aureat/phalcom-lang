@@ -221,6 +221,43 @@ pub enum BlockReason {
     SuppressedDependency,
 }
 
+impl BlockReason {
+    pub(crate) fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(match self {
+            Self::UnknownType(reason) => Self::UnknownType(reason.clone_with_allocation_budget(allocations)?),
+            Self::UnresolvedDependency(key) => {
+                let project_str = allocations.string(key.project.source.0.to_str().unwrap_or(""))?;
+                let comps = key.path.components();
+                let mut components = allocations.vector::<phalcom_modules::ModuleComponent>(comps.len())?;
+                for comp in comps {
+                    let boxed_spelling = allocations.boxed_str(comp.as_str())?;
+                    let comp = phalcom_modules::ModuleComponent::from_owned_identifier(boxed_spelling)
+                        .map_err(|_| phalcom_type_meta::allocation::AllocationError::Failed)?;
+                    components.push(comp);
+                }
+                let components = allocations.boxed_slice(components)?;
+                Self::UnresolvedDependency(phalcom_modules::StableModuleKey::new(
+                    phalcom_modules::StableProjectKey::from_path(std::path::PathBuf::from(project_str)),
+                    phalcom_modules::ModulePath::from_components(components),
+                ))
+            }
+            Self::InvalidAnnotation(code) => Self::InvalidAnnotation(*code),
+            Self::RecursiveFixpoint => Self::RecursiveFixpoint,
+            Self::InferenceDidNotConverge => Self::InferenceDidNotConverge,
+            Self::OpaqueNative(message) => Self::OpaqueNative(allocations.boxed_str(message)?),
+            Self::ReflectionBoundary => Self::ReflectionBoundary,
+            Self::UnavailableSemanticOwner(owner) => {
+                Self::UnavailableSemanticOwner(owner.clone_with_allocation_budget(allocations)?)
+            }
+            Self::BudgetExceeded(report) => Self::BudgetExceeded(report.clone()),
+            Self::SuppressedDependency => Self::SuppressedDependency,
+        })
+    }
+}
+
 /// Evidence supporting a proven relation judgment.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RelationEvidence {

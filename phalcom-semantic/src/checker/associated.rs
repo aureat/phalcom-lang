@@ -111,6 +111,18 @@ pub enum BehavioralFamilySpec {
     Pattern(SelectorPattern),
 }
 
+impl BehavioralFamilySpec {
+    pub(crate) fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(match self {
+            Self::Exact(selector) => Self::Exact(crate::traits::clone_selector_with_allocation_budget(selector, allocations)?),
+            Self::Pattern(pattern) => Self::Pattern(crate::traits::clone_selector_pattern_with_allocation_budget(pattern, allocations)?),
+        })
+    }
+}
+
 /// One statically known ordinary behavior candidate retained by a bound
 /// family. Runtime still dispatches on the captured receiver.
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -295,11 +295,21 @@ pub struct ConstructorInitializationProduct {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConstructorInitializationTable {
     parent: Option<Arc<Self>>,
-    by_factory: BTreeMap<CallableId, ConstructorInitializationProduct>,
+    by_factory: crate::ordered_map::OrderedMap<CallableId, ConstructorInitializationProduct>,
     module_factories: BTreeMap<ModuleId, BTreeSet<CallableId>>,
 }
 
 impl ConstructorInitializationTable {
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<(CallableId, ConstructorInitializationProduct)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, crate::ordered_map::FrozenOrderedMapError> {
+        Ok(Self {
+            by_factory: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(entries, allocations)?,
+            ..Self::default()
+        })
+    }
+
     /// Attaches canonical construction paths without copying their entries.
     pub fn with_parent(parent: Arc<Self>) -> Self {
         Self {

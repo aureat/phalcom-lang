@@ -2,6 +2,7 @@
 
 use crate::identity::{DeclarationId, ModuleId};
 use crate::prelude::PreludeTypeMap;
+use crate::ordered_map::OrderedMap;
 use crate::types::annotation::TypeResolver;
 use phalcom_modules::linker::{LinkedProgram, LinkedReadSpec};
 use std::cell::RefCell;
@@ -26,8 +27,8 @@ pub struct LinkedTypeResolver {
     alias_form_overrides: RefCell<BTreeMap<DeclarationId, Option<crate::types::id::TypeId>>>,
     trait_associated_types: Arc<BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>>>,
     associated_type_members: Arc<RwLock<AssociatedTypeMemberProducts>>,
-    static_case_catalogs: Arc<RwLock<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>>,
-    static_case_signatures: Arc<RwLock<BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>>,
+    static_case_catalogs: Arc<RwLock<OrderedMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>>,
+    static_case_signatures: Arc<RwLock<OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>>,
     static_definitions: Arc<RwLock<crate::static_definition::StaticDefinitionTable>>,
 }
 
@@ -54,8 +55,8 @@ impl LinkedTypeResolver {
             alias_form_overrides: RefCell::new(BTreeMap::new()),
             trait_associated_types: Arc::new(BTreeMap::new()),
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
-            static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
-            static_case_signatures: Arc::new(RwLock::new(BTreeMap::new())),
+            static_case_catalogs: Arc::new(RwLock::new(OrderedMap::default())),
+            static_case_signatures: Arc::new(RwLock::new(OrderedMap::default())),
             static_definitions: Arc::new(RwLock::new(crate::static_definition::StaticDefinitionTable::new())),
         }
     }
@@ -79,8 +80,8 @@ impl LinkedTypeResolver {
             alias_form_overrides: RefCell::new(BTreeMap::new()),
             trait_associated_types: Arc::new(BTreeMap::new()),
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
-            static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
-            static_case_signatures: Arc::new(RwLock::new(BTreeMap::new())),
+            static_case_catalogs: Arc::new(RwLock::new(OrderedMap::default())),
+            static_case_signatures: Arc::new(RwLock::new(OrderedMap::default())),
             static_definitions: Arc::new(RwLock::new(crate::static_definition::StaticDefinitionTable::new())),
         }
     }
@@ -132,14 +133,14 @@ impl LinkedTypeResolver {
 
     pub fn update_static_case_catalogs(
         &self,
-        catalogs: &BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>,
+        catalogs: &OrderedMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>,
     ) {
         if let Ok(mut current) = self.static_case_catalogs.write() {
             *current = catalogs.clone();
         }
     }
 
-    pub fn update_static_case_signatures(&self, signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>) {
+    pub fn update_static_case_signatures(&self, signatures: &OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>) {
         if let Ok(mut current) = self.static_case_signatures.write() {
             *current = signatures.clone();
         }

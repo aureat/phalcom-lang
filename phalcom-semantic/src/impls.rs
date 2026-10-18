@@ -336,14 +336,17 @@ pub(crate) fn specialize_witness_signature(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CoveringImplSubstitution {
     /// Mapping: impl-owned TypeParameterId -> declaration-owned TypeParameterId
-    pub impl_to_decl: HashMap<TypeParameterId, TypeParameterId>,
+    pub impl_to_decl: crate::ordered_map::OrderedMap<TypeParameterId, TypeParameterId>,
     /// Inverse: declaration-owned TypeParameterId -> impl-owned TypeParameterId
-    pub decl_to_impl: HashMap<TypeParameterId, TypeParameterId>,
+    pub decl_to_impl: crate::ordered_map::OrderedMap<TypeParameterId, TypeParameterId>,
 }
 
 impl CoveringImplSubstitution {
     pub fn new(impl_to_decl: HashMap<TypeParameterId, TypeParameterId>, decl_to_impl: HashMap<TypeParameterId, TypeParameterId>) -> Self {
-        Self { impl_to_decl, decl_to_impl }
+        Self {
+            impl_to_decl: impl_to_decl.into_iter().collect::<BTreeMap<_, _>>().into(),
+            decl_to_impl: decl_to_impl.into_iter().collect::<BTreeMap<_, _>>().into(),
+        }
     }
 
     /// Converts the `impl_to_decl` map into a `TypeSubstitution` replacing impl parameter types with declaration parameter types.
@@ -2470,12 +2473,16 @@ pub(crate) fn conformance_evidence_fingerprint(
     source_plan.hash(&mut hasher);
     target.hash(&mut hasher);
     trait_ref.hash(&mut hasher);
-    let mut bindings = environment.bindings.iter().collect::<Vec<_>>();
-    bindings.sort_by_key(|(parameter, _)| **parameter);
-    bindings.hash(&mut hasher);
-    let mut row_bindings = environment.row_bindings.iter().collect::<Vec<_>>();
-    row_bindings.sort_by_key(|(parameter, _)| **parameter);
-    row_bindings.hash(&mut hasher);
+    environment.bindings.len().hash(&mut hasher);
+    for (parameter, value) in &environment.bindings {
+        parameter.hash(&mut hasher);
+        value.hash(&mut hasher);
+    }
+    environment.row_bindings.len().hash(&mut hasher);
+    for (parameter, value) in &environment.row_bindings {
+        parameter.hash(&mut hasher);
+        value.hash(&mut hasher);
+    }
     environment.self_binding.hash(&mut hasher);
     hash_debug_pairs(requirement_views.iter(), &mut hasher);
     hash_debug_pairs(requirements.iter(), &mut hasher);

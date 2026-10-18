@@ -293,16 +293,30 @@ impl fmt::Debug for ModulePath {
         if self.0.is_empty() {
             write!(f, "<root>")
         } else {
-            let joined = self.0.iter().map(|c| c.as_str()).collect::<Vec<_>>().join(".");
-            write!(f, "{joined}")
+            let mut first = true;
+            for c in &self.0 {
+                if !first {
+                    f.write_str(".")?;
+                }
+                first = false;
+                f.write_str(c.as_str())?;
+            }
+            Ok(())
         }
     }
 }
 
 impl fmt::Display for ModulePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let joined = self.0.iter().map(|c| c.as_str()).collect::<Vec<_>>().join(".");
-        f.write_str(&joined)
+        let mut first = true;
+        for c in &self.0 {
+            if !first {
+                f.write_str(".")?;
+            }
+            first = false;
+            f.write_str(c.as_str())?;
+        }
+        Ok(())
     }
 }
 

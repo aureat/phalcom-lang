@@ -28,7 +28,7 @@ use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::kind::KindData;
 use crate::types::store::TypeStore;
 use phalcom_ast::ast::{AlgebraicDef, AlgebraicPhase, CasePayloadSyntax, DataProductContributionSyntax, ProductShapeSyntax};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Builds complete semantic metadata and products for an [`AlgebraicDef`].
@@ -40,7 +40,7 @@ pub fn build_algebraic_semantics(
     resolver: &LinkedTypeResolver,
     module_id: &ModuleId,
 ) -> Option<AlgebraicDeclarationProduct> {
-    build_algebraic_semantics_with_static_products(owner, def, store, declarations, resolver, module_id, None, &BTreeMap::new())
+    build_algebraic_semantics_with_static_products(owner, def, store, declarations, resolver, module_id, None, &crate::ordered_map::OrderedMap::default())
 }
 
 /// Builds an algebraic declaration using the canonical static-case catalog and
@@ -53,7 +53,7 @@ pub fn build_algebraic_semantics_with_static_products(
     resolver: &LinkedTypeResolver,
     module_id: &ModuleId,
     static_catalog: Option<&crate::static_case::StaticDomainCaseCatalogProduct>,
-    static_signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
+    static_signatures: &crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
 ) -> Option<AlgebraicDeclarationProduct> {
     if matches!(&def.shape, phalcom_ast::ast::AlgebraicShapeSyntax::IntrinsicFacade(_)) {
         return None;
@@ -724,7 +724,7 @@ pub fn build_associated_static_domain_declaration(
     resolver: &LinkedTypeResolver,
     module_id: &ModuleId,
 ) -> (Option<crate::db::product::AssociatedStaticDomainDeclarationProduct>, Vec<SemanticDiagnostic>) {
-    build_associated_static_domain_declaration_with_static_products(owner, def, store, declarations, resolver, module_id, None, &BTreeMap::new())
+    build_associated_static_domain_declaration_with_static_products(owner, def, store, declarations, resolver, module_id, None, &crate::ordered_map::OrderedMap::default())
 }
 
 pub fn build_associated_static_domain_declaration_with_static_products(
@@ -735,7 +735,7 @@ pub fn build_associated_static_domain_declaration_with_static_products(
     resolver: &LinkedTypeResolver,
     module_id: &ModuleId,
     catalog: Option<&crate::static_case::StaticDomainCaseCatalogProduct>,
-    signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
+    signatures: &crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
 ) -> (Option<crate::db::product::AssociatedStaticDomainDeclarationProduct>, Vec<SemanticDiagnostic>) {
     let mut diagnostics = Vec::new();
     if def.phase != AlgebraicPhase::TypeOnly || !def.generic_parameters.is_empty() || def.where_clause.is_some() {
@@ -981,7 +981,7 @@ fn register_static_declaration(
     module_id: &ModuleId,
     diagnostics: &mut Vec<SemanticDiagnostic>,
     catalog: Option<&crate::static_case::StaticDomainCaseCatalogProduct>,
-    signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
+    signatures: &crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
 ) -> StaticAlgebraicDeclarationInfo {
     let domain = store.nominal_static_domain(owner.clone());
     if let Some(catalog) = catalog {

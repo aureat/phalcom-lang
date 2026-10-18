@@ -992,30 +992,102 @@ fn hash_flow_summary(summary: &FlowStateSummary, hasher: &mut impl Hasher) {
     summary.fact_count.hash(hasher);
 }
 
+fn hash_exact_conformance_evidence(exact: &crate::impls::ConformanceEvidence, hasher: &mut impl Hasher) {
+    exact.fingerprint.hash(hasher);
+    exact.source_impl.hash(hasher);
+    exact.exact_target.hash(hasher);
+    exact.exact_trait_ref.hash(hasher);
+    crate::types::parameter::TypeTerm::Canonical(exact.exact_target).hash(hasher);
+    exact.exact_trait_ref.hash(hasher);
+    match &exact.trait_header_conformance_proofs {
+        None => 0u8.hash(hasher),
+        Some(proofs) => {
+            1u8.hash(hasher);
+            proofs.len().hash(hasher);
+            for (key, proof) in proofs {
+                key.hash(hasher);
+                hash_generic_conformance_evidence(proof, hasher);
+            }
+        }
+    }
+}
+
+fn hash_derived_conformance_evidence(derived: &crate::generic_evidence::DerivedConformanceEvidence, hasher: &mut impl Hasher) {
+    match &derived.origin {
+        crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => {
+            0u8.hash(hasher);
+            exact_source.fingerprint.hash(hasher);
+        }
+        crate::generic_evidence::DerivedConformanceOrigin::GuardedRule {
+            rule,
+            exact_subject,
+            exact_trait_ref,
+        } => {
+            1u8.hash(hasher);
+            rule.fingerprint.hash(hasher);
+            exact_subject.hash(hasher);
+            exact_trait_ref.hash(hasher);
+        }
+    }
+    let bindings = derived.impl_bindings.bindings();
+    bindings.len().hash(hasher);
+    for (parameter, value) in bindings.iter() {
+        parameter.hash(hasher);
+        value.hash(hasher);
+    }
+    for nested in derived.nested.iter() {
+        match nested {
+            crate::generic_evidence::NestedGenericEvidence::Conformance(nested) => {
+                0u8.hash(hasher);
+                hash_generic_conformance_evidence(nested, hasher);
+            }
+            crate::generic_evidence::NestedGenericEvidence::Equivalent => 1u8.hash(hasher),
+            crate::generic_evidence::NestedGenericEvidence::Subtype => 2u8.hash(hasher),
+        }
+    }
+}
+
+fn hash_compiler_derived_conformance_evidence(derived: &crate::generic_evidence::CompilerDerivedConformanceEvidence, hasher: &mut impl Hasher) {
+    derived.key.hash(hasher);
+    derived.kind.hash(hasher);
+    match &derived.classification {
+        crate::structural::StructuralClassification::Unsupported => 0u8.hash(hasher),
+        crate::structural::StructuralClassification::OrderedProduct(form) => {
+            1u8.hash(hasher);
+            match form {
+                crate::structural::OrderedProductForm::Unit => 0u8.hash(hasher),
+                crate::structural::OrderedProductForm::Tuple => 1u8.hash(hasher),
+                crate::structural::OrderedProductForm::TupleFromPacks => 2u8.hash(hasher),
+                crate::structural::OrderedProductForm::Pack => 3u8.hash(hasher),
+                crate::structural::OrderedProductForm::PackFromPacks => 4u8.hash(hasher),
+                crate::structural::OrderedProductForm::Data { owner } => {
+                    5u8.hash(hasher);
+                    owner.hash(hasher);
+                }
+            }
+        }
+        crate::structural::StructuralClassification::UnorderedProduct(form) => {
+            2u8.hash(hasher);
+            match form {
+                crate::structural::UnorderedProductForm::Record => 0u8.hash(hasher),
+                crate::structural::UnorderedProductForm::Data { owner } => {
+                    1u8.hash(hasher);
+                    owner.hash(hasher);
+                }
+            }
+        }
+        crate::structural::StructuralClassification::Sum { owner } => {
+            3u8.hash(hasher);
+            owner.hash(hasher);
+        }
+    }
+}
+
 pub(crate) fn hash_generic_conformance_evidence(evidence: &crate::generic_evidence::GenericConformanceEvidence, hasher: &mut impl Hasher) {
     match evidence {
         crate::generic_evidence::GenericConformanceEvidence::Exact(exact) => {
             0u8.hash(hasher);
-            exact.fingerprint.hash(hasher);
-            exact.source_impl.hash(hasher);
-            exact.exact_target.hash(hasher);
-            exact.exact_trait_ref.hash(hasher);
-            crate::generic_evidence::GenericConformanceKey::new(
-                crate::types::parameter::TypeTerm::Canonical(exact.exact_target),
-                exact.exact_trait_ref.clone(),
-            )
-            .hash(hasher);
-            match &exact.trait_header_conformance_proofs {
-                None => 0u8.hash(hasher),
-                Some(proofs) => {
-                    1u8.hash(hasher);
-                    proofs.len().hash(hasher);
-                    for (key, proof) in proofs {
-                        key.hash(hasher);
-                        hash_generic_conformance_evidence(proof, hasher);
-                    }
-                }
-            }
+            hash_exact_conformance_evidence(exact, hasher);
         }
         crate::generic_evidence::GenericConformanceEvidence::Assumed(assumed) => {
             1u8.hash(hasher);
@@ -1024,71 +1096,11 @@ pub(crate) fn hash_generic_conformance_evidence(evidence: &crate::generic_eviden
         }
         crate::generic_evidence::GenericConformanceEvidence::Derived(derived) => {
             2u8.hash(hasher);
-            match &derived.origin {
-                crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => {
-                    0u8.hash(hasher);
-                    exact_source.fingerprint.hash(hasher);
-                }
-                crate::generic_evidence::DerivedConformanceOrigin::GuardedRule {
-                    rule,
-                    exact_subject,
-                    exact_trait_ref,
-                } => {
-                    1u8.hash(hasher);
-                    rule.fingerprint.hash(hasher);
-                    exact_subject.hash(hasher);
-                    exact_trait_ref.hash(hasher);
-                }
-            }
-            let mut bindings = derived.impl_bindings.bindings().iter().collect::<Vec<_>>();
-            bindings.sort_by_key(|(parameter, _)| **parameter);
-            bindings.hash(hasher);
-            for nested in derived.nested.iter() {
-                match nested {
-                    crate::generic_evidence::NestedGenericEvidence::Conformance(nested) => {
-                        0u8.hash(hasher);
-                        hash_generic_conformance_evidence(nested, hasher);
-                    }
-                    crate::generic_evidence::NestedGenericEvidence::Equivalent => 1u8.hash(hasher),
-                    crate::generic_evidence::NestedGenericEvidence::Subtype => 2u8.hash(hasher),
-                }
-            }
+            hash_derived_conformance_evidence(derived, hasher);
         }
         crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(derived) => {
             3u8.hash(hasher);
-            derived.key.hash(hasher);
-            derived.kind.hash(hasher);
-            match &derived.classification {
-                crate::structural::StructuralClassification::Unsupported => 0u8.hash(hasher),
-                crate::structural::StructuralClassification::OrderedProduct(form) => {
-                    1u8.hash(hasher);
-                    match form {
-                        crate::structural::OrderedProductForm::Unit => 0u8.hash(hasher),
-                        crate::structural::OrderedProductForm::Tuple => 1u8.hash(hasher),
-                        crate::structural::OrderedProductForm::TupleFromPacks => 2u8.hash(hasher),
-                        crate::structural::OrderedProductForm::Pack => 3u8.hash(hasher),
-                        crate::structural::OrderedProductForm::PackFromPacks => 4u8.hash(hasher),
-                        crate::structural::OrderedProductForm::Data { owner } => {
-                            5u8.hash(hasher);
-                            owner.hash(hasher);
-                        }
-                    }
-                }
-                crate::structural::StructuralClassification::UnorderedProduct(form) => {
-                    2u8.hash(hasher);
-                    match form {
-                        crate::structural::UnorderedProductForm::Record => 0u8.hash(hasher),
-                        crate::structural::UnorderedProductForm::Data { owner } => {
-                            1u8.hash(hasher);
-                            owner.hash(hasher);
-                        }
-                    }
-                }
-                crate::structural::StructuralClassification::Sum { owner } => {
-                    3u8.hash(hasher);
-                    owner.hash(hasher);
-                }
-            }
+            hash_compiler_derived_conformance_evidence(derived, hasher);
         }
     }
 }
@@ -1113,15 +1125,21 @@ fn hash_conditional_selected_call_capability(capability: Option<&crate::dispatch
     applicability.impl_id.hash(hasher);
     applicability.receiver.hash(hasher);
     applicability.owner_view.hash(hasher);
-    let mut bindings = applicability.bindings.iter().collect::<Vec<_>>();
-    bindings.sort_by_key(|(parameter, _)| **parameter);
-    bindings.hash(hasher);
-    let mut environment_bindings = applicability.environment.bindings.iter().collect::<Vec<_>>();
-    environment_bindings.sort_by_key(|(parameter, _)| **parameter);
-    environment_bindings.hash(hasher);
-    let mut row_bindings = applicability.environment.row_bindings.iter().collect::<Vec<_>>();
-    row_bindings.sort_by_key(|(parameter, _)| **parameter);
-    row_bindings.hash(hasher);
+    applicability.bindings.len().hash(hasher);
+    for (parameter, value) in applicability.bindings.iter() {
+        parameter.hash(hasher);
+        value.hash(hasher);
+    }
+    applicability.environment.bindings.len().hash(hasher);
+    for (parameter, value) in applicability.environment.bindings.iter() {
+        parameter.hash(hasher);
+        value.hash(hasher);
+    }
+    applicability.environment.row_bindings.len().hash(hasher);
+    for (parameter, value) in applicability.environment.row_bindings.iter() {
+        parameter.hash(hasher);
+        value.hash(hasher);
+    }
     applicability.environment.self_binding.hash(hasher);
     match &applicability.conformance_provenance {
         None => 0u8.hash(hasher),
@@ -1133,7 +1151,8 @@ fn hash_conditional_selected_call_capability(capability: Option<&crate::dispatch
                 match &binding.source {
                     crate::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
                         0u8.hash(hasher);
-                        hash_generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::Exact(evidence.clone()), hasher);
+                        0u8.hash(hasher);
+                        hash_exact_conformance_evidence(evidence, hasher);
                     }
                     crate::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance } => {
                         1u8.hash(hasher);
@@ -1141,11 +1160,13 @@ fn hash_conditional_selected_call_capability(capability: Option<&crate::dispatch
                     }
                     crate::checker::analysis::GenericCallConformanceSource::Derived { evidence } => {
                         2u8.hash(hasher);
-                        hash_generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::Derived(evidence.clone()), hasher);
+                        2u8.hash(hasher);
+                        hash_derived_conformance_evidence(evidence, hasher);
                     }
                     crate::checker::analysis::GenericCallConformanceSource::CompilerDerived { evidence } => {
                         3u8.hash(hasher);
-                        hash_generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence.clone()), hasher);
+                        3u8.hash(hasher);
+                        hash_compiler_derived_conformance_evidence(evidence, hasher);
                     }
                 }
             }
@@ -1899,24 +1920,24 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         hash_conditional_selected_call_capability(expression.conditional_capability.as_ref(), &mut hasher);
         hash_trait_dispatch_site(expression.trait_dispatch.as_ref(), &mut hasher);
         hash_contextual_realization(expression.contextual_realization.as_deref(), &mut hasher);
-        expression
-            .trait_dispatch_candidates
-            .as_ref()
-            .map(|candidates| {
-                candidates
-                    .iter()
-                    .map(|candidate| {
-                        let mut candidate_hasher = DefaultHasher::new();
-                        candidate.exact_trait_ref.hash(&mut candidate_hasher);
-                        candidate.requirement.hash(&mut candidate_hasher);
-                        candidate.source_impl.hash(&mut candidate_hasher);
-                        candidate.evidence_fingerprint.raw().hash(&mut candidate_hasher);
-                        hash_requirement_selection(&candidate.selection, &mut candidate_hasher);
-                        candidate_hasher.finish()
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .hash(&mut hasher);
+        match &expression.trait_dispatch_candidates {
+            Some(candidates) => {
+                core::mem::discriminant(&Some(())).hash(&mut hasher);
+                candidates.len().hash(&mut hasher);
+                for candidate in candidates.iter() {
+                    let mut candidate_hasher = DefaultHasher::new();
+                    candidate.exact_trait_ref.hash(&mut candidate_hasher);
+                    candidate.requirement.hash(&mut candidate_hasher);
+                    candidate.source_impl.hash(&mut candidate_hasher);
+                    candidate.evidence_fingerprint.raw().hash(&mut candidate_hasher);
+                    hash_requirement_selection(&candidate.selection, &mut candidate_hasher);
+                    candidate_hasher.finish().hash(&mut hasher);
+                }
+            }
+            None => {
+                core::mem::discriminant(&None::<()>).hash(&mut hasher);
+            }
+        }
         hash_denotation(&expression.denotation, &mut hasher);
         hash_analysis_status(&expression.status, &analysis.internal_incidents, &mut hasher);
         hash_causal_invalidity(expression.causal_invalidity, &mut hasher);
@@ -2297,7 +2318,8 @@ fn hash_realization_capability_selection(selection: &crate::checker::Realization
     match selection {
         crate::checker::RealizationCapabilitySelection::Evidenced(selection) => {
             0u8.hash(hasher);
-            hash_trait_dispatch_site(Some(&crate::trait_dispatch::TraitDispatchSite::Evidenced(selection.clone())), hasher);
+            2u8.hash(hasher);
+            hash_trait_dispatch_selection(selection, hasher);
         }
         crate::checker::RealizationCapabilitySelection::Assumed(selection) => {
             1u8.hash(hasher);

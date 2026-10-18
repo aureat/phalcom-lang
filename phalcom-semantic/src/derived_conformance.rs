@@ -6,6 +6,7 @@ use crate::impls::{ConformanceAssociatedTypePlan, RequirementSelectionTemplate};
 use crate::traits::{InstantiatedTraitRequirement, TraitRef, TraitRequirementId};
 use crate::types::id::TypeParameterId;
 use crate::types::parameter::GenericSignature;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::BTreeMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -101,8 +102,23 @@ impl DerivedConformanceRule {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DerivedConformanceRuleIndex {
     parent: Option<Arc<Self>>,
-    rules_by_trait: BTreeMap<DeclarationId, Vec<Arc<DerivedConformanceRule>>>,
-    rules_by_impl: BTreeMap<ImplId, Arc<DerivedConformanceRule>>,
+    rules_by_trait: crate::ordered_map::OrderedMap<DeclarationId, Vec<Arc<DerivedConformanceRule>>>,
+    rules_by_impl: crate::ordered_map::OrderedMap<ImplId, Arc<DerivedConformanceRule>>,
+}
+
+#[derive(Debug)]
+pub(crate) enum FrozenDerivedConformanceRuleIndexError {
+    Allocation(AllocationError),
+    DuplicateKey,
+}
+
+impl FrozenDerivedConformanceRuleIndexError {
+    fn from_ordered_map(error: crate::ordered_map::FrozenOrderedMapError) -> Self {
+        match error {
+            crate::ordered_map::FrozenOrderedMapError::Allocation(error) => Self::Allocation(error),
+            crate::ordered_map::FrozenOrderedMapError::DuplicateKey => Self::DuplicateKey,
+        }
+    }
 }
 
 /// Borrowed canonical-first trait bucket with indexed and iterable access.
@@ -169,6 +185,83 @@ impl DerivedConformanceRuleIndex {
         }
     }
 
+    /// Publishes artifact-owned rules from charged contiguous buffers.
+    ///
+    /// Source sessions continue to use the mutable local `OrderedMap` overlay
+    /// through [`Self::insert`]. Artifact imports use this constructor so the
+    /// canonical rule index does not allocate native tree nodes and then copy
+    /// them into a second representation.
+    pub(crate) fn from_frozen_rules_with_allocation_budget(
+        rules: Vec<DerivedConformanceRule>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, FrozenDerivedConformanceRuleIndexError> {
+        let mut rules_by_impl_entries = allocations
+            .vector::<(ImplId, Arc<DerivedConformanceRule>)>(rules.len())
+            .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+        let mut rules_by_trait_flat = allocations
+            .vector::<(DeclarationId, Arc<DerivedConformanceRule>)>(rules.len())
+            .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+
+        for rule in rules {
+            let rule = allocations.arc(rule).map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+            let impl_id = rule
+                .impl_id
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+            let trait_declaration = rule
+                .trait_ref
+                .declaration
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+            rules_by_impl_entries.push((impl_id, Arc::clone(&rule)));
+            rules_by_trait_flat.push((trait_declaration, rule));
+        }
+
+        rules_by_trait_flat.sort_unstable_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.impl_id.cmp(&right.1.impl_id))
+        });
+        let bucket_count = rules_by_trait_flat
+            .windows(2)
+            .filter(|pair| pair[0].0 != pair[1].0)
+            .count()
+            .checked_add(usize::from(!rules_by_trait_flat.is_empty()))
+            .ok_or(FrozenDerivedConformanceRuleIndexError::Allocation(AllocationError::Overflow))?;
+        let mut rules_by_trait_entries = allocations
+            .vector::<(DeclarationId, Vec<Arc<DerivedConformanceRule>>)>(bucket_count)
+            .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+        let mut offset = 0;
+        while offset < rules_by_trait_flat.len() {
+            let end = rules_by_trait_flat[offset..]
+                .iter()
+                .position(|(trait_declaration, _)| trait_declaration != &rules_by_trait_flat[offset].0)
+                .map_or(rules_by_trait_flat.len(), |relative| offset + relative);
+            let trait_declaration = rules_by_trait_flat[offset]
+                .0
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+            let mut bucket = allocations
+                .vector::<Arc<DerivedConformanceRule>>(end - offset)
+                .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+            for (_, rule) in &rules_by_trait_flat[offset..end] {
+                bucket.push(Arc::clone(rule));
+            }
+            rules_by_trait_entries.push((trait_declaration, bucket));
+            offset = end;
+        }
+
+        let rules_by_trait = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(rules_by_trait_entries, allocations)
+            .map_err(FrozenDerivedConformanceRuleIndexError::from_ordered_map)?;
+        let rules_by_impl = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(rules_by_impl_entries, allocations)
+            .map_err(FrozenDerivedConformanceRuleIndexError::from_ordered_map)?;
+        Ok(Self {
+            parent: None,
+            rules_by_trait,
+            rules_by_impl,
+        })
+    }
+
     pub fn insert(&mut self, rule: DerivedConformanceRule) {
         assert!(
             !self.parent.as_ref().is_some_and(|parent| parent.get_rule(&rule.impl_id).is_some()),
@@ -176,10 +269,11 @@ impl DerivedConformanceRuleIndex {
         );
         self.remove(&rule.impl_id);
         let rule_arc = Arc::new(rule);
-        self.rules_by_trait
-            .entry(rule_arc.trait_ref.declaration.clone())
-            .or_default()
-            .push(rule_arc.clone());
+        if let Some(bucket) = self.rules_by_trait.get_mut(&rule_arc.trait_ref.declaration) {
+            bucket.push(rule_arc.clone());
+        } else {
+            self.rules_by_trait.insert(rule_arc.trait_ref.declaration.clone(), vec![rule_arc.clone()]);
+        }
         self.rules_by_impl.insert(rule_arc.impl_id.clone(), rule_arc);
     }
 
@@ -263,9 +357,19 @@ pub fn derived_conformance_rule_fingerprint(rule: &DerivedConformanceRule) -> Pr
     let mut hasher = DefaultHasher::new();
     rule.trait_ref.declaration.hash(&mut hasher);
     rule.trait_ref.arguments.hash(&mut hasher);
-    let mut sorted_constraints = rule.generic_signature.constraints.to_vec();
-    sorted_constraints.sort();
-    sorted_constraints.hash(&mut hasher);
+    rule.generic_signature.constraints.len().hash(&mut hasher);
+    let mut emitted = 0;
+    while emitted < rule.generic_signature.constraints.len() {
+        let next = rule.generic_signature.constraints.iter().find(|candidate| {
+            rule.generic_signature.constraints.iter().filter(|other| *other < *candidate).count() == emitted
+        });
+        let Some(next) = next else { break };
+        let duplicates = rule.generic_signature.constraints.iter().filter(|candidate| *candidate == next).count();
+        for _ in 0..duplicates {
+            next.hash(&mut hasher);
+        }
+        emitted += duplicates;
+    }
     for (req, sel) in &rule.requirements {
         req.hash(&mut hasher);
         match sel {

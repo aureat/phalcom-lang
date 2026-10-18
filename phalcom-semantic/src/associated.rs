@@ -208,14 +208,14 @@ pub struct AssociatedFamilyInfo {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssociatedSurface {
     pub owner: DeclarationId,
-    pub families: BTreeMap<SelectorBase, AssociatedFamilyInfo>,
+    pub families: crate::ordered_map::OrderedMap<SelectorBase, AssociatedFamilyInfo>,
 }
 
 impl AssociatedSurface {
     pub fn new(owner: DeclarationId) -> Self {
         Self {
             owner,
-            families: BTreeMap::new(),
+            families: crate::ordered_map::OrderedMap::default(),
         }
     }
 }

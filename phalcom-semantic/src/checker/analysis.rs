@@ -349,6 +349,33 @@ pub struct BindingState {
 }
 
 impl BindingState {
+    pub(crate) fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, AllocationError> {
+        let name = allocations.string(&self.name)?;
+        let parameter = self.parameter.as_ref().map(|p| p.clone_with_allocation_budget(allocations)).transpose()?;
+        let contract = self.contract.clone();
+        let current = self.current.clone_with_allocation_budget(allocations)?;
+        let denotation = self.denotation.as_ref().map(|d| d.clone_with_allocation_budget(allocations)).transpose()?;
+        let consistency = self.consistency.clone_with_allocation_budget(allocations)?;
+        Ok(Self {
+            binding: self.binding,
+            name,
+            parameter,
+            range: self.range,
+            contract,
+            current,
+            denotation,
+            consistency,
+            causal_invalidity: self.causal_invalidity,
+            mutable: self.mutable,
+            initialization: self.initialization,
+            version: self.version,
+            explanation: self.explanation,
+        })
+    }
+
     pub fn declared_type(&self) -> Option<crate::types::id::TypeId> {
         self.contract.as_ref().map(|contract| contract.ty)
     }
@@ -798,7 +825,12 @@ impl CallableAnalysisTable {
         let mut module_ranges = allocations.vector(module_count).map_err(CallableAnalysisTableBuildError::Allocation)?;
         let mut start = 0;
         while start < rows.len() {
-            let module = rows[start].0.owner.module().clone();
+            let module = rows[start]
+                .0
+                .owner
+                .module()
+                .clone_with_allocation_budget(allocations)
+                .map_err(CallableAnalysisTableBuildError::Allocation)?;
             let mut end = start + 1;
             while end < rows.len() && rows[end].0.owner.module() == &module {
                 end += 1;

@@ -21,6 +21,10 @@ impl ExplanationImport<'_> {
         }
         Ok(output)
     }
+    fn map_boxed<T, U>(&mut self, rows: &[T], f: impl FnMut(&mut Self, &T) -> Result<U, ArtifactError>) -> Result<Box<[U]>, ArtifactError> {
+        let rows = self.map(rows, f)?;
+        self.allocations.boxed_slice(rows).map_err(allocation_error)
+    }
     fn derivationrule(&mut self, value: &CallableDerivationRuleV1) -> Result<DerivationRule, ArtifactError> {
         Ok(match value {
             CallableDerivationRuleV1::LiteralSynthesis => DerivationRule::LiteralSynthesis,
@@ -149,11 +153,9 @@ impl ExplanationImport<'_> {
         Ok(match value {
             CallableExplainUnionArmOutcomeV1::Resolved => UnionArmOutcome::Resolved,
             CallableExplainUnionArmOutcomeV1::Missing { visited_owners } => UnionArmOutcome::Missing {
-                visited_owners: self
-                    .map(visited_owners, |this, value| {
-                        Ok(import_stable_declaration_with_allocation_budget(value, this.allocations)?)
-                    })?
-                    .into_boxed_slice(),
+                visited_owners: self.map_boxed(visited_owners, |this, value| {
+                    Ok(import_stable_declaration_with_allocation_budget(value, this.allocations)?)
+                })?,
             },
             CallableExplainUnionArmOutcomeV1::Ambiguous => UnionArmOutcome::Ambiguous,
             CallableExplainUnionArmOutcomeV1::Dynamic { reason } => UnionArmOutcome::Dynamic {
@@ -225,11 +227,9 @@ impl ExplanationImport<'_> {
                 callable: import_stable_callable_with_allocation_budget(callable, self.allocations)?,
                 receiver: self.relocation.ty(*receiver)?,
                 declaring_owner: import_stable_declaration_with_allocation_budget(declaring_owner, self.allocations)?,
-                specialization_path: self
-                    .map(specialization_path, |this, value| {
-                        Ok(import_stable_declaration_with_allocation_budget(value, this.allocations)?)
-                    })?
-                    .into_boxed_slice(),
+                specialization_path: self.map_boxed(specialization_path, |this, value| {
+                    Ok(import_stable_declaration_with_allocation_budget(value, this.allocations)?)
+                })?,
             },
             CallableExplanationStepV1::UnionArm { receiver, callable, outcome } => ExplanationStep::UnionArm {
                 receiver: self.relocation.ty(*receiver)?,
@@ -270,7 +270,7 @@ impl ExplanationImport<'_> {
                     .as_ref()
                     .map(|value| Ok::<_, ArtifactError>(import_stable_callable_with_allocation_budget(value, self.allocations)?))
                     .transpose()?,
-                failures: self.map(failures, |this, value| Ok(this.callshapeexplanation(value)?))?.into_boxed_slice(),
+                failures: self.map_boxed(failures, |this, value| Ok(this.callshapeexplanation(value)?))?,
             },
             CallableExplanationStepV1::MethodCall { call, callable, return_ty } => ExplanationStep::MethodCall {
                 call: ExpressionId::new(self.body, LocalExpressionId(*call)),
@@ -296,7 +296,7 @@ impl ExplanationImport<'_> {
                     .as_ref()
                     .map(|value| Ok::<_, ArtifactError>(self.relocation.parameter(*value)?))
                     .transpose()?,
-                constraints: self.map(constraints, |_, value| Ok(ExplanationId(*value)))?.into_boxed_slice(),
+                constraints: self.map_boxed(constraints, |_, value| Ok(ExplanationId(*value)))?,
             },
             CallableExplanationStepV1::CollectionSynthesis {
                 expression,
@@ -306,7 +306,7 @@ impl ExplanationImport<'_> {
             } => ExplanationStep::CollectionSynthesis {
                 expression: ExpressionId::new(self.body, LocalExpressionId(*expression)),
                 kind: self.collectionkind(kind)?,
-                element_types: self.map(element_types, |this, value| Ok(this.relocation.ty(*value)?))?.into_boxed_slice(),
+                element_types: self.map_boxed(element_types, |this, value| Ok(this.relocation.ty(*value)?))?,
                 result: self.relocation.ty(*result)?,
             },
             CallableExplanationStepV1::ProductComponent { source, index, result } => ExplanationStep::ProductComponent {
@@ -332,20 +332,16 @@ impl ExplanationImport<'_> {
                 joined,
             } => ExplanationStep::BranchJoin {
                 binding: binding.as_ref().map(|value| Ok::<_, ArtifactError>(BindingId(*value))).transpose()?,
-                branches: self
-                    .map(branches, |this, value| {
-                        Ok(import_type_knowledge_with_allocation_budget(value, this.relocation, this.allocations)?)
-                    })?
-                    .into_boxed_slice(),
-                reachable: self.map(reachable, |_, value| Ok(*value))?.into_boxed_slice(),
+                branches: self.map_boxed(branches, |this, value| {
+                    Ok(import_type_knowledge_with_allocation_budget(value, this.relocation, this.allocations)?)
+                })?,
+                reachable: self.map_boxed(reachable, |_, value| Ok(*value))?,
                 joined: import_type_knowledge_with_allocation_budget(joined, self.relocation, self.allocations)?,
             },
             CallableExplanationStepV1::LoopJoin { inputs, joined } => ExplanationStep::LoopJoin {
-                inputs: self
-                    .map(inputs, |this, value| {
-                        Ok(import_type_knowledge_with_allocation_budget(value, this.relocation, this.allocations)?)
-                    })?
-                    .into_boxed_slice(),
+                inputs: self.map_boxed(inputs, |this, value| {
+                    Ok(import_type_knowledge_with_allocation_budget(value, this.relocation, this.allocations)?)
+                })?,
                 joined: import_type_knowledge_with_allocation_budget(joined, self.relocation, self.allocations)?,
             },
             CallableExplanationStepV1::IterationElement { iterable, element, callable } => ExplanationStep::IterationElement {
@@ -362,11 +358,9 @@ impl ExplanationImport<'_> {
             },
             CallableExplanationStepV1::CallableReturnSummary { callable, returns, result } => ExplanationStep::CallableReturnSummary {
                 callable: import_stable_callable_with_allocation_budget(callable, self.allocations)?,
-                returns: self
-                    .map(returns, |this, value| {
-                        Ok(import_type_knowledge_with_allocation_budget(value, this.relocation, this.allocations)?)
-                    })?
-                    .into_boxed_slice(),
+                returns: self.map_boxed(returns, |this, value| {
+                    Ok(import_type_knowledge_with_allocation_budget(value, this.relocation, this.allocations)?)
+                })?,
                 result: import_type_knowledge_with_allocation_budget(result, self.relocation, self.allocations)?,
             },
             CallableExplanationStepV1::UnknownBoundary { reason, source } => ExplanationStep::UnknownBoundary {
