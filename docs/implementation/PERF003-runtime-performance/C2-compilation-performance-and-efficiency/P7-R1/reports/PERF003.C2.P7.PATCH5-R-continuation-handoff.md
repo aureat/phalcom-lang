@@ -6,7 +6,7 @@ Continue this task from the handoff below. The original implementation plan is a
 
 - Deliver the full `PERF003.C2.P7.PATCH5-R` plan, including gates `R.G0`–`R.G7`; a partial allocation fix is not plan completion.
 - Work in `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization` on branch `perf/universe-characterization`.
-- The user explicitly requested inline implementation with no subagents. Continue inline. Do not commit, push, reset, clean, or overwrite existing work unless separately requested.
+- The user explicitly requested inline implementation with no subagents. Continue inline. The partial implementation and evidence are committed as `5f1037cf` (`feat(perf): budget semantic artifact imports`); lifecycle records are synchronized in a follow-up commit included in this delivery. Resume from the current branch HEAD without resetting or cleaning.
 - Treat the attached plan as the architecture contract, especially §1, §3, §5–§11, and §13. Preserve unrelated dirty files and existing implementation/evidence work.
 
 ## Current state
@@ -15,7 +15,7 @@ Continue this task from the handoff below. The original implementation plan is a
 - Verified progress: prior implementation work in this worktree wired budget-aware type graph and static-value graph import, and added frozen owner/index machinery across semantic imports. The type graph discriminator has reported exact equality (`765031` ledger bytes / `765031` observed bytes).
 - Current exact semantic discriminator remains short by `2,468,555` bytes: observed `266,069,278`, ledger `263,600,723`.
 - The semantic import diagnostic conversion now budgets its source spans, owned strings, and vectors. `RUSTFLAGS='' cargo check -p phalcom-semantic --lib` passed after this edit. The exact Universe discriminator did not change, so that edit is not the cause of the remaining gap on this fixture.
-- Working tree is dirty with substantial existing PATCH5/PATCH5-R work, checkpoint changes, supplied plan/baseline/evidence files, and new implementation files. Preserve all of it. No commit has been made.
+- PATCH5-R source, plan, baseline/evidence, and partial checkpoint state are committed. The implementation commit is `5f1037cf`; the following lifecycle-only commit records that R.T1 remains partial and unverified. Continue implementation on the same branch from its current HEAD.
 
 ## Evidence and decisions
 

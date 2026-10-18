@@ -17,8 +17,8 @@ next_action: >
   semantic import equality check still reports a 2,468,555-byte delta. Continue
   tracing and closing semantic owner allocations before advancing to R.T2.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: 9cbba391a4482052dec476b327619c957a028b19
-latest_tested_revision: 9cbba391a4482052dec476b327619c957a028b19
+execution_tree_head: 5f1037cf
+latest_tested_revision: 5f1037cf
 latest_tested_predecessor: e4503086b97669d25cbaea21dcbc7e7740e2b260
 ---
 
@@ -2293,4 +2293,9 @@ is a known audit target, not an established root cause.
 No G1 completion is claimed. Exact semantic N/N-1, malformed-world rejection,
 child rollback/no publication, owner parity, and canonical fork/overlay proofs
 remain outstanding. R.G2-R.G7 are `UNVERIFIED`. Continue R.T1; do not begin R.T2
-until G1 passes. The active worktree changes have not yet been committed.
+until G1 passes. The partial implementation and evidence were committed as
+`5f1037cf` (`feat(perf): budget semantic artifact imports`). The semantic
+library source checked by Cargo is unchanged from that commit. The exact
+allocation test result was captured before removing only the test-only
+backtrace sampler; no post-cleanup test rerun was performed. The sampler did
+not contribute to the allocation equality assertion.
