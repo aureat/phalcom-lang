@@ -10,17 +10,91 @@ active_plan: PERF003.C2.P7.PATCH5-R
 latest_completed_plan: PERF003.C2.P7.PATCH4
 next_plan: PERF003.C2.P7.PATCH5-R
 next_action: >
-  PERF003.C2.P7.PATCH5-R R.T3 / R.G3 is complete and passed focused closure.
-  Continue with R.T4 whole-load exactness. Keep the +23,011 residual outside
-  N-P in owners C/A/H0. Keep P7 IN_PROGRESS / PARTIAL / UNVERIFIED and P8
-  BLOCKED; do not claim R.G4 or overall P7 completion.
+  PERF003.C2.P7.PATCH5-R R.T4 / R.G4 is complete and passed focused closure.
+  Whole-load exactness is established at 366,789,583 / 366,789,583 (delta 0).
+  Next is R.T5 source-vs-artifact compiler parity. Keep P7 IN_PROGRESS / PARTIAL / UNVERIFIED
+  and P8 BLOCKED; do not claim overall P7 completion.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: 5dcc09f9
-latest_tested_revision: 5dcc09f9
-latest_tested_predecessor: c7d308b7
+execution_tree_head: 06d2b229
+latest_tested_revision: 06d2b229
+latest_tested_predecessor: 5dcc09f9
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
+
+## PATCH5-R R.T4 whole-load exactness and R.G4 closure — 2026-10-18
+
+Source revision `06d2b229` (`06d2b22935872ffb216bdd26c6cfa4c35db92833`) passed all focused
+R.G4 checks on `/tmp/perf003-patch5r-c7-baseline/universe.telosc`. R.T4 is COMPLETE;
+R.G4 is PASS. P7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; P8 remains `BLOCKED`.
+
+The full whole-load census reconciles with exact zero delta:
+`366,789,583` ledger requested bytes == `366,789,583` independently observed requested bytes.
+Signed delta: `0`.
+
+The prior `+23,011` residual outside N-P has been completely resolved across its verified owners:
+1. **Owner A (`+13` container/header validation scratch):**
+   `validate_reader_header` previously compared `header.package_identity != TeloscPackageIdentity::universe()`.
+   The `universe()` constructor allocated two temporary boxed strings (`"universe"` [8 bytes] + `"0.1.0"` [5 bytes] = 13 bytes).
+   Replaced with an allocation-free exact match helper `TeloscPackageIdentity::is_exact_universe()`,
+   which checks both namespace ("universe") and version ("0.1.0") without allocating.
+   Regression tests verify that non-universe packages and incorrect versions (e.g., `"0.2.0"`) remain strictly rejected.
+   Owner A allocator delta: 0, ledger delta: 0, signed delta: 0.
+2. **Owner H0 (`+13` retained semantic-world identity setup):**
+   When constructing `CanonicalCompatibilityIdentity`, `package_identity` was previously deep-cloned via standard `.clone()`,
+   leaving 13 bytes of retained authority unbudgeted.
+   Added `clone_with_allocation_budget` to `TeloscPackageIdentity` and `CanonicalCompatibilityIdentity`,
+   charging the boxed strings (`"universe"` and `"0.1.0"`) to `AllocationBudget`.
+   Owner H0 allocator requested: 13, ledger requested: 13, signed delta: 0.
+3. **Owner C (`+22,985` module materialization validation):**
+   In `phalcom-modules/src/compiler_artifact.rs` (`load_module_world_inner`), initializer-order validation
+   previously called `graphs.runtime.dependencies(id)`.
+   That method allocated a new `Vec<ModuleId>`, deep-cloned all `ModuleId`s and `ModulePath` components,
+   and sorted/deduped on every checked module.
+   Replaced with borrowed edge traversal `graphs.runtime.edges_from(id)`.
+   Module materialization observed requested bytes dropped by exactly 22,985 bytes to `823,059`,
+   matching the ledger (`823,059`), signed delta: 0.
+
+Complete whole-load stage census (`universe.telosc`):
+
+| Stage | Ledger | Observed | Delta |
+|---|---:|---:|---:|
+| A container/root + header | 301 | 301 | 0 |
+| B MODULE_WORLD DTO decode | 377,691 | 377,691 | 0 |
+| C module native materialization | 823,059 | 823,059 | 0 |
+| D SEMANTIC_WORLD DTO decode | 92,338,552 | 92,338,552 | 0 |
+| E semantic native import | 264,140,626 | 264,140,626 | 0 |
+| F QUERY_IMAGE DTO decode | 1,548,357 | 1,548,357 | 0 |
+| G METADATA DTO decode | 1,489,834 | 1,489,834 | 0 |
+| H0 query semantic-world identity setup | 13 | 13 | 0 |
+| H-K query reconstruction (Q0-Q5) | 4,351,537 | 4,351,537 | 0 |
+| M metadata bundle decode/materialization | 1,473,434 | 1,473,434 | 0 |
+| N-P formal image / module-query publication (P1-P10) | 245,707 | 245,707 | 0 |
+| O final LoadedUniverseArtifact publication | 472 | 472 | 0 |
+| **Total Whole Load** | **366,789,583** | **366,789,583** | **0** |
+
+All subcensus stages (Q0-Q5, QX, P1-P10, O unclassified/boundary) are exact with signed delta 0.
+
+Failure atomicity, limits, and retryability verified:
+- Exact budget $N = 366,789,583$ succeeds and loads the complete artifact.
+- Cumulative limit $N-1 = 366,789,582$ fails closed with typed error `TeloscArtifactError::BudgetExceeded { limit_bytes: 366789582 }`.
+- Clean retry after cumulative budget exhaustion succeeds.
+- Local stage limit exhaustion (`max_decoded_section_bytes: 400_000` during module materialization)
+  fails closed with typed `TeloscArtifactError::Artifact(ArtifactError::Allocation(AllocationError::Exhausted))`.
+- Child transaction rollback is verified: the failed module materialization stage requested 823,059 bytes,
+  and the parent ledger contains only the preceding stages (`377,992` bytes) without committing the uncommitted child debit.
+- Clean retry after local stage exhaustion succeeds.
+
+Focused verification results:
+- `cargo test -p phalcom-type-meta --test allocation_helpers` — PASS
+- `cargo test -p phalcom-semantic --test artifact-allocation -- --nocapture --test-threads=1` — PASS
+- `cargo test -p phalcom-core --test core modules_canonical_artifact:: -- --test-threads=1` — PASS (11 tests)
+- `PHALCOM_UNIVERSE_TELOSC_FOR_TEST=/tmp/perf003-patch5r-c7-baseline/universe.telosc cargo test -p phalcom-core --lib temporary_current_loaded_publication_allocation_census -- --nocapture --test-threads=1` — PASS
+- `PHALCOM_UNIVERSE_TELOSC_FOR_TEST=/tmp/perf003-patch5r-c7-baseline/universe.telosc cargo test -p phalcom-core --test artifact-allocation -- --nocapture --test-threads=1` — PASS
+- Baseline failure noted: `phalcom-compiler-artifact/tests/metadata_test.rs` has 2 pre-existing failures from `c7d308b7` (Class D / baseline).
+- `git diff --check` — PASS
+
+Next: R.T5 source-vs-artifact compiler parity.
 
 ## PATCH5-R R.T3 failure atomicity and R.G3 closure — 2026-10-18
 
