@@ -4,14 +4,14 @@ use crate::canonical_image::{CanonicalImageError, CanonicalQueryEntry, Canonical
 use crate::db::key::QueryKey;
 use crate::db::product::{CallableSignatureProduct, DeclarationSurfaceProduct, SemanticProduct};
 use crate::db::{DependencyEdge, InputFingerprint, ProductFingerprint};
-use crate::metadata::stable_identity::{from_stable_callable, from_stable_declaration, from_stable_field};
+use crate::metadata::stable_identity::from_stable_callable;
 use crate::snapshot::SemanticSnapshot;
 use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::error::QueryImageError;
 use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryProfileSupport};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
+use phalcom_type_meta::budgeted::BudgetDecode;
 use phalcom_type_meta::identity::{StableCallableRef, StableDeclarationRef, StableFieldRef};
-use serde::de::DeserializeOwned;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -116,71 +116,174 @@ pub fn validate_query_image_closure(image: &QueryImageV1) -> Result<(), Artifact
     validate_query_image_closure_with_allocation_budget(image, &limits, &mut budget)
 }
 
-fn decode_owner<T: DeserializeOwned>(key: &PortableQueryKeyV1, tag: &str) -> Result<T, CanonicalImageError> {
-    let prefix = format!("{tag}:");
+fn decode_owner<T: phalcom_type_meta::budgeted::BudgetDecode>(
+    key: &PortableQueryKeyV1,
+    tag: &str,
+    allocations: &mut AllocationBudget,
+) -> Result<T, CanonicalImageError> {
+    let prefix_len = tag.len() + 1;
+    let prefix = key.stable_owner_key.get(..prefix_len).ok_or_else(|| incomplete("query owner key has wrong type tag"))?;
+    if prefix.strip_suffix(':') != Some(tag) {
+        return Err(incomplete("query owner key has wrong type tag"));
+    }
     let payload = key
         .stable_owner_key
-        .strip_prefix(&prefix)
+        .get(prefix_len..)
         .ok_or_else(|| incomplete(format!("query owner key has wrong type tag for {:?}", key.kind)))?;
-    serde_json::from_str(payload).map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))
+    let mut decoder = phalcom_type_meta::budgeted::Decoder::new(payload, allocations, 256)
+        .map_err(|error| incomplete(format!("invalid portable query owner key for {:?}: {error}: {payload}", key.kind)))?;
+    let decoded = T::decode(&mut decoder).map_err(|error| match error {
+        phalcom_type_meta::budgeted::DecodeError::Allocation(error) => allocation_error(error),
+        error => incomplete(format!("invalid portable query owner key for {:?}: {error}: {payload}", key.kind)),
+    })?;
+    decoder
+        .cursor
+        .finish()
+        .map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+    Ok(decoded)
 }
 
-fn resolve_query_key(key: &PortableQueryKeyV1) -> Result<QueryKey, CanonicalImageError> {
+fn consume_stable_project(project: phalcom_type_meta::identity::StableProjectRef) -> Result<phalcom_modules::ProjectIdentity, CanonicalImageError> {
+    use phalcom_type_meta::identity::StableProjectRef;
+    Ok(match project {
+        StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe" => phalcom_modules::ProjectIdentity::Universe,
+        StableProjectRef::Session { session_fingerprint } => {
+            let bytes = session_fingerprint.as_bytes();
+            let raw = u64::from_be_bytes([
+                bytes[8], bytes[9], bytes[10], bytes[11],
+                bytes[12], bytes[13], bytes[14], bytes[15],
+            ]);
+            phalcom_modules::ProjectIdentity::Synthetic(phalcom_modules::SyntheticProjectId::from_raw(raw))
+        }
+        _ => return Err(incomplete("unsupported stable project ref for direct conversion")),
+    })
+}
+
+fn consume_stable_module(
+    module: phalcom_type_meta::identity::StableModuleRef,
+    allocations: &mut AllocationBudget,
+) -> Result<phalcom_modules::ModuleId, CanonicalImageError> {
+    let project = consume_stable_project(module.project)?;
+    let mut components = allocations.vector::<phalcom_modules::ModuleComponent>(module.path.len()).map_err(allocation_error)?;
+    for spelling in Vec::from(module.path) {
+        let component = phalcom_modules::ModuleComponent::from_owned_identifier(spelling)
+            .map_err(|_| incomplete("invalid module component in stable query owner"))?;
+        components.push(component);
+    }
+    let components = allocations.boxed_slice(components).map_err(allocation_error)?;
+    Ok(phalcom_modules::ModuleId {
+        project,
+        path: phalcom_modules::ModulePath::from_components(components),
+    })
+}
+
+fn consume_stable_declaration(
+    declaration: StableDeclarationRef,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::identity::DeclarationId, CanonicalImageError> {
+    let module = consume_stable_module(declaration.module, allocations)?;
+    let name = Vec::from(declaration.path)
+        .into_iter()
+        .next()
+        .ok_or_else(|| incomplete("empty declaration path in stable query owner"))?;
+    Ok(crate::identity::DeclarationId::new(module, name))
+}
+
+fn consume_stable_field(
+    field: StableFieldRef,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::identity::FieldId, CanonicalImageError> {
+    let owner = consume_stable_declaration(field.owner, allocations)?;
+    Ok(crate::identity::FieldId {
+        owner,
+        name: field.name,
+        side: crate::metadata::stable_identity::from_stable_dispatch_side(field.side),
+    })
+}
+
+fn resolve_query_key(key: &PortableQueryKeyV1, allocations: &mut AllocationBudget) -> Result<QueryKey, CanonicalImageError> {
     Ok(match key.kind {
         PortableQueryKindV1::UnlinkedInterface => {
-            QueryKey::UnlinkedInterface(crate::metadata::stable_identity::from_stable_module(&decode_owner(key, "module")?).map_err(incomplete)?)
+            QueryKey::UnlinkedInterface(consume_stable_module(decode_owner(key, "module", allocations)?, allocations)?)
         }
         PortableQueryKindV1::ResolvedImports => {
-            QueryKey::ResolvedImports(crate::metadata::stable_identity::from_stable_module(&decode_owner(key, "module")?).map_err(incomplete)?)
+            QueryKey::ResolvedImports(consume_stable_module(decode_owner(key, "module", allocations)?, allocations)?)
         }
         PortableQueryKindV1::LinkedInterface => {
-            QueryKey::LinkedInterface(crate::metadata::stable_identity::from_stable_module(&decode_owner(key, "module")?).map_err(incomplete)?)
+            QueryKey::LinkedInterface(consume_stable_module(decode_owner(key, "module", allocations)?, allocations)?)
         }
         PortableQueryKindV1::DeclarationShell => {
-            QueryKey::DeclarationShell(from_stable_declaration(&decode_owner::<StableDeclarationRef>(key, "declaration")?).map_err(incomplete)?)
+            QueryKey::DeclarationShell(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
         }
         PortableQueryKindV1::CallableDefinition => {
-            QueryKey::CallableDefinition(from_stable_callable(&decode_owner::<StableCallableRef>(key, "callable")?).map_err(incomplete)?)
+            QueryKey::CallableDefinition(from_stable_callable(&decode_owner::<StableCallableRef>(key, "callable", allocations)?).map_err(incomplete)?)
         }
         PortableQueryKindV1::CallableSignature => {
-            QueryKey::CallableSignature(from_stable_callable(&decode_owner::<StableCallableRef>(key, "callable")?).map_err(incomplete)?)
+            QueryKey::CallableSignature(from_stable_callable(&decode_owner::<StableCallableRef>(key, "callable", allocations)?).map_err(incomplete)?)
         }
-        PortableQueryKindV1::FieldSignature => QueryKey::FieldSignature(from_stable_field(&decode_owner::<StableFieldRef>(key, "field")?).map_err(incomplete)?),
+        PortableQueryKindV1::FieldSignature => {
+            QueryKey::FieldSignature(consume_stable_field(decode_owner::<StableFieldRef>(key, "field", allocations)?, allocations)?)
+        }
         PortableQueryKindV1::DeclarationSurface => {
-            QueryKey::DeclarationSurface(from_stable_declaration(&decode_owner::<StableDeclarationRef>(key, "declaration")?).map_err(incomplete)?)
+            QueryKey::DeclarationSurface(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
         }
         PortableQueryKindV1::TraitHeader => {
-            QueryKey::TraitHeader(from_stable_declaration(&decode_owner::<StableDeclarationRef>(key, "declaration")?).map_err(incomplete)?)
+            QueryKey::TraitHeader(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
         }
         PortableQueryKindV1::TraitSurface => {
-            QueryKey::TraitSurface(from_stable_declaration(&decode_owner::<StableDeclarationRef>(key, "declaration")?).map_err(incomplete)?)
+            QueryKey::TraitSurface(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
         }
         PortableQueryKindV1::DataDeclaration => {
-            QueryKey::DataDeclaration(from_stable_declaration(&decode_owner::<StableDeclarationRef>(key, "declaration")?).map_err(incomplete)?)
+            QueryKey::DataDeclaration(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
         }
         PortableQueryKindV1::EnumDeclaration => {
-            QueryKey::EnumDeclaration(from_stable_declaration(&decode_owner::<StableDeclarationRef>(key, "declaration")?).map_err(incomplete)?)
+            QueryKey::EnumDeclaration(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
         }
         PortableQueryKindV1::AssociatedSurface => {
-            QueryKey::AssociatedSurface(from_stable_declaration(&decode_owner::<StableDeclarationRef>(key, "declaration")?).map_err(incomplete)?)
+            QueryKey::AssociatedSurface(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
         }
         PortableQueryKindV1::TypeMemberDeclaration => {
-            let (owner, (selector_tag, selector_name)): (StableDeclarationRef, (u8, String)) = decode_owner(key, "type-member")?;
+            let prefix_len = "type-member:".len();
+            let payload = key.stable_owner_key.get(prefix_len..).ok_or_else(|| incomplete("query owner key has wrong type tag"))?;
+            if key.stable_owner_key.get(..prefix_len) != Some("type-member:") {
+                return Err(incomplete("query owner key has wrong type tag"));
+            }
+            let mut decoder = phalcom_type_meta::budgeted::Decoder::new(payload, allocations, 256)
+                .map_err(|error| incomplete(format!("invalid portable query owner key for type-member: {error}: {payload}")))?;
+            decoder.cursor.expect(b'[').map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            let owner = StableDeclarationRef::decode(&mut decoder).map_err(|error| match error {
+                phalcom_type_meta::budgeted::DecodeError::Allocation(error) => allocation_error(error),
+                error => incomplete(format!("invalid type-member stable declaration: {error}: {payload}")),
+            })?;
+            decoder.cursor.expect(b',').map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            decoder.cursor.expect(b'[').map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            let selector_tag = u8::decode(&mut decoder).map_err(|error| match error {
+                phalcom_type_meta::budgeted::DecodeError::Allocation(error) => allocation_error(error),
+                error => incomplete(format!("invalid type-member selector tag: {error}: {payload}")),
+            })?;
+            decoder.cursor.expect(b',').map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            let selector_name = String::decode(&mut decoder).map_err(|error| match error {
+                phalcom_type_meta::budgeted::DecodeError::Allocation(error) => allocation_error(error),
+                error => incomplete(format!("invalid portable query owner key: {error}")),
+            })?;
+            decoder.cursor.expect(b']').map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            decoder.cursor.expect(b']').map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            decoder.cursor.finish().map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
             let selector = match selector_tag {
                 0 if !selector_name.is_empty() => crate::types::type_member::TypeMemberSelector::Named(selector_name.into_boxed_str()),
                 1 if selector_name.is_empty() => crate::types::type_member::TypeMemberSelector::Subscript,
                 _ => return Err(incomplete("invalid type-member selector in portable query owner")),
             };
             QueryKey::TypeMemberDeclaration(crate::types::type_member::TypeMemberDeclarationId::new(
-                from_stable_declaration(&owner).map_err(incomplete)?,
+                consume_stable_declaration(owner, allocations)?,
                 selector,
             ))
         }
         PortableQueryKindV1::ModuleStaticBindingCatalog => {
-            QueryKey::ModuleStaticBindingCatalog(crate::metadata::stable_identity::from_stable_module(&decode_owner(key, "module")?).map_err(incomplete)?)
+            QueryKey::ModuleStaticBindingCatalog(consume_stable_module(decode_owner(key, "module", allocations)?, allocations)?)
         }
         PortableQueryKindV1::ModuleStaticBindings => {
-            QueryKey::ModuleStaticBindings(crate::metadata::stable_identity::from_stable_module(&decode_owner(key, "module")?).map_err(incomplete)?)
+            QueryKey::ModuleStaticBindings(consume_stable_module(decode_owner(key, "module", allocations)?, allocations)?)
         }
         PortableQueryKindV1::ParsedModule | PortableQueryKindV1::HierarchyEdge => {
             return Err(incomplete("non-reusable query kind cannot be reconstructed as a root"));
@@ -493,8 +596,10 @@ fn reconstruct_query_image_inner(
     let mut roots = allocations
         .vector::<(QueryKey, Arc<SemanticProduct>, ProductFingerprint, InputFingerprint)>(image.supported_roots.len())
         .map_err(allocation_error)?;
+
     for root in &image.supported_roots {
-        let query_key = resolve_query_key(&root.key)?;
+        let query_key = resolve_query_key(&root.key, allocations)?;
+
         let (product, product_fingerprint, input_fingerprint) = product_and_fingerprints(snapshot, &query_key, modules)?;
         roots.push((query_key, product, product_fingerprint, input_fingerprint));
     }

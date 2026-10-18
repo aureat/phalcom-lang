@@ -910,8 +910,7 @@ fn load_module_world_inner(
         runtime_graph_entries.push((id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, rt_edges));
 
         let parent = payload.topology_parent.map(|value| module_id(&ids, value, allocations)).transpose()?;
-        let expected_parent = id.path.parent().map(|path| ModuleId::universe(path));
-        if parent.as_ref() != expected_parent.as_ref() {
+        if !has_expected_topology_parent(&id, parent.as_ref()) {
             return Err(invalid("topology parent differs from logical module path"));
         }
         let node_id = id.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
@@ -976,8 +975,15 @@ fn load_module_world_inner(
         }
         if let Some(set) = exposed.get(id) {
             for component in set {
-                let child = ModuleId::universe(id.path.join(component.clone()));
-                if !children.get(id).is_some_and(|set| set.contains(&child)) {
+                let parent_components = id.path.components();
+                if !children.get(id).is_some_and(|set| {
+                    set.iter().any(|child| {
+                        child.project == crate::ProjectIdentity::Universe
+                            && child.path.components().len() == parent_components.len() + 1
+                            && child.path.components()[..parent_components.len()] == *parent_components
+                            && child.path.components().last() == Some(component)
+                    })
+                }) {
                     return Err(invalid("exposed child is absent from topology"));
                 }
             }
@@ -1027,19 +1033,13 @@ fn load_module_world_inner(
         for export in module.interface.exports.values() {
             match &export.target {
                 LinkedExportTarget::Module(_) => {}
-                LinkedExportTarget::Binding(symbol) => validate_target(&LinkedReadSpec::Binding(symbol.clone()), &interfaces)?,
+                LinkedExportTarget::Binding(symbol) => validate_binding_target(&symbol.module, &symbol.name, &interfaces)?,
             }
         }
         if let Some(iface) = interfaces.get(&module.interface.module) {
             for export in iface.exports.values() {
                 if let UnlinkedExportTarget::CanonicalDeclaration { module, name } = &export.target {
-                    validate_target(
-                        &LinkedReadSpec::Binding(SymbolId {
-                            module: module.clone(),
-                            name: name.clone().into(),
-                        }),
-                        &interfaces,
-                    )?;
+                    validate_binding_target(module, name, &interfaces)?;
                 }
             }
         }
@@ -1149,17 +1149,33 @@ fn validate_runtime_dag(graph: &RuntimeDependencyGraph, ids: &[ModuleId], alloca
     Ok(())
 }
 
+fn has_expected_topology_parent(id: &ModuleId, parent: Option<&ModuleId>) -> bool {
+    let components = id.path.components();
+    match components.split_last() {
+        None => parent.is_none(),
+        Some((_, expected_components)) => parent.is_some_and(|parent| {
+            parent.project == crate::ProjectIdentity::Universe && parent.path.components() == expected_components
+        }),
+    }
+}
+
+fn validate_binding_target(
+    module: &ModuleId,
+    name: &str,
+    interfaces: &ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>>,
+) -> Result<(), ArtifactError> {
+    if !interfaces
+        .get(module)
+        .is_some_and(|interface| interface.declarations.contains_key(name) || interface.exports.contains_key(name))
+    {
+        return Err(invalid(format!("linked binding has no owning declaration: {module:?}::{name}")));
+    }
+    Ok(())
+}
+
 fn validate_target(target: &LinkedReadSpec, interfaces: &ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>>) -> Result<(), ArtifactError> {
     if let LinkedReadSpec::Binding(symbol) = target {
-        if !interfaces
-            .get(&symbol.module)
-            .is_some_and(|interface| interface.declarations.contains_key(symbol.name.as_ref()) || interface.exports.contains_key(symbol.name.as_ref()))
-        {
-            return Err(invalid(format!(
-                "linked binding has no owning declaration: {:?}::{}",
-                symbol.module, symbol.name
-            )));
-        }
+        validate_binding_target(&symbol.module, &symbol.name, interfaces)?;
     }
     Ok(())
 }
