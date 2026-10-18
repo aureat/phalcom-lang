@@ -10,20 +10,31 @@ active_plan: PERF003.C2.P7.PATCH5-R
 latest_completed_plan: PERF003.C2.P7.PATCH4
 next_plan: PERF003.C2.P7.PATCH5-R
 next_action: >
-  PERF003.C2.P7.PATCH5-R is active from revision
-  9cbba391a4482052dec476b327619c957a028b19 on
-  perf/universe-characterization. R.T0 is complete and R.G0 is PASS as a
-  baseline-recording gate only. R.T1 is partially implemented; its isolated
-  semantic import equality check still reports a 2,468,555-byte delta. Continue
-  inspecting and verifying the in-progress static operational importer budget
-  edits before advancing to R.T2.
+  PERF003.C2.P7.PATCH5-R R.T1 / PERF007 semantic world import allocation gap
+  is 100.000% closed with exact zero delta (264,140,594 ledger bytes ==
+  264,140,594 observed bytes). Exact N equality and N-1 typed allocation
+  failure rejection verified. Next action is advancing to Wave 4 / T9
+  whole-load container and module world allocation budgeting.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: 5f1037cf
-latest_tested_revision: 5f1037cf
-latest_tested_predecessor: e4503086b97669d25cbaea21dcbc7e7740e2b260
+execution_tree_head: dde0e8ba
+latest_tested_revision: dde0e8ba
+latest_tested_predecessor: 733001c4
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
+
+## PERF007 / PATCH5-R R.T1 semantic world import allocation gap closed (delta == 0) — 2026-10-18
+
+The semantic world artifact import (`validate_and_import_semantic_world_with_allocation_budget`)
+allocation-accounting gap is 100.000% closed, achieving exact zero-delta parity
+between independent allocator measurements and `AllocationBudget` ledgers:
+
+- Type graph import: 765,031 ledger bytes == 765,031 observed bytes (delta == 0).
+- Semantic world import: 264,140,594 ledger bytes == 264,140,594 observed bytes (delta == 0).
+- Exact $N$ equality and exact $N-1$ typed allocation rejection (`ArtifactError::Allocation`) verified with zero child allocation leakage.
+- Root causes resolved: eliminated `StaticInt::cmp` large integer sorting heap allocations; eliminated `NativeSurfaceCatalog::find_selector` heap string allocation; corrected `TypeStore` export visitor to use canonical count and accessor methods across frozen prefixes and local overlays.
+- All 44 unit tests in `phalcom-semantic --lib artifact::` and integration allocation tests pass.
+- Temporary debug instrumentation and checkpoints removed.
 
 ## PATCH4 vertical loader closure — 2026-10-17
 
