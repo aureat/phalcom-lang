@@ -128,3 +128,24 @@ container/header A `+13`, query-world identity setup H0 `+13`, and formal-image
 publication N-P `+1,232`. The next action is R.T3 / R.G3 formal-image
 publication and failure atomicity, after checking the plan's gate dependencies.
 P7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; do not begin P8.
+
+## Superseding status — R.T3 formal-image publication — 2026-10-18
+
+The current branch is at lifecycle commit `27698001`; the tested source tree is
+`0706f3b2`. R.T2 / R.G2 is closed as recorded above. R.T3 / R.G3 is the active
+slice. No R.T3 source changes have been made yet.
+
+The existing non-strict full-load census isolates a `+1,232` observed-minus-
+ledger allocation residual in formal-image publication (N-P). Its current
+subcensus groups `+616` in P1 snapshot clone/status and `+616` in P4
+completeness/query validation. Those buckets need finer measurement before
+choosing a correction; neither is yet attributed to a specific operation. The
+separate `+23,011` outside N-P remains distinct: module materialization C
+`+22,985`, container/header A `+13`, and query-world identity setup H0 `+13`.
+The whole-load delta is still `+24,243`, so R.G4 is not established.
+
+Next: split the R.T3 P1 and P4 census boundaries (snapshot clone, status/content
+promotion, completeness, advisory checks, reader construction, and fingerprint
+validation), then correct only the measured owner. Preserve the exact semantic
+import guard (`264,140,626 / 264,140,626`), the R.G2 PASS, and P7's
+`IN_PROGRESS / PARTIAL / UNVERIFIED` status. Do not begin P8.

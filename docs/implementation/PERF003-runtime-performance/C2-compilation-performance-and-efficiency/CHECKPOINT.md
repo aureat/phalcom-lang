@@ -10,10 +10,12 @@ active_plan: PERF003.C2.P7.PATCH5-R
 latest_completed_plan: PERF003.C2.P7.PATCH4
 next_plan: PERF003.C2.P7.PATCH5-R
 next_action: >
-  PERF003.C2.P7.PATCH5-R R.T2 / R.G2 query reconstruction now has exact
-  successful-path allocation parity on the c7 artifact. Continue with R.T3 /
-  R.G3 formal-image publication and failure atomicity. Keep P7 IN_PROGRESS /
-  PARTIAL / UNVERIFIED; do not begin P8 or claim R.G3/R.G4.
+  PERF003.C2.P7.PATCH5-R R.T2 / R.G2 query reconstruction has exact
+  successful-path allocation parity on the c7 artifact. R.T3 / R.G3 is active:
+  isolate and close the separately measured +1,232 formal-image publication
+  residual, preserving the +23,011 outside that stage as a distinct whole-load
+  residual. Keep P7 IN_PROGRESS / PARTIAL / UNVERIFIED; do not begin P8 or
+  claim R.G3/R.G4.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
 execution_tree_head: 0706f3b2
 latest_tested_revision: 0706f3b2 (tested source tree; lifecycle-only follow-up below)
