@@ -504,6 +504,7 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
     let loaded = load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load_universe_telosc_from_bytes must succeed");
     assert!(loaded.formal_image.sources().is_empty());
     assert!(loaded.formal_image.snapshot().is_source_free_artifact_complete());
+    assert!(loaded.formal_image.reader().is_ok(), "loaded formal image must remain query-reader compatible");
 
     let snapshot = loaded.formal_image.snapshot();
     assert!(!snapshot.field_signatures.is_empty(), "field signatures must be restored");

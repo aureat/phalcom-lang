@@ -28,6 +28,8 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+#[cfg(test)]
+use std::cell::Cell;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TeloscCapabilities {
@@ -120,6 +122,63 @@ impl LoadedUniverseArtifact {
 
     pub fn compile_user_entry_with_options(&self, entry: EntrySelection, options: &ProgramCompilationOptions) -> Result<CompiledProgram, ProgramCompileError> {
         ProgramCompiler::compile_entry_selection_with_options_and_image(entry, self.formal_image.clone(), options)
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LoaderTestBoundary {
+    AfterModuleImport,
+    AfterSemanticImport,
+    AfterQueryImport,
+    AfterMetadataValidation,
+}
+
+#[cfg(test)]
+impl LoaderTestBoundary {
+    const fn error_message(self) -> &'static str {
+        match self {
+            Self::AfterModuleImport => "test failure after module import",
+            Self::AfterSemanticImport => "test failure after semantic import",
+            Self::AfterQueryImport => "test failure after query import",
+            Self::AfterMetadataValidation => "test failure after metadata validation",
+        }
+    }
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static LOADER_TEST_FAILURE_BOUNDARY: Cell<Option<LoaderTestBoundary>> = const { Cell::new(None) };
+}
+
+#[cfg(test)]
+struct LoaderTestFailureGuard;
+
+#[cfg(test)]
+impl LoaderTestFailureGuard {
+    fn after(boundary: LoaderTestBoundary) -> Self {
+        LOADER_TEST_FAILURE_BOUNDARY.with(|slot| {
+            assert!(slot.get().is_none(), "loader test failpoints cannot be nested");
+            slot.set(Some(boundary));
+        });
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for LoaderTestFailureGuard {
+    fn drop(&mut self) {
+        LOADER_TEST_FAILURE_BOUNDARY.with(|slot| slot.set(None));
+    }
+}
+
+#[cfg(test)]
+fn maybe_fail_after(boundary: LoaderTestBoundary) -> Result<(), TeloscArtifactError> {
+    let should_fail = LOADER_TEST_FAILURE_BOUNDARY.with(|slot| slot.get() == Some(boundary));
+    if should_fail {
+        Err(TeloscArtifactError::Capability(boundary.error_message()))
+    } else {
+        Ok(())
     }
 }
 
@@ -354,11 +413,15 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
     let modules = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_world_v1, limits, allocations)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    #[cfg(test)]
+    maybe_fail_after(LoaderTestBoundary::AfterModuleImport)?;
 
     let world_v2 = SemanticWorldV3::decode_with_allocation_budget(semantic_world_sec, limits, allocations)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
     let parts = validate_and_import_semantic_world_with_allocation_budget(world_v2, limits, allocations)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    #[cfg(test)]
+    maybe_fail_after(LoaderTestBoundary::AfterSemanticImport)?;
 
     let query_v1 = QueryImageV1::decode_with_allocation_budget(query_image_sec, limits, allocations)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
@@ -384,6 +447,8 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     let world_id = CanonicalSemanticWorldId::for_artifact_world(1, container.header().source_digest, compatibility);
 
     let (query_image, fingerprints) = reconstruct_query_image_with_allocation_budget(&query_v1, &parts.snapshot, &world_id, &modules, limits, allocations)?;
+    #[cfg(test)]
+    maybe_fail_after(LoaderTestBoundary::AfterQueryImport)?;
 
     let preflight_limits = MetadataPreflightLimits {
         max_metadata_bytes: limits.max_metadata_bytes as usize,
@@ -396,6 +461,8 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     let metadata_bundle = meta_v1
         .decode_bundle_with_allocation_budget(&preflight_limits, &bundle_limits, &expected_package_digest, allocations)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    #[cfg(test)]
+    maybe_fail_after(LoaderTestBoundary::AfterMetadataValidation)?;
 
     let transaction_limit = usize::try_from(limits.max_total_allocation_bytes).unwrap_or(usize::MAX);
     let modules = allocations.arc(modules).map_err(|error| allocation_error(error, transaction_limit))?;
@@ -903,5 +970,76 @@ mod temporary_loaded_publication_allocation_census {
         );
         assert_eq!(stage_ledger_total, production_ledger, "manual stage ledger must equal production ledger");
         assert_eq!(signed_stage_total + boundary_signed, whole_signed, "stage deltas plus boundary must exactly reconcile");
+    }
+
+    #[test]
+    fn loaded_artifact_prepublication_failures_are_retryable() {
+        use crate::modules::canonical_universe::canonical_universe_program;
+
+        let limits = ValidationLimits::default();
+        let program = canonical_universe_program().expect("canonical universe program must build");
+        let view = program.compiler_image_view().expect("canonical compiler image view must exist");
+        let artifact = build_universe_telosc(&view, &limits).expect("canonical artifact must build");
+
+        let control = load_universe_telosc_from_bytes(&artifact.bytes, &limits).expect("control artifact load must succeed");
+        let control_world = control.formal_image.world().clone();
+        let control_query_identity = control
+            .formal_image
+            .query_image()
+            .entries()
+            .map(|(key, entry)| (key.clone(), entry.product_fingerprint))
+            .collect::<Vec<_>>();
+        let control_dependency_identity = control
+            .formal_image
+            .dependency_fingerprints()
+            .iter()
+            .map(|(key, fingerprint)| (key.clone(), *fingerprint))
+            .collect::<Vec<_>>();
+        assert!(control.formal_image.sources().is_empty());
+        assert!(control.formal_image.snapshot().is_source_free_artifact_complete());
+        assert!(control.formal_image.reader().is_ok());
+
+        for boundary in [
+            LoaderTestBoundary::AfterModuleImport,
+            LoaderTestBoundary::AfterSemanticImport,
+            LoaderTestBoundary::AfterQueryImport,
+            LoaderTestBoundary::AfterMetadataValidation,
+        ] {
+            let failure_guard = LoaderTestFailureGuard::after(boundary);
+            let failed = load_universe_telosc_from_bytes(&artifact.bytes, &limits);
+            drop(failure_guard);
+            match failed {
+                Err(TeloscArtifactError::Capability(message)) => assert_eq!(message, boundary.error_message()),
+                Err(error) => panic!("injected {boundary:?} failure returned the wrong error: {error}"),
+                Ok(_) => panic!("injected {boundary:?} failure returned a LoadedUniverseArtifact"),
+            }
+
+            let retry = load_universe_telosc_from_bytes(&artifact.bytes, &limits)
+                .unwrap_or_else(|error| panic!("clean retry after {boundary:?} must succeed: {error}"));
+            assert_eq!(retry.formal_image.world(), &control_world, "retry must retain the artifact's canonical world identity");
+            assert_eq!(
+                retry
+                    .formal_image
+                    .query_image()
+                    .entries()
+                    .map(|(key, entry)| (key.clone(), entry.product_fingerprint))
+                    .collect::<Vec<_>>(),
+                control_query_identity,
+                "retry must reconstruct the same semantic query identities"
+            );
+            assert_eq!(
+                retry
+                    .formal_image
+                    .dependency_fingerprints()
+                    .iter()
+                    .map(|(key, fingerprint)| (key.clone(), *fingerprint))
+                    .collect::<Vec<_>>(),
+                control_dependency_identity,
+                "retry must reconstruct the same dependency fingerprints"
+            );
+            assert!(retry.formal_image.sources().is_empty());
+            assert!(retry.formal_image.snapshot().is_source_free_artifact_complete());
+            assert!(retry.formal_image.reader().is_ok());
+        }
     }
 }

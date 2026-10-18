@@ -49,6 +49,11 @@ static LOADED_PUBLICATION_CENSUS_LEDGER: [AtomicUsize; LOADED_PUBLICATION_CENSUS
     AtomicUsize::new(0),
 ];
 
+#[cfg(test)]
+std::thread_local! {
+    static LOADED_FORMAL_IMAGE_FINAL_ARC_ATTEMPTED: Cell<bool> = const { Cell::new(false) };
+}
+
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct LoadedPublicationCensus {
@@ -1183,7 +1188,12 @@ impl CanonicalUniverseFormalImage {
         if snapshot_obj.module_products.unlinked.is_empty() {
             let module_products_start = publication_census_checkpoint(&transaction);
             let module_products = crate::snapshot::ModuleQueryProducts::from_external_modules_with_allocation_budget(modules.clone(), &mut transaction)
-                .map_err(|error| CanonicalImageError::IncompletePublication(error.to_string()))?;
+                .map_err(|error| match error {
+                    crate::snapshot::ModuleQueryProductsBuildError::Allocation(error) => CanonicalImageError::Allocation(error),
+                    crate::snapshot::ModuleQueryProductsBuildError::DuplicateKey => {
+                        CanonicalImageError::IncompletePublication("duplicate key in loaded module query products".into())
+                    }
+                })?;
             record_publication_census(2, module_products_start, &transaction);
             let module_products_publish_start = publication_census_checkpoint(&transaction);
             let module_products = transaction.arc(module_products)?;
@@ -1236,6 +1246,8 @@ impl CanonicalUniverseFormalImage {
         let snapshot = transaction.arc(snapshot_obj)?;
         record_publication_census(8, snapshot_arc_start, &transaction);
         let formal_image_start = publication_census_checkpoint(&transaction);
+        #[cfg(test)]
+        LOADED_FORMAL_IMAGE_FINAL_ARC_ATTEMPTED.with(|attempted| attempted.set(true));
         let image = transaction.arc(Self {
             world,
             modules,
@@ -1589,6 +1601,241 @@ mod tests {
     }
     fn freeze(db: &SemanticDb, image: &CanonicalUniverseFormalImage) -> CanonicalSemanticQueryImage {
         CanonicalSemanticQueryImage::freeze(db, image.world.clone(), image.snapshot(), image.modules()).unwrap()
+    }
+
+    fn loaded_publication_inputs() -> (
+        CanonicalSemanticWorldId,
+        Arc<CanonicalExternalModuleWorld>,
+        Arc<SemanticSnapshot>,
+        Arc<CanonicalSemanticQueryImage>,
+        CanonicalDependencyFingerprints,
+    ) {
+        let source_image = canonical_universe_formal_image().unwrap();
+        let world = CanonicalSemanticWorldId::for_artifact_world(
+            1,
+            phalcom_compiler_artifact::ArtifactDigest::ZERO,
+            phalcom_compiler_artifact::CanonicalCompatibilityIdentity {
+                package: phalcom_compiler_artifact::TeloscPackageIdentity::universe(),
+                source_digest: phalcom_compiler_artifact::ArtifactDigest::ZERO,
+                interface_digest: phalcom_compiler_artifact::ArtifactDigest::ZERO,
+                semantic_digest: phalcom_compiler_artifact::ArtifactDigest::ZERO,
+                semantic_model_version: 1,
+                stable_identity_schema: 1,
+                module_semantic_abi: 1,
+                semantic_artifact_abi: 1,
+                native_surface_schema_version: 1,
+                native_catalog_fingerprint: [0; 16],
+                type_metadata_schema_version: 1,
+            },
+        );
+        let mut snapshot = (**source_image.snapshot()).clone();
+        snapshot.sources = Arc::new(BTreeMap::new());
+        snapshot.presentation_sources = Arc::new(BTreeMap::new());
+        Arc::make_mut(&mut snapshot.module_products).unlinked = crate::snapshot::ModuleQueryUnlinkedInterfaces::Source(Arc::new(BTreeMap::new()));
+        let snapshot = Arc::new(snapshot);
+
+        let mut setup_allocations = AllocationBudget::new(usize::MAX);
+        let mut retained = source_image
+            .query_image()
+            .entries()
+            .filter(|(key, _)| {
+                !matches!(key, QueryKey::ParsedModule(_))
+                    && canonical_query_persistence(key.kind()) == CanonicalQueryPersistence::EligibleStructural
+            })
+            .map(|(key, entry)| {
+                (
+                    key.clone(),
+                    CanonicalQueryEntry {
+                        input_fingerprint: entry.input_fingerprint,
+                        product_fingerprint: entry.product_fingerprint,
+                        dependencies: entry.dependencies.clone(),
+                        product: entry.product.clone(),
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        loop {
+            let keep = retained
+                .iter()
+                .filter_map(|(key, entry)| {
+                    entry
+                        .dependencies
+                        .iter()
+                        .all(|edge| {
+                            &edge.dependent == key
+                                && retained
+                                    .get(&edge.dependency)
+                                    .is_some_and(|dependency| dependency.product_fingerprint == edge.observed_fingerprint)
+                        })
+                        .then(|| key.clone())
+                })
+                .collect::<BTreeSet<_>>();
+            if keep.len() == retained.len() {
+                break;
+            }
+            retained.retain(|key, _| keep.contains(key));
+        }
+        assert!(!retained.is_empty(), "fixture must retain eligible closed structural queries");
+        let retained_keys = retained.keys().cloned().collect::<BTreeSet<_>>();
+        let entries = retained.into_iter().collect();
+        let entries = CanonicalQueryEntries::from_loaded_entries(entries, &mut setup_allocations).unwrap();
+        let queries = CanonicalSemanticQueryImage::from_loaded_artifact_entries(
+            world.clone(),
+            entries,
+            snapshot.store.clone(),
+            snapshot.static_values.clone(),
+            &mut setup_allocations,
+        )
+        .unwrap();
+        let queries = Arc::new(queries);
+        let fingerprints = source_image
+            .dependency_fingerprints()
+            .iter()
+            .filter(|(key, _)| retained_keys.contains(*key))
+            .map(|(key, fingerprint)| (key.clone(), *fingerprint))
+            .collect();
+        let fingerprints = CanonicalDependencyFingerprints::from_loaded_entries(fingerprints, &mut setup_allocations).unwrap();
+
+        (world, source_image.modules.clone(), snapshot, queries, fingerprints)
+    }
+
+    fn clone_dependency_fingerprints(
+        fingerprints: &CanonicalDependencyFingerprints,
+    ) -> CanonicalDependencyFingerprints {
+        CanonicalDependencyFingerprints::Source(
+            fingerprints.iter().map(|(key, fingerprint)| (key.clone(), *fingerprint)).collect(),
+        )
+    }
+
+    fn publish_loaded_parts(
+        world: &CanonicalSemanticWorldId,
+        modules: &Arc<CanonicalExternalModuleWorld>,
+        snapshot: &Arc<SemanticSnapshot>,
+        queries: &Arc<CanonicalSemanticQueryImage>,
+        fingerprints: &CanonicalDependencyFingerprints,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Arc<CanonicalUniverseFormalImage>, CanonicalImageError> {
+        CanonicalUniverseFormalImage::from_loaded_artifact(
+            world.clone(),
+            modules.clone(),
+            snapshot.clone(),
+            queries.clone(),
+            clone_dependency_fingerprints(fingerprints),
+            allocations,
+        )
+    }
+
+    #[test]
+    fn loaded_formal_image_final_arc_failure_does_not_commit_and_retry_succeeds() {
+        let (world, modules, snapshot, queries, fingerprints) = loaded_publication_inputs();
+        assert!(snapshot.module_products.unlinked.is_empty(), "fixture must exercise ModuleQueryProducts reconstruction");
+        let mut discovery = AllocationBudget::new(usize::MAX);
+        let image = publish_loaded_parts(&world, &modules, &snapshot, &queries, &fingerprints, &mut discovery)
+            .expect("valid source-free loaded parts must publish");
+        assert!(image.sources().is_empty());
+        assert!(image.snapshot().is_source_free_artifact_complete());
+        assert!(image.snapshot().advisory.modules.is_empty());
+        assert!(image.snapshot().advisory.callables.is_empty());
+        assert!(image.reader().is_ok());
+        assert!(matches!(
+            &image.snapshot().module_products.unlinked,
+            crate::snapshot::ModuleQueryUnlinkedInterfaces::Canonical(owner) if Arc::ptr_eq(owner, image.modules())
+        ));
+        assert!(matches!(
+            &image.snapshot().module_products.linked,
+            crate::snapshot::ModuleQueryLinkedInterfaces::Canonical(owner) if Arc::ptr_eq(owner, image.modules())
+        ));
+        assert!(matches!(&image.snapshot().module_products.resolved_imports, crate::snapshot::ModuleQueryResolvedImports::Frozen(_)));
+        assert!(matches!(&image.snapshot().module_products.reverse_imports, crate::snapshot::ModuleQueryReverseImports::Frozen(_)));
+        let required = discovery.requested();
+        assert!(required > 0);
+        let control_query_identity = image
+            .query_image()
+            .entries()
+            .map(|(key, entry)| (key.clone(), entry.product_fingerprint))
+            .collect::<Vec<_>>();
+        let control_dependency_identity = image
+            .dependency_fingerprints()
+            .iter()
+            .map(|(key, fingerprint)| (key.clone(), *fingerprint))
+            .collect::<Vec<_>>();
+
+        let mut p3_failure_budget = AllocationBudget::new(0);
+        let p3_failure = publish_loaded_parts(&world, &modules, &snapshot, &queries, &fingerprints, &mut p3_failure_budget);
+        assert!(matches!(
+            p3_failure,
+            Err(CanonicalImageError::Allocation(phalcom_type_meta::allocation::AllocationError::Exhausted))
+        ));
+        assert_eq!(p3_failure_budget.requested(), 0, "failed ModuleQueryProducts child must not commit to its parent");
+
+        let mut p3_retry_budget = AllocationBudget::new(required);
+        let p3_retry = publish_loaded_parts(&world, &modules, &snapshot, &queries, &fingerprints, &mut p3_retry_budget)
+            .expect("fresh exact-budget retry after P3 allocation failure must publish");
+        assert_eq!(p3_retry_budget.requested(), required);
+        assert_eq!(p3_retry.world(), image.world());
+        assert_eq!(p3_retry.type_prefix(), image.type_prefix());
+        assert_eq!(p3_retry.static_lineage(), image.static_lineage());
+        assert_eq!(p3_retry.query_image().len(), image.query_image().len());
+        assert_eq!(
+            p3_retry.query_image().entries().map(|(key, entry)| (key.clone(), entry.product_fingerprint)).collect::<Vec<_>>(),
+            control_query_identity
+        );
+        assert_eq!(
+            p3_retry.dependency_fingerprints().iter().map(|(key, fingerprint)| (key.clone(), *fingerprint)).collect::<Vec<_>>(),
+            control_dependency_identity
+        );
+        assert!(p3_retry.reader().is_ok());
+
+        let mut mismatched = fingerprints
+            .iter()
+            .map(|(key, fingerprint)| (key.clone(), *fingerprint))
+            .collect::<BTreeMap<_, _>>();
+        let (_, fingerprint) = mismatched.iter_mut().next().expect("fixture has dependency fingerprints");
+        *fingerprint = ProductFingerprint(fingerprint.0.wrapping_add(1));
+        let mut validation_failure_budget = AllocationBudget::new(usize::MAX);
+        let failed = CanonicalUniverseFormalImage::from_loaded_artifact(
+            world.clone(),
+            modules.clone(),
+            snapshot.clone(),
+            queries.clone(),
+            CanonicalDependencyFingerprints::Source(mismatched),
+            &mut validation_failure_budget,
+        );
+        assert!(matches!(failed, Err(CanonicalImageError::IncompletePublication(_))));
+        assert_eq!(validation_failure_budget.requested(), 0, "failed validation child must not commit to its parent");
+
+        let mut one_byte_short = AllocationBudget::new(required - 1);
+        LOADED_FORMAL_IMAGE_FINAL_ARC_ATTEMPTED.with(|attempted| attempted.set(false));
+        let failed = publish_loaded_parts(&world, &modules, &snapshot, &queries, &fingerprints, &mut one_byte_short);
+        assert!(matches!(
+            failed,
+            Err(CanonicalImageError::Allocation(phalcom_type_meta::allocation::AllocationError::Exhausted))
+        ));
+        assert!(
+            LOADED_FORMAL_IMAGE_FINAL_ARC_ATTEMPTED.with(Cell::get),
+            "N-1 must reach the final formal-image Arc allocation before exhaustion"
+        );
+        assert_eq!(one_byte_short.requested(), 0, "failed final image child must not commit to its parent");
+
+        let mut retry = AllocationBudget::new(required);
+        let image = publish_loaded_parts(&world, &modules, &snapshot, &queries, &fingerprints, &mut retry)
+            .expect("a fresh exact-budget retry must publish");
+        assert_eq!(retry.requested(), required);
+        assert_eq!(image.world(), p3_retry.world());
+        assert_eq!(image.type_prefix(), p3_retry.type_prefix());
+        assert_eq!(image.static_lineage(), p3_retry.static_lineage());
+        assert_eq!(image.query_image().len(), p3_retry.query_image().len());
+        assert_eq!(
+            image.query_image().entries().map(|(key, entry)| (key.clone(), entry.product_fingerprint)).collect::<Vec<_>>(),
+            control_query_identity
+        );
+        assert_eq!(
+            image.dependency_fingerprints().iter().map(|(key, fingerprint)| (key.clone(), *fingerprint)).collect::<Vec<_>>(),
+            control_dependency_identity
+        );
+        assert!(image.sources().is_empty());
+        assert!(image.snapshot().is_source_free_artifact_complete());
+        assert!(image.reader().is_ok());
     }
 
     #[test]
