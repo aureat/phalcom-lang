@@ -1221,22 +1221,22 @@ impl SemanticSnapshot {
             && !self.callable_definitions.is_empty()
             && self.constructor_initializations.len() > 0
             && !self.field_signatures.is_empty()
-            && self.trait_surfaces.iter().next().is_some()
-            && self.trait_headers.iter().next().is_some()
-            && self.declarations.iter().next().is_some()
+            && self.trait_surfaces.len() > 0
+            && self.trait_headers.len() > 0
+            && !self.declarations.is_empty()
             && !self.hierarchy.is_empty()
             && !self.dispatch.surfaces().is_empty()
             && !self.data_semantics.data_decls.is_empty()
             && !self.enum_semantics.enums.is_empty()
             && !self.enum_requirements.requirements.is_empty()
-            && self.type_aliases.iter().next().is_some()
-            && self.conformance_index.iter().next().is_some()
+            && !self.type_aliases.is_empty()
+            && self.conformance_index.len() > 0
             && !self.conformance_witness_plans.is_empty()
             && !self.derived_conformance_rules.is_empty()
             && !self.trait_dispatch_index.is_empty()
             && self.associated_surfaces.surfaces.iter().next().is_some()
             && self.type_member_declarations.iter().next().is_some()
-            && self.static_definitions.iter().next().is_some()
+            && !self.static_definitions.is_empty()
             && !self.static_constants.is_empty()
             && self.module_static_bindings.iter().next().is_some()
             && !self.module_products.unlinked.is_empty()

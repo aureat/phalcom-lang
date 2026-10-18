@@ -22,9 +22,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use thiserror::Error;
 
-const LOADED_PUBLICATION_CENSUS_PHASES: usize = 6;
+const LOADED_PUBLICATION_CENSUS_PHASES: usize = 10;
 static LOADED_PUBLICATION_CENSUS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static LOADED_PUBLICATION_CENSUS_OBSERVED: [AtomicUsize; LOADED_PUBLICATION_CENSUS_PHASES] = [
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
     AtomicUsize::new(0),
     AtomicUsize::new(0),
     AtomicUsize::new(0),
@@ -39,19 +43,31 @@ static LOADED_PUBLICATION_CENSUS_LEDGER: [AtomicUsize; LOADED_PUBLICATION_CENSUS
     AtomicUsize::new(0),
     AtomicUsize::new(0),
     AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
 ];
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct LoadedPublicationCensus {
-    pub snapshot_clone_status: usize,
-    pub snapshot_clone_status_ledger: usize,
+    pub snapshot_clone: usize,
+    pub snapshot_clone_ledger: usize,
+    pub status_promotion: usize,
+    pub status_promotion_ledger: usize,
     pub module_query_products: usize,
     pub module_query_products_ledger: usize,
     pub module_query_products_publication: usize,
     pub module_query_products_publication_ledger: usize,
-    pub completeness_validation: usize,
-    pub completeness_validation_ledger: usize,
+    pub source_free_completeness: usize,
+    pub source_free_completeness_ledger: usize,
+    pub advisory_validation: usize,
+    pub advisory_validation_ledger: usize,
+    pub query_reader_validation: usize,
+    pub query_reader_validation_ledger: usize,
+    pub fingerprint_validation: usize,
+    pub fingerprint_validation_ledger: usize,
     pub snapshot_arc: usize,
     pub snapshot_arc_ledger: usize,
     pub formal_image_arc: usize,
@@ -76,18 +92,26 @@ pub fn take_loaded_publication_census() -> LoadedPublicationCensus {
     let row = |index: usize| LOADED_PUBLICATION_CENSUS_OBSERVED[index].load(Ordering::Relaxed);
     let ledger = |index: usize| LOADED_PUBLICATION_CENSUS_LEDGER[index].load(Ordering::Relaxed);
     LoadedPublicationCensus {
-        snapshot_clone_status: row(0),
-        snapshot_clone_status_ledger: ledger(0),
-        module_query_products: row(1),
-        module_query_products_ledger: ledger(1),
-        module_query_products_publication: row(2),
-        module_query_products_publication_ledger: ledger(2),
-        completeness_validation: row(3),
-        completeness_validation_ledger: ledger(3),
-        snapshot_arc: row(4),
-        snapshot_arc_ledger: ledger(4),
-        formal_image_arc: row(5),
-        formal_image_arc_ledger: ledger(5),
+        snapshot_clone: row(0),
+        snapshot_clone_ledger: ledger(0),
+        status_promotion: row(1),
+        status_promotion_ledger: ledger(1),
+        module_query_products: row(2),
+        module_query_products_ledger: ledger(2),
+        module_query_products_publication: row(3),
+        module_query_products_publication_ledger: ledger(3),
+        source_free_completeness: row(4),
+        source_free_completeness_ledger: ledger(4),
+        advisory_validation: row(5),
+        advisory_validation_ledger: ledger(5),
+        query_reader_validation: row(6),
+        query_reader_validation_ledger: ledger(6),
+        fingerprint_validation: row(7),
+        fingerprint_validation_ledger: ledger(7),
+        snapshot_arc: row(8),
+        snapshot_arc_ledger: ledger(8),
+        formal_image_arc: row(9),
+        formal_image_arc_ledger: ledger(9),
     }
 }
 
@@ -1160,29 +1184,35 @@ impl CanonicalUniverseFormalImage {
             let module_products_start = publication_census_checkpoint(&transaction);
             let module_products = crate::snapshot::ModuleQueryProducts::from_external_modules_with_allocation_budget(modules.clone(), &mut transaction)
                 .map_err(|error| CanonicalImageError::IncompletePublication(error.to_string()))?;
-            record_publication_census(1, module_products_start, &transaction);
+            record_publication_census(2, module_products_start, &transaction);
             let module_products_publish_start = publication_census_checkpoint(&transaction);
             let module_products = transaction.arc(module_products)?;
             snapshot_obj = snapshot_obj.with_module_products(module_products);
-            record_publication_census(2, module_products_publish_start, &transaction);
+            record_publication_census(3, module_products_publish_start, &transaction);
         }
         let status_start = publication_census_checkpoint(&transaction);
         if snapshot_obj.status.is_partial() && snapshot_obj.has_source_free_artifact_contents() {
             snapshot_obj = snapshot_obj.with_status(crate::snapshot::SnapshotStatus::Complete);
         }
-        record_publication_census(0, status_start, &transaction);
+        record_publication_census(1, status_start, &transaction);
         let validation_start = publication_census_checkpoint(&transaction);
         if !snapshot_obj.is_source_free_artifact_complete() {
             return Err(CanonicalImageError::IncompletePublication(
                 "loaded artifact snapshot failed source-free completeness check".into(),
             ));
         }
+        record_publication_census(4, validation_start, &transaction);
+        let advisory_start = publication_census_checkpoint(&transaction);
         if !snapshot_obj.advisory.modules.is_empty() || !snapshot_obj.advisory.callables.is_empty() {
             return Err(CanonicalImageError::IncompletePublication(
                 "suppressed advisory products present in loaded compiler image".into(),
             ));
         }
+        record_publication_census(5, advisory_start, &transaction);
+        let reader_start = publication_census_checkpoint(&transaction);
         queries.reader(&world, &snapshot_obj.store, &snapshot_obj.static_values)?;
+        record_publication_census(6, reader_start, &transaction);
+        let fingerprint_start = publication_census_checkpoint(&transaction);
         for (key, fp) in dependency_fingerprints.iter() {
             if let Some(expected) = aggregate_structural_fingerprint(&snapshot_obj, key) {
                 if expected != *fp {
@@ -1197,14 +1227,14 @@ impl CanonicalUniverseFormalImage {
                 )));
             }
         }
-        record_publication_census(3, validation_start, &transaction);
+        record_publication_census(7, fingerprint_start, &transaction);
         let type_prefix = CanonicalTypePrefixId {
             store: snapshot_obj.store.id(),
             types: snapshot_obj.store.len(),
         };
         let snapshot_arc_start = publication_census_checkpoint(&transaction);
         let snapshot = transaction.arc(snapshot_obj)?;
-        record_publication_census(4, snapshot_arc_start, &transaction);
+        record_publication_census(8, snapshot_arc_start, &transaction);
         let formal_image_start = publication_census_checkpoint(&transaction);
         let image = transaction.arc(Self {
             world,
@@ -1216,7 +1246,7 @@ impl CanonicalUniverseFormalImage {
             dependency_fingerprints,
             type_prefix,
         })?;
-        record_publication_census(5, formal_image_start, &transaction);
+        record_publication_census(9, formal_image_start, &transaction);
         allocations.commit_child(transaction)?;
         Ok(image)
     }

@@ -323,6 +323,10 @@ impl StaticDefinitionTable {
         self.definitions.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.local_len() == 0 && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
+    }
+
     pub fn insert(&mut self, product: Arc<StaticDefinitionProduct>) {
         let decl = product.definition.id.clone();
         assert!(

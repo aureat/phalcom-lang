@@ -85,6 +85,10 @@ impl TypeAliasTable {
         self.aliases.len() + self.frozen.as_ref().map_or(0, |aliases| aliases.len())
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.local_len() == 0 && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
+    }
+
     pub fn insert(&mut self, info: TypeAliasInfo) {
         assert!(
             !self.parent.as_ref().is_some_and(|parent| parent.contains_key(&info.declaration))

@@ -827,16 +827,20 @@ mod temporary_loaded_publication_allocation_census {
         let formal_ledger_delta = allocations.requested() - formal_ledger_before;
         let publication = phalcom_semantic::canonical_image::take_loaded_publication_census();
         let publication_rows = [
-            ("P1 snapshot clone/status", publication.snapshot_clone_status, publication.snapshot_clone_status_ledger),
-            ("P2 ModuleQueryProducts reconstruction", publication.module_query_products, publication.module_query_products_ledger),
+            ("P1 snapshot clone", publication.snapshot_clone, publication.snapshot_clone_ledger),
+            ("P2 status/content promotion", publication.status_promotion, publication.status_promotion_ledger),
+            ("P3 ModuleQueryProducts reconstruction", publication.module_query_products, publication.module_query_products_ledger),
             (
-                "P3 ModuleQueryProducts Arc/publication",
+                "P4 ModuleQueryProducts Arc/publication",
                 publication.module_query_products_publication,
                 publication.module_query_products_publication_ledger,
             ),
-            ("P4 completeness/query validation", publication.completeness_validation, publication.completeness_validation_ledger),
-            ("P5 final Arc<SemanticSnapshot>", publication.snapshot_arc, publication.snapshot_arc_ledger),
-            ("P6 Arc<CanonicalUniverseFormalImage>", publication.formal_image_arc, publication.formal_image_arc_ledger),
+            ("P5 source-free completeness", publication.source_free_completeness, publication.source_free_completeness_ledger),
+            ("P6 advisory validation", publication.advisory_validation, publication.advisory_validation_ledger),
+            ("P7 query reader validation", publication.query_reader_validation, publication.query_reader_validation_ledger),
+            ("P8 fingerprint validation", publication.fingerprint_validation, publication.fingerprint_validation_ledger),
+            ("P9 final Arc<SemanticSnapshot>", publication.snapshot_arc, publication.snapshot_arc_ledger),
+            ("P10 Arc<CanonicalUniverseFormalImage>", publication.formal_image_arc, publication.formal_image_arc_ledger),
         ];
         let publication_observed = publication_rows.iter().map(|(_, observed, _)| *observed).sum::<usize>();
         let publication_ledger = publication_rows.iter().map(|(_, _, ledger)| *ledger).sum::<usize>();
@@ -846,7 +850,7 @@ mod temporary_loaded_publication_allocation_census {
         for (name, observed, ledger) in publication_rows {
             let signed = observed as isize - ledger as isize;
             eprintln!("  CENSUS {name}: ledger={ledger} observed={observed} signed_delta={signed}");
-            if name.starts_with("P2 ") || name.starts_with("P3 ") {
+            if name.starts_with("P3 ") || name.starts_with("P4 ") {
                 module_query_signed += signed;
             }
         }
