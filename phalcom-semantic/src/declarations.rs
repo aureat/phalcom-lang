@@ -49,6 +49,57 @@ pub struct DeclarationTypeInfo {
     pub supertype_template: Option<GenericSupertypeTemplate>,
 }
 
+impl DeclarationTypeInfo {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let generic_binder_header = self
+            .generic_binder_header
+            .as_ref()
+            .map(|header| clone_generic_binder_header_with_allocation_budget(header, allocations))
+            .transpose()?;
+        let generic_signature = self.generic_signature.as_ref().map(|signature| signature.clone_with_allocation_budget(allocations)).transpose()?;
+        let supertype_template = self
+            .supertype_template
+            .as_ref()
+            .map(|template| {
+                Ok(GenericSupertypeTemplate {
+                    declaration: template.declaration.clone_with_allocation_budget(allocations)?,
+                    supertype: template.supertype,
+                    structural_form: template.structural_form.as_ref().map(|form| allocations.boxed_str(form)).transpose()?,
+                })
+            })
+            .transpose()?;
+        Ok(Self {
+            declaration: self.declaration.clone_with_allocation_budget(allocations)?,
+            form: self.form,
+            class_object_type: self.class_object_type,
+            kind: self.kind,
+            binding: self.binding,
+            generic_binder_header,
+            generic_signature,
+            supertype_template,
+        })
+    }
+}
+
+fn clone_generic_binder_header_with_allocation_budget(
+    header: &GenericBinderHeader,
+    allocations: &mut AllocationBudget,
+) -> Result<GenericBinderHeader, AllocationError> {
+    fn copy_slice<T: Copy>(values: &[T], allocations: &mut AllocationBudget) -> Result<Box<[T]>, AllocationError> {
+        let mut copied = allocations.vector(values.len())?;
+        copied.extend_from_slice(values);
+        allocations.boxed_slice(copied)
+    }
+
+    Ok(GenericBinderHeader {
+        owner: header.owner.clone_with_allocation_budget(allocations)?,
+        parameters: copy_slice(&header.parameters, allocations)?,
+        parameter_kinds: copy_slice(&header.parameter_kinds, allocations)?,
+        parameter_variances: copy_slice(&header.parameter_variances, allocations)?,
+        parameter_modes: copy_slice(&header.parameter_modes, allocations)?,
+    })
+}
+
 /// Semantic type-application behavior for a canonical declaration.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum DeclarationSemanticForm {

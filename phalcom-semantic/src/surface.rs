@@ -89,6 +89,10 @@ impl<K: Eq + Hash + Ord, V> SurfaceMap<K, V> {
         self.source.is_empty() && self.frozen.as_ref().is_none_or(|entries| entries.is_empty())
     }
 
+    pub(crate) fn is_frozen(&self) -> bool {
+        self.frozen.is_some()
+    }
+
     pub fn iter(&self) -> SurfaceMapIter<'_, K, V> {
         match &self.frozen {
             Some(entries) => SurfaceMapIter::Frozen(entries.as_entries().iter()),
@@ -171,6 +175,82 @@ pub struct MemberSurface {
 }
 
 impl MemberSurface {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        fn clone_map<K, V>(
+            map: &SurfaceMap<K, V>,
+            mut clone_key: impl FnMut(&K, &mut AllocationBudget) -> Result<K, AllocationError>,
+            mut clone_value: impl FnMut(&V, &mut AllocationBudget) -> Result<V, AllocationError>,
+            allocations: &mut AllocationBudget,
+        ) -> Result<SurfaceMap<K, V>, AllocationError>
+        where
+            K: Eq + Hash + Ord,
+        {
+            let mut entries = allocations.vector(map.len())?;
+            for (key, value) in map.iter() {
+                entries.push((clone_key(key, allocations)?, clone_value(value, allocations)?));
+            }
+            SurfaceMap::from_frozen_entries_with_allocation_budget(entries, allocations).map_err(|error| match error {
+                FrozenSurfaceMapError::Allocation(error) => error,
+                FrozenSurfaceMapError::DuplicateKey => AllocationError::Failed,
+            })
+        }
+
+        fn clone_string(value: &String, allocations: &mut AllocationBudget) -> Result<String, AllocationError> {
+            allocations.string(value)
+        }
+
+        Ok(Self {
+            fields: clone_map(
+                &self.fields,
+                clone_string,
+                |knowledge, allocations| knowledge.clone_with_allocation_budget(allocations),
+                allocations,
+            )?,
+            field_ids: clone_map(
+                &self.field_ids,
+                |field, allocations| field.clone_with_allocation_budget(allocations),
+                |knowledge, allocations| knowledge.clone_with_allocation_budget(allocations),
+                allocations,
+            )?,
+            fields_by_name: clone_map(
+                &self.fields_by_name,
+                clone_string,
+                |field, allocations| field.clone_with_allocation_budget(allocations),
+                allocations,
+            )?,
+            field_visibility: clone_map(
+                &self.field_visibility,
+                clone_string,
+                |visibility, _| Ok(*visibility),
+                allocations,
+            )?,
+            callables: clone_map(
+                &self.callables,
+                |callable, allocations| callable.clone_with_allocation_budget(allocations),
+                |knowledge, allocations| knowledge.clone_with_allocation_budget(allocations),
+                allocations,
+            )?,
+            callable_signatures: clone_map(
+                &self.callable_signatures,
+                |selector, allocations| clone_selector_with_allocation_budget(selector, allocations),
+                |signature, allocations| signature.clone_with_allocation_budget(allocations),
+                allocations,
+            )?,
+            callables_by_selector: clone_map(
+                &self.callables_by_selector,
+                |selector, allocations| clone_selector_with_allocation_budget(selector, allocations),
+                |callable, allocations| callable.clone_with_allocation_budget(allocations),
+                allocations,
+            )?,
+            callable_visibility: clone_map(
+                &self.callable_visibility,
+                |selector, allocations| clone_selector_with_allocation_budget(selector, allocations),
+                |visibility, _| Ok(*visibility),
+                allocations,
+            )?,
+        })
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -374,6 +454,14 @@ pub struct DeclarationSurface {
 }
 
 impl DeclarationSurface {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            id: self.id.as_ref().map(|id| id.clone_with_allocation_budget(allocations)).transpose()?,
+            instance: self.instance.clone_with_allocation_budget(allocations)?,
+            class: self.class.clone_with_allocation_budget(allocations)?,
+        })
+    }
+
     pub fn new(id: Option<DeclarationId>) -> Self {
         Self {
             id,

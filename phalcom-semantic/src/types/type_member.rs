@@ -126,6 +126,19 @@ impl TypeMemberDeclarationId {
     pub fn new(owner: DeclarationId, selector: TypeMemberSelector) -> Self {
         Self { owner, selector }
     }
+
+    pub(crate) fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(Self {
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            selector: match &self.selector {
+                TypeMemberSelector::Named(name) => TypeMemberSelector::Named(allocations.boxed_str(name)?),
+                TypeMemberSelector::Subscript => TypeMemberSelector::Subscript,
+            },
+        })
+    }
 }
 
 /// A formal parameter of a type member.

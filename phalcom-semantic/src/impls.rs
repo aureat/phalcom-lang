@@ -30,6 +30,7 @@ use crate::types::store::{StaticArgument, TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
 use phalcom_ast::ast::{BehaviorMember, ImplDef, ImplMember, TypeAnnotationExpr};
 use phalcom_native_meta::UniverseKey;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
@@ -342,6 +343,25 @@ pub struct CoveringImplSubstitution {
 }
 
 impl CoveringImplSubstitution {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        fn clone_map(
+            map: &crate::ordered_map::OrderedMap<TypeParameterId, TypeParameterId>,
+            allocations: &mut AllocationBudget,
+        ) -> Result<crate::ordered_map::OrderedMap<TypeParameterId, TypeParameterId>, AllocationError> {
+            let mut entries = allocations.vector(map.len())?;
+            entries.extend(map.iter().map(|(key, value)| (*key, *value)));
+            crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(entries, allocations).map_err(|error| match error {
+                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => error,
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => AllocationError::Failed,
+            })
+        }
+
+        Ok(Self {
+            impl_to_decl: clone_map(&self.impl_to_decl, allocations)?,
+            decl_to_impl: clone_map(&self.decl_to_impl, allocations)?,
+        })
+    }
+
     pub fn new(impl_to_decl: HashMap<TypeParameterId, TypeParameterId>, decl_to_impl: HashMap<TypeParameterId, TypeParameterId>) -> Self {
         Self {
             impl_to_decl: impl_to_decl.into_iter().collect::<BTreeMap<_, _>>().into(),
@@ -4862,6 +4882,38 @@ pub struct EffectiveCallableDefinition {
     pub inherent_body_context: Option<InherentBodyContext>,
 }
 
+impl EffectiveCallableDefinition {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let origin = match &self.origin {
+            CallableDefinitionOrigin::PrimaryDeclaration => CallableDefinitionOrigin::PrimaryDeclaration,
+            CallableDefinitionOrigin::InherentImpl(implementation) => {
+                CallableDefinitionOrigin::InherentImpl(implementation.clone_with_allocation_budget(allocations)?)
+            }
+            CallableDefinitionOrigin::ConformanceWitness(implementation) => {
+                CallableDefinitionOrigin::ConformanceWitness(implementation.clone_with_allocation_budget(allocations)?)
+            }
+        };
+        let body_provenance = match &self.body_provenance {
+            CallableDefinitionBodyProvenance::SourceBody => CallableDefinitionBodyProvenance::SourceBody,
+            CallableDefinitionBodyProvenance::GeneratedDelegation { target_field } => CallableDefinitionBodyProvenance::GeneratedDelegation {
+                target_field: allocations.boxed_str(target_field)?,
+            },
+        };
+        Ok(Self {
+            callable: self.callable.clone_with_allocation_budget(allocations)?,
+            origin,
+            source_member_index: self.source_member_index,
+            signature: self.signature.clone_with_allocation_budget(allocations)?,
+            body_provenance,
+            inherent_body_context: self
+                .inherent_body_context
+                .as_ref()
+                .map(|context| context.clone_with_allocation_budget(allocations))
+                .transpose()?,
+        })
+    }
+}
+
 /// The impl-relative coordinate system used when checking an inherent member's
 /// source body.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -4874,6 +4926,14 @@ pub struct InherentBodyContext {
 }
 
 impl InherentBodyContext {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            generic_signature: self.generic_signature.as_ref().map(|signature| signature.clone_with_allocation_budget(allocations)).transpose()?,
+            covering: self.covering.as_ref().map(|covering| covering.clone_with_allocation_budget(allocations)).transpose()?,
+            source_target_head: self.source_target_head,
+        })
+    }
+
     /// Returns the source-relative runtime receiver override for a body.
     ///
     /// Instance bodies use the impl target instance directly. Class-side

@@ -1,10 +1,12 @@
 //! Query image validation, reverse-pruning, and reconstruction (`PERF003.C2.P7.T9`).
 
-use crate::canonical_image::{CanonicalImageError, CanonicalQueryEntry, CanonicalSemanticQueryImage, CanonicalSemanticWorldId};
+use crate::artifact::import::import_stable_callable_with_allocation_budget;
+use crate::canonical_image::{
+    CanonicalDependencyFingerprints, CanonicalImageError, CanonicalQueryEntries, CanonicalQueryEntry, CanonicalSemanticQueryImage, CanonicalSemanticWorldId,
+};
 use crate::db::key::QueryKey;
 use crate::db::product::{CallableSignatureProduct, DeclarationSurfaceProduct, SemanticProduct};
-use crate::db::{DependencyEdge, InputFingerprint, ProductFingerprint};
-use crate::artifact::import::import_stable_callable_with_allocation_budget;
+use crate::db::{DependencyEdge, InputFingerprint, ProductFingerprint, QueryKind};
 use crate::snapshot::SemanticSnapshot;
 use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::error::QueryImageError;
@@ -12,29 +14,199 @@ use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, 
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::budgeted::BudgetDecode;
 use phalcom_type_meta::identity::{StableCallableRef, StableDeclarationRef, StableFieldRef};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 const QUERY_RECONSTRUCTION_CENSUS_PHASES: usize = 6;
+const QUERY_KIND_CENSUS_KINDS: [QueryKind; 45] = [
+    QueryKind::ParsedModule,
+    QueryKind::UnlinkedInterface,
+    QueryKind::ResolvedImports,
+    QueryKind::LinkedInterface,
+    QueryKind::DeclarationShell,
+    QueryKind::SemanticComponent,
+    QueryKind::DeclarationSurface,
+    QueryKind::TraitHeader,
+    QueryKind::TraitSurface,
+    QueryKind::ConformanceDispatch,
+    QueryKind::TraitDispatchBucket,
+    QueryKind::GenericConformance,
+    QueryKind::CallableDefinition,
+    QueryKind::HierarchyEdge,
+    QueryKind::FieldSignature,
+    QueryKind::ConstructorInitialization,
+    QueryKind::CallableSignature,
+    QueryKind::CallableBody,
+    QueryKind::CallableEffects,
+    QueryKind::CallableControl,
+    QueryKind::CallableTermination,
+    QueryKind::CallableContracts,
+    QueryKind::VerificationConditions,
+    QueryKind::SourceStructure,
+    QueryKind::SourceFormalAttachment,
+    QueryKind::AdvisoryCallable,
+    QueryKind::AdvisoryModule,
+    QueryKind::ModuleDiagnostics,
+    QueryKind::ModuleMetadata,
+    QueryKind::DataDeclaration,
+    QueryKind::EnumDeclaration,
+    QueryKind::EnumRequirements,
+    QueryKind::TypeMemberDeclaration,
+    QueryKind::StaticDomainCaseCatalog,
+    QueryKind::StaticCaseSignature,
+    QueryKind::AssociatedStaticDomainDeclaration,
+    QueryKind::AssociatedSurface,
+    QueryKind::ResolvedImport,
+    QueryKind::LinkedName,
+    QueryKind::PublicExport,
+    QueryKind::StaticDefinition,
+    QueryKind::StaticConstant,
+    QueryKind::ModuleStaticBindingCatalog,
+    QueryKind::ModuleStaticBindings,
+    QueryKind::CheckedStaticBody,
+];
 static QUERY_RECONSTRUCTION_CENSUS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static QUERY_RECONSTRUCTION_CENSUS_OBSERVED: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
-    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
 ];
 static QUERY_RECONSTRUCTION_CENSUS_LEDGER: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
-    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
 ];
 static QUERY_RECONSTRUCTION_CENSUS_ALLOCATOR_BEFORE: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
-    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
 ];
 static QUERY_RECONSTRUCTION_CENSUS_ALLOCATOR_AFTER: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
-    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
 ];
 static QUERY_RECONSTRUCTION_CENSUS_LEDGER_BEFORE: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
-    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
 ];
 static QUERY_RECONSTRUCTION_CENSUS_LEDGER_AFTER: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
-    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+];
+static QUERY_PRODUCT_KIND_OBSERVED: [AtomicUsize; QUERY_KIND_CENSUS_KINDS.len()] = [
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+];
+static QUERY_PRODUCT_KIND_LEDGER: [AtomicUsize; QUERY_KIND_CENSUS_KINDS.len()] = [
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
 ];
 
 #[doc(hidden)]
@@ -50,6 +222,14 @@ pub struct QueryReconstructionCensusRow {
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct QueryProductKindCensusRow {
+    pub kind: QueryKind,
+    pub observed_bytes: usize,
+    pub ledger_bytes: usize,
+}
+
+#[doc(hidden)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueryReconstructionCensus {
     pub closure_and_roots: QueryReconstructionCensusRow,
     pub owner_key_resolution: QueryReconstructionCensusRow,
@@ -57,6 +237,7 @@ pub struct QueryReconstructionCensus {
     pub entry_assembly: QueryReconstructionCensusRow,
     pub loaded_validation: QueryReconstructionCensusRow,
     pub query_image_publication: QueryReconstructionCensusRow,
+    pub product_by_kind: Vec<QueryProductKindCensusRow>,
 }
 
 #[doc(hidden)]
@@ -70,6 +251,9 @@ pub fn reset_query_reconstruction_census() {
         .chain(QUERY_RECONSTRUCTION_CENSUS_LEDGER_BEFORE.iter())
         .chain(QUERY_RECONSTRUCTION_CENSUS_LEDGER_AFTER.iter())
     {
+        row.store(0, Ordering::Relaxed);
+    }
+    for row in QUERY_PRODUCT_KIND_OBSERVED.iter().chain(QUERY_PRODUCT_KIND_LEDGER.iter()) {
         row.store(0, Ordering::Relaxed);
     }
     QUERY_RECONSTRUCTION_CENSUS_ACTIVE.store(true, Ordering::Relaxed);
@@ -86,6 +270,19 @@ pub fn take_query_reconstruction_census() -> QueryReconstructionCensus {
         ledger_after: QUERY_RECONSTRUCTION_CENSUS_LEDGER_AFTER[index].load(Ordering::Relaxed),
         ledger_bytes: QUERY_RECONSTRUCTION_CENSUS_LEDGER[index].load(Ordering::Relaxed),
     };
+    let product_by_kind = QUERY_KIND_CENSUS_KINDS
+        .iter()
+        .enumerate()
+        .filter_map(|(index, kind)| {
+            let observed_bytes = QUERY_PRODUCT_KIND_OBSERVED[index].load(Ordering::Relaxed);
+            let ledger_bytes = QUERY_PRODUCT_KIND_LEDGER[index].load(Ordering::Relaxed);
+            (observed_bytes != 0 || ledger_bytes != 0).then_some(QueryProductKindCensusRow {
+                kind: *kind,
+                observed_bytes,
+                ledger_bytes,
+            })
+        })
+        .collect();
     QueryReconstructionCensus {
         closure_and_roots: row(0),
         owner_key_resolution: row(1),
@@ -93,6 +290,7 @@ pub fn take_query_reconstruction_census() -> QueryReconstructionCensus {
         entry_assembly: row(3),
         loaded_validation: row(4),
         query_image_publication: row(5),
+        product_by_kind,
     }
 }
 
@@ -118,6 +316,19 @@ fn record_census_phase(phase: usize, before: (Option<usize>, usize), allocations
     QUERY_RECONSTRUCTION_CENSUS_LEDGER[phase].fetch_add(ledger_after - before.1, Ordering::Relaxed);
     QUERY_RECONSTRUCTION_CENSUS_LEDGER_BEFORE[phase].store(before.1, Ordering::Relaxed);
     QUERY_RECONSTRUCTION_CENSUS_LEDGER_AFTER[phase].store(ledger_after, Ordering::Relaxed);
+}
+
+fn record_product_kind_census(kind: QueryKind, before: (Option<usize>, usize), allocations: &AllocationBudget) {
+    if !QUERY_RECONSTRUCTION_CENSUS_ACTIVE.load(Ordering::Relaxed) {
+        return;
+    }
+    let Some(index) = QUERY_KIND_CENSUS_KINDS.iter().position(|candidate| *candidate == kind) else {
+        return;
+    };
+    if let (Some(start), Some(end)) = (before.0, phalcom_type_meta::allocation::current_observed_bytes()) {
+        QUERY_PRODUCT_KIND_OBSERVED[index].fetch_add(end - start, Ordering::Relaxed);
+    }
+    QUERY_PRODUCT_KIND_LEDGER[index].fetch_add(allocations.requested() - before.1, Ordering::Relaxed);
 }
 
 fn incomplete(message: impl Into<String>) -> CanonicalImageError {
@@ -227,7 +438,10 @@ fn decode_owner<T: phalcom_type_meta::budgeted::BudgetDecode>(
     allocations: &mut AllocationBudget,
 ) -> Result<T, CanonicalImageError> {
     let prefix_len = tag.len() + 1;
-    let prefix = key.stable_owner_key.get(..prefix_len).ok_or_else(|| incomplete("query owner key has wrong type tag"))?;
+    let prefix = key
+        .stable_owner_key
+        .get(..prefix_len)
+        .ok_or_else(|| incomplete("query owner key has wrong type tag"))?;
     if prefix.strip_suffix(':') != Some(tag) {
         return Err(incomplete("query owner key has wrong type tag"));
     }
@@ -254,10 +468,7 @@ fn consume_stable_project(project: phalcom_type_meta::identity::StableProjectRef
         StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe" => phalcom_modules::ProjectIdentity::Universe,
         StableProjectRef::Session { session_fingerprint } => {
             let bytes = session_fingerprint.as_bytes();
-            let raw = u64::from_be_bytes([
-                bytes[8], bytes[9], bytes[10], bytes[11],
-                bytes[12], bytes[13], bytes[14], bytes[15],
-            ]);
+            let raw = u64::from_be_bytes([bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]]);
             phalcom_modules::ProjectIdentity::Synthetic(phalcom_modules::SyntheticProjectId::from_raw(raw))
         }
         _ => return Err(incomplete("unsupported stable project ref for direct conversion")),
@@ -269,10 +480,12 @@ fn consume_stable_module(
     allocations: &mut AllocationBudget,
 ) -> Result<phalcom_modules::ModuleId, CanonicalImageError> {
     let project = consume_stable_project(module.project)?;
-    let mut components = allocations.vector::<phalcom_modules::ModuleComponent>(module.path.len()).map_err(allocation_error)?;
+    let mut components = allocations
+        .vector::<phalcom_modules::ModuleComponent>(module.path.len())
+        .map_err(allocation_error)?;
     for spelling in Vec::from(module.path) {
-        let component = phalcom_modules::ModuleComponent::from_owned_identifier(spelling)
-            .map_err(|_| incomplete("invalid module component in stable query owner"))?;
+        let component =
+            phalcom_modules::ModuleComponent::from_owned_identifier(spelling).map_err(|_| incomplete("invalid module component in stable query owner"))?;
         components.push(component);
     }
     let components = allocations.boxed_slice(components).map_err(allocation_error)?;
@@ -294,10 +507,7 @@ fn consume_stable_declaration(
     Ok(crate::identity::DeclarationId::new(module, name))
 }
 
-fn consume_stable_field(
-    field: StableFieldRef,
-    allocations: &mut AllocationBudget,
-) -> Result<crate::identity::FieldId, CanonicalImageError> {
+fn consume_stable_field(field: StableFieldRef, allocations: &mut AllocationBudget) -> Result<crate::identity::FieldId, CanonicalImageError> {
     let owner = consume_stable_declaration(field.owner, allocations)?;
     Ok(crate::identity::FieldId {
         owner,
@@ -308,76 +518,99 @@ fn consume_stable_field(
 
 fn resolve_query_key(key: &PortableQueryKeyV1, allocations: &mut AllocationBudget) -> Result<QueryKey, CanonicalImageError> {
     Ok(match key.kind {
-        PortableQueryKindV1::UnlinkedInterface => {
-            QueryKey::UnlinkedInterface(consume_stable_module(decode_owner(key, "module", allocations)?, allocations)?)
-        }
-        PortableQueryKindV1::ResolvedImports => {
-            QueryKey::ResolvedImports(consume_stable_module(decode_owner(key, "module", allocations)?, allocations)?)
-        }
-        PortableQueryKindV1::LinkedInterface => {
-            QueryKey::LinkedInterface(consume_stable_module(decode_owner(key, "module", allocations)?, allocations)?)
-        }
-        PortableQueryKindV1::DeclarationShell => {
-            QueryKey::DeclarationShell(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
-        }
-        PortableQueryKindV1::CallableDefinition => {
-            QueryKey::CallableDefinition(
-                import_stable_callable_with_allocation_budget(&decode_owner::<StableCallableRef>(key, "callable", allocations)?, allocations)?,
-            )
-        }
-        PortableQueryKindV1::CallableSignature => {
-            QueryKey::CallableSignature(
-                import_stable_callable_with_allocation_budget(&decode_owner::<StableCallableRef>(key, "callable", allocations)?, allocations)?,
-            )
-        }
+        PortableQueryKindV1::UnlinkedInterface => QueryKey::UnlinkedInterface(consume_stable_module(decode_owner(key, "module", allocations)?, allocations)?),
+        PortableQueryKindV1::ResolvedImports => QueryKey::ResolvedImports(consume_stable_module(decode_owner(key, "module", allocations)?, allocations)?),
+        PortableQueryKindV1::LinkedInterface => QueryKey::LinkedInterface(consume_stable_module(decode_owner(key, "module", allocations)?, allocations)?),
+        PortableQueryKindV1::DeclarationShell => QueryKey::DeclarationShell(consume_stable_declaration(
+            decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?,
+            allocations,
+        )?),
+        PortableQueryKindV1::CallableDefinition => QueryKey::CallableDefinition(import_stable_callable_with_allocation_budget(
+            &decode_owner::<StableCallableRef>(key, "callable", allocations)?,
+            allocations,
+        )?),
+        PortableQueryKindV1::CallableSignature => QueryKey::CallableSignature(import_stable_callable_with_allocation_budget(
+            &decode_owner::<StableCallableRef>(key, "callable", allocations)?,
+            allocations,
+        )?),
         PortableQueryKindV1::FieldSignature => {
             QueryKey::FieldSignature(consume_stable_field(decode_owner::<StableFieldRef>(key, "field", allocations)?, allocations)?)
         }
-        PortableQueryKindV1::DeclarationSurface => {
-            QueryKey::DeclarationSurface(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
-        }
-        PortableQueryKindV1::TraitHeader => {
-            QueryKey::TraitHeader(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
-        }
-        PortableQueryKindV1::TraitSurface => {
-            QueryKey::TraitSurface(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
-        }
-        PortableQueryKindV1::DataDeclaration => {
-            QueryKey::DataDeclaration(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
-        }
-        PortableQueryKindV1::EnumDeclaration => {
-            QueryKey::EnumDeclaration(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
-        }
-        PortableQueryKindV1::AssociatedSurface => {
-            QueryKey::AssociatedSurface(consume_stable_declaration(decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?, allocations)?)
-        }
+        PortableQueryKindV1::DeclarationSurface => QueryKey::DeclarationSurface(consume_stable_declaration(
+            decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?,
+            allocations,
+        )?),
+        PortableQueryKindV1::TraitHeader => QueryKey::TraitHeader(consume_stable_declaration(
+            decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?,
+            allocations,
+        )?),
+        PortableQueryKindV1::TraitSurface => QueryKey::TraitSurface(consume_stable_declaration(
+            decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?,
+            allocations,
+        )?),
+        PortableQueryKindV1::DataDeclaration => QueryKey::DataDeclaration(consume_stable_declaration(
+            decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?,
+            allocations,
+        )?),
+        PortableQueryKindV1::EnumDeclaration => QueryKey::EnumDeclaration(consume_stable_declaration(
+            decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?,
+            allocations,
+        )?),
+        PortableQueryKindV1::AssociatedSurface => QueryKey::AssociatedSurface(consume_stable_declaration(
+            decode_owner::<StableDeclarationRef>(key, "declaration", allocations)?,
+            allocations,
+        )?),
         PortableQueryKindV1::TypeMemberDeclaration => {
             let prefix_len = "type-member:".len();
-            let payload = key.stable_owner_key.get(prefix_len..).ok_or_else(|| incomplete("query owner key has wrong type tag"))?;
+            let payload = key
+                .stable_owner_key
+                .get(prefix_len..)
+                .ok_or_else(|| incomplete("query owner key has wrong type tag"))?;
             if key.stable_owner_key.get(..prefix_len) != Some("type-member:") {
                 return Err(incomplete("query owner key has wrong type tag"));
             }
             let mut decoder = phalcom_type_meta::budgeted::Decoder::new(payload, allocations, 256)
                 .map_err(|error| incomplete(format!("invalid portable query owner key for type-member: {error}: {payload}")))?;
-            decoder.cursor.expect(b'[').map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            decoder
+                .cursor
+                .expect(b'[')
+                .map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
             let owner = StableDeclarationRef::decode(&mut decoder).map_err(|error| match error {
                 phalcom_type_meta::budgeted::DecodeError::Allocation(error) => allocation_error(error),
                 error => incomplete(format!("invalid type-member stable declaration: {error}: {payload}")),
             })?;
-            decoder.cursor.expect(b',').map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
-            decoder.cursor.expect(b'[').map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            decoder
+                .cursor
+                .expect(b',')
+                .map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            decoder
+                .cursor
+                .expect(b'[')
+                .map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
             let selector_tag = u8::decode(&mut decoder).map_err(|error| match error {
                 phalcom_type_meta::budgeted::DecodeError::Allocation(error) => allocation_error(error),
                 error => incomplete(format!("invalid type-member selector tag: {error}: {payload}")),
             })?;
-            decoder.cursor.expect(b',').map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            decoder
+                .cursor
+                .expect(b',')
+                .map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
             let selector_name = String::decode(&mut decoder).map_err(|error| match error {
                 phalcom_type_meta::budgeted::DecodeError::Allocation(error) => allocation_error(error),
                 error => incomplete(format!("invalid portable query owner key: {error}")),
             })?;
-            decoder.cursor.expect(b']').map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
-            decoder.cursor.expect(b']').map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
-            decoder.cursor.finish().map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            decoder
+                .cursor
+                .expect(b']')
+                .map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            decoder
+                .cursor
+                .expect(b']')
+                .map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
+            decoder
+                .cursor
+                .finish()
+                .map_err(|error| incomplete(format!("invalid portable query owner key: {error}")))?;
             let selector = match selector_tag {
                 0 if !selector_name.is_empty() => crate::types::type_member::TypeMemberSelector::Named(selector_name.into_boxed_str()),
                 1 if selector_name.is_empty() => crate::types::type_member::TypeMemberSelector::Subscript,
@@ -433,9 +666,10 @@ fn product_and_fingerprints(
     snapshot: &SemanticSnapshot,
     key: &QueryKey,
     modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,
+    allocations: &mut AllocationBudget,
 ) -> Result<(Arc<SemanticProduct>, ProductFingerprint, InputFingerprint), CanonicalImageError> {
     use crate::db::fingerprint as fp;
-    let empty_diagnostics: Arc<[crate::diagnostic::SemanticDiagnostic]> = Arc::from([]);
+    let empty_diagnostics = allocations.arc_slice(Vec::<crate::diagnostic::SemanticDiagnostic>::new()).map_err(allocation_error)?;
     let result = match key {
         QueryKey::UnlinkedInterface(module) => {
             let interface = modules
@@ -453,7 +687,8 @@ fn product_and_fingerprints(
                 .modules
                 .get(module)
                 .ok_or_else(|| incomplete("missing linked interface product for portable owner"))?;
-            let interface = Arc::new(linked.interface.clone());
+            let interface = linked.interface.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+            let interface = allocations.arc(interface).map_err(allocation_error)?;
             let product_fingerprint = fp::linked_interface_product_fingerprint(&interface);
             let input_fingerprint = fp::linked_interface_input_fingerprint(&interface);
             (SemanticProduct::LinkedInterface(interface), product_fingerprint, input_fingerprint)
@@ -482,50 +717,51 @@ fn product_and_fingerprints(
         }
         QueryKey::DeclarationShell(declaration) => {
             let shell = if let Some(info) = snapshot.declarations.get(declaration) {
-                crate::declarations::TypeDeclarationShell::Nominal(info.clone())
+                crate::declarations::TypeDeclarationShell::Nominal(info.clone_with_allocation_budget(allocations).map_err(allocation_error)?)
             } else if let Some(alias) = snapshot.type_aliases.get(declaration) {
-                crate::declarations::TypeDeclarationShell::Alias(alias.clone())
+                crate::declarations::TypeDeclarationShell::Alias(alias.clone_with_allocation_budget(allocations).map_err(allocation_error)?)
             } else {
                 return Err(incomplete("missing declaration shell product for portable owner"));
             };
             let product_fingerprint = fp::declaration_shell_product_fingerprint(&shell);
             let input_fingerprint = fp::declaration_shell_input_fingerprint(&shell);
-            (SemanticProduct::DeclarationShell(Arc::new(shell)), product_fingerprint, input_fingerprint)
+            (SemanticProduct::DeclarationShell(allocations.arc(shell).map_err(allocation_error)?), product_fingerprint, input_fingerprint)
         }
         QueryKey::DeclarationSurface(declaration) => {
             let surface = snapshot
                 .dispatch
                 .get_surface(declaration)
-                .cloned()
                 .ok_or_else(|| incomplete("missing declaration surface product for portable owner"))?;
+            let surface = surface.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
             let product_fingerprint = fp::declaration_surface_product_fingerprint(&surface);
             let input_fingerprint = fp::declaration_surface_query_input_fingerprint(&surface, &[]);
             let product = DeclarationSurfaceProduct {
-                surface: Arc::new(surface),
+                surface: allocations.arc(surface).map_err(allocation_error)?,
                 diagnostics: empty_diagnostics,
             };
-            (SemanticProduct::DeclarationSurface(Arc::new(product)), product_fingerprint, input_fingerprint)
+            (SemanticProduct::DeclarationSurface(allocations.arc(product).map_err(allocation_error)?), product_fingerprint, input_fingerprint)
         }
         QueryKey::CallableSignature(callable) => {
             let signature = snapshot
                 .callable_signatures
                 .get(callable)
-                .cloned()
                 .ok_or_else(|| incomplete("missing callable signature product for portable owner"))?;
+            let signature = signature.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
             let product_fingerprint = fp::callable_signature_product_fingerprint(&signature);
             let input_fingerprint = fp::callable_signature_input_fingerprint(&signature);
-            let product = CallableSignatureProduct::new(Arc::new(signature), empty_diagnostics);
-            (SemanticProduct::CallableSignature(Arc::new(product)), product_fingerprint, input_fingerprint)
+            let signature = allocations.arc(signature).map_err(allocation_error)?;
+            let product = CallableSignatureProduct::new(signature, empty_diagnostics);
+            (SemanticProduct::CallableSignature(allocations.arc(product).map_err(allocation_error)?), product_fingerprint, input_fingerprint)
         }
         QueryKey::CallableDefinition(callable) => {
             let definition = snapshot
                 .callable_definitions
                 .get(callable)
-                .cloned()
                 .ok_or_else(|| incomplete("missing callable definition product for portable owner"))?;
+            let definition = definition.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
             let fingerprint = callable_definition_fingerprint(&definition);
             (
-                SemanticProduct::CallableDefinition(Arc::new(definition)),
+                SemanticProduct::CallableDefinition(allocations.arc(definition).map_err(allocation_error)?),
                 fingerprint,
                 InputFingerprint::new(fingerprint.raw()),
             )
@@ -534,12 +770,13 @@ fn product_and_fingerprints(
             let signature = snapshot
                 .field_signatures
                 .get(field)
-                .cloned()
                 .ok_or_else(|| incomplete("missing field signature product for portable owner"))?;
+            let signature = signature.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
             let product_fingerprint = fp::field_signature_product_fingerprint(&signature);
             let input_fingerprint = fp::field_signature_input_fingerprint(&signature);
-            let product = crate::db::product::FieldSignatureProduct::new(Arc::new(signature), empty_diagnostics);
-            (SemanticProduct::FieldSignature(Arc::new(product)), product_fingerprint, input_fingerprint)
+            let signature = allocations.arc(signature).map_err(allocation_error)?;
+            let product = crate::db::product::FieldSignatureProduct::new(signature, empty_diagnostics);
+            (SemanticProduct::FieldSignature(allocations.arc(product).map_err(allocation_error)?), product_fingerprint, input_fingerprint)
         }
         QueryKey::TraitHeader(declaration) => {
             let header = snapshot
@@ -574,35 +811,36 @@ fn product_and_fingerprints(
             };
             let product_fingerprint = fp::data_declaration_product_fingerprint(&product);
             let input_fingerprint = fp::data_declaration_input_fingerprint(&product);
-            (SemanticProduct::DataDeclaration(Arc::new(product)), product_fingerprint, input_fingerprint)
+            (SemanticProduct::DataDeclaration(allocations.arc(product).map_err(allocation_error)?), product_fingerprint, input_fingerprint)
         }
         QueryKey::EnumDeclaration(declaration) => {
             let info = snapshot
                 .enum_semantics
                 .enums
                 .get(declaration)
-                .cloned()
+                .map(|info| info.clone_with_allocation_budget(allocations))
+                .transpose()
+                .map_err(allocation_error)?
                 .ok_or_else(|| incomplete("missing enum declaration product for portable owner"))?;
-            let variants = info
-                .variants
-                .iter()
-                .map(|variant| {
-                    snapshot
-                        .enum_semantics
-                        .variants
-                        .get(variant)
-                        .map(|value| (**value).clone())
-                        .ok_or_else(|| incomplete("missing enum variant product for portable owner"))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+            let info = allocations.arc(info).map_err(allocation_error)?;
+            let mut variants = allocations.vector(info.variants.len()).map_err(allocation_error)?;
+            for variant in info.variants.iter() {
+                let value = snapshot
+                    .enum_semantics
+                    .variants
+                    .get(variant)
+                    .ok_or_else(|| incomplete("missing enum variant product for portable owner"))?;
+                variants.push(value.clone_with_allocation_budget(allocations).map_err(allocation_error)?);
+            }
+            let variants = allocations.arc_slice(variants).map_err(allocation_error)?;
             let product = crate::db::product::EnumDeclarationProduct {
                 info,
-                variants: Arc::from(variants),
+                variants,
                 diagnostics: empty_diagnostics,
             };
             let product_fingerprint = fp::enum_declaration_product_fingerprint(&product);
             let input_fingerprint = fp::enum_declaration_input_fingerprint(&product);
-            (SemanticProduct::EnumDeclaration(Arc::new(product)), product_fingerprint, input_fingerprint)
+            (SemanticProduct::EnumDeclaration(allocations.arc(product).map_err(allocation_error)?), product_fingerprint, input_fingerprint)
         }
         QueryKey::AssociatedSurface(declaration) => {
             let surface = snapshot
@@ -627,12 +865,19 @@ fn product_and_fingerprints(
         }
         QueryKey::ModuleStaticBindingCatalog(module) => {
             let catalog = if let Some(index) = snapshot.module_static_bindings.get(module) {
-                Arc::new(crate::module_bindings::ModuleStaticBindingCatalog::from_index(index))
+                crate::module_bindings::ModuleStaticBindingCatalog::from_index_with_allocation_budget(index, allocations)
+                    .map_err(|error| match error {
+                        crate::module_bindings::ModuleStaticBindingCatalogBuildError::Allocation(error) => allocation_error(error),
+                        crate::module_bindings::ModuleStaticBindingCatalogBuildError::DuplicateKey => {
+                            incomplete("duplicate module static binding catalog entry")
+                        }
+                    })?
             } else {
-                Arc::new(crate::module_bindings::ModuleStaticBindingCatalog::empty(module.clone()))
+                crate::module_bindings::ModuleStaticBindingCatalog::empty_with_allocation_budget(module, allocations).map_err(allocation_error)?
             };
-            let product_fingerprint = catalog.product_fingerprint();
-            let input_fingerprint = catalog.input_fingerprint();
+            let input_fingerprint = catalog.input_fingerprint_with_allocation_budget(allocations).map_err(allocation_error)?;
+            let product_fingerprint = ProductFingerprint::new(input_fingerprint.raw());
+            let catalog = allocations.arc(catalog).map_err(allocation_error)?;
             (SemanticProduct::ModuleStaticBindingCatalog(catalog), product_fingerprint, input_fingerprint)
         }
         QueryKey::ModuleStaticBindings(module) => {
@@ -654,7 +899,7 @@ fn product_and_fingerprints(
         }
         _ => return Err(incomplete("query kind has no loaded semantic owner adapter")),
     };
-    Ok((Arc::new(result.0), result.1, result.2))
+    Ok((allocations.arc(result.0).map_err(allocation_error)?, result.1, result.2))
 }
 
 /// Reconstructs an immutable query image. Every wire root and edge must map to
@@ -665,7 +910,7 @@ pub fn reconstruct_query_image(
     snapshot: &Arc<SemanticSnapshot>,
     world: &CanonicalSemanticWorldId,
     modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,
-) -> Result<(Arc<CanonicalSemanticQueryImage>, BTreeMap<QueryKey, ProductFingerprint>), CanonicalImageError> {
+) -> Result<(Arc<CanonicalSemanticQueryImage>, CanonicalDependencyFingerprints), CanonicalImageError> {
     let limits = phalcom_compiler_artifact::ValidationLimits::default();
     let budget_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
     let mut allocations = AllocationBudget::new(budget_limit);
@@ -680,7 +925,7 @@ pub fn reconstruct_query_image_with_allocation_budget(
     modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,
     limits: &phalcom_compiler_artifact::ValidationLimits,
     transaction: &mut AllocationBudget,
-) -> Result<(Arc<CanonicalSemanticQueryImage>, BTreeMap<QueryKey, ProductFingerprint>), CanonicalImageError> {
+) -> Result<(Arc<CanonicalSemanticQueryImage>, CanonicalDependencyFingerprints), CanonicalImageError> {
     let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
     let mut allocations = transaction.child(section_limit);
     let reconstructed = reconstruct_query_image_inner(image, snapshot, world, modules, limits, &mut allocations)?;
@@ -699,7 +944,7 @@ fn reconstruct_query_image_inner(
     modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,
     limits: &phalcom_compiler_artifact::ValidationLimits,
     allocations: &mut AllocationBudget,
-) -> Result<(Arc<CanonicalSemanticQueryImage>, BTreeMap<QueryKey, ProductFingerprint>), CanonicalImageError> {
+) -> Result<(Arc<CanonicalSemanticQueryImage>, CanonicalDependencyFingerprints), CanonicalImageError> {
     let closure_start = census_checkpoint(allocations);
     validate_query_image_closure_with_allocation_budget(image, limits, allocations)?;
     record_census_phase(0, closure_start, allocations);
@@ -716,14 +961,21 @@ fn reconstruct_query_image_inner(
         .vector::<(QueryKey, Arc<SemanticProduct>, ProductFingerprint, InputFingerprint)>(image.supported_roots.len())
         .map_err(allocation_error)?;
     for query_key in keys {
-        let (product, product_fingerprint, input_fingerprint) = product_and_fingerprints(snapshot, &query_key, modules)?;
+        let kind = query_key.kind();
+        let product_kind_start = census_checkpoint(allocations);
+        let (product, product_fingerprint, input_fingerprint) = product_and_fingerprints(snapshot, &query_key, modules, allocations)?;
+        record_product_kind_census(kind, product_kind_start, allocations);
         roots.push((query_key, product, product_fingerprint, input_fingerprint));
     }
     record_census_phase(2, product_start, allocations);
 
     let entry_start = census_checkpoint(allocations);
-    let mut entries = BTreeMap::new();
-    let mut fingerprints = BTreeMap::new();
+    let mut entries = allocations
+        .vector::<(QueryKey, CanonicalQueryEntry)>(image.supported_roots.len())
+        .map_err(allocation_error)?;
+    let mut fingerprints = allocations
+        .vector::<(QueryKey, ProductFingerprint)>(image.supported_roots.len())
+        .map_err(allocation_error)?;
     for (idx, root) in image.supported_roots.iter().enumerate() {
         let (query_key, product, product_fingerprint, input_fingerprint) = &roots[idx];
         let mut edges = allocations.vector::<DependencyEdge>(root.dependency_indices.len()).map_err(allocation_error)?;
@@ -732,32 +984,38 @@ fn reconstruct_query_image_inner(
                 .get(dep_idx as usize)
                 .ok_or_else(|| incomplete("query dependency references an absent root"))?;
             edges.push(DependencyEdge {
-                dependent: query_key.clone(),
-                dependency: dependency.clone(),
+                dependent: query_key.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                dependency: dependency.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
                 observed_fingerprint: *observed_fingerprint,
             });
         }
-        if entries
-            .insert(
-                query_key.clone(),
-                CanonicalQueryEntry {
-                    input_fingerprint: *input_fingerprint,
-                    product_fingerprint: *product_fingerprint,
-                    dependencies: Arc::from(edges.into_boxed_slice()),
-                    product: product.clone(),
-                },
-            )
-            .is_some()
-        {
-            return Err(incomplete("distinct portable query roots resolve to the same semantic owner"));
-        }
-        fingerprints.insert(query_key.clone(), *product_fingerprint);
+        let dependencies = allocations.arc_slice(edges).map_err(allocation_error)?;
+        entries.push((
+            query_key.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+            CanonicalQueryEntry {
+                input_fingerprint: *input_fingerprint,
+                product_fingerprint: *product_fingerprint,
+                dependencies,
+                product: product.clone(),
+            },
+        ));
+        fingerprints.push((
+            query_key.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+            *product_fingerprint,
+        ));
     }
+    let entries = CanonicalQueryEntries::from_loaded_entries(entries, allocations)?;
+    let fingerprints = CanonicalDependencyFingerprints::from_loaded_entries(fingerprints, allocations)?;
     record_census_phase(3, entry_start, allocations);
 
     let validation_start = census_checkpoint(allocations);
-    let query_image =
-        CanonicalSemanticQueryImage::from_loaded_artifact_entries(world.clone(), entries, snapshot.store.clone(), snapshot.static_values.clone())?;
+    let query_image = CanonicalSemanticQueryImage::from_loaded_artifact_entries(
+        world.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+        entries,
+        snapshot.store.clone(),
+        snapshot.static_values.clone(),
+        allocations,
+    )?;
     record_census_phase(4, validation_start, allocations);
     let publication_start = census_checkpoint(allocations);
     let query_image = allocations.arc(query_image).map_err(allocation_error)?;

@@ -170,6 +170,18 @@ pub struct CallableParameterSemantic {
 }
 
 impl CallableParameterSemantic {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            id: self.id.clone_with_allocation_budget(allocations)?,
+            local_name: allocations.boxed_str(&self.local_name)?,
+            external_label: self.external_label.as_ref().map(|label| allocations.boxed_str(label)).transpose()?,
+            rest: self.rest,
+            declared_type: self.declared_type.clone_with_allocation_budget(allocations)?,
+            contract: clone_parameter_contract_with_allocation_budget(&self.contract, allocations)?,
+            source: self.source.as_ref().map(|source| clone_source_span_with_allocation_budget(source, allocations)).transpose()?,
+        })
+    }
+
     pub fn new(id: CallableParameterId, local_name: impl Into<Box<str>>, declared_type: DeclaredTypeFact) -> Self {
         Self {
             id,
@@ -375,6 +387,31 @@ impl ConstructorInitializationTable {
 }
 
 impl CallableSemanticSignature {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let mut parameters = allocations.vector(self.parameters.len())?;
+        for parameter in &self.parameters {
+            parameters.push(parameter.clone_with_allocation_budget(allocations)?);
+        }
+        Ok(Self {
+            callable: self.callable.clone_with_allocation_budget(allocations)?,
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            side: self.side,
+            selector: crate::traits::clone_selector_with_allocation_budget(&self.selector, allocations)?,
+            generics: self.generics.as_ref().map(|signature| signature.clone_with_allocation_budget(allocations)).transpose()?,
+            parameters: allocations.boxed_slice(parameters)?,
+            declared_return: self.declared_return.clone_with_allocation_budget(allocations)?,
+            return_validation: self.return_validation,
+            inferred_return: self.inferred_return.as_ref().map(|knowledge| knowledge.clone_with_allocation_budget(allocations)).transpose()?,
+            source: self.source.as_ref().map(|source| clone_source_span_with_allocation_budget(source, allocations)).transpose()?,
+            implementation: self.implementation,
+            native_id: self.native_id,
+            effects: self.effects,
+            raises: self.raises,
+            flow: self.flow,
+            lifecycle: self.lifecycle,
+        })
+    }
+
     pub fn parameter_count(&self) -> usize {
         self.parameters.len()
     }
@@ -615,6 +652,42 @@ pub struct FieldSemanticSignature {
     pub mutable: bool,
     pub declared_type: DeclaredTypeFact,
     pub source: Option<SemanticSourceSpan>,
+}
+
+impl FieldSemanticSignature {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            field: self.field.clone_with_allocation_budget(allocations)?,
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            side: self.side,
+            name: allocations.boxed_str(&self.name)?,
+            mutable: self.mutable,
+            declared_type: self.declared_type.clone_with_allocation_budget(allocations)?,
+            source: self.source.as_ref().map(|source| clone_source_span_with_allocation_budget(source, allocations)).transpose()?,
+        })
+    }
+}
+
+fn clone_parameter_contract_with_allocation_budget(contract: &ParameterContract, allocations: &mut AllocationBudget) -> Result<ParameterContract, AllocationError> {
+    Ok(match contract {
+        ParameterContract::Fixed(fact) => ParameterContract::Fixed(fact.clone_with_allocation_budget(allocations)?),
+        ParameterContract::Rest { mode, contract } => ParameterContract::Rest {
+            mode: *mode,
+            contract: match contract {
+                RestValueContract::Unconstrained => RestValueContract::Unconstrained,
+                RestValueContract::Element(fact) => RestValueContract::Element(fact.clone_with_allocation_budget(allocations)?),
+                RestValueContract::Lane(lane) => RestValueContract::Lane(*lane),
+                RestValueContract::Invalid(reason) => RestValueContract::Invalid(reason.clone_with_allocation_budget(allocations)?),
+            },
+        },
+    })
+}
+
+fn clone_source_span_with_allocation_budget(source: &SemanticSourceSpan, allocations: &mut AllocationBudget) -> Result<SemanticSourceSpan, AllocationError> {
+    Ok(SemanticSourceSpan {
+        module: source.module.clone_with_allocation_budget(allocations)?,
+        range: source.range,
+    })
 }
 
 /// Identity-indexed table of callable signatures.

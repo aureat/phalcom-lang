@@ -1,7 +1,7 @@
 //! Semantic-owned artifact export for structural primary contracts (`PERF003.C2.P7.T7.A`).
 
-mod proof;
 mod explanation;
+mod proof;
 
 use crate::data_semantics::{DataComponentSemantic, DataConstructorParameter, DataProductContribution, DataSemanticTable, DataShape};
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
@@ -766,7 +766,7 @@ pub fn export_structural_primary_contracts(
 
 use crate::artifact::query::validate_query_image_closure_with_allocation_budget;
 use crate::artifact::validate::compute_witness_layout_fingerprint;
-use crate::canonical_image::CanonicalSemanticQueryImage;
+use crate::canonical_image::{CanonicalDependencyFingerprints, CanonicalSemanticQueryImage};
 use crate::enum_requirements::{CaseRequirementStatus, EnumRequirement, EnumRequirementTable};
 use crate::snapshot::SemanticSnapshot;
 use crate::static_value::StaticExportContext;
@@ -1922,9 +1922,8 @@ fn export_callable_flow_state(
             causal_invalidity: export_callable_causal_invalidity(summary.causal_invalidity, ordinals)?,
         });
     }
-    fields.sort_unstable_by(|left, right| {
-        (&left.field.owner, left.field.side, &left.field.name).cmp(&(&right.field.owner, right.field.side, &right.field.name))
-    });
+    fields
+        .sort_unstable_by(|left, right| (&left.field.owner, left.field.side, &left.field.name).cmp(&(&right.field.owner, right.field.side, &right.field.name)));
     Ok(wire::CallableFlowStateSummaryV1 {
         bindings,
         fields,
@@ -2664,12 +2663,10 @@ fn export_callable_analysis_record(
             selector: export_associated_selector(&family.base),
         });
         let kind = match &resolution.kind {
-            crate::checker::associated::AssociatedResolutionKind::ExactValue { member, value_type } => {
-                wire::CallableAssociatedResolutionKindV1::ExactValue {
-                    member: export_associated_member(member),
-                    value_type: types.ty(*value_type)?,
-                }
-            }
+            crate::checker::associated::AssociatedResolutionKind::ExactValue { member, value_type } => wire::CallableAssociatedResolutionKindV1::ExactValue {
+                member: export_associated_member(member),
+                value_type: types.ty(*value_type)?,
+            },
             crate::checker::associated::AssociatedResolutionKind::StaticInvoke {
                 member,
                 target,
@@ -2699,12 +2696,7 @@ fn export_callable_analysis_record(
             .expressions
             .get(expression)
             .ok_or_else(|| referential("callable reference resolution references an absent owner-local expression"))?;
-        let crate::checker::associated::CallableReferenceResolutionKind::BoundFamily {
-            family_type,
-            spec,
-            members,
-        } = &resolution.kind
-        else {
+        let crate::checker::associated::CallableReferenceResolutionKind::BoundFamily { family_type, spec, members } = &resolution.kind else {
             return Err(referential("associated callable-reference resolution is outside the admitted portable profile"));
         };
         let spec = match spec {
@@ -3607,13 +3599,17 @@ fn export_static_semantic_dependency(
     types: &TypeExportContext,
 ) -> Result<phalcom_compiler_artifact::semantic::world::StaticSemanticDependencyV1, ArtifactError> {
     use crate::checker::analysis::SemanticDependency as Dependency;
-    use phalcom_compiler_artifact::semantic::world::{
-        ConformanceTargetV1, StaticConstantSymbolV1, StaticSemanticDependencyV1 as Portable,
-    };
+    use phalcom_compiler_artifact::semantic::world::{ConformanceTargetV1, StaticConstantSymbolV1, StaticSemanticDependencyV1 as Portable};
     Ok(match dependency {
-        Dependency::DeclarationShell(owner) => Portable::DeclarationShell { owner: to_stable_declaration(owner) },
-        Dependency::TraitHeader(owner) => Portable::TraitHeader { owner: to_stable_declaration(owner) },
-        Dependency::CallableSignature(callable) => Portable::CallableSignature { callable: to_stable_callable(callable) },
+        Dependency::DeclarationShell(owner) => Portable::DeclarationShell {
+            owner: to_stable_declaration(owner),
+        },
+        Dependency::TraitHeader(owner) => Portable::TraitHeader {
+            owner: to_stable_declaration(owner),
+        },
+        Dependency::CallableSignature(callable) => Portable::CallableSignature {
+            callable: to_stable_callable(callable),
+        },
         Dependency::FieldSignature(field) => Portable::FieldSignature {
             field: phalcom_compiler_artifact::semantic::world::StaticFieldDependencyV1 {
                 owner: to_stable_declaration(&field.owner),
@@ -3621,9 +3617,15 @@ fn export_static_semantic_dependency(
                 name: field.name.clone(),
             },
         },
-        Dependency::DeclarationSurface(owner) => Portable::DeclarationSurface { owner: to_stable_declaration(owner) },
-        Dependency::TraitSurface(owner) => Portable::TraitSurface { owner: to_stable_declaration(owner) },
-        Dependency::ConformanceDispatch(implementation) => Portable::ConformanceDispatch { implementation: to_stable_impl(implementation) },
+        Dependency::DeclarationSurface(owner) => Portable::DeclarationSurface {
+            owner: to_stable_declaration(owner),
+        },
+        Dependency::TraitSurface(owner) => Portable::TraitSurface {
+            owner: to_stable_declaration(owner),
+        },
+        Dependency::ConformanceDispatch(implementation) => Portable::ConformanceDispatch {
+            implementation: to_stable_impl(implementation),
+        },
         Dependency::TraitDispatchBucket(bucket) => Portable::TraitDispatchBucket {
             target: match &bucket.target_family {
                 crate::trait_dispatch::TraitDispatchTargetFamily::Declaration(declaration) => ConformanceTargetV1::Declaration {
@@ -3640,11 +3642,21 @@ fn export_static_semantic_dependency(
             subject: export_type_term(&key.subject, types)?,
             trait_ref: export_trait_ref_identity(&key.trait_ref, types)?,
         },
-        Dependency::HierarchyEdge(owner) => Portable::HierarchyEdge { owner: to_stable_declaration(owner) },
-        Dependency::LinkedInterface(module) => Portable::LinkedInterface { module: to_stable_module(module) },
-        Dependency::DataDeclaration(owner) => Portable::DataDeclaration { owner: to_stable_declaration(owner) },
-        Dependency::EnumDeclaration(owner) => Portable::EnumDeclaration { owner: to_stable_declaration(owner) },
-        Dependency::AssociatedSurface(owner) => Portable::AssociatedSurface { owner: to_stable_declaration(owner) },
+        Dependency::HierarchyEdge(owner) => Portable::HierarchyEdge {
+            owner: to_stable_declaration(owner),
+        },
+        Dependency::LinkedInterface(module) => Portable::LinkedInterface {
+            module: to_stable_module(module),
+        },
+        Dependency::DataDeclaration(owner) => Portable::DataDeclaration {
+            owner: to_stable_declaration(owner),
+        },
+        Dependency::EnumDeclaration(owner) => Portable::EnumDeclaration {
+            owner: to_stable_declaration(owner),
+        },
+        Dependency::AssociatedSurface(owner) => Portable::AssociatedSurface {
+            owner: to_stable_declaration(owner),
+        },
         Dependency::TypeMemberDeclaration(member) => Portable::TypeMemberDeclaration {
             owner: to_stable_declaration(&member.owner),
             selector: export_type_member_selector(&member.selector),
@@ -3656,15 +3668,21 @@ fn export_static_semantic_dependency(
             domain: export_static_case_domain(&case.domain),
             selector: export_exact_selector(&case.selector),
         },
-        Dependency::StaticDefinition(owner) => Portable::StaticDefinition { owner: to_stable_declaration(owner) },
+        Dependency::StaticDefinition(owner) => Portable::StaticDefinition {
+            owner: to_stable_declaration(owner),
+        },
         Dependency::StaticConstant(id) => Portable::StaticConstant {
             symbol: StaticConstantSymbolV1 {
                 module: to_stable_module(&id.0.module),
                 name: id.0.name.clone(),
             },
         },
-        Dependency::ModuleStaticBindingCatalog(module) => Portable::ModuleStaticBindingCatalog { module: to_stable_module(module) },
-        Dependency::ConstructorInitialization(owner) => Portable::ConstructorInitialization { owner: to_stable_declaration(owner) },
+        Dependency::ModuleStaticBindingCatalog(module) => Portable::ModuleStaticBindingCatalog {
+            module: to_stable_module(module),
+        },
+        Dependency::ConstructorInitialization(owner) => Portable::ConstructorInitialization {
+            owner: to_stable_declaration(owner),
+        },
         Dependency::ResolvedImport(site) => Portable::ResolvedImport {
             module: to_stable_module(&site.importer),
             local_id: site.local.0,
@@ -3677,7 +3695,9 @@ fn export_static_semantic_dependency(
             module: to_stable_module(module),
             name: name.clone().into_boxed_str(),
         },
-        Dependency::ModuleStaticBindings(module) => Portable::ModuleStaticBindings { module: to_stable_module(module) },
+        Dependency::ModuleStaticBindings(module) => Portable::ModuleStaticBindings {
+            module: to_stable_module(module),
+        },
     })
 }
 
@@ -4101,7 +4121,10 @@ pub fn export_semantic_world(
             return Err(referential("canonical static constants require Reduced outcomes"));
         };
         if product.value != Some(*value)
-            || product.checked.as_ref().is_some_and(|checked| crate::static_constant::StaticConstantAuthority::from_checked(checked) != product.authority)
+            || product
+                .checked
+                .as_ref()
+                .is_some_and(|checked| crate::static_constant::StaticConstantAuthority::from_checked(checked) != product.authority)
         {
             return Err(referential("static constant outcome or authority disagrees with its source product"));
         }
@@ -4421,13 +4444,7 @@ pub fn export_semantic_world(
                         },
                     },
                     callable: to_stable_callable(&member.callable),
-                    signature: export_callable_signature(
-                        snapshot
-                            .callable_signatures
-                            .get(&member.callable)
-                            .unwrap_or(&member.signature),
-                        types,
-                    )?,
+                    signature: export_callable_signature(snapshot.callable_signatures.get(&member.callable).unwrap_or(&member.signature), types)?,
                     visibility: export_visibility(member.visibility),
                     source: export_source_span(&member.source)?,
                     source_member_index: u32::try_from(member.source_member_index)
@@ -4847,7 +4864,7 @@ fn validate_semantic_world_export_coverage(snapshot: &SemanticSnapshot) -> Resul
 
 pub fn export_query_image(
     queries: &CanonicalSemanticQueryImage,
-    dependency_fingerprints: &BTreeMap<crate::db::QueryKey, crate::db::ProductFingerprint>,
+    dependency_fingerprints: &CanonicalDependencyFingerprints,
     limits: &ValidationLimits,
 ) -> Result<QueryImageV1, ArtifactError> {
     let mut candidate_roots = Vec::new();
@@ -4915,7 +4932,7 @@ pub fn export_query_image(
     }
 
     let mut dependency_evidence = Vec::new();
-    for (key, _) in dependency_fingerprints {
+    for (key, _) in dependency_fingerprints.iter() {
         if matches!(key, crate::db::QueryKey::ParsedModule(_)) {
             continue;
         }
@@ -5477,15 +5494,9 @@ mod callable_analysis_status_tests {
         let graph = types.project_graph(&store, &limits).unwrap();
         let (imported_store, relocation) = crate::types::store::TypeStore::import_type_graph(&graph, &limits).unwrap();
         let mut budget = phalcom_type_meta::allocation::AllocationBudget::new(1 << 20);
-        let (table, _) = crate::artifact::import::import_callable_analysis_records(
-            std::slice::from_ref(&record),
-            &relocation,
-            &imported_store,
-            &[],
-            &limits,
-            &mut budget,
-        )
-        .unwrap();
+        let (table, _) =
+            crate::artifact::import::import_callable_analysis_records(std::slice::from_ref(&record), &relocation, &imported_store, &[], &limits, &mut budget)
+                .unwrap();
         let imported = table.get(&callable).unwrap();
         assert!(imported.explanations.is_frozen());
         assert_eq!(imported.explanations.len(), 2);
@@ -5812,16 +5823,8 @@ mod callable_analysis_status_tests {
         let graph = types.project_graph(&store, &limits).unwrap();
         let (fresh_store, relocation) = crate::types::store::TypeStore::import_type_graph(&graph, &limits).unwrap();
         let mut budget = phalcom_type_meta::allocation::AllocationBudget::new(1 << 20);
-        let restored = crate::artifact::import::import_callable_resolution_authority(
-            &record,
-            BodyId(0),
-            &relocation,
-            &fresh_store,
-            &[],
-            &limits,
-            &mut budget,
-        )
-        .unwrap();
+        let restored =
+            crate::artifact::import::import_callable_resolution_authority(&record, BodyId(0), &relocation, &fresh_store, &[], &limits, &mut budget).unwrap();
         assert!(restored.positional_expansions.is_frozen());
         assert!(restored.known_invalid_positional_expansions.is_frozen());
         let expansion = restored.positional_expansions.get(&ExpressionId::new(BodyId(0), LocalExpressionId(0))).unwrap();
@@ -5857,31 +5860,15 @@ mod callable_analysis_status_tests {
         let requested = budget.requested();
         for capacity in [requested, requested - 1] {
             let mut limited = phalcom_type_meta::allocation::AllocationBudget::new(capacity);
-            let result = crate::artifact::import::import_callable_resolution_authority(
-                &record,
-                BodyId(0),
-                &relocation,
-                &fresh_store,
-                &[],
-                &limits,
-                &mut limited,
-            );
+            let result =
+                crate::artifact::import::import_callable_resolution_authority(&record, BodyId(0), &relocation, &fresh_store, &[], &limits, &mut limited);
             assert_eq!(result.is_ok(), capacity == requested);
             assert_eq!(limited.requested(), if capacity == requested { requested } else { 0 });
         }
         record.known_invalid_positional_expansions[0].expression = u32::MAX;
         let mut rejected = phalcom_type_meta::allocation::AllocationBudget::new(1 << 20);
         assert!(
-            crate::artifact::import::import_callable_resolution_authority(
-                &record,
-                BodyId(0),
-                &relocation,
-                &fresh_store,
-                &[],
-                &limits,
-                &mut rejected,
-            )
-            .is_err()
+            crate::artifact::import::import_callable_resolution_authority(&record, BodyId(0), &relocation, &fresh_store, &[], &limits, &mut rejected,).is_err()
         );
         assert_eq!(rejected.requested(), 0);
     }
@@ -5997,9 +5984,7 @@ mod callable_analysis_status_tests {
             signature,
             evidence_fingerprint: crate::db::fingerprint::generic_conformance_evidence_fingerprint(&evidence),
             evidence,
-            selection: crate::impls::RequirementSelectionTemplate::ConformanceCallable {
-                callable: callable.clone(),
-            },
+            selection: crate::impls::RequirementSelectionTemplate::ConformanceCallable { callable: callable.clone() },
             requirement_targets: Default::default(),
         }));
 

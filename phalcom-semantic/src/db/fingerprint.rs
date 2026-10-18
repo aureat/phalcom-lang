@@ -369,12 +369,16 @@ pub(crate) fn inherent_body_context_fingerprint(context: &crate::impls::Inherent
     match &context.covering {
         Some(covering) => {
             1u8.hash(&mut hasher);
-            let mut mappings = covering.impl_to_decl.iter().collect::<Vec<_>>();
-            mappings.sort_unstable_by_key(|(implementation, _)| **implementation);
-            mappings.hash(&mut hasher);
-            let mut inverse_mappings = covering.decl_to_impl.iter().collect::<Vec<_>>();
-            inverse_mappings.sort_unstable_by_key(|(declaration, _)| **declaration);
-            inverse_mappings.hash(&mut hasher);
+            covering.impl_to_decl.len().hash(&mut hasher);
+            for (implementation, declaration) in covering.impl_to_decl.iter() {
+                implementation.hash(&mut hasher);
+                declaration.hash(&mut hasher);
+            }
+            covering.decl_to_impl.len().hash(&mut hasher);
+            for (declaration, implementation) in covering.decl_to_impl.iter() {
+                declaration.hash(&mut hasher);
+                implementation.hash(&mut hasher);
+            }
         }
         None => 0u8.hash(&mut hasher),
     }
@@ -516,22 +520,40 @@ fn hash_dispatch_callable_signature(signature: &crate::dispatch::CallableSignatu
 }
 
 fn hash_member_surface(surface: &crate::surface::MemberSurface, include_provenance: bool, hasher: &mut impl Hasher) {
-    let mut fields = surface.fields.iter().collect::<Vec<_>>();
-    fields.sort_by_key(|(left, _)| *left);
-    fields.len().hash(hasher);
-    for (name, knowledge) in fields {
-        name.hash(hasher);
-        hash_type_knowledge(knowledge, include_provenance, hasher);
-        surface.field_visibility.get(name).copied().unwrap_or_default().hash(hasher);
+    if surface.fields.is_frozen() {
+        surface.fields.len().hash(hasher);
+        for (name, knowledge) in surface.fields.iter() {
+            name.hash(hasher);
+            hash_type_knowledge(knowledge, include_provenance, hasher);
+            surface.field_visibility.get(name).copied().unwrap_or_default().hash(hasher);
+        }
+    } else {
+        let mut fields = surface.fields.iter().collect::<Vec<_>>();
+        fields.sort_by_key(|(left, _)| *left);
+        fields.len().hash(hasher);
+        for (name, knowledge) in fields {
+            name.hash(hasher);
+            hash_type_knowledge(knowledge, include_provenance, hasher);
+            surface.field_visibility.get(name).copied().unwrap_or_default().hash(hasher);
+        }
     }
 
-    let mut callables = surface.callable_signatures.iter().collect::<Vec<_>>();
-    callables.sort_by_key(|(left, _)| *left);
-    callables.len().hash(hasher);
-    for (selector, signature) in callables {
-        selector.hash(hasher);
-        hash_dispatch_callable_signature(signature, include_provenance, hasher);
-        surface.callable_visibility.get(selector).copied().unwrap_or_default().hash(hasher);
+    if surface.callable_signatures.is_frozen() {
+        surface.callable_signatures.len().hash(hasher);
+        for (selector, signature) in surface.callable_signatures.iter() {
+            selector.hash(hasher);
+            hash_dispatch_callable_signature(signature, include_provenance, hasher);
+            surface.callable_visibility.get(selector).copied().unwrap_or_default().hash(hasher);
+        }
+    } else {
+        let mut callables = surface.callable_signatures.iter().collect::<Vec<_>>();
+        callables.sort_by_key(|(left, _)| *left);
+        callables.len().hash(hasher);
+        for (selector, signature) in callables {
+            selector.hash(hasher);
+            hash_dispatch_callable_signature(signature, include_provenance, hasher);
+            surface.callable_visibility.get(selector).copied().unwrap_or_default().hash(hasher);
+        }
     }
 }
 

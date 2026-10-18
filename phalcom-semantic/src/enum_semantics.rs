@@ -6,6 +6,7 @@ use crate::surface::MemberVisibility;
 use crate::types::case_environment::CaseTypeEnvironment;
 use crate::types::id::{TypeId, VariantTypeId};
 use crate::types::parameter::GenericSignature;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::sync::Arc;
 
 /// Structural shape of an enum variant: singleton value vs constructor.
@@ -92,6 +93,56 @@ pub struct VariantInfo {
 }
 
 impl VariantInfo {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let mut fields = allocations.vector(self.fields.len())?;
+        for field in self.fields.iter() {
+            fields.push(VariantFieldSemantic {
+                id: field.id.clone_with_allocation_budget(allocations)?,
+                local_name: allocations.boxed_str(&field.local_name)?,
+                external_label: field
+                    .external_label
+                    .as_deref()
+                    .map(|label| allocations.boxed_str(label))
+                    .transpose()?,
+                declared_type: field.declared_type.clone_with_allocation_budget(allocations)?,
+                source: clone_source_span_with_allocation_budget(field.source.as_ref(), allocations)?,
+            });
+        }
+        let constructor = self
+            .constructor
+            .as_ref()
+            .map(|constructor| clone_constructor_with_allocation_budget(constructor, allocations))
+            .transpose()?;
+        let family = self
+            .family
+            .as_ref()
+            .map(|family| {
+                Ok(VariantFamilyId {
+                    owner: family.owner.clone_with_allocation_budget(allocations)?,
+                    base_name: allocations.boxed_str(&family.base_name)?,
+                })
+            })
+            .transpose()?;
+        Ok(Self {
+            id: self.id.clone_with_allocation_budget(allocations)?,
+            type_handle: self.type_handle,
+            family,
+            shape: self.shape,
+            payload_kind: self.payload_kind,
+            fields: allocations.boxed_slice(fields)?,
+            result_type_template: self.result_type_template,
+            exact_case_template: self.exact_case_template,
+            case_environment: self.case_environment.clone_with_allocation_budget(allocations)?,
+            constructor,
+            visibility: VariantVisibility {
+                name: self.visibility.name,
+                construct: self.visibility.construct,
+                payload: self.visibility.payload,
+            },
+            source: clone_source_span_with_allocation_budget(self.source.as_ref(), allocations)?,
+        })
+    }
+
     pub fn is_singleton(&self) -> bool {
         self.shape == VariantShape::Singleton
     }
@@ -103,6 +154,95 @@ impl VariantInfo {
     pub fn is_explicit_empty(&self) -> bool {
         self.payload_kind == AlgebraicCasePayloadKind::ExplicitEmpty
     }
+}
+
+impl EnumInfo {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let mut variants = allocations.vector(self.variants.len())?;
+        for variant in self.variants.iter() {
+            variants.push(variant.clone_with_allocation_budget(allocations)?);
+        }
+        let mut variant_families = allocations.vector(self.variant_families.len())?;
+        for family in self.variant_families.iter() {
+            variant_families.push(VariantFamilyId {
+                owner: family.owner.clone_with_allocation_budget(allocations)?,
+                base_name: allocations.boxed_str(&family.base_name)?,
+            });
+        }
+        let static_data = self
+            .static_data
+            .as_ref()
+            .map(|static_data| {
+                let mut constructors = allocations.vector(static_data.constructors.len())?;
+                constructors.extend_from_slice(&static_data.constructors);
+                Ok(crate::algebraic_semantics::StaticAlgebraicDeclarationInfo {
+                    domain: static_data.domain,
+                    constructors: allocations.boxed_slice(constructors)?,
+                })
+            })
+            .transpose()?;
+        Ok(Self {
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            root_form: self.root_form,
+            generic_signature: self
+                .generic_signature
+                .as_ref()
+                .map(|signature| signature.clone_with_allocation_budget(allocations))
+                .transpose()?,
+            static_data,
+            default_result_type: self.default_result_type,
+            variants: allocations.boxed_slice(variants)?,
+            variant_families: allocations.boxed_slice(variant_families)?,
+            source: clone_source_span_with_allocation_budget(self.source.as_ref(), allocations)?,
+        })
+    }
+}
+
+fn clone_constructor_with_allocation_budget(
+    constructor: &VariantConstructorSignature,
+    allocations: &mut AllocationBudget,
+) -> Result<VariantConstructorSignature, AllocationError> {
+    let mut parameters = allocations.vector(constructor.parameters.len())?;
+    for parameter in constructor.parameters.iter() {
+        parameters.push(VariantConstructorParameter {
+            field: parameter.field.clone_with_allocation_budget(allocations)?,
+            external_label: parameter
+                .external_label
+                .as_deref()
+                .map(|label| allocations.boxed_str(label))
+                .transpose()?,
+            local_name: allocations.boxed_str(&parameter.local_name)?,
+            declared_type: parameter.declared_type.clone_with_allocation_budget(allocations)?,
+        });
+    }
+    Ok(VariantConstructorSignature {
+        constructor: VariantConstructorId {
+            variant: constructor.constructor.variant.clone_with_allocation_budget(allocations)?,
+        },
+        generic_signature: constructor
+            .generic_signature
+            .as_ref()
+            .map(|signature| signature.clone_with_allocation_budget(allocations))
+            .transpose()?,
+        parameters: allocations.boxed_slice(parameters)?,
+        result_type_template: constructor.result_type_template,
+        exact_case_template: constructor.exact_case_template,
+        source: clone_source_span_with_allocation_budget(constructor.source.as_ref(), allocations)?,
+    })
+}
+
+fn clone_source_span_with_allocation_budget(
+    source: Option<&SemanticSourceSpan>,
+    allocations: &mut AllocationBudget,
+) -> Result<Option<SemanticSourceSpan>, AllocationError> {
+    source
+        .map(|source| {
+            Ok(SemanticSourceSpan {
+                module: source.module.clone_with_allocation_budget(allocations)?,
+                range: source.range,
+            })
+        })
+        .transpose()
 }
 
 /// Complete structural semantic metadata for one declared enum root.

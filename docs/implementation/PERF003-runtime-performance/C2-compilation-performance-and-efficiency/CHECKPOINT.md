@@ -10,15 +10,13 @@ active_plan: PERF003.C2.P7.PATCH5-R
 latest_completed_plan: PERF003.C2.P7.PATCH4
 next_plan: PERF003.C2.P7.PATCH5-R
 next_action: >
-  PERF003.C2.P7.PATCH5-R R.T2 / R.G2 query reconstruction is active. The
-  semantic import stage remains exact at 264,140,626 ledger bytes ==
-  264,140,626 observed bytes on the current ModuleQueryProducts layout; its
-  prior c7 layout measured 264,140,594 == 264,140,594 on the same artifact.
-  Exact semantic N/N-1 behavior passed at the current layout. Query census is
-  reconciled with QX = 0; close Q1-Q4 ownership deltas before R.G2 acceptance.
+  PERF003.C2.P7.PATCH5-R R.T2 / R.G2 query reconstruction now has exact
+  successful-path allocation parity on the c7 artifact. Continue with R.T3 /
+  R.G3 formal-image publication and failure atomicity. Keep P7 IN_PROGRESS /
+  PARTIAL / UNVERIFIED; do not begin P8 or claim R.G3/R.G4.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: 586d0fc9
-latest_tested_revision: 586d0fc9 (working tree contains focused census edits)
+execution_tree_head: 33c99229
+latest_tested_revision: 33c99229 plus the scoped R.T2 working-tree changes recorded below
 latest_tested_predecessor: c7d308b7
 ---
 
@@ -2384,7 +2382,68 @@ QX = 0:
 | **Whole query reconstruction** | **1,084,791** | **6,973,091** | **+5,888,300** |
 
 The semantic-world identity setup allocates 13 bytes outside the query
-reconstruction function. R.G2 remains `UNVERIFIED`; R.G3-R.G7 remain
-`UNVERIFIED`. Continue R.T2 with budgeted query-owner reconstruction, then
-close product and validation ownership. P7 remains `IN_PROGRESS / PARTIAL /
-UNVERIFIED`; do not begin P8.
+reconstruction function. R.G2 remained `UNVERIFIED` at that historical
+measurement. R.G3-R.G7 remain `UNVERIFIED`; P7 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`. Do not begin P8.
+
+## PERF003.C2.P7.PATCH5-R R.T2 query reconstruction closure — 2026-10-18
+
+R.T2 closes the query-reconstruction allocation gap on the same c7-generated
+Universe artifact. The supported persisted roots reconstruct successfully;
+the Q0-Q5 census reconciles to the independently observed allocator total,
+with QX zero. R.G2 is **PASS** for complete query reconstruction and exact
+successful-path allocation equality. This does not promote P7 or any later
+gate.
+
+The latest semantic-import fixed guard is exact at the current
+`ModuleQueryProducts` layout: `264,140,626` ledger bytes and `264,140,626`
+observed bytes. The earlier c7-layout value `264,140,594` is retained as a
+historical baseline and is not the current expected size.
+
+Query reconstruction evidence:
+
+| Stage | Ledger | Observed | Delta |
+|---|---:|---:|---:|
+| Q0 closure/root validation | 48,275 | 48,275 | 0 |
+| Q1 owner decode and QueryKey reconstruction | 570,271 | 570,271 | 0 |
+| Q2 product reconstruction and fingerprints | 2,313,774 | 2,313,774 | 0 |
+| Q3 dependency/entry/fingerprint assembly | 1,385,729 | 1,385,729 | 0 |
+| Q4 loaded query-image validation | 33,104 | 33,104 | 0 |
+| Q5 query-image Arc publication | 384 | 384 | 0 |
+| QX boundary/unclassified | 0 | 0 | 0 |
+| **Whole query reconstruction** | **4,351,537** | **4,351,537** | **0** |
+
+All measured Q2 owner families are exact: LinkedInterface 42,226; DeclarationShell
+231,801; DeclarationSurface 169,054; TraitHeader 1,176; TraitSurface 1,176;
+CallableDefinition 766,906; FieldSignature 39,628; CallableSignature 462,798;
+DataDeclaration 2,784; EnumDeclaration 147,390; TypeMemberDeclaration 952;
+AssociatedSurface 15,736; ModuleStaticBindingCatalog 68,555; and
+ModuleStaticBindings 8,288 bytes. The enum product now clones its root, variant,
+constructor, case-environment, and source-span owners through the allocation
+budget. Frozen surface and ordered-map fingerprint paths retain their existing
+sort order without temporary sorting vectors.
+
+Focused evidence on the tested worktree based on `33c99229`:
+
+- `cargo check -p phalcom-type-meta --lib`, `cargo check -p phalcom-semantic --lib`,
+  and `cargo check -p phalcom-core --lib` passed with cleared local compiler flags.
+- `cargo test -p phalcom-semantic --lib canonical_image::tests::` passed 10/10.
+- `cargo test -p phalcom-semantic --test artifact-allocation` passed 1/1,
+  covering query-closure allocation and typed exhaustion rollback.
+- The isolated loaded-publication census passed and reports Q0-Q5 exact, QX=0,
+  and semantic import exact.
+- The non-strict full-load discriminator completed successfully with ledger
+  `366,789,570`, observed `366,813,813`, and delta `+24,243`. Its semantic-import
+  subcheck was exact. This is not R.G4 evidence.
+- `cargo test -p phalcom-semantic --test semantic artifact_allocation::` could
+  not compile the monolithic semantic target because of 412 stale fixture/API
+  errors across unrelated integration modules. The dedicated `artifact-allocation`
+  target and library unit tests above compiled and passed.
+- `git diff --check` passed before checkpoint synchronization.
+
+The remaining whole-load delta is outside Q0-Q5: module materialization C is
+`+22,985`, container/header A is `+13`, query-world identity setup H0 is `+13`,
+and formal-image publication N-P is `+1,232` (including the measured N residual).
+R.T3 owns the next independent publication investigation. R.G3-R.G7 remain
+`UNVERIFIED`; P7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`, and P8 remains
+out of scope.

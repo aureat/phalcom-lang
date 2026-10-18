@@ -772,6 +772,15 @@ mod temporary_loaded_publication_allocation_census {
             query_rows_ledger += row.ledger_bytes;
             signed_stage_total += print_query_row(name, row);
         }
+        for row in &query_census.product_by_kind {
+            eprintln!(
+                "  CENSUS Q2 {:?}: ledger={} observed={} signed_delta={}",
+                row.kind,
+                row.ledger_bytes,
+                row.observed_bytes,
+                row.observed_bytes as isize - row.ledger_bytes as isize
+            );
+        }
         let query_x_observed = observed - query_rows_observed;
         let query_x_ledger = query_ledger_delta - query_rows_ledger;
         let query_x_signed = query_x_observed as isize - query_x_ledger as isize;

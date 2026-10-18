@@ -4,6 +4,7 @@ use crate::identity::DeclarationId;
 use crate::ordered_map::OrderedMap;
 use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::parameter::{GenericConstraint, TypeTerm};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use crate::types::store::{TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
 use std::collections::BTreeMap;
@@ -22,6 +23,25 @@ impl CaseTypeEnvironment {
 
     pub fn is_empty(&self) -> bool {
         self.bindings.is_empty() && self.equalities.is_empty()
+    }
+
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let mut bindings = allocations.vector(self.bindings.len())?;
+        for (parameter, ty) in self.bindings.iter() {
+            bindings.push((*parameter, *ty));
+        }
+        let bindings = OrderedMap::from_frozen_entries_with_allocation_budget(bindings, allocations).map_err(|error| match error {
+            crate::ordered_map::FrozenOrderedMapError::Allocation(error) => error,
+            crate::ordered_map::FrozenOrderedMapError::DuplicateKey => AllocationError::Failed,
+        })?;
+        let mut equalities = allocations.vector(self.equalities.len())?;
+        for equality in self.equalities.iter() {
+            equalities.push(crate::types::parameter::clone_generic_constraint_with_allocation_budget(equality, allocations)?);
+        }
+        Ok(Self {
+            bindings,
+            equalities: allocations.boxed_slice(equalities)?,
+        })
     }
 
     pub fn to_substitution(&self) -> TypeSubstitution {

@@ -208,6 +208,41 @@ pub enum GenericConstraint {
     Conforms { subject: TypeTerm, trait_ref: crate::traits::TraitRef },
 }
 
+pub(crate) fn clone_type_term_with_allocation_budget(
+    term: &TypeTerm,
+    allocations: &mut AllocationBudget,
+) -> Result<TypeTerm, AllocationError> {
+    Ok(match term {
+        TypeTerm::Canonical(ty) => TypeTerm::Canonical(*ty),
+        TypeTerm::Infer(variable) => TypeTerm::Infer(*variable),
+        TypeTerm::SelfType(term) => TypeTerm::SelfType(SelfTypeTerm {
+            owner: term.owner.clone_with_allocation_budget(allocations)?,
+            side: term.side,
+            role: term.role,
+        }),
+    })
+}
+
+pub(crate) fn clone_generic_constraint_with_allocation_budget(
+    constraint: &GenericConstraint,
+    allocations: &mut AllocationBudget,
+) -> Result<GenericConstraint, AllocationError> {
+    Ok(match constraint {
+        GenericConstraint::Subtype { lower, upper } => GenericConstraint::Subtype {
+            lower: clone_type_term_with_allocation_budget(lower, allocations)?,
+            upper: clone_type_term_with_allocation_budget(upper, allocations)?,
+        },
+        GenericConstraint::Equivalent { left, right } => GenericConstraint::Equivalent {
+            left: clone_type_term_with_allocation_budget(left, allocations)?,
+            right: clone_type_term_with_allocation_budget(right, allocations)?,
+        },
+        GenericConstraint::Conforms { subject, trait_ref } => GenericConstraint::Conforms {
+            subject: clone_type_term_with_allocation_budget(subject, allocations)?,
+            trait_ref: trait_ref.clone_with_allocation_budget(allocations)?,
+        },
+    })
+}
+
 /// Maps every type-bearing position in one generic constraint.
 ///
 /// `Self` terms remain explicit at this layer so callers can preserve their

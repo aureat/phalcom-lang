@@ -15,6 +15,7 @@ use crate::types::store::TypeStore;
 use crate::workspace::SemanticWorkspaceInput;
 use phalcom_modules::canonical_products::{CanonicalExternalModuleWorld, CanonicalModuleProducts};
 use phalcom_modules::{ModuleId, UniverseSourceProvider};
+use phalcom_type_meta::allocation::{AllocationBudget, BudgetedSortedMap, SortedMapEntriesError};
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -24,10 +25,20 @@ use thiserror::Error;
 const LOADED_PUBLICATION_CENSUS_PHASES: usize = 6;
 static LOADED_PUBLICATION_CENSUS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static LOADED_PUBLICATION_CENSUS_OBSERVED: [AtomicUsize; LOADED_PUBLICATION_CENSUS_PHASES] = [
-    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
 ];
 static LOADED_PUBLICATION_CENSUS_LEDGER: [AtomicUsize; LOADED_PUBLICATION_CENSUS_PHASES] = [
-    AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
 ];
 
 #[doc(hidden)]
@@ -119,10 +130,7 @@ pub struct CanonicalSemanticWorldId {
 }
 
 impl CanonicalSemanticWorldId {
-    pub fn for_source_world(
-        source: u64,
-        provenance: Arc<BTreeMap<ModuleId, Arc<str>>>,
-    ) -> Self {
+    pub fn for_source_world(source: u64, provenance: Arc<BTreeMap<ModuleId, Arc<str>>>) -> Self {
         Self {
             source,
             provenance: CanonicalWorldProvenance::Source(provenance),
@@ -137,10 +145,7 @@ impl CanonicalSemanticWorldId {
     ) -> Self {
         Self {
             source,
-            provenance: CanonicalWorldProvenance::Artifact {
-                source_digest,
-                compatibility,
-            },
+            provenance: CanonicalWorldProvenance::Artifact { source_digest, compatibility },
             compatibility: concat!(env!("CARGO_PKG_VERSION"), "/canonical-semantic-module-native-abi-v1"),
         }
     }
@@ -158,6 +163,47 @@ impl CanonicalSemanticWorldId {
             CanonicalWorldProvenance::Artifact { compatibility, .. } => Some(compatibility),
             _ => None,
         }
+    }
+
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
+
+        let provenance = match &self.provenance {
+            CanonicalWorldProvenance::Source(sources) => CanonicalWorldProvenance::Source(Arc::clone(sources)),
+            CanonicalWorldProvenance::Artifact { source_digest, compatibility } => {
+                let package = match &compatibility.package {
+                    TeloscPackageIdentity::Builtin { namespace, version } => TeloscPackageIdentity::Builtin {
+                        namespace: allocations.boxed_str(namespace)?,
+                        version: allocations.boxed_str(version)?,
+                    },
+                    TeloscPackageIdentity::Package { package, version } => TeloscPackageIdentity::Package {
+                        package: allocations.boxed_str(package)?,
+                        version: allocations.boxed_str(version)?,
+                    },
+                };
+                CanonicalWorldProvenance::Artifact {
+                    source_digest: *source_digest,
+                    compatibility: phalcom_compiler_artifact::CanonicalCompatibilityIdentity {
+                        package,
+                        source_digest: compatibility.source_digest,
+                        interface_digest: compatibility.interface_digest,
+                        semantic_digest: compatibility.semantic_digest,
+                        semantic_model_version: compatibility.semantic_model_version,
+                        stable_identity_schema: compatibility.stable_identity_schema,
+                        module_semantic_abi: compatibility.module_semantic_abi,
+                        semantic_artifact_abi: compatibility.semantic_artifact_abi,
+                        native_surface_schema_version: compatibility.native_surface_schema_version,
+                        native_catalog_fingerprint: compatibility.native_catalog_fingerprint,
+                        type_metadata_schema_version: compatibility.type_metadata_schema_version,
+                    },
+                }
+            }
+        };
+        Ok(Self {
+            source: self.source,
+            provenance,
+            compatibility: self.compatibility,
+        })
     }
 }
 
@@ -346,7 +392,7 @@ pub struct CanonicalQueryCensus {
     /// Total committed database rows examined.
     pub total_rows_examined: usize,
     /// Retained row count by typed query family.
-    pub retained_by_kind: BTreeMap<QueryKind, usize>,
+    pub retained_by_kind: CanonicalQueryKindCounts,
     /// Exact rejected key and reason; diagnostic products stay in the snapshot.
     pub rejections: BTreeMap<QueryKey, QueryFreezeRejection>,
     /// Original failed/blocked diagnostic detail, without mutable execution state.
@@ -365,11 +411,225 @@ pub struct CanonicalQueryEntry {
     pub(crate) product: Arc<SemanticProduct>,
 }
 
+/// Read-only retained counts, with a budgeted contiguous backing for loaded
+/// artifact images and the ordinary tree backing for source-built images.
+#[derive(Debug)]
+pub enum CanonicalQueryKindCounts {
+    Source(BTreeMap<QueryKind, usize>),
+    Frozen(Arc<BudgetedSortedMap<QueryKind, usize>>),
+}
+
+impl Default for CanonicalQueryKindCounts {
+    fn default() -> Self {
+        Self::Source(BTreeMap::new())
+    }
+}
+
+impl CanonicalQueryKindCounts {
+    fn increment_source(&mut self, kind: QueryKind) {
+        let Self::Source(counts) = self else {
+            unreachable!("source query freezing uses a mutable source census")
+        };
+        *counts.entry(kind).or_default() += 1;
+    }
+
+    pub fn get(&self, kind: &QueryKind) -> Option<&usize> {
+        match self {
+            Self::Source(counts) => counts.get(kind),
+            Self::Frozen(counts) => counts.get(kind),
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&QueryKind, &usize)> {
+        match self {
+            Self::Source(counts) => CanonicalQueryKindCountsIter::Source(counts.iter()),
+            Self::Frozen(counts) => CanonicalQueryKindCountsIter::Frozen(counts.as_entries().iter()),
+        }
+    }
+
+    fn from_loaded_entries(entries: &CanonicalQueryEntries, allocations: &mut AllocationBudget) -> Result<Self, CanonicalImageError> {
+        let mut distinct_kinds = 0usize;
+        let mut previous = None;
+        for (key, _) in entries.iter() {
+            let kind = key.kind();
+            if previous != Some(kind) {
+                distinct_kinds += 1;
+                previous = Some(kind);
+            }
+        }
+        let mut counts = allocations.vector::<(QueryKind, usize)>(distinct_kinds)?;
+        previous = None;
+        for (key, _) in entries.iter() {
+            let kind = key.kind();
+            if previous == Some(kind) {
+                counts.last_mut().expect("the first query kind is inserted before reuse").1 += 1;
+            } else {
+                counts.push((kind, 1));
+                previous = Some(kind);
+            }
+        }
+        let counts = BudgetedSortedMap::from_sorted_entries(counts).map_err(|error| match error {
+            SortedMapEntriesError::DuplicateKey | SortedMapEntriesError::OutOfOrder => {
+                CanonicalImageError::IncompletePublication("query kind order is not canonical".into())
+            }
+        })?;
+        Ok(Self::Frozen(allocations.arc(counts)?))
+    }
+}
+
+enum CanonicalQueryKindCountsIter<'a> {
+    Source(std::collections::btree_map::Iter<'a, QueryKind, usize>),
+    Frozen(std::slice::Iter<'a, (QueryKind, usize)>),
+}
+
+impl<'a> Iterator for CanonicalQueryKindCountsIter<'a> {
+    type Item = (&'a QueryKind, &'a usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Source(iter) => iter.next(),
+            Self::Frozen(iter) => iter.next().map(|(kind, count)| (kind, count)),
+        }
+    }
+}
+
+/// Immutable ordered query-entry authority. Artifact imports retain a charged
+/// sorted buffer instead of rebuilding native tree nodes.
+#[derive(Debug)]
+pub(crate) enum CanonicalQueryEntries {
+    Source(BTreeMap<QueryKey, CanonicalQueryEntry>),
+    Frozen(Arc<BudgetedSortedMap<QueryKey, CanonicalQueryEntry>>),
+}
+
+impl CanonicalQueryEntries {
+    fn get(&self, key: &QueryKey) -> Option<&CanonicalQueryEntry> {
+        match self {
+            Self::Source(entries) => entries.get(key),
+            Self::Frozen(entries) => entries.get(key),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::Source(entries) => entries.len(),
+            Self::Frozen(entries) => entries.len(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn iter(&self) -> CanonicalQueryEntriesIter<'_> {
+        match self {
+            Self::Source(entries) => CanonicalQueryEntriesIter::Source(entries.iter()),
+            Self::Frozen(entries) => CanonicalQueryEntriesIter::Frozen(entries.as_entries().iter()),
+        }
+    }
+
+    fn entry_at(&self, index: usize) -> Option<(&QueryKey, &CanonicalQueryEntry)> {
+        match self {
+            Self::Source(_) => None,
+            Self::Frozen(entries) => entries.as_entries().get(index).map(|(key, entry)| (key, entry)),
+        }
+    }
+
+    fn index_of(&self, key: &QueryKey) -> Option<usize> {
+        match self {
+            Self::Source(_) => None,
+            Self::Frozen(entries) => entries.as_entries().binary_search_by(|(candidate, _)| candidate.cmp(key)).ok(),
+        }
+    }
+
+    pub(crate) fn from_loaded_entries(
+        mut entries: Vec<(QueryKey, CanonicalQueryEntry)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, CanonicalImageError> {
+        entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let entries = BudgetedSortedMap::from_sorted_entries(entries).map_err(|error| match error {
+            SortedMapEntriesError::DuplicateKey => CanonicalImageError::IncompletePublication("duplicate reconstructed query owner".into()),
+            SortedMapEntriesError::OutOfOrder => unreachable!("query entries were sorted before frozen construction"),
+        })?;
+        Ok(Self::Frozen(allocations.arc(entries)?))
+    }
+}
+
+enum CanonicalQueryEntriesIter<'a> {
+    Source(std::collections::btree_map::Iter<'a, QueryKey, CanonicalQueryEntry>),
+    Frozen(std::slice::Iter<'a, (QueryKey, CanonicalQueryEntry)>),
+}
+
+impl<'a> Iterator for CanonicalQueryEntriesIter<'a> {
+    type Item = (&'a QueryKey, &'a CanonicalQueryEntry);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Source(iter) => iter.next(),
+            Self::Frozen(iter) => iter.next().map(|(key, entry)| (key, entry)),
+        }
+    }
+}
+
+/// All exact dependency fingerprints retained by a formal image.
+#[derive(Debug)]
+pub enum CanonicalDependencyFingerprints {
+    Source(BTreeMap<QueryKey, ProductFingerprint>),
+    Frozen(Arc<BudgetedSortedMap<QueryKey, ProductFingerprint>>),
+}
+
+impl CanonicalDependencyFingerprints {
+    pub fn get(&self, key: &QueryKey) -> Option<&ProductFingerprint> {
+        match self {
+            Self::Source(values) => values.get(key),
+            Self::Frozen(values) => values.get(key),
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&QueryKey, &ProductFingerprint)> {
+        match self {
+            Self::Source(values) => CanonicalDependencyFingerprintsIter::Source(values.iter()),
+            Self::Frozen(values) => CanonicalDependencyFingerprintsIter::Frozen(values.as_entries().iter()),
+        }
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &QueryKey> {
+        self.iter().map(|(key, _)| key)
+    }
+
+    pub(crate) fn from_loaded_entries(
+        mut values: Vec<(QueryKey, ProductFingerprint)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, CanonicalImageError> {
+        values.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let values = BudgetedSortedMap::from_sorted_entries(values).map_err(|error| match error {
+            SortedMapEntriesError::DuplicateKey => CanonicalImageError::IncompletePublication("duplicate dependency fingerprint owner".into()),
+            SortedMapEntriesError::OutOfOrder => unreachable!("fingerprints were sorted before frozen construction"),
+        })?;
+        Ok(Self::Frozen(allocations.arc(values)?))
+    }
+}
+
+enum CanonicalDependencyFingerprintsIter<'a> {
+    Source(std::collections::btree_map::Iter<'a, QueryKey, ProductFingerprint>),
+    Frozen(std::slice::Iter<'a, (QueryKey, ProductFingerprint)>),
+}
+
+impl<'a> Iterator for CanonicalDependencyFingerprintsIter<'a> {
+    type Item = (&'a QueryKey, &'a ProductFingerprint);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Source(iter) => iter.next(),
+            Self::Frozen(iter) => iter.next().map(|(key, value)| (key, value)),
+        }
+    }
+}
+
 /// Read-only query roots with their owning final arena and static-value root.
 #[derive(Debug)]
 pub struct CanonicalSemanticQueryImage {
     world: CanonicalSemanticWorldId,
-    entries: BTreeMap<QueryKey, CanonicalQueryEntry>,
+    entries: CanonicalQueryEntries,
     census: CanonicalQueryCensus,
     store: Arc<TypeStore>,
     static_values: Arc<StaticValueStore>,
@@ -450,20 +710,19 @@ impl CanonicalSemanticQueryImage {
     }
 
     /// Constructs an immutable query image from validated artifact entries without a mutable `SemanticDb` (`P7.T9`).
-    pub fn from_loaded_artifact_entries(
+    pub(crate) fn from_loaded_artifact_entries(
         world: CanonicalSemanticWorldId,
-        entries: BTreeMap<QueryKey, CanonicalQueryEntry>,
+        entries: CanonicalQueryEntries,
         store: Arc<TypeStore>,
         static_values: Arc<StaticValueStore>,
+        allocations: &mut AllocationBudget,
     ) -> Result<Self, CanonicalImageError> {
         let mut census = CanonicalQueryCensus {
             total_rows_examined: entries.len(),
             ..CanonicalQueryCensus::default()
         };
-        for (key, entry) in &entries {
-            if matches!(key, QueryKey::ParsedModule(_))
-                || canonical_query_persistence(key.kind()) != CanonicalQueryPersistence::EligibleStructural
-            {
+        for (key, entry) in entries.iter() {
+            if matches!(key, QueryKey::ParsedModule(_)) || canonical_query_persistence(key.kind()) != CanonicalQueryPersistence::EligibleStructural {
                 return Err(CanonicalImageError::IncompletePublication(format!(
                     "unsupported or source-dependent query in artifact image: {key:?}"
                 )));
@@ -487,27 +746,46 @@ impl CanonicalSemanticQueryImage {
                     )));
                 }
             }
-            *census.retained_by_kind.entry(key.kind()).or_default() += 1;
         }
-        let mut pending: BTreeSet<_> = entries.keys().cloned().collect();
-        loop {
-            let leaves = pending
-                .iter()
-                .filter(|key| entries[*key].dependencies.iter().all(|edge| !pending.contains(&edge.dependency)))
-                .cloned()
-                .collect::<Vec<_>>();
-            if leaves.is_empty() {
-                break;
+        let mut colors = allocations.vector::<u8>(entries.len())?;
+        colors.resize(entries.len(), 0);
+        let mut stack = allocations.vector::<(usize, usize)>(entries.len())?;
+        for start in 0..entries.len() {
+            if colors[start] != 0 {
+                continue;
             }
-            for key in leaves {
-                pending.remove(&key);
+            colors[start] = 1;
+            stack.push((start, 0));
+            while let Some(&(node, next_edge)) = stack.last() {
+                let (_, entry) = entries
+                    .entry_at(node)
+                    .ok_or_else(|| CanonicalImageError::IncompletePublication("loaded query entries are not frozen in sorted order".into()))?;
+                if next_edge < entry.dependencies.len() {
+                    stack.last_mut().expect("traversal stack is nonempty").1 += 1;
+                    let dependency = &entry.dependencies[next_edge].dependency;
+                    let target = entries
+                        .index_of(dependency)
+                        .ok_or_else(|| CanonicalImageError::IncompletePublication(format!("unclosed query dependency from node {node}")))?;
+                    match colors[target] {
+                        0 => {
+                            colors[target] = 1;
+                            stack.push((target, 0));
+                        }
+                        1 => {
+                            return Err(CanonicalImageError::IncompletePublication(
+                                "cyclic query dependency graph in loaded artifact".into(),
+                            ));
+                        }
+                        2 => {}
+                        _ => unreachable!("query traversal colors are limited to 0, 1, and 2"),
+                    }
+                } else {
+                    colors[node] = 2;
+                    stack.pop();
+                }
             }
         }
-        if !pending.is_empty() {
-            return Err(CanonicalImageError::IncompletePublication(
-                "cyclic query dependency graph in loaded artifact".into(),
-            ));
-        }
+        census.retained_by_kind = CanonicalQueryKindCounts::from_loaded_entries(&entries, allocations)?;
         Ok(Self {
             world,
             entries,
@@ -661,7 +939,7 @@ impl CanonicalSemanticQueryImage {
             census.rejections.insert(key, QueryFreezeRejection::DependencyCycle);
         }
         for key in entries.keys() {
-            *census.retained_by_kind.entry(key.kind()).or_default() += 1;
+            census.retained_by_kind.increment_source(key.kind());
         }
         #[cfg(feature = "perf-observability")]
         {
@@ -678,7 +956,7 @@ impl CanonicalSemanticQueryImage {
         image_counter!(CanonicalQueryRejected, census.rejections.len());
         Ok(Self {
             world,
-            entries,
+            entries: CanonicalQueryEntries::Source(entries),
             census,
             store: snapshot.store.clone(),
             static_values: snapshot.static_values.clone(),
@@ -788,7 +1066,7 @@ pub struct CanonicalUniverseFormalImage {
     presentation_provider: Option<UniverseSourceProvider>,
     snapshot: Arc<SemanticSnapshot>,
     queries: Arc<CanonicalSemanticQueryImage>,
-    dependency_fingerprints: BTreeMap<QueryKey, ProductFingerprint>,
+    dependency_fingerprints: CanonicalDependencyFingerprints,
     type_prefix: CanonicalTypePrefixId,
 }
 
@@ -803,7 +1081,9 @@ impl CanonicalUniverseFormalImage {
     }
 
     /// Optional source-backed tooling capability; never used for canonical linking.
-    pub(crate) fn presentation_provider(&self) -> Option<&UniverseSourceProvider> { self.presentation_provider.as_ref() }
+    pub(crate) fn presentation_provider(&self) -> Option<&UniverseSourceProvider> {
+        self.presentation_provider.as_ref()
+    }
     /// Provenance used to validate immutable-origin reads.
     pub fn world(&self) -> &CanonicalSemanticWorldId {
         &self.world
@@ -833,7 +1113,7 @@ impl CanonicalUniverseFormalImage {
         &self.queries
     }
     /// Dependency fingerprints for all aggregated queries.
-    pub fn dependency_fingerprints(&self) -> &BTreeMap<QueryKey, ProductFingerprint> {
+    pub fn dependency_fingerprints(&self) -> &CanonicalDependencyFingerprints {
         &self.dependency_fingerprints
     }
     /// Final arena identity and extent.
@@ -866,7 +1146,7 @@ impl CanonicalUniverseFormalImage {
         modules: Arc<CanonicalExternalModuleWorld>,
         snapshot: Arc<SemanticSnapshot>,
         queries: Arc<CanonicalSemanticQueryImage>,
-        dependency_fingerprints: BTreeMap<QueryKey, ProductFingerprint>,
+        dependency_fingerprints: CanonicalDependencyFingerprints,
         allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
     ) -> Result<Arc<Self>, CanonicalImageError> {
         if !matches!(world.provenance, CanonicalWorldProvenance::Artifact { .. }) {
@@ -903,7 +1183,7 @@ impl CanonicalUniverseFormalImage {
             ));
         }
         queries.reader(&world, &snapshot_obj.store, &snapshot_obj.static_values)?;
-        for (key, fp) in &dependency_fingerprints {
+        for (key, fp) in dependency_fingerprints.iter() {
             if let Some(expected) = aggregate_structural_fingerprint(&snapshot_obj, key) {
                 if expected != *fp {
                     return Err(CanonicalImageError::IncompletePublication(format!(
@@ -1104,7 +1384,11 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
     image_counter!(CanonicalImageCompleteUpdates, 1);
     let snapshot = update.snapshot;
     image_span(ImagePhase::Validate, || {
-        validate_publication(&snapshot, modules.external(), &crate::request::SemanticProductRequest::canonical_compiler_image())
+        validate_publication(
+            &snapshot,
+            modules.external(),
+            &crate::request::SemanticProductRequest::canonical_compiler_image(),
+        )
     })?;
     let queries = Arc::new(image_span(ImagePhase::QueryFreeze, || {
         CanonicalSemanticQueryImage::freeze(session.db(), world.clone(), &snapshot, modules.external())
@@ -1151,7 +1435,7 @@ fn aggregate_dependency_fingerprints(
     db: &SemanticDb,
     snapshot: &SemanticSnapshot,
     queries: &CanonicalSemanticQueryImage,
-) -> Result<BTreeMap<QueryKey, ProductFingerprint>, CanonicalImageError> {
+) -> Result<CanonicalDependencyFingerprints, CanonicalImageError> {
     use crate::db::fingerprint;
     let mut fingerprints = BTreeMap::new();
     for (id, signature) in snapshot.callable_signatures.iter() {
@@ -1213,7 +1497,7 @@ fn aggregate_dependency_fingerprints(
             )));
         }
     }
-    Ok(fingerprints)
+    Ok(CanonicalDependencyFingerprints::Source(fingerprints))
 }
 
 fn validate_publication(

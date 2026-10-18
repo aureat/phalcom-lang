@@ -90,3 +90,41 @@ PASS
 The type-graph sub-discriminator remains exact (`ledger=765031 observed=765031`).
 The semantic `N-1` assertion was not reached because successful-path equality
 still fails. `R.G1` and all later gates remain unverified.
+
+## Superseding status — R.T2 / R.G2 query reconstruction — 2026-10-18
+
+The prior R.T1 failure figures above are historical. The current implementation
+worktree, based on `33c99229`, passes the semantic import exactness guard on the
+c7 artifact (`264,140,626` ledger / `264,140,626` observed) and the query
+reconstruction allocation gate. Do not restart R.T1 or R.T2 from the stale
+figures above.
+
+R.G2 is **PASS** on the c7 artifact. The independent query-reconstruction
+census reports:
+
+```text
+Q0 closure/root validation                  48,275 / 48,275       delta 0
+Q1 owner decode and key reconstruction     570,271 / 570,271     delta 0
+Q2 products and fingerprints             2,313,774 / 2,313,774   delta 0
+Q3 dependency/entry/fingerprint assembly 1,385,729 / 1,385,729   delta 0
+Q4 loaded query-image validation            33,104 / 33,104       delta 0
+Q5 query-image Arc publication                 384 / 384           delta 0
+QX boundary/unclassified                        0 / 0             delta 0
+whole query reconstruction              4,351,537 / 4,351,537   delta 0
+```
+
+Every measured Q2 product family has zero delta. The fixed semantic-import
+guard remains exact at the current layout. Focused checks passed for
+`phalcom-type-meta`, `phalcom-semantic`, and `phalcom-core`; ten canonical-image
+library tests and the standalone semantic artifact-allocation test passed.
+The monolithic semantic integration target did not compile because of 412
+stale fixture/API errors in unrelated modules; the standalone target compiled
+and passed.
+
+The non-strict whole-load discriminator completed with ledger
+`366,789,570`, observed `366,813,813`, and delta `+24,243`; do not count this as
+R.G4. Its measured non-query residuals are module materialization C `+22,985`,
+container/header A `+13`, query-world identity setup H0 `+13`, and formal-image
+publication N-P `+1,232`. The next action is R.T3 / R.G3 formal-image
+publication and failure atomicity, after checking the plan's gate dependencies.
+P7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; do not begin P8.

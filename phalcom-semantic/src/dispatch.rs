@@ -10,6 +10,7 @@ use crate::types::id::TypeId;
 use crate::types::relation::TypeHierarchy;
 use crate::types::specialization::ReceiverSpecializationStep;
 use phalcom_common::selector::Selector;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -143,6 +144,40 @@ pub struct CallableSignature {
 }
 
 impl CallableSignature {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let mut parameters = allocations.vector(self.parameters.len())?;
+        for parameter in &self.parameters {
+            let contract = match &parameter.contract {
+                CallableParameterContract::Fixed(ty) => CallableParameterContract::Fixed(ty.clone_with_allocation_budget(allocations)?),
+                CallableParameterContract::Rest { mode, contract } => CallableParameterContract::Rest {
+                    mode: *mode,
+                    contract: match contract {
+                        RestValueContractKnowledge::Unconstrained => RestValueContractKnowledge::Unconstrained,
+                        RestValueContractKnowledge::Element(ty) => RestValueContractKnowledge::Element(ty.clone_with_allocation_budget(allocations)?),
+                        RestValueContractKnowledge::Lane(ty) => RestValueContractKnowledge::Lane(*ty),
+                        RestValueContractKnowledge::Invalid(reason) => {
+                            RestValueContractKnowledge::Invalid(reason.clone_with_allocation_budget(allocations)?)
+                        }
+                    },
+                },
+            };
+            parameters.push(CallableParameter {
+                external_label: parameter.external_label.as_ref().map(|label| allocations.string(label)).transpose()?,
+                local_name: allocations.string(&parameter.local_name)?,
+                ty: parameter.ty.clone_with_allocation_budget(allocations)?,
+                rest: parameter.rest,
+                contract,
+            });
+        }
+        Ok(Self {
+            selector: crate::traits::clone_selector_with_allocation_budget(&self.selector, allocations)?,
+            parameters,
+            return_type: self.return_type.clone_with_allocation_budget(allocations)?,
+            generics: self.generics.as_ref().map(|generics| generics.clone_with_allocation_budget(allocations)).transpose()?,
+            kind: self.kind,
+        })
+    }
+
     pub fn new(selector: Selector, parameters: Vec<CallableParameter>, return_type: TypeKnowledge) -> Self {
         Self {
             selector,

@@ -268,12 +268,8 @@ impl QueryKey {
             )),
             Self::TraitDispatchBucket(key) => {
                 let target_family = match &key.target_family {
-                    TraitDispatchTargetFamily::Declaration(decl) => {
-                        TraitDispatchTargetFamily::Declaration(decl.clone_with_allocation_budget(allocations)?)
-                    }
-                    TraitDispatchTargetFamily::ExactEnumCase(var) => {
-                        TraitDispatchTargetFamily::ExactEnumCase(var.clone_with_allocation_budget(allocations)?)
-                    }
+                    TraitDispatchTargetFamily::Declaration(decl) => TraitDispatchTargetFamily::Declaration(decl.clone_with_allocation_budget(allocations)?),
+                    TraitDispatchTargetFamily::ExactEnumCase(var) => TraitDispatchTargetFamily::ExactEnumCase(var.clone_with_allocation_budget(allocations)?),
                 };
                 let base = match &key.selector.base {
                     SelectorBase::Named(name) => SelectorBase::Named(allocations.string(name)?),
@@ -325,7 +321,7 @@ impl QueryKey {
             Self::DataDeclaration(id) => Self::DataDeclaration(id.clone_with_allocation_budget(allocations)?),
             Self::EnumDeclaration(id) => Self::EnumDeclaration(id.clone_with_allocation_budget(allocations)?),
             Self::EnumRequirements(id) => Self::EnumRequirements(id.clone_with_allocation_budget(allocations)?),
-            Self::TypeMemberDeclaration(id) => Self::TypeMemberDeclaration(id.clone()),
+            Self::TypeMemberDeclaration(id) => Self::TypeMemberDeclaration(id.clone_with_allocation_budget(allocations)?),
             Self::StaticDomainCaseCatalog(id) => Self::StaticDomainCaseCatalog(id.clone()),
             Self::StaticCaseSignature(id) => Self::StaticCaseSignature(id.clone()),
             Self::AssociatedStaticDomainDeclaration(id) => Self::AssociatedStaticDomainDeclaration(id.clone()),

@@ -10,6 +10,8 @@ use crate::identity::{BindingId, CallableId, ModuleId};
 use phalcom_ast::ast::{BindingKind, LetBinding, Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::linker::SymbolId;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
+use std::fmt::Write as _;
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -43,8 +45,8 @@ pub struct ModuleStaticBindingSeed {
 #[derive(Clone, Debug)]
 pub struct ModuleStaticBindingCatalog {
     module: ModuleId,
-    bindings: BTreeMap<SymbolId, ModuleStaticBindingSeed>,
-    visible_names: BTreeMap<Box<str>, SymbolId>,
+    bindings: crate::ordered_map::OrderedMap<SymbolId, ModuleStaticBindingSeed>,
+    visible_names: crate::ordered_map::OrderedMap<Box<str>, SymbolId>,
 }
 
 impl ModuleStaticBindingCatalog {
@@ -72,11 +74,11 @@ impl ModuleStaticBindingCatalog {
             };
             bindings.entry(symbol.clone()).or_insert(seed);
         }
-        let visible_names = bindings.keys().map(|symbol| (symbol.name.clone(), symbol.clone())).collect();
+        let visible_names: BTreeMap<Box<str>, SymbolId> = bindings.keys().map(|symbol| (symbol.name.clone(), symbol.clone())).collect();
         Self {
             module: module.clone(),
-            bindings,
-            visible_names,
+            bindings: bindings.into(),
+            visible_names: visible_names.into(),
         }
     }
 
@@ -93,27 +95,94 @@ impl ModuleStaticBindingCatalog {
             };
             bindings.insert(symbol.clone(), seed);
         }
+        let visible_names = index.visible_symbol_bindings().map(|(name, symbol)| (name.into(), symbol.clone())).collect::<BTreeMap<_, _>>();
         Self {
             module: index.module().clone(),
-            bindings,
-            visible_names: index.visible_symbol_bindings().map(|(name, symbol)| (name.into(), symbol.clone())).collect(),
+            bindings: bindings.into(),
+            visible_names: visible_names.into(),
         }
+    }
+
+    /// Reconstructs a frozen catalog from an authoritative index while
+    /// budgeting every retained key, identity, map buffer, and Arc owner.
+    pub(crate) fn from_index_with_allocation_budget(
+        index: &ModuleStaticBindingIndex,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, ModuleStaticBindingCatalogBuildError> {
+        let mut bindings = allocations
+            .vector::<(SymbolId, ModuleStaticBindingSeed)>(index.len())
+            .map_err(ModuleStaticBindingCatalogBuildError::Allocation)?;
+        for (symbol, fact) in index.iter() {
+            let key = clone_symbol_with_allocation_budget(symbol, allocations).map_err(ModuleStaticBindingCatalogBuildError::Allocation)?;
+            let seed_symbol = clone_symbol_with_allocation_budget(&fact.symbol, allocations).map_err(ModuleStaticBindingCatalogBuildError::Allocation)?;
+            bindings.push((
+                key,
+                ModuleStaticBindingSeed {
+                    symbol: seed_symbol,
+                    phase: fact.phase,
+                    binding_range: fact.state.range,
+                    declaration_range: fact.declaration_range,
+                    initializer_range: fact.initializer_range,
+                },
+            ));
+        }
+        let bindings = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(bindings, allocations)
+            .map_err(map_catalog_map_error)?;
+
+        let visible_count = index.visible_symbol_bindings().count();
+        let mut visible_names = allocations
+            .vector::<(Box<str>, SymbolId)>(visible_count)
+            .map_err(ModuleStaticBindingCatalogBuildError::Allocation)?;
+        for (name, symbol) in index.visible_symbol_bindings() {
+            visible_names.push((
+                allocations.boxed_str(name).map_err(ModuleStaticBindingCatalogBuildError::Allocation)?,
+                clone_symbol_with_allocation_budget(symbol, allocations).map_err(ModuleStaticBindingCatalogBuildError::Allocation)?,
+            ));
+        }
+        let visible_names = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(visible_names, allocations)
+            .map_err(map_catalog_map_error)?;
+
+        Ok(Self {
+            module: index
+                .module()
+                .clone_with_allocation_budget(allocations)
+                .map_err(ModuleStaticBindingCatalogBuildError::Allocation)?,
+            bindings,
+            visible_names,
+        })
+    }
+
+    /// Creates a budgeted empty catalog for a module with no checker index.
+    pub(crate) fn empty_with_allocation_budget(
+        module: &ModuleId,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, AllocationError> {
+        Ok(Self {
+            module: module.clone_with_allocation_budget(allocations)?,
+            bindings: crate::ordered_map::OrderedMap::default(),
+            visible_names: crate::ordered_map::OrderedMap::default(),
+        })
     }
 
     /// Creates an empty catalog for a module with no top-level bindings.
     pub fn empty(module: ModuleId) -> Self {
         Self {
             module,
-            bindings: BTreeMap::new(),
-            visible_names: BTreeMap::new(),
+            bindings: crate::ordered_map::OrderedMap::default(),
+            visible_names: crate::ordered_map::OrderedMap::default(),
         }
     }
 
     /// Adds a linked import using its canonical remote symbol identity.
     pub fn insert_imported_binding(&mut self, local_name: &str, seed: ModuleStaticBindingSeed) {
         let symbol = seed.symbol.clone();
-        self.bindings.entry(symbol.clone()).or_insert(seed);
-        self.visible_names.entry(local_name.into()).or_insert(symbol);
+        if !self.bindings.contains_key(&symbol) {
+            self.bindings.insert(symbol.clone(), seed);
+        }
+        let local_name: Box<str> = local_name.into();
+        if !self.visible_names.contains_key(&local_name) {
+            self.visible_names.insert(local_name, symbol);
+        }
     }
 
     pub fn module(&self) -> &ModuleId {
@@ -146,9 +215,74 @@ impl ModuleStaticBindingCatalog {
         InputFingerprint::new(hasher.finish())
     }
 
+    /// Computes the source-compatible fingerprint while budgeting its exact
+    /// temporary formatted-range buffer.
+    pub(crate) fn input_fingerprint_with_allocation_budget(
+        &self,
+        allocations: &mut AllocationBudget,
+    ) -> Result<InputFingerprint, AllocationError> {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.module.hash(&mut hasher);
+        for (name, seed) in self.visible_bindings() {
+            name.hash(&mut hasher);
+            seed.symbol.hash(&mut hasher);
+            seed.phase.hash(&mut hasher);
+            format_ranges_with_allocation_budget(seed, allocations)?.hash(&mut hasher);
+        }
+        Ok(InputFingerprint::new(hasher.finish()))
+    }
+
     pub fn product_fingerprint(&self) -> ProductFingerprint {
         ProductFingerprint::new(self.input_fingerprint().raw())
     }
+}
+
+#[derive(Debug)]
+pub(crate) enum ModuleStaticBindingCatalogBuildError {
+    Allocation(AllocationError),
+    DuplicateKey,
+}
+
+fn map_catalog_map_error(error: crate::ordered_map::FrozenOrderedMapError) -> ModuleStaticBindingCatalogBuildError {
+    match error {
+        crate::ordered_map::FrozenOrderedMapError::Allocation(error) => ModuleStaticBindingCatalogBuildError::Allocation(error),
+        crate::ordered_map::FrozenOrderedMapError::DuplicateKey => ModuleStaticBindingCatalogBuildError::DuplicateKey,
+    }
+}
+
+fn clone_symbol_with_allocation_budget(symbol: &SymbolId, allocations: &mut AllocationBudget) -> Result<SymbolId, AllocationError> {
+    Ok(SymbolId {
+        module: symbol.module.clone_with_allocation_budget(allocations)?,
+        name: allocations.boxed_str(&symbol.name)?,
+    })
+}
+
+fn format_ranges_with_allocation_budget(
+    seed: &ModuleStaticBindingSeed,
+    allocations: &mut AllocationBudget,
+) -> Result<String, AllocationError> {
+    struct CountWriter(usize);
+    impl std::fmt::Write for CountWriter {
+        fn write_str(&mut self, text: &str) -> std::fmt::Result {
+            self.0 = self.0.checked_add(text.len()).ok_or(std::fmt::Error)?;
+            Ok(())
+        }
+    }
+
+    struct ByteWriter<'a>(&'a mut Vec<u8>);
+    impl std::fmt::Write for ByteWriter<'_> {
+        fn write_str(&mut self, text: &str) -> std::fmt::Result {
+            self.0.extend_from_slice(text.as_bytes());
+            Ok(())
+        }
+    }
+
+    let mut count = CountWriter(0);
+    write!(&mut count, "{:?}{:?}{:?}", seed.binding_range, seed.declaration_range, seed.initializer_range).map_err(|_| AllocationError::Overflow)?;
+    let mut bytes = allocations.vector::<u8>(count.0)?;
+    write!(&mut ByteWriter(&mut bytes), "{:?}{:?}{:?}", seed.binding_range, seed.declaration_range, seed.initializer_range)
+        .map_err(|_| AllocationError::Failed)?;
+    String::from_utf8(bytes).map_err(|_| AllocationError::Failed)
 }
 
 /// Declaration-time phase category for a module-owned binding.
