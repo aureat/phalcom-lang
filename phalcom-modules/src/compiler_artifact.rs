@@ -1062,8 +1062,9 @@ fn load_module_world_inner(
     for (index, &pos) in positions.iter().enumerate() {
         if let Some(pos) = pos {
             let id = &ids[index];
-            for dependency in graphs.runtime.dependencies(id) {
-                let dep_idx = ids.binary_search(&dependency).map_err(|_| invalid("runtime graph dependency is absent"))?;
+            for edge in graphs.runtime.edges_from(id) {
+                let dependency = &edge.dependency;
+                let dep_idx = ids.binary_search(dependency).map_err(|_| invalid("runtime graph dependency is absent"))?;
                 match positions[dep_idx] {
                     Some(dep_pos) if dep_pos < pos => {}
                     _ => return Err(invalid("initializer order violates runtime dependency")),
