@@ -2138,7 +2138,7 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             let variants = info
                 .variants
                 .iter()
-                .filter_map(|variant| table.variants.get(variant).map(|variant| (**variant).clone()))
+                .filter_map(|variant| table.variants.get(variant).cloned())
                 .collect::<Vec<_>>();
             unit_outcome(query_enum_declaration(
                 db,
