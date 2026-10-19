@@ -84,7 +84,7 @@ impl ImportedCallableBindingAuthority {
             .map(|index| &self.callables[index].rows)
     }
 
-    pub(crate) fn binding(&self, callable: &CallableId, ordinal: u32) -> Option<&ImportedCallableBindingRow> {
+    pub fn binding(&self, callable: &CallableId, ordinal: u32) -> Option<&ImportedCallableBindingRow> {
         let rows = self.rows(callable)?;
         rows.get(ordinal as usize).filter(|row| row.state.binding == BindingId(ordinal))
     }
