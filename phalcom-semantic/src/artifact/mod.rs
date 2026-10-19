@@ -2,6 +2,7 @@
 //!
 //! (ARTF001.C1.P2)
 
+mod associated_import;
 mod identity;
 mod query_import;
 mod query_policy;
@@ -9,6 +10,7 @@ mod query_product_import;
 mod semantic_import;
 mod static_import;
 mod type_import;
+pub use associated_import::ImportedAssociatedAuthority;
 pub use identity::StableOwnerCatalog;
 pub use query_policy::{
     CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_from_portable, query_kind_profile_support, query_root_is_reusable,
@@ -77,6 +79,9 @@ pub struct ImportedCompilerImage {
     pub static_values: Arc<ImportedStaticValueGraph>,
     /// Reconstructed structural declaration products (data, enums, variants).
     pub semantic_aggregates: Arc<ImportedSemanticAggregates>,
+    /// P7 associated semantic authority reconstructed once and shared by
+    /// snapshot/session publication and reusable query-product publication.
+    pub associated_authority: Arc<ImportedAssociatedAuthority>,
     /// Reconstructed, canonical-fingerprint-validated reusable query products.
     /// T4 installs these into the imported generation's one SemanticDb.
     pub query_products: Arc<ImportedQueryProducts>,
@@ -110,6 +115,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_type_graph: Option<Arc<ImportedTypeGraph>>,
     pub staged_static_values: Option<Arc<ImportedStaticValueGraph>>,
     pub staged_semantic_aggregates: Option<Arc<ImportedSemanticAggregates>>,
+    pub staged_associated_authority: Option<Arc<ImportedAssociatedAuthority>>,
     pub staged_query_products: Option<Arc<ImportedQueryProducts>>,
     pub staged_semantic_world: Option<SemanticWorldV3>,
     pub staged_query_image: Option<QueryImageV3>,
@@ -130,6 +136,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_type_graph: None,
             staged_static_values: None,
             staged_semantic_aggregates: None,
+            staged_associated_authority: None,
             staged_query_products: None,
             staged_semantic_world: None,
             staged_query_image: None,
@@ -246,15 +253,18 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.staged_static_values = Some(child.arc(static_values).map_err(ArtifactError::Allocation)?);
         let semantic_aggregates =
             semantic_import::reconstruct_structural_aggregates(&payload.semantic_world.structural_contracts, &reconstructed, &owners, &self.limits, child)?;
+        let associated_authority =
+            associated_import::reconstruct_associated_authority(&payload.semantic_world, &reconstructed, &owners, child)?;
         let query_products = query_product_import::reconstruct_structural_query_products(
             &payload.query_image,
             &semantic_aggregates,
+            &associated_authority,
             &owners,
             &payload.semantic_world,
-            &reconstructed,
             child,
         )?;
         self.staged_semantic_aggregates = Some(child.arc(semantic_aggregates).map_err(ArtifactError::Allocation)?);
+        self.staged_associated_authority = Some(child.arc(associated_authority).map_err(ArtifactError::Allocation)?);
         self.staged_query_products = Some(child.arc(query_products).map_err(ArtifactError::Allocation)?);
         self.staged_type_graph = Some(child.arc(ImportedTypeGraph { inner: reconstructed }).map_err(ArtifactError::Allocation)?);
 
@@ -302,6 +312,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_semantic_aggregates
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged semantic aggregates".into())))?;
+        let associated_authority = self
+            .staged_associated_authority
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged associated semantic authority".into())))?;
         let query_products = self
             .staged_query_products
             .take()
@@ -333,6 +347,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             type_graph,
             static_values,
             semantic_aggregates,
+            associated_authority,
             query_products,
             semantic_world,
             query_image,
@@ -349,6 +364,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_type_graph = None;
             self.staged_static_values = None;
             self.staged_semantic_aggregates = None;
+            self.staged_associated_authority = None;
             self.staged_query_products = None;
             self.staged_semantic_world = None;
             self.staged_query_image = None;
