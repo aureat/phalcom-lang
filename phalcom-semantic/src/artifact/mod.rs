@@ -280,6 +280,7 @@ impl<'a> ArtifactImportTransaction<'a> {
         )?;
         let callable_authority = callable_import::reconstruct_callable_authority(
             &payload.semantic_world.callable_signatures,
+            &payload.semantic_world.callable_definitions,
             &reconstructed,
             &owners,
             child,
