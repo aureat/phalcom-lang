@@ -770,7 +770,7 @@ pub(crate) fn reconstruct_type_environment(
     })
 }
 
-fn reconstruct_conformance_binding(
+pub(crate) fn reconstruct_conformance_binding(
     binding: &CallableGenericCallConformanceBindingV1,
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
