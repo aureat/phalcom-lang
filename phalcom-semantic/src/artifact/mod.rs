@@ -10,6 +10,7 @@ mod conformance_import;
 mod denotation_import;
 mod constructor_import;
 mod diagnostic_import;
+mod derived_import;
 mod dispatch_import;
 mod enum_requirement_import;
 mod identity;
@@ -33,6 +34,7 @@ pub use callable_binding_import::ImportedCallableBindingAuthority;
 pub use callable_import::ImportedCallableAuthority;
 pub use conformance_import::ImportedConformanceAuthority;
 pub use constructor_import::ImportedConstructorInitializationAuthority;
+pub use derived_import::ImportedDerivedConformanceAuthority;
 pub use dispatch_import::ImportedDispatchAuthority;
 pub use enum_requirement_import::ImportedEnumRequirementAuthority;
 pub use identity::StableOwnerCatalog;
@@ -157,6 +159,9 @@ pub struct ImportedCompilerImage {
     /// preflight. Recursive selection/evidence reconstruction is a separate
     /// proof-bearing import stage and is not implied by this value.
     pub witness_preflight_authority: Arc<ImportedWitnessPreflightAuthority>,
+    /// Certified-P7 guarded derived-conformance rules and their relocated proof
+    /// graphs, staged for the one imported semantic generation.
+    pub derived_conformance_authority: Arc<ImportedDerivedConformanceAuthority>,
     /// Certified-P7 closed-enum requirements and per-case obligation statuses,
     /// staged for T4 snapshot publication. This authority is not independently
     /// promoted to a reusable SemanticDb root.
@@ -207,6 +212,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_conformance_authority: Option<Arc<ImportedConformanceAuthority>>,
     pub staged_trait_authority: Option<Arc<ImportedTraitAuthority>>,
     pub staged_witness_preflight_authority: Option<Arc<ImportedWitnessPreflightAuthority>>,
+    pub staged_derived_conformance_authority: Option<Arc<ImportedDerivedConformanceAuthority>>,
     pub staged_enum_requirement_authority: Option<Arc<ImportedEnumRequirementAuthority>>,
     pub staged_query_products: Option<Arc<ImportedQueryProducts>>,
     pub staged_semantic_world: Option<SemanticWorldV3>,
@@ -241,6 +247,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_conformance_authority: None,
             staged_trait_authority: None,
             staged_witness_preflight_authority: None,
+            staged_derived_conformance_authority: None,
             staged_enum_requirement_authority: None,
             staged_query_products: None,
             staged_semantic_world: None,
@@ -448,6 +455,17 @@ impl<'a> ArtifactImportTransaction<'a> {
             &self.limits,
             child,
         )?;
+        let derived_conformance_authority = derived_import::reconstruct_derived_conformance_authority(
+            &payload.semantic_world.derived_conformance_rules,
+            witness_preflight_authority.plans(),
+            &conformance_authority,
+            &trait_authority,
+            &callable_authority,
+            &reconstructed,
+            &owners,
+            &self.limits,
+            child,
+        )?;
         let enum_requirement_authority = enum_requirement_import::reconstruct_enum_requirement_authority(
             &payload.semantic_world.enum_requirements,
             &semantic_aggregates,
@@ -481,6 +499,8 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.staged_trait_authority = Some(child.arc(trait_authority).map_err(ArtifactError::Allocation)?);
         self.staged_witness_preflight_authority =
             Some(child.arc(witness_preflight_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_derived_conformance_authority =
+            Some(child.arc(derived_conformance_authority).map_err(ArtifactError::Allocation)?);
         self.staged_enum_requirement_authority =
             Some(child.arc(enum_requirement_authority).map_err(ArtifactError::Allocation)?);
         self.staged_query_products = Some(child.arc(query_products).map_err(ArtifactError::Allocation)?);
@@ -582,6 +602,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_witness_preflight_authority
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged witness-plan preflight authority".into())))?;
+        let derived_conformance_authority = self
+            .staged_derived_conformance_authority
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged derived-conformance authority".into())))?;
         let enum_requirement_authority = self
             .staged_enum_requirement_authority
             .take()
@@ -630,6 +654,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             conformance_authority,
             trait_authority,
             witness_preflight_authority,
+            derived_conformance_authority,
             enum_requirement_authority,
             query_products,
             semantic_world,
@@ -660,6 +685,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_conformance_authority = None;
             self.staged_trait_authority = None;
             self.staged_witness_preflight_authority = None;
+            self.staged_derived_conformance_authority = None;
             self.staged_enum_requirement_authority = None;
             self.staged_query_products = None;
             self.staged_semantic_world = None;
