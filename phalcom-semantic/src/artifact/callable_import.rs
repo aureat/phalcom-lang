@@ -8,7 +8,7 @@
 
 use super::identity::StableOwnerCatalog;
 use super::type_import::ReconstructedTypeGraph;
-use crate::declaration_type::{DeclaredTypeFact, DeclaredTypeState};
+use crate::declaration_type::DeclaredTypeFact;
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{CallableId, CallableParameterId, DispatchSide};
 use crate::signature::{
@@ -17,12 +17,11 @@ use crate::signature::{
 use crate::types::evidence::{
     DynamicReason, EvidenceOrigin, EvidenceSet, EvidenceStatus, TypeKnowledge, UnknownReason,
 };
-use crate::types::parameter::{SelfRole, SelfTypeTerm, TypeTerm};
 use phalcom_ast::ast::RestMode;
 use phalcom_common::modifier::ImplementationKind;
 use phalcom_common::range::SourceRange;
 use phalcom_compiler_artifact::semantic::aggregates::{
-    DeclaredTypeBasisV1, DeclaredTypeFactV1, DeclaredTypeStateV1, DynamicReasonV1, SelfRoleV1, TypeTermV1, UnknownReasonV1,
+    DeclaredTypeFactV1, DynamicReasonV1, UnknownReasonV1,
 };
 use phalcom_compiler_artifact::semantic::world::{
     CallableSignatureRecordV1, EffectSpecV1, EvidenceOriginV1, EvidenceStatusV1, ImplementationKindV1, ParameterContractV1,
