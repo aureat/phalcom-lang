@@ -472,7 +472,7 @@ impl CanonicalUniverseSemanticBaseline {
                         };
                         base_enum_semantics.insert_enum(enum_product.info.clone());
                         for v in enum_product.variants.iter() {
-                            base_enum_semantics.insert_variant(Arc::new(v.clone()));
+                            base_enum_semantics.insert_variant(v.clone());
                         }
                         base_enum_products.push(Arc::new(enum_product));
                     } else {
