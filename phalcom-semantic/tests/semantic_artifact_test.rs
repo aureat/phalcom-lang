@@ -9,6 +9,7 @@ use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
 use phalcom_compiler_artifact::query::{
     DependencyEvidenceEntryV3, PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
+    portable_structural_root_fingerprints,
 };
 use phalcom_compiler_artifact::semantic::aggregates::{DataInfoV1, DataShapeV1, EnumInfoV1, StructuralPrimaryContractsV1, VisibilityV1};
 use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
@@ -522,8 +523,8 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
             kind: PortableQueryKindV1::DataDeclaration,
             row_index: 0,
         },
-        input_fingerprint,
-        product_fingerprint,
+        input_fingerprint: 0,
+        product_fingerprint: 0,
         dependency_indices: vec![],
     });
     image.query_image.supported_roots.push(QueryRootEntryV3 {
@@ -535,10 +536,26 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
             kind: PortableQueryKindV1::EnumDeclaration,
             row_index: 0,
         },
-        input_fingerprint: enum_input_fingerprint,
-        product_fingerprint: enum_product_fingerprint,
+        input_fingerprint: 0,
+        product_fingerprint: 0,
         dependency_indices: vec![],
     });
+    for root in &mut image.query_image.supported_roots {
+        if let Some((portable_input, portable_product)) =
+            portable_structural_root_fingerprints(root, &image.semantic_world).expect("portable structural fingerprints")
+        {
+            root.input_fingerprint = portable_input;
+            root.product_fingerprint = portable_product;
+        }
+    }
+
+    let data_portable_product_fingerprint = image
+        .query_image
+        .supported_roots
+        .iter()
+        .find(|root| root.key.kind == PortableQueryKindV1::DataDeclaration)
+        .expect("data query root")
+        .product_fingerprint;
 
     let bytes = encode_artifact(&image).expect("encode fingerprinted structural artifact");
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
@@ -609,7 +626,7 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         .iter_mut()
         .find(|root| root.key.kind == PortableQueryKindV1::DataDeclaration)
         .expect("data query root");
-    data_root.product_fingerprint = product_fingerprint;
+    data_root.product_fingerprint = data_portable_product_fingerprint;
     let data_key = data_root.key.clone();
     image.query_image.dependency_evidence.push(DependencyEvidenceEntryV3 {
         key: data_key,
@@ -623,7 +640,7 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
             },
             path: vec!["OtherPayload".into()].into_boxed_slice(),
         }),
-        product_fingerprint,
+        product_fingerprint: data_portable_product_fingerprint,
     });
 
     let mismatched_bytes = encode_artifact(&image).expect("encode mismatched dependency owner artifact");
