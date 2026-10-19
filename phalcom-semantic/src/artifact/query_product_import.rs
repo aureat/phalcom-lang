@@ -260,7 +260,7 @@ fn enum_product(
         .ok_or_else(|| invalid("enum query identity has no reconstructed declaration product"))?;
 
     let mut variants = allocations
-        .vector::<VariantInfo>(info.variants.len())
+        .vector::<Arc<VariantInfo>>(info.variants.len())
         .map_err(ArtifactError::Allocation)?;
     for variant_id in info.variants.iter() {
         let variant = aggregates
@@ -271,7 +271,7 @@ fn enum_product(
         if &variant.id.owner != owner {
             return Err(invalid("enum query identity contains a variant owned by another declaration"));
         }
-        variants.push((**variant).clone());
+        variants.push(variant.clone());
     }
     let variants = allocations.arc_slice(variants).map_err(ArtifactError::Allocation)?;
     allocations
