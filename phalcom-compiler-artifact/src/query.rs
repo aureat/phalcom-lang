@@ -756,7 +756,10 @@ impl QueryImageV3 {
         }
 
         for evidence in &self.dependency_evidence {
-            if matches!(evidence.key.kind, PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration) {
+            if matches!(
+                evidence.key.kind,
+                PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration | PortableQueryKindV1::AssociatedSurface
+            ) {
                 if evidence.key.owner != evidence.stable_aggregate_owner {
                     return Err(ValidationError::ReferentialIntegrity(
                         "structural dependency evidence key and aggregate owner differ".into(),
