@@ -516,7 +516,7 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
     image.query_image.supported_roots.push(QueryRootEntryV3 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::DataDeclaration,
-            owner: PortableQueryOwnerKeyV1::Declaration(stable_owner),
+            owner: PortableQueryOwnerKeyV1::Declaration(stable_owner.clone()),
         },
         product: QueryProductRefV2 {
             kind: PortableQueryKindV1::DataDeclaration,
@@ -529,7 +529,7 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
     image.query_image.supported_roots.push(QueryRootEntryV3 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::EnumDeclaration,
-            owner: PortableQueryOwnerKeyV1::Declaration(stable_enum_owner),
+            owner: PortableQueryOwnerKeyV1::Declaration(stable_enum_owner.clone()),
         },
         product: QueryProductRefV2 {
             kind: PortableQueryKindV1::EnumDeclaration,
@@ -538,6 +538,14 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         input_fingerprint: 0,
         product_fingerprint: 0,
         dependency_indices: vec![],
+    });
+    image.query_image.dependency_evidence.push(DependencyEvidenceEntryV3 {
+        key: PortableQueryKeyV1 {
+            kind: PortableQueryKindV1::DataDeclaration,
+            owner: PortableQueryOwnerKeyV1::Declaration(stable_owner.clone()),
+        },
+        stable_aggregate_owner: PortableQueryOwnerKeyV1::Declaration(stable_owner.clone()),
+        product_fingerprint: 0,
     });
     image
         .query_image
@@ -561,6 +569,11 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         imported.query_products.len(),
         2,
         "DataDeclaration and EnumDeclaration must be staged as typed reusable products"
+    );
+    assert_eq!(
+        imported.query_products.validated_evidence_len(),
+        1,
+        "dependency-only DataDeclaration evidence is retained but not counted as reusable root authority"
     );
 
     let mut db = phalcom_semantic::db::SemanticDb::new();
@@ -622,10 +635,8 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         .find(|root| root.key.kind == PortableQueryKindV1::DataDeclaration)
         .expect("data query root");
     data_root.product_fingerprint = data_portable_product_fingerprint;
-    let data_key = data_root.key.clone();
-    image.query_image.dependency_evidence.push(DependencyEvidenceEntryV3 {
-        key: data_key,
-        stable_aggregate_owner: PortableQueryOwnerKeyV1::Declaration(StableDeclarationRef {
+    image.query_image.dependency_evidence[0].stable_aggregate_owner =
+        PortableQueryOwnerKeyV1::Declaration(StableDeclarationRef {
             module: StableModuleRef {
                 project: StableProjectRef::Builtin {
                     namespace: "universe".into(),
@@ -634,9 +645,7 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
                 path: vec!["core".into()].into_boxed_slice(),
             },
             path: vec!["OtherPayload".into()].into_boxed_slice(),
-        }),
-        product_fingerprint: data_portable_product_fingerprint,
-    });
+        });
 
     let mismatched_bytes = encode_artifact(&image).expect("encode mismatched dependency owner artifact");
     let mut mismatch_decode_budget = AllocationBudget::new(32 * 1024 * 1024);
