@@ -492,6 +492,16 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         decode_and_validate_artifact(&seed_bytes, &limits, None, &mut seed_decode_budget).expect("validate structural seed artifact");
     let mut seed_import_budget = AllocationBudget::new(32 * 1024 * 1024);
     let seed_import = import_compiler_image(seed_payload, &limits, &mut seed_import_budget).expect("reconstruct structural seed");
+    assert_eq!(
+        seed_import.associated_authority.surface_len(),
+        1,
+        "P7 associated semantic authority must be reconstructed independently of query-root selection"
+    );
+    assert_eq!(
+        seed_import.query_products.len(),
+        0,
+        "an associated semantic row is not reusable query authority until QUERY_IMAGE selects it"
+    );
 
     let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
@@ -750,6 +760,31 @@ fn p7_type_member_product_imports_as_current_main_ready_query() {
         product_fingerprint: 0,
         dependency_indices: vec![],
     });
+    let type_member_owner = PortableQueryOwnerKeyV1::TypeMember(StableTypeMemberRef {
+        owner: StableDeclarationRef {
+            module: StableModuleRef {
+                project: StableProjectRef::Builtin {
+                    namespace: "universe".into(),
+                    version: "0.1.0".into(),
+                },
+                path: vec!["core".into()].into_boxed_slice(),
+            },
+            path: vec!["TypeOwner".into()].into_boxed_slice(),
+        },
+        selector: "Element".into(),
+    });
+    image.query_image.dependency_evidence.push(DependencyEvidenceEntryV3 {
+        key: PortableQueryKeyV1 {
+            kind: PortableQueryKindV1::TypeMemberDeclaration,
+            owner: type_member_owner.clone(),
+        },
+        stable_aggregate_owner: type_member_owner,
+        product_fingerprint: 0,
+    });
+    image
+        .query_image
+        .dependency_evidence
+        .sort();
     image
         .query_image
         .supported_roots
@@ -768,7 +803,13 @@ fn p7_type_member_product_imports_as_current_main_ready_query() {
     let imported = import_compiler_image(payload, &limits, &mut import_budget)
         .expect("import P7 type-member semantic product");
 
+    assert_eq!(imported.associated_authority.type_member_len(), 1);
     assert_eq!(imported.query_products.len(), 1, "only the reusable type-member root is reconstructed");
+    assert_eq!(
+        imported.query_products.validated_evidence_len(),
+        1,
+        "P7 type-member dependency evidence is validated and retained without becoming an extra reusable root"
+    );
     let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
     ]));
