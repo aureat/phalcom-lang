@@ -609,15 +609,15 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
 
     let stale_bytes = encode_artifact(&image).expect("encode stale structural artifact");
     let mut stale_decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let stale_payload =
-        decode_and_validate_artifact(&stale_bytes, &limits, None, &mut stale_decode_budget).expect("container remains structurally valid");
-    let mut stale_import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let stale = import_compiler_image(stale_payload, &limits, &mut stale_import_budget);
-    assert!(stale.is_err(), "stale query product fingerprint must fail closed");
+    let stale = decode_and_validate_artifact(&stale_bytes, &limits, None, &mut stale_decode_budget);
+    assert!(
+        stale.is_err(),
+        "stale portable query product fingerprint must fail during cross-section artifact validation"
+    );
     assert_eq!(
-        stale_import_budget.requested(),
+        stale_decode_budget.requested(),
         0,
-        "failed fingerprint validation must not commit staged allocation authority"
+        "failed portable fingerprint validation must not commit decode allocations"
     );
 
     let data_root = image
@@ -645,15 +645,15 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
 
     let mismatched_bytes = encode_artifact(&image).expect("encode mismatched dependency owner artifact");
     let mut mismatch_decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let mismatch_payload =
-        decode_and_validate_artifact(&mismatched_bytes, &limits, None, &mut mismatch_decode_budget).expect("wire owner remains structurally valid");
-    let mut mismatch_import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let mismatch = import_compiler_image(mismatch_payload, &limits, &mut mismatch_import_budget);
-    assert!(mismatch.is_err(), "dependency evidence must bind to the exact structural aggregate owner");
+    let mismatch = decode_and_validate_artifact(&mismatched_bytes, &limits, None, &mut mismatch_decode_budget);
+    assert!(
+        mismatch.is_err(),
+        "dependency evidence must bind to the exact structural aggregate owner during cross-section validation"
+    );
     assert_eq!(
-        mismatch_import_budget.requested(),
+        mismatch_decode_budget.requested(),
         0,
-        "mismatched dependency evidence must fail before committing import allocations"
+        "mismatched dependency evidence must fail before committing decode allocations"
     );
 }
 
