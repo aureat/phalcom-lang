@@ -5,6 +5,7 @@
 mod associated_import;
 mod callable_binding_import;
 mod callable_dispatch_import;
+mod callable_evidence_import;
 mod callable_expression_import;
 mod callable_import;
 mod callable_specialization_import;
@@ -36,6 +37,9 @@ pub use associated_import::ImportedAssociatedAuthority;
 pub use callable_binding_import::ImportedCallableBindingAuthority;
 pub use callable_dispatch_import::{
     ImportedCallableConditionalDispatchAuthority, ImportedConditionalCallCapability,
+};
+pub use callable_evidence_import::{
+    ImportedCallableConformanceEvidence, ImportedCallableConformanceEvidenceAuthority,
 };
 pub use callable_expression_import::{
     ImportedCallableExpressionAuthority, ImportedCallableExpressionBase,
@@ -157,6 +161,9 @@ pub struct ImportedCompilerImage {
     /// P7 conditional-call proof capability sidecars, including inherent
     /// specialization and conformance provenance.
     pub callable_conditional_dispatch_authority: Arc<ImportedCallableConditionalDispatchAuthority>,
+    /// Fully relocated callable-local P7 conformance-evidence graphs, staged
+    /// after conformance heads/traits/witnesses for proof-bearing sidecars.
+    pub callable_conformance_evidence_authority: Arc<ImportedCallableConformanceEvidenceAuthority>,
     /// P7 generic call specialization sidecars, including relocated static
     /// arguments and conformance-evidence references.
     pub callable_specialization_authority: Arc<ImportedCallableSpecializationAuthority>,
@@ -230,6 +237,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_callable_binding_authority: Option<Arc<ImportedCallableBindingAuthority>>,
     pub staged_callable_expression_authority: Option<Arc<ImportedCallableExpressionAuthority>>,
     pub staged_callable_conditional_dispatch_authority: Option<Arc<ImportedCallableConditionalDispatchAuthority>>,
+    pub staged_callable_conformance_evidence_authority: Option<Arc<ImportedCallableConformanceEvidenceAuthority>>,
     pub staged_callable_specialization_authority: Option<Arc<ImportedCallableSpecializationAuthority>>,
     pub staged_module_static_binding_authority: Option<Arc<ImportedModuleStaticBindingAuthority>>,
     pub staged_constructor_initialization_authority: Option<Arc<ImportedConstructorInitializationAuthority>>,
@@ -268,6 +276,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_callable_binding_authority: None,
             staged_callable_expression_authority: None,
             staged_callable_conditional_dispatch_authority: None,
+            staged_callable_conformance_evidence_authority: None,
             staged_callable_specialization_authority: None,
             staged_module_static_binding_authority: None,
             staged_constructor_initialization_authority: None,
@@ -508,6 +517,18 @@ impl<'a> ArtifactImportTransaction<'a> {
             &self.limits,
             child,
         )?;
+        let callable_conformance_evidence_authority =
+            callable_evidence_import::reconstruct_callable_conformance_evidence(
+                &payload.semantic_world.callable_analyses,
+                &conformance_authority,
+                &witness_preflight_authority,
+                &trait_authority,
+                &callable_authority,
+                &reconstructed,
+                &owners,
+                &self.limits,
+                child,
+            )?;
         let derived_conformance_authority = derived_import::reconstruct_derived_conformance_authority(
             &payload.semantic_world.derived_conformance_rules,
             witness_preflight_authority.plans(),
@@ -558,6 +579,8 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.staged_trait_authority = Some(child.arc(trait_authority).map_err(ArtifactError::Allocation)?);
         self.staged_witness_preflight_authority =
             Some(child.arc(witness_preflight_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_callable_conformance_evidence_authority =
+            Some(child.arc(callable_conformance_evidence_authority).map_err(ArtifactError::Allocation)?);
         self.staged_derived_conformance_authority =
             Some(child.arc(derived_conformance_authority).map_err(ArtifactError::Allocation)?);
         self.staged_enum_requirement_authority =
@@ -673,6 +696,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_witness_preflight_authority
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged witness-plan preflight authority".into())))?;
+        let callable_conformance_evidence_authority = self
+            .staged_callable_conformance_evidence_authority
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged callable conformance-evidence authority".into())))?;
         let derived_conformance_authority = self
             .staged_derived_conformance_authority
             .take()
@@ -728,6 +755,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             conformance_authority,
             trait_authority,
             witness_preflight_authority,
+            callable_conformance_evidence_authority,
             derived_conformance_authority,
             enum_requirement_authority,
             query_products,
@@ -762,6 +790,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_conformance_authority = None;
             self.staged_trait_authority = None;
             self.staged_witness_preflight_authority = None;
+            self.staged_callable_conformance_evidence_authority = None;
             self.staged_derived_conformance_authority = None;
             self.staged_enum_requirement_authority = None;
             self.staged_query_products = None;
