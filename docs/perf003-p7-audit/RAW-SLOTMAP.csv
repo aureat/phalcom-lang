@@ -1,0 +1,5 @@
+package,mode,modules_count,compile_ms,parity_status
+packages/slotmap,artifact,4,322.688,PASS
+packages/slotmap,source,4,302.847,PASS
+packages/slotmap/tests/runtime,artifact,8,391.878,PASS
+packages/slotmap/tests/runtime,source,8,374.574,PASS

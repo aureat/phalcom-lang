@@ -1,0 +1,117 @@
+   Compiling phalcom-compiler-artifact v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-compiler-artifact)
+    Finished `test` profile [unoptimized] target(s) in 0.29s
+     Running unittests src/lib.rs (target/debug/deps/phalcom_compiler_artifact-52e9e3a73bc1e6af)
+
+running 2 tests
+test identity::tests::native_catalog_fingerprint_participates_in_compatibility ... ok
+test semantic::world::proof::tests::callable_proof_local_term_codec_preserves_nested_shapes_and_keys ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/container_allocation_test.rs (target/debug/deps/container_allocation_test-7105a394d23a211c)
+
+running 1 test
+test container_parse_ledger_matches_allocator_requests ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/container_test.rs (target/debug/deps/container_test-8f0115d3abc095e0)
+
+running 15 tests
+test duplicate_required_section_is_rejected ... ok
+test container_directory_uses_the_shared_allocation_transaction ... ok
+test offset_overflow_is_rejected ... ok
+test minimal_container_round_trips ... ok
+test header_is_fixed_endian ... ok
+test container_schema_v1_is_rejected_without_reinterpreting_its_header ... ok
+test overlapping_sections_are_rejected ... ok
+test each_required_compiler_section_cannot_be_omitted ... ok
+test section_digest_mismatch_is_rejected ... ok
+test section_size_limit_is_enforced ... ok
+test semantic_world_schema_v2_is_rejected_after_schema3_upgrade ... ok
+test unknown_required_section_is_rejected ... ok
+test unknown_optional_section_is_skipped ... ok
+test whole_artifact_digest_mismatch_is_rejected ... ok
+test whole_artifact_digest_is_deterministic ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/metadata_test.rs (target/debug/deps/metadata_test-16b953e0a5fd753f)
+
+running 15 tests
+test metadata_decode_enforces_its_byte_limit_before_payload_copy ... ok
+test many_containers_overhead_is_charged_and_rejected_when_insufficient ... ok
+test metadata_rejects_trailing_bytes_invalid_json_and_wrong_package ... ok
+test metadata_does_not_reset_shared_budget_and_rejects_nonportable_profile ... ok
+test generic_parameters_and_static_domains_scratch_is_charged ... ok
+test insufficient_budget_rejection_leaves_caller_budget_unchanged ... ok
+test preflight_accepts_current_inner_schema ... ok
+test preflight_rejects_forged_counters_without_charging_budget ... ok
+test malformed_cross_pool_reference_is_rejected_and_load_is_retryable ... ok
+test metadata_wire_decode_rejects_invalid_envelope_before_materialization ... ok
+test streaming_preflight_enforces_actual_tokens_containers_and_depth ... ok
+test representative_universe_metadata_decodes_cleanly_under_default_limits ... ok
+test metadata_bundle_round_trip_uses_owner_codec_and_preserves_pools ... ok
+test metadata_envelope_cannot_spoof_bundle_header ... ok
+test long_owner_string_with_fixed_tokens_is_rejected_before_allocation ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/query_allocation_test.rs (target/debug/deps/query_allocation_test-7e54a2548d230625)
+
+running 1 test
+test query_decode_enforces_measured_transaction_and_section_allocation_bounds ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/semantic_world_callable_analysis_test.rs (target/debug/deps/semantic_world_callable_analysis_test-fc33fba5d9d751b7)
+
+running 21 tests
+test associated_denotation_rejects_member_without_primary_owner_authority ... ok
+test associated_denotation_rejects_member_from_wrong_declaration_owner ... ok
+test call_specialization_rejects_unowned_ordinals_duplicate_bindings_and_wrong_dynamic_kind ... ok
+test callable_analysis_owner_local_families_obey_individual_and_cumulative_limits ... ok
+test callable_analysis_owner_and_constructor_range_are_validated ... ok
+test callable_conformance_references_are_kind_checked_and_graph_cycles_fail_closed ... ok
+test callable_explanation_suppressed_evidence_requires_a_cause_owner ... ok
+test callable_expression_binding_links_must_close_over_the_owner ... ok
+test callable_local_ordinals_are_scoped_per_owner_and_duplicates_fail ... ok
+test callable_proof_case_terms_obey_scope_visibility_and_distinguish_independent_openings ... ok
+test callable_explanation_edges_require_closed_acyclic_owners ... ok
+test behavioral_family_capture_requires_conditional_member_authority ... ok
+test callable_resolution_known_invalid_expansions_validate_local_closure ... ok
+test callable_resolution_family_applications_validate_local_closure_and_nested_limits ... ok
+test callable_proof_graph_validates_owner_closure_acyclicity_and_limits ... ok
+test callable_resolution_positional_expansions_require_owner_local_evidence ... ok
+test explicit_dynamic_call_argument_round_trips_without_a_type_node ... ok
+test callable_flow_graph_round_trips_owner_local_nodes_edges_and_entry_exit ... ok
+test associated_family_capture_round_trips_subset_and_optional_targets ... ok
+test callable_explanation_references_close_over_their_owner ... ok
+test callable_analysis_status_is_preserved_by_semantic_world_codec ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/semantic_world_enum_requirements_test.rs (target/debug/deps/semantic_world_enum_requirements_test-3781f46150093c91)
+
+running 6 tests
+test callable_definition_rejects_duplicate_owner_rows ... ok
+test enum_requirement_rows_reject_invalid_ranges_owners_and_requirement_indices ... ok
+test callable_definition_owner_validates_and_encodes_with_its_complete_signature ... ok
+test trait_surface_preserves_complete_member_and_source_ordinal ... ok
+test semantic_world_schema_one_is_rejected ... ok
+test enum_requirement_rows_round_trip_all_statuses_and_source_order ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/static_value_test.rs (target/debug/deps/static_value_test-1d2809a601fcc205)
+
+running 1 test
+test static_graph_rejects_duplicate_relocated_pack_labels ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests phalcom_compiler_artifact
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

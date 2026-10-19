@@ -8,7 +8,24 @@ verification: FOCUSED_TESTED
 
 # PERF003.C2.P7.PATCH5-R Walkthrough
 
-## Summary of work
+## Independent certification reconciliation — 2026-10-19
+
+**Ruling: R.G6 PASS; R.G7 PASS. P7 is accepted / recertified, and P8 takeover is unblocked.** P8 implementation has not started.
+
+| Gate | Revision tested | Exact command/test | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| R.G6 — evidence integrity | `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2` | Release `perf_audit_p7` build; artifact generation; cold, warm, and runtime suites | `docs/perf003-p7-audit/REPORT.md`, raw CSVs, `logs/*suite.txt` | PASS | 80 cold successes; 40 warm successes across two PIDs; 20 runtime errors preserved and not counted as success. |
+| R.G6 — allocation and parity | `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2` | `allocation-check`, `slotmap-eval`, `source-denial-check` | `logs/allocation-check.txt`, `logs/slotmap-eval.txt`, `logs/source-denial-check.txt`, `RAW-SLOTMAP.csv` | PASS | N=373,069,634; N−1 typed failure; exact retry and source/artifact parity pass. |
+| R.G7 — focused corruption and regression matrix | `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`; test additions at `c1524361b9606dc537671997fe5069f2aa66035b` | Focused test commands listed in `R.G6-R.G7-CERTIFICATION.md` | Same matrix and `logs/` bundle | PASS | Required sections, digest checks, provenance, budgets, query closure, owner closure, publication retry, and source/artifact parity have discriminators. |
+| R.G7 — broad workspace commands | `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2` | `cargo test --workspace --no-run`; `cargo test --workspace` | `logs/workspace-no-run.txt`, `logs/workspace-test.txt` | BASELINE BLOCKED | Both stop at 412 stale semantic fixture/API errors also present at predecessor `08e2b2f5`; focused P7 gates pass. |
+
+The tested artifact is 15,936,496 bytes with BLAKE3-256 digest `b91ccc4e6011c2789c6e20861e6d6d98908074bb45461d54b5bd8885ca9665bf`. Detailed distributions and exact commands are in `docs/perf003-p7-audit/REPORT.md` and `COMMANDS.md`. Warm rows record alternating workload input variants within each isolated process. Peak RSS is a process high-water mark; leak behavior remains unverified. Runtime rows are all `RUNTIME_ERROR`, and their error detail is unavailable.
+
+P7 implementation remains `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`; independent certification is `ACCEPTED / RECERTIFIED`. See the [P8 takeover handoff](../P8/PERF003.C2.P8-p7-certification-takeover-handoff.md).
+
+---
+
+## Historical implementation summary (superseded for R.G6/R.G7)
 
 PATCH5-R closes the final hardening, diagnostic parity, operational validation, performance characterization, and acceptance matrix for `PERF003.C2.P7` on branch `perf/universe-characterization`.
 
@@ -90,7 +107,9 @@ All planned tasks (Tasks A–G) and gates (R.G1–R.G7) have been completed, ver
 | `cargo test -p phalcom-modules --test linker` | 14 passed; 0 failed | Module link and dependency ordering verified |
 | `cargo test -p phalcom-ast --test integration match_syntax` | 9 passed; 0 failed | Match syntax and AST block wrapping verified |
 
-## Deferred / baseline failures
+## Historical deferred / baseline failures
+
+> The ProductKind issue below was present at the historical revision described by this walkthrough. The later SlotMap runtime follow-up corrected that failure; it is not the current runtime-suite diagnosis. See the independent certification section above.
 
 - **ProductKind VM runtime bootstrap failure (Class D):**
   - Observed: `failed to compile Universe module universe:reflection.structural: runtime intrinsic declaration 'ProductKind' has no canonical facade binding.`

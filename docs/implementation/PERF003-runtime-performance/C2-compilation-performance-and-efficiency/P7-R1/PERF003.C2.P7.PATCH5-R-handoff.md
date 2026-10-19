@@ -13,22 +13,24 @@ verification: FOCUSED_TESTED
 - Branch: `perf/universe-characterization` (tracked against `origin/perf/universe-characterization`).
 - Checkpoint: `PERF003.C2` (Compilation Performance and Efficiency).
 - Recorded P7 status: `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`; the October 19 closure records R.G0 through R.G7 as PASS.
-- Independent certification reconciliation: pending for R.G6/R.G7 raw benchmark provenance, warm-process isolation, final tested-revision attribution, and complete R.T7 evidence.
-- Next plan: `PERF003.C2.P8` (Portable Executable Universe), blocked from takeover until certification reconciliation or explicit acceptance of the recorded evidence.
+- Independent certification reconciliation: **complete**; R.G6 PASS and R.G7 PASS.
+- Measured implementation revision: `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`.
+- R.G7 test revision: `c1524361b9606dc537671997fe5069f2aa66035b`.
+- Next plan: `PERF003.C2.P8` (Portable Executable Universe), takeover **unblocked**. P8 implementation has not started.
 
 ## Takeover map and stable interfaces
 
 1. **Artifact serialization & deserialization (`phalcom_core::modules::canonical_artifact`):**
-   - `build_universe_telosc(&CanonicalCompilerImageView, &ValidationLimits) -> Result<CanonicalUniverseArtifact, TeloscArtifactError>`: Produces deterministic container v2 bytes.
-   - `load_universe_telosc(&Path, &ValidationLimits) -> Result<LoadedUniverseArtifact, TeloscArtifactError>`: Loads persisted artifact with atomic budget enforcement.
-   - `load_universe_telosc_from_bytes(&[u8], &ValidationLimits) -> Result<LoadedUniverseArtifact, TeloscArtifactError>`: Zero unbudgeted allocations during in-memory load.
-   - `LoadedUniverseArtifact::compile_user_entry(...)`: Entry point for source-free user package compilation against artifact-loaded Universe.
+   - `build_universe_telosc(&CanonicalCompilerImageView<'_>, &ValidationLimits) -> Result<BuiltUniverseTelosc, TeloscArtifactError>`: Produces deterministic container v2 bytes and a build summary.
+   - `load_universe_telosc(&Path, &ValidationLimits) -> Result<Arc<LoadedUniverseArtifact>, TeloscArtifactError>`: Loads a persisted artifact with atomic budget enforcement.
+   - `load_universe_telosc_from_bytes(&[u8], &ValidationLimits) -> Result<Arc<LoadedUniverseArtifact>, TeloscArtifactError>`: Loads an in-memory artifact with allocation-budget enforcement.
+   - `LoadedUniverseArtifact::compile_user_entry(EntrySelection) -> Result<CompiledProgram, ProgramCompileError>`: Compiles user code against the artifact-loaded Universe.
 
 2. **Normalized product comparator (`phalcom_core::modules::parity`):**
    - `compare_compiled_programs(&CompiledProgram, &CompiledProgram) -> Result<(), ParityMismatch>`: Normalized topological, symbol, lowering, and diagnostic comparator independent of memory addresses or session-local IDs.
 
 3. **Source-free prelude initialization (`phalcom_semantic::prelude`):**
-   - `PreludeTypeMap::initialize_from_snapshot(&SemanticSnapshot) -> Result<(), &'static str>`: Populates the global prelude map from snapshot declarations, type aliases, and traits using thread-safe `OnceLock::get_or_init`.
+   - `PreludeTypeMap::initialize_from_snapshot(&SemanticSnapshot)`: Initializes the process-stable prelude map from declarations, type aliases, trait headers, and proof-predicate declarations using `OnceLock::get_or_init`; incompatible snapshots panic.
    - Prelude initialization is called at compiler execution boundaries (`compile_user_entry_with_options_and_image` and `from_image`), ensuring loading the artifact performs zero allocations outside the tracked allocation budget.
 
 4. **Source denial verification:**
@@ -37,9 +39,9 @@ verification: FOCUSED_TESTED
 ## Inherited invariants
 
 1. **Zero unbudgeted allocations during load:**
-   - The exact certified allocation budget for full Universe load is `366,789,583` bytes.
+   - The exact certified allocation budget for full Universe load is `373,069,634` bytes.
    - The ledger delta is strictly 0.
-   - Fail-closed behavior at $N - 1$ (`366,789,582` bytes) must always return typed `TeloscArtifactError::BudgetExceeded` without partial leakage.
+   - Fail-closed behavior at $N - 1$ (`373,069,633` bytes) must always return typed `TeloscArtifactError::BudgetExceeded` without partial leakage.
 2. **Deterministic artifact publication:**
    - Sequential calls to `build_universe_telosc` must produce bitwise identical byte representations.
 3. **Canonical query authority:**
@@ -54,9 +56,13 @@ verification: FOCUSED_TESTED
 - **Resolved: SlotMap runtime fixture execution follow-up:**
   Owner-class `makeIterator` helpers keep `_slots`, `_keys`, and `_values` access inside their declaring classes. Semantic session publication and source-body replay include class indexers through the canonical member callable identity. The dedicated `session-indexer-match` target passes 1/1 and checks cold proven-match publication plus replay after editing the indexer body. The exact SlotMap runtime command passes both modules and prints `slotmap runtime tests complete`. The monolithic semantic target fails with 412 stale fixture/API errors at clean predecessor `08e2b2f5` and in the current worktree based on `b003600b`; this confirms inherited target drift. No unrelated fixture migration was made, and P7 allocation-gate evidence is unchanged.
 
-## Certification reconciliation
+## Independent certification reconciliation — accepted
 
-The October 19 checkpoint closure is the recorded P7 status. Its October 18 R.T2 and earlier progress entries are historical. Independent review still needs to reconcile R.G6/R.G7 raw benchmark provenance, warm-process isolation, final tested-revision attribution, and complete R.T7 evidence before P8 takeover. The SlotMap runtime follow-up and dedicated semantic test do not resolve those audit items.
+R.G6 and R.G7 are independently recertified PASS. The measured implementation is `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`; additional R.G7 rejection tests are at `c1524361b9606dc537671997fe5069f2aa66035b`. The committed audit report and per-case matrix are `docs/perf003-p7-audit/REPORT.md` and `docs/perf003-p7-audit/R.G6-R.G7-CERTIFICATION.md`.
+
+The artifact digest is BLAKE3-256 `b91ccc4e6011c2789c6e20861e6d6d98908074bb45461d54b5bd8885ca9665bf`, size 15,936,496 bytes, and exact whole-load allocation N is 373,069,634 bytes. Warm source and artifact runs use separate processes. The 412 workspace fixture errors are inherited baseline drift; the 20 runtime-suite attempts remain `RUNTIME_ERROR` with empty detail fields. These limits are stated in the audit report.
+
+P8 takeover is unblocked. See `../P8/PERF003.C2.P8-p7-certification-takeover-handoff.md`. Earlier R.T1/R.T2 entries remain historical execution state.
 
 ## Recommended verification commands for takeover
 

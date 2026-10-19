@@ -1,242 +1,113 @@
-# PERF003.C2.P7 Post-Implementation Verification & Performance Audit Report
+# PERF003.C2.P7 independent certification report
 
-- **Repository**: `aureat/phalcom-lang`
-- **Branch**: `perf/universe-characterization`
-- **Commit SHA**: `e45030869cfcd5fb00c1e7d221cdaebce8984b27`
-- **Local Worktree**: `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization`
-- **Date**: October 17, 2026
-- **Auditor**: Automated Verification & Benchmarking Agent
-- **Status**: Complete Empirical Evaluation
+## Decision
 
----
+**R.G6: PASS. R.G7: PASS. P7 is accepted and P8 takeover is unblocked.**
 
-## Executive Summary
+P7 implementation remains `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. This reconciliation accepts its independent certification on the evidence below. The broader workspace commands still stop at 412 inherited semantic-fixture API errors; those failures are recorded and do not invalidate the focused P7 gates.
 
-This report delivers the comprehensive, empirical functional and performance characterization of the persisted canonical Universe compiler artifact (`universe.telosc`) delivered under `PERF003.C2.P7`.
-Every statement, table, and conclusion in this document is derived from completed benchmark executions, raw timing data, kernel resource measurements, and code audits preserved in `docs/perf003-p7-audit/`.
+## Provenance
 
-### Key Conclusions:
-1. **Source-Free Compiler Operational**: P7 genuinely and successfully satisfies the source-free static compiler lifecycle. `universe.telosc` is deterministically generated, atomically persisted, loaded across fresh processes with zero access to Universe source files, and successfully compiles novel user programs and packages.
-2. **Empirical Speedup (22× to 24×)**: In fresh-process cold compilations across four distinct workloads (80 process executions), the persisted artifact reduces compiler startup and user compilation time from **~9,500–10,140 ms down to ~425–440 ms**. This represents an empirical speedup of **22× to 24×**, saving ~9.1 to ~9.7 seconds of wall-clock latency per compiler execution.
-3. **Disproof of Historical Claims**:
-   - The historical claim of a **~300× speedup is CONTRADICTED**. That figure conflated unoptimized debug source compilation (~40s) with warm in-memory compilation (~10ms) or partial load slices. In optimized release builds, the true cold end-to-end process speedup is 22× to 24×.
-   - The historical claim of **80–140 ms artifact load time is CONTRADICTED for cold disk loading**. Fresh-process loading takes **~370–450 ms** (median 378.6 ms), because deserializing 15.05 MiB of rich semantic data and strictly validating referential integrity and allocation accounting takes ~328 ms.
-4. **Memory Reduction (51% Peak RSS Cut)**: The artifact eliminates transient AST parsing, macro expansion, and name resolution across 40+ Universe modules, reducing peak resident memory from **~781 MiB down to ~385 MiB** (~51% savings). Allocation accounting is proven byte-exact at `322,547,484` bytes.
-5. **Execution Boundary vs P8**: While the **compiler** is source-free, **VM runtime execution is not yet source-free** and remains blocked by a pre-existing Class D baseline defect (`ProductKind` intrinsic lacks facade binding during `VM::new()`). Portable executable bytecode serialization is explicitly deferred to P8 (`capabilities.portable_executable == false`).
-6. **CLI Integration Gap**: The `phalcom` CLI driver does not discover or consume `universe.telosc`. Artifact-backed compilation currently exists strictly as a Rust library API.
+| Item | Value |
+|---|---|
+| Branch | `perf/universe-characterization` |
+| Measured implementation revision | `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2` |
+| R.G7 regression-test revision | `c1524361b9606dc537671997fe5069f2aa66035b` |
+| Evidence publication revision | Published in the evidence commit; the P7 checkpoint records its exact SHA after publication |
+| Toolchain | `rustc 1.99.0-nightly (af3d95584 2026-07-09)`, `cargo 1.99.0-nightly (59800466c 2026-07-07)` |
+| Platform | Darwin 25.5.0 arm64, Apple M1 Pro |
+| Profile | Release: opt-level 3, LTO enabled, one codegen unit, panic abort |
 
----
+The benchmark harness correction was committed as `317992000e358bc54ef0ba2446df3ffdc0be0abd`. The final measured implementation revision is `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`. The certification test additions are test-only and are committed at `c1524361b9606dc537671997fe5069f2aa66035b`.
 
-## Detailed Evaluation by Section
+## Artifact identity
 
-### A. Artifact Generation
+The release audit binary generated `target/telos/universe/universe.telosc` at the measured implementation revision.
 
-- **Can the current Universe be compiled into a persistent `universe.telosc`?**
-  **Yes**. `build_universe_telosc()` and `write_universe_telosc()` execute cleanly to completion, producing a fully formed container at `target/telos/universe/universe.telosc`.
-- **What is the exact artifact size?**
-  **`15,775,219` bytes** (~15.05 MiB).
-  - `MODULE_WORLD`: `156,313` bytes (0.99%)
-  - `SEMANTIC_WORLD`: `12,788,887` bytes (81.07%)
-  - `QUERY_IMAGE`: `1,339,575` bytes (8.49%)
-  - `METADATA`: `1,489,890` bytes (9.44%)
-  - Envelope & Table of Contents: `554` bytes (0.01%)
-- **How long does generation take in debug and release?**
-  - **Release (`--release`)**: Total generation: `10,349.60 ms`. Serialization: `617.70 ms`. Internal referential validation: `373.36 ms`. Atomic publication: `491.96 ms`.
-  - **Debug**: ~42,500 ms total.
-- **Is the artifact deterministic?**
-  **Yes**. Two completely independent runs of `build_universe_telosc()` produced identical byte streams with SHA-256 digest:
-  `2b74163734505beadc42441078a8e6afd80a6e33bc769b9cfeaba656c243dc93`.
-- **Does it survive a new process?**
-  **Yes**. Over 100 fresh, isolated OS processes loaded the persisted artifact from disk without errors.
+| Property | Value |
+|---|---:|
+| Container bytes | 15,936,496 |
+| BLAKE3-256 | `b91ccc4e6011c2789c6e20861e6d6d98908074bb45461d54b5bd8885ca9665bf` |
+| MODULE_WORLD | 156,313 bytes |
+| SEMANTIC_WORLD | 12,945,704 bytes |
+| QUERY_IMAGE | 1,338,303 bytes |
+| METADATA | 1,495,622 bytes |
+| Header, directory, and container overhead | 554 bytes |
+| Exact whole-load allocation budget N | 373,069,634 bytes |
+| Source-free complete snapshot | true |
+| Same-image serialization determinism | true |
 
----
+The determinism result applies to repeated serialization of the same image. This report makes no cross-process full-build determinism claim. Section digests and source, interface, semantic, query, and metadata digests are in [ARTIFACT.json](ARTIFACT.json).
 
-### B. Artifact Loading
+## R.G6 — measurement evidence integrity
 
-- **How long does loading take?**
-  Across 40 fresh processes in release mode:
-  - **Minimum**: `370.42 ms`
-  - **Mean**: `380.59 ms`
-  - **Median**: `378.64 ms`
-  - **95th Percentile**: `402.15 ms`
-  - **Maximum**: `458.12 ms`
-- **How much time is spent in decoding, validation, relocation, and publication?**
-  - **File Read (NVMe SSD)**: `3.40 ms` (0.9%)
-  - **Container Envelope & Header Validation**: `19.67 ms` (5.2%)
-  - **Section Deserialization & Referential Validation**: `328.00 ms` (86.6%)
-  - **Relocation & Query Products Reconstruction**: `26.52 ms` (7.0%)
-  - **Publication**: `0.00 ms` (in-memory promotion)
-  *Finding*: Section deserialization (decoding 12.78 MiB of AST symbol maps, callable summaries, and type metadata into Rust heap graphs) represents the primary loading bottleneck.
-- **What is the memory footprint?**
-  - Exact Transactional Allocation Budget ($N$): `322,547,484` bytes (~307.61 MiB).
-  - Allocation accounting is exact to the byte: tested at $N - 1$ (`322,547,483` bytes), deserialization fails immediately with `TeloscArtifactError::BudgetExceeded`.
-  - Peak process RSS during cold load + user compilation: ~385–404 MiB (a 51% reduction compared to ~781–820 MiB for source compilation).
-- **Is loading genuinely independent of Universe source analysis?**
-  **Yes**. During artifact loading, zero Universe `.ph` files are touched. The loaded compiler snapshot is marked `Complete` with fully populated module world, semantic world, and query image facts.
+**PASS.** Cold and warm rows are machine-readable, sample counts reconcile with process identities, and all reported timing statistics below were recomputed from the committed CSVs. Percentiles use nearest rank, `ceil(0.95 × n)`; standard deviation is population standard deviation.
 
----
+### Cold compilation
 
-### C. Compilation
+Each workload and mode has 10 fresh child processes. All 80 rows are `SUCCESS`, with 80 distinct process IDs. Total is end-to-end process duration. RSS is the process high-water mark reported in KB.
 
-- **Can a new program compile against the loaded artifact?**
-  **Yes**. Novel user programs compile cleanly into valid `CompiledProgram` AST/bytecode structures without any access to Universe source files.
-- **Can a real package such as `slotmap` compile?**
-  Evaluated both `packages/slotmap` and `packages/slotmap/tests/runtime`. Both source-backed and artifact-backed compilers reject the package with identical errors:
-  1. `packages/slotmap/src/main.ph:27:12`: `error: Expected ")"` (parenthesized for-loop syntax).
-  2. `packages/slotmap/tests/runtime/src/basic_test.ph`: `Non-canonical physical module/package name` (snake_case filename).
-  *Finding*: Complete diagnostic and semantic parity is verified. The failure is a pre-existing baseline defect in the package source.
-- **Does its behavior match source-backed compilation?**
-  **Yes**. Verified across all tested workloads: identical diagnostics, identical module resolution, and identical compilation outputs.
-- **What are the actual cold and warm compilation speedups?**
-  - **Cold Compilation Speedup**:
-    - `print42`: **22.2× speedup** (9,505.64 ms -> 427.47 ms)
-    - `option_string`: **21.7× speedup** (9,508.22 ms -> 438.73 ms)
-    - `synthetic_pkg`: **23.1× speedup** (10,143.50 ms -> 438.53 ms)
-    - `slotmap`: **22.9× speedup** (9,178.15 ms -> 401.10 ms)
-    - **Overall Range**: **22× to 24× faster**.
-  - **Warm In-Memory Compilation Performance**:
-    - Source-resident: `6.31 ms` median (min 5.92 ms, max 7.40 ms)
-    - Artifact-resident: `8.70 ms` median (min 7.77 ms, max 10.20 ms)
-    - In-memory incremental compilation is comparably instantaneous (~6–9 ms), while the artifact saves ~396 MiB of memory resident overhead.
+| Workload | Mode | n / success | Total min / mean / median / p95 / max / SD (ms) | Init median (ms) | Compile median (ms) | Peak RSS median / max (KB) |
+|---|---|---:|---|---:|---:|---:|
+| `print42` | source | 10 / 10 | 9249.350 / 9524.459 / 9535.315 / 10169.390 / 10169.390 / 268.387 | 9528.081 | 6.928 | 809208 / 816960 |
+| `print42` | artifact | 10 / 10 | 310.304 / 316.511 / 314.915 / 331.475 / 331.475 / 6.065 | 287.226 | 6.134 | 324736 / 326320 |
+| `option_string` | source | 10 / 10 | 9157.014 / 9409.440 / 9273.362 / 10076.836 / 10076.836 / 303.983 | 9266.172 | 6.864 | 809240 / 813088 |
+| `option_string` | artifact | 10 / 10 | 307.176 / 310.165 / 309.579 / 313.476 / 313.476 / 2.231 | 282.064 | 6.290 | 325880 / 327568 |
+| `synthetic_pkg` | source | 10 / 10 | 9114.823 / 9183.458 / 9162.568 / 9381.982 / 9381.982 / 77.665 | 9154.067 | 7.422 | 809368 / 811440 |
+| `synthetic_pkg` | artifact | 10 / 10 | 308.204 / 312.154 / 310.480 / 323.807 / 323.807 / 4.355 | 282.537 | 6.678 | 326032 / 327424 |
+| `slotmap` | source | 10 / 10 | 9399.423 / 9444.685 / 9447.540 / 9492.364 / 9492.364 / 28.846 | 9150.249 | 297.468 | 822416 / 824768 |
+| `slotmap` | artifact | 10 / 10 | 613.116 / 623.296 / 624.601 / 634.836 / 634.836 / 5.590 | 286.001 | 313.245 | 349912 / 356496 |
 
----
+Using total-duration medians, artifact-backed cold compilation is 30.28× faster for `print42`, 29.95× for `option_string`, 29.51× for `synthetic_pkg`, and 15.13× for `slotmap`. These are cold end-to-end process comparisons; they do not describe warm compiler execution or VM runtime.
 
-### D. Execution
+### Warm compilation
 
-- **Can the artifact-compiled program execute?**
-  **No, blocked by VM runtime bootstrap**.
-- **Does VM initialization still compile or initialize source-backed Universe modules?**
-  **Yes**. While the compiler is source-free, `VM::new()` calls `run_universe_modules(canonical)`, which recompiles Universe modules from source files directly onto the VM heap.
-- **What is the total end-to-end execution time?**
-  Execution aborts at ~120 ms during `VM::new()`.
-- **Are there runtime failures or metadata mismatches?**
-  **Yes**. Fails with pre-existing Class D baseline defect:
-  ```text
-  canonical Universe runtime bootstrap failed: internal error (this is a Phalcom bug, please report):
-  failed to compile Universe module universe:reflection.structural:
-  runtime intrinsic declaration 'ProductKind' has no canonical facade binding.
-  ```
-  This defect is identical between source-backed and artifact-backed execution paths.
+Source and artifact modes ran in separate child processes, PIDs `14176` and `14200`. Each process performed one untimed warmup followed by 20 timed compilations of the same workload shape. The timed inputs alternated two string-literal variants: 10 `modified_input` and 9 `unchanged_input` rows after the first compilation in each mode. All 40 rows succeeded. RSS is reported as each isolated process's peak RSS.
 
----
+| Mode | Rows / success | Min / mean / median / p95 / max / SD (ms) | Peak RSS (bytes) |
+|---|---:|---|---:|
+| source | 20 / 20 | 4.990 / 5.315 / 5.151 / 5.808 / 6.025 / 0.320 | 828,112,896 |
+| artifact | 20 / 20 | 4.905 / 5.162 / 5.081 / 5.552 / 5.589 / 0.223 | 334,823,424 |
 
-### E. Testing
+The reported RSS is a process high-water mark. It does not establish retained memory or leak behavior.
 
-- **Which test suites pass?**
-  All targeted artifact test suites pass 100%:
-  - `phalcom-compiler-artifact`: 59 run, 59 passed, 0 failed (0.20s)
-  - `phalcom-semantic --lib artifact::`: 43 run, 43 passed, 0 failed (2.02s)
-  - `phalcom-core --test core modules_canonical_artifact::`: 11 run, 11 passed, 0 failed (61.65s)
-  - Total: **113 tests passed, 0 failed**.
-- **Which fail?**
-  None of the artifact unit or integration tests fail.
-- **What is the actual testing-performance improvement?**
-  In tests that load `universe.telosc` rather than compiling from source, setup duration drops from ~9.5s to ~0.38s per test case (~25× speedup).
-- **Does the artifact eliminate repeated Universe compilation across test processes?**
-  Within tests designed to consume `LoadedUniverseArtifact`, yes. However, workspace test processes invoking `VM::new()` still compile Universe modules from source.
+### Runtime attempts
 
----
+There are 10 fresh processes per mode and 20 distinct PIDs. All rows are recorded as `RUNTIME_ERROR`; none is counted as a successful runtime execution. The error-detail field is empty in the current harness, so the root runtime error is not identified by this bundle. These failed attempts are not used for a runtime speedup claim.
 
-### F. Lifecycle
+| Mode | Rows / runtime errors | Total min / mean / median / p95 / max / SD (ms) | Peak RSS max (KB) |
+|---|---:|---|---:|
+| source | 10 / 10 | 9242.122 / 9316.319 / 9310.778 / 9417.226 / 9417.226 / 51.473 | 828400 |
+| artifact | 10 / 10 | 9539.059 / 9617.238 / 9640.322 / 9685.476 / 9685.476 / 52.388 | 1,037,088 |
 
-- **Where is the artifact stored?**
-  Default path: `target/telos/universe/universe.telosc`.
-- **How is it regenerated?**
-  Programmatically via `write_universe_telosc()`. It compiles canonical sources, serializes sections, validates digests and referential integrity against `AllocationBudget`, and atomically renames a temporary file into place.
-- **What happens when Universe source changes?**
-  The artifact stores `source_digest: 6fa26118...`. However, `load_universe_telosc` is source-free and does not poll or inspect source directories on disk.
-- **Is stale artifact consumption possible?**
-  **Yes**. Without an external build orchestrator or CLI cache manager checking source hashes, a modified source tree will not automatically trigger regeneration.
-- **Is normal CLI integration available?**
-  **No**. The `phalcom` CLI binary lacks `--universe-artifact` or automatic cache lookup; it unconditionally recompiles Universe sources.
+`VM bootstrap` and the runtime attempt are separate columns in the CSV. The observed status is `RUNTIME_ERROR`; this report does not infer an underlying cause from the empty detail field.
 
----
+### Package parity and allocation boundary
 
-### G. Architecture
+The source-backed and artifact-backed `packages/slotmap` comparison completed with 4 modules each; the runtime package comparison completed with 8 modules each. Both structural comparisons passed. The whole-load allocation discriminator measured N as 373,069,634 bytes: N succeeded, N−1 returned the typed budget error, and retry at N succeeded. The source-denial check observed zero retained sources, a complete snapshot, and successful user-package compilation. Logs and the supplementary SlotMap CSV are under this directory.
 
-- **Are strict semantic and allocation invariants preserved?**
-  **Yes**. Allocation bounds are strictly enforced. The exact allocation requirement is `322,547,484` bytes; at $N - 1$, loading immediately fails closed. No memory leaks were observed across repeated compilations.
-- **Are there unaccounted allocations?**
-  **No**. All allocations during decoding are charged against the transaction budget.
-- **Are there missing compiler or runtime consumers?**
-  **Yes**.
-  1. The CLI compiler driver lacks an artifact loading path.
-  2. The VM runtime engine lacks a portable bytecode loader (deferred to P8).
-- **Are any performance optimizations causing functional regressions?**
-  **No**. 100% semantic and diagnostic parity is preserved across all evaluated inputs.
+### R.G6 checklist
 
----
+- CSV structure, sample/process counts, workload labels, and outcomes reconcile.
+- No cold compile failure is counted as success; the 20 runtime errors remain failures.
+- The artifact digest is labeled BLAKE3-256.
+- Statistics are recomputed from raw rows using the stated conventions.
+- Warm source and artifact scenarios are isolated by process.
+- Evidence names the measured implementation revision and environment.
+- Leak and retained-memory claims remain unverified.
 
-## Empirical Benchmark Results
+## R.G7 — regression and corruption matrix
 
-### 1. Cold Compilation Benchmark (80 Fresh Process Executions)
+**PASS.** The [R.G6/R.G7 certification matrix](R.G6-R.G7-CERTIFICATION.md) lists the required cases, exact tests, tested revisions, results, and saved logs. Newly added discriminators cover omitted required sections, whole-container digest mismatch, malformed or duplicate module/import identities, duplicate relocated type identity, and duplicate static pack labels.
 
-| Workload | Mode | Samples | Min (ms) | Mean (ms) | Median (ms) | P95 (ms) | Max (ms) | StdDev (ms) | Peak RSS (MiB) | Speedup |
-|---|---|---|---|---|---|---|---|---|---|---|
-| **print42** | Source | 10 | 9,407.42 | 9,613.04 | 9,505.64 | 10,026.18 | 10,026.18 | 221.19 | 780.7 MiB | Baseline |
-| **print42** | Artifact | 10 | 418.92 | 430.17 | **427.47** | 459.75 | 459.75 | 11.10 | 384.5 MiB | **22.2×** |
-| **option_string** | Source | 10 | 9,150.07 | 9,570.06 | 9,508.22 | 10,080.58 | 10,080.58 | 305.55 | 780.8 MiB | Baseline |
-| **option_string** | Artifact | 10 | 425.34 | 446.31 | **438.73** | 510.49 | 510.49 | 25.51 | 385.5 MiB | **21.7×** |
-| **synthetic_pkg** | Source | 10 | 9,694.75 | 10,137.03 | 10,143.50 | 10,861.33 | 10,861.33 | 357.80 | 780.8 MiB | Baseline |
-| **synthetic_pkg** | Artifact | 10 | 425.29 | 440.99 | **438.53** | 469.33 | 469.33 | 12.70 | 385.8 MiB | **23.1×** |
-| **slotmap** | Source | 10 | 8,593.61 | 9,349.56 | 9,178.15 | 10,875.98 | 10,875.98 | 745.61 | 780.8 MiB | Baseline |
-| **slotmap** | Artifact | 10 | 398.58 | 402.36 | **401.10** | 409.65 | 409.65 | 3.65 | 367.1 MiB | **22.9×** |
+The mandatory focused suites passed. The two requested workspace commands fail before test execution because the monolithic semantic integration target has 412 stale API fixture errors (`BTreeMap` fixtures where current APIs require `AnalysisMap` and `ModuleAuthorityMap`). The same failure signature was recorded at clean predecessor `08e2b2f5`; it is inherited baseline drift, not a P7 regression. The failed broad logs are retained under `logs/`.
 
-### 2. Warm In-Memory Compilation Benchmark (40 Sequential Iterations)
+## Limitations and deferred failures
 
-| Scenario | Iterations | Min (ms) | Mean (ms) | Median (ms) | P95 (ms) | Max (ms) | StdDev (ms) | Retained RSS Growth |
-|---|---|---|---|---|---|---|---|---|
-| **Source-Resident** | 20 | 5.92 | 6.53 | 6.31 | 7.40 | 7.40 | 0.48 | 0.00 MiB (Flat) |
-| **Artifact-Resident** | 20 | 7.77 | 8.74 | 8.70 | 10.20 | 10.20 | 0.60 | 0.00 MiB (Flat) |
+- All 20 runtime-suite attempts are `RUNTIME_ERROR`; their output field is blank. Runtime execution performance and the precise error cause are not certified.
+- `ru_maxrss` is peak RSS, not retained memory. No leak test was run.
+- `cargo test --workspace --no-run` and `cargo test --workspace` remain blocked by the inherited 412 fixture compile errors. No unrelated fixture migration was performed.
 
----
+## Reproduction
 
-## Historical Claim Evaluation
-
-| Historical Claim | Stated Value | Empirical Measurement | Audit Assessment | Explanation |
-|---|---|---|---|---|
-| **Compilation Speedup** | ~300× speedup | **22× to 24× speedup** | **CONTRADICTED** | The 300× claim compared debug unoptimized source compilation (~40s) against in-memory warm compilation (~10ms). In release builds, cold process speedup is 22×–24×. |
-| **Artifact Load Duration** | 80–140 ms | **370–450 ms** (median 378.6 ms) | **CONTRADICTED** | Deserializing and validating 12.78 MiB of rich semantic data requires ~328 ms of CPU processing on Apple Silicon. Sub-140ms loads are not possible with current bincode/postcard deserialization. |
-| **Source-Free Completeness** | Fully complete snapshot | Fully verified source-free | **CONFIRMED** | `LoadedUniverseArtifact` compiles packages with zero Universe source code present. |
-| **Determinism** | Byte-for-byte deterministic | Identical SHA-256 (`2b7416...`) | **CONFIRMED** | Multiple independent builds produce identical artifacts. |
-| **Allocation Bounds** | Strict bounds enforced | Exact budget: 322,547,484 B | **CONFIRMED** | $N-1$ strictly fails; $N$ cleanly succeeds. Single-byte precision verified. |
-| **End-to-End Execution** | Implicitly claimed ready | BLOCKED by `VM::new()` | **CONTRADICTED** | VM execution still requires source-backed Universe compilation and hits Class D `ProductKind` blocker. |
-
----
-
-## Final Acceptance Matrix
-
-| Requirement | Status | Evidence |
-|---|---|---|
-| **Persistent `universe.telosc` generation** | **PASS** | Successfully generated at `target/telos/universe/universe.telosc` (`15,775,219` bytes). |
-| **Artifact determinism** | **PASS** | Byte-for-byte identical across independent builds (SHA-256 `2b741637345...`). |
-| **Cross-process loading** | **PASS** | Verified across 80+ isolated fresh OS processes in release mode without errors. |
-| **Source-free semantic reconstruction** | **PASS** | Snapshots promoted to `Complete` with zero reads from Universe sources or ASTs. |
-| **Source-free compiler initialization** | **PASS** | `LoadedUniverseArtifact::compile_user_entry` succeeds source-free. |
-| **Fresh-process package compilation** | **PASS** | Successfully compiles `print42`, `option_string`, and synthetic package workloads. |
-| **Realistic package compilation** | **PASS** | `packages/slotmap` evaluated; identical failure to source-backed compiler confirms full semantic/diagnostic parity. |
-| **Realistic package execution** | **BLOCKED** | Blocked by pre-existing Class D baseline defect: `ProductKind` intrinsic lacks facade binding during `VM::new()`. |
-| **Runtime behavioral parity** | **PASS** | Both source and artifact pipelines fail at the exact same VM bootstrap location with identical diagnostic. |
-| **Artifact freshness detection** | **FAIL** | Loader is source-free; does not detect changed Universe source files on disk without external build driver. |
-| **Manual artifact regeneration** | **PASS** | `write_universe_telosc` cleanly regenerates, self-validates, and atomically replaces artifact. |
-| **CLI artifact consumption** | **FAIL** | CLI driver (`phalcom`) lacks `--universe-artifact` flag or automatic discovery path. |
-| **Exact cumulative allocation accounting** | **PASS** | Single-byte boundary verified: fails at $N-1$ (`322,547,483` B), succeeds at $N$ (`322,547,484` B). |
-| **Cold compilation speedup** | **PASS** | Empirical **22× to 24× speedup** achieved (reducing wall-clock latency from ~9.5s to ~0.43s). |
-| **Warm compilation performance** | **PASS** | Warm in-memory user compilation executes in **8.70 ms** median. |
-| **End-to-End runtime performance** | **BLOCKED** | Blocked by VM bootstrap defect (`ProductKind`). |
-| **Workspace testing speedup** | **PASS** | Targeted artifact tests pass 100% (113/113); individual test cases speed up by ~25×. |
-| **Peak memory improvement** | **PASS** | Peak resident memory reduced from **~781 MiB down to ~385 MiB** (~51% reduction). |
-
----
-
-## Actionable Recommendations for P8 & CLI Integration
-
-1. **Unblock VM Runtime Bootstrap (High Priority)**:
-   - Provide the missing canonical facade binding for `ProductKind` in `phalcom-native-core`, or complete the P8 scope to serialize VM bytecode chunks into `.telosc`, eliminating source-backed compilation from `VM::new()`.
-2. **Implement CLI Discovery (High Priority)**:
-   - Add `--universe-artifact <path>` flag to `phalcom-core/bin/phalcom/main.rs`.
-   - Add default discovery logic checking `target/telos/universe/universe.telosc`.
-3. **Add Source Fingerprint Cache Invalidation (Medium Priority)**:
-   - In the CLI or build tool, hash `src/universe/**/*.ph` and compare against `artifact.metadata.source_digest` before loading `universe.telosc`, automatically triggering regeneration when sources drift.
-4. **Optimize Wire Decoding (Future Optimization)**:
-   - Profile zero-copy or chunked deserialization for `SEMANTIC_WORLD` (12.78 MiB) to reduce cold load times from ~378 ms toward the ~50–100 ms range.
+Exact benchmark and regression commands are recorded in [COMMANDS.md](COMMANDS.md). Raw source rows are [RAW-COLD.csv](RAW-COLD.csv), [RAW-WARM.csv](RAW-WARM.csv), and [RAW-RUNTIME.csv](RAW-RUNTIME.csv). Test results and log paths are in [RAW-TESTING.csv](RAW-TESTING.csv).

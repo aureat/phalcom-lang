@@ -1,0 +1,71 @@
+warning: function `import_type_member_selector` is never used
+    --> phalcom-semantic/src/artifact/import.rs:1267:15
+     |
+1267 | pub(crate) fn import_type_member_selector(selector: &TypeMemberSelectorV1) -> crate::types::type_member::TypeMemberSelector {
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `import_associated_selector` is never used
+    --> phalcom-semantic/src/artifact/import.rs:1274:4
+     |
+1274 | fn import_associated_selector(selector: &TypeMemberSelectorV1) -> phalcom_common::selector::SelectorBase {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `import_source_span` is never used
+    --> phalcom-semantic/src/artifact/import.rs:2428:4
+     |
+2428 | fn import_source_span(source: &phalcom_compiler_artifact::semantic::world::EnumRequirementSourceV1) -> Result<SemanticSourceSpan, ...
+     |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `import_callable_associated_type_requirement_identity` is never used
+    --> phalcom-semantic/src/artifact/import.rs:2575:4
+     |
+2575 | fn import_callable_associated_type_requirement_identity(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `import_associated_static_domain_declaration` is never used
+    --> phalcom-semantic/src/artifact/import.rs:3663:4
+     |
+3663 | fn import_associated_static_domain_declaration(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `import_static_case_domain` is never used
+    --> phalcom-semantic/src/artifact/import.rs:3697:15
+     |
+3697 | pub(crate) fn import_static_case_domain(
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `import_associated_member` is never used
+    --> phalcom-semantic/src/artifact/import.rs:3913:4
+     |
+3913 | fn import_associated_member(member: &AssociatedMemberV1) -> Result<crate::associated::AssociatedMemberId, ArtifactError> {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `phalcom-semantic` (lib) generated 7 warnings
+   Compiling phalcom-core v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-core)
+    Finished `test` profile [unoptimized] target(s) in 2.51s
+     Running tests/core/mod.rs (target/debug/deps/core-ac26f071fb6ccfa3)
+
+running 19 tests
+test modules_canonical_artifact::fresh_process_target_runner ... ok
+test modules_canonical_artifact::fresh_process_source_bootstrap_negative_control_runner ... ok
+test modules_canonical_artifact::bounded_file_acquisition_rejects_oversized_file ... ok
+test modules_canonical_artifact::foreign_native_catalog_fingerprint_is_rejected_before_section_materialization ... ok
+test modules_canonical_artifact::load_universe_telosc_rejects_corrupted_artifact ... ok
+test modules_canonical_artifact::load_universe_telosc_enforces_cumulative_transaction_budget ... ok
+test modules_canonical_artifact::loader_rejects_rehashed_incompatible_header_fields ... ok
+test modules_canonical_artifact::load_universe_telosc_enforces_budget_limits_and_records_timings ... ok
+test modules_canonical_artifact::negative_parity_constructor_resolution_failure ... ok
+test modules_canonical_artifact::negative_parity_invalid_pattern_matching ... ok
+test modules_canonical_artifact::artifact_backed_slotmap_runtime_tests_bootstrap_vm_with_generic_intrinsic_adts ... ok
+test modules_canonical_artifact::writer_preserves_previous_output_when_bytes_are_invalid ... ok
+test modules_canonical_artifact::negative_parity_inaccessible_declaration ... ok
+test modules_canonical_artifact::negative_parity_trait_resolution_failure ... ok
+test modules_canonical_artifact::fresh_process_source_denied_artifact_compilation ... ok
+test modules_canonical_artifact::source_backed_and_artifact_backed_negative_diagnostic_parity ... ok
+test modules_canonical_artifact::write_universe_telosc_rejects_portable_executable_capability ... ok
+test modules_canonical_artifact::build_and_load_universe_telosc_compiles_source_free_inline_user_entry ... ok
+test modules_canonical_artifact::source_backed_and_artifact_backed_compiler_program_parity ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 973 filtered out; finished in 62.15s

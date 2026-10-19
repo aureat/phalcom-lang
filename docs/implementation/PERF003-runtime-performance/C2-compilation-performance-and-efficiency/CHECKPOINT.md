@@ -10,23 +10,37 @@ active_plan: null
 latest_completed_plan: PERF003.C2.P7.PATCH5-R
 next_plan: PERF003.C2.P8
 next_action: >
-  The October 19 closure records P7 COMPLETE / IMPLEMENTED / FOCUSED_TESTED
-  with R.G1–R.G7 PASS. Independent certification reconciliation remains open
-  for R.G6/R.G7 raw benchmark provenance, warm-process isolation, final tested-
-  revision attribution, and complete R.T7 evidence. P8 takeover is blocked
-  pending that reconciliation or explicit acceptance of the recorded evidence.
+  P7 independent certification is accepted: R.G6 and R.G7 PASS. P8 takeover is
+  unblocked; P8 implementation has not started. Use the certified P8 handoff
+  and detailed P8 plan for the next implementation work.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: fb49f61c
-latest_tested_revision: fb49f61c
-latest_tested_predecessor: 06d2b229
+execution_tree_head: c1524361b9606dc537671997fe5069f2aa66035b
+latest_tested_revision: c1524361b9606dc537671997fe5069f2aa66035b
+latest_tested_predecessor: f2550f7193ae776f78e58d1ed187a3ae6c7efdd2
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
 
-## PATCH5-R R.T6 performance characterization and R.T7 final closure — 2026-10-19
+## Independent certification reconciliation — 2026-10-19
 
-All closure tasks (Tasks A–G) and gates (R.G1–R.G7) for `PERF003.C2.P7` on branch `perf/universe-characterization` have been completed, verified, and certified.
-P7 is **COMPLETE**. Verification status: **FOCUSED_TESTED**.
+P7 remains `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Independent certification is **ACCEPTED / RECERTIFIED**: R.G6 and R.G7 both PASS. P8 takeover is unblocked; P8 implementation remains not started.
+
+- Measured implementation revision: `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`.
+- R.G7 test revision: `c1524361b9606dc537671997fe5069f2aa66035b`.
+- Artifact: 15,936,496 bytes; BLAKE3-256 `b91ccc4e6011c2789c6e20861e6d6d98908074bb45461d54b5bd8885ca9665bf`.
+- Whole-load allocation N: 373,069,634 bytes; independent request count matches; N−1 fails typed; retry succeeds.
+- R.G6/R.G7 reports: [audit report](../../../perf003-p7-audit/REPORT.md), [certification matrix](../../../perf003-p7-audit/R.G6-R.G7-CERTIFICATION.md), [T6 report](P7-R1/PERF003.C2.P7-R.T6-performance-report.md).
+- Evidence publication commit: recorded in the reconciliation delivery commit and final response.
+- Workspace commands remain baseline-blocked by 412 stale semantic API fixtures, reproduced at clean predecessor `08e2b2f5`; this does not block the focused P7 gates.
+- Runtime suite: 20/20 attempts have `RUNTIME_ERROR`; the harness output field is empty. No runtime speed or cause is claimed.
+- Peak RSS remains a high-water process metric. Leak and retained-memory claims are unverified.
+
+See [P8 takeover handoff](P8/PERF003.C2.P8-p7-certification-takeover-handoff.md). Earlier R.T1–R.T7 records remain historical execution evidence and are not replaced by this concise status.
+
+## October 19 implementation closure record (historical; superseded for R.G6/R.G7)
+
+> This section records the October 19 implementation closure before independent evidence reconciliation. Its performance figures and R.G6/R.G7 decision are superseded by the current certification section above. Implementation completion remains COMPLETE / IMPLEMENTED / FOCUSED_TESTED.
+
 
 1. **Compiler Product Parity (Task A / R.G5):**
    - Hardened `compare_compiled_programs` with explicit linked-module ID set difference comparison, per-module presence checks, and injectivity collision assertions.
@@ -79,11 +93,11 @@ the canonical member identity.
 - `RUSTFLAGS='' cargo run -p phalcom-core --bin phalcom -- packages/slotmap/tests/runtime` — PASS; sparse and dense modules complete and print `slotmap runtime tests complete`.
 - The monolithic semantic target fails with 412 stale fixture/API errors both at clean predecessor `08e2b2f5` and in the current worktree based on `b003600b`. This confirms the target failure predates the runtime repair. No unrelated fixture migration was made.
 
-The October 19 recorded P7 closure remains COMPLETE / IMPLEMENTED /
-FOCUSED_TESTED. Independent certification review remains pending for R.G6/R.G7
-raw benchmark provenance, warm-process isolation, final tested-revision
-attribution, and complete R.T7 evidence. P8 takeover remains blocked until that
-review is reconciled or the recorded certification is explicitly accepted.
+The runtime follow-up above is followed by the independent certification
+reconciliation at the top of this checkpoint. R.G6 and R.G7 are accepted as
+PASS; P8 takeover is unblocked. The runtime-suite error detail remains
+unclassified, and the inherited workspace fixture failure remains outside the
+focused P7 gate.
 
 ## Historical PATCH5-R execution log
 
@@ -1011,8 +1025,8 @@ After:
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | ModuleLoweringInputView, module-indexed callable analyses/definitions/declarations/data/enums, reverse-target occurrence resolution, precomputed TraitRequirementLayout, and direct inherent impl domain indexing implemented and certified. |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
 | `PERF003.C2.P7` (normalized, historical) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical status before PATCH5-R closure; superseded by the October 19 `PERF003.C2.P7.PATCH5-R` final closure recorded above. |
-| `PERF003.C2.P7.PATCH5-R` | Corrective compiler-only Universe artifact closure | Loaded compiler artifact | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | October 19 final closure records R.G0-R.G7 PASS. Independent certification reconciliation remains open for R.G6/R.G7 raw benchmark provenance, warm-process isolation, tested-revision attribution, and complete R.T7 evidence; see the current next action. |
-| `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | BLOCKED | NOT_STARTED | UNVERIFIED | Detailed plan prepared. Do not begin takeover until P7 certification evidence is reconciled or explicitly accepted. |
+| `PERF003.C2.P7.PATCH5-R` | Corrective compiler-only Universe artifact closure | Loaded compiler artifact | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | R.G6/R.G7 independently recertified PASS; evidence and matrix are linked above. |
+| `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | PROPOSED | NOT_STARTED | UNVERIFIED | P7 takeover unblocked by the independent certification; implementation has not started. See the P8 handoff and detailed plan. |
 
 ## P7 flow-graph allocation ruling — 2026-10-15
 

@@ -1,35 +1,16 @@
-# Benchmark Environment Specifications
+# PERF003.C2.P7 measurement environment
 
-- **Date of Execution**: 2026-10-17
-- **Host System**: Apple MacBook Pro (14-inch)
-- **CPU**: Apple M1 Pro (8 physical cores: 6 performance + 2 efficiency)
-- **Architecture**: `aarch64-apple-darwin`
-- **RAM**: 16 GB unified memory (17,179,869,184 bytes)
-- **OS**: macOS 26.5 (Darwin Kernel Version 25.5.0, Build 25F71)
+- Measurement date: 2026-10-19.
+- Branch: `perf/universe-characterization`.
+- Measured implementation revision: `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`.
+- R.G7 test additions: `c1524361b9606dc537671997fe5069f2aa66035b`.
+- Rust: `rustc 1.99.0-nightly (af3d95584 2026-07-09)`.
+- Cargo: `cargo 1.99.0-nightly (59800466c 2026-07-07)`.
+- OS and architecture: Darwin 25.5.0, arm64.
+- CPU: Apple M1 Pro.
+- Build: `--release`, opt-level 3, LTO enabled, codegen-units 1, panic abort.
+- Build flags were cleared with `RUSTFLAGS='' RUSTC_WRAPPER=''`.
+- Benchmark executable: `target/release/examples/perf_audit_p7`.
+- Artifact: 15,936,496 bytes, BLAKE3-256 `b91ccc4e6011c2789c6e20861e6d6d98908074bb45461d54b5bd8885ca9665bf`.
 
-## Toolchain & Compiler
-- **Toolchain Channel**: `nightly-2026-07-10` (pinned in `rust-toolchain.toml`)
-- **rustc**: `rustc 1.99.0-nightly (af3d95584 2026-07-09)`
-- **cargo**: `cargo 1.99.0-nightly (59800466c 2026-07-07)`
-- **Flags**: `RUSTFLAGS=""`, `RUSTC_WRAPPER=""`
-
-## Git & Repository
-- **Repository**: `aureat/phalcom-lang`
-- **Branch**: `perf/universe-characterization`
-- **Verified Commit SHA**: `e45030869cfcd5fb00c1e7d221cdaebce8984b27`
-- **Upstream Sync**: Synchronized with `origin/perf/universe-characterization`
-- **Worktree**: `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization`
-- **Tree Status**: Clean (`git status --short` empty)
-
-## Build Profile Configuration
-- **Profile**: `release` (`--release`)
-- **Optimization Level**: `opt-level = 3`
-- **Link-Time Optimization**: `lto = true`
-- **Codegen Units**: `codegen-units = 1`
-- **Panic Strategy**: `panic = "abort"`
-
-## Measurement Methodology
-- **Clock**: Rust standard monotonic timer (`std::time::Instant`)
-- **Fresh-Process Isolation**: Subprocess spawning via `std::process::Command` ensuring no resident memory, cache leaks, or singleton reuse between samples.
-- **Memory Measurement**: Kernel resource accounting (`libc::getrusage(RUSAGE_SELF, ...)` on macOS, reading `ru_maxrss` in bytes).
-- **Sampling Discipline**: 10 distinct fresh-process executions per scenario/workload; raw per-sample data preserved in accompanying CSVs.
+The full artifact section digests and generation measurements are in [ARTIFACT.json](ARTIFACT.json). Benchmark invocations are in [COMMANDS.md](COMMANDS.md).

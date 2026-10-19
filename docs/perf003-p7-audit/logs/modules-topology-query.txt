@@ -1,0 +1,25 @@
+   Compiling phalcom-modules v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-modules)
+    Finished `test` profile [unoptimized] target(s) in 0.65s
+     Running tests/query.rs (target/debug/deps/query-2da71731fff49294)
+
+running 5 tests
+test facade_rejects_unexposed_package_children ... ok
+test facade_exposes_canonical_roots_children_exports_and_provenance ... ok
+test facade_with_topology_and_reverse_imports_accelerates_lookups ... ok
+test unindexed_facade_records_fallback_scans_while_indexed_records_zero ... ok
+test synthetic_large_scale_topology_query_work_count ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/topology.rs (target/debug/deps/topology-da073651a0f7c005)
+
+running 7 tests
+test import_resolution_product_deterministic_fingerprint ... ok
+test topology_fingerprint_changes_on_module_addition_and_removal ... ok
+test topology_fingerprint_changes_on_package_exposure_change ... ok
+test topology_fingerprint_changes_on_module_kind_change ... ok
+test topology_fingerprint_ignores_symbol_only_export_and_declaration_changes ... ok
+test topology_detect_cycle_and_descendants ... ok
+test owning_package_derivation_rules ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

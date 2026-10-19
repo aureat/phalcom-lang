@@ -1,96 +1,23 @@
-# Defect & Failure Log
+# PERF003.C2.P7 failures and deferred limits
 
-This document records all defects, compile errors, runtime panics, and behavioral divergences discovered during the PERF003.C2.P7 post-implementation audit.
+## Current observed failures
 
----
+### Runtime suite — classified, not passed
 
-## 1. Class D Baseline Defect: `ProductKind` VM Runtime Bootstrap Blocker
+The release runtime suite recorded 20 attempts: 10 source-backed and 10 artifact-backed. All are `RUNTIME_ERROR`. The CSV error-detail field is blank, so the underlying error is not known from this evidence. These rows are not used for runtime speed or successful-execution claims. See [RAW-RUNTIME.csv](RAW-RUNTIME.csv) and `logs/runtime-suite.txt`.
 
-- **Classification**: `BASELINE` (Documented Category D defect)
-- **Status**: Pre-existing in codebase, recorded in `CHECKPOINT.md` and `PERF003.C1`.
-- **First Blocker for Execution**: Unconditionally blocks `VM::new()`, `VM::try_new_with_output()`, and all full VM runtime execution.
-- **Affected Subsystem**: `phalcom-core/src/vm/bootstrap.rs:235` in `VM::try_new_with_native_install_mode_and_output`.
-- **Exact Reproduction Command**:
-  ```sh
-  ./target/release/examples/perf_audit_p7 runtime-single --mode source
-  # or
-  ./target/release/examples/perf_audit_p7 runtime-single --mode artifact
-  ```
-- **Exact Diagnostic Output**:
-  ```text
-  canonical Universe runtime bootstrap failed: internal error (this is a Phalcom bug, please report):
-  failed to compile Universe module universe:reflection.structural:
-  runtime intrinsic declaration 'ProductKind' has no canonical facade binding.
-  ```
-- **Causal Analysis**:
-  During `VM::new()`, `run_universe_modules(canonical)` attempts to compile each Universe module into bytecode on the VM heap. Module `universe:reflection.structural` defines intrinsic data `ProductKind`. The runtime compiler in `phalcom-core` expects a canonical facade binding in the native class catalog, which was deliberately omitted by architectural ruling P4 (because `ProductKind` is a compiler-owned semantic intrinsic, not a runtime class).
-- **Parity Finding**: Identical failure reproduces in both Configuration A (Source-backed) and Configuration B (Artifact-backed).
-- **Architectural Boundary**: This failure confirms that while **compiler initialization is source-free in P7**, **VM runtime execution is still source-backed and blocked until P8** (Portable Executable Universe Image).
+### Workspace commands — inherited baseline drift
 
----
+`cargo test --workspace --no-run` and `cargo test --workspace` both stop while compiling the monolithic semantic integration target. It reports 412 API fixture errors involving old `BTreeMap` values where the current APIs require `AnalysisMap` and `ModuleAuthorityMap`. The same failure signature is recorded at clean predecessor `08e2b2f5`; detailed current logs are `logs/workspace-no-run.txt` and `logs/workspace-test.txt`. These fixtures were left unchanged because they are outside P7's focused acceptance surface.
 
-## 2. Real Package Baseline Syntax Failure: `packages/slotmap`
+## Resolved historical failure
 
-- **Classification**: `BASELINE`
-- **Status**: Pre-existing defect in the `packages/slotmap` repository package.
-- **Affected File**: `packages/slotmap/src/main.ph:27:12`
-- **Exact Reproduction Command**:
-  ```sh
-  target/debug/phalcom packages/slotmap
-  ```
-- **Exact Diagnostic Output**:
-  ```text
-  error: Expected ")"
-     ╭─[packages/slotmap/src/main.ph:27:12]
-  27 │ for (entry in propositions) {
-     ·            ──
-     ·            ╰── Expected ")"
-     ╰────
-  ```
-- **Causal Analysis**:
-  The source code authors `for (entry in propositions) { ... }`. The Phalcom language grammar specifies for-loop syntax without parentheses: `for pattern in iterable { ... }`. When the parser encounters the opening parenthesis `(`, it expects C-style parenthesized loop control `(init; condition; step)` or an expression, and rejects the token `in`.
-- **Parity Finding**: Verified 100% identical between Source-backed compilation and Artifact-backed compilation via `perf_audit_p7 slotmap-eval`.
+The earlier `ProductKind` VM bootstrap error is not the current runtime-suite explanation. The branch corrected intrinsic facade dispatch and the SlotMap VM bootstrap regression passes in the focused core suite. The current runtime rows still fail after that bootstrap discriminator; their detail field is blank, so no more specific cause is asserted.
 
----
+## Claims deliberately left unverified
 
-## 3. Real Package Baseline Module Resolution Failure: `packages/slotmap/tests/runtime`
+- The peak RSS values do not prove retained-memory reduction or leak freedom.
+- Runtime execution speed is not measured successfully.
+- The broad workspace suite is not green because of inherited fixture drift.
 
-- **Classification**: `BASELINE`
-- **Status**: Pre-existing physical naming convention defect.
-- **Affected File**: `packages/slotmap/tests/runtime/src/basic_test.ph`
-- **Exact Reproduction Command**:
-  ```sh
-  target/debug/phalcom packages/slotmap/tests/runtime
-  ```
-- **Exact Diagnostic Output**:
-  ```text
-  Compile error: resolution error: Non-canonical physical module/package name at
-  'packages/slotmap/tests/runtime/src/basic_test.ph'; expected 'basic-test.ph'
-  ```
-- **Causal Analysis**:
-  The Phalcom module system strictly enforces canonical kebab-case naming for physical files (`basic-test.ph`, `dense-test.ph`). The directory contains snake_case files `basic_test.ph` and `dense_test.ph`, which are rejected at project module discovery.
-- **Parity Finding**: Verified 100% identical between Source-backed compilation and Artifact-backed compilation via `perf_audit_p7 slotmap-eval`.
-
----
-
-## 4. Missing CLI Integration for Persisted Artifacts
-
-- **Classification**: `ARCHITECTURAL_LIMITATION`
-- **Status**: P7 implementation gap.
-- **Affected Subsystem**: `phalcom-core/bin/phalcom/main.rs`, `cli.rs`.
-- **Description**:
-  The `phalcom` CLI driver possesses no command-line flag (such as `--universe-artifact <path>`), no environment variable hook, and no default discovery path for `universe.telosc`.
-  All CLI invocations (`cmd_run`, `cmd_check`) hardcode calls to `ProgramCompiler::compile_entry_selection`, which calls `ProgramAnalyzer::analyze_entry_selection` -> source-backed `canonical_universe_formal_image()`.
-- **Impact**: Artifact-backed compilation is currently accessible **only through Rust library APIs** (`LoadedUniverseArtifact::compile_user_entry`, `ProgramCompiler::compile_entry_selection_with_image`). Ordinary end users running `phalcom` cannot benefit from the artifact without CLI integration.
-
----
-
-## 5. Scope Boundary: Portable Executable Capability Deferred to P8
-
-- **Classification**: `SCOPE_BOUNDARY`
-- **Status**: As designed for P7.
-- **Affected Subsystem**: `write_universe_telosc` in `phalcom-core/src/modules/canonical_artifact.rs:248`.
-- **Description**:
-  `write_universe_telosc` explicitly enforces that `capabilities.portable_executable == false`.
-  The P7 artifact transports compiler-side semantic authority (`MODULE_WORLD`, `SEMANTIC_WORLD`, `QUERY_IMAGE`, `METADATA`). It does **not** transport compiled VM chunks, method objects, or bytecode closures.
-  Therefore, executing a program still requires the VM to bootstrap runtime classes.
+These limits do not change the P7 compiler-image acceptance ruling: R.G6 and R.G7 are PASS on the focused evidence listed in the certification matrix.
