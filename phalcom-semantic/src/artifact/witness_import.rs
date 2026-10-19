@@ -417,7 +417,7 @@ fn reconstruct_plan(
     })
 }
 
-fn reconstruct_requirement_selection(
+pub(crate) fn reconstruct_requirement_selection(
     selection: &CallableRequirementSelectionV1,
     expected_trait: &crate::identity::DeclarationId,
     callables: &ImportedCallableAuthority,
@@ -701,7 +701,7 @@ fn reconstruct_inherent_specialization(
     })
 }
 
-fn reconstruct_type_environment(
+pub(crate) fn reconstruct_type_environment(
     environment: &CallableTypeEnvironmentV1,
     types: &ReconstructedTypeGraph,
     allocations: &mut AllocationBudget,
@@ -794,7 +794,7 @@ fn reconstruct_conformance_binding(
     })
 }
 
-fn reconstruct_generic_conformance_key(
+pub(crate) fn reconstruct_generic_conformance_key(
     key: &GenericConformanceKeyV1,
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
@@ -825,7 +825,7 @@ fn require_canonical_callable(
     Ok(())
 }
 
-fn check_evidence_index(index: u32, evidence_count: usize) -> Result<(), ArtifactError> {
+pub(crate) fn check_evidence_index(index: u32, evidence_count: usize) -> Result<(), ArtifactError> {
     let index = usize::try_from(index).map_err(|_| invalid("witness evidence ordinal exceeds address space"))?;
     if index >= evidence_count {
         return Err(invalid("witness selection references an absent conformance-evidence node"));
@@ -833,7 +833,7 @@ fn check_evidence_index(index: u32, evidence_count: usize) -> Result<(), Artifac
     Ok(())
 }
 
-fn mapped_type(
+pub(crate) fn mapped_type(
     id: phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId,
     types: &ReconstructedTypeGraph,
     family: &str,
@@ -845,7 +845,7 @@ fn mapped_type(
         .ok_or_else(|| invalid(format!("{family} references an absent type row")))
 }
 
-fn mapped_parameter(
+pub(crate) fn mapped_parameter(
     id: phalcom_compiler_artifact::semantic::type_store::ArtifactTypeParameterId,
     types: &ReconstructedTypeGraph,
     family: &str,
@@ -950,7 +950,7 @@ fn reconstruct_completeness(
     })
 }
 
-fn reconstruct_associated_type_plan(
+pub(crate) fn reconstruct_associated_type_plan(
     plan: &CallableConformanceAssociatedTypePlanV1,
     expected_impl: &ImplId,
     expected_trait: &crate::identity::DeclarationId,
@@ -1051,7 +1051,7 @@ fn reconstruct_associated_type_failure(
     })
 }
 
-fn associated_type_requirement_identity(
+pub(crate) fn associated_type_requirement_identity(
     identity: &CallableAssociatedTypeRequirementIdentityV1,
     owners: &StableOwnerCatalog<'_>,
 ) -> Result<AssociatedTypeRequirementId, ArtifactError> {
@@ -1061,7 +1061,7 @@ fn associated_type_requirement_identity(
     ))
 }
 
-fn reconstruct_requirement_view(
+pub(crate) fn reconstruct_requirement_view(
     view: &CallableRequirementViewV1,
     trait_declaration: &crate::identity::DeclarationId,
     trait_surface: &super::trait_import::ImportedTraitSurface,
