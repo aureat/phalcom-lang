@@ -16,6 +16,7 @@ use phalcom_compiler_artifact::semantic::aggregates::{
     UnknownReasonV1, VisibilityV1,
 };
 use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
+use phalcom_compiler_artifact::semantic::operational::OperationalOpV1;
 use phalcom_compiler_artifact::semantic::type_store::{
     ArtifactKindId, ArtifactTypeId, KindV1, StaticDomainV1, TypeEntryV1, TypeGraphV1, TypeMemberSelectorV1, TypeV1,
 };
@@ -33,14 +34,16 @@ use phalcom_compiler_artifact::semantic::world::{
     ModuleStaticBindingIndexV1, ModuleStaticBindingPhaseV1, ModuleStaticBindingRecordV1, ModuleStaticBindingVisibleNameV1,
     NativeLifecycleSpecV1,
     RaisesSpecV1, ReturnContractValidationV1,
-    ReturnFlowV1, SelectorKindV1, SemanticWorldV3, StaticConstantOutcomeV1, StaticConstantRecordV1, StaticConstantSymbolV1,
-    TraitRefV1, TraitSurfaceRecordV1, TypeKnowledgeV1,
+    CanonicalStaticProgramV1, ReturnFlowV1, SelectorKindV1, SemanticWorldV3,
+    StaticConstantOutcomeV1, StaticConstantRecordV1, StaticConstantSymbolV1, StaticDefinitionRecordV1,
+    StaticDefinitionSignatureV1, StaticValueDomainV1, TraitRefV1, TraitSurfaceRecordV1, TypeKnowledgeV1,
     CallableConformanceAssociatedTypePlanV1, CallableConformanceCompletenessV1, WitnessPlanV1,
     StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
     StaticDomainCaseCatalogRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
 };
 use phalcom_semantic::artifact::{
-    CompilerArtifactImage, decode_and_validate_artifact, encode_artifact, import_compiler_image, import_compiler_image_bytes_with_project_catalog,
+    CompilerArtifactImage, ImportedOperationalNode, decode_and_validate_artifact, encode_artifact, import_compiler_image,
+    import_compiler_image_bytes_with_project_catalog,
 };
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::fingerprint::Fingerprint128;
@@ -1841,6 +1844,82 @@ fn p7_static_constant_reconstructs_typed_authority_without_checked_body_fabricat
         imported.query_products.len(),
         0,
         "static-constant authority must not invent a CheckedStaticBody or reusable StaticConstant query root"
+    );
+}
+
+#[test]
+fn p7_static_definition_preserves_source_free_operational_program_without_ast() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+    let owner = StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: vec!["core".into()].into_boxed_slice(),
+        },
+        path: vec!["CachedDefinition".into()].into_boxed_slice(),
+    };
+    let signature = StaticDefinitionSignatureV1 {
+        parameters: vec![],
+        result_domain: StaticValueDomainV1::ValueType {
+            ty: ArtifactTypeId(0),
+        },
+        generic_signature: None,
+    };
+    image.semantic_world.static_definitions.push(StaticDefinitionRecordV1 {
+        id: owner.clone(),
+        signature,
+        source: SpanV1 { start: 20, end: 32 },
+        alias_info: None,
+        canonical_program: CanonicalStaticProgramV1 {
+            owner: owner.clone(),
+            parameter_count: 0,
+            local_count: 0,
+            root: OperationalOpV1::Constant {
+                value: ArtifactStaticValueId(0),
+            },
+            applications: vec![],
+            kinded_parameters: vec![],
+            static_constant_reads: vec![],
+            dependencies: vec![],
+            result: StaticValueDomainV1::ValueType {
+                ty: ArtifactTypeId(0),
+            },
+            input_fingerprint: 0x57A71C,
+            module_binding_fingerprint: None,
+        },
+        diagnostics: vec![],
+    });
+
+    let bytes = encode_artifact(&image).expect("encode P7 static definition authority");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
+        .expect("validate P7 static definition authority");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget)
+        .expect("reconstruct P7 static definition authority");
+
+    assert_eq!(imported.static_definition_authority.len(), 1);
+    let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
+    ]));
+    let id = phalcom_semantic::identity::DeclarationId::new(module, "CachedDefinition".into());
+    let definition = imported
+        .static_definition_authority
+        .get(&id)
+        .expect("relocated static definition");
+    assert_eq!(definition.canonical_program.owner.0, id);
+    assert!(matches!(
+        definition.canonical_program.root,
+        ImportedOperationalNode::Constant(_)
+    ));
+    assert_eq!(
+        imported.query_products.len(),
+        0,
+        "source-free operational authority must not fabricate an AST-backed StaticDefinition query root"
     );
 }
 
