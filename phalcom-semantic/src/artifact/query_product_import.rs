@@ -91,8 +91,9 @@ impl ImportedQueryProducts {
 /// Reconstructs the first reusable structural query-product families.
 ///
 /// Roots are independently bound to exact semantic rows before this function is
-/// called. Here they are relocated to live keys, rebuilt as current-main typed
-/// products, and compared against canonical current-main fingerprints.
+/// called. Here their portable wire fingerprints are validated first, then they
+/// are relocated to live keys and rebuilt as current-main typed products. The
+/// receiving SemanticDb gets freshly computed local input/product fingerprints.
 ///
 /// Structural dependency evidence is also reconstructed and fingerprint-checked,
 /// but evidence alone is never promoted to `Ready`. Later query families must
@@ -186,7 +187,7 @@ fn reconstruct_enum_root(
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_zero_dependency_contract(root)?;
-    require_relocation_stable_fingerprint_owner(&root.key.owner)?;
+    validate_portable_root_fingerprints(root, world)?;
     let key = QueryKey::from_portable_owner(root.key.kind, &root.key.owner, owners)?;
     let QueryKey::EnumDeclaration(owner) = &key else {
         return Err(invalid("enum query root did not relocate to EnumDeclaration"));
@@ -224,7 +225,7 @@ fn reconstruct_enum_evidence(
     allocations: &mut AllocationBudget,
 ) -> Result<(), ArtifactError> {
     require_exact_structural_aggregate_owner(evidence)?;
-    require_relocation_stable_fingerprint_owner(&evidence.key.owner)?;
+    validate_portable_evidence_fingerprint(evidence, world)?;
     let key = QueryKey::from_portable_owner(evidence.key.kind, &evidence.key.owner, owners)?;
     let QueryKey::EnumDeclaration(owner) = &key else {
         return Err(invalid("enum dependency evidence did not relocate to EnumDeclaration"));
