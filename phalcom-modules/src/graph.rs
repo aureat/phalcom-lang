@@ -63,6 +63,22 @@ pub enum SemanticNodeId {
     Declaration { module: ModuleId, name: Box<str> },
 }
 
+impl SemanticNodeId {
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        match self {
+            Self::Module(id) => Ok(Self::Module(id.clone_with_allocation_budget(allocations)?)),
+            Self::Declaration { module, name } => {
+                let module = module.clone_with_allocation_budget(allocations)?;
+                let name = allocations.boxed_str(name)?;
+                Ok(Self::Declaration { module, name })
+            }
+        }
+    }
+}
+
 /// Semantic relationship between declaration/interface nodes.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SemanticEdgeKind {
@@ -239,6 +255,12 @@ pub struct ReferenceGraph {
 }
 
 impl ReferenceGraph {
+    pub fn from_entries(entries: Vec<(ModuleId, Vec<ReferenceEdge>)>) -> Self {
+        Self {
+            forward: entries.into_iter().collect(),
+        }
+    }
+
     /// Registers a module as a node in the graph even if it has no outgoing edges.
     pub fn add_node(&mut self, module: ModuleId) {
         self.forward.entry(module).or_default();
@@ -277,6 +299,12 @@ pub struct SemanticGraph {
 }
 
 impl SemanticGraph {
+    pub fn from_entries(entries: Vec<(SemanticNodeId, Vec<SemanticEdge>)>) -> Self {
+        Self {
+            forward: entries.into_iter().collect(),
+        }
+    }
+
     /// Adds one semantic edge.
     pub fn add(&mut self, edge: SemanticEdge) {
         self.forward.entry(edge.from.clone()).or_default().push(edge);
@@ -348,6 +376,12 @@ pub struct RuntimeDependencyGraph {
 }
 
 impl RuntimeDependencyGraph {
+    pub fn from_entries(entries: Vec<(ModuleId, Vec<RuntimeDependencyEdge>)>) -> Self {
+        Self {
+            forward: entries.into_iter().collect(),
+        }
+    }
+
     /// Registers a module as a node in the graph even if it has no outgoing edges.
     pub fn add_node(&mut self, module: ModuleId) {
         self.forward.entry(module).or_default();

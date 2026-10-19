@@ -16,10 +16,12 @@ phalcom-modules = { path = "../phalcom-modules" }
 phalcom-native-meta = { path = "../phalcom-native-meta" }
 phalcom-native-surface = { path = "../phalcom-native-surface" }
 phalcom-type-meta = { path = "../phalcom-type-meta" }
+phalcom-compiler-artifact = { path = "../phalcom-compiler-artifact" }
 thiserror = { workspace = true }
 im = { workspace = true }
 num-bigint = { workspace = true }
-#serde = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 #indexmap = { workspace = true }
 
 
@@ -30,3 +32,7 @@ phalcom-modules = { path = "../phalcom-modules", features = ["test-support"] }
 [[test]]
 name = "semantic"
 path = "tests/semantic.rs"
+
+[[test]]
+name = "semantic-artifact"
+path = "tests/semantic_artifact_test.rs"

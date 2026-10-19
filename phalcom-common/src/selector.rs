@@ -197,6 +197,123 @@ pub fn is_exact_selector_syntax(text: &str) -> bool {
     !text.contains("...") && Selector::try_decode_exact(text).is_ok()
 }
 
+/// Zero-allocation verification that `text` is an exact canonical selector,
+/// equivalent to `Selector::try_decode_exact(text).is_ok_and(|s| s.encode() == text)`.
+pub fn is_canonical_exact_selector(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+
+    if let Some(rest) = text.strip_prefix('[') {
+        if let Some(inner) = rest.strip_suffix("]=(_)") {
+            return is_canonical_slots(inner);
+        }
+        if let Some(inner) = rest.strip_suffix(']') {
+            return is_canonical_slots(inner);
+        }
+        return false;
+    }
+
+    let Some(open) = text.find('(') else {
+        return validate_named_base(text).is_ok();
+    };
+
+    if !text.ends_with(')') || open == 0 {
+        return false;
+    }
+
+    let head = &text[..open];
+    let inner = &text[open + 1..text.len() - 1];
+
+    if inner == "_" && head.ends_with('=') && looks_like_named_base(head) {
+        let Some(name) = head.strip_suffix('=') else {
+            return false;
+        };
+        return validate_named_base(name).is_ok();
+    }
+
+    if validate_named_base(head).is_err() {
+        return false;
+    }
+
+    is_canonical_slots(inner)
+}
+
+fn is_canonical_slots(inner: &str) -> bool {
+    if inner.is_empty() {
+        return true;
+    }
+    let mut saw_label = false;
+    let mut count = 0usize;
+    for part in inner.split(',') {
+        if part.is_empty() {
+            return false;
+        }
+        if part == "_" {
+            if saw_label {
+                return false;
+            }
+        } else {
+            saw_label = true;
+            if !is_canonical_label(part) {
+                return false;
+            }
+        }
+        count += 1;
+        if count > 255 {
+            return false;
+        }
+    }
+    true
+}
+
+fn is_canonical_label(part: &str) -> bool {
+    let is_safe_label_byte = |byte: u8| {
+        byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'_' | b'?' | b'!' | b'+' | b'-' | b'*' | b'/' | b'<' | b'>' | b'=' | b'&' | b'|' | b'^' | b'~' | b'%'
+            )
+    };
+
+    if let Some(hex) = part.strip_prefix('~') {
+        if hex.is_empty() || hex.len() % 2 != 0 {
+            return false;
+        }
+        if !hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+            return false;
+        }
+        let len = hex.len() / 2;
+        let mut buf = [0u8; 512];
+        if len > buf.len() {
+            return false;
+        }
+        let hex_bytes = hex.as_bytes();
+        for i in 0..len {
+            let high = match hex_bytes[i * 2] {
+                b'0'..=b'9' => hex_bytes[i * 2] - b'0',
+                b'a'..=b'f' => hex_bytes[i * 2] - b'a' + 10,
+                _ => return false,
+            };
+            let low = match hex_bytes[i * 2 + 1] {
+                b'0'..=b'9' => hex_bytes[i * 2 + 1] - b'0',
+                b'a'..=b'f' => hex_bytes[i * 2 + 1] - b'a' + 10,
+                _ => return false,
+            };
+            buf[i] = high * 16 + low;
+        }
+        let Ok(decoded_str) = std::str::from_utf8(&buf[..len]) else {
+            return false;
+        };
+        let reserved = matches!(decoded_str, "_" | "*" | "**" | "***");
+        let safe = !decoded_str.is_empty() && !decoded_str.starts_with('~') && !reserved && decoded_str.bytes().all(is_safe_label_byte);
+        !safe
+    } else {
+        let reserved = matches!(part, "_" | "*" | "**" | "***");
+        !part.is_empty() && !reserved && part.bytes().all(is_safe_label_byte)
+    }
+}
+
 pub fn is_selector_pattern_syntax(text: &str) -> bool {
     SelectorPattern::try_decode_pattern(text).is_ok()
 }

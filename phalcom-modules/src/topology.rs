@@ -48,6 +48,13 @@ pub struct ModuleTopology {
 }
 
 impl ModuleTopology {
+    pub fn validate_completed(&self, universe: &ProjectUniverse) -> Result<(), String> {
+        if compute_topology_fingerprint(universe, &self.nodes, &self.exposed_children) != self.fingerprint {
+            return Err("module topology fingerprint mismatch".into());
+        }
+        Ok(())
+    }
+
     /// Builds a canonical topology snapshot from current universe, interfaces, and sources.
     pub fn from_parts(
         generation: ResolverGeneration,

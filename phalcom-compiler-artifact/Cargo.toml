@@ -1,0 +1,15 @@
+[package]
+name = "phalcom-compiler-artifact"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bitflags = { workspace = true }
+blake3 = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+phalcom-type-meta = { path = "../phalcom-type-meta" }
+phalcom-common = { path = "../phalcom-common" }
+
+[dev-dependencies]

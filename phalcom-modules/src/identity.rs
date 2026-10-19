@@ -173,6 +173,38 @@ impl ModuleComponent {
         Ok(Self(s.into()))
     }
 
+    pub fn from_owned_identifier(identifier: Box<str>) -> Result<Self, Box<str>> {
+        let mut chars = identifier.chars();
+        let Some(first) = chars.next() else {
+            return Err(identifier);
+        };
+        if !first.is_ascii_lowercase() && first != '_' {
+            return Err(identifier);
+        }
+        if chars.any(|c| !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '_') {
+            return Err(identifier);
+        }
+        Ok(Self(identifier))
+    }
+
+    /// Validates logical snake_case spelling without allocating.
+    pub fn validate_identifier(s: &str) -> Result<(), &'static str> {
+        if s.is_empty() {
+            return Err("empty identifier");
+        }
+        let mut chars = s.chars();
+        let first = chars.next().unwrap();
+        if !first.is_ascii_lowercase() && first != '_' {
+            return Err("invalid leading character in identifier");
+        }
+        for c in chars {
+            if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '_' {
+                return Err("invalid character in identifier");
+            }
+        }
+        Ok(())
+    }
+
     /// Canonical physical spelling used for source discovery.
     pub fn to_kebab(&self) -> String {
         self.0.replace('_', "-")
@@ -298,6 +330,23 @@ impl ModuleId {
             project: ProjectIdentity::Synthetic(project),
             path,
         }
+    }
+
+    /// Clones this module identity, budgeting the component slice and each component string.
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        let comps = self.path.components();
+        let mut components = allocations.vector::<ModuleComponent>(comps.len())?;
+        for comp in comps {
+            let boxed_spelling = allocations.boxed_str(comp.as_str())?;
+            let comp = ModuleComponent::from_identifier(&boxed_spelling).map_err(|_| phalcom_type_meta::allocation::AllocationError::Failed)?;
+            components.push(comp);
+        }
+        let components = allocations.boxed_slice(components)?;
+        let path = ModulePath::from_components(components);
+        Ok(ModuleId { project: self.project, path })
     }
 }
 

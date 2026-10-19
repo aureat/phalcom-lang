@@ -1,5 +1,8 @@
+#![feature(allocator_api)]
 //! Standalone, store-independent, versioned semantic metadata models, indexed graphs, and artifact schema.
 
+pub mod allocation;
+pub mod budgeted;
 pub mod bundle;
 pub mod declaration;
 pub mod encode;
@@ -16,6 +19,8 @@ pub mod static_value;
 pub mod type_node;
 pub mod validate;
 
+pub use allocation::*;
+pub use budgeted::*;
 pub use bundle::*;
 pub use declaration::*;
 pub use encode::*;

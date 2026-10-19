@@ -2384,3 +2384,13 @@ fn validate_static_definitions(bundle: &SemanticMetadataBundle) -> Result<(), Me
     }
     Ok(())
 }
+
+pub fn compute_validator_scratch_bytes(param_count: usize, static_domain_count: usize) -> usize {
+    let param_map = param_count * std::mem::size_of::<((&crate::generic::StableTypeParameterOwnerRef, u32), &crate::generic::TypeParameterRecord)>();
+    let domain_map = static_domain_count
+        * std::mem::size_of::<(
+            (&crate::identity::StableDeclarationRef, &str),
+            &crate::declaration::StaticDomainDeclarationRecord,
+        )>();
+    param_map.saturating_add(domain_map)
+}

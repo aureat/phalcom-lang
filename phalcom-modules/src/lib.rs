@@ -3,6 +3,8 @@
 pub mod artifact;
 pub mod builtin;
 pub mod builtin_interface;
+pub mod canonical_products;
+pub mod compiler_artifact;
 pub mod declaration;
 pub mod diagnostic;
 pub mod dunder;
@@ -26,6 +28,8 @@ pub mod topology;
 // Re-export common types
 pub use artifact::{PackageArtifactProvider, ResolvedPackageArtifact, ResolvedPackageId as PublishedPackageId};
 pub use builtin::{UNIVERSE_NODES, UniverseNodeSpec, UniverseSourceProvider};
+pub use canonical_products::{CanonicalExternalModuleWorld, CanonicalModuleProducts};
+pub use compiler_artifact::{load_module_world, load_module_world_with_allocation_budget, project_module_world};
 pub use declaration::{DeclarationBlueprint, DeclarationId, DeclarationKind, DeclarationRealizationError, DeclarationShell, DeclarationShellTable, ShellState};
 pub use diagnostic::{ModuleDiagnostic, ModuleDiagnosticCode, ModuleDiagnosticKind};
 pub use dunder::{DunderCategory, DunderPolicy, DunderPolicyError, DunderRole};

@@ -9,6 +9,7 @@
 pub mod access;
 pub mod advisory;
 pub mod algebraic_semantics;
+pub mod artifact;
 pub mod associated;
 pub mod attribute_analysis;
 pub mod canonical_baseline;
@@ -199,6 +200,9 @@ pub use traits::{
 pub use type_alias::{TypeAliasInfo, TypeAliasTable};
 pub use workspace_inputs::*;
 
+pub use artifact::{
+    ArtifactImportTransaction, CompilerArtifactImage, ImportedCompilerImage, decode_and_validate_artifact, encode_artifact, import_compiler_image,
+};
 pub use field_key::{FieldKey, FieldKeyKind};
 pub use scalar::StaticInt;
 pub use source::ParsedSourceUnit;
