@@ -313,7 +313,7 @@ fn assumption_basis(
     })
 }
 
-fn block_reason(
+pub(crate) fn block_reason(
     reason: &CallableBlockReasonV1,
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
@@ -348,7 +348,7 @@ fn block_reason(
     })
 }
 
-fn callable_query_owner(
+pub(crate) fn callable_query_owner(
     owner: &CallableQueryOwnerV1,
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
@@ -416,7 +416,7 @@ fn evidence_origin(origin: &EvidenceOriginV1) -> EvidenceOrigin {
     }
 }
 
-fn budget_report(report: &CallableBudgetReportV1) -> BudgetReport {
+pub(crate) fn budget_report(report: &CallableBudgetReportV1) -> BudgetReport {
     BudgetReport::new(
         match report.kind {
             CallableBudgetKindV1::Steps => BudgetKind::Steps,
