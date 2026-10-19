@@ -13,6 +13,7 @@ mod dispatch_import;
 mod enum_requirement_import;
 mod identity;
 mod inherent_import;
+mod module_static_import;
 mod query_import;
 mod query_policy;
 mod query_product_import;
@@ -31,6 +32,7 @@ pub use dispatch_import::ImportedDispatchAuthority;
 pub use enum_requirement_import::ImportedEnumRequirementAuthority;
 pub use identity::StableOwnerCatalog;
 pub use inherent_import::ImportedConditionalInherentAuthority;
+pub use module_static_import::ImportedModuleStaticBindingAuthority;
 pub use query_policy::{
     CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_from_portable, query_kind_profile_support, query_root_is_reusable,
 };
@@ -115,6 +117,9 @@ pub struct ImportedCompilerImage {
     /// Certified-P7 checked callable binding states retained independently of
     /// the still-incomplete expression/proof/flow analysis transplant.
     pub callable_binding_authority: Arc<ImportedCallableBindingAuthority>,
+    /// Certified-P7 module-static namespace facts joined to the canonical
+    /// imported callable-binding rows without duplicating BindingState.
+    pub module_static_binding_authority: Arc<ImportedModuleStaticBindingAuthority>,
     /// Certified-P7 constructor initialization products staged for T4 snapshot
     /// publication. They are not unconditional reusable query roots.
     pub constructor_initialization_authority: Arc<ImportedConstructorInitializationAuthority>,
@@ -175,6 +180,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_static_case_authority: Option<Arc<ImportedStaticCaseAuthority>>,
     pub staged_callable_authority: Option<Arc<ImportedCallableAuthority>>,
     pub staged_callable_binding_authority: Option<Arc<ImportedCallableBindingAuthority>>,
+    pub staged_module_static_binding_authority: Option<Arc<ImportedModuleStaticBindingAuthority>>,
     pub staged_constructor_initialization_authority: Option<Arc<ImportedConstructorInitializationAuthority>>,
     pub staged_dispatch_authority: Option<Arc<ImportedDispatchAuthority>>,
     pub staged_conditional_inherent_authority: Option<Arc<ImportedConditionalInherentAuthority>>,
@@ -206,6 +212,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_static_case_authority: None,
             staged_callable_authority: None,
             staged_callable_binding_authority: None,
+            staged_module_static_binding_authority: None,
             staged_constructor_initialization_authority: None,
             staged_dispatch_authority: None,
             staged_conditional_inherent_authority: None,
@@ -351,6 +358,12 @@ impl<'a> ArtifactImportTransaction<'a> {
             &owners,
             child,
         )?;
+        let module_static_binding_authority = module_static_import::reconstruct_module_static_bindings(
+            &payload.semantic_world.module_static_bindings,
+            &callable_binding_authority,
+            &owners,
+            child,
+        )?;
         let constructor_initialization_authority = constructor_import::reconstruct_constructor_initializations(
             &payload.semantic_world.constructor_initializations,
             &callable_authority,
@@ -413,6 +426,8 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.staged_callable_authority = Some(child.arc(callable_authority).map_err(ArtifactError::Allocation)?);
         self.staged_callable_binding_authority =
             Some(child.arc(callable_binding_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_module_static_binding_authority =
+            Some(child.arc(module_static_binding_authority).map_err(ArtifactError::Allocation)?);
         self.staged_constructor_initialization_authority =
             Some(child.arc(constructor_initialization_authority).map_err(ArtifactError::Allocation)?);
         self.staged_dispatch_authority = Some(child.arc(dispatch_authority).map_err(ArtifactError::Allocation)?);
@@ -487,6 +502,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_callable_binding_authority
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged callable binding authority".into())))?;
+        let module_static_binding_authority = self
+            .staged_module_static_binding_authority
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged module static-binding authority".into())))?;
         let constructor_initialization_authority = self
             .staged_constructor_initialization_authority
             .take()
@@ -550,6 +569,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             static_case_authority,
             callable_authority,
             callable_binding_authority,
+            module_static_binding_authority,
             constructor_initialization_authority,
             dispatch_authority,
             conditional_inherent_authority,
@@ -577,6 +597,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_static_case_authority = None;
             self.staged_callable_authority = None;
             self.staged_callable_binding_authority = None;
+            self.staged_module_static_binding_authority = None;
             self.staged_constructor_initialization_authority = None;
             self.staged_dispatch_authority = None;
             self.staged_conditional_inherent_authority = None;
