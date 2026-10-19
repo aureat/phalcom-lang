@@ -649,6 +649,54 @@ pub fn portable_structural_dependency_product_fingerprint(
 }
 
 impl QueryImageV3 {
+    /// Validates QUERY_FINGERPRINT_ABI_V2 structural evidence against the
+    /// canonical semantic rows carried by the same artifact.
+    ///
+    /// This check is independent of any receiving workspace graph. It therefore
+    /// belongs to cross-section artifact validation and may run before live
+    /// semantic IDs are reconstructed.
+    pub fn validate_portable_structural_fingerprints(&self, world: &SemanticWorldV3) -> Result<(), ArtifactError> {
+        for root in &self.supported_roots {
+            if let Some((input, product)) = portable_structural_root_fingerprints(root, world)? {
+                if root.input_fingerprint != input {
+                    return Err(ValidationError::ReferentialIntegrity(format!(
+                        "query root {:?} portable input fingerprint does not match its semantic product",
+                        root.key.kind
+                    ))
+                    .into());
+                }
+                if root.product_fingerprint != product {
+                    return Err(ValidationError::ReferentialIntegrity(format!(
+                        "query root {:?} portable product fingerprint does not match its semantic product",
+                        root.key.kind
+                    ))
+                    .into());
+                }
+            }
+        }
+
+        for evidence in &self.dependency_evidence {
+            if matches!(evidence.key.kind, PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration) {
+                if evidence.key.owner != evidence.stable_aggregate_owner {
+                    return Err(ValidationError::ReferentialIntegrity(
+                        "structural dependency evidence key and aggregate owner differ".into(),
+                    )
+                    .into());
+                }
+                let expected = portable_structural_dependency_product_fingerprint(&evidence.key, world)?
+                    .ok_or_else(|| ValidationError::ReferentialIntegrity("missing portable structural dependency fingerprint".into()))?;
+                if evidence.product_fingerprint != expected {
+                    return Err(ValidationError::ReferentialIntegrity(format!(
+                        "query dependency {:?} portable product fingerprint does not match its semantic product",
+                        evidence.key.kind
+                    ))
+                    .into());
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
         let mut out = BinaryWriter::new();
         out.write_u32(QUERY_IMAGE_SCHEMA_V3);
