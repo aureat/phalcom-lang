@@ -167,6 +167,42 @@ impl QueryKey {
     }
 }
 
+/// Validates that structural declaration query roots reference the exact
+/// declaration row they claim to cache, not merely an in-bounds row of the
+/// correct family. This is a staging invariant; it does not establish reusable
+/// fingerprint or dependency freshness and must not publish a Ready product.
+pub(crate) fn validate_structural_root_row_ownership(
+    image: &QueryImageV3,
+    world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV3,
+) -> Result<(), ArtifactError> {
+    use phalcom_compiler_artifact::query::PortableQueryKindV1 as K;
+    for root in &image.supported_roots {
+        if root.key.kind != root.product.kind {
+            return Err(invalid("query root kind does not match its product kind"));
+        }
+        let index = root.product.row_index as usize;
+        let owner = match root.key.kind {
+            K::DataDeclaration => world
+                .structural_contracts
+                .data_contracts
+                .get(index)
+                .map(|row| &row.owner),
+            K::EnumDeclaration => world
+                .structural_contracts
+                .enum_contracts
+                .get(index)
+                .map(|row| &row.owner),
+            _ => continue,
+        }
+        .ok_or_else(|| invalid("structural query product row is out of bounds"))?;
+        match &root.key.owner {
+            Owner::Declaration(declaration) if declaration == owner => {}
+            _ => return Err(invalid("structural query root owner differs from referenced product row")),
+        }
+    }
+    Ok(())
+}
+
 /// Checks project-qualified owner authority before retaining the wire query
 /// image. Only exact keys for families that can become reusable are converted
 /// into live `QueryKey`s; other products remain transport input for snapshot
