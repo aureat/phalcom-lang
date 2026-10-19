@@ -2,7 +2,7 @@
 //!
 //! This module deliberately starts with the source-independent structural
 //! declaration families whose live query implementations have no dependency
-//! edges: `DataDeclaration` and `EnumDeclaration`. Other query families remain
+//! edges: `DataDeclaration`, `EnumDeclaration`, and `AssociatedSurface`. Other query families remain
 //! wire DTOs until their complete current-main dependency contract is imported.
 
 use crate::artifact::identity::StableOwnerCatalog;
