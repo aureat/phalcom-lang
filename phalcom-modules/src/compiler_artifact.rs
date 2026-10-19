@@ -1179,10 +1179,14 @@ impl CanonicalExternalModuleWorld {
 
 #[cfg(test)]
 mod allocation_materialization_tests {
-    use super::validate_runtime_dag;
+    use super::{load_module_world, validate_runtime_dag};
     use crate::graph::{RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason};
     use crate::identity::{ModuleComponent, ModuleId, ModulePath};
     use phalcom_common::range::SourceRange;
+    use phalcom_compiler_artifact::module_world::{
+        AliasV1, ArtifactModuleId, BindingV1, ImportPathV1, ImportRootV1, ImportV1, ModuleKindV1, ModuleV1, ModuleWorldV1, SegmentV1, SpanV1,
+    };
+    use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
     use phalcom_type_meta::allocation::AllocationBudget;
     use std::alloc::Layout;
 
@@ -1197,6 +1201,80 @@ mod allocation_materialization_tests {
             range: SourceRange::default(),
             reason: RuntimeDependencyReason::WholeModuleImport,
         });
+    }
+
+    fn module_wire(path: Vec<String>) -> ModuleV1 {
+        ModuleV1 {
+            path,
+            kind: ModuleKindV1::Package,
+            declarations: vec![],
+            exports: vec![],
+            imports: vec![],
+            exposed_children: vec![],
+            metadata: vec![],
+            linked_exports: vec![],
+            globals: vec![],
+            import_bindings: vec![],
+            linked_reads: vec![],
+            runtime_dependencies: vec![],
+            references: vec![],
+            runtime_edges: vec![],
+            topology_parent: None,
+            topology_children: vec![],
+            interface_fingerprint: 0,
+            linked_interface_fingerprint: 0,
+            dependency_fingerprint: 0,
+        }
+    }
+
+    fn world(modules: Vec<ModuleV1>) -> ModuleWorldV1 {
+        ModuleWorldV1 {
+            entry: ArtifactModuleId(0),
+            initialization_order: vec![],
+            modules,
+            semantic_rows: vec![],
+            topology_fingerprint: 0,
+        }
+    }
+
+    fn assert_referential_rejection(world: &ModuleWorldV1, expected: &str) {
+        assert!(matches!(
+            load_module_world(world, &ValidationLimits::default()),
+            Err(ArtifactError::Validation(ValidationError::ReferentialIntegrity(message))) if message == expected
+        ));
+    }
+
+    #[test]
+    fn module_world_rejects_invalid_and_duplicate_module_import_identities() {
+        let invalid_module = world(vec![module_wire(vec!["bad-name".into()])]);
+        assert_referential_rejection(&invalid_module, "invalid character in identifier");
+
+        let duplicate_modules = world(vec![module_wire(vec![]), module_wire(vec![])]);
+        assert_referential_rejection(&duplicate_modules, "module paths must be unique and sorted");
+
+        let mut invalid_import = module_wire(vec![]);
+        invalid_import.imports.push(ImportV1::Module {
+            path: ImportPathV1 {
+                root: ImportRootV1::Absolute {
+                    segment: SegmentV1 {
+                        name: "universe".into(),
+                        span: SpanV1 { start: 0, end: 0 },
+                    },
+                },
+                segments: vec![],
+                span: SpanV1 { start: 0, end: 0 },
+            },
+            alias: Some(AliasV1 {
+                name: String::new(),
+                span: SpanV1 { start: 0, end: 0 },
+            }),
+            span: SpanV1 { start: 0, end: 0 },
+        });
+        assert_referential_rejection(&world(vec![invalid_import]), "empty import alias");
+
+        let mut duplicate_import_bindings = module_wire(vec![]);
+        duplicate_import_bindings.import_bindings = vec![BindingV1 { name: "item".into(), index: 0 }, BindingV1 { name: "item".into(), index: 1 }];
+        assert_referential_rejection(&world(vec![duplicate_import_bindings]), "names must be nonempty, unique, and sorted");
     }
 
     #[test]

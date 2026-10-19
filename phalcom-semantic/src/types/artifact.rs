@@ -1657,6 +1657,25 @@ impl TypeRelocation {
 
     relocate_lookup!(ty: types(ArtifactTypeId) -> TypeId, kind: kinds(ArtifactKindId) -> KindId, parameter: parameters(ArtifactTypeParameterId) -> TypeParameterId, row: rows(ArtifactRecordRowId) -> RecordRowId, family: families(ArtifactFamilyTypeId) -> FamilyTypeId, variant: variants(ArtifactVariantTypeId) -> VariantTypeId, domain: domains(ArtifactStaticDomainId) -> StaticDomainId, constructor: constructors(ArtifactStaticConstructorId) -> AlgebraicStaticConstructorId, scoped: scoped(ArtifactScopedTypeId) -> ScopedTypeId, lambda: lambdas(ArtifactTypeLambdaId) -> TypeLambdaId);
 }
+
+#[cfg(test)]
+mod artifact_relocation_validation_tests {
+    use super::{TypeExportContext, TypeStore};
+    use phalcom_compiler_artifact::ValidationLimits;
+
+    #[test]
+    fn type_graph_import_rejects_duplicate_relocated_type_identity() {
+        let limits = ValidationLimits::default();
+        let source = TypeStore::new();
+        let export = TypeExportContext::new_full(&source).expect("export context");
+        let mut graph = export.project_graph(&source, &limits).expect("type graph");
+        graph.types.push(graph.types[0].clone());
+
+        let error = TypeStore::import_type_graph(&graph, &limits).expect_err("duplicate canonical type nodes must be rejected");
+        assert!(error.to_string().contains("duplicate canonical type node"), "unexpected error: {error}");
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Node {
     Type(u32),

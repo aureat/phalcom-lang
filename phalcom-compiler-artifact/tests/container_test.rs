@@ -190,6 +190,34 @@ fn duplicate_required_section_is_rejected() {
 }
 
 #[test]
+fn each_required_compiler_section_cannot_be_omitted() {
+    for missing in [
+        SectionKind::ModuleWorld,
+        SectionKind::SemanticWorld,
+        SectionKind::QueryImage,
+        SectionKind::Metadata,
+    ] {
+        let mut builder = TeloscContainerBuilder::new(create_sample_header());
+        for kind in [
+            SectionKind::ModuleWorld,
+            SectionKind::SemanticWorld,
+            SectionKind::QueryImage,
+            SectionKind::Metadata,
+        ] {
+            if kind == missing {
+                continue;
+            }
+            let schema = if kind == SectionKind::SemanticWorld { semantic_world_schema() } else { 1 };
+            builder.add_section(kind, schema, SectionFlags::REQUIRED, vec![kind.tag() as u8]);
+        }
+
+        let bytes = builder.build().expect("build container with one omitted required section");
+        let error = TeloscContainerView::parse(&bytes, &ValidationLimits::default()).expect_err("missing required section must be rejected");
+        assert!(matches!(error, ArtifactError::Container(ContainerError::MissingRequiredSection(kind)) if kind == missing));
+    }
+}
+
+#[test]
 fn overlapping_sections_are_rejected() {
     let header = create_sample_header();
     let mut builder = TeloscContainerBuilder::new(header);
@@ -307,4 +335,22 @@ fn whole_artifact_digest_is_deterministic() {
     let view2 = TeloscContainerView::parse(&bytes2, &ValidationLimits::default()).unwrap();
     assert_eq!(view1.header().artifact_digest, view2.header().artifact_digest);
     assert_ne!(view1.header().artifact_digest, ArtifactDigest::ZERO);
+}
+
+#[test]
+fn whole_artifact_digest_mismatch_is_rejected() {
+    let header = create_sample_header();
+    let mut builder = TeloscContainerBuilder::new(header);
+    builder.add_section(SectionKind::ModuleWorld, 1, SectionFlags::REQUIRED, b"m".to_vec());
+    builder.add_section(SectionKind::SemanticWorld, semantic_world_schema(), SectionFlags::REQUIRED, b"s".to_vec());
+    builder.add_section(SectionKind::QueryImage, 1, SectionFlags::REQUIRED, b"q".to_vec());
+    builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"meta".to_vec());
+
+    let mut bytes = builder.build().expect("build container");
+    let mut reader = BinaryReader::new(&bytes);
+    let (_header, artifact_digest_offset) = TeloscHeaderV2::decode(&mut reader, &ValidationLimits::default()).expect("decode header");
+    bytes[artifact_digest_offset] ^= 0xff;
+
+    let error = TeloscContainerView::parse(&bytes, &ValidationLimits::default()).expect_err("whole artifact digest mismatch must be rejected");
+    assert!(matches!(error, ArtifactError::Container(ContainerError::ArtifactDigestMismatch { .. })));
 }
