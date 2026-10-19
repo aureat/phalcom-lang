@@ -550,7 +550,7 @@ fn reconstruct_type_member_product(
         IntrinsicTypeOperationV1::UnorderedShapeView => IntrinsicTypeOperation::UnorderedShapeView,
         IntrinsicTypeOperationV1::UnorderedShapeTail => IntrinsicTypeOperation::UnorderedShapeTail,
     });
-    let implementation = match row.implementation {
+    let implementation = match &row.implementation {
         TypeMemberImplementationV1::Phalcom => ImplementationKind::Phalcom,
         TypeMemberImplementationV1::Native => ImplementationKind::Native,
         TypeMemberImplementationV1::Foreign => ImplementationKind::Foreign,
