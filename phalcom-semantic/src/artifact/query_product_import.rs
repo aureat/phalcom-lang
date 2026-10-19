@@ -8,9 +8,10 @@
 
 use crate::artifact::identity::StableOwnerCatalog;
 use crate::db::fingerprint::{
-    associated_surface_input_fingerprint, associated_surface_product_fingerprint, data_declaration_input_fingerprint,
-    data_declaration_product_fingerprint, enum_declaration_input_fingerprint, enum_declaration_product_fingerprint,
-    type_member_declaration_input_fingerprint, type_member_declaration_product_fingerprint,
+    associated_surface_input_fingerprint, associated_surface_product_fingerprint, callable_definition_input_fingerprint,
+    callable_definition_product_fingerprint, data_declaration_input_fingerprint, data_declaration_product_fingerprint,
+    enum_declaration_input_fingerprint, enum_declaration_product_fingerprint, type_member_declaration_input_fingerprint,
+    type_member_declaration_product_fingerprint,
 };
 use crate::db::product::{DataDeclarationProduct, EnumDeclarationProduct};
 use crate::db::{InputFingerprint, ProductFingerprint, QueryKey, SemanticDb, SemanticProduct};
@@ -114,6 +115,7 @@ pub(crate) fn reconstruct_structural_query_products(
     image: &QueryImageV3,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
     associated: &super::associated_import::ImportedAssociatedAuthority,
+    callables: &super::callable_import::ImportedCallableAuthority,
     owners: &StableOwnerCatalog<'_>,
     world: &SemanticWorldV3,
     allocations: &mut AllocationBudget,
@@ -145,6 +147,7 @@ pub(crate) fn reconstruct_structural_query_products(
             Kind::EnumDeclaration => reconstruct_enum_root(root, aggregates, owners, world, empty_diagnostics.clone(), allocations)?,
             Kind::AssociatedSurface => reconstruct_associated_surface_root(root, associated, owners, world)?,
             Kind::TypeMemberDeclaration => reconstruct_type_member_root(root, associated, owners, world)?,
+            Kind::CallableDefinition => reconstruct_callable_definition_root(root, callables, owners, world)?,
             _ => continue,
         };
         ready.push(imported);
@@ -173,6 +176,7 @@ pub(crate) fn reconstruct_structural_query_products(
             )?),
             Kind::AssociatedSurface => Some(reconstruct_associated_surface_evidence(evidence, associated, owners, world)?),
             Kind::TypeMemberDeclaration => Some(reconstruct_type_member_evidence(evidence, associated, owners, world)?),
+            Kind::CallableDefinition => Some(reconstruct_callable_definition_evidence(evidence, callables, owners, world)?),
             _ => None,
         };
         if let Some(imported) = imported {
@@ -382,6 +386,58 @@ fn reconstruct_type_member_evidence(
     ))
 }
 
+fn reconstruct_callable_definition_root(
+    root: &QueryRootEntryV3,
+    callables: &super::callable_import::ImportedCallableAuthority,
+    owners: &StableOwnerCatalog<'_>,
+    world: &SemanticWorldV3,
+) -> Result<ImportedReadyQueryProduct, ArtifactError> {
+    require_zero_dependency_contract(root)?;
+    validate_portable_root_fingerprints(root, world)?;
+    let key = QueryKey::from_portable_owner(root.key.kind, &root.key.owner, owners)?;
+    let QueryKey::CallableDefinition(callable) = &key else {
+        return Err(invalid("callable-definition query root did not relocate to CallableDefinition"));
+    };
+    let product = callables
+        .definition(callable)
+        .cloned()
+        .ok_or_else(|| invalid("callable-definition query owner has no reconstructed P7 semantic authority"))?;
+    let input_fingerprint = callable_definition_input_fingerprint(&product);
+    let product_fingerprint = callable_definition_product_fingerprint(&product);
+    Ok(ready(
+        key,
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::CallableDefinition(product),
+    ))
+}
+
+fn reconstruct_callable_definition_evidence(
+    evidence: &DependencyEvidenceEntryV3,
+    callables: &super::callable_import::ImportedCallableAuthority,
+    owners: &StableOwnerCatalog<'_>,
+    world: &SemanticWorldV3,
+) -> Result<ImportedReadyQueryProduct, ArtifactError> {
+    require_exact_structural_aggregate_owner(evidence)?;
+    validate_portable_evidence_fingerprint(evidence, world)?;
+    let key = QueryKey::from_portable_owner(evidence.key.kind, &evidence.key.owner, owners)?;
+    let QueryKey::CallableDefinition(callable) = &key else {
+        return Err(invalid("callable-definition dependency evidence did not relocate to CallableDefinition"));
+    };
+    let product = callables
+        .definition(callable)
+        .cloned()
+        .ok_or_else(|| invalid("callable-definition dependency owner has no reconstructed P7 semantic authority"))?;
+    let input_fingerprint = callable_definition_input_fingerprint(&product);
+    let product_fingerprint = callable_definition_product_fingerprint(&product);
+    Ok(ready(
+        key,
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::CallableDefinition(product),
+    ))
+}
+
 fn data_product(
     owner: &DeclarationId,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
@@ -452,7 +508,11 @@ fn ready(
 fn is_structural_kind(kind: Kind) -> bool {
     matches!(
         kind,
-        Kind::DataDeclaration | Kind::EnumDeclaration | Kind::AssociatedSurface | Kind::TypeMemberDeclaration
+        Kind::DataDeclaration
+            | Kind::EnumDeclaration
+            | Kind::AssociatedSurface
+            | Kind::TypeMemberDeclaration
+            | Kind::CallableDefinition
     )
 }
 
