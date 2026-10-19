@@ -662,7 +662,7 @@ pub fn build_algebraic_semantics_with_static_products(
             };
 
             variant_ids.push(variant_id);
-            variant_infos.push(variant_info);
+            variant_infos.push(Arc::new(variant_info));
         }
 
         let enum_info = EnumInfo {
