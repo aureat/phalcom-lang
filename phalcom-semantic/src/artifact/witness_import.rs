@@ -10,23 +10,42 @@
 
 use super::callable_import::ImportedCallableAuthority;
 use super::conformance_import::ImportedConformanceAuthority;
-use super::diagnostic_import::reconstruct_semantic_diagnostic;
+use super::diagnostic_import::{reconstruct_semantic_diagnostic, source_span};
 use super::identity::{StableOwnerCatalog, canonical_selector};
 use super::trait_import::ImportedTraitAuthority;
 use super::type_import::ReconstructedTypeGraph;
 use crate::diagnostic::SemanticDiagnostic;
 use crate::identity::{CallableId, CallableOwnerId, DispatchSide, ImplId};
+use crate::impls::{
+    AssociatedTypeBindingFailure, AssociatedTypeBindingFailureKind, AssociatedTypeBindingTemplate,
+    AssociatedTypeBindingValue,
+};
 use crate::surface::MemberVisibility;
-use crate::traits::{InstantiatedTraitRequirement, TraitRef, TraitRequirementId};
+use crate::traits::{AssociatedTypeRequirementId, InstantiatedTraitRequirement, TraitRef, TraitRequirementId};
 use crate::types::id::TypeId;
 use crate::types::parameter::GenericSignature;
 use phalcom_compiler_artifact::semantic::aggregates::VisibilityV1;
 use phalcom_compiler_artifact::semantic::world::{
+    CallableAssociatedTypeBindingFailureKindV1, CallableAssociatedTypeBindingFailureV1,
+    CallableAssociatedTypeBindingTemplateV1, CallableAssociatedTypeBindingValueV1,
+    CallableAssociatedTypeRequirementIdentityV1, CallableConformanceAssociatedTypePlanV1,
     CallableRequirementIdentityV1, CallableRequirementViewV1, WitnessPlanV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_type_meta::identity::StableCallableRef;
+
+/// Budgeted immutable staging form of P7 associated-type witness authority.
+///
+/// The live ConformanceAssociatedTypePlan is BTreeMap-backed. P2 keeps rows
+/// sorted here so no unmetered map allocation occurs before T4 publication.
+#[derive(Clone, Debug)]
+pub struct ImportedAssociatedTypePlan {
+    pub impl_id: ImplId,
+    pub bindings: Box<[(AssociatedTypeRequirementId, AssociatedTypeBindingTemplate)]>,
+    pub failures: Box<[AssociatedTypeBindingFailure]>,
+    pub diagnostics: Box<[SemanticDiagnostic]>,
+}
 
 /// The non-recursive, fully relocated portion of one P7 witness plan.
 ///
@@ -42,6 +61,7 @@ pub struct ImportedWitnessPlanPreflight {
     pub trait_ref_template: TraitRef,
     pub generic_signature: Option<GenericSignature>,
     pub requirement_views: Box<[(TraitRequirementId, InstantiatedTraitRequirement)]>,
+    pub associated_type_plan: ImportedAssociatedTypePlan,
     pub selected_callables: Box<[CallableId]>,
     pub invalid_explicit_members: bool,
     pub diagnostics: Box<[SemanticDiagnostic]>,
@@ -72,6 +92,20 @@ impl ImportedWitnessPreflightAuthority {
 
     pub fn diagnostic_len(&self) -> usize {
         self.plans.iter().map(|plan| plan.diagnostics.len()).sum()
+    }
+
+    pub fn associated_binding_len(&self) -> usize {
+        self.plans
+            .iter()
+            .map(|plan| plan.associated_type_plan.bindings.len())
+            .sum()
+    }
+
+    pub fn associated_failure_len(&self) -> usize {
+        self.plans
+            .iter()
+            .map(|plan| plan.associated_type_plan.failures.len())
+            .sum()
     }
 
     pub fn evidence_node_len(&self) -> usize {
@@ -203,6 +237,15 @@ fn reconstruct_plan(
         return Err(invalid("witness requirement view is duplicated after relocation"));
     }
 
+    let associated_type_plan = reconstruct_associated_type_plan(
+        &record.associated_type_plan,
+        &impl_id,
+        &trait_declaration,
+        types,
+        owners,
+        allocations,
+    )?;
+
     let mut selected_callables = allocations
         .vector::<CallableId>(record.ordered_selected_callables.len())
         .map_err(ArtifactError::Allocation)?;
@@ -233,6 +276,7 @@ fn reconstruct_plan(
         trait_ref_template,
         generic_signature,
         requirement_views: allocations.boxed_slice(views).map_err(ArtifactError::Allocation)?,
+        associated_type_plan,
         selected_callables: allocations
             .boxed_slice(selected_callables)
             .map_err(ArtifactError::Allocation)?,
@@ -242,6 +286,117 @@ fn reconstruct_plan(
         conformance_evidence_count: record.conformance_evidence.len(),
         wire_fingerprint: record.fingerprint,
     })
+}
+
+fn reconstruct_associated_type_plan(
+    plan: &CallableConformanceAssociatedTypePlanV1,
+    expected_impl: &ImplId,
+    expected_trait: &crate::identity::DeclarationId,
+    types: &ReconstructedTypeGraph,
+    owners: &StableOwnerCatalog<'_>,
+    allocations: &mut AllocationBudget,
+) -> Result<ImportedAssociatedTypePlan, ArtifactError> {
+    let impl_id = owners.implementation(&plan.impl_id)?;
+    if &impl_id != expected_impl {
+        return Err(invalid("associated-type plan implementation disagrees with its witness owner"));
+    }
+
+    let mut bindings = allocations
+        .vector::<(AssociatedTypeRequirementId, AssociatedTypeBindingTemplate)>(plan.bindings.len())
+        .map_err(ArtifactError::Allocation)?;
+    for binding in &plan.bindings {
+        let requirement = associated_type_requirement_identity(&binding.requirement, owners)?;
+        if &requirement.owner != expected_trait {
+            return Err(invalid("associated-type witness binding belongs to another trait"));
+        }
+        let value_template = match &binding.value {
+            CallableAssociatedTypeBindingValueV1::Type { ty } => AssociatedTypeBindingValue::Type(
+                *types
+                    .types
+                    .get(ty.0 as usize)
+                    .ok_or_else(|| invalid("associated-type witness binding references an absent type"))?,
+            ),
+            CallableAssociatedTypeBindingValueV1::Dynamic => AssociatedTypeBindingValue::Dynamic,
+        };
+        let template = AssociatedTypeBindingTemplate {
+            requirement: requirement.clone(),
+            value_template,
+            source_impl: owners.implementation(&binding.source_impl)?,
+            source: source_span(&binding.source, owners)?,
+        };
+        bindings.push((requirement, template));
+    }
+    bindings.sort_by(|left, right| left.0.cmp(&right.0));
+    if bindings.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+        return Err(invalid("associated-type witness binding is duplicated after relocation"));
+    }
+
+    let mut failures = allocations
+        .vector::<AssociatedTypeBindingFailure>(plan.failures.len())
+        .map_err(ArtifactError::Allocation)?;
+    for failure in &plan.failures {
+        let imported = reconstruct_associated_type_failure(failure, owners, allocations)?;
+        if imported
+            .requirement
+            .as_ref()
+            .is_some_and(|requirement| &requirement.owner != expected_trait)
+        {
+            return Err(invalid("associated-type witness failure belongs to another trait"));
+        }
+        failures.push(imported);
+    }
+
+    let mut diagnostics = allocations
+        .vector::<SemanticDiagnostic>(plan.diagnostics.len())
+        .map_err(ArtifactError::Allocation)?;
+    for diagnostic in &plan.diagnostics {
+        diagnostics.push(reconstruct_semantic_diagnostic(
+            diagnostic,
+            types,
+            owners,
+            allocations,
+        )?);
+    }
+
+    Ok(ImportedAssociatedTypePlan {
+        impl_id,
+        bindings: allocations.boxed_slice(bindings).map_err(ArtifactError::Allocation)?,
+        failures: allocations.boxed_slice(failures).map_err(ArtifactError::Allocation)?,
+        diagnostics: allocations.boxed_slice(diagnostics).map_err(ArtifactError::Allocation)?,
+    })
+}
+
+fn reconstruct_associated_type_failure(
+    failure: &CallableAssociatedTypeBindingFailureV1,
+    owners: &StableOwnerCatalog<'_>,
+    allocations: &mut AllocationBudget,
+) -> Result<AssociatedTypeBindingFailure, ArtifactError> {
+    Ok(AssociatedTypeBindingFailure {
+        kind: match &failure.kind {
+            CallableAssociatedTypeBindingFailureKindV1::Missing => AssociatedTypeBindingFailureKind::Missing,
+            CallableAssociatedTypeBindingFailureKindV1::Duplicate => AssociatedTypeBindingFailureKind::Duplicate,
+            CallableAssociatedTypeBindingFailureKindV1::Unknown => AssociatedTypeBindingFailureKind::Unknown,
+            CallableAssociatedTypeBindingFailureKindV1::Invalid => AssociatedTypeBindingFailureKind::Invalid,
+        },
+        name: allocations.boxed_str(&failure.name).map_err(ArtifactError::Allocation)?,
+        reason: allocations.boxed_str(&failure.reason).map_err(ArtifactError::Allocation)?,
+        source: source_span(&failure.source, owners)?,
+        requirement: failure
+            .requirement
+            .as_ref()
+            .map(|requirement| associated_type_requirement_identity(requirement, owners))
+            .transpose()?,
+    })
+}
+
+fn associated_type_requirement_identity(
+    identity: &CallableAssociatedTypeRequirementIdentityV1,
+    owners: &StableOwnerCatalog<'_>,
+) -> Result<AssociatedTypeRequirementId, ArtifactError> {
+    Ok(AssociatedTypeRequirementId::new(
+        owners.declaration(&identity.owner)?,
+        identity.index,
+    ))
 }
 
 fn reconstruct_requirement_view(
