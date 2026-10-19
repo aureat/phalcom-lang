@@ -25,8 +25,8 @@ use phalcom_compiler_artifact::semantic::world::{
     CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1,
     CallableBindingAuthorityV1, CallableBindingConsistencyV1, CallableBindingRowV1, CallableCausalInvalidityV1,
     CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1,
-    CallableBindingReadSafetyV1, CallableDiagnosticSeverityV1, CallableEvidenceDiagnosticV1, CallableExpressionRowV1,
-    CallableExpressionStatusV1, CallableFlowGraphV1, CallableFlowStateSummaryV1,
+    CallableBindingReadSafetyV1, CallableCallSpecializationV1, CallableDiagnosticSeverityV1, CallableEvidenceDiagnosticV1,
+    CallableExpressionRowV1, CallableExpressionStatusV1, CallableFlowGraphV1, CallableFlowStateSummaryV1,
     CallableGeneratedBindingReasonV1, CallableInitializationStateV1, CallableSignatureRecordV1, SemanticDenotationV1,
     ConditionalInherentMemberV1, ConditionalInherentSetV1, ConformanceHeadRecordV1, ConformanceTargetV1,
     ConstructorInitializationRecordV1, DeclarationSurfaceRecordV1, DispatchCallableFactV1, EffectSpecV1,
@@ -1703,7 +1703,11 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
             denotation: Some(SemanticDenotationV1::TypeForm {
                 ty: ArtifactTypeId(0),
             }),
-            call_specialization: None,
+            call_specialization: Some(CallableCallSpecializationV1 {
+                callable: callable.clone(),
+                bindings: vec![],
+                conformances: vec![],
+            }),
         }],
         conformance_evidence: vec![],
         bindings: vec![
@@ -1815,7 +1819,9 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
     assert_eq!(imported.callable_binding_authority.binding_len(), 2);
     assert_eq!(imported.callable_expression_authority.callable_len(), 1);
     assert_eq!(imported.callable_expression_authority.expression_len(), 1);
-    assert_eq!(imported.callable_expression_authority.deferred_expression_len(), 0);
+    assert_eq!(imported.callable_expression_authority.deferred_expression_len(), 1);
+    assert_eq!(imported.callable_specialization_authority.callable_len(), 1);
+    assert_eq!(imported.callable_specialization_authority.specialization_len(), 1);
     let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
     ]));
@@ -1838,6 +1844,14 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
         expression.denotation,
         Some(phalcom_semantic::types::denotation::SemanticDenotation::TypeForm(_))
     ));
+    assert!(expression.deferred.call_specialization);
+    let specialization = imported
+        .callable_specialization_authority
+        .specialization(&callable_id, 0)
+        .expect("relocated call specialization");
+    assert_eq!(specialization.callable, callable_id);
+    assert!(specialization.bindings.is_empty());
+    assert!(specialization.conformances.is_empty());
     assert_eq!(imported.module_static_binding_authority.module_len(), 1);
     assert_eq!(imported.module_static_binding_authority.binding_len(), 1);
     assert_eq!(imported.module_static_binding_authority.visible_name_len(), 1);
