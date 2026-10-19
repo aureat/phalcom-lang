@@ -649,6 +649,34 @@ pub fn portable_structural_dependency_product_fingerprint(
 }
 
 impl QueryImageV3 {
+    /// Recomputes QUERY_FINGERPRINT_ABI_V2 evidence for the structural query
+    /// families currently covered by the portable contract.
+    ///
+    /// Artifact production should call this after semantic rows and query keys
+    /// are finalized and before encoding. Unsupported families are left
+    /// untouched until their own portable fingerprint contract is defined.
+    pub fn refresh_portable_structural_fingerprints(&mut self, world: &SemanticWorldV3) -> Result<(), ArtifactError> {
+        for root in &mut self.supported_roots {
+            if let Some((input, product)) = portable_structural_root_fingerprints(root, world)? {
+                root.input_fingerprint = input;
+                root.product_fingerprint = product;
+            }
+        }
+        for evidence in &mut self.dependency_evidence {
+            if matches!(evidence.key.kind, PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration) {
+                if evidence.key.owner != evidence.stable_aggregate_owner {
+                    return Err(ValidationError::ReferentialIntegrity(
+                        "structural dependency evidence key and aggregate owner differ".into(),
+                    )
+                    .into());
+                }
+                evidence.product_fingerprint = portable_structural_dependency_product_fingerprint(&evidence.key, world)?
+                    .ok_or_else(|| ValidationError::ReferentialIntegrity("missing portable structural dependency fingerprint".into()))?;
+            }
+        }
+        Ok(())
+    }
+
     /// Validates QUERY_FINGERPRINT_ABI_V2 structural evidence against the
     /// canonical semantic rows carried by the same artifact.
     ///
