@@ -135,7 +135,7 @@ pub(crate) fn reconstruct_associated_authority(
 }
 
 fn reject_duplicate_keys<K: Ord, V>(rows: &[(K, V)], message: &'static str) -> Result<(), ArtifactError> {
-    if rows.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+    if rows.windows(2).any(|pair| &pair[0].0 == &pair[1].0) {
         Err(invalid(message))
     } else {
         Ok(())
@@ -308,7 +308,7 @@ fn type_member_domain(domain: &TypeMemberDomainV1, types: &ReconstructedTypeGrap
 fn type_member_selector(selector: &TypeMemberSelectorV1, allocations: &mut AllocationBudget) -> Result<TypeMemberSelector, ArtifactError> {
     Ok(match selector {
         TypeMemberSelectorV1::Named { name } => {
-            if name.as_str() == "At" {
+            if name.as_ref() == "At" {
                 return Err(invalid("noncanonical type-member selector aliases the subscript identity"));
             }
             TypeMemberSelector::Named(allocations.boxed_str(name).map_err(ArtifactError::Allocation)?)
