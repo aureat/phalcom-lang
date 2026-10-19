@@ -5,7 +5,7 @@ use phalcom_compiler_artifact::semantic::aggregates::{DataInfoV1, DataShapeV1, S
 use phalcom_compiler_artifact::semantic::static_value::{StaticValueGraphV1, StaticValueV1};
 use phalcom_compiler_artifact::semantic::type_store::{ArtifactTypeId, TypeGraphV1};
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
-use phalcom_type_meta::Fingerprint128;
+use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
 
 fn world_with_data(owner: StableDeclarationRef) -> SemanticWorldV3 {
