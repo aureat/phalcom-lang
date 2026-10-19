@@ -289,6 +289,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             &payload.query_image,
             &semantic_aggregates,
             &associated_authority,
+            &callable_authority,
             &owners,
             &payload.semantic_world,
             child,
