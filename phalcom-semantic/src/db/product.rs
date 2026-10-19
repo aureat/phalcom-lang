@@ -156,7 +156,7 @@ pub struct DataDeclarationProduct {
 #[derive(Clone, Debug)]
 pub struct EnumDeclarationProduct {
     pub info: Arc<EnumInfo>,
-    pub variants: Arc<[VariantInfo]>,
+    pub variants: Arc<[Arc<VariantInfo>]>,
     pub diagnostics: Arc<[SemanticDiagnostic]>,
 }
 
