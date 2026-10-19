@@ -5,6 +5,7 @@
 mod associated_import;
 mod callable_binding_import;
 mod callable_import;
+mod conformance_evidence_import;
 mod conformance_import;
 mod denotation_import;
 mod constructor_import;
