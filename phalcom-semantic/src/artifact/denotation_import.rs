@@ -35,6 +35,7 @@ use phalcom_type_meta::allocation::AllocationBudget;
 pub(crate) fn reconstruct_semantic_denotation(
     denotation: &SemanticDenotationV1,
     types: &ReconstructedTypeGraph,
+    static_definitions: &super::static_definition_import::ImportedStaticDefinitionAuthority,
     owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<SemanticDenotation, ArtifactError> {
@@ -55,10 +56,21 @@ pub(crate) fn reconstruct_semantic_denotation(
         SemanticDenotationV1::StaticTerm { term } => {
             SemanticDenotation::StaticTerm(mapped(&types.types, term.0, "denotation static term")?)
         }
-        SemanticDenotationV1::StaticApplication { .. } => {
-            return Err(invalid(
-                "static-application denotation has no reconstructed checked-body application authority",
-            ));
+        SemanticDenotationV1::StaticApplication { body, ordinal } => {
+            let body = owners.declaration(body)?;
+            let definition = static_definitions
+                .get(&body)
+                .ok_or_else(|| invalid("static-application denotation references an absent imported static definition"))?;
+            let application = definition
+                .canonical_program
+                .applications
+                .get(*ordinal as usize)
+                .filter(|application| application.id.ordinal == *ordinal)
+                .ok_or_else(|| invalid("static-application denotation references an absent checked application row"))?;
+            if application.id.body.0 != body {
+                return Err(invalid("static-application denotation row belongs to a different static body"));
+            }
+            SemanticDenotation::StaticApplication(application.id.clone())
         }
         SemanticDenotationV1::AssociatedValue { value } => {
             use phalcom_compiler_artifact::semantic::world::AssociatedValueDenotationV1 as Wire;
