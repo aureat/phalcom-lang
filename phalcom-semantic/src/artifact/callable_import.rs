@@ -475,7 +475,7 @@ fn source_range(start: u64, end: u64, family: &str) -> Result<SourceRange, Artif
     })
 }
 
-fn import_unknown_reason(reason: &UnknownReasonV1, allocations: &mut AllocationBudget) -> Result<UnknownReason, ArtifactError> {
+pub(crate) fn import_unknown_reason(reason: &UnknownReasonV1, allocations: &mut AllocationBudget) -> Result<UnknownReason, ArtifactError> {
     Ok(match reason {
         UnknownReasonV1::NoTypeEvidence => UnknownReason::NoTypeEvidence,
         UnknownReasonV1::MissingInitializer => UnknownReason::MissingInitializer,
