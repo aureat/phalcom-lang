@@ -32,6 +32,7 @@
     "type_metadata_schema_version": 13
   },
   "measured_implementation_revision": "f2550f7193ae776f78e58d1ed187a3ae6c7efdd2",
+  "evidence_publication_revision": "99768ecfed6b5d0f33ac9b2a6239a5af07aeec96",
   "benchmark_profile": "release",
   "benchmark_binary": "target/release/examples/perf_audit_p7",
   "measurement_date": "2026-10-19"

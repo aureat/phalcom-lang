@@ -1,6 +1,6 @@
 # PERF003.C2.P7 R.G6/R.G7 certification matrix
 
-Test outcomes below were checked against the saved outputs in `logs/`. Reconciliation and implementation revisions are distinct: performance data was produced from `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`; the additional R.G7 test cases were committed at `c1524361b9606dc537671997fe5069f2aa66035b`.
+Test outcomes below were checked against the saved outputs in `logs/`. Reconciliation and implementation revisions are distinct: performance data was produced from `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`; the additional R.G7 test cases were committed at `c1524361b9606dc537671997fe5069f2aa66035b`; the evidence bundle was published at `99768ecfed6b5d0f33ac9b2a6239a5af07aeec96`.
 
 ## R.G6 — evidence integrity
 

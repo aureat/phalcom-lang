@@ -16,6 +16,7 @@ verification: FOCUSED_TESTED
 - Independent certification reconciliation: **complete**; R.G6 PASS and R.G7 PASS.
 - Measured implementation revision: `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`.
 - R.G7 test revision: `c1524361b9606dc537671997fe5069f2aa66035b`.
+- Evidence publication revision: `99768ecfed6b5d0f33ac9b2a6239a5af07aeec96`.
 - Next plan: `PERF003.C2.P8` (Portable Executable Universe), takeover **unblocked**. P8 implementation has not started.
 
 ## Takeover map and stable interfaces

@@ -4,6 +4,8 @@
 
 All cold, warm, runtime, SlotMap, allocation, and source-denial measurements were generated with the release audit binary built from measured implementation revision `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2` using the environment in [ENVIRONMENT.md](ENVIRONMENT.md). The later `c1524361b9606dc537671997fe5069f2aa66035b` commit adds regression tests only; it does not alter the benchmark harness or measured implementation.
 
+The committed measurement bundle and certification records were published at `99768ecfed6b5d0f33ac9b2a6239a5af07aeec96`.
+
 ```sh
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo build --release -p phalcom-core --example perf_audit_p7
 ./target/release/examples/perf_audit_p7 generate --out target/telos/universe/universe.telosc --json target/perf003-p7-audit/ARTIFACT.json

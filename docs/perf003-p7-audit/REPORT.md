@@ -13,7 +13,7 @@ P7 implementation remains `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. This reconc
 | Branch | `perf/universe-characterization` |
 | Measured implementation revision | `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2` |
 | R.G7 regression-test revision | `c1524361b9606dc537671997fe5069f2aa66035b` |
-| Evidence publication revision | Published in the evidence commit; the P7 checkpoint records its exact SHA after publication |
+| Evidence publication revision | `99768ecfed6b5d0f33ac9b2a6239a5af07aeec96` |
 | Toolchain | `rustc 1.99.0-nightly (af3d95584 2026-07-09)`, `cargo 1.99.0-nightly (59800466c 2026-07-07)` |
 | Platform | Darwin 25.5.0 arm64, Apple M1 Pro |
 | Profile | Release: opt-level 3, LTO enabled, one codegen unit, panic abort |

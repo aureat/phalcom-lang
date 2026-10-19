@@ -12,6 +12,8 @@ verification: FOCUSED_TESTED
 
 **Ruling: R.G6 PASS; R.G7 PASS. P7 is accepted / recertified, and P8 takeover is unblocked.** P8 implementation has not started.
 
+Measured implementation revision: `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`. R.G7 test additions: `c1524361b9606dc537671997fe5069f2aa66035b`. Evidence publication revision: `99768ecfed6b5d0f33ac9b2a6239a5af07aeec96`.
+
 | Gate | Revision tested | Exact command/test | Evidence | Result | Notes |
 |---|---|---|---|---|---|
 | R.G6 — evidence integrity | `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2` | Release `perf_audit_p7` build; artifact generation; cold, warm, and runtime suites | `docs/perf003-p7-audit/REPORT.md`, raw CSVs, `logs/*suite.txt` | PASS | 80 cold successes; 40 warm successes across two PIDs; 20 runtime errors preserved and not counted as success. |

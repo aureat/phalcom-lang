@@ -4,6 +4,7 @@
 - Branch: `perf/universe-characterization`.
 - Measured implementation revision: `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`.
 - R.G7 test additions: `c1524361b9606dc537671997fe5069f2aa66035b`.
+- Evidence publication revision: `99768ecfed6b5d0f33ac9b2a6239a5af07aeec96`.
 - Rust: `rustc 1.99.0-nightly (af3d95584 2026-07-09)`.
 - Cargo: `cargo 1.99.0-nightly (59800466c 2026-07-07)`.
 - OS and architecture: Darwin 25.5.0, arm64.

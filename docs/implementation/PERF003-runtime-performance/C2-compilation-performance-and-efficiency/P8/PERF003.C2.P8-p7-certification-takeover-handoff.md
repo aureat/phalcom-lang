@@ -14,10 +14,10 @@ P8 takeover is unblocked after independent P7 certification. No P8 implementatio
 
 - P7 implementation revision measured: `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`.
 - P7 R.G7 test revision: `c1524361b9606dc537671997fe5069f2aa66035b`.
+- Evidence publication revision: `99768ecfed6b5d0f33ac9b2a6239a5af07aeec96`.
 - R.G6: PASS; R.G7: PASS.
 - Evidence report: `docs/perf003-p7-audit/REPORT.md`.
 - Case matrix: `docs/perf003-p7-audit/R.G6-R.G7-CERTIFICATION.md`.
-- Evidence publication commit: see the PERF003.C2 checkpoint and final reconciliation delivery record.
 - Detailed P8 plan: `PERF003.C2.P8-portable-executable-universe-detailed-implementation-plan.md`.
 
 ## Inherited P7 contracts

@@ -30,7 +30,7 @@ P7 remains `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Independent certification 
 - Artifact: 15,936,496 bytes; BLAKE3-256 `b91ccc4e6011c2789c6e20861e6d6d98908074bb45461d54b5bd8885ca9665bf`.
 - Whole-load allocation N: 373,069,634 bytes; independent request count matches; N−1 fails typed; retry succeeds.
 - R.G6/R.G7 reports: [audit report](../../../perf003-p7-audit/REPORT.md), [certification matrix](../../../perf003-p7-audit/R.G6-R.G7-CERTIFICATION.md), [T6 report](P7-R1/PERF003.C2.P7-R.T6-performance-report.md).
-- Evidence publication commit: recorded in the reconciliation delivery commit and final response.
+- Evidence publication revision: `99768ecfed6b5d0f33ac9b2a6239a5af07aeec96`.
 - Workspace commands remain baseline-blocked by 412 stale semantic API fixtures, reproduced at clean predecessor `08e2b2f5`; this does not block the focused P7 gates.
 - Runtime suite: 20/20 attempts have `RUNTIME_ERROR`; the harness output field is empty. No runtime speed or cause is claimed.
 - Peak RSS remains a high-water process metric. Leak and retained-memory claims are unverified.

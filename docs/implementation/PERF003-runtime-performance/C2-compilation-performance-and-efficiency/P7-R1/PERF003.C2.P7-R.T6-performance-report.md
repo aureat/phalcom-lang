@@ -4,6 +4,7 @@
 
 - R.G6: **PASS**, independently recertified on the evidence in `docs/perf003-p7-audit/`.
 - Measured implementation revision: `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`.
+- Evidence publication revision: `99768ecfed6b5d0f33ac9b2a6239a5af07aeec96`.
 - Evidence includes 80 cold rows, 40 isolated warm rows, 20 classified runtime-error rows, artifact metadata, SlotMap parity, and allocation-boundary logs.
 - Test-only R.G7 additions were committed at `c1524361b9606dc537671997fe5069f2aa66035b`.
 
