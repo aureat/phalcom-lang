@@ -15,6 +15,20 @@ pub enum TypeKnowledge {
 }
 
 impl TypeKnowledge {
+    /// Reconstructs portable type evidence without changing its epistemic
+    /// status, origin, or provenance.
+    ///
+    /// Transplanted from certified PERF003 P7 so artifact import does not
+    /// silently discard evidence descriptions or source ranges.
+    pub(crate) fn known_with_evidence(ty: TypeId, status: EvidenceStatus, origin: EvidenceOrigin, provenance: EvidenceSet) -> Self {
+        Self::Known(TypeEvidence {
+            ty,
+            status,
+            origin,
+            provenance,
+        })
+    }
+
     #[inline]
     pub fn is_known(&self) -> bool {
         matches!(self, Self::Known(_))
