@@ -32,9 +32,15 @@ impl CanonicalExternalModuleWorld {
         Ok(Self { linked, interfaces, topology })
     }
 
-    pub fn linked(&self) -> &Arc<LinkedProgram> { &self.linked }
-    pub fn interfaces(&self) -> &ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>> { &self.interfaces }
-    pub fn topology(&self) -> &Arc<ModuleTopology> { &self.topology }
+    pub fn linked(&self) -> &Arc<LinkedProgram> {
+        &self.linked
+    }
+    pub fn interfaces(&self) -> &ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>> {
+        &self.interfaces
+    }
+    pub fn topology(&self) -> &Arc<ModuleTopology> {
+        &self.topology
+    }
 }
 
 /// Complete canonical module inputs with deterministic source provenance.
@@ -79,7 +85,12 @@ impl CanonicalModuleProducts {
             }
         }
         let plain_interfaces = interfaces.iter().map(|(id, iface)| (id.clone(), (**iface).clone())).collect();
-        let topology = Arc::new(ModuleTopology::from_parts(crate::ResolverGeneration(0), &linked.universe, &plain_interfaces, &BTreeMap::new()));
+        let topology = Arc::new(ModuleTopology::from_parts(
+            crate::ResolverGeneration(0),
+            &linked.universe,
+            &plain_interfaces,
+            &BTreeMap::new(),
+        ));
         let external = Arc::new(CanonicalExternalModuleWorld::from_parts(linked, interfaces.into(), topology)?);
         Ok(Self {
             external,
@@ -93,7 +104,9 @@ impl CanonicalModuleProducts {
         self.external.linked()
     }
     /// Source-free dependency authority, without build provenance.
-    pub fn external(&self) -> &Arc<CanonicalExternalModuleWorld> { &self.external }
+    pub fn external(&self) -> &Arc<CanonicalExternalModuleWorld> {
+        &self.external
+    }
     /// Complete source modules, including modules outside runtime reachability.
     pub fn sources(&self) -> &BTreeMap<ModuleId, Arc<ParsedModuleUnit>> {
         &self.sources

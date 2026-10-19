@@ -1104,7 +1104,11 @@ pub(crate) fn project_semantic_signature_with_allocation_budget(
                 SelectorSlot::Label(label) => SelectorSlot::Label(allocations.string(label)?),
             });
         }
-        Ok(Selector { base, kind: selector.kind, slots: allocations.boxed_slice(slots)? })
+        Ok(Selector {
+            base,
+            kind: selector.kind,
+            slots: allocations.boxed_slice(slots)?,
+        })
     }
 
     let mut parameters = allocations.vector(signature.parameters.len())?;
@@ -1115,27 +1119,23 @@ pub(crate) fn project_semantic_signature_with_allocation_budget(
                 mode: *mode,
                 contract: match contract {
                     RestValueContract::Unconstrained => RestValueContractKnowledge::Unconstrained,
-                    RestValueContract::Element(fact) => {
-                        RestValueContractKnowledge::Element(fact.to_knowledge_with_allocation_budget(allocations)?)
-                    }
+                    RestValueContract::Element(fact) => RestValueContractKnowledge::Element(fact.to_knowledge_with_allocation_budget(allocations)?),
                     RestValueContract::Lane(lane) => RestValueContractKnowledge::Lane(*lane),
-                    RestValueContract::Invalid(reason) => {
-                        RestValueContractKnowledge::Invalid(reason.clone_with_allocation_budget(allocations)?)
-                    }
+                    RestValueContract::Invalid(reason) => RestValueContractKnowledge::Invalid(reason.clone_with_allocation_budget(allocations)?),
                 },
             },
         };
         let ty = match &contract {
             CallableParameterContract::Fixed(ty) => ty.clone_with_allocation_budget(allocations)?,
-            CallableParameterContract::Rest { contract: RestValueContractKnowledge::Element(ty), .. } => {
-                ty.clone_with_allocation_budget(allocations)?
-            }
-            CallableParameterContract::Rest { contract: RestValueContractKnowledge::Invalid(reason), .. } => {
-                crate::types::evidence::TypeKnowledge::Unknown(reason.clone_with_allocation_budget(allocations)?)
-            }
-            CallableParameterContract::Rest { .. } => {
-                crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence)
-            }
+            CallableParameterContract::Rest {
+                contract: RestValueContractKnowledge::Element(ty),
+                ..
+            } => ty.clone_with_allocation_budget(allocations)?,
+            CallableParameterContract::Rest {
+                contract: RestValueContractKnowledge::Invalid(reason),
+                ..
+            } => crate::types::evidence::TypeKnowledge::Unknown(reason.clone_with_allocation_budget(allocations)?),
+            CallableParameterContract::Rest { .. } => crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
         };
         parameters.push(CallableParameter {
             external_label: parameter.external_label.as_ref().map(|label| allocations.string(label)).transpose()?,

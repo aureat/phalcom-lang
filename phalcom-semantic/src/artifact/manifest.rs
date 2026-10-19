@@ -33,58 +33,228 @@ pub struct CallableAnalysisFieldManifestRow {
 /// This list is intentionally explicit: adding a required owner field needs a
 /// matching DTO/import disposition before canonical image publication.
 pub const CALLABLE_ANALYSIS_FIELD_MANIFEST: &[CallableAnalysisFieldManifestRow] = &[
-    CallableAnalysisFieldManifestRow { field_name: "callable", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "body_range", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "body_source_owner", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "expressions", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
+    CallableAnalysisFieldManifestRow {
+        field_name: "callable",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "body_range",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "body_source_owner",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "expressions",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
     CallableAnalysisFieldManifestRow {
         field_name: "expression.call",
         disposition: FieldDisposition::Omitted {
             reason: "Unused call-resolution scaffold has no canonical owner table; export rejects every nonempty handle",
         },
     },
-    CallableAnalysisFieldManifestRow { field_name: "expression.conditional_dispatch", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "expression.trait_dispatch_candidates", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "expression.contextual_realization", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "expression.denotation", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "bindings", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "binding.denotation", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "binding_origins", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "for_iteration_lanes", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "positional_expansions", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "known_invalid_positional_expansions", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "sequence_literals", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "associated_resolutions", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "callable_reference_resolutions", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "family_applications", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "match_resolutions", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "local_proof_graph", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "pattern_site_resolutions", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "flow_graph", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
+    CallableAnalysisFieldManifestRow {
+        field_name: "expression.conditional_dispatch",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "expression.trait_dispatch_candidates",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "expression.contextual_realization",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "expression.denotation",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "bindings",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "binding.denotation",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "binding_origins",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "for_iteration_lanes",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "positional_expansions",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "known_invalid_positional_expansions",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "sequence_literals",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "associated_resolutions",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "callable_reference_resolutions",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "family_applications",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "match_resolutions",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "local_proof_graph",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "pattern_site_resolutions",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "flow_graph",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
     CallableAnalysisFieldManifestRow {
         field_name: "flow_graph.edge.predicate",
         disposition: FieldDisposition::Omitted {
             reason: "Unused predicate-handle scaffold has no canonical owner table; export rejects every nonempty handle",
         },
     },
-    CallableAnalysisFieldManifestRow { field_name: "entry_flow", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "exits", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "return_validation", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "diagnostics", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "internal_incidents", disposition: FieldDisposition::Omitted { reason: "Canonical compiler image rejects nonempty internal incidents" } },
-    CallableAnalysisFieldManifestRow { field_name: "explanations", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
+    CallableAnalysisFieldManifestRow {
+        field_name: "entry_flow",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "exits",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "return_validation",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "diagnostics",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "internal_incidents",
+        disposition: FieldDisposition::Omitted {
+            reason: "Canonical compiler image rejects nonempty internal incidents",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "explanations",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
     CallableAnalysisFieldManifestRow {
         field_name: "EvidenceRef::CallResolution",
         disposition: FieldDisposition::Omitted {
             reason: "Unused call-resolution evidence has no canonical owner table; export rejects every occurrence",
         },
     },
-    CallableAnalysisFieldManifestRow { field_name: "return_explanation", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "dependencies", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "semantic_dependencies", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "constructor_super_initializer", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
-    CallableAnalysisFieldManifestRow { field_name: "dependency_fingerprint", disposition: FieldDisposition::Derived { owner: "P7.T8::callable_body_product_fingerprint_after_relocation" } },
-    CallableAnalysisFieldManifestRow { field_name: "status", disposition: FieldDisposition::Wire { section: "SEMANTIC_WORLD::callable_analyses" } },
+    CallableAnalysisFieldManifestRow {
+        field_name: "return_explanation",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "dependencies",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "semantic_dependencies",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "constructor_super_initializer",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "dependency_fingerprint",
+        disposition: FieldDisposition::Derived {
+            owner: "P7.T8::callable_body_product_fingerprint_after_relocation",
+        },
+    },
+    CallableAnalysisFieldManifestRow {
+        field_name: "status",
+        disposition: FieldDisposition::Wire {
+            section: "SEMANTIC_WORLD::callable_analyses",
+        },
+    },
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

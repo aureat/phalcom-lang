@@ -1,8 +1,6 @@
 //! Source-mutable and artifact-frozen ordered collections for module authority.
 
-use phalcom_type_meta::allocation::{
-    AllocationBudget, AllocationError, BudgetedSortedMap, BudgetedSortedSet, SortedMapEntriesError, SortedSetEntriesError,
-};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedMap, BudgetedSortedSet, SortedMapEntriesError, SortedSetEntriesError};
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Formatter};
@@ -72,20 +70,14 @@ impl<K: Ord, V> ModuleAuthorityMap<K, V> {
     }
 
     /// Takes ownership of a strictly ordered, pre-budgeted entry buffer and charges the `Arc` owner.
-    pub fn from_budgeted_sorted_entries(
-        entries: Vec<(K, V)>,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, ModuleAuthorityBuildError> {
+    pub fn from_budgeted_sorted_entries(entries: Vec<(K, V)>, allocations: &mut AllocationBudget) -> Result<Self, ModuleAuthorityBuildError> {
         let frozen = BudgetedSortedMap::from_sorted_entries(entries)?;
         let frozen = allocations.arc(frozen)?;
         Ok(Self::Frozen(frozen))
     }
 
     /// Sorts and freezes a budgeted entry buffer.
-    pub fn from_budgeted_entries(
-        mut entries: Vec<(K, V)>,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, ModuleAuthorityBuildError> {
+    pub fn from_budgeted_entries(mut entries: Vec<(K, V)>, allocations: &mut AllocationBudget) -> Result<Self, ModuleAuthorityBuildError> {
         entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
         Self::from_budgeted_sorted_entries(entries, allocations)
     }
@@ -375,20 +367,14 @@ impl<K: Ord> ModuleAuthoritySet<K> {
     }
 
     /// Takes ownership of a strictly ordered, pre-budgeted entry buffer and charges the `Arc` owner.
-    pub fn from_budgeted_sorted_entries(
-        entries: Vec<K>,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, ModuleAuthorityBuildError> {
+    pub fn from_budgeted_sorted_entries(entries: Vec<K>, allocations: &mut AllocationBudget) -> Result<Self, ModuleAuthorityBuildError> {
         let frozen = BudgetedSortedSet::from_sorted_entries(entries)?;
         let frozen = allocations.arc(frozen)?;
         Ok(Self::Frozen(frozen))
     }
 
     /// Sorts and freezes a budgeted entry buffer.
-    pub fn from_budgeted_entries(
-        mut entries: Vec<K>,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, ModuleAuthorityBuildError> {
+    pub fn from_budgeted_entries(mut entries: Vec<K>, allocations: &mut AllocationBudget) -> Result<Self, ModuleAuthorityBuildError> {
         entries.sort_unstable();
         Self::from_budgeted_sorted_entries(entries, allocations)
     }

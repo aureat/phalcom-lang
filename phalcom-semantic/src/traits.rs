@@ -7,9 +7,9 @@
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ModuleId};
-use crate::signature::{CallableParameterSemantic, CallableSemanticSignature};
 use crate::ordered_map::{FrozenOrderedMapError, OrderedMap};
 use crate::parent_map::{FrozenParentMapError, ParentMap};
+use crate::signature::{CallableParameterSemantic, CallableSemanticSignature};
 use crate::surface::MemberVisibility;
 use crate::types::environment::{TypeEnvironment, TypeView};
 use crate::types::id::{KindId, TypeId};
@@ -181,14 +181,18 @@ pub(crate) fn clone_selector_with_allocation_budget(
         });
     }
     let slots = allocations.boxed_slice(slots)?;
-    Ok(Selector { base, kind: selector.kind, slots })
+    Ok(Selector {
+        base,
+        kind: selector.kind,
+        slots,
+    })
 }
 
 pub(crate) fn clone_selector_pattern_with_allocation_budget(
     pattern: &phalcom_common::selector::SelectorPattern,
     allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
 ) -> Result<phalcom_common::selector::SelectorPattern, phalcom_type_meta::allocation::AllocationError> {
-    use phalcom_common::selector::{SelectorBase, SelectorSlot, SelectorPattern};
+    use phalcom_common::selector::{SelectorBase, SelectorPattern, SelectorSlot};
 
     let base = match &pattern.base {
         SelectorBase::Named(name) => SelectorBase::Named(allocations.string(name)?),
@@ -392,11 +396,18 @@ impl TraitRequirementLayout {
         let mut slots = allocations.vector(members.len()).map_err(FrozenOrderedMapError::Allocation)?;
         let mut ordered = allocations.vector(members.len()).map_err(FrozenOrderedMapError::Allocation)?;
         for (slot, requirement) in members.keys().enumerate() {
-            let slot = u32::try_from(slot).map_err(|_| FrozenOrderedMapError::Allocation(
-                phalcom_type_meta::allocation::AllocationError::Overflow,
-            ))?;
-            slots.push((requirement.clone_with_allocation_budget(allocations).map_err(FrozenOrderedMapError::Allocation)?, slot));
-            ordered.push(requirement.clone_with_allocation_budget(allocations).map_err(FrozenOrderedMapError::Allocation)?);
+            let slot = u32::try_from(slot).map_err(|_| FrozenOrderedMapError::Allocation(phalcom_type_meta::allocation::AllocationError::Overflow))?;
+            slots.push((
+                requirement
+                    .clone_with_allocation_budget(allocations)
+                    .map_err(FrozenOrderedMapError::Allocation)?,
+                slot,
+            ));
+            ordered.push(
+                requirement
+                    .clone_with_allocation_budget(allocations)
+                    .map_err(FrozenOrderedMapError::Allocation)?,
+            );
         }
         let slots = OrderedMap::from_frozen_entries_with_allocation_budget(slots, allocations)?;
         let ordered = allocations.arc_slice(ordered).map_err(FrozenOrderedMapError::Allocation)?;
@@ -448,7 +459,14 @@ impl TraitSurface {
         allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
     ) -> Result<Self, FrozenOrderedMapError> {
         let requirement_layout = TraitRequirementLayout::from_frozen_members_with_allocation_budget(&members, allocations)?;
-        Ok(Self { declaration, generic_signature, members, associated_types, diagnostics, requirement_layout })
+        Ok(Self {
+            declaration,
+            generic_signature,
+            members,
+            associated_types,
+            diagnostics,
+            requirement_layout,
+        })
     }
 
     pub fn get(&self, requirement: &TraitRequirementId) -> Option<&TraitSurfaceMember> {

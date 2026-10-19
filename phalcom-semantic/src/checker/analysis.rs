@@ -349,10 +349,7 @@ pub struct BindingState {
 }
 
 impl BindingState {
-    pub(crate) fn clone_with_allocation_budget(
-        &self,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, AllocationError> {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
         let name = allocations.string(&self.name)?;
         let parameter = self.parameter.as_ref().map(|p| p.clone_with_allocation_budget(allocations)).transpose()?;
         let contract = self.contract.clone();

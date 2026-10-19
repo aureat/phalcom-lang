@@ -121,8 +121,8 @@ impl StaticValueGraphV1 {
         if bytes.len() as u64 > limits.max_decoded_section_bytes {
             return Err(invalid("static-value graph byte budget exceeded"));
         }
-        let allocation_limit = usize::try_from(limits.max_decoded_section_bytes)
-            .map_err(|_| invalid("static-value graph allocation limit exceeds address space"))?;
+        let allocation_limit =
+            usize::try_from(limits.max_decoded_section_bytes).map_err(|_| invalid("static-value graph allocation limit exceeds address space"))?;
         let mut allocations = AllocationBudget::new(allocation_limit);
         let mut input = Decode {
             reader: BinaryReader::new(bytes),
@@ -252,8 +252,11 @@ impl StaticValueGraphV1 {
         }
         for value in &self.values {
             match value {
-                StaticValueV1::Unit | StaticValueV1::Bool { .. } | StaticValueV1::Float { .. }
-                | StaticValueV1::Type { .. } | StaticValueV1::StaticTerm { .. } => {}
+                StaticValueV1::Unit
+                | StaticValueV1::Bool { .. }
+                | StaticValueV1::Float { .. }
+                | StaticValueV1::Type { .. }
+                | StaticValueV1::StaticTerm { .. } => {}
                 StaticValueV1::Char { scalar } => {
                     if char::from_u32(*scalar).is_none() {
                         return Err(malformed("invalid static character scalar"));
@@ -276,22 +279,45 @@ impl StaticValueGraphV1 {
         // Traverse structural arenas as graph nodes too. Many slices may share
         // a large backing; following its children once avoids quadratic work.
         let mut offsets = [0usize; 8];
-        let extents = [self.values.len(), self.tuples.len(), self.sequences.len(), self.records.len(),
-            self.data_values.len(), self.variant_values.len(), self.packs.len(), self.pack_backings.len()];
+        let extents = [
+            self.values.len(),
+            self.tuples.len(),
+            self.sequences.len(),
+            self.records.len(),
+            self.data_values.len(),
+            self.variant_values.len(),
+            self.packs.len(),
+            self.pack_backings.len(),
+        ];
         let mut total = 0usize;
         for (index, extent) in extents.into_iter().enumerate() {
             offsets[index] = total;
             total = total.checked_add(extent).ok_or_else(|| invalid("static graph extent overflow"))?;
         }
-        budget.scratch(total.checked_mul(std::mem::size_of::<usize>() + 1).ok_or_else(|| invalid("static graph scratch overflow"))?)?;
-        budget.scratch(self.values.len().checked_mul(std::mem::size_of::<ArtifactStaticValueId>()).ok_or_else(|| invalid("static order overflow"))?)?;
-        budget.scratch(total.checked_mul(std::mem::size_of::<(usize, StaticChildren<'_>)>()).ok_or_else(|| invalid("static stack overflow"))?)?;
+        budget.scratch(
+            total
+                .checked_mul(std::mem::size_of::<usize>() + 1)
+                .ok_or_else(|| invalid("static graph scratch overflow"))?,
+        )?;
+        budget.scratch(
+            self.values
+                .len()
+                .checked_mul(std::mem::size_of::<ArtifactStaticValueId>())
+                .ok_or_else(|| invalid("static order overflow"))?,
+        )?;
+        budget.scratch(
+            total
+                .checked_mul(std::mem::size_of::<(usize, StaticChildren<'_>)>())
+                .ok_or_else(|| invalid("static stack overflow"))?,
+        )?;
         let mut nodes = scratch.vector::<(u8, usize)>(total)?;
         nodes.resize(total, (0u8, 0usize));
         let mut order = scratch.vector::<ArtifactStaticValueId>(self.values.len())?;
         let mut stack = scratch.vector::<(usize, StaticChildren<'_>)>(total)?;
         for root in 0..total {
-            if nodes[root].0 != 0 { continue; }
+            if nodes[root].0 != 0 {
+                continue;
+            }
             nodes[root].0 = 1;
             stack.push((root, self.children(root, &offsets)));
             while let Some((node, children)) = stack.last_mut() {
@@ -316,7 +342,9 @@ impl StaticValueGraphV1 {
                     if nodes[node].1 > limits.max_recursion_depth {
                         return Err(invalid("static-value graph depth budget exceeded"));
                     }
-                    if node < self.values.len() { order.push(ArtifactStaticValueId(node as u32)); }
+                    if node < self.values.len() {
+                        order.push(ArtifactStaticValueId(node as u32));
+                    }
                     if let Some((parent, _)) = stack.last() {
                         nodes[*parent].1 = nodes[*parent].1.max(nodes[node].1 + 1);
                     }
@@ -333,7 +361,10 @@ impl StaticValueGraphV1 {
                 check_index(ty.0, type_count, "static type")?;
             }
         }
-        for ty in self.sequences.iter().map(|row| row.result_type)
+        for ty in self
+            .sequences
+            .iter()
+            .map(|row| row.result_type)
             .chain(self.data_values.iter().map(|row| row.result_type))
             .chain(self.variant_values.iter().map(|row| row.result_type))
         {
@@ -344,7 +375,9 @@ impl StaticValueGraphV1 {
 
     fn check_children(&self, children: &[ArtifactStaticValueId], budget: &mut GraphBudget<'_>) -> Result<(), ArtifactError> {
         budget.collection::<ArtifactStaticValueId>(children.len(), budget.limits.max_semantic_entries_per_family)?;
-        for child in children { check_index(child.0, self.values.len(), "static child")?; }
+        for child in children {
+            check_index(child.0, self.values.len(), "static child")?;
+        }
         Ok(())
     }
 
@@ -360,13 +393,19 @@ impl StaticValueGraphV1 {
                 _ => None,
             };
             StaticChildren::One(edge)
-        } else if node < offsets[2] { StaticChildren::Values(self.tuples[node - offsets[1]].iter()) }
-        else if node < offsets[3] { StaticChildren::Values(self.sequences[node - offsets[2]].elements.iter()) }
-        else if node < offsets[4] { StaticChildren::Record(self.records[node - offsets[3]].iter()) }
-        else if node < offsets[5] { StaticChildren::Data(self.data_values[node - offsets[4]].components.iter()) }
-        else if node < offsets[6] { StaticChildren::Variant(self.variant_values[node - offsets[5]].fields.iter()) }
-        else if node < offsets[7] { StaticChildren::One(Some(offsets[7] + self.packs[node - offsets[6]].backing.0 as usize)) }
-        else {
+        } else if node < offsets[2] {
+            StaticChildren::Values(self.tuples[node - offsets[1]].iter())
+        } else if node < offsets[3] {
+            StaticChildren::Values(self.sequences[node - offsets[2]].elements.iter())
+        } else if node < offsets[4] {
+            StaticChildren::Record(self.records[node - offsets[3]].iter())
+        } else if node < offsets[5] {
+            StaticChildren::Data(self.data_values[node - offsets[4]].components.iter())
+        } else if node < offsets[6] {
+            StaticChildren::Variant(self.variant_values[node - offsets[5]].fields.iter())
+        } else if node < offsets[7] {
+            StaticChildren::One(Some(offsets[7] + self.packs[node - offsets[6]].backing.0 as usize))
+        } else {
             let backing = &self.pack_backings[node - offsets[7]];
             StaticChildren::Backing(backing.positionals.iter().chain(backing.labeled_values.iter()))
         }
@@ -399,7 +438,9 @@ fn malformed(message: impl Into<String>) -> ArtifactError {
     ValidationError::ReferentialIntegrity(message.into()).into()
 }
 fn check_index(raw: u32, extent: usize, family: &str) -> Result<(), ArtifactError> {
-    if raw as usize >= extent { return Err(malformed(format!("invalid {family} reference {raw}"))); }
+    if raw as usize >= extent {
+        return Err(malformed(format!("invalid {family} reference {raw}")));
+    }
     Ok(())
 }
 fn check_range(start: u32, len: u32, extent: usize) -> Result<(), ArtifactError> {
@@ -411,9 +452,7 @@ fn check_range(start: u32, len: u32, extent: usize) -> Result<(), ArtifactError>
 /// Validates exact canonical decimal spelling before any arbitrary-precision parse.
 pub(crate) fn validate_decimal(decimal: &str) -> Result<(), ArtifactError> {
     let digits = decimal.strip_prefix('-').unwrap_or(decimal);
-    if digits.is_empty() || !digits.bytes().all(|digit| digit.is_ascii_digit())
-        || (digits.len() > 1 && digits.starts_with('0')) || decimal == "-0"
-    {
+    if digits.is_empty() || !digits.bytes().all(|digit| digit.is_ascii_digit()) || (digits.len() > 1 && digits.starts_with('0')) || decimal == "-0" {
         return Err(malformed("noncanonical static integer decimal"));
     }
     Ok(())
@@ -421,13 +460,21 @@ pub(crate) fn validate_decimal(decimal: &str) -> Result<(), ArtifactError> {
 fn validate_key(key: &FieldKeyV1, budget: &mut GraphBudget<'_>) -> Result<(), ArtifactError> {
     match key {
         FieldKeyV1::Symbol { value } | FieldKeyV1::String { value } => budget.text(value),
-        FieldKeyV1::Int { decimal } => { budget.text(decimal)?; validate_decimal(decimal) }
+        FieldKeyV1::Int { decimal } => {
+            budget.text(decimal)?;
+            validate_decimal(decimal)
+        }
         FieldKeyV1::Bool { .. } => Ok(()),
     }
 }
 fn compare_keys(left: &FieldKeyV1, right: &FieldKeyV1) -> std::cmp::Ordering {
     fn rank(key: &FieldKeyV1) -> u8 {
-        match key { FieldKeyV1::Symbol { .. } => 0, FieldKeyV1::String { .. } => 1, FieldKeyV1::Int { .. } => 2, FieldKeyV1::Bool { .. } => 3 }
+        match key {
+            FieldKeyV1::Symbol { .. } => 0,
+            FieldKeyV1::String { .. } => 1,
+            FieldKeyV1::Int { .. } => 2,
+            FieldKeyV1::Bool { .. } => 3,
+        }
     }
     rank(left).cmp(&rank(right)).then_with(|| match (left, right) {
         (FieldKeyV1::Symbol { value: left }, FieldKeyV1::Symbol { value: right })
@@ -445,36 +492,62 @@ fn compare_keys(left: &FieldKeyV1, right: &FieldKeyV1) -> std::cmp::Ordering {
     })
 }
 
-struct GraphBudget<'a> { limits: &'a ValidationLimits, bytes: u64, items: usize }
+struct GraphBudget<'a> {
+    limits: &'a ValidationLimits,
+    bytes: u64,
+    items: usize,
+}
 impl<'a> GraphBudget<'a> {
-    fn new(limits: &'a ValidationLimits) -> Self { Self { limits, bytes: limits.max_decoded_section_bytes, items: limits.max_semantic_entries_per_family } }
+    fn new(limits: &'a ValidationLimits) -> Self {
+        Self {
+            limits,
+            bytes: limits.max_decoded_section_bytes,
+            items: limits.max_semantic_entries_per_family,
+        }
+    }
     fn scratch(&mut self, bytes: usize) -> Result<(), ArtifactError> {
-        self.bytes = self.bytes.checked_sub(bytes as u64).ok_or_else(|| invalid("static graph allocation budget exceeded"))?;
+        self.bytes = self
+            .bytes
+            .checked_sub(bytes as u64)
+            .ok_or_else(|| invalid("static graph allocation budget exceeded"))?;
         Ok(())
     }
     fn collection<T>(&mut self, count: usize, limit: usize) -> Result<(), ArtifactError> {
-        if count > limit || u32::try_from(count).is_err() { return Err(invalid("static graph collection budget exceeded")); }
+        if count > limit || u32::try_from(count).is_err() {
+            return Err(invalid("static graph collection budget exceeded"));
+        }
         self.items = self.items.checked_sub(count).ok_or_else(|| invalid("static graph item budget exceeded"))?;
-        self.scratch(count.checked_mul(std::mem::size_of::<T>()).ok_or_else(|| invalid("static graph allocation overflow"))?)
+        self.scratch(
+            count
+                .checked_mul(std::mem::size_of::<T>())
+                .ok_or_else(|| invalid("static graph allocation overflow"))?,
+        )
     }
     fn text(&mut self, text: &str) -> Result<(), ArtifactError> {
-        if text.len() > self.limits.max_string_bytes { return Err(invalid("static graph string budget exceeded")); }
+        if text.len() > self.limits.max_string_bytes {
+            return Err(invalid("static graph string budget exceeded"));
+        }
         self.scratch(text.len())
     }
     fn owner(&mut self, owner: &StableDeclarationRef) -> Result<(), ArtifactError> {
         use phalcom_type_meta::identity::StableProjectRef;
         match &owner.module.project {
             StableProjectRef::Builtin { namespace, version } if namespace.as_ref() == "universe" => {
-                self.text(namespace)?; self.text(version)?;
+                self.text(namespace)?;
+                self.text(version)?;
             }
             _ => return Err(malformed("static owner is not a canonical Universe identity")),
         }
         self.collection::<Box<str>>(owner.module.path.len(), self.limits.max_semantic_entries_per_family)?;
         self.collection::<Box<str>>(owner.path.len(), self.limits.max_semantic_entries_per_family)?;
-        if owner.path.is_empty() { return Err(malformed("empty static declaration owner")); }
+        if owner.path.is_empty() {
+            return Err(malformed("empty static declaration owner"));
+        }
         for segment in owner.module.path.iter().chain(owner.path.iter()) {
             self.text(segment)?;
-            if segment.is_empty() { return Err(malformed("empty static owner path segment")); }
+            if segment.is_empty() {
+                return Err(malformed("empty static owner path segment"));
+            }
         }
         Ok(())
     }

@@ -1,10 +1,9 @@
-use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::container::TeloscContainerView;
+use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::section::SectionKind;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
 use phalcom_core::modules::canonical_artifact::{
-    build_universe_telosc, load_universe_telosc_from_bytes, load_universe_telosc_from_bytes_with_allocation_summary,
-    TeloscArtifactError,
+    TeloscArtifactError, build_universe_telosc, load_universe_telosc_from_bytes, load_universe_telosc_from_bytes_with_allocation_summary,
 };
 use phalcom_core::modules::canonical_universe::canonical_universe_program;
 use phalcom_semantic::artifact::import::validate_and_import_semantic_world_with_allocation_budget;
@@ -54,9 +53,7 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     } else {
         let program = canonical_universe_program().expect("canonical universe program must compile");
         let view = program.compiler_image_view().expect("compiler image view must be present");
-        build_universe_telosc(&view, &limits)
-            .expect("build_universe_telosc must succeed")
-            .bytes
+        build_universe_telosc(&view, &limits).expect("build_universe_telosc must succeed").bytes
     };
     assert!(!artifact_bytes.is_empty());
     if let Some(path) = std::env::var_os("PHALCOM_SAVE_UNIVERSE_TELOSC_FOR_TEST") {
@@ -69,33 +66,21 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     let container = TeloscContainerView::parse(&artifact_bytes, &limits).expect("parse generated artifact");
 
     // Isolate MODULE_WORLD materialization
-    let module_bytes = container
-        .require_section(SectionKind::ModuleWorld)
-        .expect("artifact must contain MODULE_WORLD");
+    let module_bytes = container.require_section(SectionKind::ModuleWorld).expect("artifact must contain MODULE_WORLD");
     let mut decode_module_budget = AllocationBudget::new(usize::MAX);
-    let module_dto = phalcom_compiler_artifact::module_world::ModuleWorldV1::decode_with_allocation_budget(
-        module_bytes,
-        &limits,
-        &mut decode_module_budget,
-    )
-    .expect("decode canonical Universe module world");
+    let module_dto = phalcom_compiler_artifact::module_world::ModuleWorldV1::decode_with_allocation_budget(module_bytes, &limits, &mut decode_module_budget)
+        .expect("decode canonical Universe module world");
     let mut module_transaction = AllocationBudget::new(usize::MAX);
     REQUESTED_BYTES.store(0, Ordering::Relaxed);
     MEASURING.store(true, Ordering::Relaxed);
-    let module_res = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(
-        &module_dto,
-        &limits,
-        &mut module_transaction,
-    );
+    let module_res = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_dto, &limits, &mut module_transaction);
     MEASURING.store(false, Ordering::Relaxed);
     let independently_observed_module = REQUESTED_BYTES.load(Ordering::Relaxed);
     let module_requested = module_transaction.requested();
     let module_delta = independently_observed_module as isize - module_requested as isize;
     eprintln!(
         "MODULE MATERIALIZATION:\n  ledger requested: {}\n  independently observed: {}\n  signed delta: {}",
-        module_requested,
-        independently_observed_module,
-        module_delta
+        module_requested, independently_observed_module, module_delta
     );
     let _modules = module_res.expect("module materialization must succeed");
     assert_eq!(
@@ -112,8 +97,7 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     };
     let decode_world = || {
         let mut decode_budget = AllocationBudget::new(usize::MAX);
-        SemanticWorldV3::decode_with_allocation_budget(semantic_bytes, &semantic_limits, &mut decode_budget)
-            .expect("decode canonical Universe semantic world")
+        SemanticWorldV3::decode_with_allocation_budget(semantic_bytes, &semantic_limits, &mut decode_budget).expect("decode canonical Universe semantic world")
     };
 
     let type_world = decode_world();
@@ -138,12 +122,8 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     drop((type_store, type_relocation));
 
     let mut discovery_transaction = AllocationBudget::new(usize::MAX);
-    let first_import = validate_and_import_semantic_world_with_allocation_budget(
-        decode_world(),
-        &semantic_limits,
-        &mut discovery_transaction,
-    )
-    .expect("import canonical Universe semantic world");
+    let first_import = validate_and_import_semantic_world_with_allocation_budget(decode_world(), &semantic_limits, &mut discovery_transaction)
+        .expect("import canonical Universe semantic world");
     let semantic_requested = discovery_transaction.requested();
     assert!(semantic_requested > 0, "semantic import ledger must record allocation requests");
     drop(first_import);
@@ -157,11 +137,7 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     REQUESTED_BYTES.store(0, Ordering::Relaxed);
     MEASURING.store(true, Ordering::Relaxed);
     phalcom_type_meta::allocation::register_allocation_probe(|| REQUESTED_BYTES.load(Ordering::Relaxed));
-    let imported = validate_and_import_semantic_world_with_allocation_budget(
-        semantic_world_for_measurement,
-        &exact_semantic_limits,
-        &mut exact_transaction,
-    );
+    let imported = validate_and_import_semantic_world_with_allocation_budget(semantic_world_for_measurement, &exact_semantic_limits, &mut exact_transaction);
     MEASURING.store(false, Ordering::Relaxed);
     let independently_observed_semantic = REQUESTED_BYTES.load(Ordering::Relaxed);
     eprintln!(
@@ -193,8 +169,7 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     assert_eq!(one_byte_short.requested(), 0, "failed semantic import must not commit its child ledger");
 
     // 2. Discover ledger requested bytes N with measurement disabled
-    let (summary_res, ledger_requested) =
-        load_universe_telosc_from_bytes_with_allocation_summary(&artifact_bytes, &limits);
+    let (summary_res, ledger_requested) = load_universe_telosc_from_bytes_with_allocation_summary(&artifact_bytes, &limits);
     let initial_artifact = summary_res.expect("initial load without memory measurement must succeed");
     drop(initial_artifact);
 
@@ -230,8 +205,7 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
         max_total_allocation_bytes: (n - 1) as u64,
         ..limits
     };
-    let (failed_cumulative, failed_cumulative_requested) =
-        load_universe_telosc_from_bytes_with_allocation_summary(&artifact_bytes, &limits_minus_one);
+    let (failed_cumulative, failed_cumulative_requested) = load_universe_telosc_from_bytes_with_allocation_summary(&artifact_bytes, &limits_minus_one);
     match failed_cumulative {
         Err(TeloscArtifactError::BudgetExceeded { limit_bytes }) => {
             assert_eq!(limit_bytes, n - 1, "cumulative exhaustion must record limit N - 1");
@@ -242,8 +216,8 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     assert!(failed_cumulative_requested <= n - 1, "failed load must not exceed limit");
 
     // Clean retry after cumulative allocation failure
-    let retry_cumulative = load_universe_telosc_from_bytes(&artifact_bytes, &limits_exact)
-        .expect("clean retry after cumulative allocation exhaustion must succeed");
+    let retry_cumulative =
+        load_universe_telosc_from_bytes(&artifact_bytes, &limits_exact).expect("clean retry after cumulative allocation exhaustion must succeed");
     drop(retry_cumulative);
 
     // 5. Verify local stage limit failure is distinct from cumulative exhaustion
@@ -252,12 +226,10 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
         max_decoded_section_bytes: 400_000,
         ..limits
     };
-    let (failed_local, failed_local_requested) =
-        load_universe_telosc_from_bytes_with_allocation_summary(&artifact_bytes, &limits_local_stage);
+    let (failed_local, failed_local_requested) = load_universe_telosc_from_bytes_with_allocation_summary(&artifact_bytes, &limits_local_stage);
     match failed_local {
-        Err(TeloscArtifactError::Artifact(phalcom_compiler_artifact::ArtifactError::Allocation(
-            phalcom_type_meta::allocation::AllocationError::Exhausted,
-        ))) => {}
+        Err(TeloscArtifactError::Artifact(phalcom_compiler_artifact::ArtifactError::Allocation(phalcom_type_meta::allocation::AllocationError::Exhausted))) => {
+        }
         Err(other) => panic!("expected typed local AllocationError::Exhausted, got {other:?}"),
         Ok(_) => panic!("load with insufficient section budget must fail closed"),
     }
@@ -265,18 +237,12 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     // The failed stage (MODULE_WORLD materialization) requests 823,059 bytes;
     // verify parent ledger only contains the preceding stages (301 + 377,691 = 377,992 bytes)
     // and does NOT include the uncommitted 823,059 debit.
-    assert_eq!(
-        failed_local_requested, 377_992,
-        "failed child transaction must not commit its debit to parent"
-    );
+    assert_eq!(failed_local_requested, 377_992, "failed child transaction must not commit its debit to parent");
 
     // Clean retry after local stage allocation failure
-    let retry_local = load_universe_telosc_from_bytes(&artifact_bytes, &limits_exact)
-        .expect("clean retry after local stage allocation exhaustion must succeed");
+    let retry_local =
+        load_universe_telosc_from_bytes(&artifact_bytes, &limits_exact).expect("clean retry after local stage allocation exhaustion must succeed");
     drop(retry_local);
 
-    assert_eq!(
-        observed, n,
-        "independent allocator requests must match production ledger exactly"
-    );
+    assert_eq!(observed, n, "independent allocator requests must match production ledger exactly");
 }

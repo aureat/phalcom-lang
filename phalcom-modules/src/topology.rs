@@ -125,14 +125,8 @@ impl ModuleTopology {
 
         let nodes = nodes.into();
         let source_modules = source_modules.into();
-        let children = children
-            .into_iter()
-            .map(|(k, v)| (k, ModuleAuthoritySet::from(v)))
-            .collect();
-        let exposed_children = exposed_children
-            .into_iter()
-            .map(|(k, v)| (k, ModuleAuthoritySet::from(v)))
-            .collect();
+        let children = children.into_iter().map(|(k, v)| (k, ModuleAuthoritySet::from(v))).collect();
+        let exposed_children = exposed_children.into_iter().map(|(k, v)| (k, ModuleAuthoritySet::from(v))).collect();
 
         let fingerprint = compute_topology_fingerprint(universe, &nodes, &exposed_children);
 

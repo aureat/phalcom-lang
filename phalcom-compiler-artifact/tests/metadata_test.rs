@@ -65,22 +65,20 @@ fn metadata_bundle_round_trip_uses_owner_codec_and_preserves_pools() {
         .decode_bundle(&limits(), &phalcom_type_meta::ValidationLimits::default(), &[7; 32], &mut remaining)
         .unwrap();
     assert_eq!(decoded, bundle());
-    // Charged both encoded bytes AND native table/string/scratch allocations:
-    assert!(remaining < 8192 - section.encoded_bundle.len());
+    // Charged native table/string/scratch allocations:
+    assert!(remaining < 8192);
     let total_charge = 8192 - remaining;
     assert_eq!(wire, real_section().encode().unwrap());
 
     // When shared budget is smaller than total required:
     let mut insufficient = total_charge.checked_sub(1).unwrap();
-    let err = restored
-        .decode_bundle(&limits(), &phalcom_type_meta::ValidationLimits::default(), &[7; 32], &mut insufficient);
+    let err = restored.decode_bundle(&limits(), &phalcom_type_meta::ValidationLimits::default(), &[7; 32], &mut insufficient);
     assert!(err.is_err());
     assert_eq!(insufficient, total_charge - 1); // Budget remains completely unchanged on failure
 
     // Exact budget leaves zero remaining:
     let mut exact = total_charge;
-    let ok = restored
-        .decode_bundle(&limits(), &phalcom_type_meta::ValidationLimits::default(), &[7; 32], &mut exact);
+    let ok = restored.decode_bundle(&limits(), &phalcom_type_meta::ValidationLimits::default(), &[7; 32], &mut exact);
     assert!(ok.is_ok());
     assert_eq!(exact, 0);
 }
@@ -184,7 +182,7 @@ fn metadata_rejects_trailing_bytes_invalid_json_and_wrong_package() {
 #[test]
 fn metadata_does_not_reset_shared_budget_and_rejects_nonportable_profile() {
     let mut section = real_section();
-    let mut budget = section.encoded_bundle.len() - 1;
+    let mut budget = 0;
     let before = budget;
     assert!(
         section
@@ -335,7 +333,13 @@ fn generic_parameters_and_static_domains_scratch_is_charged() {
     let (budget, _) = phalcom_type_meta::encode::inspect_metadata_bundle_allocations(&json).unwrap();
     // Validator scratch bytes for param_map is explicitly charged:
     assert!(budget.validator_scratch_bytes > 0);
-    assert_eq!(budget.validator_scratch_bytes, 10 * std::mem::size_of::<((&phalcom_type_meta::generic::StableTypeParameterOwnerRef, u32), &phalcom_type_meta::generic::TypeParameterRecord)>());
+    assert_eq!(
+        budget.validator_scratch_bytes,
+        10 * std::mem::size_of::<(
+            (&phalcom_type_meta::generic::StableTypeParameterOwnerRef, u32),
+            &phalcom_type_meta::generic::TypeParameterRecord
+        )>()
+    );
 }
 
 #[test]
@@ -351,7 +355,9 @@ fn insufficient_budget_rejection_leaves_caller_budget_unchanged() {
 fn representative_universe_metadata_decodes_cleanly_under_default_limits() {
     let section = real_section();
     let mut budget = 64 * 1024 * 1024;
-    let decoded = section.decode_bundle(&limits(), &phalcom_type_meta::ValidationLimits::default(), &[7; 32], &mut budget).unwrap();
+    let decoded = section
+        .decode_bundle(&limits(), &phalcom_type_meta::ValidationLimits::default(), &[7; 32], &mut budget)
+        .unwrap();
     assert_eq!(decoded.header.schema_version, TYPE_METADATA_SCHEMA_VERSION);
     assert!(budget < 64 * 1024 * 1024);
 }

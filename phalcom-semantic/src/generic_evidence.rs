@@ -1306,8 +1306,7 @@ pub fn prove_conformance_with_context(key: &GenericConformanceKey, context: &mut
     context.stack.pop();
     #[cfg(feature = "perf-observability")]
     if matches!(&proof, GenericConformanceProof::Proven(GenericConformanceEvidence::Derived(_))) {
-        telos_observability::PerfContext::current_thread()
-            .record_counter(telos_observability::PerfCounter::GenericConformanceDerivedProofs, 1);
+        telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::GenericConformanceDerivedProofs, 1);
     }
     context.memo.insert(key.clone(), ProofMemoState::Completed(proof.clone()));
     proof
@@ -1357,8 +1356,7 @@ pub fn query_generic_conformance_proof_with_structural(
     structural: Option<StructuralConformanceContext<'_>>,
 ) -> GenericConformanceProof {
     #[cfg(feature = "perf-observability")]
-    telos_observability::PerfContext::current_thread()
-        .record_counter(telos_observability::PerfCounter::GenericConformanceProofQueries, 1);
+    telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::GenericConformanceProofQueries, 1);
     let mut context = ConformanceProofContext::new(environment, conformance_index, witness_plans, trait_surfaces, declarations, hierarchy, store)
         .with_derived_rules(derived_rules)
         .with_structural(structural);

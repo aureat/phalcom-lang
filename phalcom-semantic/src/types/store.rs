@@ -6,8 +6,10 @@ use super::id::{
     AlgebraicStaticConstructorId, KindId, ProperTypeId, RecordRowId, StaticDomainId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId, VariantTypeId,
 };
 use super::kind::{KindApplicationError, KindData};
+use super::overlay::PersistentHashMapOverlay;
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
 pub use super::row::{AnonymousRecordRemainder, RecordRowData, RecordRowField, RecordRowTail, StructuralMemberPresence};
+use super::type_lambda::FrozenTypeLambdaPrefix;
 use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena};
 use super::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberDeclarationId, TypeMemberSelector};
 use super::variance::Variance;
@@ -17,11 +19,9 @@ use crate::traits::{AssociatedTypeRequirementId, TraitRef};
 use im::Vector;
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use super::type_lambda::FrozenTypeLambdaPrefix;
-use super::overlay::PersistentHashMapOverlay;
 use phalcom_type_meta::allocation::BudgetedSortedMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 fn canonical_complete_pack_source_member(selector: &TypeMemberSelector) -> TypeMemberDeclarationId {
     let module = ModuleId::universe(ModulePath::from_components(vec![
@@ -380,59 +380,57 @@ pub struct FrozenTypeStorePrefix {
 
 impl FrozenTypeStorePrefix {
     pub fn find_type(&self, data: &TypeData, kind: KindId) -> Option<TypeId> {
-        let idx = self.type_to_id.binary_search_by(|&id| {
-            (&self.types[id.index()], self.type_kinds[id.index()]).cmp(&(data, kind))
-        }).ok()?;
+        let idx = self
+            .type_to_id
+            .binary_search_by(|&id| (&self.types[id.index()], self.type_kinds[id.index()]).cmp(&(data, kind)))
+            .ok()?;
         Some(self.type_to_id[idx])
     }
 
     pub fn find_kind(&self, key: &KindData) -> Option<KindId> {
-        let idx = self.kind_to_id.binary_search_by(|&id| {
-            self.kinds[id.index()].cmp(key)
-        }).ok()?;
+        let idx = self.kind_to_id.binary_search_by(|&id| self.kinds[id.index()].cmp(key)).ok()?;
         Some(self.kind_to_id[idx])
     }
 
     pub fn find_parameter(&self, owner: &TypeParameterOwner, index: u32) -> Option<TypeParameterId> {
-        let idx = self.parameter_to_id.binary_search_by(|&id| {
-            let p = &self.type_parameters[id.index()];
-            (&p.owner, p.index).cmp(&(owner, index))
-        }).ok()?;
+        let idx = self
+            .parameter_to_id
+            .binary_search_by(|&id| {
+                let p = &self.type_parameters[id.index()];
+                (&p.owner, p.index).cmp(&(owner, index))
+            })
+            .ok()?;
         Some(self.parameter_to_id[idx])
     }
 
     pub fn find_row(&self, key: &RecordRowData) -> Option<RecordRowId> {
-        let idx = self.row_interner.binary_search_by(|&id| {
-            self.row_arena[id.index()].cmp(key)
-        }).ok()?;
+        let idx = self.row_interner.binary_search_by(|&id| self.row_arena[id.index()].cmp(key)).ok()?;
         Some(self.row_interner[idx])
     }
 
     pub fn find_family(&self, key: &FamilyType) -> Option<FamilyTypeId> {
-        let idx = self.family_interner.binary_search_by(|&id| {
-            self.family_arena[id.index()].cmp(key)
-        }).ok()?;
+        let idx = self.family_interner.binary_search_by(|&id| self.family_arena[id.index()].cmp(key)).ok()?;
         Some(self.family_interner[idx])
     }
 
     pub fn find_variant(&self, key: &VariantId) -> Option<VariantTypeId> {
-        let idx = self.variant_identity_to_id.binary_search_by(|&id| {
-            self.variant_identities[id.index()].cmp(key)
-        }).ok()?;
+        let idx = self
+            .variant_identity_to_id
+            .binary_search_by(|&id| self.variant_identities[id.index()].cmp(key))
+            .ok()?;
         Some(self.variant_identity_to_id[idx])
     }
 
     pub fn find_static_domain(&self, key: &StaticDomainData) -> Option<StaticDomainId> {
-        let idx = self.static_domain_to_id.binary_search_by(|&id| {
-            self.static_domains[id.index()].cmp(key)
-        }).ok()?;
+        let idx = self.static_domain_to_id.binary_search_by(|&id| self.static_domains[id.index()].cmp(key)).ok()?;
         Some(self.static_domain_to_id[idx])
     }
 
     pub fn find_static_constructor(&self, key: &AlgebraicStaticConstructorData) -> Option<AlgebraicStaticConstructorId> {
-        let idx = self.static_constructor_to_id.binary_search_by(|&id| {
-            self.static_constructors[id.index()].cmp(key)
-        }).ok()?;
+        let idx = self
+            .static_constructor_to_id
+            .binary_search_by(|&id| self.static_constructors[id.index()].cmp(key))
+            .ok()?;
         Some(self.static_constructor_to_id[idx])
     }
 }
@@ -633,7 +631,8 @@ impl TypeStore {
             && self.static_domain_count() >= prefix.static_domain_count()
             && (0..prefix.static_domain_count()).all(|i| self.static_domain(StaticDomainId(i as u32)) == prefix.static_domain(StaticDomainId(i as u32)))
             && self.static_constructor_count() >= prefix.static_constructor_count()
-            && (0..prefix.static_constructor_count()).all(|i| self.static_constructor(AlgebraicStaticConstructorId(i as u32)) == prefix.static_constructor(AlgebraicStaticConstructorId(i as u32)))
+            && (0..prefix.static_constructor_count())
+                .all(|i| self.static_constructor(AlgebraicStaticConstructorId(i as u32)) == prefix.static_constructor(AlgebraicStaticConstructorId(i as u32)))
             && self.lambda_arena.extends_prefix(&prefix.lambda_arena)
             && prefix
                 .parameter_variance_bindings()
@@ -748,7 +747,11 @@ impl TypeStore {
 
     pub fn get_parameter_variance(&self, decl: &DeclarationId, index: u32) -> Option<Variance> {
         if let Some(frozen) = &self.frozen {
-            if let Ok(idx) = frozen.parameter_variances.as_entries().binary_search_by(|((d, i), _)| (d, *i).cmp(&(decl, index))) {
+            if let Ok(idx) = frozen
+                .parameter_variances
+                .as_entries()
+                .binary_search_by(|((d, i), _)| (d, *i).cmp(&(decl, index)))
+            {
                 return Some(frozen.parameter_variances.as_entries()[idx].1);
             }
         }
@@ -912,20 +915,12 @@ impl TypeStore {
 
     #[inline]
     pub fn never(&self) -> TypeId {
-        if let Some(frozen) = &self.frozen {
-            frozen.never_id
-        } else {
-            self.never_id
-        }
+        if let Some(frozen) = &self.frozen { frozen.never_id } else { self.never_id }
     }
 
     #[inline]
     pub fn unit(&self) -> TypeId {
-        if let Some(frozen) = &self.frozen {
-            frozen.unit_id
-        } else {
-            self.unit_id
-        }
+        if let Some(frozen) = &self.frozen { frozen.unit_id } else { self.unit_id }
     }
 
     pub fn intern_kind(&mut self, data: KindData) -> KindId {
@@ -1296,7 +1291,12 @@ impl TypeStore {
     /// Returns an already-interned proper nominal type without mutating the store.
     pub fn nominal_type_id(&self, declaration: &DeclarationId) -> Option<TypeId> {
         if let Some(frozen) = &self.frozen {
-            if let Some(id) = frozen.find_type(&TypeData::Nominal { declaration: declaration.clone() }, KindId::TYPE) {
+            if let Some(id) = frozen.find_type(
+                &TypeData::Nominal {
+                    declaration: declaration.clone(),
+                },
+                KindId::TYPE,
+            ) {
                 return Some(id);
             }
         }
@@ -1316,7 +1316,9 @@ impl TypeStore {
         declaration: &DeclarationId,
         allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
     ) -> Result<Option<TypeId>, phalcom_type_meta::allocation::AllocationError> {
-        let data = TypeData::ClassObject { declaration: declaration.clone_with_allocation_budget(allocations)? };
+        let data = TypeData::ClassObject {
+            declaration: declaration.clone_with_allocation_budget(allocations)?,
+        };
         if let Some(frozen) = &self.frozen
             && let Some(id) = frozen.find_type(&data, KindId::TYPE)
         {
@@ -1328,7 +1330,12 @@ impl TypeStore {
     /// Returns an already-interned class-object type without mutating the store.
     pub fn class_object_type_id(&self, declaration: &DeclarationId) -> Option<TypeId> {
         if let Some(frozen) = &self.frozen {
-            if let Some(id) = frozen.find_type(&TypeData::ClassObject { declaration: declaration.clone() }, KindId::TYPE) {
+            if let Some(id) = frozen.find_type(
+                &TypeData::ClassObject {
+                    declaration: declaration.clone(),
+                },
+                KindId::TYPE,
+            ) {
                 return Some(id);
             }
         }

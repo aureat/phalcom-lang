@@ -12,8 +12,7 @@ use crate::scoped_type::ScopedTypeNodeEntry;
 use crate::type_node::{TypeNodeEntry, TypeNodeId};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct ModuleMetadataRoot {
     pub module: StableModuleRef,
     pub declarations: Box<[DeclarationRecordId]>,
@@ -23,20 +22,17 @@ pub struct ModuleMetadataRoot {
     pub interface_fingerprint: Fingerprint128,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct RuntimeTypeFormKey(pub Box<str>);
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct RuntimeTypeFormRoot {
     pub module: StableModuleRef,
     pub local_key: RuntimeTypeFormKey,
     pub form: TypeNodeId,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct MetadataExtensionSection {
     pub feature: FeatureSectionId,
     pub schema_version: u32,
@@ -45,8 +41,7 @@ pub struct MetadataExtensionSection {
     pub payload: Box<[u8]>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum TypeUseRoleRef {
     Parameter,
     Return,
@@ -56,8 +51,7 @@ pub enum TypeUseRoleRef {
     TypeConstant,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum TypeUseStatusRef {
     Known(TypeNodeId),
     InternalClassObject(StableDeclarationRef),
@@ -66,8 +60,7 @@ pub enum TypeUseStatusRef {
     Unknown(crate::declaration::UnknownReasonRef),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct TypeUseRecord {
     pub role: TypeUseRoleRef,
     pub status: TypeUseStatusRef,
@@ -76,8 +69,7 @@ pub struct TypeUseRecord {
 }
 
 /// The complete immutable metadata bundle for a compiled artifact / program.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct SemanticMetadataBundle {
     pub header: SemanticMetadataHeader,
     pub kinds: Box<[KindNodeEntry]>,

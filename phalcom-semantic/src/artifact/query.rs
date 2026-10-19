@@ -669,7 +669,9 @@ fn product_and_fingerprints(
     allocations: &mut AllocationBudget,
 ) -> Result<(Arc<SemanticProduct>, ProductFingerprint, InputFingerprint), CanonicalImageError> {
     use crate::db::fingerprint as fp;
-    let empty_diagnostics = allocations.arc_slice(Vec::<crate::diagnostic::SemanticDiagnostic>::new()).map_err(allocation_error)?;
+    let empty_diagnostics = allocations
+        .arc_slice(Vec::<crate::diagnostic::SemanticDiagnostic>::new())
+        .map_err(allocation_error)?;
     let result = match key {
         QueryKey::UnlinkedInterface(module) => {
             let interface = modules
@@ -725,7 +727,11 @@ fn product_and_fingerprints(
             };
             let product_fingerprint = fp::declaration_shell_product_fingerprint(&shell);
             let input_fingerprint = fp::declaration_shell_input_fingerprint(&shell);
-            (SemanticProduct::DeclarationShell(allocations.arc(shell).map_err(allocation_error)?), product_fingerprint, input_fingerprint)
+            (
+                SemanticProduct::DeclarationShell(allocations.arc(shell).map_err(allocation_error)?),
+                product_fingerprint,
+                input_fingerprint,
+            )
         }
         QueryKey::DeclarationSurface(declaration) => {
             let surface = snapshot
@@ -739,7 +745,11 @@ fn product_and_fingerprints(
                 surface: allocations.arc(surface).map_err(allocation_error)?,
                 diagnostics: empty_diagnostics,
             };
-            (SemanticProduct::DeclarationSurface(allocations.arc(product).map_err(allocation_error)?), product_fingerprint, input_fingerprint)
+            (
+                SemanticProduct::DeclarationSurface(allocations.arc(product).map_err(allocation_error)?),
+                product_fingerprint,
+                input_fingerprint,
+            )
         }
         QueryKey::CallableSignature(callable) => {
             let signature = snapshot
@@ -751,7 +761,11 @@ fn product_and_fingerprints(
             let input_fingerprint = fp::callable_signature_input_fingerprint(&signature);
             let signature = allocations.arc(signature).map_err(allocation_error)?;
             let product = CallableSignatureProduct::new(signature, empty_diagnostics);
-            (SemanticProduct::CallableSignature(allocations.arc(product).map_err(allocation_error)?), product_fingerprint, input_fingerprint)
+            (
+                SemanticProduct::CallableSignature(allocations.arc(product).map_err(allocation_error)?),
+                product_fingerprint,
+                input_fingerprint,
+            )
         }
         QueryKey::CallableDefinition(callable) => {
             let definition = snapshot
@@ -776,7 +790,11 @@ fn product_and_fingerprints(
             let input_fingerprint = fp::field_signature_input_fingerprint(&signature);
             let signature = allocations.arc(signature).map_err(allocation_error)?;
             let product = crate::db::product::FieldSignatureProduct::new(signature, empty_diagnostics);
-            (SemanticProduct::FieldSignature(allocations.arc(product).map_err(allocation_error)?), product_fingerprint, input_fingerprint)
+            (
+                SemanticProduct::FieldSignature(allocations.arc(product).map_err(allocation_error)?),
+                product_fingerprint,
+                input_fingerprint,
+            )
         }
         QueryKey::TraitHeader(declaration) => {
             let header = snapshot
@@ -811,7 +829,11 @@ fn product_and_fingerprints(
             };
             let product_fingerprint = fp::data_declaration_product_fingerprint(&product);
             let input_fingerprint = fp::data_declaration_input_fingerprint(&product);
-            (SemanticProduct::DataDeclaration(allocations.arc(product).map_err(allocation_error)?), product_fingerprint, input_fingerprint)
+            (
+                SemanticProduct::DataDeclaration(allocations.arc(product).map_err(allocation_error)?),
+                product_fingerprint,
+                input_fingerprint,
+            )
         }
         QueryKey::EnumDeclaration(declaration) => {
             let info = snapshot
@@ -840,7 +862,11 @@ fn product_and_fingerprints(
             };
             let product_fingerprint = fp::enum_declaration_product_fingerprint(&product);
             let input_fingerprint = fp::enum_declaration_input_fingerprint(&product);
-            (SemanticProduct::EnumDeclaration(allocations.arc(product).map_err(allocation_error)?), product_fingerprint, input_fingerprint)
+            (
+                SemanticProduct::EnumDeclaration(allocations.arc(product).map_err(allocation_error)?),
+                product_fingerprint,
+                input_fingerprint,
+            )
         }
         QueryKey::AssociatedSurface(declaration) => {
             let surface = snapshot
@@ -865,13 +891,10 @@ fn product_and_fingerprints(
         }
         QueryKey::ModuleStaticBindingCatalog(module) => {
             let catalog = if let Some(index) = snapshot.module_static_bindings.get(module) {
-                crate::module_bindings::ModuleStaticBindingCatalog::from_index_with_allocation_budget(index, allocations)
-                    .map_err(|error| match error {
-                        crate::module_bindings::ModuleStaticBindingCatalogBuildError::Allocation(error) => allocation_error(error),
-                        crate::module_bindings::ModuleStaticBindingCatalogBuildError::DuplicateKey => {
-                            incomplete("duplicate module static binding catalog entry")
-                        }
-                    })?
+                crate::module_bindings::ModuleStaticBindingCatalog::from_index_with_allocation_budget(index, allocations).map_err(|error| match error {
+                    crate::module_bindings::ModuleStaticBindingCatalogBuildError::Allocation(error) => allocation_error(error),
+                    crate::module_bindings::ModuleStaticBindingCatalogBuildError::DuplicateKey => incomplete("duplicate module static binding catalog entry"),
+                })?
             } else {
                 crate::module_bindings::ModuleStaticBindingCatalog::empty_with_allocation_budget(module, allocations).map_err(allocation_error)?
             };

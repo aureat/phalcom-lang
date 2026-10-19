@@ -4,9 +4,9 @@ use crate::identity::DeclarationId;
 use crate::ordered_map::OrderedMap;
 use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::parameter::{GenericConstraint, TypeTerm};
-use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use crate::types::store::{TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::BTreeMap;
 
 /// Per-variant GADT type equality environment.
@@ -18,7 +18,10 @@ pub struct CaseTypeEnvironment {
 
 impl CaseTypeEnvironment {
     pub fn new(bindings: impl Into<OrderedMap<TypeParameterId, TypeId>>, equalities: Box<[GenericConstraint]>) -> Self {
-        Self { bindings: bindings.into(), equalities }
+        Self {
+            bindings: bindings.into(),
+            equalities,
+        }
     }
 
     pub fn is_empty(&self) -> bool {

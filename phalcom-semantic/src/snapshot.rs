@@ -21,9 +21,9 @@ use crate::type_alias::TypeAliasTable;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use phalcom_common::selector::Selector;
-use phalcom_modules::graph::SemanticGraph;
 use phalcom_modules::authority::{ModuleAuthorityMapRef, ModuleAuthoritySet, ModuleAuthoritySetRef, ReverseImportsRef};
 use phalcom_modules::canonical_products::CanonicalExternalModuleWorld;
+use phalcom_modules::graph::SemanticGraph;
 use phalcom_modules::identity::{SourceId, SourceLocation};
 use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::project::ProjectUniverse;
@@ -100,7 +100,9 @@ impl ModuleQueryResolvedImports {
             Self::Frozen(map) => map.len(),
         }
     }
-    pub fn is_empty(&self) -> bool { self.len() == 0 }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn authority_ref(&self) -> ModuleAuthorityMapRef<'_, (ModuleId, String), ModuleId> {
         match self {
             Self::Source(map) => ModuleAuthorityMapRef::from(map),
@@ -111,20 +113,23 @@ impl ModuleQueryResolvedImports {
         entries: Vec<((ModuleId, String), ModuleId)>,
         allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
     ) -> Result<Self, ModuleQueryProductsBuildError> {
-        let frozen = phalcom_type_meta::allocation::BudgetedSortedMap::from_sorted_entries(entries)
-            .map_err(|_| ModuleQueryProductsBuildError::DuplicateKey)?;
+        let frozen = phalcom_type_meta::allocation::BudgetedSortedMap::from_sorted_entries(entries).map_err(|_| ModuleQueryProductsBuildError::DuplicateKey)?;
         let frozen = allocations.arc(frozen).map_err(ModuleQueryProductsBuildError::Allocation)?;
         Ok(Self::Frozen(frozen))
     }
 }
 
 impl PartialEq for ModuleQueryResolvedImports {
-    fn eq(&self, other: &Self) -> bool { self.len() == other.len() && self.iter().eq(other.iter()) }
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().eq(other.iter())
+    }
 }
 impl Eq for ModuleQueryResolvedImports {}
 impl Index<&(ModuleId, String)> for ModuleQueryResolvedImports {
     type Output = ModuleId;
-    fn index(&self, key: &(ModuleId, String)) -> &Self::Output { self.get(key).expect("key present in resolved import index") }
+    fn index(&self, key: &(ModuleId, String)) -> &Self::Output {
+        self.get(key).expect("key present in resolved import index")
+    }
 }
 
 /// Module interface view that either retains source-built interfaces or reads
@@ -149,7 +154,10 @@ impl<'a> Iterator for ModuleQueryUnlinkedIter<'a> {
         }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = match self { Self::Source(iter) => iter.len(), Self::Canonical(iter) => iter.len() };
+        let len = match self {
+            Self::Source(iter) => iter.len(),
+            Self::Canonical(iter) => iter.len(),
+        };
         (len, Some(len))
     }
 }
@@ -168,27 +176,46 @@ impl ModuleQueryUnlinkedInterfaces {
             Self::Canonical(world) => ModuleQueryUnlinkedIter::Canonical(world.interfaces().iter()),
         }
     }
-    pub fn keys(&self) -> impl ExactSizeIterator<Item = &ModuleId> { self.iter().map(|(module, _)| module) }
-    pub fn len(&self) -> usize {
-        match self { Self::Source(map) => map.len(), Self::Canonical(world) => world.interfaces().len() }
+    pub fn keys(&self) -> impl ExactSizeIterator<Item = &ModuleId> {
+        self.iter().map(|(module, _)| module)
     }
-    pub fn contains_key(&self, module: &ModuleId) -> bool { self.get(module).is_some() }
-    pub fn is_empty(&self) -> bool { self.len() == 0 }
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Source(map) => map.len(),
+            Self::Canonical(world) => world.interfaces().len(),
+        }
+    }
+    pub fn contains_key(&self, module: &ModuleId) -> bool {
+        self.get(module).is_some()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn source_authority_ref(&self) -> Option<ModuleAuthorityMapRef<'_, ModuleId, UnlinkedModuleInterface>> {
-        match self { Self::Source(map) => Some(ModuleAuthorityMapRef::from(map)), Self::Canonical(_) => None }
+        match self {
+            Self::Source(map) => Some(ModuleAuthorityMapRef::from(map)),
+            Self::Canonical(_) => None,
+        }
     }
     fn canonical_world(&self) -> Option<&Arc<CanonicalExternalModuleWorld>> {
-        match self { Self::Source(_) => None, Self::Canonical(world) => Some(world) }
+        match self {
+            Self::Source(_) => None,
+            Self::Canonical(world) => Some(world),
+        }
     }
 }
 
 impl PartialEq for ModuleQueryUnlinkedInterfaces {
-    fn eq(&self, other: &Self) -> bool { self.len() == other.len() && self.iter().eq(other.iter()) }
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().eq(other.iter())
+    }
 }
 impl Eq for ModuleQueryUnlinkedInterfaces {}
 impl Index<&ModuleId> for ModuleQueryUnlinkedInterfaces {
     type Output = UnlinkedModuleInterface;
-    fn index(&self, key: &ModuleId) -> &Self::Output { self.get(key).expect("module interface present") }
+    fn index(&self, key: &ModuleId) -> &Self::Output {
+        self.get(key).expect("module interface present")
+    }
 }
 
 /// Linked interface view that shares the loaded canonical `LinkedProgram`.
@@ -212,7 +239,10 @@ impl<'a> Iterator for ModuleQueryLinkedIter<'a> {
         }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = match self { Self::Source(iter) => iter.len(), Self::Canonical(iter) => iter.len() };
+        let len = match self {
+            Self::Source(iter) => iter.len(),
+            Self::Canonical(iter) => iter.len(),
+        };
         (len, Some(len))
     }
 }
@@ -231,24 +261,40 @@ impl ModuleQueryLinkedInterfaces {
             Self::Canonical(world) => ModuleQueryLinkedIter::Canonical(world.linked().modules.iter()),
         }
     }
-    pub fn keys(&self) -> impl ExactSizeIterator<Item = &ModuleId> { self.iter().map(|(module, _)| module) }
-    pub fn len(&self) -> usize {
-        match self { Self::Source(map) => map.len(), Self::Canonical(world) => world.linked().modules.len() }
+    pub fn keys(&self) -> impl ExactSizeIterator<Item = &ModuleId> {
+        self.iter().map(|(module, _)| module)
     }
-    pub fn contains_key(&self, module: &ModuleId) -> bool { self.get(module).is_some() }
-    pub fn is_empty(&self) -> bool { self.len() == 0 }
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Source(map) => map.len(),
+            Self::Canonical(world) => world.linked().modules.len(),
+        }
+    }
+    pub fn contains_key(&self, module: &ModuleId) -> bool {
+        self.get(module).is_some()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn source_authority_ref(&self) -> Option<ModuleAuthorityMapRef<'_, ModuleId, LinkedModuleInterface>> {
-        match self { Self::Source(map) => Some(ModuleAuthorityMapRef::from(map)), Self::Canonical(_) => None }
+        match self {
+            Self::Source(map) => Some(ModuleAuthorityMapRef::from(map)),
+            Self::Canonical(_) => None,
+        }
     }
 }
 
 impl PartialEq for ModuleQueryLinkedInterfaces {
-    fn eq(&self, other: &Self) -> bool { self.len() == other.len() && self.iter().eq(other.iter()) }
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().eq(other.iter())
+    }
 }
 impl Eq for ModuleQueryLinkedInterfaces {}
 impl Index<&ModuleId> for ModuleQueryLinkedInterfaces {
     type Output = LinkedModuleInterface;
-    fn index(&self, key: &ModuleId) -> &Self::Output { self.get(key).expect("linked module interface present") }
+    fn index(&self, key: &ModuleId) -> &Self::Output {
+        self.get(key).expect("linked module interface present")
+    }
 }
 
 /// Reverse-import set view reuses the module authority read adapter.
@@ -274,7 +320,10 @@ impl<'a> Iterator for ModuleQueryReverseIter<'a> {
         }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = match self { Self::Source(iter) => iter.len(), Self::Frozen(iter) => iter.len() };
+        let len = match self {
+            Self::Source(iter) => iter.len(),
+            Self::Frozen(iter) => iter.len(),
+        };
         (len, Some(len))
     }
 }
@@ -293,11 +342,18 @@ impl ModuleQueryReverseImports {
             Self::Frozen(map) => ModuleQueryReverseIter::Frozen(map.as_entries().iter()),
         }
     }
-    pub fn keys(&self) -> impl ExactSizeIterator<Item = &ModuleId> { self.iter().map(|(module, _)| module) }
-    pub fn len(&self) -> usize {
-        match self { Self::Source(map) => map.len(), Self::Frozen(map) => map.len() }
+    pub fn keys(&self) -> impl ExactSizeIterator<Item = &ModuleId> {
+        self.iter().map(|(module, _)| module)
     }
-    pub fn is_empty(&self) -> bool { self.len() == 0 }
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Source(map) => map.len(),
+            Self::Frozen(map) => map.len(),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn reverse_ref(&self) -> ReverseImportsRef<'_> {
         match self {
             Self::Source(map) => ReverseImportsRef::from(map),
@@ -343,10 +399,15 @@ fn import_path_with_allocation_budget(
         ImportRoot::Absolute(segment) => segment.name.len(),
         ImportRoot::Relative { dots, .. } => usize::from(*dots),
     };
-    let len = path.segments.iter().enumerate().try_fold(root_len, |len, (index, segment)| {
-        let separator_len = usize::from(index > 0 || absolute);
-        len.checked_add(separator_len)?.checked_add(segment.name.len())
-    }).ok_or(phalcom_type_meta::allocation::AllocationError::Overflow)?;
+    let len = path
+        .segments
+        .iter()
+        .enumerate()
+        .try_fold(root_len, |len, (index, segment)| {
+            let separator_len = usize::from(index > 0 || absolute);
+            len.checked_add(separator_len)?.checked_add(segment.name.len())
+        })
+        .ok_or(phalcom_type_meta::allocation::AllocationError::Overflow)?;
     allocations.reserve_array::<u8>(len)?;
     let mut text = String::new();
     if text.try_reserve_exact(len).is_err() {
@@ -465,7 +526,10 @@ impl ModuleQueryProducts {
             for import in &interface.imports {
                 if let Some(edge) = edges.iter().find(|edge| edge.range == import.range()) {
                     resolved_entries.push((
-                        (module.clone_with_allocation_budget(allocations)?, import_path_with_allocation_budget(import.path(), allocations)?),
+                        (
+                            module.clone_with_allocation_budget(allocations)?,
+                            import_path_with_allocation_budget(import.path(), allocations)?,
+                        ),
                         edge.to.clone_with_allocation_budget(allocations)?,
                     ));
                 }
@@ -500,17 +564,17 @@ impl ModuleQueryProducts {
                 allocations.grow_vector_exact(&mut importers, 1)?;
                 importers.push(importer);
             }
-            let importers = ModuleAuthoritySet::from_budgeted_sorted_entries(importers, allocations)
-                .map_err(|error| match error {
-                    phalcom_modules::authority::ModuleAuthorityBuildError::Allocation(error) => ModuleQueryProductsBuildError::Allocation(error),
-                    phalcom_modules::authority::ModuleAuthorityBuildError::Entries(_)
-                    | phalcom_modules::authority::ModuleAuthorityBuildError::SetEntries(_) => ModuleQueryProductsBuildError::DuplicateKey,
-                })?;
+            let importers = ModuleAuthoritySet::from_budgeted_sorted_entries(importers, allocations).map_err(|error| match error {
+                phalcom_modules::authority::ModuleAuthorityBuildError::Allocation(error) => ModuleQueryProductsBuildError::Allocation(error),
+                phalcom_modules::authority::ModuleAuthorityBuildError::Entries(_) | phalcom_modules::authority::ModuleAuthorityBuildError::SetEntries(_) => {
+                    ModuleQueryProductsBuildError::DuplicateKey
+                }
+            })?;
             allocations.grow_vector_exact(&mut reverse_entries, 1)?;
             reverse_entries.push((target, importers));
         }
-        let frozen_reverse = phalcom_type_meta::allocation::BudgetedSortedMap::from_sorted_entries(reverse_entries)
-            .map_err(|_| ModuleQueryProductsBuildError::DuplicateKey)?;
+        let frozen_reverse =
+            phalcom_type_meta::allocation::BudgetedSortedMap::from_sorted_entries(reverse_entries).map_err(|_| ModuleQueryProductsBuildError::DuplicateKey)?;
         let reverse_imports = ModuleQueryReverseImports::Frozen(allocations.arc(frozen_reverse)?);
 
         Ok(Self {
@@ -615,10 +679,12 @@ pub struct SemanticSnapshot {
     pub type_member_declarations:
         Arc<crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     /// Checked associated static-domain declarations keyed by stable owner/name identity.
-    pub associated_static_domains:
-        Arc<crate::ordered_map::OrderedMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
+    pub associated_static_domains: Arc<
+        crate::ordered_map::OrderedMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>,
+    >,
     /// Source-structural static case membership, independent of payload validity.
-    pub static_case_catalogs: Arc<crate::ordered_map::OrderedMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
+    pub static_case_catalogs:
+        Arc<crate::ordered_map::OrderedMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
     /// Checked constructor contracts keyed by stable static-case identity.
     pub static_case_signatures: Arc<crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>,
     /// Checked static definitions keyed by declaration identity.
@@ -887,16 +953,14 @@ impl SemanticSnapshot {
     ) -> Self {
         let mut by_module = BTreeMap::<ModuleId, Vec<crate::identity::CallableId>>::new();
         for (callable, _) in definitions.iter() {
-            by_module
-                .entry(callable.owner.module().clone())
-                .or_default()
-                .push(callable.clone());
+            by_module.entry(callable.owner.module().clone()).or_default().push(callable.clone());
         }
         self.callable_definitions_by_module = Arc::new(
             by_module
                 .into_iter()
                 .map(|(module, callables)| (module, callables.into_boxed_slice()))
-                .collect::<BTreeMap<_, _>>().into(),
+                .collect::<BTreeMap<_, _>>()
+                .into(),
         );
         self.callable_definitions = definitions;
         self
@@ -1036,10 +1100,7 @@ impl SemanticSnapshot {
 
     pub fn module_queries(&self) -> ModuleQueryFacade<'_> {
         let products = &self.module_products;
-        let facade = if let (Some(unlinked), Some(linked)) = (
-            products.unlinked.source_authority_ref(),
-            products.linked.source_authority_ref(),
-        ) {
+        let facade = if let (Some(unlinked), Some(linked)) = (products.unlinked.source_authority_ref(), products.linked.source_authority_ref()) {
             ModuleQueryFacade::new(
                 &products.universe,
                 unlinked,

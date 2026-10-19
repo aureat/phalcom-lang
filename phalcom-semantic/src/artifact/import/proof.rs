@@ -165,37 +165,32 @@ impl ProofImport<'_> {
                 }
             }
             L::Union { members } => LocalType::Union(self.map_boxed(members, |import, term| import.local(term))?),
-            L::Tuple { elements } => LocalType::Tuple(
-                self.map_boxed(elements, |import, element| {
-                    Ok(LocalTupleElement {
-                        label: import.label(&element.label)?,
-                        ty: import.local(&element.ty)?,
-                    })
-                })?,
-            ),
-            L::Record { fields } => LocalType::Record(
-                self.map_boxed(fields, |import, field| {
-                    Ok(LocalRecordField {
-                        key: import.key(&field.key)?,
-                        ty: import.local(&field.ty)?,
-                    })
-                })?,
-            ),
+            L::Tuple { elements } => LocalType::Tuple(self.map_boxed(elements, |import, element| {
+                Ok(LocalTupleElement {
+                    label: import.label(&element.label)?,
+                    ty: import.local(&element.ty)?,
+                })
+            })?),
+            L::Record { fields } => LocalType::Record(self.map_boxed(fields, |import, field| {
+                Ok(LocalRecordField {
+                    key: import.key(&field.key)?,
+                    ty: import.local(&field.ty)?,
+                })
+            })?),
             L::Callable { parameters, return_type } => {
-                let parameters = self
-                    .map_boxed(parameters, |import, parameter| {
-                        Ok(LocalCallableParameter {
-                            label: import.label(&parameter.label)?,
-                            ty: import.local(&parameter.ty)?,
-                            rest: match parameter.rest {
-                                0 => phalcom_ast::ast::RestMode::None,
-                                1 => phalcom_ast::ast::RestMode::Positional,
-                                2 => phalcom_ast::ast::RestMode::Labeled,
-                                3 => phalcom_ast::ast::RestMode::Complete,
-                                _ => return Err(referential("invalid local callable rest mode")),
-                            },
-                        })
-                    })?;
+                let parameters = self.map_boxed(parameters, |import, parameter| {
+                    Ok(LocalCallableParameter {
+                        label: import.label(&parameter.label)?,
+                        ty: import.local(&parameter.ty)?,
+                        rest: match parameter.rest {
+                            0 => phalcom_ast::ast::RestMode::None,
+                            1 => phalcom_ast::ast::RestMode::Positional,
+                            2 => phalcom_ast::ast::RestMode::Labeled,
+                            3 => phalcom_ast::ast::RestMode::Complete,
+                            _ => return Err(referential("invalid local callable rest mode")),
+                        },
+                    })
+                })?;
                 let return_type = self.local(return_type)?;
                 LocalType::Callable {
                     parameters,
@@ -239,21 +234,19 @@ impl ProofImport<'_> {
         Ok(native::BranchProofEnvironment {
             bindings,
             local_bindings,
-            equalities: self
-                .map_boxed(&proof.equalities, |import, equality| {
-                    Ok(match equality {
-                        wire::CallableProofConstraintV1::Equal { left, right } => {
-                            crate::types::TypeConstraint::Equal(import.relocation.ty(*left)?, import.relocation.ty(*right)?)
-                        }
-                        wire::CallableProofConstraintV1::Subtype { lower, upper } => {
-                            crate::types::TypeConstraint::Subtype(import.relocation.ty(*lower)?, import.relocation.ty(*upper)?)
-                        }
-                        wire::CallableProofConstraintV1::HasMember { ty, selector } => crate::types::TypeConstraint::HasMember(
-                            import.relocation.ty(*ty)?,
-                            import_exact_selector_with_budget(selector, import.allocations)?,
-                        ),
-                    })
-                })?,
+            equalities: self.map_boxed(&proof.equalities, |import, equality| {
+                Ok(match equality {
+                    wire::CallableProofConstraintV1::Equal { left, right } => {
+                        crate::types::TypeConstraint::Equal(import.relocation.ty(*left)?, import.relocation.ty(*right)?)
+                    }
+                    wire::CallableProofConstraintV1::Subtype { lower, upper } => {
+                        crate::types::TypeConstraint::Subtype(import.relocation.ty(*lower)?, import.relocation.ty(*upper)?)
+                    }
+                    wire::CallableProofConstraintV1::HasMember { ty, selector } => {
+                        crate::types::TypeConstraint::HasMember(import.relocation.ty(*ty)?, import_exact_selector_with_budget(selector, import.allocations)?)
+                    }
+                })
+            })?,
             local_equalities: self.map_boxed(&proof.local_equalities, |import, constraint| import.constraint(constraint))?,
         })
     }
@@ -273,14 +266,14 @@ impl ProofImport<'_> {
     }
     fn bindings(&mut self, bindings: &[wire::CallablePatternBindingV1]) -> Result<Box<[FrozenPatternBinding]>, ArtifactError> {
         self.map_boxed(bindings, |import, binding| {
-                Ok(native::PatternBindingResolution {
-                    binding: BindingId(binding.binding),
-                    name: import.allocations.boxed_str(&binding.name).map_err(allocation_error)?,
-                    knowledge: import.knowledge(&binding.knowledge)?,
-                    local_type: binding.local_type.as_ref().map(|term| import.local(term)).transpose()?,
-                    source: import_callable_range(&binding.source)?,
-                })
+            Ok(native::PatternBindingResolution {
+                binding: BindingId(binding.binding),
+                name: import.allocations.boxed_str(&binding.name).map_err(allocation_error)?,
+                knowledge: import.knowledge(&binding.knowledge)?,
+                local_type: binding.local_type.as_ref().map(|term| import.local(term)).transpose()?,
+                source: import_callable_range(&binding.source)?,
             })
+        })
     }
     fn pattern(&mut self, pattern: &wire::CallablePatternV1) -> Result<FrozenPatternResolution, ArtifactError> {
         use wire::CallablePatternV1 as P;
@@ -316,12 +309,11 @@ impl ProofImport<'_> {
                                 _ => return Err(referential("variant family requires a named selector")),
                             },
                         ))
-                })
-                .transpose()?,
-                owner_candidates: self
-                    .map_boxed(owner_candidates, |import, owner| {
-                        import_stable_declaration_with_allocation_budget(owner, import.allocations)
-                    })?,
+                    })
+                    .transpose()?,
+                owner_candidates: self.map_boxed(owner_candidates, |import, owner| {
+                    import_stable_declaration_with_allocation_budget(owner, import.allocations)
+                })?,
                 selector: match selector {
                     wire::CallableVariantSelectorV1::WholeFamily => native::VariantSelectorConstraint::WholeFamily,
                     wire::CallableVariantSelectorV1::Exact { selector } => {
@@ -331,28 +323,26 @@ impl ProofImport<'_> {
                         native::VariantSelectorConstraint::Pattern(import_selector_pattern_with_allocation_budget(pattern, self.allocations)?)
                     }
                 },
-                candidates: self
-                    .map_boxed(candidates, |import, candidate| {
-                        Ok(native::ResolvedVariantCandidate {
-                            variant: import_stable_variant_with_allocation_budget(&candidate.variant, import.allocations)?,
-                            exact_case: import.relocation.ty(candidate.exact_case)?,
-                            fields: import
-                                .map_boxed(&candidate.fields, |import, field| {
-                                    let child = import.pattern(&field.child)?;
-                                    Ok(native::ResolvedFieldPattern {
-                                        field: crate::identity::VariantFieldId::new(
-                                            import_stable_variant_with_allocation_budget(&field.variant, import.allocations)?,
-                                            field.field,
-                                        ),
-                                        field_type: import.knowledge(&field.field_type)?,
-                                        local_type: field.local_type.as_ref().map(|term| import.local(term)).transpose()?,
-                                        child: import.allocations.boxed(child).map_err(allocation_error)?,
-                                    })
-                                })?,
-                            proof: import.proof(&candidate.proof)?,
-                            case_instantiation: candidate.case_instantiation.as_ref().map(|case| import.case(case)).transpose()?,
-                        })
-                    })?,
+                candidates: self.map_boxed(candidates, |import, candidate| {
+                    Ok(native::ResolvedVariantCandidate {
+                        variant: import_stable_variant_with_allocation_budget(&candidate.variant, import.allocations)?,
+                        exact_case: import.relocation.ty(candidate.exact_case)?,
+                        fields: import.map_boxed(&candidate.fields, |import, field| {
+                            let child = import.pattern(&field.child)?;
+                            Ok(native::ResolvedFieldPattern {
+                                field: crate::identity::VariantFieldId::new(
+                                    import_stable_variant_with_allocation_budget(&field.variant, import.allocations)?,
+                                    field.field,
+                                ),
+                                field_type: import.knowledge(&field.field_type)?,
+                                local_type: field.local_type.as_ref().map(|term| import.local(term)).transpose()?,
+                                child: import.allocations.boxed(child).map_err(allocation_error)?,
+                            })
+                        })?,
+                        proof: import.proof(&candidate.proof)?,
+                        case_instantiation: candidate.case_instantiation.as_ref().map(|case| import.case(case)).transpose()?,
+                    })
+                })?,
                 blocked: blocked.as_ref().map(|reason| self.reason(reason)).transpose()?,
             }),
             P::Or { alternatives } => native::PatternResolution::Or(native::ResolvedOrPattern {
@@ -369,35 +359,31 @@ impl ProofImport<'_> {
                     })
                     .transpose()?,
             }),
-            P::Record { fields } => native::PatternResolution::Record(
-                self.map_boxed(fields, |import, field| {
-                    let child = import.pattern(&field.child)?;
-                    Ok(native::ResolvedRecordFieldPattern {
-                        label: import.allocations.boxed_str(&field.label).map_err(allocation_error)?,
-                        child: import.allocations.boxed(child).map_err(allocation_error)?,
-                    })
-                })?,
-            ),
-            P::Map { entries } => native::PatternResolution::Map(
-                self.map_boxed(entries, |import, entry| {
-                    let child = import.pattern(&entry.child)?;
-                    Ok(native::ResolvedMapEntryPattern {
-                        key: match &entry.key {
-                            wire::CallableMapPatternKeyV1::Symbol { value } => {
-                                phalcom_ast::ast::MapPatternKey::Symbol(import.allocations.string(value).map_err(allocation_error)?)
-                            }
-                            wire::CallableMapPatternKeyV1::String { value } => {
-                                phalcom_ast::ast::MapPatternKey::String(import.allocations.string(value).map_err(allocation_error)?)
-                            }
-                            wire::CallableMapPatternKeyV1::Int { digits, radix } => phalcom_ast::ast::MapPatternKey::Int {
-                                digits: import.allocations.string(digits).map_err(allocation_error)?,
-                                radix: *radix,
-                            },
+            P::Record { fields } => native::PatternResolution::Record(self.map_boxed(fields, |import, field| {
+                let child = import.pattern(&field.child)?;
+                Ok(native::ResolvedRecordFieldPattern {
+                    label: import.allocations.boxed_str(&field.label).map_err(allocation_error)?,
+                    child: import.allocations.boxed(child).map_err(allocation_error)?,
+                })
+            })?),
+            P::Map { entries } => native::PatternResolution::Map(self.map_boxed(entries, |import, entry| {
+                let child = import.pattern(&entry.child)?;
+                Ok(native::ResolvedMapEntryPattern {
+                    key: match &entry.key {
+                        wire::CallableMapPatternKeyV1::Symbol { value } => {
+                            phalcom_ast::ast::MapPatternKey::Symbol(import.allocations.string(value).map_err(allocation_error)?)
+                        }
+                        wire::CallableMapPatternKeyV1::String { value } => {
+                            phalcom_ast::ast::MapPatternKey::String(import.allocations.string(value).map_err(allocation_error)?)
+                        }
+                        wire::CallableMapPatternKeyV1::Int { digits, radix } => phalcom_ast::ast::MapPatternKey::Int {
+                            digits: import.allocations.string(digits).map_err(allocation_error)?,
+                            radix: *radix,
                         },
-                        child: import.allocations.boxed(child).map_err(allocation_error)?,
-                    })
-                })?,
-            ),
+                    },
+                    child: import.allocations.boxed(child).map_err(allocation_error)?,
+                })
+            })?),
         })
     }
     fn space(&mut self, space: &wire::CallablePatternSpaceV1) -> Result<native::PatternSpaceSummary, ArtifactError> {

@@ -211,7 +211,10 @@ pub fn catalog_fingerprint_for(records: &[NativeSurfaceRecord]) -> NativeCatalog
         else {
             break;
         };
-        let mut writer = FingerprintWriter { left: &mut left, right: &mut right };
+        let mut writer = FingerprintWriter {
+            left: &mut left,
+            right: &mut right,
+        };
         std::write!(
             writer,
             "{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",

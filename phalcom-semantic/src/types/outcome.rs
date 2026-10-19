@@ -249,9 +249,7 @@ impl BlockReason {
             Self::InferenceDidNotConverge => Self::InferenceDidNotConverge,
             Self::OpaqueNative(message) => Self::OpaqueNative(allocations.boxed_str(message)?),
             Self::ReflectionBoundary => Self::ReflectionBoundary,
-            Self::UnavailableSemanticOwner(owner) => {
-                Self::UnavailableSemanticOwner(owner.clone_with_allocation_budget(allocations)?)
-            }
+            Self::UnavailableSemanticOwner(owner) => Self::UnavailableSemanticOwner(owner.clone_with_allocation_budget(allocations)?),
             Self::BudgetExceeded(report) => Self::BudgetExceeded(report.clone()),
             Self::SuppressedDependency => Self::SuppressedDependency,
         })

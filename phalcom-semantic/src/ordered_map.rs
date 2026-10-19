@@ -15,7 +15,10 @@ pub struct OrderedMap<K, V> {
 
 impl<K, V> Default for OrderedMap<K, V> {
     fn default() -> Self {
-        Self { source: BTreeMap::new(), frozen: None }
+        Self {
+            source: BTreeMap::new(),
+            frozen: None,
+        }
     }
 }
 
@@ -24,10 +27,7 @@ impl<K: Ord, V> OrderedMap<K, V> {
         Self { source, frozen: None }
     }
 
-    pub fn from_frozen_entries_with_allocation_budget(
-        mut entries: Vec<(K, V)>,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, FrozenOrderedMapError> {
+    pub fn from_frozen_entries_with_allocation_budget(mut entries: Vec<(K, V)>, allocations: &mut AllocationBudget) -> Result<Self, FrozenOrderedMapError> {
         if entries.is_empty() {
             return Ok(Self::default());
         }
@@ -37,7 +37,10 @@ impl<K: Ord, V> OrderedMap<K, V> {
             SortedMapEntriesError::OutOfOrder => unreachable!("entries were sorted before frozen construction"),
         })?;
         let frozen = allocations.arc(entries).map_err(FrozenOrderedMapError::Allocation)?;
-        Ok(Self { source: BTreeMap::new(), frozen: Some(frozen) })
+        Ok(Self {
+            source: BTreeMap::new(),
+            frozen: Some(frozen),
+        })
     }
 
     pub fn get<Q>(&self, key: &Q) -> Option<&V>
@@ -74,7 +77,10 @@ impl<K: Ord, V> OrderedMap<K, V> {
 
     /// Mutates only source/local entries; frozen canonical authority is shared.
     pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
-    where K: Borrow<Q>, Q: Ord + ?Sized {
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
         self.source.get_mut(key)
     }
 
@@ -130,7 +136,10 @@ impl<'a, K: Ord, V> Iterator for OrderedMapIter<'a, K, V> {
         match self {
             Self::Source(iter) => iter.next(),
             Self::Merged { frozen, local } => {
-                if local.peek().is_some_and(|(key, _)| frozen.peek().is_none_or(|(frozen_key, _)| *key < frozen_key)) {
+                if local
+                    .peek()
+                    .is_some_and(|(key, _)| frozen.peek().is_none_or(|(frozen_key, _)| *key < frozen_key))
+                {
                     local.next()
                 } else {
                     frozen.next().map(|(key, value)| (key, value))

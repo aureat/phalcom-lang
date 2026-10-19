@@ -60,11 +60,19 @@ impl fmt::Display for ArtifactDigest {
 
 /// BLAKE3-256 streaming integrity digest. Domain framing is part of wire v1.
 #[derive(Clone, Debug)]
-pub struct ArtifactHasher { inner: blake3::Hasher }
+pub struct ArtifactHasher {
+    inner: blake3::Hasher,
+}
 
-impl Default for ArtifactHasher { fn default() -> Self { Self::new() } }
+impl Default for ArtifactHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl ArtifactHasher {
-    pub fn new() -> Self { Self { inner: blake3::Hasher::new() } }
+    pub fn new() -> Self {
+        Self { inner: blake3::Hasher::new() }
+    }
     pub fn new_domain(domain: &str) -> Self {
         let mut hasher = Self::new();
         hasher.write_u32(u32::try_from(domain.len()).expect("digest domain fits u32"));
@@ -72,10 +80,22 @@ impl ArtifactHasher {
         hasher.write_u8(0xff);
         hasher
     }
-    pub fn write_u8(&mut self, value: u8) { self.write(&[value]); }
-    pub fn write_u16(&mut self, value: u16) { self.write(&value.to_le_bytes()); }
-    pub fn write_u32(&mut self, value: u32) { self.write(&value.to_le_bytes()); }
-    pub fn write_u64(&mut self, value: u64) { self.write(&value.to_le_bytes()); }
-    pub fn write(&mut self, data: &[u8]) { self.inner.update(data); }
-    pub fn finalize(self) -> ArtifactDigest { ArtifactDigest(*self.inner.finalize().as_bytes()) }
+    pub fn write_u8(&mut self, value: u8) {
+        self.write(&[value]);
+    }
+    pub fn write_u16(&mut self, value: u16) {
+        self.write(&value.to_le_bytes());
+    }
+    pub fn write_u32(&mut self, value: u32) {
+        self.write(&value.to_le_bytes());
+    }
+    pub fn write_u64(&mut self, value: u64) {
+        self.write(&value.to_le_bytes());
+    }
+    pub fn write(&mut self, data: &[u8]) {
+        self.inner.update(data);
+    }
+    pub fn finalize(self) -> ArtifactDigest {
+        ArtifactDigest(*self.inner.finalize().as_bytes())
+    }
 }

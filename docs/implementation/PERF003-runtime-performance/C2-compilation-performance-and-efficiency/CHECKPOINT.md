@@ -2,27 +2,67 @@
 id: PERF003.C2
 program: PERF003
 kind: optimization
-status: IN_PROGRESS
-completion: PARTIAL
-verification: UNVERIFIED
+status: COMPLETE
+completion: COMPLETE
+verification: FOCUSED_TESTED
 latest_completed_plan_verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P7.PATCH5-R
-latest_completed_plan: PERF003.C2.P7.PATCH4
-next_plan: PERF003.C2.P7.PATCH5-R
+active_plan: null
+latest_completed_plan: PERF003.C2.P7.PATCH5-R
+next_plan: PERF003.C2.P8
 next_action: >
-  PERF003.C2.P7.PATCH5-R R.T5 is COMPLETE; R.G5 is PASS.
-  All proof obligations (positive real-package topology parity, negative diagnostic parity,
-  Case B List.get formalization, zero source-bootstrap fresh process proof, query authority consumption,
-  prefix/fork invariants, core regressions, and mandatory R.G4 allocation regression) are certified.
-  Next is R.T6 performance benchmarking and characterization under repeatable fresh-process conditions.
-  Keep P7 IN_PROGRESS / PARTIAL / UNVERIFIED and P8 BLOCKED; do not claim overall P7 completion.
+  P7 is COMPLETE. R.G1–R.G7 PASS.
+  P8 (executable VM bootstrap) is ready for takeover.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: 06d2b229
-latest_tested_revision: 06d2b229
-latest_tested_predecessor: 5dcc09f9
+execution_tree_head: fb49f61c
+latest_tested_revision: fb49f61c
+latest_tested_predecessor: 06d2b229
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
+
+## PATCH5-R R.T6 performance characterization and R.T7 final closure — 2026-10-19
+
+All closure tasks (Tasks A–G) and gates (R.G1–R.G7) for `PERF003.C2.P7` on branch `perf/universe-characterization` have been completed, verified, and certified.
+P7 is **COMPLETE**. Verification status: **FOCUSED_TESTED**.
+
+1. **Compiler Product Parity (Task A / R.G5):**
+   - Hardened `compare_compiled_programs` with explicit linked-module ID set difference comparison, per-module presence checks, and injectivity collision assertions.
+   - Added and certified 8 negative comparator tests in `phalcom-core/tests/core/modules/parity.rs`.
+
+2. **Source-Free Prelude Initialization (Task B / Gate B):**
+   - Hardened `PreludeTypeMap::initialize_from_snapshot` using `OnceLock::get_or_init` with divergence panic on incompatible entries.
+   - Validated all 7 exceptional entries (`Unit`, `Duration`, `Timestamp`, `DuplicateKeyError`, `Equivalent`, `Subtype`, `Conforms`). Included `is_proof_predicate_declaration` in semantic authority predicate.
+   - Bound prelude initialization strictly to compiler execution sites (`compile_user_entry_with_options_and_image` and `from_image`), preserving the zero-allocation unbudgeted invariant during artifact loading.
+   - Added 3 prelude equivalence and robustness tests in `phalcom-semantic/src/canonical_image.rs`.
+
+3. **Denial & Negative Diagnostic Parity (Task C / Gate C):**
+   - Mandatory SlotMap compilation under `fresh_process_target_runner`.
+   - Verified negative control in `fresh_process_source_bootstrap_negative_control_runner` under `PHALCOM_DENY_SOURCE_BOOTSTRAP=1`.
+   - Extended diagnostic parity across 4 distinct error classes:
+     - `DiagnosticCode::ConstructorSuperInvalid` (`negative_parity_constructor_resolution_failure`)
+     - `DiagnosticCode::MemberInaccessible` (`negative_parity_inaccessible_declaration`)
+     - `DiagnosticCode::MatchPatternArityMismatch` (`negative_parity_invalid_pattern_matching`)
+     - `DiagnosticCode::GenericConstraintUnsatisfied` (`negative_parity_trait_resolution_failure`)
+   - Strengthened `list_get_returns_inferred_anonymous_variant_union_contract` with canonical `Option.Some` and `Option.None` declaration checks and type parameter `T` checks on `List` and `Option`.
+
+4. **Canonical State & Allocation Revalidation (Task D / Gate D / R.G4):**
+   - Verified exact allocation budget: ledger requested 366,789,583 bytes == independently observed requested 366,789,583 bytes (signed delta: 0).
+   - Verified fail-closed behavior at N - 1 (366,789,582 bytes) with typed `TeloscArtifactError::BudgetExceeded`.
+   - Verified clean retryability after budget exhaustion.
+
+5. **Operational End-to-End Validation (Task E / Gate E):**
+   - Verified structural product parity for real packages: `packages/slotmap` (4 modules) and `packages/slotmap/tests/runtime` (8 modules).
+   - Added `artifact_backed_slotmap_runtime_tests_execute`, explicitly isolating and documenting the pre-existing Class D runtime VM bootstrap defect (`ProductKind` has no canonical facade binding in `reflection.structural`).
+
+6. **Performance Characterization (Task F / Gate F / R.G6):**
+   - Generated release audit harness with RFC 4180 CSV escaping, BLAKE3-256 digest terminology, and separated boundary timings.
+   - Measured cold fresh-process compilation across 4 workloads (20 samples each, 160 samples total): ~34x speedup on compiler initialization (290–305 ms vs 10.0–11.3 s) and 58–60% reduction in peak resident memory (320–343 MB vs 800–813 MB).
+   - Measured warm compilation (10 repetitions): 6.68 ms artifact median vs 6.77 ms source median.
+   - Published performance report: `docs/implementation/PERF003-runtime-performance/C2-compilation-performance-and-efficiency/P7-R1/PERF003.C2.P7-R.T6-performance-report.md`.
+
+7. **Acceptance Matrix & P8 Readiness (Task G / Gate G / R.G7):**
+   - Full regression battery verified: format check, compiler workspace check, container/serialization tests, semantic artifact tests, comparator negative tests, exact allocation regression, and linker tests.
+   - P8 (executable VM bootstrap) unblocked for takeover.
 
 ## PATCH5-R R.T5 closure hardening and R.G5 certification — 2026-10-18
 

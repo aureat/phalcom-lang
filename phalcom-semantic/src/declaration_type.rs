@@ -133,10 +133,7 @@ impl DeclaredTypeFact {
         }
     }
 
-    pub(crate) fn to_knowledge_with_allocation_budget(
-        &self,
-        allocations: &mut AllocationBudget,
-    ) -> Result<TypeKnowledge, AllocationError> {
+    pub(crate) fn to_knowledge_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<TypeKnowledge, AllocationError> {
         Ok(match &self.state {
             DeclaredTypeState::Known(TypeTerm::Canonical(ty)) => match self.basis {
                 DeclaredTypeBasis::SourceAnnotation => TypeKnowledge::assumed(*ty, EvidenceOrigin::DeveloperAnnotation),
@@ -148,9 +145,7 @@ impl DeclaredTypeFact {
                 DeclaredTypeBasis::PatternDecomposition => TypeKnowledge::established(*ty, EvidenceOrigin::PatternDecomposition),
                 DeclaredTypeBasis::Unspecified => TypeKnowledge::assumed(*ty, EvidenceOrigin::CallableSignature),
             },
-            DeclaredTypeState::Known(TypeTerm::SelfType(_) | TypeTerm::Infer(_)) => {
-                TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable)
-            }
+            DeclaredTypeState::Known(TypeTerm::SelfType(_) | TypeTerm::Infer(_)) => TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable),
             DeclaredTypeState::Dynamic(reason) => TypeKnowledge::Dynamic(reason.clone()),
             DeclaredTypeState::Unknown(reason) => TypeKnowledge::Unknown(reason.clone_with_allocation_budget(allocations)?),
         })

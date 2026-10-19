@@ -543,9 +543,7 @@ impl DataSemanticTable {
         allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
     ) -> Result<Self, crate::parent_map::FrozenParentMapError> {
         let data_decls = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(entries, allocations)?;
-        let data_decls = allocations
-            .arc(data_decls)
-            .map_err(crate::parent_map::FrozenParentMapError::Allocation)?;
+        let data_decls = allocations.arc(data_decls).map_err(crate::parent_map::FrozenParentMapError::Allocation)?;
         Ok(Self {
             data_decls,
             module_data: std::collections::HashMap::new(),
@@ -578,10 +576,7 @@ impl DataSemanticTable {
             .get(module)
             .into_iter()
             .flat_map(move |ids| ids.iter().filter_map(move |id| self.data_decls.get(id).map(|info| (id, info))));
-        let frozen_iter = self
-            .data_decls
-            .iter_frozen()
-            .filter(move |(owner, _)| &owner.module == module);
+        let frozen_iter = self.data_decls.iter_frozen().filter(move |(owner, _)| &owner.module == module);
         match &self.parent {
             Some(parent) => Box::new(parent.iter_module(module).chain(frozen_iter).chain(local_iter)),
             None => Box::new(frozen_iter.chain(local_iter)),

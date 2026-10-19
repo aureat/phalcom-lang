@@ -66,10 +66,7 @@ pub enum SemanticNodeId {
 }
 
 impl SemanticNodeId {
-    pub fn clone_with_allocation_budget(
-        &self,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, AllocationError> {
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
         match self {
             Self::Module(id) => Ok(Self::Module(id.clone_with_allocation_budget(allocations)?)),
             Self::Declaration { module, name } => {
@@ -147,7 +144,9 @@ pub struct ReferenceGraph {
 
 impl ReferenceGraph {
     pub fn new() -> Self {
-        Self { forward: ModuleAuthorityMap::new() }
+        Self {
+            forward: ModuleAuthorityMap::new(),
+        }
     }
 
     pub fn from_budgeted_sorted_entries(
@@ -159,10 +158,7 @@ impl ReferenceGraph {
         })
     }
 
-    pub fn from_budgeted_entries(
-        entries: Vec<(ModuleId, Vec<ReferenceEdge>)>,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, ModuleAuthorityBuildError> {
+    pub fn from_budgeted_entries(entries: Vec<(ModuleId, Vec<ReferenceEdge>)>, allocations: &mut AllocationBudget) -> Result<Self, ModuleAuthorityBuildError> {
         Ok(Self {
             forward: ModuleAuthorityMap::from_budgeted_entries(entries, allocations)?,
         })
@@ -207,7 +203,9 @@ pub struct SemanticGraph {
 
 impl SemanticGraph {
     pub fn new() -> Self {
-        Self { forward: ModuleAuthorityMap::new() }
+        Self {
+            forward: ModuleAuthorityMap::new(),
+        }
     }
 
     pub fn from_budgeted_sorted_entries(
@@ -300,7 +298,9 @@ pub struct RuntimeDependencyGraph {
 
 impl RuntimeDependencyGraph {
     pub fn new() -> Self {
-        Self { forward: ModuleAuthorityMap::new() }
+        Self {
+            forward: ModuleAuthorityMap::new(),
+        }
     }
 
     pub fn from_budgeted_sorted_entries(

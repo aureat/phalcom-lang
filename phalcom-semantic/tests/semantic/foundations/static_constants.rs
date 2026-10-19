@@ -183,18 +183,28 @@ fn test_static_sequence_budget_and_cancellation_do_not_publish_roots() {
 
     let mut values = phalcom_semantic::static_value::StaticValueStore::new();
     let mut budget = QueryBudget::new(0);
-    let bounded = StaticEvaluator::for_constant(product.checked.as_deref().expect("source checked initializer"), &mut values, &mut budget, &CancellationToken::new())
-        .with_type_store(update.snapshot.store())
-        .evaluate();
+    let bounded = StaticEvaluator::for_constant(
+        product.checked.as_deref().expect("source checked initializer"),
+        &mut values,
+        &mut budget,
+        &CancellationToken::new(),
+    )
+    .with_type_store(update.snapshot.store())
+    .evaluate();
     assert!(matches!(bounded, StaticEvalOutcome::BudgetExceeded(_)));
     assert_eq!(values.len(), 0, "budget exhaustion must precede sequence-root publication");
 
     let cancellation = CancellationToken::new();
     cancellation.cancel();
     let mut cancelled_values = phalcom_semantic::static_value::StaticValueStore::new();
-    let cancelled = StaticEvaluator::for_constant(product.checked.as_deref().expect("source checked initializer"), &mut cancelled_values, &mut QueryBudget::default(), &cancellation)
-        .with_type_store(update.snapshot.store())
-        .evaluate();
+    let cancelled = StaticEvaluator::for_constant(
+        product.checked.as_deref().expect("source checked initializer"),
+        &mut cancelled_values,
+        &mut QueryBudget::default(),
+        &cancellation,
+    )
+    .with_type_store(update.snapshot.store())
+    .evaluate();
     assert_eq!(cancelled, StaticEvalOutcome::Cancelled);
     assert_eq!(cancelled_values.len(), 0, "cancellation must not publish a sequence root");
 }
@@ -789,7 +799,10 @@ fn test_const_to_const_dependency() {
 
     let prod_b = update.snapshot.static_constant(&id_b).expect("static constant B");
     assert!(prod_b.is_successful());
-    assert!(prod_b.authority.static_constant_reads.contains(id_a.symbol()), "B should record dependency on A");
+    assert!(
+        prod_b.authority.static_constant_reads.contains(id_a.symbol()),
+        "B should record dependency on A"
+    );
 
     let val_b = update.snapshot.static_values().get(prod_b.value().unwrap()).unwrap();
     assert_eq!(val_b, &StaticValueData::Int(StaticInt::Small(15)));

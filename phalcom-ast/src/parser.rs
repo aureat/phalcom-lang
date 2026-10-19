@@ -5498,11 +5498,7 @@ impl<'source> Parser<'source> {
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["associated type name"])?;
         let name_range = (name_start..self.prev_end).into();
-        let result_domain = if self.eat(&Token::Colon) {
-            Some(self.parse_static_domain()?)
-        } else {
-            None
-        };
+        let result_domain = if self.eat(&Token::Colon) { Some(self.parse_static_domain()?) } else { None };
         if self.eat(&Token::Equal) {
             return Err(SyntaxError {
                 kind: SyntaxErrorKind::Message("associated type declarations cannot have defaults in P1".to_string()),
@@ -9166,11 +9162,7 @@ impl<'source> Parser<'source> {
         let condition = self.parse_expr_without_trailing_closures()?;
         let body = self.parse_lexical_block()?;
         let range = (start..self.prev_end).into();
-        Ok(Expr::While(Box::new(WhileExpr {
-            condition,
-            body,
-            range,
-        })))
+        Ok(Expr::While(Box::new(WhileExpr { condition, body, range })))
     }
 
     /// Parses a `match value { (pattern => branch)* }` pattern elimination expression.
@@ -9225,10 +9217,7 @@ impl<'source> Parser<'source> {
                 _ => unreachable!(),
             };
             let range = (start..self.prev_end).into();
-            return Ok(MatchArmBody::Block(crate::ast::LexicalBlock {
-                body: vec![stmt],
-                range,
-            }));
+            return Ok(MatchArmBody::Block(crate::ast::LexicalBlock { body: vec![stmt], range }));
         }
         self.parse_expr().map(|expr| MatchArmBody::Expression(Box::new(expr)))
     }
@@ -10644,10 +10633,12 @@ mod tests {
         let Expr::Block(rewrapped) = &catch_call.object else {
             panic!("expected nested on expression to be rewrapped");
         };
-        let [Statement::Expr {
-            expr: Expr::MethodCall(on_call),
-            ..
-        }] = rewrapped.body.as_slice()
+        let [
+            Statement::Expr {
+                expr: Expr::MethodCall(on_call),
+                ..
+            },
+        ] = rewrapped.body.as_slice()
         else {
             panic!("expected the inner on call");
         };
@@ -10742,13 +10733,19 @@ mod tests {
 
     #[test]
     fn plain_while_is_explicit_and_while_true_remains_a_send() {
-        let Statement::Expr { expr: Expr::While(while_expr), .. } = only_statement("while ready { break }") else {
+        let Statement::Expr {
+            expr: Expr::While(while_expr), ..
+        } = only_statement("while ready { break }")
+        else {
             panic!("expected explicit while expression");
         };
         assert!(matches!(while_expr.condition, Expr::Var { ref value, .. } if value == "ready"));
         assert!(matches!(while_expr.body.body.as_slice(), [Statement::Break { .. }]));
 
-        let Statement::Expr { expr: Expr::MethodCall(call), .. } = only_statement("|| { true }.whileTrue || { false }") else {
+        let Statement::Expr {
+            expr: Expr::MethodCall(call), ..
+        } = only_statement("|| { true }.whileTrue || { false }")
+        else {
             panic!("expected explicit whileTrue method send");
         };
         assert_eq!(call.method, "whileTrue");
@@ -10989,38 +10986,50 @@ mod tests {
 
     #[test]
     fn bracket_literal_parses_explicit_heads_and_inference_holes() {
-        let Statement::Expr { expr, .. } = only_statement("<Int>[1, 2]") else { panic!() };
+        let Statement::Expr { expr, .. } = only_statement("<Int>[1, 2]") else {
+            panic!()
+        };
         let Expr::BracketLiteral(bracket) = expr else { panic!() };
         let head = bracket.head.as_ref().expect("expected head");
         assert_eq!(head.arguments.len(), 1);
         assert!(matches!(&head.arguments[0], GenericArgumentSyntax::Single(_)));
         assert_eq!(bracket.elements.len(), 2);
 
-        let Statement::Expr { expr, .. } = only_statement("<_>[1, 2]") else { panic!() };
+        let Statement::Expr { expr, .. } = only_statement("<_>[1, 2]") else {
+            panic!()
+        };
         let Expr::BracketLiteral(bracket) = expr else { panic!() };
         let head = bracket.head.as_ref().expect("expected head");
         assert_eq!(head.arguments.len(), 1);
         assert!(matches!(&head.arguments[0], GenericArgumentSyntax::InferenceHole { .. }));
 
-        let Statement::Expr { expr, .. } = only_statement("<Int, 3>[1, 2, 3]") else { panic!() };
+        let Statement::Expr { expr, .. } = only_statement("<Int, 3>[1, 2, 3]") else {
+            panic!()
+        };
         let Expr::BracketLiteral(bracket) = expr else { panic!() };
         let head = bracket.head.as_ref().expect("expected head");
         assert_eq!(head.arguments.len(), 2);
         assert!(matches!(&head.arguments[0], GenericArgumentSyntax::Single(_)));
         assert!(matches!(&head.arguments[1], GenericArgumentSyntax::Value(_)));
 
-        let Statement::Expr { expr, .. } = only_statement("<_, _>[1, 2, 3]") else { panic!() };
+        let Statement::Expr { expr, .. } = only_statement("<_, _>[1, 2, 3]") else {
+            panic!()
+        };
         let Expr::BracketLiteral(bracket) = expr else { panic!() };
         let head = bracket.head.as_ref().expect("expected head");
         assert_eq!(head.arguments.len(), 2);
         assert!(matches!(&head.arguments[0], GenericArgumentSyntax::InferenceHole { .. }));
         assert!(matches!(&head.arguments[1], GenericArgumentSyntax::InferenceHole { .. }));
 
-        let Statement::Expr { expr, .. } = only_statement("<List<Int>>[]") else { panic!() };
+        let Statement::Expr { expr, .. } = only_statement("<List<Int>>[]") else {
+            panic!()
+        };
         let Expr::BracketLiteral(bracket) = expr else { panic!() };
         assert!(bracket.head.is_some());
 
-        let Statement::Expr { expr, .. } = only_statement("<\n  Int,\n  3\n>[\n  1, 2, 3\n]") else { panic!() };
+        let Statement::Expr { expr, .. } = only_statement("<\n  Int,\n  3\n>[\n  1, 2, 3\n]") else {
+            panic!()
+        };
         let Expr::BracketLiteral(bracket) = expr else { panic!() };
         assert_eq!(bracket.head.as_ref().unwrap().arguments.len(), 2);
         assert_eq!(bracket.elements.len(), 3);

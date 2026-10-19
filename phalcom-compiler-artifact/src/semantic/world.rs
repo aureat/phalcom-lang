@@ -1,8 +1,8 @@
 //! Combined semantic world section payload (`PERF003.C2.P7.T7.B/T8`).
 
-mod proof;
-mod explanation;
 mod callable_owner;
+mod explanation;
+mod proof;
 pub use explanation::*;
 pub use proof::*;
 
@@ -2045,8 +2045,7 @@ impl SemanticWorldV3 {
                         return Err(invalid("sequence expansion range is inverted"));
                     }
                     let extent = match expansion.expansion {
-                        CallableSequenceExpansionV1::TuplePositionals { extent }
-                        | CallableSequenceExpansionV1::VectorStorage { extent } => extent,
+                        CallableSequenceExpansionV1::TuplePositionals { extent } | CallableSequenceExpansionV1::VectorStorage { extent } => extent,
                     };
                     self.validate_denotation_type(extent)?;
                 }
@@ -2069,7 +2068,9 @@ impl SemanticWorldV3 {
                     } => {
                         self.validate_associated_member_owner(&resolution.lookup_owner, member)?;
                         if !self.invocation_target_matches_associated_member(target, member)
-                            || argument_mapping.as_ref().is_some_and(|mapping| mapping.len() > limits.max_semantic_entries_per_family)
+                            || argument_mapping
+                                .as_ref()
+                                .is_some_and(|mapping| mapping.len() > limits.max_semantic_entries_per_family)
                         {
                             return Err(invalid("associated static invocation target or argument mapping is invalid"));
                         }
@@ -2098,9 +2099,7 @@ impl SemanticWorldV3 {
                     }
                     if let Some(capability) = &member.conditional_capability {
                         self.validate_conditional_dispatch_selection(&capability.selection)?;
-                        if member.conditional.as_ref() != Some(&capability.selection)
-                            || capability.selection.impl_id != capability.applicability.impl_id
-                        {
+                        if member.conditional.as_ref() != Some(&capability.selection) || capability.selection.impl_id != capability.applicability.impl_id {
                             return Err(invalid("bound behavioral capability disagrees with its conditional selection"));
                         }
                         validate_witness_specialization(&capability.applicability, &self.type_graph, limits)?;
@@ -2117,7 +2116,12 @@ impl SemanticWorldV3 {
             for application in &analysis.family_applications {
                 self.validate_denotation_type(application.family_type)?;
                 match &application.selection {
-                    CallableFamilyApplicationSelectionV1::Static { operation, target, callable_type, result_type } => {
+                    CallableFamilyApplicationSelectionV1::Static {
+                        operation,
+                        target,
+                        callable_type,
+                        result_type,
+                    } => {
                         validate_family_operation_shape(operation, limits)?;
                         if let Some(target) = target {
                             self.validate_invocation_target(target)?;
@@ -2260,10 +2264,10 @@ impl SemanticWorldV3 {
             || flow.fact_count > limits.max_semantic_entries_per_family as u64
             || flow.bindings.windows(2).any(|pair| pair[0].binding >= pair[1].binding)
             || flow.bindings.iter().any(|binding| binding.binding as usize >= analysis.bindings.len())
-            || flow.fields.windows(2).any(|pair| {
-                (&pair[0].field.owner, pair[0].field.side, &pair[0].field.name)
-                    >= (&pair[1].field.owner, pair[1].field.side, &pair[1].field.name)
-            })
+            || flow
+                .fields
+                .windows(2)
+                .any(|pair| (&pair[0].field.owner, pair[0].field.side, &pair[0].field.name) >= (&pair[1].field.owner, pair[1].field.side, &pair[1].field.name))
         {
             return Err(invalid("callable flow summary is unsorted, dangling, or exceeds its limit"));
         }
@@ -2486,12 +2490,12 @@ impl SemanticWorldV3 {
             return Err(invalid("associated member has no primary owner authority"));
         }
         let surface = self.associated_surface(owner)?;
-        if matches!(member, AssociatedMemberV1::DataComponent { .. })
-            || surface.families.iter().any(|family| family.members.contains(member))
-        {
+        if matches!(member, AssociatedMemberV1::DataComponent { .. }) || surface.families.iter().any(|family| family.members.contains(member)) {
             Ok(())
         } else {
-            Err(invalid(format!("associated denotation member is absent from its declaration surface: owner={owner:?}, member={member:?}")))
+            Err(invalid(format!(
+                "associated denotation member is absent from its declaration surface: owner={owner:?}, member={member:?}"
+            )))
         }
     }
 
@@ -2659,11 +2663,7 @@ fn validate_static_definition_signature(
     Ok(())
 }
 
-fn validate_static_definitions(
-    world: &SemanticWorldV3,
-    limits: &ValidationLimits,
-    allocations: &mut AllocationBudget,
-) -> Result<(), ArtifactError> {
+fn validate_static_definitions(world: &SemanticWorldV3, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
     for pair in world.static_definitions.windows(2) {
         if pair[0].id >= pair[1].id {
             return Err(invalid("static definition owners must be unique and sorted"));
@@ -2687,19 +2687,29 @@ fn validate_static_definitions(
         if program.applications.len() > limits.max_semantic_entries_per_family
             || program.kinded_parameters.windows(2).any(|pair| pair[0] >= pair[1])
             || program.kinded_parameters.iter().any(|index| *index >= program.parameter_count)
-            || program.static_constant_reads.windows(2).any(|pair| (&pair[0].module, &pair[0].name) >= (&pair[1].module, &pair[1].name))
+            || program
+                .static_constant_reads
+                .windows(2)
+                .any(|pair| (&pair[0].module, &pair[0].name) >= (&pair[1].module, &pair[1].name))
             || program.dependencies.len() > limits.max_semantic_entries_per_family
         {
             return Err(invalid("canonical static program rows are non-canonical or exceed limits"));
         }
         let mut kinded_position = 0usize;
-        let kinded_parameters_match = definition.signature.parameters.iter().filter(|parameter| parameter.type_parameter.is_some()).all(|parameter| {
-            let matches = program.kinded_parameters.get(kinded_position) == Some(&parameter.index);
-            kinded_position += 1;
-            matches
-        });
+        let kinded_parameters_match = definition
+            .signature
+            .parameters
+            .iter()
+            .filter(|parameter| parameter.type_parameter.is_some())
+            .all(|parameter| {
+                let matches = program.kinded_parameters.get(kinded_position) == Some(&parameter.index);
+                kinded_position += 1;
+                matches
+            });
         if !kinded_parameters_match || kinded_position != program.kinded_parameters.len() {
-            return Err(invalid("canonical static program kinded parameter indexes disagree with the definition signature"));
+            return Err(invalid(
+                "canonical static program kinded parameter indexes disagree with the definition signature",
+            ));
         }
         for (expected, application) in program.applications.iter().enumerate() {
             if usize::try_from(application.ordinal).ok() != Some(expected)
@@ -2710,7 +2720,10 @@ fn validate_static_definitions(
             }
             crate::semantic::aggregates::validate_owner(&application.target, limits)?;
             validate_static_definition_signature(&application.signature, &application.target, &world.type_graph, limits)?;
-            let target = world.static_definitions.binary_search_by(|candidate| candidate.id.cmp(&application.target)).ok()
+            let target = world
+                .static_definitions
+                .binary_search_by(|candidate| candidate.id.cmp(&application.target))
+                .ok()
                 .map(|index| &world.static_definitions[index])
                 .ok_or_else(|| invalid("canonical static application target has no static definition owner"))?;
             if target.signature != application.signature {
@@ -2775,7 +2788,11 @@ fn validate_static_definitions(
         }
         validate_static_application_graph(&program.applications, allocations)?;
         if definition.alias_info.is_some()
-            && !world.structural_contracts.hierarchy_and_aliases.iter().any(|row| row.declaration == definition.id && row.aliased_type.is_some())
+            && !world
+                .structural_contracts
+                .hierarchy_and_aliases
+                .iter()
+                .any(|row| row.declaration == definition.id && row.aliased_type.is_some())
         {
             return Err(invalid("static definition alias projection lacks structural alias authority"));
         }
@@ -2975,15 +2992,18 @@ fn validate_module_static_bindings(world: &SemanticWorldV3, limits: &ValidationL
                 ) if module == &body_owner.module
                     && declaration_range.start >= binding.declaration_source.start
                     && declaration_range.end <= binding.declaration_source.end => {}
-                _ => return Err(invalid(format!(
-                    "module static-binding state is not owned by its module source binding: symbol={:?}, phase={:?}, declaration_source={:?}, authority={:?}",
-                    binding.symbol, binding.phase, binding.declaration_source, binding_row.authority
-                ))),
+                _ => {
+                    return Err(invalid(format!(
+                        "module static-binding state is not owned by its module source binding: symbol={:?}, phase={:?}, declaration_source={:?}, authority={:?}",
+                        binding.symbol, binding.phase, binding.declaration_source, binding_row.authority
+                    )));
+                }
             }
             if matches!(binding.phase, ModuleStaticBindingPhaseV1::StaticConstant)
-                && world.static_constants.binary_search_by(|constant| {
-                    (&constant.symbol.module, &constant.symbol.name).cmp(&(&binding.symbol.module, &binding.symbol.name))
-                }).is_err()
+                && world
+                    .static_constants
+                    .binary_search_by(|constant| (&constant.symbol.module, &constant.symbol.name).cmp(&(&binding.symbol.module, &binding.symbol.name)))
+                    .is_err()
             {
                 return Err(invalid("static-constant module binding has no reduced static-constant owner"));
             }
@@ -2996,9 +3016,10 @@ fn validate_module_static_bindings(world: &SemanticWorldV3, limits: &ValidationL
         for visible in &index.visible_names {
             if visible.name.is_empty()
                 || visible.name.len() > limits.max_string_bytes
-                || index.bindings.binary_search_by(|binding| {
-                    (&binding.symbol.module, &binding.symbol.name).cmp(&(&visible.symbol.module, &visible.symbol.name))
-                }).is_err()
+                || index
+                    .bindings
+                    .binary_search_by(|binding| (&binding.symbol.module, &binding.symbol.name).cmp(&(&visible.symbol.module, &visible.symbol.name)))
+                    .is_err()
             {
                 return Err(invalid("module visible binding name references an invalid or absent symbol"));
             }
@@ -4433,23 +4454,18 @@ fn validate_witness_specialization(
     Ok(())
 }
 
-fn is_valid_diagnostic_explanation_callable(
-    callable: &StableCallableRef,
-    callable_signatures: &[CallableSignatureRecordV1],
-) -> bool {
-    callable_signatures
-        .binary_search_by(|signature| signature.callable.cmp(callable))
-        .is_ok()
+fn is_valid_diagnostic_explanation_callable(callable: &StableCallableRef, callable_signatures: &[CallableSignatureRecordV1]) -> bool {
+    callable_signatures.binary_search_by(|signature| signature.callable.cmp(callable)).is_ok()
         || (callable.side == StableDispatchSide::Instance && {
             callable_signatures
                 .binary_search_by(|signature| {
-                    (&signature.callable.owner, signature.callable.side, &signature.callable.selector)
-                        .cmp(&(&callable.owner, StableDispatchSide::Class, &callable.selector))
+                    (&signature.callable.owner, signature.callable.side, &signature.callable.selector).cmp(&(
+                        &callable.owner,
+                        StableDispatchSide::Class,
+                        &callable.selector,
+                    ))
                 })
-                .is_ok_and(|idx| {
-                    callable_signatures[idx].declared_return.basis
-                        == crate::semantic::aggregates::DeclaredTypeBasisV1::ConstructorSemantics
-                })
+                .is_ok_and(|idx| callable_signatures[idx].declared_return.basis == crate::semantic::aggregates::DeclaredTypeBasisV1::ConstructorSemantics)
         })
         || callable.owner.try_declaration().is_some_and(|owner| owner.is_synthetic_main())
 }
@@ -4934,17 +4950,35 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
         }
         if record.for_iteration_lanes.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
             || record.positional_expansions.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
-            || record.known_invalid_positional_expansions.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
+            || record
+                .known_invalid_positional_expansions
+                .windows(2)
+                .any(|pair| pair[0].expression >= pair[1].expression)
             || record.sequence_literals.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
             || record.associated_resolutions.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
-            || record.callable_reference_resolutions.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
+            || record
+                .callable_reference_resolutions
+                .windows(2)
+                .any(|pair| pair[0].expression >= pair[1].expression)
             || record.family_applications.windows(2).any(|pair| pair[0].expression >= pair[1].expression)
             || record.for_iteration_lanes.iter().any(|row| row.expression as usize >= record.expressions.len())
-            || record.positional_expansions.iter().any(|row| row.expression as usize >= record.expressions.len())
-            || record.known_invalid_positional_expansions.iter().any(|row| row.expression as usize >= record.expressions.len())
+            || record
+                .positional_expansions
+                .iter()
+                .any(|row| row.expression as usize >= record.expressions.len())
+            || record
+                .known_invalid_positional_expansions
+                .iter()
+                .any(|row| row.expression as usize >= record.expressions.len())
             || record.sequence_literals.iter().any(|row| row.expression as usize >= record.expressions.len())
-            || record.associated_resolutions.iter().any(|row| row.expression as usize >= record.expressions.len())
-            || record.callable_reference_resolutions.iter().any(|row| row.expression as usize >= record.expressions.len())
+            || record
+                .associated_resolutions
+                .iter()
+                .any(|row| row.expression as usize >= record.expressions.len())
+            || record
+                .callable_reference_resolutions
+                .iter()
+                .any(|row| row.expression as usize >= record.expressions.len())
             || record.family_applications.iter().any(|row| row.expression as usize >= record.expressions.len())
         {
             return Err(invalid("callable resolution rows are not sorted or reference an absent expression"));
@@ -5052,12 +5086,15 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
             .iter()
             .try_fold(0usize, |total, literal| total.checked_add(literal.exact_expansions.len()))
             .and_then(|total| {
-                record.associated_resolutions.iter().try_fold(total, |total, resolution| match &resolution.kind {
-                    CallableAssociatedResolutionKindV1::StaticInvoke { argument_mapping, .. } => {
-                        total.checked_add(argument_mapping.as_ref().map_or(0, Vec::len))
-                    }
-                    CallableAssociatedResolutionKindV1::ExactValue { .. } => Some(total),
-                })
+                record
+                    .associated_resolutions
+                    .iter()
+                    .try_fold(total, |total, resolution| match &resolution.kind {
+                        CallableAssociatedResolutionKindV1::StaticInvoke { argument_mapping, .. } => {
+                            total.checked_add(argument_mapping.as_ref().map_or(0, Vec::len))
+                        }
+                        CallableAssociatedResolutionKindV1::ExactValue { .. } => Some(total),
+                    })
             })
             .and_then(|total| {
                 record
@@ -5066,20 +5103,23 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
                     .try_fold(total, |total, resolution| total.checked_add(resolution.members.len()))
             })
             .and_then(|total| {
-                record.family_applications.iter().try_fold(total, |total, application| match &application.selection {
-                    CallableFamilyApplicationSelectionV1::Static { operation, .. } => total.checked_add(operation.slots.len()),
-                    CallableFamilyApplicationSelectionV1::Dynamic { candidates, .. } => {
-                        candidates.iter().try_fold(total.checked_add(candidates.len())?, |total, candidate| total.checked_add(candidate.operation.slots.len()))
-                    }
-                })
+                record
+                    .family_applications
+                    .iter()
+                    .try_fold(total, |total, application| match &application.selection {
+                        CallableFamilyApplicationSelectionV1::Static { operation, .. } => total.checked_add(operation.slots.len()),
+                        CallableFamilyApplicationSelectionV1::Dynamic { candidates, .. } => {
+                            candidates.iter().try_fold(total.checked_add(candidates.len())?, |total, candidate| {
+                                total.checked_add(candidate.operation.slots.len())
+                            })
+                        }
+                    })
             })
             .ok_or_else(|| invalid("callable resolution nested row count overflow"))?;
         let boundary_rows = std::iter::once(&record.entry_flow)
             .chain(record.normal_returns.iter().map(|exit| &exit.flow))
             .chain(record.throws.iter())
-            .try_fold(0usize, |total, flow| {
-                total.checked_add(flow.bindings.len())?.checked_add(flow.fields.len())
-            })
+            .try_fold(0usize, |total, flow| total.checked_add(flow.bindings.len())?.checked_add(flow.fields.len()))
             .ok_or_else(|| invalid("callable flow-boundary row count overflow"))?;
         let nested_rows = nested_rows
             .checked_add(proof::validate_callable_proofs(None, record, limits)?)
@@ -5536,11 +5576,7 @@ fn validate_callable_contextual_realization_evidence(
     }
     validate_callable_contextual_expression(record, realization.source_expression)?;
     match &realization.operation {
-        CallableContextualRealizationOperationV1::Basis {
-            coefficient,
-            evaluation,
-            ..
-        } => {
+        CallableContextualRealizationOperationV1::Basis { coefficient, evaluation, .. } => {
             if let CallableRealizationCoefficientV1::One { capability, .. } = coefficient {
                 validate_callable_realization_capability_evidence(record, capability, limits)?;
             }

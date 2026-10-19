@@ -45,7 +45,8 @@ fn facade_exposes_canonical_roots_children_exports_and_provenance() {
                     target: LinkedExportTarget::Module(child.clone()),
                     range: SourceRange { start: 0, end: 6 },
                 },
-            )]).into(),
+            )])
+            .into(),
             metadata: ModuleMetadata::default(),
         },
     );

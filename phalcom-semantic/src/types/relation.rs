@@ -9,9 +9,9 @@ use crate::core_surface::CoreDeclarationIds;
 use crate::declarations::GenericSupertypeTemplate;
 use crate::field_key::FieldKey;
 use crate::identity::{DeclarationId, ModuleId};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedMap, SortedMapEntriesError};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
-use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedMap, SortedMapEntriesError};
 
 /// Environment for querying class hierarchies and module declaration relations.
 pub trait TypeHierarchy {
@@ -165,7 +165,10 @@ impl MapTypeHierarchy {
             self.parent
                 .as_ref()
                 .map_or(true, |parent| parent.supertype_template(&template.declaration).is_none())
-                && self.frozen_templates.as_ref().is_none_or(|entries| !entries.contains_key(&template.declaration)),
+                && self
+                    .frozen_templates
+                    .as_ref()
+                    .is_none_or(|entries| !entries.contains_key(&template.declaration)),
             "local mutation cannot overwrite canonical parent supertype template: {:?}",
             template.declaration
         );

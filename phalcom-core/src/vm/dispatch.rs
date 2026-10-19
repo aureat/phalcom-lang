@@ -1917,13 +1917,9 @@ impl VM {
                     crate::typing::overlay::RuntimeStaticArgument::Term(ty)
                 }
                 crate::typing::RuntimeCallArgumentRecipe::RecordRow(row) => {
-                    let row = crate::typing::environment::instantiate_runtime_record_row(
-                        &row,
-                        &parent,
-                        &mut self.runtime_typing_context,
-                        &self.typing_registry,
-                    )
-                    .ok_or_else(|| RuntimeError::Internal(format!("generic call-entry row recipe could not be instantiated for {parameter:?}")))?;
+                    let row =
+                        crate::typing::environment::instantiate_runtime_record_row(&row, &parent, &mut self.runtime_typing_context, &self.typing_registry)
+                            .ok_or_else(|| RuntimeError::Internal(format!("generic call-entry row recipe could not be instantiated for {parameter:?}")))?;
                     crate::typing::overlay::RuntimeStaticArgument::RecordRow(row)
                 }
                 crate::typing::RuntimeCallArgumentRecipe::DynamicType => crate::typing::overlay::RuntimeStaticArgument::DynamicType,

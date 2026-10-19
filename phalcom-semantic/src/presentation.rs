@@ -421,10 +421,7 @@ impl ModuleFormalProjection {
         Self::new_with_binding_attachments(sites, BTreeMap::new())
     }
 
-    fn new_with_binding_attachments(
-        sites: Vec<FormalFactSite>,
-        binding_attachments: BTreeMap<(CallableId, BindingId), SourceRange>,
-    ) -> Self {
+    fn new_with_binding_attachments(sites: Vec<FormalFactSite>, binding_attachments: BTreeMap<(CallableId, BindingId), SourceRange>) -> Self {
         let mut by_fact = BTreeMap::new();
         for site in &sites {
             by_fact.insert(site.fact.clone(), site.clone());
@@ -449,9 +446,7 @@ impl ModuleFormalProjection {
         binding_ranges: &crate::parent_map::ParentMap<CallableId, crate::ordered_map::OrderedMap<BindingId, SourceRange>>,
         allocations: &mut AllocationBudget,
     ) -> Result<Self, ModuleFormalProjectionBuildError> {
-        let mut fact_indices = allocations
-            .vector::<usize>(sites.len())
-            .map_err(ModuleFormalProjectionBuildError::Allocation)?;
+        let mut fact_indices = allocations.vector::<usize>(sites.len()).map_err(ModuleFormalProjectionBuildError::Allocation)?;
         fact_indices.extend(0..sites.len());
         fact_indices.sort_unstable_by(|&left, &right| sites[left].fact.cmp(&sites[right].fact));
         if fact_indices.windows(2).any(|pair| sites[pair[0]].fact == sites[pair[1]].fact) {
@@ -480,11 +475,9 @@ impl ModuleFormalProjection {
             .iter()
             .enumerate()
             .map(|(index, site)| RangeEntry::new(site.range, index, formal_fact_priority(&site.fact)));
-        let intervals = RangeIndex::new_with_allocation_budget(interval_entries, sites.len(), allocations)
-            .map_err(ModuleFormalProjectionBuildError::Allocation)?;
-        let fact_indices = allocations
-            .boxed_slice(fact_indices)
-            .map_err(ModuleFormalProjectionBuildError::Allocation)?;
+        let intervals =
+            RangeIndex::new_with_allocation_budget(interval_entries, sites.len(), allocations).map_err(ModuleFormalProjectionBuildError::Allocation)?;
+        let fact_indices = allocations.boxed_slice(fact_indices).map_err(ModuleFormalProjectionBuildError::Allocation)?;
         let binding_attachments = allocations
             .boxed_slice(binding_attachments)
             .map_err(ModuleFormalProjectionBuildError::Allocation)?;
@@ -746,11 +739,7 @@ impl FormalSemanticProjection {
         callables.extend(analyses.keys());
         callables.sort_unstable_by(|left, right| left.module().cmp(right.module()).then_with(|| left.cmp(right)));
 
-        let module_count = callables
-            .windows(2)
-            .filter(|pair| pair[0].module() != pair[1].module())
-            .count()
-            + usize::from(!callables.is_empty());
+        let module_count = callables.windows(2).filter(|pair| pair[0].module() != pair[1].module()).count() + usize::from(!callables.is_empty());
         let mut frozen_modules = allocations
             .vector::<(ModuleId, Arc<ModuleFormalProjection>)>(module_count)
             .map_err(FormalSemanticProjectionBuildError::Allocation)?;
@@ -813,10 +802,7 @@ impl FormalSemanticProjection {
                 }
 
                 for binding in analysis.bindings.values() {
-                    let attached_range = binding_ranges
-                        .get(&analysis.callable)
-                        .and_then(|ranges| ranges.get(&binding.binding))
-                        .copied();
+                    let attached_range = binding_ranges.get(&analysis.callable).and_then(|ranges| ranges.get(&binding.binding)).copied();
                     let owned_module = module
                         .clone_with_allocation_budget(allocations)
                         .map_err(FormalSemanticProjectionBuildError::Allocation)?;
@@ -852,16 +838,11 @@ impl FormalSemanticProjection {
             }
 
             sites.sort_unstable_by(compare_formal_fact_sites);
-            let projection = ModuleFormalProjection::new_frozen_with_allocation_budget(sites, binding_ranges, allocations)
-                .map_err(|error| match error {
-                    ModuleFormalProjectionBuildError::Allocation(error) => {
-                        FormalSemanticProjectionBuildError::Allocation(error)
-                    }
-                    ModuleFormalProjectionBuildError::DuplicateFact => FormalSemanticProjectionBuildError::DuplicateFact,
-                })?;
-            let projection = allocations
-                .arc(projection)
-                .map_err(FormalSemanticProjectionBuildError::Allocation)?;
+            let projection = ModuleFormalProjection::new_frozen_with_allocation_budget(sites, binding_ranges, allocations).map_err(|error| match error {
+                ModuleFormalProjectionBuildError::Allocation(error) => FormalSemanticProjectionBuildError::Allocation(error),
+                ModuleFormalProjectionBuildError::DuplicateFact => FormalSemanticProjectionBuildError::DuplicateFact,
+            })?;
+            let projection = allocations.arc(projection).map_err(FormalSemanticProjectionBuildError::Allocation)?;
             let module = module
                 .clone_with_allocation_budget(allocations)
                 .map_err(FormalSemanticProjectionBuildError::Allocation)?;
@@ -869,11 +850,8 @@ impl FormalSemanticProjection {
             start = end;
         }
 
-        let frozen_modules = BudgetedSortedMap::from_sorted_entries(frozen_modules)
-            .map_err(|_| FormalSemanticProjectionBuildError::DuplicateModule)?;
-        let frozen_modules = allocations
-            .arc(frozen_modules)
-            .map_err(FormalSemanticProjectionBuildError::Allocation)?;
+        let frozen_modules = BudgetedSortedMap::from_sorted_entries(frozen_modules).map_err(|_| FormalSemanticProjectionBuildError::DuplicateModule)?;
+        let frozen_modules = allocations.arc(frozen_modules).map_err(FormalSemanticProjectionBuildError::Allocation)?;
         Ok(Self {
             modules: None,
             frozen_modules: Some(frozen_modules),
@@ -927,63 +905,46 @@ impl FormalSemanticProjection {
 
     /// Returns one module's formal projection shard.
     pub fn module(&self, module: &ModuleId) -> Option<&ModuleFormalProjection> {
-        self.modules
-            .as_ref()
-            .and_then(|modules| modules.get(module))
-            .map(AsRef::as_ref)
-            .or_else(|| {
-                if self.retired_modules.as_ref().is_some_and(|retired| retired.contains(module)) {
-                    None
-                } else {
-                    self.frozen_modules.as_ref()?.get(module).map(AsRef::as_ref)
-                }
-            })
+        self.modules.as_ref().and_then(|modules| modules.get(module)).map(AsRef::as_ref).or_else(|| {
+            if self.retired_modules.as_ref().is_some_and(|retired| retired.contains(module)) {
+                None
+            } else {
+                self.frozen_modules.as_ref()?.get(module).map(AsRef::as_ref)
+            }
+        })
     }
 
     /// Returns one module's formal projection shard Arc.
     pub fn module_arc(&self, module: &ModuleId) -> Option<Arc<ModuleFormalProjection>> {
-        self.modules
-            .as_ref()
-            .and_then(|modules| modules.get(module))
-            .cloned()
-            .or_else(|| {
-                if self.retired_modules.as_ref().is_some_and(|retired| retired.contains(module)) {
-                    None
-                } else {
-                    self.frozen_modules.as_ref()?.get(module).cloned()
-                }
-            })
+        self.modules.as_ref().and_then(|modules| modules.get(module)).cloned().or_else(|| {
+            if self.retired_modules.as_ref().is_some_and(|retired| retired.contains(module)) {
+                None
+            } else {
+                self.frozen_modules.as_ref()?.get(module).cloned()
+            }
+        })
     }
 
     /// Returns iterator over module formal projections.
     pub fn modules(&self) -> impl Iterator<Item = (&ModuleId, &Arc<ModuleFormalProjection>)> {
         let source = self.modules.as_ref().into_iter().flat_map(|modules| modules.iter());
-        let frozen = self
-            .frozen_modules
-            .iter()
-            .flat_map(|modules| modules.iter())
-            .filter(|(module, _)| {
-                !self.modules.as_ref().is_some_and(|m| m.contains_key(module))
-                    && !self.retired_modules.as_ref().is_some_and(|r| r.contains(module))
-            });
+        let frozen = self.frozen_modules.iter().flat_map(|modules| modules.iter()).filter(|(module, _)| {
+            !self.modules.as_ref().is_some_and(|m| m.contains_key(module)) && !self.retired_modules.as_ref().is_some_and(|r| r.contains(module))
+        });
         source.chain(frozen)
     }
 
     /// Returns the number of module projection shards without traversing them.
     pub fn module_count(&self) -> usize {
         self.modules.as_ref().map_or(0, |modules| modules.len())
-            + self
-                .frozen_modules
-                .as_ref()
-                .map_or(0, |modules| {
-                    modules
-                        .iter()
-                        .filter(|(module, _)| {
-                            !self.modules.as_ref().is_some_and(|m| m.contains_key(module))
-                                && !self.retired_modules.as_ref().is_some_and(|r| r.contains(module))
-                        })
-                        .count()
-                })
+            + self.frozen_modules.as_ref().map_or(0, |modules| {
+                modules
+                    .iter()
+                    .filter(|(module, _)| {
+                        !self.modules.as_ref().is_some_and(|m| m.contains_key(module)) && !self.retired_modules.as_ref().is_some_and(|r| r.contains(module))
+                    })
+                    .count()
+            })
     }
 
     /// Returns one formal site by canonical fact identity.

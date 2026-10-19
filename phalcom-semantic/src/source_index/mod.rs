@@ -811,7 +811,9 @@ impl SourceSemanticIndex {
     }
 
     /// Creates an empty source index using the caller's allocation budget for Arc overhead.
-    pub fn empty_with_allocation_budget(allocations: &mut phalcom_type_meta::allocation::AllocationBudget) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+    pub fn empty_with_allocation_budget(
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
         Ok(Self {
             modules: None,
             references: allocations.arc(ReferenceIndex::default())?,
@@ -1035,7 +1037,11 @@ impl SourceSemanticIndex {
         ));
         self.replace_module_shard(module.clone(), updated_shard);
 
-        let mut module_incidents = self.incidents_by_module.as_ref().and_then(|m| m.get(module)).map_or_else(Vec::new, |retained| retained.to_vec());
+        let mut module_incidents = self
+            .incidents_by_module
+            .as_ref()
+            .and_then(|m| m.get(module))
+            .map_or_else(Vec::new, |retained| retained.to_vec());
         module_incidents.extend(incidents.iter().cloned());
         self.replace_module_incidents(module.clone(), module_incidents);
         incidents.into_iter().next().map_or(Ok(()), |error| Err(Box::new(error)))

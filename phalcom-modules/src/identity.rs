@@ -358,24 +358,17 @@ impl ModuleId {
     }
 
     /// Clones this module identity, budgeting the component slice and each component string.
-    pub fn clone_with_allocation_budget(
-        &self,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, AllocationError> {
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
         let comps = self.path.components();
         let mut components = allocations.vector::<ModuleComponent>(comps.len())?;
         for comp in comps {
             let boxed_spelling = allocations.boxed_str(comp.as_str())?;
-            let comp = ModuleComponent::from_owned_identifier(boxed_spelling)
-                .map_err(|_| AllocationError::Failed)?;
+            let comp = ModuleComponent::from_owned_identifier(boxed_spelling).map_err(|_| AllocationError::Failed)?;
             components.push(comp);
         }
         let components = allocations.boxed_slice(components)?;
         let path = ModulePath::from_components(components);
-        Ok(ModuleId {
-            project: self.project,
-            path,
-        })
+        Ok(ModuleId { project: self.project, path })
     }
 }
 

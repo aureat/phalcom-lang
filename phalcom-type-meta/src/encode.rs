@@ -1,9 +1,7 @@
 //! Deterministic JSON / binary serialization wrappers.
 
 use crate::bundle::{MetadataExtensionSection, ModuleMetadataRoot, RuntimeTypeFormRoot, SemanticMetadataBundle, TypeUseRecord};
-use crate::declaration::{
-    CallableSemanticRecord, DeclarationTypeRecord, FieldSemanticRecord, StaticDomainDeclarationRecord, TypeAliasRecord,
-};
+use crate::declaration::{CallableSemanticRecord, DeclarationTypeRecord, FieldSemanticRecord, StaticDomainDeclarationRecord, TypeAliasRecord};
 use crate::generic::{GenericSignatureRecord, TypeParameterRecord};
 use crate::kind::KindNodeEntry;
 use crate::scoped_type::ScopedTypeNodeEntry;
@@ -20,7 +18,11 @@ pub fn encode_metadata_json(bundle: &SemanticMetadataBundle) -> Result<String, s
 /// Decodes and validates a metadata bundle from a JSON string.
 pub fn decode_metadata_json(json: &str, limits: &ValidationLimits) -> Result<SemanticMetadataBundle, MetadataDecodeError> {
     let mut remaining = limits.max_total_bytes;
-    if crate::budgeted::schema_version(json)? < 13 { decode_metadata_json_legacy(json, limits, None, &mut remaining) } else { decode_metadata_json_budgeted(json, limits, None, &mut remaining) }
+    if crate::budgeted::schema_version(json)? < 13 {
+        decode_metadata_json_legacy(json, limits, None, &mut remaining)
+    } else {
+        decode_metadata_json_budgeted(json, limits, None, &mut remaining)
+    }
 }
 
 /// Decode legacy Record remainders using the canonical Symbol declaration
@@ -31,7 +33,11 @@ pub fn decode_metadata_json_with_symbol(
     symbol: Option<&crate::identity::StableDeclarationRef>,
 ) -> Result<SemanticMetadataBundle, MetadataDecodeError> {
     let mut remaining = limits.max_total_bytes;
-    if crate::budgeted::schema_version(json)? < 13 { decode_metadata_json_legacy(json, limits, symbol, &mut remaining) } else { decode_metadata_json_budgeted(json, limits, symbol, &mut remaining) }
+    if crate::budgeted::schema_version(json)? < 13 {
+        decode_metadata_json_legacy(json, limits, symbol, &mut remaining)
+    } else {
+        decode_metadata_json_budgeted(json, limits, symbol, &mut remaining)
+    }
 }
 
 /// Direct, budgeted decoding of metadata bundle JSON.
@@ -287,10 +293,13 @@ impl<'de> Visitor<'de> for ValueSeed<'_> {
             let is_param = self.scanner.current_top_field == Some(TopField::Parameters);
             let is_static_domain = self.scanner.current_top_field == Some(TopField::StaticDomains);
 
-            while seq.next_element_seed(ValueSeed {
-                scanner: self.scanner,
-                depth: next_depth,
-            })?.is_some() {
+            while seq
+                .next_element_seed(ValueSeed {
+                    scanner: self.scanner,
+                    depth: next_depth,
+                })?
+                .is_some()
+            {
                 self.scanner.table_bytes = self.scanner.table_bytes.saturating_add(entry_size);
                 if is_param {
                     self.scanner.param_count = self.scanner.param_count.saturating_add(1);
@@ -300,10 +309,13 @@ impl<'de> Visitor<'de> for ValueSeed<'_> {
                 }
             }
         } else {
-            while seq.next_element_seed(ValueSeed {
-                scanner: self.scanner,
-                depth: next_depth,
-            })?.is_some() {
+            while seq
+                .next_element_seed(ValueSeed {
+                    scanner: self.scanner,
+                    depth: next_depth,
+                })?
+                .is_some()
+            {
                 self.scanner.table_bytes = self.scanner.table_bytes.saturating_add(32);
             }
         }

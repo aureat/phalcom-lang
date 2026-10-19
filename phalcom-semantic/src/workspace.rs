@@ -175,7 +175,8 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> Result<SemanticAnalys
         crate::session::SemanticWorkspaceSession::from_foundation_for_image(baseline, crate::identity::WorkspaceId::from_raw(0))
     } else {
         crate::session::SemanticWorkspaceSession::new()
-    }.with_product_request(input.product_request);
+    }
+    .with_product_request(input.product_request);
     let update = session.update(input)?;
     Ok(SemanticAnalysis { snapshot: update.snapshot })
 }

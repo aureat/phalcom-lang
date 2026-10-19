@@ -2,12 +2,12 @@
 
 use crate::semantic::support::{Fixture, applied};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
+use phalcom_semantic::checker::context::CheckerControl;
 use phalcom_semantic::explain::ExplanationStep;
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::parameter::TypeParameterOwner;
 use phalcom_semantic::types::specialization::specialize_receiver_to_owner;
 use phalcom_semantic::types::store::StaticArgument;
-use phalcom_semantic::checker::context::CheckerControl;
 
 #[test]
 fn direct_generic_receiver_specializes_member_contract() {
@@ -173,18 +173,22 @@ fn explicit_dynamic_owner_argument_is_preserved_by_receiver_specialization() {
         let selected = fixture.callable_id("Box", "ping", DispatchSide::Instance);
         assert_eq!(call.callable.as_ref(), Some(&selected), "receiver must select Box.ping");
 
-        let receiver = fixture
-            .binding(run, "box")
-            .current
-            .ty()
-            .expect("annotated receiver type");
+        let receiver = fixture.binding(run, "box").current.ty().expect("annotated receiver type");
         let owner = fixture.decl("Box");
-        let (_, arguments) = fixture.analysis.snapshot.store.applied_nominal_static_parts(receiver).expect("applied Box receiver");
-        assert_eq!(arguments.as_slice(), &[if dynamic {
-            StaticArgument::DynamicType
-        } else {
-            StaticArgument::Term(fixture.ty("Int"))
-        }]);
+        let (_, arguments) = fixture
+            .analysis
+            .snapshot
+            .store
+            .applied_nominal_static_parts(receiver)
+            .expect("applied Box receiver");
+        assert_eq!(
+            arguments.as_slice(),
+            &[if dynamic {
+                StaticArgument::DynamicType
+            } else {
+                StaticArgument::Term(fixture.ty("Int"))
+            }]
+        );
 
         let parameter = fixture
             .analysis
@@ -198,14 +202,8 @@ fn explicit_dynamic_owner_argument_is_preserved_by_receiver_specialization() {
         assert_eq!(parameter_data.kind, phalcom_semantic::types::id::KindId::TYPE);
 
         let mut store = (*fixture.analysis.snapshot.store).clone();
-        let specialization = specialize_receiver_to_owner(
-            &mut store,
-            &*fixture.analysis.snapshot.hierarchy,
-            receiver,
-            &owner,
-            &CheckerControl::default(),
-        )
-        .expect("exact Box receiver specialization");
+        let specialization = specialize_receiver_to_owner(&mut store, &*fixture.analysis.snapshot.hierarchy, receiver, &owner, &CheckerControl::default())
+            .expect("exact Box receiver specialization");
         let environment = specialization.environment;
         assert_eq!(environment.get_param(parameter), (!dynamic).then_some(fixture.ty("Int")));
         assert_eq!(environment.is_dynamic(parameter), dynamic);

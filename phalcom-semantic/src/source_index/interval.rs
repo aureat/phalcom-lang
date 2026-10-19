@@ -73,8 +73,7 @@ impl<T: Copy> RangeIndex<T> {
             ordered.push(entry);
         }
         ordered.sort_unstable_by(|left, right| {
-            (left.range.start, left.range.len(), left.priority, left.ordinal)
-                .cmp(&(right.range.start, right.range.len(), right.priority, right.ordinal))
+            (left.range.start, left.range.len(), left.priority, left.ordinal).cmp(&(right.range.start, right.range.len(), right.priority, right.ordinal))
         });
         let mut max_end_prefix = allocations.vector(ordered.len())?;
         let mut max_end = 0;

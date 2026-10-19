@@ -6,7 +6,9 @@
 use crate::bytecode::Bytecode;
 use crate::compiler::lib::Compiler;
 use crate::compiler::lib::error::CompilerError;
-use crate::modules::semantic_lowering::{AssociatedLoweringSpec, DataConstructionLoweringSpec, LoweringBindingIdentity, LoweringSiteKind, ModuleLoweringSemantics};
+use crate::modules::semantic_lowering::{
+    AssociatedLoweringSpec, DataConstructionLoweringSpec, LoweringBindingIdentity, LoweringSiteKind, ModuleLoweringSemantics,
+};
 use phalcom_ast::ast::{Expr, MatchExpr, PackItem, Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_semantic::identity::{BindingId, DataConstructorId, VariantId};

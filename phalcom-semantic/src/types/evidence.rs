@@ -41,7 +41,12 @@ impl TypeKnowledge {
     /// Reconstructs a portable type-evidence product without changing its
     /// epistemic status, origin, or provenance.
     pub(crate) fn known_with_evidence(ty: TypeId, status: EvidenceStatus, origin: EvidenceOrigin, provenance: EvidenceSet) -> Self {
-        Self::Known(TypeEvidence { ty, status, origin, provenance })
+        Self::Known(TypeEvidence {
+            ty,
+            status,
+            origin,
+            provenance,
+        })
     }
 
     #[inline]

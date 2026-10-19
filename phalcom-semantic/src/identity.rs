@@ -182,20 +182,14 @@ impl VariantId {
     pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
         let owner = self.owner.clone_with_allocation_budget(allocations)?;
         let base = match &self.selector.base {
-            phalcom_common::selector::SelectorBase::Named(name) => {
-                phalcom_common::selector::SelectorBase::Named(allocations.string(name)?)
-            }
-            phalcom_common::selector::SelectorBase::Subscript => {
-                phalcom_common::selector::SelectorBase::Subscript
-            }
+            phalcom_common::selector::SelectorBase::Named(name) => phalcom_common::selector::SelectorBase::Named(allocations.string(name)?),
+            phalcom_common::selector::SelectorBase::Subscript => phalcom_common::selector::SelectorBase::Subscript,
         };
         let mut slots_vec = allocations.vector(self.selector.slots.len())?;
         for slot in self.selector.slots.iter() {
             slots_vec.push(match slot {
                 phalcom_common::selector::SelectorSlot::Positional => phalcom_common::selector::SelectorSlot::Positional,
-                phalcom_common::selector::SelectorSlot::Label(label) => {
-                    phalcom_common::selector::SelectorSlot::Label(allocations.string(label)?)
-                }
+                phalcom_common::selector::SelectorSlot::Label(label) => phalcom_common::selector::SelectorSlot::Label(allocations.string(label)?),
             });
         }
         let slots = allocations.boxed_slice(slots_vec)?;
@@ -466,18 +460,14 @@ impl CallableId {
     pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
         let owner = self.owner.clone_with_allocation_budget(allocations)?;
         let base = match &self.selector.base {
-            phalcom_common::selector::SelectorBase::Named(name) => {
-                phalcom_common::selector::SelectorBase::Named(allocations.string(name)?)
-            }
+            phalcom_common::selector::SelectorBase::Named(name) => phalcom_common::selector::SelectorBase::Named(allocations.string(name)?),
             phalcom_common::selector::SelectorBase::Subscript => phalcom_common::selector::SelectorBase::Subscript,
         };
         let mut slots = allocations.vector(self.selector.slots.len())?;
         for slot in self.selector.slots.iter() {
             slots.push(match slot {
                 phalcom_common::selector::SelectorSlot::Positional => phalcom_common::selector::SelectorSlot::Positional,
-                phalcom_common::selector::SelectorSlot::Label(label) => {
-                    phalcom_common::selector::SelectorSlot::Label(allocations.string(label)?)
-                }
+                phalcom_common::selector::SelectorSlot::Label(label) => phalcom_common::selector::SelectorSlot::Label(allocations.string(label)?),
             });
         }
         Ok(Self {

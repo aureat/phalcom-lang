@@ -167,15 +167,10 @@ pub fn from_stable_variant(variant: &StableVariantRef) -> Result<crate::identity
 
 pub fn from_stable_project(proj: &StableProjectRef) -> Result<ProjectIdentity, &'static str> {
     match proj {
-        StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe" => {
-            Ok(ProjectIdentity::Universe)
-        }
+        StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe" => Ok(ProjectIdentity::Universe),
         StableProjectRef::Session { session_fingerprint } => {
             let bytes = session_fingerprint.as_bytes();
-            let raw = u64::from_be_bytes([
-                bytes[8], bytes[9], bytes[10], bytes[11],
-                bytes[12], bytes[13], bytes[14], bytes[15],
-            ]);
+            let raw = u64::from_be_bytes([bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]]);
             Ok(ProjectIdentity::Synthetic(phalcom_modules::SyntheticProjectId::from_raw(raw)))
         }
         _ => Err("unsupported stable project ref for direct conversion"),
@@ -186,8 +181,7 @@ pub fn from_stable_module(stable: &StableModuleRef) -> Result<ModuleId, &'static
     let project = from_stable_project(&stable.project)?;
     let mut components = Vec::with_capacity(stable.path.len());
     for comp in stable.path.iter() {
-        let mc = phalcom_modules::ModuleComponent::from_identifier(comp)
-            .map_err(|_| "invalid module component")?;
+        let mc = phalcom_modules::ModuleComponent::from_identifier(comp).map_err(|_| "invalid module component")?;
         components.push(mc);
     }
     Ok(ModuleId {
@@ -218,23 +212,15 @@ pub fn from_stable_callable(callable: &StableCallableRef) -> Result<CallableId, 
     let selector = phalcom_common::selector::Selector::decode(&callable.selector);
     let side = from_stable_dispatch_side(callable.side);
     let owner = match &callable.owner {
-        StableCallableOwnerRef::Declaration(decl) => {
-            CallableOwnerId::Declaration(from_stable_declaration(decl)?)
-        }
+        StableCallableOwnerRef::Declaration(decl) => CallableOwnerId::Declaration(from_stable_declaration(decl)?),
         StableCallableOwnerRef::Variant(variant) => {
             let decl = from_stable_declaration(&variant.owner)?;
             let v_selector = phalcom_common::selector::Selector::decode(&variant.selector);
             CallableOwnerId::Variant(crate::identity::VariantId::new(decl, v_selector))
         }
-        StableCallableOwnerRef::Conformance(r#impl) => {
-            CallableOwnerId::Conformance(from_stable_impl(r#impl)?)
-        }
+        StableCallableOwnerRef::Conformance(r#impl) => CallableOwnerId::Conformance(from_stable_impl(r#impl)?),
     };
-    Ok(CallableId {
-        owner,
-        side,
-        selector,
-    })
+    Ok(CallableId { owner, side, selector })
 }
 
 pub fn from_stable_field(field: &StableFieldRef) -> Result<FieldId, &'static str> {
@@ -308,9 +294,7 @@ mod tests {
     fn stable_declaration_round_trip() {
         let module = ModuleId {
             project: ProjectIdentity::Universe,
-            path: phalcom_modules::ModulePath::from_components(vec![
-                phalcom_modules::ModuleComponent::from_identifier("collections").unwrap(),
-            ]),
+            path: phalcom_modules::ModulePath::from_components(vec![phalcom_modules::ModuleComponent::from_identifier("collections").unwrap()]),
         };
         let decl = DeclarationId::new(module, "List".into());
         let stable = to_stable_declaration(&decl);

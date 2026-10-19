@@ -21,12 +21,10 @@ pub fn normalize_module_id(id: &ModuleId) -> ModuleId {
 pub fn normalize_semantic_node_id(node: &phalcom_modules::graph::SemanticNodeId) -> phalcom_modules::graph::SemanticNodeId {
     match node {
         phalcom_modules::graph::SemanticNodeId::Module(m) => phalcom_modules::graph::SemanticNodeId::Module(normalize_module_id(m)),
-        phalcom_modules::graph::SemanticNodeId::Declaration { module, name } => {
-            phalcom_modules::graph::SemanticNodeId::Declaration {
-                module: normalize_module_id(module),
-                name: name.clone(),
-            }
-        }
+        phalcom_modules::graph::SemanticNodeId::Declaration { module, name } => phalcom_modules::graph::SemanticNodeId::Declaration {
+            module: normalize_module_id(module),
+            name: name.clone(),
+        },
     }
 }
 
@@ -92,34 +90,38 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
 
     // 1. Entry logical module identity
     if normalize_module_id(&src.entry) != normalize_module_id(&art.entry) {
-        report.differences.push(format!("Entry module mismatch: src={:?}, art={:?}", src.entry, art.entry));
+        report
+            .differences
+            .push(format!("Entry module mismatch: src={:?}, art={:?}", src.entry, art.entry));
     }
 
     // 2. Initialization order
     let src_init_order: Vec<_> = src.initialization_order.iter().map(normalize_module_id).collect();
     let art_init_order: Vec<_> = art.initialization_order.iter().map(normalize_module_id).collect();
     if src_init_order != art_init_order {
-        report.differences.push(format!(
-            "Initialization order mismatch: src={:?}, art={:?}",
-            src_init_order, art_init_order
-        ));
+        report
+            .differences
+            .push(format!("Initialization order mismatch: src={:?}, art={:?}", src_init_order, art_init_order));
     }
 
     // 3. Compiled module logical-ID set
     let src_modules: BTreeMap<ModuleId, &crate::modules::compile::CompiledModule> = src.modules.iter().map(|(k, v)| (normalize_module_id(k), v)).collect();
     let art_modules: BTreeMap<ModuleId, &crate::modules::compile::CompiledModule> = art.modules.iter().map(|(k, v)| (normalize_module_id(k), v)).collect();
+    assert_eq!(src_modules.len(), src.modules.len(), "normalize_module_id collision in src");
+    assert_eq!(art_modules.len(), art.modules.len(), "normalize_module_id collision in art");
     let src_module_ids: BTreeSet<_> = src_modules.keys().cloned().collect();
     let art_module_ids: BTreeSet<_> = art_modules.keys().cloned().collect();
     if src_module_ids != art_module_ids {
-        report.differences.push(format!(
-            "Module set mismatch: src={:?}, art={:?}",
-            src_module_ids, art_module_ids
-        ));
+        report
+            .differences
+            .push(format!("Module set mismatch: src={:?}, art={:?}", src_module_ids, art_module_ids));
     }
 
     // 4. Linked module topology (reference, semantic, runtime graphs)
     if normalize_module_id(&src.linked.entry) != normalize_module_id(&art.linked.entry) {
-        report.differences.push(format!("Linked entry mismatch: src={:?}, art={:?}", src.linked.entry, art.linked.entry));
+        report
+            .differences
+            .push(format!("Linked entry mismatch: src={:?}, art={:?}", src.linked.entry, art.linked.entry));
     }
     let src_linked_order: Vec<_> = src.linked.initialization_order.iter().map(normalize_module_id).collect();
     let art_linked_order: Vec<_> = art.linked.initialization_order.iter().map(normalize_module_id).collect();
@@ -134,37 +136,121 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
     let src_ref_nodes: BTreeSet<_> = src.linked.graphs.references.nodes().into_iter().map(|n| normalize_module_id(&n)).collect();
     let art_ref_nodes: BTreeSet<_> = art.linked.graphs.references.nodes().into_iter().map(|n| normalize_module_id(&n)).collect();
     if src_ref_nodes != art_ref_nodes {
-        report.differences.push(format!("Reference graph nodes mismatch: src={:?}, art={:?}", src_ref_nodes, art_ref_nodes));
+        report
+            .differences
+            .push(format!("Reference graph nodes mismatch: src={:?}, art={:?}", src_ref_nodes, art_ref_nodes));
     } else {
-        let src_ref_map: BTreeMap<ModuleId, BTreeSet<(ModuleId, phalcom_modules::graph::ReferenceKind)>> = src.linked.graphs.references.nodes().into_iter().map(|n| {
-            let edges = src.linked.graphs.references.edges_from(&n).iter().map(|e| (normalize_module_id(&e.to), e.kind)).collect();
-            (normalize_module_id(&n), edges)
-        }).collect();
-        let art_ref_map: BTreeMap<ModuleId, BTreeSet<(ModuleId, phalcom_modules::graph::ReferenceKind)>> = art.linked.graphs.references.nodes().into_iter().map(|n| {
-            let edges = art.linked.graphs.references.edges_from(&n).iter().map(|e| (normalize_module_id(&e.to), e.kind)).collect();
-            (normalize_module_id(&n), edges)
-        }).collect();
+        let src_ref_map: BTreeMap<ModuleId, BTreeSet<(ModuleId, phalcom_modules::graph::ReferenceKind)>> = src
+            .linked
+            .graphs
+            .references
+            .nodes()
+            .into_iter()
+            .map(|n| {
+                let edges = src
+                    .linked
+                    .graphs
+                    .references
+                    .edges_from(&n)
+                    .iter()
+                    .map(|e| (normalize_module_id(&e.to), e.kind))
+                    .collect();
+                (normalize_module_id(&n), edges)
+            })
+            .collect();
+        let art_ref_map: BTreeMap<ModuleId, BTreeSet<(ModuleId, phalcom_modules::graph::ReferenceKind)>> = art
+            .linked
+            .graphs
+            .references
+            .nodes()
+            .into_iter()
+            .map(|n| {
+                let edges = art
+                    .linked
+                    .graphs
+                    .references
+                    .edges_from(&n)
+                    .iter()
+                    .map(|e| (normalize_module_id(&e.to), e.kind))
+                    .collect();
+                (normalize_module_id(&n), edges)
+            })
+            .collect();
         if src_ref_map != art_ref_map {
-            report.differences.push(format!("Reference edges mismatch: src={:?}, art={:?}", src_ref_map, art_ref_map));
+            report
+                .differences
+                .push(format!("Reference edges mismatch: src={:?}, art={:?}", src_ref_map, art_ref_map));
         }
     }
 
     // Semantic graph edges
-    let src_sem_nodes: BTreeSet<_> = src.linked.graphs.semantics.nodes().into_iter().map(|n| normalize_semantic_node_id(&n)).collect();
-    let art_sem_nodes: BTreeSet<_> = art.linked.graphs.semantics.nodes().into_iter().map(|n| normalize_semantic_node_id(&n)).collect();
+    let src_sem_nodes: BTreeSet<_> = src
+        .linked
+        .graphs
+        .semantics
+        .nodes()
+        .into_iter()
+        .map(|n| normalize_semantic_node_id(&n))
+        .collect();
+    let art_sem_nodes: BTreeSet<_> = art
+        .linked
+        .graphs
+        .semantics
+        .nodes()
+        .into_iter()
+        .map(|n| normalize_semantic_node_id(&n))
+        .collect();
     if src_sem_nodes != art_sem_nodes {
-        report.differences.push(format!("Semantic graph nodes mismatch: src={:?}, art={:?}", src_sem_nodes, art_sem_nodes));
+        report
+            .differences
+            .push(format!("Semantic graph nodes mismatch: src={:?}, art={:?}", src_sem_nodes, art_sem_nodes));
     } else {
-        let src_sem_map: BTreeMap<phalcom_modules::graph::SemanticNodeId, BTreeSet<(phalcom_modules::graph::SemanticNodeId, phalcom_modules::graph::SemanticEdgeKind)>> = src.linked.graphs.semantics.nodes().into_iter().map(|n| {
-            let edges = src.linked.graphs.semantics.edges_from(&n).iter().map(|e| (normalize_semantic_node_id(&e.to), e.kind)).collect();
-            (normalize_semantic_node_id(&n), edges)
-        }).collect();
-        let art_sem_map: BTreeMap<phalcom_modules::graph::SemanticNodeId, BTreeSet<(phalcom_modules::graph::SemanticNodeId, phalcom_modules::graph::SemanticEdgeKind)>> = art.linked.graphs.semantics.nodes().into_iter().map(|n| {
-            let edges = art.linked.graphs.semantics.edges_from(&n).iter().map(|e| (normalize_semantic_node_id(&e.to), e.kind)).collect();
-            (normalize_semantic_node_id(&n), edges)
-        }).collect();
+        let src_sem_map: BTreeMap<
+            phalcom_modules::graph::SemanticNodeId,
+            BTreeSet<(phalcom_modules::graph::SemanticNodeId, phalcom_modules::graph::SemanticEdgeKind)>,
+        > = src
+            .linked
+            .graphs
+            .semantics
+            .nodes()
+            .into_iter()
+            .map(|n| {
+                let edges = src
+                    .linked
+                    .graphs
+                    .semantics
+                    .edges_from(&n)
+                    .iter()
+                    .map(|e| (normalize_semantic_node_id(&e.to), e.kind))
+                    .collect();
+                (normalize_semantic_node_id(&n), edges)
+            })
+            .collect();
+        let art_sem_map: BTreeMap<
+            phalcom_modules::graph::SemanticNodeId,
+            BTreeSet<(phalcom_modules::graph::SemanticNodeId, phalcom_modules::graph::SemanticEdgeKind)>,
+        > = art
+            .linked
+            .graphs
+            .semantics
+            .nodes()
+            .into_iter()
+            .map(|n| {
+                let edges = art
+                    .linked
+                    .graphs
+                    .semantics
+                    .edges_from(&n)
+                    .iter()
+                    .map(|e| (normalize_semantic_node_id(&e.to), e.kind))
+                    .collect();
+                (normalize_semantic_node_id(&n), edges)
+            })
+            .collect();
         if src_sem_map != art_sem_map {
-            report.differences.push(format!("Semantic edges mismatch: src={:?}, art={:?}", src_sem_map, art_sem_map));
+            report
+                .differences
+                .push(format!("Semantic edges mismatch: src={:?}, art={:?}", src_sem_map, art_sem_map));
         }
     }
 
@@ -172,23 +258,76 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
     let src_rt_nodes: BTreeSet<_> = src.linked.graphs.runtime.nodes().into_iter().map(|n| normalize_module_id(&n)).collect();
     let art_rt_nodes: BTreeSet<_> = art.linked.graphs.runtime.nodes().into_iter().map(|n| normalize_module_id(&n)).collect();
     if src_rt_nodes != art_rt_nodes {
-        report.differences.push(format!("Runtime graph nodes mismatch: src={:?}, art={:?}", src_rt_nodes, art_rt_nodes));
+        report
+            .differences
+            .push(format!("Runtime graph nodes mismatch: src={:?}, art={:?}", src_rt_nodes, art_rt_nodes));
     } else {
-        let src_rt_map: BTreeMap<ModuleId, BTreeSet<(ModuleId, phalcom_modules::graph::RuntimeDependencyReason)>> = src.linked.graphs.runtime.nodes().into_iter().map(|n| {
-            let edges = src.linked.graphs.runtime.edges_from(&n).iter().map(|e| (normalize_module_id(&e.dependency), e.reason)).collect();
-            (normalize_module_id(&n), edges)
-        }).collect();
-        let art_rt_map: BTreeMap<ModuleId, BTreeSet<(ModuleId, phalcom_modules::graph::RuntimeDependencyReason)>> = art.linked.graphs.runtime.nodes().into_iter().map(|n| {
-            let edges = art.linked.graphs.runtime.edges_from(&n).iter().map(|e| (normalize_module_id(&e.dependency), e.reason)).collect();
-            (normalize_module_id(&n), edges)
-        }).collect();
+        let src_rt_map: BTreeMap<ModuleId, BTreeSet<(ModuleId, phalcom_modules::graph::RuntimeDependencyReason)>> = src
+            .linked
+            .graphs
+            .runtime
+            .nodes()
+            .into_iter()
+            .map(|n| {
+                let edges = src
+                    .linked
+                    .graphs
+                    .runtime
+                    .edges_from(&n)
+                    .iter()
+                    .map(|e| (normalize_module_id(&e.dependency), e.reason))
+                    .collect();
+                (normalize_module_id(&n), edges)
+            })
+            .collect();
+        let art_rt_map: BTreeMap<ModuleId, BTreeSet<(ModuleId, phalcom_modules::graph::RuntimeDependencyReason)>> = art
+            .linked
+            .graphs
+            .runtime
+            .nodes()
+            .into_iter()
+            .map(|n| {
+                let edges = art
+                    .linked
+                    .graphs
+                    .runtime
+                    .edges_from(&n)
+                    .iter()
+                    .map(|e| (normalize_module_id(&e.dependency), e.reason))
+                    .collect();
+                (normalize_module_id(&n), edges)
+            })
+            .collect();
         if src_rt_map != art_rt_map {
-            report.differences.push(format!("Runtime edges mismatch: src={:?}, art={:?}", src_rt_map, art_rt_map));
+            report
+                .differences
+                .push(format!("Runtime edges mismatch: src={:?}, art={:?}", src_rt_map, art_rt_map));
         }
     }
 
     let src_linked_modules: BTreeMap<ModuleId, _> = src.linked.modules.iter().map(|(k, v)| (normalize_module_id(k), v)).collect();
     let art_linked_modules: BTreeMap<ModuleId, _> = art.linked.modules.iter().map(|(k, v)| (normalize_module_id(k), v)).collect();
+    assert_eq!(
+        src_linked_modules.len(),
+        src.linked.modules.len(),
+        "normalize_module_id collision in src linked modules"
+    );
+    assert_eq!(
+        art_linked_modules.len(),
+        art.linked.modules.len(),
+        "normalize_module_id collision in art linked modules"
+    );
+
+    // A1: Explicitly compare linked-module identity sets.
+    let src_linked_ids: BTreeSet<_> = src_linked_modules.keys().cloned().collect();
+    let art_linked_ids: BTreeSet<_> = art_linked_modules.keys().cloned().collect();
+    if src_linked_ids != art_linked_ids {
+        report.differences.push(format!(
+            "Linked module set mismatch: only_in_src={:?}, only_in_art={:?}",
+            src_linked_ids.difference(&art_linked_ids).collect::<Vec<_>>(),
+            art_linked_ids.difference(&src_linked_ids).collect::<Vec<_>>()
+        ));
+    }
 
     // 5. Per-module comparison
     for id in src_module_ids.intersection(&art_module_ids) {
@@ -197,14 +336,18 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
 
         // Module kinds
         if src_mod.kind != art_mod.kind {
-            report.differences.push(format!("Module kind mismatch for {:?}: src={:?}, art={:?}", id, src_mod.kind, art_mod.kind));
+            report
+                .differences
+                .push(format!("Module kind mismatch for {:?}: src={:?}, art={:?}", id, src_mod.kind, art_mod.kind));
         }
 
         // Public exports and fingerprints
         let src_exports: BTreeMap<_, _> = src_mod.interface.exports.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         let art_exports: BTreeMap<_, _> = art_mod.interface.exports.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         if src_exports != art_exports {
-            report.differences.push(format!("Public exports mismatch for {:?}: src={:?}, art={:?}", id, src_exports, art_exports));
+            report
+                .differences
+                .push(format!("Public exports mismatch for {:?}: src={:?}, art={:?}", id, src_exports, art_exports));
         }
         if src_mod.interface.fingerprint() != art_mod.interface.fingerprint() {
             report.differences.push(format!(
@@ -216,24 +359,44 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
         }
 
         // Linked module binding layout and linked reads
-        if let (Some(src_lm), Some(art_lm)) = (src_linked_modules.get(id), art_linked_modules.get(id)) {
-            if src_lm.bindings != art_lm.bindings {
-                report.differences.push(format!("Binding layout mismatch for {:?}: src={:?}, art={:?}", id, src_lm.bindings, art_lm.bindings));
+        match (src_linked_modules.get(id), art_linked_modules.get(id)) {
+            (Some(src_lm), Some(art_lm)) => {
+                if src_lm.bindings != art_lm.bindings {
+                    report.differences.push(format!(
+                        "Binding layout mismatch for {:?}: src={:?}, art={:?}",
+                        id, src_lm.bindings, art_lm.bindings
+                    ));
+                }
+                if src_lm.linked_reads != art_lm.linked_reads {
+                    report.differences.push(format!(
+                        "Linked reads mismatch for {:?}: src={:?}, art={:?}",
+                        id, src_lm.linked_reads, art_lm.linked_reads
+                    ));
+                }
+                if src_lm.runtime_dependencies != art_lm.runtime_dependencies {
+                    report.differences.push(format!(
+                        "Runtime dependencies mismatch for {:?}: src={:?}, art={:?}",
+                        id, src_lm.runtime_dependencies, art_lm.runtime_dependencies
+                    ));
+                }
             }
-            if src_lm.linked_reads != art_lm.linked_reads {
-                report.differences.push(format!("Linked reads mismatch for {:?}: src={:?}, art={:?}", id, src_lm.linked_reads, art_lm.linked_reads));
-            }
-            if src_lm.runtime_dependencies != art_lm.runtime_dependencies {
-                report.differences.push(format!("Runtime dependencies mismatch for {:?}: src={:?}, art={:?}", id, src_lm.runtime_dependencies, art_lm.runtime_dependencies));
-            }
+            (Some(_), None) => report.differences.push(format!("Module {:?} has linked entry in src but not art", id)),
+            (None, Some(_)) => report.differences.push(format!("Module {:?} has linked entry in art but not src", id)),
+            (None, None) => {} // both absent — acceptable for canonical modules
         }
 
         // Materialization plan (declarations and linked reads)
         if src_mod.plan.declarations != art_mod.plan.declarations {
-            report.differences.push(format!("Materialization declarations mismatch for {:?}: src={:?}, art={:?}", id, src_mod.plan.declarations, art_mod.plan.declarations));
+            report.differences.push(format!(
+                "Materialization declarations mismatch for {:?}: src={:?}, art={:?}",
+                id, src_mod.plan.declarations, art_mod.plan.declarations
+            ));
         }
         if src_mod.plan.linked_reads != art_mod.plan.linked_reads {
-            report.differences.push(format!("Materialization linked reads mismatch for {:?}: src={:?}, art={:?}", id, src_mod.plan.linked_reads, art_mod.plan.linked_reads));
+            report.differences.push(format!(
+                "Materialization linked reads mismatch for {:?}: src={:?}, art={:?}",
+                id, src_mod.plan.linked_reads, art_mod.plan.linked_reads
+            ));
         }
 
         // Lowering semantics
@@ -271,7 +434,9 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
             report.differences.push(format!("Lowering detached methods mismatch for {:?}", id));
         }
         if src_mod.lowering.constructor_super_initializers != art_mod.lowering.constructor_super_initializers {
-            report.differences.push(format!("Lowering constructor super initializers mismatch for {:?}", id));
+            report
+                .differences
+                .push(format!("Lowering constructor super initializers mismatch for {:?}", id));
         }
         if src_mod.lowering.conditional_invocations != art_mod.lowering.conditional_invocations {
             report.differences.push(format!("Lowering conditional invocations mismatch for {:?}", id));
@@ -290,15 +455,35 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
         }
 
         // Local constructor initializations
-        let src_ci: BTreeMap<_, _> = src_mod.lowering.constructor_initializations.iter_local().map(|(k, v)| (k.clone(), v.clone())).collect();
-        let art_ci: BTreeMap<_, _> = art_mod.lowering.constructor_initializations.iter_local().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let src_ci: BTreeMap<_, _> = src_mod
+            .lowering
+            .constructor_initializations
+            .iter_local()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let art_ci: BTreeMap<_, _> = art_mod
+            .lowering
+            .constructor_initializations
+            .iter_local()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         if src_ci != art_ci {
             report.differences.push(format!("Lowering constructor initializations mismatch for {:?}", id));
         }
 
         // Normalized for iteration lanes (excluding process-local TypeId)
-        let src_lanes: BTreeMap<_, _> = src_mod.lowering.for_iteration_lanes.iter().map(|(k, v)| (*k, normalize_for_iteration_spec(v))).collect();
-        let art_lanes: BTreeMap<_, _> = art_mod.lowering.for_iteration_lanes.iter().map(|(k, v)| (*k, normalize_for_iteration_spec(v))).collect();
+        let src_lanes: BTreeMap<_, _> = src_mod
+            .lowering
+            .for_iteration_lanes
+            .iter()
+            .map(|(k, v)| (*k, normalize_for_iteration_spec(v)))
+            .collect();
+        let art_lanes: BTreeMap<_, _> = art_mod
+            .lowering
+            .for_iteration_lanes
+            .iter()
+            .map(|(k, v)| (*k, normalize_for_iteration_spec(v)))
+            .collect();
         if src_lanes != art_lanes {
             report.differences.push(format!("Lowering for iteration lanes mismatch for {:?}", id));
         }
@@ -320,20 +505,9 @@ pub fn assert_compiled_program_parity(src: &CompiledProgram, art: &CompiledProgr
 }
 
 /// Asserts structured diagnostic parity between source-backed and artifact-backed compilation errors.
-pub fn assert_semantic_diagnostics_parity(
-    src: &ProgramSemanticDiagnostics,
-    art: &ProgramSemanticDiagnostics,
-) {
-    let src_modules: BTreeMap<ModuleId, _> = src
-        .by_module
-        .iter()
-        .map(|(k, v)| (normalize_module_id(k), v))
-        .collect();
-    let art_modules: BTreeMap<ModuleId, _> = art
-        .by_module
-        .iter()
-        .map(|(k, v)| (normalize_module_id(k), v))
-        .collect();
+pub fn assert_semantic_diagnostics_parity(src: &ProgramSemanticDiagnostics, art: &ProgramSemanticDiagnostics) {
+    let src_modules: BTreeMap<ModuleId, _> = src.by_module.iter().map(|(k, v)| (normalize_module_id(k), v)).collect();
+    let art_modules: BTreeMap<ModuleId, _> = art.by_module.iter().map(|(k, v)| (normalize_module_id(k), v)).collect();
     let src_keys: BTreeSet<_> = src_modules.keys().cloned().collect();
     let art_keys: BTreeSet<_> = art_modules.keys().cloned().collect();
     assert_eq!(src_keys, art_keys, "Diagnostic module sets must match");
@@ -341,12 +515,7 @@ pub fn assert_semantic_diagnostics_parity(
     for module in &src_keys {
         let src_diags = src_modules[module];
         let art_diags = art_modules[module];
-        assert_eq!(
-            src_diags.len(),
-            art_diags.len(),
-            "Diagnostic count mismatch for module {:?}",
-            module
-        );
+        assert_eq!(src_diags.len(), art_diags.len(), "Diagnostic count mismatch for module {:?}", module);
 
         for (i, (sd, ad)) in src_diags.iter().zip(art_diags.iter()).enumerate() {
             assert_eq!(sd.code, ad.code, "Diagnostic [{i}] code mismatch for {:?}", module);

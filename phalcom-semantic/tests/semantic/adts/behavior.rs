@@ -34,12 +34,7 @@ impl Shape::Square {
         .get(&owner)
         .expect("enum requirement table entry");
     for requirement in requirements.iter() {
-        assert!(case
-            .analysis
-            .snapshot
-            .callable_signatures
-            .get(&requirement.signature.callable)
-            .is_none());
+        assert!(case.analysis.snapshot.callable_signatures.get(&requirement.signature.callable).is_none());
         assert_eq!(requirement.signature.owner, owner);
         assert_eq!(requirement.signature.selector, requirement.id.selector);
     }

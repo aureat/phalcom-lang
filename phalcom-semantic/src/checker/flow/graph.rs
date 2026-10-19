@@ -286,12 +286,7 @@ impl FlowGraph {
     }
 
     /// Adds an edge to a mutable source graph.
-    pub fn try_add_edge(
-        &mut self,
-        source: FlowNodeId,
-        target: FlowNodeId,
-        predicate: Option<PredicateId>,
-    ) -> Result<FlowEdgeId, FrozenFlowGraphMutationError> {
+    pub fn try_add_edge(&mut self, source: FlowNodeId, target: FlowNodeId, predicate: Option<PredicateId>) -> Result<FlowEdgeId, FrozenFlowGraphMutationError> {
         self.add_edge_with_kind(source, target, FlowEdgeKind::Normal, predicate)
     }
 
@@ -832,14 +827,19 @@ mod frozen_storage_tests {
             panic!("imported graph must retain frozen storage after clone");
         };
         assert!(Arc::ptr_eq(left, right));
-        assert_eq!(frozen_clone.add_node(FlowNodeKind::Entry, SourceRange::default()), Err(FrozenFlowGraphMutationError));
+        assert_eq!(
+            frozen_clone.add_node(FlowNodeKind::Entry, SourceRange::default()),
+            Err(FrozenFlowGraphMutationError)
+        );
         assert_eq!(frozen_clone.try_set_entry(Some(FlowNodeId(0))), Err(FrozenFlowGraphMutationError));
         assert_eq!(frozen_clone.try_push_exit(FlowNodeId(0)), Err(FrozenFlowGraphMutationError));
 
         let mut source = FlowGraph::new();
         source.add_node(FlowNodeKind::Entry, SourceRange::default()).expect("source graph is mutable");
         let mut source_clone = source.clone();
-        source_clone.add_node(FlowNodeKind::Exit, SourceRange::default()).expect("source clone is mutable");
+        source_clone
+            .add_node(FlowNodeKind::Exit, SourceRange::default())
+            .expect("source clone is mutable");
         assert_eq!(source.node_count(), 1);
         assert_eq!(source_clone.node_count(), 2);
     }

@@ -5,6 +5,4 @@ pub mod reachability;
 pub mod stable_identity;
 
 pub use export::{MetadataExportError, MetadataExporter};
-pub use reachability::{
-    compute_reachability_closure, MetadataReachabilityClosure, MetadataRetentionRequest, MetadataRootSet, ReachabilityMetrics,
-};
+pub use reachability::{MetadataReachabilityClosure, MetadataRetentionRequest, MetadataRootSet, ReachabilityMetrics, compute_reachability_closure};

@@ -46,7 +46,8 @@ fn topology_fingerprint_ignores_symbol_only_export_and_declaration_changes() {
                     semantics: ModuleBindingSemantics::Declaration,
                     range: phalcom_common::range::SourceRange { start: 0, end: 10 },
                 },
-            )]).into(),
+            )])
+            .into(),
             exports: Default::default(),
             imports: Vec::new(),
             exposed_children: Default::default(),

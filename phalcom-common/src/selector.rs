@@ -305,16 +305,11 @@ fn is_canonical_label(part: &str) -> bool {
             return false;
         };
         let reserved = matches!(decoded_str, "_" | "*" | "**" | "***");
-        let safe = !decoded_str.is_empty()
-            && !decoded_str.starts_with('~')
-            && !reserved
-            && decoded_str.bytes().all(is_safe_label_byte);
+        let safe = !decoded_str.is_empty() && !decoded_str.starts_with('~') && !reserved && decoded_str.bytes().all(is_safe_label_byte);
         !safe
     } else {
         let reserved = matches!(part, "_" | "*" | "**" | "***");
-        !part.is_empty()
-            && !reserved
-            && part.bytes().all(is_safe_label_byte)
+        !part.is_empty() && !reserved && part.bytes().all(is_safe_label_byte)
     }
 }
 
@@ -904,10 +899,7 @@ mod tests {
         for (text, expected) in test_cases {
             let direct = is_canonical_exact_selector(text);
             let via_decode = Selector::try_decode_exact(text).is_ok_and(|s| s.encode() == text);
-            assert_eq!(
-                direct, via_decode,
-                "mismatch for {text:?}: direct={direct}, via_decode={via_decode}"
-            );
+            assert_eq!(direct, via_decode, "mismatch for {text:?}: direct={direct}, via_decode={via_decode}");
             assert_eq!(direct, expected, "unexpected result for {text:?}");
         }
     }

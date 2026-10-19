@@ -2200,7 +2200,11 @@ impl WorkspaceModuleSession {
         let mut resolver = if let Some(external) = &self.external {
             ModuleResolver::with_external_modules(universe, provider, external.clone())
         } else {
-            ModuleResolver::with_universe_source_provider(universe, provider, self.universe_source.clone().expect("source-backed module session owns a provider"))
+            ModuleResolver::with_universe_source_provider(
+                universe,
+                provider,
+                self.universe_source.clone().expect("source-backed module session owns a provider"),
+            )
         };
         let mut queue = VecDeque::from_iter(sources_by_module.iter_states().map(|(id, _)| id.clone()));
         let mut new_discovered_sources = Vec::new();

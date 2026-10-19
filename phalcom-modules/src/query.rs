@@ -238,9 +238,12 @@ impl<'a> ModuleQueryFacade<'a> {
         let candidates: Box<dyn Iterator<Item = &ModuleId> + '_> = if let Some(external_modules) = self.external_modules {
             Box::new(external_modules.interfaces().keys())
         } else {
-            Box::new(self.linked.expect("source module query view has linked interfaces").keys().chain(
-                self.unlinked.expect("source module query view has unlinked interfaces").keys(),
-            ))
+            Box::new(
+                self.linked
+                    .expect("source module query view has linked interfaces")
+                    .keys()
+                    .chain(self.unlinked.expect("source module query view has unlinked interfaces").keys()),
+            )
         };
         for candidate in candidates {
             if candidate.project == project {

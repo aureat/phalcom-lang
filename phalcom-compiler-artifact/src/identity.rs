@@ -9,14 +9,8 @@ use serde::{Deserialize, Serialize};
 /// Portable package identity serialized into `.telosc` artifacts.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub enum TeloscPackageIdentity {
-    Builtin {
-        namespace: Box<str>,
-        version: Box<str>,
-    },
-    Package {
-        package: Box<str>,
-        version: Box<str>,
-    },
+    Builtin { namespace: Box<str>, version: Box<str> },
+    Package { package: Box<str>, version: Box<str> },
 }
 
 impl TeloscPackageIdentity {
@@ -65,10 +59,7 @@ impl TeloscPackageIdentity {
         )
     }
 
-    pub fn clone_with_allocation_budget(
-        &self,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, AllocationError> {
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
         match self {
             Self::Builtin { namespace, version } => Ok(Self::Builtin {
                 namespace: allocations.boxed_str(namespace)?,
@@ -122,10 +113,7 @@ pub struct CanonicalCompatibilityIdentity {
 }
 
 impl CanonicalCompatibilityIdentity {
-    pub fn clone_with_allocation_budget(
-        &self,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, AllocationError> {
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
         Ok(Self {
             package: self.package.clone_with_allocation_budget(allocations)?,
             source_digest: self.source_digest,
@@ -156,7 +144,11 @@ impl CanonicalCompatibilityIdentity {
             });
         }
         if self.stable_identity_schema != other.stable_identity_schema {
-            return Err(ValidationError::IncompatibleAbi { kind: "stable_identity_schema", found: self.stable_identity_schema, expected: other.stable_identity_schema });
+            return Err(ValidationError::IncompatibleAbi {
+                kind: "stable_identity_schema",
+                found: self.stable_identity_schema,
+                expected: other.stable_identity_schema,
+            });
         }
         if self.module_semantic_abi != other.module_semantic_abi {
             return Err(ValidationError::IncompatibleAbi {

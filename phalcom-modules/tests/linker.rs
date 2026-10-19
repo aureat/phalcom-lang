@@ -331,9 +331,9 @@ fn tolerant_runtime_cycle_preserves_independent_survivor_order() {
 /// - Unknown/non-authoritative target -> rejected with LinkError::UnresolvedImport
 #[test]
 fn external_linker_target_acceptance_positive_and_negative() {
-    use phalcom_modules::canonical_products::CanonicalExternalModuleWorld;
-    use phalcom_modules::authority::ModuleAuthorityMap;
     use phalcom_modules::ModuleTopology;
+    use phalcom_modules::authority::ModuleAuthorityMap;
+    use phalcom_modules::canonical_products::CanonicalExternalModuleWorld;
 
     // 1. Construct external world with module `ext`
     let ext_mod = module("ext");
@@ -364,8 +364,7 @@ fn external_linker_target_acceptance_positive_and_negative() {
         ((local_mod.clone(), ".helper".to_string()), local_helper.clone()),
     ]);
 
-    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), local_iface_map.clone())
-        .with_external_modules(ext_world.clone());
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), local_iface_map.clone()).with_external_modules(ext_world.clone());
 
     // Positive case: valid canonical external target and valid local target both accepted
     let linked = linker.link(local_mod.clone(), &valid_resolved).expect("valid targets must link");

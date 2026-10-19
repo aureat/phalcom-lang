@@ -10,8 +10,8 @@
 
 use crate::module_world::{Decode, Wire, invalid, record, tagged};
 use crate::semantic::type_store::{
-    ArtifactKindId, ArtifactStaticConstructorId, ArtifactStaticDomainId, ArtifactTypeParameterId, ArtifactTypeId, ArtifactVariantTypeId,
-    ParameterModeV1, ParameterOwnerV1, SelfTypeV1, VarianceV1,
+    ArtifactKindId, ArtifactStaticConstructorId, ArtifactStaticDomainId, ArtifactTypeId, ArtifactTypeParameterId, ArtifactVariantTypeId, ParameterModeV1,
+    ParameterOwnerV1, SelfTypeV1, VarianceV1,
 };
 use crate::{ArtifactError, BinaryReader, BinaryWriter, ValidationError, ValidationLimits};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
@@ -94,7 +94,10 @@ tagged!(DeclaredTypeStateV1 {
     2 => Unknown { reason: UnknownReasonV1 },
 });
 
-record!(DeclaredTypeFactV1 { state: DeclaredTypeStateV1, basis: DeclaredTypeBasisV1 });
+record!(DeclaredTypeFactV1 {
+    state: DeclaredTypeStateV1,
+    basis: DeclaredTypeBasisV1
+});
 
 tagged!(VisibilityV1 { 0 => Public, 1 => Private, 2 => Protected, 3 => Module, 4 => Package, 5 => Internal });
 
@@ -153,7 +156,10 @@ record!(VariantConstructorParameterV1 {
     declared_type: DeclaredTypeFactV1,
 });
 
-record!(CaseBindingV1 { parameter: ArtifactTypeParameterId, ty: ArtifactTypeId });
+record!(CaseBindingV1 {
+    parameter: ArtifactTypeParameterId,
+    ty: ArtifactTypeId
+});
 
 record!(CaseEnvironmentV1 {
     bindings: Vec<CaseBindingV1>,
@@ -219,8 +225,8 @@ impl StructuralPrimaryContractsV1 {
         if bytes.len() as u64 > limits.max_decoded_section_bytes {
             return Err(invalid("structural contract section exceeds decoded byte limit"));
         }
-        let allocation_limit = usize::try_from(limits.max_decoded_section_bytes)
-            .map_err(|_| invalid("structural contract allocation limit exceeds address space"))?;
+        let allocation_limit =
+            usize::try_from(limits.max_decoded_section_bytes).map_err(|_| invalid("structural contract allocation limit exceeds address space"))?;
         let mut allocations = AllocationBudget::new(allocation_limit);
         let mut input = Decode {
             reader: BinaryReader::new(bytes),
@@ -244,20 +250,18 @@ impl StructuralPrimaryContractsV1 {
     /// and bounded cross references. Graph references into the type/static
     /// graphs are checked against those graphs by the semantic loader.
     pub fn validate(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
-        let allocation_limit = usize::try_from(limits.max_decoded_section_bytes)
-            .map_err(|_| invalid("structural contract allocation limit exceeds address space"))?;
+        let allocation_limit =
+            usize::try_from(limits.max_decoded_section_bytes).map_err(|_| invalid("structural contract allocation limit exceeds address space"))?;
         let mut allocations = AllocationBudget::new(allocation_limit);
         self.validate_with_allocation_budget(limits, &mut allocations)
     }
 
     /// Validates structural rows while charging duplicate-detection scratch to
     /// the caller's semantic import transaction.
-    pub fn validate_with_allocation_budget(
-        &self,
-        limits: &ValidationLimits,
-        allocations: &mut AllocationBudget,
-    ) -> Result<(), ArtifactError> {
-        let total = self.declaration_shells.len()
+    pub fn validate_with_allocation_budget(&self, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+        let total = self
+            .declaration_shells
+            .len()
             .checked_add(self.hierarchy_and_aliases.len())
             .and_then(|n| n.checked_add(self.generic_signatures.len()))
             .and_then(|n| n.checked_add(self.data_contracts.len()))
@@ -341,9 +345,7 @@ impl StructuralPrimaryContractsV1 {
             .iter()
             .try_fold(0usize, |count, enum_info| count.checked_add(enum_info.variants.len()))
             .ok_or_else(|| invalid("enum variant membership count overflow"))?;
-        let mut variant_memberships = allocations
-            .vector::<&StableVariantRef>(membership_count)
-            .map_err(structural_allocation_error)?;
+        let mut variant_memberships = allocations.vector::<&StableVariantRef>(membership_count).map_err(structural_allocation_error)?;
         for enum_info in &self.enum_contracts {
             validate_owner(&enum_info.owner, limits)?;
             if let Some(signature) = &enum_info.generic_signature {

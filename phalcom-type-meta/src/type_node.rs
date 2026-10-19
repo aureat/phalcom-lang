@@ -9,35 +9,30 @@ use crate::scoped_type::TypeLambdaRef;
 use serde::{Deserialize, Serialize};
 
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct TypeNodeId(pub u32);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum SelfRoleRef {
     InstanceType,
     ReceiverValue,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct SelfTypeRef {
     pub owner: StableDeclarationRef,
     pub side: StableDispatchSide,
     pub role: SelfRoleRef,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum StructuralMemberPresenceRef {
     #[default]
     Required,
     Optional,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum AnonymousTupleRemainderRef {
     #[default]
     None,
@@ -45,16 +40,14 @@ pub enum AnonymousTupleRemainderRef {
     Typed(TypeNodeId),
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum AnonymousRecordRemainderRef {
     Unconstrained { key_type: TypeNodeId },
     Typed { key_type: TypeNodeId, value_type: TypeNodeId },
 }
 
 /// Stable, tagged identity for unordered Record field keys.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum RecordKeyRef {
     Symbol(Box<str>),
     String(Box<str>),
@@ -62,8 +55,7 @@ pub enum RecordKeyRef {
     Bool(bool),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct TupleElementRef {
     pub label: Option<Box<str>>,
     pub ty: TypeNodeId,
@@ -71,8 +63,7 @@ pub struct TupleElementRef {
     pub presence: StructuralMemberPresenceRef,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct RecordFieldRef {
     pub key: RecordKeyRef,
     pub ty: TypeNodeId,
@@ -80,8 +71,7 @@ pub struct RecordFieldRef {
     pub presence: StructuralMemberPresenceRef,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct OpenTupleTypeRef {
     pub elements: Box<[TupleElementRef]>,
     #[serde(default)]
@@ -90,58 +80,50 @@ pub struct OpenTupleTypeRef {
     pub labeled_remainder: AnonymousTupleRemainderRef,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct AnonymousRecordTypeRef {
     pub fields: Box<[RecordFieldRef]>,
     pub remainder: AnonymousRecordRemainderRef,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct CallableParamRef {
     pub label: Option<Box<str>>,
     pub ty: TypeNodeId,
     pub rest: bool,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct CallableTypeRef {
     pub parameters: Box<[CallableParamRef]>,
     pub return_type: TypeNodeId,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct OpenRecordTypeRef {
     pub fields: Box<[RecordFieldRef]>,
     pub tail: StableTypeParameterRef,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct LabeledTypePackElementRef {
     pub label: Box<str>,
     pub element: TypeNodeId,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum TypeMemberSelectorRef {
     Named(Box<str>),
     Subscript,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum TypeMemberArgumentRef {
     Type(TypeNodeId),
     ConstInt(StaticInt),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct TypeMemberProjectionRef {
     pub subject: TypeNodeId,
     pub selector: TypeMemberSelectorRef,
@@ -153,23 +135,20 @@ pub struct TypeMemberProjectionRef {
     pub source_declaration: Option<crate::identity::StableTypeMemberRef>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct StaticConstructorRef {
     pub declaration: StableDeclarationRef,
     pub case_name: Box<str>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum StaticArgumentRef {
     Term(TypeNodeId),
     RecordRow(RecordRowRef),
     DynamicType,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct RecordRowRef {
     pub fields: Box<[RecordFieldRef]>,
     #[serde(default)]
@@ -178,16 +157,14 @@ pub struct RecordRowRef {
     pub remainder: Option<AnonymousRecordRemainderRef>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct StaticDataRef {
     pub domain: StaticDomainRef,
     pub constructor: StaticConstructorRef,
     pub arguments: Box<[StaticArgumentRef]>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct PackTypeRef {
     pub elements: Box<[TupleElementRef]>,
     #[serde(default)]
@@ -196,8 +173,7 @@ pub struct PackTypeRef {
     pub labeled_remainder: AnonymousTupleRemainderRef,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum TypeNode {
     Never,
     Unit,
@@ -250,8 +226,7 @@ pub enum TypeNode {
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-#[derive(phalcom_type_meta_derive::BudgetDecode)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct TypeNodeEntry {
     pub kind: KindNodeId,
     pub form: TypeNode,

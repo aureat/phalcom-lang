@@ -11,10 +11,7 @@ fn invalid(message: impl Into<String>) -> ArtifactError {
 }
 
 /// Verifies that every pending static reference resolves in `StaticRelocation`.
-pub fn validate_pending_static_references(
-    _contracts: &StructuralPrimaryContractsV1,
-    _statics: &StaticRelocation,
-) -> Result<(), ArtifactError> {
+pub fn validate_pending_static_references(_contracts: &StructuralPrimaryContractsV1, _statics: &StaticRelocation) -> Result<(), ArtifactError> {
     Ok(())
 }
 

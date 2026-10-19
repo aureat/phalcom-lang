@@ -262,13 +262,8 @@ impl ModuleWorldV1 {
         self.write(&mut out)?;
         Ok(out.into_vec())
     }
-    pub fn decode_with_allocation_budget(
-        bytes: &[u8],
-        limits: &ValidationLimits,
-        transaction: &mut AllocationBudget,
-    ) -> Result<Self, ArtifactError> {
-        let section_limit = usize::try_from(limits.max_decoded_section_bytes)
-            .map_err(|_| allocation_error(AllocationError::Overflow))?;
+    pub fn decode_with_allocation_budget(bytes: &[u8], limits: &ValidationLimits, transaction: &mut AllocationBudget) -> Result<Self, ArtifactError> {
+        let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
         let mut section = transaction.child(section_limit);
         let world = {
             let mut input = Decode {

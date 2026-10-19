@@ -1,6 +1,7 @@
 //! Alpha-normalized Type Lambda calculus and scoped bound representation.
 
 use super::id::{KindId, ScopedTypeId, TypeId, TypeLambdaId, TypeParameterId};
+use super::overlay::PersistentHashMapOverlay;
 use super::parameter::GenericParameterMode;
 use super::row::{RecordRowFormationError, RecordRowTail};
 use super::store::{PackFormationError, StaticArgument, TypeData, TypeStore};
@@ -8,7 +9,6 @@ use super::substitution::TypeSubstitution;
 use crate::diagnostic::SemanticSourceSpan;
 use crate::field_key::FieldKey;
 use im::Vector;
-use super::overlay::PersistentHashMapOverlay;
 
 /// Representation of scoped types inside a type lambda body arena.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -175,16 +175,12 @@ pub struct FrozenTypeLambdaPrefix {
 
 impl FrozenTypeLambdaPrefix {
     pub fn find_scoped(&self, key: &ScopedTypeData) -> Option<ScopedTypeId> {
-        let idx = self.scoped_to_id.binary_search_by(|&id| {
-            self.scoped_types[id.index()].cmp(key)
-        }).ok()?;
+        let idx = self.scoped_to_id.binary_search_by(|&id| self.scoped_types[id.index()].cmp(key)).ok()?;
         Some(self.scoped_to_id[idx])
     }
 
     pub fn find_lambda(&self, key: &TypeLambdaData) -> Option<TypeLambdaId> {
-        let idx = self.lambda_to_id.binary_search_by(|&id| {
-            self.lambdas[id.index()].cmp(key)
-        }).ok()?;
+        let idx = self.lambda_to_id.binary_search_by(|&id| self.lambdas[id.index()].cmp(key)).ok()?;
         Some(self.lambda_to_id[idx])
     }
 }

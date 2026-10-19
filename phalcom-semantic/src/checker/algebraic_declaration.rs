@@ -40,7 +40,16 @@ pub fn build_algebraic_semantics(
     resolver: &LinkedTypeResolver,
     module_id: &ModuleId,
 ) -> Option<AlgebraicDeclarationProduct> {
-    build_algebraic_semantics_with_static_products(owner, def, store, declarations, resolver, module_id, None, &crate::ordered_map::OrderedMap::default())
+    build_algebraic_semantics_with_static_products(
+        owner,
+        def,
+        store,
+        declarations,
+        resolver,
+        module_id,
+        None,
+        &crate::ordered_map::OrderedMap::default(),
+    )
 }
 
 /// Builds an algebraic declaration using the canonical static-case catalog and
@@ -724,7 +733,16 @@ pub fn build_associated_static_domain_declaration(
     resolver: &LinkedTypeResolver,
     module_id: &ModuleId,
 ) -> (Option<crate::db::product::AssociatedStaticDomainDeclarationProduct>, Vec<SemanticDiagnostic>) {
-    build_associated_static_domain_declaration_with_static_products(owner, def, store, declarations, resolver, module_id, None, &crate::ordered_map::OrderedMap::default())
+    build_associated_static_domain_declaration_with_static_products(
+        owner,
+        def,
+        store,
+        declarations,
+        resolver,
+        module_id,
+        None,
+        &crate::ordered_map::OrderedMap::default(),
+    )
 }
 
 pub fn build_associated_static_domain_declaration_with_static_products(

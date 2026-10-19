@@ -217,11 +217,7 @@ impl DerivedConformanceRuleIndex {
             rules_by_trait_flat.push((trait_declaration, rule));
         }
 
-        rules_by_trait_flat.sort_unstable_by(|left, right| {
-            left.0
-                .cmp(&right.0)
-                .then_with(|| left.1.impl_id.cmp(&right.1.impl_id))
-        });
+        rules_by_trait_flat.sort_unstable_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.impl_id.cmp(&right.1.impl_id)));
         let bucket_count = rules_by_trait_flat
             .windows(2)
             .filter(|pair| pair[0].0 != pair[1].0)
@@ -289,7 +285,9 @@ impl DerivedConformanceRuleIndex {
     }
 
     pub fn get_rule(&self, impl_id: &ImplId) -> Option<&Arc<DerivedConformanceRule>> {
-        self.rules_by_impl.get(impl_id).or_else(|| self.parent.as_ref().and_then(|parent| parent.get_rule(impl_id)))
+        self.rules_by_impl
+            .get(impl_id)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get_rule(impl_id)))
     }
 
     pub fn remove(&mut self, impl_id: &ImplId) {
@@ -320,7 +318,13 @@ impl DerivedConformanceRuleIndex {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Arc<DerivedConformanceRule>> {
-        let mut canonical = self.parent.as_ref().map(|parent| parent.rules_by_impl.values()).into_iter().flatten().peekable();
+        let mut canonical = self
+            .parent
+            .as_ref()
+            .map(|parent| parent.rules_by_impl.values())
+            .into_iter()
+            .flatten()
+            .peekable();
         let mut local = self.rules_by_impl.values().peekable();
         std::iter::from_fn(move || match (canonical.peek(), local.peek()) {
             (Some(left), Some(right)) if left.impl_id <= right.impl_id => canonical.next(),
@@ -360,9 +364,11 @@ pub fn derived_conformance_rule_fingerprint(rule: &DerivedConformanceRule) -> Pr
     rule.generic_signature.constraints.len().hash(&mut hasher);
     let mut emitted = 0;
     while emitted < rule.generic_signature.constraints.len() {
-        let next = rule.generic_signature.constraints.iter().find(|candidate| {
-            rule.generic_signature.constraints.iter().filter(|other| *other < *candidate).count() == emitted
-        });
+        let next = rule
+            .generic_signature
+            .constraints
+            .iter()
+            .find(|candidate| rule.generic_signature.constraints.iter().filter(|other| *other < *candidate).count() == emitted);
         let Some(next) = next else { break };
         let duplicates = rule.generic_signature.constraints.iter().filter(|candidate| *candidate == next).count();
         for _ in 0..duplicates {
@@ -446,7 +452,11 @@ mod parent_tests {
         let mut overlay = DerivedConformanceRuleIndex::with_parent(parent.clone());
         assert_eq!(overlay.rules_for_trait(&trait_id).len(), 1);
         overlay.insert(local_rule.clone());
-        let ids = overlay.rules_for_trait(&trait_id).into_iter().map(|rule| rule.impl_id.clone()).collect::<Vec<_>>();
+        let ids = overlay
+            .rules_for_trait(&trait_id)
+            .into_iter()
+            .map(|rule| rule.impl_id.clone())
+            .collect::<Vec<_>>();
         assert_eq!(ids, vec![canonical_rule.impl_id.clone(), local_rule.impl_id.clone()]);
         let mut sorted = ids.clone();
         sorted.sort();

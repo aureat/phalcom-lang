@@ -388,15 +388,25 @@ impl NativeSourceIndex {
                             self.index_intrinsic_runtime_data(module, data_def, identity)?;
                         }
                         SourceUniverseIdentity::Canonical(key) => {
-                            return Err(format!("intrinsic runtime data {} cannot replace canonical runtime class {}", data_def.name, key.name()));
+                            return Err(format!(
+                                "intrinsic runtime data {} cannot replace canonical runtime class {}",
+                                data_def.name,
+                                key.name()
+                            ));
                         }
                         SourceUniverseIdentity::WrongModule(key) => {
-                            return Err(format!("intrinsic runtime data {} is declared outside canonical source module for {}", data_def.name, key.name()));
+                            return Err(format!(
+                                "intrinsic runtime data {} is declared outside canonical source module for {}",
+                                data_def.name,
+                                key.name()
+                            ));
                         }
                         SourceUniverseIdentity::NotUniverseName => {
                             // Compiler-owned intrinsic data remains in the parsed
                             // semantic program, without creating a native anchor.
-                            if data_def.is_sum() { self.index_enum(module, data_def, identity)?; }
+                            if data_def.is_sum() {
+                                self.index_enum(module, data_def, identity)?;
+                            }
                         }
                     }
                 }
@@ -952,12 +962,21 @@ mod tests {
     #[test]
     fn intrinsic_runtime_identity_rejects_wrong_module_and_non_facade_class() {
         let tuple = parse_program("intrinsic data Tuple<***Es>\n");
-        assert!(NativeSourceIndex::from_program(&tuple).is_err(), "Tuple at the root is not its canonical source module");
+        assert!(
+            NativeSourceIndex::from_program(&tuple).is_err(),
+            "Tuple at the root is not its canonical source module"
+        );
         let string = parse_program("intrinsic data String()\n");
         let module = ModuleId::universe(ModulePath::from_components(
-            ["scalar", "string"].into_iter().map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap()).collect::<Vec<_>>(),
+            ["scalar", "string"]
+                .into_iter()
+                .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap())
+                .collect::<Vec<_>>(),
         ));
-        assert!(NativeSourceIndex::from_program_at(&module, &string).is_err(), "a runtime class cannot masquerade as compiler intrinsic data");
+        assert!(
+            NativeSourceIndex::from_program_at(&module, &string).is_err(),
+            "a runtime class cannot masquerade as compiler intrinsic data"
+        );
     }
 
     #[test]

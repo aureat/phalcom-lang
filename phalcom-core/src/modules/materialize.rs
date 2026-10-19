@@ -168,13 +168,15 @@ impl VM {
                     return Err(RuntimeError::Internal(format!(
                         "incompatible metadata bundle: semantic model version {} does not match canonical environment {}",
                         metadata_bundle.header.semantic_model_version, canonical.bundle.header.semantic_model_version,
-                    )).into());
+                    ))
+                    .into());
                 }
                 if metadata_bundle.header.native_surface_schema_version != canonical.bundle.header.native_surface_schema_version {
                     return Err(RuntimeError::Internal(format!(
                         "incompatible metadata bundle: native surface schema version {} does not match canonical environment {}",
                         metadata_bundle.header.native_surface_schema_version, canonical.bundle.header.native_surface_schema_version,
-                    )).into());
+                    ))
+                    .into());
                 }
             }
         }
@@ -790,13 +792,19 @@ mod tests {
     #[test]
     fn metadata_bundle_installation_validates_canonical_compatibility() {
         let mut vm = VM::new_kernel();
-        let pool0 = vm.install_semantic_metadata_bundle(test_bundle(SEMANTIC_MODEL_VERSION)).expect("pool 0 installs");
+        let pool0 = vm
+            .install_semantic_metadata_bundle(test_bundle(SEMANTIC_MODEL_VERSION))
+            .expect("pool 0 installs");
         assert_eq!(pool0.0, 0);
 
-        let pool1 = vm.install_semantic_metadata_bundle(test_bundle(SEMANTIC_MODEL_VERSION)).expect("compatible pool installs");
+        let pool1 = vm
+            .install_semantic_metadata_bundle(test_bundle(SEMANTIC_MODEL_VERSION))
+            .expect("compatible pool installs");
         assert_eq!(pool1.0, 1);
 
-        let err = vm.install_semantic_metadata_bundle(test_bundle(SEMANTIC_MODEL_VERSION + 1)).expect_err("incompatible pool must fail");
+        let err = vm
+            .install_semantic_metadata_bundle(test_bundle(SEMANTIC_MODEL_VERSION + 1))
+            .expect_err("incompatible pool must fail");
         assert!(err.to_string().contains("semantic model version"));
     }
 }

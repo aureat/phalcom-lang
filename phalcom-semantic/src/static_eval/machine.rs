@@ -3939,10 +3939,7 @@ impl<'a> StaticEvaluator<'a> {
                             }
                             StaticValueData::Data(did) => {
                                 let (data_table, _) = self.semantic_tables.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                                let data_val = self
-                                    .values
-                                    .get_data(*did)
-                                    .map_err(|_| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                                let data_val = self.values.get_data(*did).map_err(|_| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                                 let info = data_table
                                     .get(&data_val.owner)
                                     .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;

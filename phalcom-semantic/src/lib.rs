@@ -50,8 +50,8 @@ pub mod parent_map;
 pub mod prelude;
 pub mod presentation;
 pub mod prover;
-pub mod request;
 pub mod reflection;
+pub mod request;
 pub mod resolver;
 pub mod scalar;
 pub mod scope;
@@ -148,7 +148,6 @@ pub use member_projection::*;
 pub use module_bindings::{ModuleBindingFact, ModuleBindingPhase, ModuleStaticBindingCatalog, ModuleStaticBindingIndex, ModuleStaticBindingSeed};
 pub use phalcom_modules::WorkspaceSourceBatchMutation;
 pub use prelude::PreludeTypeMap;
-pub use request::{AdvisoryLevel, PresentationLevel, SemanticProductRequest, SourceSemanticLevel};
 pub use presentation::{
     AdvisoryPresenter, CallablePresentation, FieldPresentation, FormalContractRelation, FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation,
     FormalSemanticProjection, FormalSiteId, FormalTypeSite, ParameterPresentation, SemanticPresentationIndex, SemanticSiteView, TypePresenter,
@@ -157,6 +156,7 @@ pub use prover::{
     Counterexample, ProofBinaryOp, ProofEvidence, ProofObligationKind, ProofOpaqueReason, ProofTerm, ProofUnaryOp, VcStatus, VcUnknownReason,
     VerificationCondition, simplify_proof_term, solve_vc_deterministic,
 };
+pub use request::{AdvisoryLevel, PresentationLevel, SemanticProductRequest, SourceSemanticLevel};
 pub use resolver::LinkedTypeResolver;
 pub use scope::ScopeTable;
 pub use semantic_shard::ModuleSemanticStructureShard;

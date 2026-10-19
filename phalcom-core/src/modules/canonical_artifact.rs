@@ -23,13 +23,13 @@ use phalcom_semantic::static_value::StaticExportContext;
 use phalcom_semantic::types::store::artifact::TypeExportContext;
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::{SEMANTIC_MODEL_VERSION, SemanticMetadataBundle, TYPE_METADATA_SCHEMA_VERSION};
+#[cfg(test)]
+use std::cell::Cell;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-#[cfg(test)]
-use std::cell::Cell;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TeloscCapabilities {
@@ -457,8 +457,7 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     };
     let bundle_limits = phalcom_type_meta::ValidationLimits::default();
     let expected_package_digest = *container.header().package_identity.digest().as_bytes();
-    let metadata_bundle = meta_v1
-        .decode_bundle_with_allocation_budget(&preflight_limits, &bundle_limits, &expected_package_digest, allocations)?;
+    let metadata_bundle = meta_v1.decode_bundle_with_allocation_budget(&preflight_limits, &bundle_limits, &expected_package_digest, allocations)?;
     #[cfg(test)]
     maybe_fail_after(LoaderTestBoundary::AfterMetadataValidation)?;
 
@@ -665,11 +664,7 @@ mod temporary_loaded_publication_allocation_census {
     #[global_allocator]
     static GLOBAL: CountingAllocator = CountingAllocator;
 
-    fn measure_stage<T>(
-        name: &'static str,
-        allocations: &mut AllocationBudget,
-        operation: impl FnOnce(&mut AllocationBudget) -> T,
-    ) -> (T, usize, isize) {
+    fn measure_stage<T>(name: &'static str, allocations: &mut AllocationBudget, operation: impl FnOnce(&mut AllocationBudget) -> T) -> (T, usize, isize) {
         let ledger_before = allocations.requested();
         REQUESTED_BYTES.store(0, Ordering::Relaxed);
         MEASURING.store(true, Ordering::Relaxed);
@@ -689,12 +684,7 @@ mod temporary_loaded_publication_allocation_census {
         let signed = row.observed_bytes as isize - row.ledger_bytes as isize;
         eprintln!(
             "  CENSUS {name}: ledger_before={} ledger_after={} ledger_delta={} allocator_before={} allocator_after={} allocator_delta={} signed_delta={signed}",
-            row.ledger_before,
-            row.ledger_after,
-            row.ledger_bytes,
-            row.allocator_before,
-            row.allocator_after,
-            row.observed_bytes,
+            row.ledger_before, row.ledger_after, row.ledger_bytes, row.allocator_before, row.allocator_after, row.observed_bytes,
         );
         signed
     }
@@ -705,12 +695,9 @@ mod temporary_loaded_publication_allocation_census {
         let artifact_bytes = if let Some(path) = std::env::var_os("PHALCOM_UNIVERSE_TELOSC_FOR_TEST") {
             std::fs::read(path).expect("read prebuilt canonical Universe artifact")
         } else {
-            let program = crate::modules::canonical_universe::canonical_universe_program()
-                .expect("canonical Universe program must compile");
+            let program = crate::modules::canonical_universe::canonical_universe_program().expect("canonical Universe program must compile");
             let view = program.compiler_image_view().expect("compiler image view must be present");
-            build_universe_telosc(&view, &limits)
-                .expect("build canonical Universe artifact")
-                .bytes
+            build_universe_telosc(&view, &limits).expect("build canonical Universe artifact").bytes
         };
         assert!(!artifact_bytes.is_empty());
         let budget_limit = usize::try_from(limits.max_total_allocation_bytes).unwrap_or(usize::MAX);
@@ -723,10 +710,18 @@ mod temporary_loaded_publication_allocation_census {
         let (container_result, observed, signed) = measure_stage("A container/root + header/provenance", &mut allocations, |budget| {
             let parsed = TeloscContainerView::parse_with_allocation_budget(&artifact_bytes, &limits, budget)?;
             validate_reader_header(parsed.header())?;
-            let module = parsed.require_section(SectionKind::ModuleWorld).map_err(|_| TeloscArtifactError::Capability("missing MODULE_WORLD section"))?;
-            let semantic = parsed.require_section(SectionKind::SemanticWorld).map_err(|_| TeloscArtifactError::Capability("missing SEMANTIC_WORLD section"))?;
-            let query = parsed.require_section(SectionKind::QueryImage).map_err(|_| TeloscArtifactError::Capability("missing QUERY_IMAGE section"))?;
-            let metadata = parsed.require_section(SectionKind::Metadata).map_err(|_| TeloscArtifactError::Capability("missing METADATA section"))?;
+            let module = parsed
+                .require_section(SectionKind::ModuleWorld)
+                .map_err(|_| TeloscArtifactError::Capability("missing MODULE_WORLD section"))?;
+            let semantic = parsed
+                .require_section(SectionKind::SemanticWorld)
+                .map_err(|_| TeloscArtifactError::Capability("missing SEMANTIC_WORLD section"))?;
+            let query = parsed
+                .require_section(SectionKind::QueryImage)
+                .map_err(|_| TeloscArtifactError::Capability("missing QUERY_IMAGE section"))?;
+            let metadata = parsed
+                .require_section(SectionKind::Metadata)
+                .map_err(|_| TeloscArtifactError::Capability("missing METADATA section"))?;
             validate_section_provenance(parsed.header(), module, semantic, query, metadata)?;
             container = Some(parsed);
             Ok::<_, TeloscArtifactError>(())
@@ -810,14 +805,7 @@ mod temporary_loaded_publication_allocation_census {
         let world = world_result.expect("artifact semantic world identity must be constructed");
         let query_ledger_before = allocations.requested();
         let (query_result, observed, signed) = measure_stage("H-K query reconstruction", &mut allocations, |budget| {
-            let reconstructed = reconstruct_query_image_with_allocation_budget(
-                &query_dto,
-                &parts.snapshot,
-                &world,
-                &modules,
-                &limits,
-                budget,
-            );
+            let reconstructed = reconstruct_query_image_with_allocation_budget(&query_dto, &parts.snapshot, &world, &modules, &limits, budget);
             reconstructed
         });
         independent_total += observed;
@@ -879,15 +867,8 @@ mod temporary_loaded_publication_allocation_census {
             let before_arc = observed_requested_bytes();
             let modules = budget.arc(modules).map_err(|error| allocation_error(error, budget_limit))?;
             module_arc_observed = observed_requested_bytes().saturating_sub(before_arc);
-            CanonicalUniverseFormalImage::from_loaded_artifact(
-                world,
-                modules,
-                parts.snapshot,
-                query_image,
-                fingerprints,
-                budget,
-            )
-            .map_err(TeloscArtifactError::from)
+            CanonicalUniverseFormalImage::from_loaded_artifact(world, modules, parts.snapshot, query_image, fingerprints, budget)
+                .map_err(TeloscArtifactError::from)
         });
         independent_total += observed;
         signed_stage_total += signed;
@@ -897,23 +878,55 @@ mod temporary_loaded_publication_allocation_census {
         let publication_rows = [
             ("P1 snapshot clone", publication.snapshot_clone, publication.snapshot_clone_ledger),
             ("P2 status/content promotion", publication.status_promotion, publication.status_promotion_ledger),
-            ("P3 ModuleQueryProducts reconstruction", publication.module_query_products, publication.module_query_products_ledger),
+            (
+                "P3 ModuleQueryProducts reconstruction",
+                publication.module_query_products,
+                publication.module_query_products_ledger,
+            ),
             (
                 "P4 ModuleQueryProducts Arc/publication",
                 publication.module_query_products_publication,
                 publication.module_query_products_publication_ledger,
             ),
-            ("P5 source-free completeness", publication.source_free_completeness, publication.source_free_completeness_ledger),
-            ("P6 advisory validation", publication.advisory_validation, publication.advisory_validation_ledger),
-            ("P7 query reader validation", publication.query_reader_validation, publication.query_reader_validation_ledger),
-            ("P8 fingerprint validation", publication.fingerprint_validation, publication.fingerprint_validation_ledger),
+            (
+                "P5 source-free completeness",
+                publication.source_free_completeness,
+                publication.source_free_completeness_ledger,
+            ),
+            (
+                "P6 advisory validation",
+                publication.advisory_validation,
+                publication.advisory_validation_ledger,
+            ),
+            (
+                "P7 query reader validation",
+                publication.query_reader_validation,
+                publication.query_reader_validation_ledger,
+            ),
+            (
+                "P8 fingerprint validation",
+                publication.fingerprint_validation,
+                publication.fingerprint_validation_ledger,
+            ),
             ("P9 final Arc<SemanticSnapshot>", publication.snapshot_arc, publication.snapshot_arc_ledger),
-            ("P10 Arc<CanonicalUniverseFormalImage>", publication.formal_image_arc, publication.formal_image_arc_ledger),
+            (
+                "P10 Arc<CanonicalUniverseFormalImage>",
+                publication.formal_image_arc,
+                publication.formal_image_arc_ledger,
+            ),
         ];
         let publication_observed = publication_rows.iter().map(|(_, observed, _)| *observed).sum::<usize>();
         let publication_ledger = publication_rows.iter().map(|(_, _, ledger)| *ledger).sum::<usize>();
-        assert_eq!(publication_observed + module_arc_observed, observed, "formal publication sub-census must match its outer stage");
-        assert_eq!(publication_ledger + 64, formal_ledger_delta, "formal publication sub-ledger must match its outer stage");
+        assert_eq!(
+            publication_observed + module_arc_observed,
+            observed,
+            "formal publication sub-census must match its outer stage"
+        );
+        assert_eq!(
+            publication_ledger + 64,
+            formal_ledger_delta,
+            "formal publication sub-ledger must match its outer stage"
+        );
         let mut module_query_signed = 0isize;
         for (name, observed, ledger) in publication_rows {
             let signed = observed as isize - ledger as isize;
@@ -970,7 +983,11 @@ mod temporary_loaded_publication_allocation_census {
             signed_stage_total + boundary_signed
         );
         assert_eq!(stage_ledger_total, production_ledger, "manual stage ledger must equal production ledger");
-        assert_eq!(signed_stage_total + boundary_signed, whole_signed, "stage deltas plus boundary must exactly reconcile");
+        assert_eq!(
+            signed_stage_total + boundary_signed,
+            whole_signed,
+            "stage deltas plus boundary must exactly reconcile"
+        );
     }
 
     #[test]
@@ -1017,7 +1034,11 @@ mod temporary_loaded_publication_allocation_census {
 
             let retry = load_universe_telosc_from_bytes(&artifact.bytes, &limits)
                 .unwrap_or_else(|error| panic!("clean retry after {boundary:?} must succeed: {error}"));
-            assert_eq!(retry.formal_image.world(), &control_world, "retry must retain the artifact's canonical world identity");
+            assert_eq!(
+                retry.formal_image.world(),
+                &control_world,
+                "retry must retain the artifact's canonical world identity"
+            );
             assert_eq!(
                 retry
                     .formal_image

@@ -185,10 +185,7 @@ impl<'a> BinaryReader<'a> {
         std::str::from_utf8(bytes).map_err(|_| CodecError::InvalidUtf8)
     }
 
-    pub fn read_optional<T>(
-        &mut self,
-        mut f: impl FnMut(&mut Self) -> Result<T, CodecError>,
-    ) -> Result<Option<T>, CodecError> {
+    pub fn read_optional<T>(&mut self, mut f: impl FnMut(&mut Self) -> Result<T, CodecError>) -> Result<Option<T>, CodecError> {
         match self.read_u8()? {
             0 => Ok(None),
             1 => f(self).map(Some),

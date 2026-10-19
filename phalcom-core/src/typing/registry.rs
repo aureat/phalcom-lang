@@ -117,8 +117,7 @@ mod tests {
     use super::*;
     use phalcom_type_meta::bundle::SemanticMetadataBundle;
     use phalcom_type_meta::declaration::{
-        CallableSemanticRecord, DeclarationTypeFlags, DeclarationTypeRecord, FieldMutabilityRef, FieldSemanticRecord, PublishedTypeAuthority,
-        PublishedTypeSlot,
+        CallableSemanticRecord, DeclarationTypeFlags, DeclarationTypeRecord, FieldMutabilityRef, FieldSemanticRecord, PublishedTypeAuthority, PublishedTypeSlot,
     };
     use phalcom_type_meta::fingerprint::Fingerprint128;
     use phalcom_type_meta::header::*;

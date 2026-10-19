@@ -1,8 +1,8 @@
 //! Linked project-aware type resolver.
 
 use crate::identity::{DeclarationId, ModuleId};
-use crate::prelude::PreludeTypeMap;
 use crate::ordered_map::OrderedMap;
+use crate::prelude::PreludeTypeMap;
 use crate::types::annotation::TypeResolver;
 use phalcom_modules::linker::{LinkedProgram, LinkedReadSpec};
 use std::cell::RefCell;

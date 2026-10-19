@@ -3,8 +3,8 @@
 use crate::dispatch::CallableSignature;
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId};
 use crate::types::evidence::TypeKnowledge;
-use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedMap, SortedMapEntriesError};
 use phalcom_common::selector::Selector;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedMap, SortedMapEntriesError};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -20,15 +20,15 @@ pub struct SurfaceMap<K, V> {
 
 impl<K, V> Default for SurfaceMap<K, V> {
     fn default() -> Self {
-        Self { source: HashMap::new(), frozen: None }
+        Self {
+            source: HashMap::new(),
+            frozen: None,
+        }
     }
 }
 
 impl<K: Eq + Hash + Ord, V> SurfaceMap<K, V> {
-    pub fn from_frozen_entries_with_allocation_budget(
-        mut entries: Vec<(K, V)>,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, FrozenSurfaceMapError> {
+    pub fn from_frozen_entries_with_allocation_budget(mut entries: Vec<(K, V)>, allocations: &mut AllocationBudget) -> Result<Self, FrozenSurfaceMapError> {
         if entries.is_empty() {
             return Ok(Self::default());
         }
@@ -38,7 +38,10 @@ impl<K: Eq + Hash + Ord, V> SurfaceMap<K, V> {
             SortedMapEntriesError::OutOfOrder => unreachable!("entries were sorted before frozen construction"),
         })?;
         let frozen = allocations.arc(entries).map_err(FrozenSurfaceMapError::Allocation)?;
-        Ok(Self { source: HashMap::new(), frozen: Some(frozen) })
+        Ok(Self {
+            source: HashMap::new(),
+            frozen: Some(frozen),
+        })
     }
 
     pub fn get<Q>(&self, key: &Q) -> Option<&V>
@@ -218,12 +221,7 @@ impl MemberSurface {
                 |field, allocations| field.clone_with_allocation_budget(allocations),
                 allocations,
             )?,
-            field_visibility: clone_map(
-                &self.field_visibility,
-                clone_string,
-                |visibility, _| Ok(*visibility),
-                allocations,
-            )?,
+            field_visibility: clone_map(&self.field_visibility, clone_string, |visibility, _| Ok(*visibility), allocations)?,
             callables: clone_map(
                 &self.callables,
                 |callable, allocations| callable.clone_with_allocation_budget(allocations),
@@ -438,7 +436,11 @@ fn clone_selector_with_allocation_budget(selector: &Selector, allocations: &mut 
             SelectorSlot::Label(label) => SelectorSlot::Label(allocations.string(label)?),
         });
     }
-    Ok(Selector { base, kind: selector.kind, slots: allocations.boxed_slice(slots)? })
+    Ok(Selector {
+        base,
+        kind: selector.kind,
+        slots: allocations.boxed_slice(slots)?,
+    })
 }
 
 /// Source visibility published with compiler-owned member surfaces.

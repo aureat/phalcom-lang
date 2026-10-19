@@ -180,9 +180,9 @@ impl TraitDispatchIndex {
             let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) else {
                 continue;
             };
-            count = count
-                .checked_add(surface.members.len())
-                .ok_or(FrozenTraitDispatchIndexError::Allocation(phalcom_type_meta::allocation::AllocationError::Overflow))?;
+            count = count.checked_add(surface.members.len()).ok_or(FrozenTraitDispatchIndexError::Allocation(
+                phalcom_type_meta::allocation::AllocationError::Overflow,
+            ))?;
         }
         let mut flattened = allocations
             .vector::<(TraitDispatchBucketKey, TraitDispatchContribution)>(count)
@@ -204,7 +204,9 @@ impl TraitDispatchIndex {
                     .map_err(FrozenTraitDispatchIndexError::Allocation)?;
                 let selector = crate::traits::clone_selector_with_allocation_budget(&member.requirement.selector, allocations)
                     .map_err(FrozenTraitDispatchIndexError::Allocation)?;
-                let impl_id = impl_id.clone_with_allocation_budget(allocations).map_err(FrozenTraitDispatchIndexError::Allocation)?;
+                let impl_id = impl_id
+                    .clone_with_allocation_budget(allocations)
+                    .map_err(FrozenTraitDispatchIndexError::Allocation)?;
                 let entry = TraitDispatchContribution {
                     impl_id,
                     target_family: target_for_entry,
@@ -213,8 +215,8 @@ impl TraitDispatchIndex {
                     selector,
                     side: member.requirement.side,
                 };
-                let selector_for_key = crate::traits::clone_selector_with_allocation_budget(&entry.selector, allocations)
-                    .map_err(FrozenTraitDispatchIndexError::Allocation)?;
+                let selector_for_key =
+                    crate::traits::clone_selector_with_allocation_budget(&entry.selector, allocations).map_err(FrozenTraitDispatchIndexError::Allocation)?;
                 let key = TraitDispatchBucketKey {
                     target_family: target_for_key,
                     selector: selector_for_key,
@@ -230,7 +232,9 @@ impl TraitDispatchIndex {
             .filter(|pair| pair[0].0 != pair[1].0)
             .count()
             .checked_add(usize::from(!flattened.is_empty()))
-            .ok_or(FrozenTraitDispatchIndexError::Allocation(phalcom_type_meta::allocation::AllocationError::Overflow))?;
+            .ok_or(FrozenTraitDispatchIndexError::Allocation(
+                phalcom_type_meta::allocation::AllocationError::Overflow,
+            ))?;
         let mut buckets = allocations
             .vector::<(TraitDispatchBucketKey, Box<[TraitDispatchContribution]>)>(bucket_count)
             .map_err(FrozenTraitDispatchIndexError::Allocation)?;
@@ -255,7 +259,10 @@ impl TraitDispatchIndex {
         })?;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         hash_ordered_buckets(&buckets, &mut hasher);
-        Ok(Self { buckets, fingerprint: ProductFingerprint::new(hasher.finish()) })
+        Ok(Self {
+            buckets,
+            fingerprint: ProductFingerprint::new(hasher.finish()),
+        })
     }
 
     pub fn candidates_for(&self, target_family: &TraitDispatchTargetFamily, selector: &Selector, side: DispatchSide) -> &[TraitDispatchContribution] {
@@ -295,10 +302,7 @@ impl TraitDispatchIndex {
     }
 }
 
-fn hash_ordered_buckets(
-    buckets: &crate::ordered_map::OrderedMap<TraitDispatchBucketKey, Box<[TraitDispatchContribution]>>,
-    hasher: &mut impl Hasher,
-) {
+fn hash_ordered_buckets(buckets: &crate::ordered_map::OrderedMap<TraitDispatchBucketKey, Box<[TraitDispatchContribution]>>, hasher: &mut impl Hasher) {
     buckets.len().hash(hasher);
     for (key, contributions) in buckets {
         key.hash(hasher);
@@ -312,10 +316,14 @@ fn clone_target_family_with_allocation_budget(
 ) -> Result<TraitDispatchTargetFamily, FrozenTraitDispatchIndexError> {
     Ok(match target {
         ConformanceTarget::Declaration(declaration) => TraitDispatchTargetFamily::Declaration(
-            declaration.clone_with_allocation_budget(allocations).map_err(FrozenTraitDispatchIndexError::Allocation)?,
+            declaration
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenTraitDispatchIndexError::Allocation)?,
         ),
         ConformanceTarget::ExactEnumCase(variant) => TraitDispatchTargetFamily::ExactEnumCase(
-            variant.clone_with_allocation_budget(allocations).map_err(FrozenTraitDispatchIndexError::Allocation)?,
+            variant
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenTraitDispatchIndexError::Allocation)?,
         ),
     })
 }
@@ -326,10 +334,14 @@ fn clone_target_family_from_family_with_allocation_budget(
 ) -> Result<TraitDispatchTargetFamily, FrozenTraitDispatchIndexError> {
     Ok(match family {
         TraitDispatchTargetFamily::Declaration(declaration) => TraitDispatchTargetFamily::Declaration(
-            declaration.clone_with_allocation_budget(allocations).map_err(FrozenTraitDispatchIndexError::Allocation)?,
+            declaration
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenTraitDispatchIndexError::Allocation)?,
         ),
         TraitDispatchTargetFamily::ExactEnumCase(variant) => TraitDispatchTargetFamily::ExactEnumCase(
-            variant.clone_with_allocation_budget(allocations).map_err(FrozenTraitDispatchIndexError::Allocation)?,
+            variant
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenTraitDispatchIndexError::Allocation)?,
         ),
     })
 }

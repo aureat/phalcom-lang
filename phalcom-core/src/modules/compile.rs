@@ -38,16 +38,8 @@ struct RuntimeCallRowRootSpec {
 fn close_covering_body_static_bindings(
     snapshot: &phalcom_semantic::SemanticSnapshot,
     callee: &phalcom_semantic::identity::CallableId,
-    bindings: impl IntoIterator<
-        Item = (
-            phalcom_semantic::types::id::TypeParameterId,
-            phalcom_semantic::types::store::StaticArgument,
-        ),
-    >,
-) -> Result<
-    BTreeMap<phalcom_semantic::types::id::TypeParameterId, phalcom_semantic::types::store::StaticArgument>,
-    ProgramCompileError,
-> {
+    bindings: impl IntoIterator<Item = (phalcom_semantic::types::id::TypeParameterId, phalcom_semantic::types::store::StaticArgument)>,
+) -> Result<BTreeMap<phalcom_semantic::types::id::TypeParameterId, phalcom_semantic::types::store::StaticArgument>, ProgramCompileError> {
     let mut closed = BTreeMap::new();
     for (parameter, argument) in bindings {
         if closed.insert(parameter, argument).is_some_and(|previous| previous != argument) {
@@ -986,11 +978,8 @@ impl ProgramCompiler {
                         .or_else(|| capability.map(|capability| &capability.selection.callable))
                         .expect("a specialization or conditional capability was checked above");
                     if let Some(specialization) = specialization {
-                        let closed_arguments = close_covering_body_static_bindings(
-                            &analyzed.semantic,
-                            &specialization.callable,
-                            specialization.bindings.iter().copied(),
-                        )?;
+                        let closed_arguments =
+                            close_covering_body_static_bindings(&analyzed.semantic, &specialization.callable, specialization.bindings.iter().copied())?;
                         for (parameter, argument) in closed_arguments {
                             match argument {
                                 phalcom_semantic::types::store::StaticArgument::Term(ty) => {
@@ -1443,10 +1432,7 @@ impl ProgramCompiler {
                     .get(&(spec.module.clone(), spec.range, spec.callable.clone(), key.clone()))
                     .copied()
                     .ok_or_else(|| ProgramCompileError::GenericEvidenceLayout(format!("missing runtime call row field root {key}")))?;
-                fields.push(crate::typing::overlay::RuntimeRecordField {
-                    key: field.key.clone(),
-                    ty,
-                });
+                fields.push(crate::typing::overlay::RuntimeRecordField { key: field.key.clone(), ty });
             }
             let (tail, remainder) = match row.tail {
                 phalcom_semantic::types::row::RecordRowTail::Closed => (None, None),
@@ -1455,9 +1441,10 @@ impl ProgramCompiler {
                     (stable_tail.clone(), None)
                 }
                 phalcom_semantic::types::row::RecordRowTail::Anonymous(remainder) => {
-                    let (key, value) = spec.remainder_keys.as_ref().ok_or_else(|| {
-                        ProgramCompileError::GenericEvidenceLayout(format!("missing runtime call row remainder roots for {:?}", spec.row))
-                    })?;
+                    let (key, value) = spec
+                        .remainder_keys
+                        .as_ref()
+                        .ok_or_else(|| ProgramCompileError::GenericEvidenceLayout(format!("missing runtime call row remainder roots for {:?}", spec.row)))?;
                     let key_type = call_row_components
                         .get(&(spec.module.clone(), spec.range, spec.callable.clone(), key.clone()))
                         .copied()
@@ -1480,7 +1467,10 @@ impl ProgramCompiler {
                     (None, Some(runtime_remainder))
                 }
                 phalcom_semantic::types::row::RecordRowTail::Projection(_) => {
-                    return Err(ProgramCompileError::GenericEvidenceLayout(format!("runtime call row {:?} has a projected tail", spec.row)));
+                    return Err(ProgramCompileError::GenericEvidenceLayout(format!(
+                        "runtime call row {:?} has a projected tail",
+                        spec.row
+                    )));
                 }
             };
             call_bindings
@@ -2315,6 +2305,7 @@ impl ProgramCompiler {
         image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
         options: &ProgramCompilationOptions,
     ) -> Result<CompiledProgram, ProgramCompileError> {
+        phalcom_semantic::prelude::PreludeTypeMap::initialize_from_snapshot(image.snapshot());
         crate::perf_span_result!(
             telos_observability::PerfPhase::Compilation,
             || {

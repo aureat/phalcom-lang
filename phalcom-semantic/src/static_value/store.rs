@@ -14,8 +14,8 @@ use crate::types::store::{TupleTypeElement, TypeData, TypeStore};
 use im::{HashMap, Vector};
 use num_bigint::BigInt;
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Lazily allocated persistent-map overlay. Frozen artifact stores begin with
 /// no local interner roots; the first session-local insertion creates only the
@@ -418,12 +418,18 @@ impl FrozenStaticValuePrefix {
     }
 
     pub fn find_variant_value(&self, data: &StaticVariantValue) -> Option<StaticVariantValueId> {
-        let idx = self.variant_value_to_id.binary_search_by(|&id| self.variant_values[id.0 as usize].cmp(data)).ok()?;
+        let idx = self
+            .variant_value_to_id
+            .binary_search_by(|&id| self.variant_values[id.0 as usize].cmp(data))
+            .ok()?;
         Some(self.variant_value_to_id[idx])
     }
 
     pub fn find_pack_backing(&self, data: &StaticPackBacking) -> Option<StaticPackBackingId> {
-        let idx = self.pack_backing_to_id.binary_search_by(|&id| self.pack_backings[id.0 as usize].cmp(data)).ok()?;
+        let idx = self
+            .pack_backing_to_id
+            .binary_search_by(|&id| self.pack_backings[id.0 as usize].cmp(data))
+            .ok()?;
         Some(self.pack_backing_to_id[idx])
     }
 
@@ -496,7 +502,8 @@ impl StaticValueStore {
             && self.variant_value_count() >= prefix.variant_value_count()
             && (0..prefix.variant_value_count()).all(|i| self.get_variant(StaticVariantValueId(i as u32)) == prefix.get_variant(StaticVariantValueId(i as u32)))
             && self.pack_backing_count() >= prefix.pack_backing_count()
-            && (0..prefix.pack_backing_count()).all(|i| self.get_pack_backing(StaticPackBackingId(i as u32)) == prefix.get_pack_backing(StaticPackBackingId(i as u32)))
+            && (0..prefix.pack_backing_count())
+                .all(|i| self.get_pack_backing(StaticPackBackingId(i as u32)) == prefix.get_pack_backing(StaticPackBackingId(i as u32)))
             && self.pack_count() >= prefix.pack_count()
             && (0..prefix.pack_count()).all(|i| self.get_pack_data(StaticPackId(i as u32)) == prefix.get_pack_data(StaticPackId(i as u32)))
     }
@@ -839,9 +846,7 @@ impl StaticValueStore {
                 .get(index - frozen.sequences.len())
                 .ok_or(StaticValueStoreError::UnknownValue(id.0))
         } else {
-            self.sequences
-                .get(index)
-                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+            self.sequences.get(index).ok_or(StaticValueStoreError::UnknownValue(id.0))
         }
     }
 
@@ -857,10 +862,7 @@ impl StaticValueStore {
                 .map(Box::as_ref)
                 .ok_or(StaticValueStoreError::UnknownValue(id.0))
         } else {
-            self.tuples
-                .get(index)
-                .map(Box::as_ref)
-                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+            self.tuples.get(index).map(Box::as_ref).ok_or(StaticValueStoreError::UnknownValue(id.0))
         }
     }
 
@@ -876,10 +878,7 @@ impl StaticValueStore {
                 .map(Box::as_ref)
                 .ok_or(StaticValueStoreError::UnknownValue(id.0))
         } else {
-            self.records
-                .get(index)
-                .map(Box::as_ref)
-                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+            self.records.get(index).map(Box::as_ref).ok_or(StaticValueStoreError::UnknownValue(id.0))
         }
     }
 
@@ -894,9 +893,7 @@ impl StaticValueStore {
                 .get(index - frozen.data_values.len())
                 .ok_or(StaticValueStoreError::UnknownValue(id.0))
         } else {
-            self.data_values
-                .get(index)
-                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+            self.data_values.get(index).ok_or(StaticValueStoreError::UnknownValue(id.0))
         }
     }
 
@@ -911,9 +908,7 @@ impl StaticValueStore {
                 .get(index - frozen.variant_values.len())
                 .ok_or(StaticValueStoreError::UnknownValue(id.0))
         } else {
-            self.variant_values
-                .get(index)
-                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+            self.variant_values.get(index).ok_or(StaticValueStoreError::UnknownValue(id.0))
         }
     }
 
@@ -1064,9 +1059,7 @@ impl StaticValueStore {
                 .get(index - frozen.pack_backings.len())
                 .ok_or(StaticValueStoreError::UnknownValue(id.0))
         } else {
-            self.pack_backings
-                .get(index)
-                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+            self.pack_backings.get(index).ok_or(StaticValueStoreError::UnknownValue(id.0))
         }
     }
 
@@ -1077,13 +1070,9 @@ impl StaticValueStore {
             if index < frozen.packs.len() {
                 return Ok(&frozen.packs[index]);
             }
-            self.packs
-                .get(index - frozen.packs.len())
-                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+            self.packs.get(index - frozen.packs.len()).ok_or(StaticValueStoreError::UnknownValue(id.0))
         } else {
-            self.packs
-                .get(index)
-                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+            self.packs.get(index).ok_or(StaticValueStoreError::UnknownValue(id.0))
         }
     }
 
@@ -1347,8 +1336,7 @@ impl StaticValueStore {
     /// Looks up a value, rejecting refs from another store lineage.
     pub fn get(&self, reference: StaticValueRef) -> Result<&StaticValueData, StaticValueStoreError> {
         self.check_store(reference)?;
-        self.get_value(reference.value)
-            .ok_or(StaticValueStoreError::UnknownValue(reference.value.0))
+        self.get_value(reference.value).ok_or(StaticValueStoreError::UnknownValue(reference.value.0))
     }
 
     /// Looks up value data by id.

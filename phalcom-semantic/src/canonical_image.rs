@@ -1238,7 +1238,6 @@ impl CanonicalUniverseFormalImage {
         })?;
         record_publication_census(9, formal_image_start, &transaction);
         allocations.commit_child(transaction)?;
-        crate::prelude::PreludeTypeMap::initialize_from_snapshot(&image.snapshot);
         Ok(image)
     }
 }
@@ -1311,6 +1310,9 @@ impl Drop for BootstrapGuard {
 /// Builtin provider access. Failed initialization is never cached; compatible
 /// concurrent callers share one successful build. No callbacks can reenter it.
 pub fn canonical_universe_formal_image() -> Result<&'static Arc<CanonicalUniverseFormalImage>, CanonicalImageError> {
+    if std::env::var_os("PHALCOM_DENY_SOURCE_BOOTSTRAP").is_some() {
+        panic!("Canonical source bootstrap attempted while denied by PHALCOM_DENY_SOURCE_BOOTSTRAP");
+    }
     image_span(ImagePhase::CacheLookup, || {
         if let Some(image) = IMAGE.get() {
             image_counter!(CanonicalImageCacheHits, 1);
@@ -1331,6 +1333,9 @@ pub fn canonical_universe_formal_image() -> Result<&'static Arc<CanonicalUnivers
 /// Explicit providers share the builtin image only for the sealed builtin
 /// source authority; overrides always build a private world and arena lineage.
 pub fn canonical_universe_formal_image_with_provider(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseFormalImage>, CanonicalImageError> {
+    if std::env::var_os("PHALCOM_DENY_SOURCE_BOOTSTRAP").is_some() {
+        panic!("Canonical source bootstrap attempted while denied by PHALCOM_DENY_SOURCE_BOOTSTRAP");
+    }
     if provider.is_canonical() {
         return canonical_universe_formal_image().cloned();
     }
@@ -1630,8 +1635,7 @@ mod tests {
             .query_image()
             .entries()
             .filter(|(key, _)| {
-                !matches!(key, QueryKey::ParsedModule(_))
-                    && canonical_query_persistence(key.kind()) == CanonicalQueryPersistence::EligibleStructural
+                !matches!(key, QueryKey::ParsedModule(_)) && canonical_query_persistence(key.kind()) == CanonicalQueryPersistence::EligibleStructural
             })
             .map(|(key, entry)| {
                 (
@@ -1690,12 +1694,8 @@ mod tests {
         (world, source_image.modules.clone(), snapshot, queries, fingerprints)
     }
 
-    fn clone_dependency_fingerprints(
-        fingerprints: &CanonicalDependencyFingerprints,
-    ) -> CanonicalDependencyFingerprints {
-        CanonicalDependencyFingerprints::Source(
-            fingerprints.iter().map(|(key, fingerprint)| (key.clone(), *fingerprint)).collect(),
-        )
+    fn clone_dependency_fingerprints(fingerprints: &CanonicalDependencyFingerprints) -> CanonicalDependencyFingerprints {
+        CanonicalDependencyFingerprints::Source(fingerprints.iter().map(|(key, fingerprint)| (key.clone(), *fingerprint)).collect())
     }
 
     fn publish_loaded_parts(
@@ -1719,10 +1719,13 @@ mod tests {
     #[test]
     fn loaded_formal_image_final_arc_failure_does_not_commit_and_retry_succeeds() {
         let (world, modules, snapshot, queries, fingerprints) = loaded_publication_inputs();
-        assert!(snapshot.module_products.unlinked.is_empty(), "fixture must exercise ModuleQueryProducts reconstruction");
+        assert!(
+            snapshot.module_products.unlinked.is_empty(),
+            "fixture must exercise ModuleQueryProducts reconstruction"
+        );
         let mut discovery = AllocationBudget::new(usize::MAX);
-        let image = publish_loaded_parts(&world, &modules, &snapshot, &queries, &fingerprints, &mut discovery)
-            .expect("valid source-free loaded parts must publish");
+        let image =
+            publish_loaded_parts(&world, &modules, &snapshot, &queries, &fingerprints, &mut discovery).expect("valid source-free loaded parts must publish");
         assert!(image.sources().is_empty());
         assert!(image.snapshot().is_source_free_artifact_complete());
         assert!(image.snapshot().advisory.modules.is_empty());
@@ -1736,8 +1739,14 @@ mod tests {
             &image.snapshot().module_products.linked,
             crate::snapshot::ModuleQueryLinkedInterfaces::Canonical(owner) if Arc::ptr_eq(owner, image.modules())
         ));
-        assert!(matches!(&image.snapshot().module_products.resolved_imports, crate::snapshot::ModuleQueryResolvedImports::Frozen(_)));
-        assert!(matches!(&image.snapshot().module_products.reverse_imports, crate::snapshot::ModuleQueryReverseImports::Frozen(_)));
+        assert!(matches!(
+            &image.snapshot().module_products.resolved_imports,
+            crate::snapshot::ModuleQueryResolvedImports::Frozen(_)
+        ));
+        assert!(matches!(
+            &image.snapshot().module_products.reverse_imports,
+            crate::snapshot::ModuleQueryReverseImports::Frozen(_)
+        ));
         let required = discovery.requested();
         assert!(required > 0);
         let control_query_identity = image
@@ -1757,7 +1766,11 @@ mod tests {
             p3_failure,
             Err(CanonicalImageError::Allocation(phalcom_type_meta::allocation::AllocationError::Exhausted))
         ));
-        assert_eq!(p3_failure_budget.requested(), 0, "failed ModuleQueryProducts child must not commit to its parent");
+        assert_eq!(
+            p3_failure_budget.requested(),
+            0,
+            "failed ModuleQueryProducts child must not commit to its parent"
+        );
 
         let mut p3_retry_budget = AllocationBudget::new(required);
         let p3_retry = publish_loaded_parts(&world, &modules, &snapshot, &queries, &fingerprints, &mut p3_retry_budget)
@@ -1768,11 +1781,19 @@ mod tests {
         assert_eq!(p3_retry.static_lineage(), image.static_lineage());
         assert_eq!(p3_retry.query_image().len(), image.query_image().len());
         assert_eq!(
-            p3_retry.query_image().entries().map(|(key, entry)| (key.clone(), entry.product_fingerprint)).collect::<Vec<_>>(),
+            p3_retry
+                .query_image()
+                .entries()
+                .map(|(key, entry)| (key.clone(), entry.product_fingerprint))
+                .collect::<Vec<_>>(),
             control_query_identity
         );
         assert_eq!(
-            p3_retry.dependency_fingerprints().iter().map(|(key, fingerprint)| (key.clone(), *fingerprint)).collect::<Vec<_>>(),
+            p3_retry
+                .dependency_fingerprints()
+                .iter()
+                .map(|(key, fingerprint)| (key.clone(), *fingerprint))
+                .collect::<Vec<_>>(),
             control_dependency_identity
         );
         assert!(p3_retry.reader().is_ok());
@@ -1793,7 +1814,11 @@ mod tests {
             &mut validation_failure_budget,
         );
         assert!(matches!(failed, Err(CanonicalImageError::IncompletePublication(_))));
-        assert_eq!(validation_failure_budget.requested(), 0, "failed validation child must not commit to its parent");
+        assert_eq!(
+            validation_failure_budget.requested(),
+            0,
+            "failed validation child must not commit to its parent"
+        );
 
         let mut one_byte_short = AllocationBudget::new(required - 1);
         LOADED_FORMAL_IMAGE_FINAL_ARC_ATTEMPTED.with(|attempted| attempted.set(false));
@@ -1809,19 +1834,26 @@ mod tests {
         assert_eq!(one_byte_short.requested(), 0, "failed final image child must not commit to its parent");
 
         let mut retry = AllocationBudget::new(required);
-        let image = publish_loaded_parts(&world, &modules, &snapshot, &queries, &fingerprints, &mut retry)
-            .expect("a fresh exact-budget retry must publish");
+        let image = publish_loaded_parts(&world, &modules, &snapshot, &queries, &fingerprints, &mut retry).expect("a fresh exact-budget retry must publish");
         assert_eq!(retry.requested(), required);
         assert_eq!(image.world(), p3_retry.world());
         assert_eq!(image.type_prefix(), p3_retry.type_prefix());
         assert_eq!(image.static_lineage(), p3_retry.static_lineage());
         assert_eq!(image.query_image().len(), p3_retry.query_image().len());
         assert_eq!(
-            image.query_image().entries().map(|(key, entry)| (key.clone(), entry.product_fingerprint)).collect::<Vec<_>>(),
+            image
+                .query_image()
+                .entries()
+                .map(|(key, entry)| (key.clone(), entry.product_fingerprint))
+                .collect::<Vec<_>>(),
             control_query_identity
         );
         assert_eq!(
-            image.dependency_fingerprints().iter().map(|(key, fingerprint)| (key.clone(), *fingerprint)).collect::<Vec<_>>(),
+            image
+                .dependency_fingerprints()
+                .iter()
+                .map(|(key, fingerprint)| (key.clone(), *fingerprint))
+                .collect::<Vec<_>>(),
             control_dependency_identity
         );
         assert!(image.sources().is_empty());
@@ -2381,14 +2413,50 @@ mod negative_fact_tests {
         };
         assert_eq!(members.len(), 2);
         let member_types: Vec<_> = members.iter().map(|m| snapshot.store.get(*m)).collect();
-        let has_some = member_types.iter().any(|td| {
-            matches!(td, crate::types::store::TypeData::Nominal { declaration, .. } if declaration.name.as_ref() == "Some")
-        });
-        let has_none = member_types.iter().any(|td| {
-            matches!(td, crate::types::store::TypeData::ClassObject { declaration } if declaration.name.as_ref() == "None")
-        });
-        assert!(has_some, "Union must contain Some");
-        assert!(has_none, "Union must contain None");
+
+        let option_decl = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Option);
+        let expected_some_decl = phalcom_modules::DeclarationId::new(option_decl.module.clone(), "Some".into());
+        let expected_none_decl = phalcom_modules::DeclarationId::new(option_decl.module.clone(), "None".into());
+
+        let some_decl = member_types
+            .iter()
+            .find_map(|td| match td {
+                crate::types::store::TypeData::Nominal { declaration } if declaration.name.as_ref() == "Some" => Some(declaration),
+                _ => None,
+            })
+            .expect("Union must contain Some variant");
+        assert_eq!(
+            some_decl, &expected_some_decl,
+            "Some variant identity must match canonical Option.Some declaration"
+        );
+
+        let none_decl = member_types
+            .iter()
+            .find_map(|td| match td {
+                crate::types::store::TypeData::ClassObject { declaration } if declaration.name.as_ref() == "None" => Some(declaration),
+                _ => None,
+            })
+            .expect("Union must contain None variant");
+        assert_eq!(
+            none_decl, &expected_none_decl,
+            "None variant identity must match canonical Option.None declaration"
+        );
+
+        // Verify generic T contract on List and Option
+        let list_info = snapshot.declarations.get(&list_decl).expect("List declaration");
+        assert!(list_info.generic_signature.is_some(), "List must declare generic parameter T");
+        assert_eq!(
+            list_info.generic_signature.as_ref().unwrap().parameters.len(),
+            1,
+            "List has single type parameter T"
+        );
+        let option_info = snapshot.declarations.get(&option_decl).expect("Option declaration");
+        assert!(option_info.generic_signature.is_some(), "Option must declare generic parameter T");
+        assert_eq!(
+            option_info.generic_signature.as_ref().unwrap().parameters.len(),
+            1,
+            "Option has single type parameter T"
+        );
     }
 
     #[test]
@@ -2402,10 +2470,7 @@ mod negative_fact_tests {
         assert!(fp.is_some(), "existing declaration must yield hierarchy-edge fingerprint");
 
         // 2. Missing declaration resolves to None
-        let missing_decl = phalcom_modules::DeclarationId::new(
-            ModuleId::universe_root(),
-            Box::from("MissingDeclNonexistent"),
-        );
+        let missing_decl = phalcom_modules::DeclarationId::new(ModuleId::universe_root(), Box::from("MissingDeclNonexistent"));
         let missing_key = QueryKey::HierarchyEdge(missing_decl);
         assert_eq!(image.dependency_fingerprint(&missing_key), None);
 
@@ -2448,16 +2513,8 @@ mod negative_fact_tests {
         assert_eq!(fork_b.type_count(), p_type_count);
 
         // Insert user-local material into A
-        let local_decl = phalcom_modules::DeclarationId::new(
-            ModuleId::universe_root(),
-            Box::from("LocalTypePrefixTest"),
-        );
-        let user_type = fork_a.intern_with_kind(
-            crate::types::store::TypeData::Nominal {
-                declaration: local_decl,
-            },
-            crate::KindId(0),
-        );
+        let local_decl = phalcom_modules::DeclarationId::new(ModuleId::universe_root(), Box::from("LocalTypePrefixTest"));
+        let user_type = fork_a.intern_with_kind(crate::types::store::TypeData::Nominal { declaration: local_decl }, crate::KindId(0));
         assert!(user_type.0 as usize >= p_type_count);
 
         // Assert: P unchanged, B unchanged, A sees local suffix
@@ -2505,5 +2562,47 @@ mod negative_fact_tests {
         assert!(val_fork_b.extends_canonical_prefix(&p_vals));
         assert!(!p_vals.extends_canonical_prefix(&val_fork_a));
         assert!(!val_fork_b.extends_canonical_prefix(&val_fork_a));
+    }
+
+    #[test]
+    fn prelude_source_artifact_equivalence() {
+        let image = canonical_universe_formal_image().unwrap();
+        let snapshot = image.snapshot();
+        let source_prelude = crate::prelude::PreludeTypeMap::build_source_canonical_universe();
+        let snapshot_prelude = crate::prelude::PreludeTypeMap::from_declarations(|decl| {
+            snapshot.declarations.contains(decl)
+                || snapshot.type_aliases.contains_key(decl)
+                || snapshot.trait_headers.contains(decl)
+                || crate::checker::proof_predicate::is_proof_predicate_declaration(decl).is_some()
+        });
+        assert_eq!(
+            source_prelude.entries(),
+            snapshot_prelude.entries(),
+            "Source-derived and snapshot-derived preludes must have identical entries"
+        );
+    }
+
+    #[test]
+    fn prelude_repeated_compatible_artifact_loads_do_not_panic() {
+        let image = canonical_universe_formal_image().unwrap();
+        crate::prelude::PreludeTypeMap::initialize_from_snapshot(image.snapshot());
+        crate::prelude::PreludeTypeMap::initialize_from_snapshot(image.snapshot());
+    }
+
+    #[test]
+    #[should_panic(expected = "Mandatory prelude declaration \"Unit\"")]
+    fn prelude_missing_mandatory_declaration_panics() {
+        let image = canonical_universe_formal_image().unwrap();
+        let snapshot = image.snapshot();
+        let _ = crate::prelude::PreludeTypeMap::from_declarations(|decl| {
+            if decl.name.as_ref() == "Unit" {
+                false
+            } else {
+                snapshot.declarations.contains(decl)
+                    || snapshot.type_aliases.contains_key(decl)
+                    || snapshot.trait_headers.contains(decl)
+                    || crate::checker::proof_predicate::is_proof_predicate_declaration(decl).is_some()
+            }
+        });
     }
 }

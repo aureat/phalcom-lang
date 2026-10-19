@@ -101,12 +101,17 @@ pub(crate) fn validate_op(
         OperationalOpV1::Unary { operand, .. } => {
             validate_op(operand, param_count, local_count, applications, depth + 1, limits)?;
         }
-        OperationalOpV1::StaticApplication { application_ordinal, arguments } => {
+        OperationalOpV1::StaticApplication {
+            application_ordinal,
+            arguments,
+        } => {
             if arguments.len() > limits.max_semantic_entries_per_family {
                 return Err(invalid("static application argument budget exceeded"));
             }
             let row_index = usize::try_from(*application_ordinal).map_err(|_| invalid("static application ordinal exceeds address space"))?;
-            let row = applications.get(row_index).ok_or_else(|| invalid("operational static application references an absent checked row"))?;
+            let row = applications
+                .get(row_index)
+                .ok_or_else(|| invalid("operational static application references an absent checked row"))?;
             if row.ordinal != *application_ordinal || row.arguments.len() != arguments.len() {
                 return Err(invalid("operational static application disagrees with its checked row"));
             }
@@ -115,7 +120,10 @@ pub(crate) fn validate_op(
                     (super::world::CanonicalStaticApplicationArgumentV1::KindedTerm { term, .. }, OperationalOpV1::TypeForm { ty }) => term == ty,
                     (
                         super::world::CanonicalStaticApplicationArgumentV1::KindedExpression { application_ordinal, .. },
-                        OperationalOpV1::StaticApplication { application_ordinal: actual_ordinal, .. },
+                        OperationalOpV1::StaticApplication {
+                            application_ordinal: actual_ordinal,
+                            ..
+                        },
                     ) => application_ordinal == actual_ordinal,
                     (super::world::CanonicalStaticApplicationArgumentV1::Value { .. }, _) => true,
                     _ => false,
@@ -152,7 +160,11 @@ pub(crate) fn validate_op(
             }
             validate_op(target, param_count, local_count, applications, depth + 1, limits)?;
         }
-        OperationalOpV1::If { condition, then_branch, else_branch } => {
+        OperationalOpV1::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
             validate_op(condition, param_count, local_count, applications, depth + 1, limits)?;
             validate_op(then_branch, param_count, local_count, applications, depth + 1, limits)?;
             if let Some(eb) = else_branch {
@@ -175,7 +187,11 @@ pub(crate) fn validate_op(
                 validate_op(el, param_count, local_count, applications, depth + 1, limits)?;
             }
         }
-        OperationalOpV1::Block { local_count: block_locals, statements, result } => {
+        OperationalOpV1::Block {
+            local_count: block_locals,
+            statements,
+            result,
+        } => {
             if *block_locals > local_count {
                 return Err(invalid("operational block local count exceeds its static-definition frame"));
             }

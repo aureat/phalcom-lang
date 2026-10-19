@@ -2531,10 +2531,7 @@ fn hash_debug_value(value: &impl std::fmt::Debug, hasher: &mut DefaultHasher) {
     writer.0.write_u8(0xff);
 }
 
-fn hash_debug_pairs<'a, K: std::fmt::Debug + 'a, V: std::fmt::Debug + 'a>(
-    entries: impl IntoIterator<Item = (&'a K, &'a V)>,
-    hasher: &mut DefaultHasher,
-) {
+fn hash_debug_pairs<'a, K: std::fmt::Debug + 'a, V: std::fmt::Debug + 'a>(entries: impl IntoIterator<Item = (&'a K, &'a V)>, hasher: &mut DefaultHasher) {
     use std::fmt::Write as _;
     let mut writer = HashFormatWriter(hasher);
     writer.write_str("[").expect("hash formatter is infallible");
@@ -2550,10 +2547,7 @@ fn hash_debug_pairs<'a, K: std::fmt::Debug + 'a, V: std::fmt::Debug + 'a>(
     writer.0.write_u8(0xff);
 }
 
-fn hash_debug_map<'a, K: std::fmt::Debug + 'a, V: std::fmt::Debug + 'a>(
-    entries: impl IntoIterator<Item = (&'a K, &'a V)>,
-    hasher: &mut DefaultHasher,
-) {
+fn hash_debug_map<'a, K: std::fmt::Debug + 'a, V: std::fmt::Debug + 'a>(entries: impl IntoIterator<Item = (&'a K, &'a V)>, hasher: &mut DefaultHasher) {
     use std::fmt::Write as _;
     let mut writer = HashFormatWriter(hasher);
     writer.write_str("{").expect("hash formatter is infallible");
@@ -3314,9 +3308,7 @@ impl ConformanceIndex {
             let mut conflicts = Vec::new();
             for (position, (first_id, first)) in contributions.iter().enumerate() {
                 for (second_id, second) in contributions.iter().skip(position + 1) {
-                    if first.trait_ref.declaration != second.trait_ref.declaration
-                        || first.trait_ref.arguments.len() != second.trait_ref.arguments.len()
-                    {
+                    if first.trait_ref.declaration != second.trait_ref.declaration || first.trait_ref.arguments.len() != second.trait_ref.arguments.len() {
                         continue;
                     }
                     let mut bindings = HashMap::new();
@@ -4722,7 +4714,10 @@ impl ConditionalInherentSelectorIndex {
     ) -> Result<Self, crate::ordered_map::FrozenOrderedMapError> {
         Ok(Self {
             source: HashMap::new(),
-            frozen: Some(crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(entries, allocations)?),
+            frozen: Some(crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(
+                entries,
+                allocations,
+            )?),
         })
     }
 }
@@ -4928,8 +4923,16 @@ pub struct InherentBodyContext {
 impl InherentBodyContext {
     pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
         Ok(Self {
-            generic_signature: self.generic_signature.as_ref().map(|signature| signature.clone_with_allocation_budget(allocations)).transpose()?,
-            covering: self.covering.as_ref().map(|covering| covering.clone_with_allocation_budget(allocations)).transpose()?,
+            generic_signature: self
+                .generic_signature
+                .as_ref()
+                .map(|signature| signature.clone_with_allocation_budget(allocations))
+                .transpose()?,
+            covering: self
+                .covering
+                .as_ref()
+                .map(|covering| covering.clone_with_allocation_budget(allocations))
+                .transpose()?,
             source_target_head: self.source_target_head,
         })
     }
@@ -7010,9 +7013,7 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
             };
         let side = if is_class_side { DispatchSide::Class } else { DispatchSide::Instance };
 
-        let native_anchor_record = if !syntax.has_body()
-            && syntax.implementation() == phalcom_common::modifier::ImplementationKind::Native
-        {
+        let native_anchor_record = if !syntax.has_body() && syntax.implementation() == phalcom_common::modifier::ImplementationKind::Native {
             let source_callable = callable_id_for_syntax(&target_owner, syntax, side);
             let candidates = phalcom_native_surface::NATIVE_SURFACES
                 .iter()
@@ -7585,14 +7586,32 @@ mod native_anchor_publication_tests {
         let owner = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Option);
         let selector = phalcom_common::selector::Selector::try_decode_exact("match(some,none)").unwrap();
         let callable = crate::identity::CallableId::method(owner.clone(), selector, crate::identity::DispatchSide::Instance);
-        let signature = baseline.callable_signatures().get(&callable).expect("required Option native anchor must publish its canonical source signature");
-        let native = phalcom_native_surface::NATIVE_SURFACES.iter().find(|record| record.owner() == phalcom_native_meta::UniverseKey::Option && record.selector() == "match(some,none)").unwrap();
+        let signature = baseline
+            .callable_signatures()
+            .get(&callable)
+            .expect("required Option native anchor must publish its canonical source signature");
+        let native = phalcom_native_surface::NATIVE_SURFACES
+            .iter()
+            .find(|record| record.owner() == phalcom_native_meta::UniverseKey::Option && record.selector() == "match(some,none)")
+            .unwrap();
         assert_eq!(signature.native_id, Some(native.id()));
         assert_eq!(signature.parameters.len(), 2);
         assert_eq!(signature.generics.as_ref().expect("source R binder").parameters.len(), 1);
-        assert!(matches!(baseline.type_store().get(signature.parameters[0].declared_type.canonical_type().expect("source callback type")), crate::types::store::TypeData::Callable(_)));
+        assert!(matches!(
+            baseline
+                .type_store()
+                .get(signature.parameters[0].declared_type.canonical_type().expect("source callback type")),
+            crate::types::store::TypeData::Callable(_)
+        ));
         assert!(signature.declared_return.canonical_type().is_some());
-        assert_eq!(baseline.dispatch().surface(&owner).unwrap().get_callable_id(crate::identity::DispatchSide::Instance, &callable.selector), Some(&callable));
+        assert_eq!(
+            baseline
+                .dispatch()
+                .surface(&owner)
+                .unwrap()
+                .get_callable_id(crate::identity::DispatchSide::Instance, &callable.selector),
+            Some(&callable)
+        );
     }
 }
 

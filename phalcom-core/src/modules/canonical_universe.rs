@@ -487,10 +487,7 @@ mod tests {
             view.compatibility.native_surface_schema_version,
             view.metadata.header.native_surface_schema_version
         );
-        assert_eq!(
-            view.compatibility.native_catalog_fingerprint,
-            phalcom_native_surface::catalog_fingerprint().0
-        );
+        assert_eq!(view.compatibility.native_catalog_fingerprint, phalcom_native_surface::catalog_fingerprint().0);
         assert_eq!(view.compatibility.metadata_schema_version, view.metadata.header.schema_version);
         assert!(view.compatibility.type_prefix_extent > 0);
         assert_eq!(view.compatibility.static_lineage_id, view.formal.static_lineage());

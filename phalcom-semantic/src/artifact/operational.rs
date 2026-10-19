@@ -1,39 +1,33 @@
 //! Artifact export, import, and lowering for checked operational static templates (`PERF003.C2.P7.T7.B`).
 
+use super::import::{
+    import_generic_signature_with_allocation_budget, import_stable_declaration_with_allocation_budget, import_stable_module_with_allocation_budget,
+    import_stable_selector_with_allocation_budget,
+};
 use crate::identity::VariantId;
 use crate::metadata::stable_identity::{to_stable_declaration, to_stable_module};
 use crate::static_definition::{
-    CanonicalCheckedStaticApplication, CanonicalStaticApplicationArgument, CanonicalStaticProgram,
-    CheckedStaticApplication, CheckedStaticApplicationArgument, CheckedStaticBody, OperationalNode, OperationalTarget,
-    OperationalTemplate, StaticBodyId, StaticBinaryOp, StaticDefinitionBodyRepr, StaticDefinitionSignature, StaticUnaryOp,
+    CanonicalCheckedStaticApplication, CanonicalStaticApplicationArgument, CanonicalStaticProgram, CheckedStaticApplication, CheckedStaticApplicationArgument,
+    CheckedStaticBody, OperationalNode, OperationalTarget, OperationalTemplate, StaticBinaryOp, StaticBodyId, StaticDefinitionBodyRepr,
+    StaticDefinitionSignature, StaticUnaryOp,
 };
 use crate::static_domain::StaticValueDomain;
 use crate::static_eval::machine::canonical_symbol_spelling;
 use crate::static_value::{StaticExportContext, StaticFloat, StaticRelocation, StaticValueStore};
-use crate::types::store::artifact::{TypeExportContext, TypeRelocation};
 use crate::types::store::TypeStore;
+use crate::types::store::artifact::{TypeExportContext, TypeRelocation};
 use num_bigint::BigInt;
-use phalcom_ast::ast::{
-    BinaryOp, BracketLiteralElement, Expr, IfElseBody, LexicalBlock, Pattern, Statement, TupleLiteralEntry, UnaryOp,
-};
+use phalcom_ast::ast::{BinaryOp, BracketLiteralElement, Expr, IfElseBody, LexicalBlock, Pattern, Statement, TupleLiteralEntry, UnaryOp};
 use phalcom_compiler_artifact::semantic::operational::*;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
-use super::import::{
-    import_generic_signature_with_allocation_budget, import_stable_declaration_with_allocation_budget,
-    import_stable_module_with_allocation_budget, import_stable_selector_with_allocation_budget,
-};
 
 fn referential(message: impl Into<String>) -> ArtifactError {
     ValidationError::ReferentialIntegrity(message.into()).into()
 }
 
 impl CanonicalStaticProgram {
-    pub fn from_checked_body(
-        body: &CheckedStaticBody,
-        values: &mut StaticValueStore,
-        types: &TypeStore,
-    ) -> Result<Self, ArtifactError> {
+    pub fn from_checked_body(body: &CheckedStaticBody, values: &mut StaticValueStore, types: &TypeStore) -> Result<Self, ArtifactError> {
         let parameter_count = body
             .parameter_bindings
             .keys()
@@ -45,9 +39,7 @@ impl CanonicalStaticProgram {
             StaticDefinitionBodyRepr::Operational(program) => return Ok((**program).clone()),
             StaticDefinitionBodyRepr::Expression(expr) => lower_expr(expr, body, values, types)?,
             StaticDefinitionBodyRepr::Block(block) => lower_block(block, body, values, types)?,
-            StaticDefinitionBodyRepr::TypeForm(annotation) => {
-                lower_expr(&Expr::TypeForm(Box::new(annotation.clone())), body, values, types)?
-            }
+            StaticDefinitionBodyRepr::TypeForm(annotation) => lower_expr(&Expr::TypeForm(Box::new(annotation.clone())), body, values, types)?,
         };
 
         let mut ordered_rows = body.static_applications.iter().collect::<Vec<_>>();
@@ -61,9 +53,10 @@ impl CanonicalStaticProgram {
             let mut canonical_arguments = Vec::with_capacity(application.arguments.len());
             for argument in application.arguments.iter() {
                 canonical_arguments.push(match argument {
-                    CheckedStaticApplicationArgument::Kinded { parameter_index, term } => {
-                        CanonicalStaticApplicationArgument::KindedTerm { parameter_index: *parameter_index, term: *term }
-                    }
+                    CheckedStaticApplicationArgument::Kinded { parameter_index, term } => CanonicalStaticApplicationArgument::KindedTerm {
+                        parameter_index: *parameter_index,
+                        term: *term,
+                    },
                     CheckedStaticApplicationArgument::KindedExpression { parameter_index, expression } => {
                         let nested = unique_application_for_expression(body, *expression)?;
                         CanonicalStaticApplicationArgument::KindedExpression {
@@ -71,9 +64,9 @@ impl CanonicalStaticProgram {
                             application_ordinal: nested.id.ordinal,
                         }
                     }
-                    CheckedStaticApplicationArgument::Value { parameter_index, .. } => {
-                        CanonicalStaticApplicationArgument::Value { parameter_index: *parameter_index }
-                    }
+                    CheckedStaticApplicationArgument::Value { parameter_index, .. } => CanonicalStaticApplicationArgument::Value {
+                        parameter_index: *parameter_index,
+                    },
                 });
             }
             if application.signature.parameters.len() != canonical_arguments.len()
@@ -90,14 +83,8 @@ impl CanonicalStaticProgram {
             }
             for (parameter, argument) in application.signature.parameters.iter().zip(&canonical_arguments) {
                 match (parameter.domain, argument) {
-                    (
-                        StaticValueDomain::Kind(expected),
-                        CanonicalStaticApplicationArgument::KindedTerm { term, .. },
-                    ) if types.kind_of(*term) == expected => {}
-                    (
-                        StaticValueDomain::Kind(expected),
-                        CanonicalStaticApplicationArgument::KindedExpression { application_ordinal, .. },
-                    ) => {
+                    (StaticValueDomain::Kind(expected), CanonicalStaticApplicationArgument::KindedTerm { term, .. }) if types.kind_of(*term) == expected => {}
+                    (StaticValueDomain::Kind(expected), CanonicalStaticApplicationArgument::KindedExpression { application_ordinal, .. }) => {
                         let nested = body
                             .static_applications
                             .iter()
@@ -136,10 +123,7 @@ impl CanonicalStaticProgram {
     }
 }
 
-fn unique_application_for_expression(
-    body: &CheckedStaticBody,
-    expression: crate::identity::ExpressionId,
-) -> Result<&CheckedStaticApplication, ArtifactError> {
+fn unique_application_for_expression(body: &CheckedStaticBody, expression: crate::identity::ExpressionId) -> Result<&CheckedStaticApplication, ArtifactError> {
     let mut matches = body.static_applications.iter().filter(|application| application.expression == expression);
     let Some(application) = matches.next() else {
         return Err(referential("checked static application reference has no row"));
@@ -211,16 +195,10 @@ fn lower_application_node(
     })
 }
 
-fn lower_expr(
-    expr: &Expr,
-    body: &CheckedStaticBody,
-    values: &mut StaticValueStore,
-    types: &TypeStore,
-) -> Result<OperationalNode, ArtifactError> {
+fn lower_expr(expr: &Expr, body: &CheckedStaticBody, values: &mut StaticValueStore, types: &TypeStore) -> Result<OperationalNode, ArtifactError> {
     match expr {
         Expr::Int { digits, radix, .. } => {
-            let integer = BigInt::parse_bytes(digits.as_bytes(), *radix)
-                .ok_or_else(|| referential("invalid integer literal"))?;
+            let integer = BigInt::parse_bytes(digits.as_bytes(), *radix).ok_or_else(|| referential("invalid integer literal"))?;
             let val = values.intern_int(integer);
             Ok(OperationalNode::Constant(val))
         }
@@ -241,8 +219,7 @@ fn lower_expr(
             Ok(OperationalNode::Constant(val))
         }
         Expr::Symbol(symbol) => {
-            let spelling = canonical_symbol_spelling(&symbol.kind)
-                .ok_or_else(|| referential("unsupported symbol literal"))?;
+            let spelling = canonical_symbol_spelling(&symbol.kind).ok_or_else(|| referential("unsupported symbol literal"))?;
             let val = values.intern_symbol(spelling);
             Ok(OperationalNode::Constant(val))
         }
@@ -252,10 +229,8 @@ fn lower_expr(
                 .iter()
                 .find(|(_, a)| a.range == expr.range())
                 .ok_or_else(|| referential("missing expression analysis for var"))?;
-            if let Some(
-                crate::types::denotation::SemanticDenotation::TypeForm(ty)
-                | crate::types::denotation::SemanticDenotation::StaticTerm(ty),
-            ) = analysis.denotation.as_ref()
+            if let Some(crate::types::denotation::SemanticDenotation::TypeForm(ty) | crate::types::denotation::SemanticDenotation::StaticTerm(ty)) =
+                analysis.denotation.as_ref()
             {
                 Ok(OperationalNode::TypeForm(*ty))
             } else if let Some(binding) = analysis.binding_read {
@@ -283,10 +258,8 @@ fn lower_expr(
             if analyses.next().is_some() {
                 return Err(referential("static type-form expression range is ambiguous"));
             }
-            if let Some(
-                crate::types::denotation::SemanticDenotation::TypeForm(ty)
-                | crate::types::denotation::SemanticDenotation::StaticTerm(ty),
-            ) = analysis.denotation.as_ref()
+            if let Some(crate::types::denotation::SemanticDenotation::TypeForm(ty) | crate::types::denotation::SemanticDenotation::StaticTerm(ty)) =
+                analysis.denotation.as_ref()
             {
                 Ok(OperationalNode::TypeForm(*ty))
             } else if matches!(analysis.denotation, Some(crate::types::denotation::SemanticDenotation::StaticApplication(_))) {
@@ -358,9 +331,7 @@ fn lower_expr(
                 .iter()
                 .find(|(_, a)| a.range == expr.range())
                 .ok_or_else(|| referential("missing expression analysis for assignment"))?;
-            let binding = analysis
-                .binding_write
-                .ok_or_else(|| referential("missing binding_write on assignment"))?;
+            let binding = analysis.binding_write.ok_or_else(|| referential("missing binding_write on assignment"))?;
             let slot = body
                 .local_slots
                 .get(&binding)
@@ -409,12 +380,8 @@ fn lower_expr(
             if let Some((id, _)) = body.expressions.iter().find(|(_, a)| a.range == expr.range()) {
                 if let Some(construction) = body.static_constructions.get(id) {
                     let target = match &construction.target {
-                        crate::identity::InvocationTargetId::DataConstructor(c) => {
-                            OperationalTarget::DataConstructor(c.owner.clone())
-                        }
-                        crate::identity::InvocationTargetId::VariantConstructor(v) => {
-                            OperationalTarget::VariantConstructor(v.variant.clone())
-                        }
+                        crate::identity::InvocationTargetId::DataConstructor(c) => OperationalTarget::DataConstructor(c.owner.clone()),
+                        crate::identity::InvocationTargetId::VariantConstructor(v) => OperationalTarget::VariantConstructor(v.variant.clone()),
                         _ => return Err(referential("unsupported invocation target for static construction")),
                     };
                     let mut arguments = Vec::with_capacity(construction.arguments.len());
@@ -444,12 +411,7 @@ fn lower_expr(
     }
 }
 
-fn lower_block(
-    block: &LexicalBlock,
-    body: &CheckedStaticBody,
-    values: &mut StaticValueStore,
-    types: &TypeStore,
-) -> Result<OperationalNode, ArtifactError> {
+fn lower_block(block: &LexicalBlock, body: &CheckedStaticBody, values: &mut StaticValueStore, types: &TypeStore) -> Result<OperationalNode, ArtifactError> {
     let mut statements = Vec::with_capacity(block.body.len());
     for statement in &block.body {
         match statement {
@@ -506,8 +468,12 @@ pub fn register_operational_template_roots(
         owner: &phalcom_compiler_artifact::semantic::type_store::StableOwnerRef,
         ordinal: &mut u32,
     ) -> Result<(), ArtifactError> {
-        use phalcom_compiler_artifact::semantic::type_store::{CanonicalTypeRootKey, CanonicalRootFamilyTag};
-        let key = CanonicalTypeRootKey { family_tag: CanonicalRootFamilyTag::StaticDefAndBinding, owner: owner.clone(), product_subkey: *ordinal };
+        use phalcom_compiler_artifact::semantic::type_store::{CanonicalRootFamilyTag, CanonicalTypeRootKey};
+        let key = CanonicalTypeRootKey {
+            family_tag: CanonicalRootFamilyTag::StaticDefAndBinding,
+            owner: owner.clone(),
+            product_subkey: *ordinal,
+        };
         *ordinal = ordinal.checked_add(1).ok_or_else(|| referential("operational root ordinal overflow"))?;
         match node {
             OperationalNode::Constant(val) => {
@@ -527,7 +493,11 @@ pub fn register_operational_template_roots(
             OperationalNode::Unary { operand, .. } => {
                 walk(operand, static_context, type_context, owner, ordinal)?;
             }
-            OperationalNode::If { condition, then_branch, else_branch } => {
+            OperationalNode::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 walk(condition, static_context, type_context, owner, ordinal)?;
                 walk(then_branch, static_context, type_context, owner, ordinal)?;
                 if let Some(eb) = else_branch {
@@ -627,11 +597,7 @@ fn export_target(target: &OperationalTarget) -> OperationalTargetV1 {
     }
 }
 
-fn export_op(
-    node: &OperationalNode,
-    static_context: &StaticExportContext,
-    type_context: &TypeExportContext,
-) -> Result<OperationalOpV1, ArtifactError> {
+fn export_op(node: &OperationalNode, static_context: &StaticExportContext, type_context: &TypeExportContext) -> Result<OperationalOpV1, ArtifactError> {
     Ok(match node {
         OperationalNode::Constant(val) => OperationalOpV1::Constant {
             value: static_context.value(*val)?,
@@ -646,9 +612,7 @@ fn export_op(
             slot: *slot,
             value: Box::new(export_op(val, static_context, type_context)?),
         },
-        OperationalNode::TypeForm(ty) => OperationalOpV1::TypeForm {
-            ty: type_context.ty(*ty)?,
-        },
+        OperationalNode::TypeForm(ty) => OperationalOpV1::TypeForm { ty: type_context.ty(*ty)? },
         OperationalNode::Binary { op, left, right } => OperationalOpV1::Binary {
             op: export_binary_op(*op),
             left: Box::new(export_op(left, static_context, type_context)?),
@@ -658,7 +622,11 @@ fn export_op(
             op: export_unary_op(*op),
             operand: Box::new(export_op(operand, static_context, type_context)?),
         },
-        OperationalNode::If { condition, then_branch, else_branch } => OperationalOpV1::If {
+        OperationalNode::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => OperationalOpV1::If {
             condition: Box::new(export_op(condition, static_context, type_context)?),
             then_branch: Box::new(export_op(then_branch, static_context, type_context)?),
             else_branch: else_branch
@@ -679,45 +647,46 @@ fn export_op(
                 .map(|e| export_op(e, static_context, type_context))
                 .collect::<Result<Vec<_>, _>>()?,
         },
-        OperationalNode::StaticConstruction { target, result_type, arguments } => {
-            OperationalOpV1::StaticConstruction {
-                target: export_target(target),
-                result_type: type_context.ty(*result_type)?,
-                arguments: arguments
-                    .iter()
-                    .map(|a| export_op(a, static_context, type_context))
-                    .collect::<Result<Vec<_>, _>>()?,
-            }
-        }
+        OperationalNode::StaticConstruction {
+            target,
+            result_type,
+            arguments,
+        } => OperationalOpV1::StaticConstruction {
+            target: export_target(target),
+            result_type: type_context.ty(*result_type)?,
+            arguments: arguments
+                .iter()
+                .map(|a| export_op(a, static_context, type_context))
+                .collect::<Result<Vec<_>, _>>()?,
+        },
         OperationalNode::MemberProjection { target, member } => OperationalOpV1::MemberProjection {
             target: Box::new(export_op(target, static_context, type_context)?),
             member: member.clone(),
         },
-        OperationalNode::StaticApplication { application_ordinal, arguments } => {
-            OperationalOpV1::StaticApplication {
-                application_ordinal: *application_ordinal,
-                arguments: arguments
-                    .iter()
-                    .map(|a| export_op(a, static_context, type_context))
-                    .collect::<Result<Vec<_>, _>>()?,
-            }
-        }
-        OperationalNode::Block { local_count, statements, result } => OperationalOpV1::Block {
+        OperationalNode::StaticApplication {
+            application_ordinal,
+            arguments,
+        } => OperationalOpV1::StaticApplication {
+            application_ordinal: *application_ordinal,
+            arguments: arguments
+                .iter()
+                .map(|a| export_op(a, static_context, type_context))
+                .collect::<Result<Vec<_>, _>>()?,
+        },
+        OperationalNode::Block {
+            local_count,
+            statements,
+            result,
+        } => OperationalOpV1::Block {
             local_count: *local_count,
             statements: statements
                 .iter()
                 .map(|s| export_op(s, static_context, type_context))
                 .collect::<Result<Vec<_>, _>>()?,
-            result: result
-                .as_ref()
-                .map(|r| export_op(r, static_context, type_context).map(Box::new))
-                .transpose()?,
+            result: result.as_ref().map(|r| export_op(r, static_context, type_context).map(Box::new)).transpose()?,
         },
         OperationalNode::Return(val) => OperationalOpV1::Return {
-            value: val
-                .as_ref()
-                .map(|v| export_op(v, static_context, type_context).map(Box::new))
-                .transpose()?,
+            value: val.as_ref().map(|v| export_op(v, static_context, type_context).map(Box::new)).transpose()?,
         },
     })
 }
@@ -755,12 +724,10 @@ fn import_unary_op(op: &StaticUnaryOpV1) -> StaticUnaryOp {
 
 fn import_target(target: &OperationalTargetV1, allocations: &mut AllocationBudget) -> Result<OperationalTarget, ArtifactError> {
     Ok(match target {
-        OperationalTargetV1::Declaration { target } => OperationalTarget::Declaration(
-            import_stable_declaration_with_allocation_budget(target, allocations)?,
-        ),
-        OperationalTargetV1::DataConstructor { owner } => OperationalTarget::DataConstructor(
-            import_stable_declaration_with_allocation_budget(owner, allocations)?,
-        ),
+        OperationalTargetV1::Declaration { target } => OperationalTarget::Declaration(import_stable_declaration_with_allocation_budget(target, allocations)?),
+        OperationalTargetV1::DataConstructor { owner } => {
+            OperationalTarget::DataConstructor(import_stable_declaration_with_allocation_budget(owner, allocations)?)
+        }
         OperationalTargetV1::VariantConstructor { owner, selector } => {
             let decl = import_stable_declaration_with_allocation_budget(owner, allocations)?;
             let v_selector = import_stable_selector_with_allocation_budget(selector, allocations)?;
@@ -776,24 +743,17 @@ fn import_op(
     allocations: &mut AllocationBudget,
 ) -> Result<OperationalNode, ArtifactError> {
     Ok(match op {
-        OperationalOpV1::Constant { value } => {
-            OperationalNode::Constant(static_relocation.value(*value)?)
-        }
-        OperationalOpV1::ReadStaticConstant { module, name } => OperationalNode::ReadStaticConstant(
-            phalcom_modules::linker::SymbolId {
-                module: import_stable_module_with_allocation_budget(module, allocations)?,
-                name: allocations.boxed_str(name)?,
-            },
-        ),
+        OperationalOpV1::Constant { value } => OperationalNode::Constant(static_relocation.value(*value)?),
+        OperationalOpV1::ReadStaticConstant { module, name } => OperationalNode::ReadStaticConstant(phalcom_modules::linker::SymbolId {
+            module: import_stable_module_with_allocation_budget(module, allocations)?,
+            name: allocations.boxed_str(name)?,
+        }),
         OperationalOpV1::ReadParameter { index } => OperationalNode::ReadParameter(*index),
         OperationalOpV1::ReadLocal { slot } => OperationalNode::ReadLocal(*slot),
-        OperationalOpV1::WriteLocal { slot, value } => OperationalNode::WriteLocal(
-            *slot,
-            import_boxed_op(value, static_relocation, type_relocation, allocations)?,
-        ),
-        OperationalOpV1::TypeForm { ty } => {
-            OperationalNode::TypeForm(type_relocation.ty(*ty)?)
+        OperationalOpV1::WriteLocal { slot, value } => {
+            OperationalNode::WriteLocal(*slot, import_boxed_op(value, static_relocation, type_relocation, allocations)?)
         }
+        OperationalOpV1::TypeForm { ty } => OperationalNode::TypeForm(type_relocation.ty(*ty)?),
         OperationalOpV1::Binary { op, left, right } => OperationalNode::Binary {
             op: import_binary_op(op),
             left: import_boxed_op(left, static_relocation, type_relocation, allocations)?,
@@ -803,7 +763,11 @@ fn import_op(
             op: import_unary_op(op),
             operand: import_boxed_op(operand, static_relocation, type_relocation, allocations)?,
         },
-        OperationalOpV1::If { condition, then_branch, else_branch } => OperationalNode::If {
+        OperationalOpV1::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => OperationalNode::If {
             condition: import_boxed_op(condition, static_relocation, type_relocation, allocations)?,
             then_branch: import_boxed_op(then_branch, static_relocation, type_relocation, allocations)?,
             else_branch: else_branch
@@ -818,26 +782,31 @@ fn import_op(
             result_type: type_relocation.ty(*result_type)?,
             elements: import_ops(elements, static_relocation, type_relocation, allocations)?,
         },
-        OperationalOpV1::StaticConstruction { target, result_type, arguments } => {
-            OperationalNode::StaticConstruction {
-                target: import_target(target, allocations)?,
-                result_type: type_relocation.ty(*result_type)?,
-                arguments: import_ops(arguments, static_relocation, type_relocation, allocations)?,
-            }
-        }
-        OperationalOpV1::MemberProjection { target, member } => {
-            OperationalNode::MemberProjection {
-                target: import_boxed_op(target, static_relocation, type_relocation, allocations)?,
-                member: allocations.boxed_str(member)?,
-            }
-        }
-        OperationalOpV1::StaticApplication { application_ordinal, arguments } => {
-            OperationalNode::StaticApplication {
-                application_ordinal: *application_ordinal,
-                arguments: import_ops(arguments, static_relocation, type_relocation, allocations)?,
-            }
-        }
-        OperationalOpV1::Block { local_count, statements, result } => OperationalNode::Block {
+        OperationalOpV1::StaticConstruction {
+            target,
+            result_type,
+            arguments,
+        } => OperationalNode::StaticConstruction {
+            target: import_target(target, allocations)?,
+            result_type: type_relocation.ty(*result_type)?,
+            arguments: import_ops(arguments, static_relocation, type_relocation, allocations)?,
+        },
+        OperationalOpV1::MemberProjection { target, member } => OperationalNode::MemberProjection {
+            target: import_boxed_op(target, static_relocation, type_relocation, allocations)?,
+            member: allocations.boxed_str(member)?,
+        },
+        OperationalOpV1::StaticApplication {
+            application_ordinal,
+            arguments,
+        } => OperationalNode::StaticApplication {
+            application_ordinal: *application_ordinal,
+            arguments: import_ops(arguments, static_relocation, type_relocation, allocations)?,
+        },
+        OperationalOpV1::Block {
+            local_count,
+            statements,
+            result,
+        } => OperationalNode::Block {
             local_count: *local_count,
             statements: import_ops(statements, static_relocation, type_relocation, allocations)?,
             result: result
@@ -955,13 +924,13 @@ pub(crate) fn import_static_definition_signature(
     let mut parameters = allocations.vector(signature.parameters.len())?;
     for parameter in &signature.parameters {
         parameters.push(crate::static_definition::StaticParameter {
-                name: allocations.string(&parameter.name)?,
-                domain: import_static_value_domain(&parameter.domain, types)?,
-                mode: crate::artifact::import::import_mode(&parameter.mode),
-                index: parameter.index,
-                type_parameter_id: parameter.type_parameter.map(|id| types.parameter(id)).transpose()?,
-                range: import_source_range(&parameter.source)?,
-            });
+            name: allocations.string(&parameter.name)?,
+            domain: import_static_value_domain(&parameter.domain, types)?,
+            mode: crate::artifact::import::import_mode(&parameter.mode),
+            index: parameter.index,
+            type_parameter_id: parameter.type_parameter.map(|id| types.parameter(id)).transpose()?,
+            range: import_source_range(&parameter.source)?,
+        });
     }
     Ok(StaticDefinitionSignature {
         parameters: allocations.boxed_slice(parameters)?,
@@ -982,8 +951,7 @@ pub(crate) fn export_canonical_static_program(
     dependencies: Vec<phalcom_compiler_artifact::semantic::world::StaticSemanticDependencyV1>,
 ) -> Result<phalcom_compiler_artifact::semantic::world::CanonicalStaticProgramV1, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world::{
-        CanonicalCheckedStaticApplicationV1, CanonicalStaticApplicationArgumentV1 as Argument, CanonicalStaticProgramV1,
-        StaticConstantSymbolV1,
+        CanonicalCheckedStaticApplicationV1, CanonicalStaticApplicationArgumentV1 as Argument, CanonicalStaticProgramV1, StaticConstantSymbolV1,
     };
     let applications = program
         .applications
@@ -998,12 +966,13 @@ pub(crate) fn export_canonical_static_program(
                             parameter_index: *parameter_index,
                             term: type_context.ty(*term)?,
                         },
-                        CanonicalStaticApplicationArgument::KindedExpression { parameter_index, application_ordinal } => {
-                            Argument::KindedExpression {
-                                parameter_index: *parameter_index,
-                                application_ordinal: *application_ordinal,
-                            }
-                        }
+                        CanonicalStaticApplicationArgument::KindedExpression {
+                            parameter_index,
+                            application_ordinal,
+                        } => Argument::KindedExpression {
+                            parameter_index: *parameter_index,
+                            application_ordinal: *application_ordinal,
+                        },
                         CanonicalStaticApplicationArgument::Value { parameter_index } => Argument::Value {
                             parameter_index: *parameter_index,
                         },
@@ -1054,32 +1023,35 @@ pub(crate) fn import_canonical_static_program(
     let owner = StaticBodyId(import_stable_declaration_with_allocation_budget(&program.owner, allocations)?);
     let mut applications = allocations.vector(program.applications.len())?;
     for application in &program.applications {
-            let mut arguments = allocations.vector(application.arguments.len())?;
-            for argument in &application.arguments {
-                    arguments.push(match argument {
-                        Argument::KindedTerm { parameter_index, term } => CanonicalStaticApplicationArgument::KindedTerm {
-                            parameter_index: *parameter_index,
-                            term: type_relocation.ty(*term)?,
-                        },
-                        Argument::KindedExpression { parameter_index, application_ordinal } => CanonicalStaticApplicationArgument::KindedExpression {
-                            parameter_index: *parameter_index,
-                            application_ordinal: *application_ordinal,
-                        },
-                        Argument::Value { parameter_index } => CanonicalStaticApplicationArgument::Value {
-                            parameter_index: *parameter_index,
-                        },
-                    });
-            }
-            applications.push(CanonicalCheckedStaticApplication {
-                id: crate::static_definition::StaticApplicationId {
-                    body: StaticBodyId(owner.0.clone_with_allocation_budget(allocations)?),
-                    ordinal: application.ordinal,
+        let mut arguments = allocations.vector(application.arguments.len())?;
+        for argument in &application.arguments {
+            arguments.push(match argument {
+                Argument::KindedTerm { parameter_index, term } => CanonicalStaticApplicationArgument::KindedTerm {
+                    parameter_index: *parameter_index,
+                    term: type_relocation.ty(*term)?,
                 },
-                source_range: import_source_range(&application.source)?,
-                target: import_stable_declaration_with_allocation_budget(&application.target, allocations)?,
-                signature: import_static_definition_signature(&application.signature, type_relocation, type_store, allocations)?,
-                arguments: allocations.boxed_slice(arguments)?,
+                Argument::KindedExpression {
+                    parameter_index,
+                    application_ordinal,
+                } => CanonicalStaticApplicationArgument::KindedExpression {
+                    parameter_index: *parameter_index,
+                    application_ordinal: *application_ordinal,
+                },
+                Argument::Value { parameter_index } => CanonicalStaticApplicationArgument::Value {
+                    parameter_index: *parameter_index,
+                },
             });
+        }
+        applications.push(CanonicalCheckedStaticApplication {
+            id: crate::static_definition::StaticApplicationId {
+                body: StaticBodyId(owner.0.clone_with_allocation_budget(allocations)?),
+                ordinal: application.ordinal,
+            },
+            source_range: import_source_range(&application.source)?,
+            target: import_stable_declaration_with_allocation_budget(&application.target, allocations)?,
+            signature: import_static_definition_signature(&application.signature, type_relocation, type_store, allocations)?,
+            arguments: allocations.boxed_slice(arguments)?,
+        });
     }
     let mut static_constant_reads = allocations.vector(program.static_constant_reads.len())?;
     for symbol in &program.static_constant_reads {

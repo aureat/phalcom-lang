@@ -161,10 +161,7 @@ class CfgWhile {
         .expect("condition branch uses the source condition range");
     assert_eq!(header.range, while_expr.range);
     assert!(cfg.edges().any(|edge| edge.kind == FlowEdgeKind::BackEdge && edge.target == header.id));
-    assert!(
-        cfg.edges()
-            .any(|edge| edge.kind == FlowEdgeKind::FalseBranch && edge.source == condition.id)
-    );
+    assert!(cfg.edges().any(|edge| edge.kind == FlowEdgeKind::FalseBranch && edge.source == condition.id));
 }
 
 fn parse_expr_helper(src: &str) -> phalcom_ast::ast::Expr {

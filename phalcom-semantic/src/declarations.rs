@@ -56,7 +56,11 @@ impl DeclarationTypeInfo {
             .as_ref()
             .map(|header| clone_generic_binder_header_with_allocation_budget(header, allocations))
             .transpose()?;
-        let generic_signature = self.generic_signature.as_ref().map(|signature| signature.clone_with_allocation_budget(allocations)).transpose()?;
+        let generic_signature = self
+            .generic_signature
+            .as_ref()
+            .map(|signature| signature.clone_with_allocation_budget(allocations))
+            .transpose()?;
         let supertype_template = self
             .supertype_template
             .as_ref()
@@ -273,9 +277,7 @@ impl DeclarationTypeTable {
             SortedMapEntriesError::DuplicateKey => FrozenDeclarationTypeTableError::DuplicateDeclaration,
             SortedMapEntriesError::OutOfOrder => unreachable!("entries were sorted before frozen construction"),
         })?;
-        let frozen = allocations
-            .arc(frozen)
-            .map_err(FrozenDeclarationTypeTableError::Allocation)?;
+        let frozen = allocations.arc(frozen).map_err(FrozenDeclarationTypeTableError::Allocation)?;
         Ok(Self {
             frozen: Some(frozen),
             ..Self::default()
@@ -422,7 +424,12 @@ impl DeclarationTypeTable {
         self.entries
             .get(declaration)
             .and_then(|info| info.binding.runtime_owner)
-            .or_else(|| self.frozen.as_ref().and_then(|entries| entries.get(declaration)).and_then(|info| info.binding.runtime_owner))
+            .or_else(|| {
+                self.frozen
+                    .as_ref()
+                    .and_then(|entries| entries.get(declaration))
+                    .and_then(|info| info.binding.runtime_owner)
+            })
             .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_runtime_owner(declaration)))
     }
 
@@ -435,7 +442,12 @@ impl DeclarationTypeTable {
         self.entries
             .get(declaration)
             .map(|info| info.binding.semantic_form)
-            .or_else(|| self.frozen.as_ref().and_then(|entries| entries.get(declaration)).map(|info| info.binding.semantic_form))
+            .or_else(|| {
+                self.frozen
+                    .as_ref()
+                    .and_then(|entries| entries.get(declaration))
+                    .map(|info| info.binding.semantic_form)
+            })
             .or_else(|| self.parent.as_ref().and_then(|p| p.semantic_form(declaration)))
     }
 

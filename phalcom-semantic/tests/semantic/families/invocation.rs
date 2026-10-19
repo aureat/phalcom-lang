@@ -262,14 +262,17 @@ class Client {
         .binding_origins
         .iter()
         .find_map(|(binding, origin)| match origin {
-            phalcom_semantic::checker::analysis::CallableBindingOrigin::ModuleValue {
-                symbol,
-                import: Some(_),
-            } if symbol == &imported_symbol => Some(*binding),
+            phalcom_semantic::checker::analysis::CallableBindingOrigin::ModuleValue { symbol, import: Some(_) } if symbol == &imported_symbol => Some(*binding),
             _ => None,
         })
         .expect("selective alias retains its canonical remote symbol and import slot");
-    assert!(publication.snapshot.source_index.source_site_for_binding(&selective, imported_binding).is_none());
+    assert!(
+        publication
+            .snapshot
+            .source_index
+            .source_site_for_binding(&selective, imported_binding)
+            .is_none()
+    );
     let read = analysis
         .expressions
         .values()

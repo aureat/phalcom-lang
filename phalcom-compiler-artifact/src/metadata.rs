@@ -6,9 +6,9 @@
 use crate::codec::{BinaryReader, BinaryWriter};
 use crate::error::{ArtifactError, ValidationError};
 use crate::limits::ValidationLimits;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::header::{ArtifactIdentityScheme, MetadataProfile};
 use phalcom_type_meta::{SemanticMetadataBundle, TYPE_METADATA_SCHEMA_VERSION};
-use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 
 mod preflight;
 pub use preflight::{MetadataPreflightCounts, inspect_metadata_json};
@@ -152,12 +152,7 @@ impl MetadataSectionV1 {
         shared_remaining_bytes: &mut usize,
     ) -> Result<SemanticMetadataBundle, MetadataTransportError> {
         let mut transaction = AllocationBudget::new(*shared_remaining_bytes);
-        let bundle = self.decode_bundle_with_allocation_budget(
-            limits,
-            bundle_limits,
-            expected_package_digest,
-            &mut transaction,
-        )?;
+        let bundle = self.decode_bundle_with_allocation_budget(limits, bundle_limits, expected_package_digest, &mut transaction)?;
         *shared_remaining_bytes = transaction.remaining();
         Ok(bundle)
     }
@@ -176,8 +171,8 @@ impl MetadataSectionV1 {
         let json = std::str::from_utf8(&self.encoded_bundle)?;
         // Probe only the header before the allocating owner codec: never invoke
         // legacy normalization based on a forged current-schema envelope.
-        let probe = phalcom_type_meta::budgeted::probe_header(json)
-            .map_err(|e| MetadataTransportError::Decode(phalcom_type_meta::MetadataDecodeError::Budgeted(e)))?;
+        let probe =
+            phalcom_type_meta::budgeted::probe_header(json).map_err(|e| MetadataTransportError::Decode(phalcom_type_meta::MetadataDecodeError::Budgeted(e)))?;
         if u32::from(self.inner_schema_version) != probe.schema_version {
             return Err(MetadataTransportError::HeaderMismatch("schema"));
         }
@@ -187,12 +182,7 @@ impl MetadataSectionV1 {
         if self.identity_mode != probe.identity_scheme {
             return Err(MetadataTransportError::HeaderMismatch("identity mode"));
         }
-        let bundle = phalcom_type_meta::encode::decode_metadata_json_with_allocation_budget(
-            json,
-            bundle_limits,
-            None,
-            transaction,
-        )?;
+        let bundle = phalcom_type_meta::encode::decode_metadata_json_with_allocation_budget(json, bundle_limits, None, transaction)?;
         if u32::from(self.inner_schema_version) != bundle.header.schema_version {
             return Err(MetadataTransportError::HeaderMismatch("schema"));
         }
@@ -230,13 +220,9 @@ impl MetadataSectionV1 {
         Ok(out.into_vec())
     }
 
-    pub fn decode_with_allocation_budget(
-        bytes: &[u8],
-        limits: &ValidationLimits,
-        transaction: &mut AllocationBudget,
-    ) -> Result<Self, ArtifactError> {
-        let section_limit = usize::try_from(limits.max_decoded_section_bytes.min(limits.max_metadata_bytes))
-            .map_err(|_| allocation_error(AllocationError::Overflow))?;
+    pub fn decode_with_allocation_budget(bytes: &[u8], limits: &ValidationLimits, transaction: &mut AllocationBudget) -> Result<Self, ArtifactError> {
+        let section_limit =
+            usize::try_from(limits.max_decoded_section_bytes.min(limits.max_metadata_bytes)).map_err(|_| allocation_error(AllocationError::Overflow))?;
         let mut section = transaction.child(section_limit);
         let mut reader = BinaryReader::new(bytes);
         let schema = reader.read_u32()?;
@@ -262,9 +248,7 @@ impl MetadataSectionV1 {
         let preflight_tokens = reader.read_u32()?;
         let preflight_containers = reader.read_u32()?;
         let preflight_nesting = reader.read_u16()?;
-        let byte_limit = usize::try_from(limits.max_metadata_bytes)
-            .unwrap_or(usize::MAX)
-            .min(section.remaining());
+        let byte_limit = usize::try_from(limits.max_metadata_bytes).unwrap_or(usize::MAX).min(section.remaining());
         let encoded = reader.read_bytes_with_len(byte_limit)?;
         if reader.has_remaining() {
             return Err(ValidationError::ReferentialIntegrity("trailing metadata section bytes".into()).into());
@@ -326,13 +310,15 @@ impl MetadataSectionV1 {
 }
 
 fn allocation_error(error: AllocationError) -> ArtifactError {
-    ArtifactError::LimitExceeded(match error {
-        AllocationError::Exhausted => "metadata section allocation budget exceeded",
-        AllocationError::Overflow => "metadata section allocation layout overflow",
-        AllocationError::Failed => "metadata section allocation failed",
-        AllocationError::UnaccountedBoundary => "semantic artifact operation has an unaccounted allocation boundary",
-    }
-    .into())
+    ArtifactError::LimitExceeded(
+        match error {
+            AllocationError::Exhausted => "metadata section allocation budget exceeded",
+            AllocationError::Overflow => "metadata section allocation layout overflow",
+            AllocationError::Failed => "metadata section allocation failed",
+            AllocationError::UnaccountedBoundary => "semantic artifact operation has an unaccounted allocation boundary",
+        }
+        .into(),
+    )
 }
 
 /// Checks actual content and reserves encoded payload bytes transactionally.

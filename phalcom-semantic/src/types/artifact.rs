@@ -1154,7 +1154,11 @@ impl<'a> ExportGraphWalker<'a> {
         if !self.enter(node, inserted)? {
             return Ok(());
         }
-        let constructor = self.store.static_constructor(value).cloned().ok_or_else(|| invalid("missing static constructor"))?;
+        let constructor = self
+            .store
+            .static_constructor(value)
+            .cloned()
+            .ok_or_else(|| invalid("missing static constructor"))?;
         let result = (|| {
             self.visit_domain(constructor.domain)?;
             for kind in constructor.parameter_kinds.iter().copied() {
@@ -2179,9 +2183,9 @@ impl<'a, 'b> Import<'a, 'b> {
                 for argument in &projection.arguments {
                     arguments.push(match argument {
                         TypeMemberArgumentV1::Type { ty } => TypeMemberArgument::Type(self.ty(*ty)?),
-                        TypeMemberArgumentV1::ConstInt { decimal } => TypeMemberArgument::Const(ConstTerm::Int(
-                            integer_in_with_allocation_budget(decimal, self.limits, self.allocations)?,
-                        )),
+                        TypeMemberArgumentV1::ConstInt { decimal } => {
+                            TypeMemberArgument::Const(ConstTerm::Int(integer_in_with_allocation_budget(decimal, self.limits, self.allocations)?))
+                        }
                         TypeMemberArgumentV1::RecordRow { row } => TypeMemberArgument::RecordRow(self.row(*row)?),
                     });
                 }
@@ -2203,9 +2207,7 @@ impl<'a, 'b> Import<'a, 'b> {
                                 if source.selector.as_ref() == "[]" {
                                     TypeMemberSelector::Subscript
                                 } else {
-                                    TypeMemberSelector::Named(
-                                        self.allocations.boxed_str(&source.selector).map_err(ArtifactError::Allocation)?,
-                                    )
+                                    TypeMemberSelector::Named(self.allocations.boxed_str(&source.selector).map_err(ArtifactError::Allocation)?)
                                 },
                             ))
                         })
@@ -2445,9 +2447,7 @@ impl<'a, 'b> Import<'a, 'b> {
             TypeData::ConstInt(_) => {
                 let kind_data = self.get_kind(kind)?;
                 let matches_const_int = match kind_data {
-                    KindData::StaticDomain(domain) => {
-                        self.decoded_domains.get(domain.index()).and_then(|d| d.as_ref()) == Some(&StaticDomainData::ConstInt)
-                    }
+                    KindData::StaticDomain(domain) => self.decoded_domains.get(domain.index()).and_then(|d| d.as_ref()) == Some(&StaticDomainData::ConstInt),
                     _ => false,
                 };
                 if !matches_const_int {
@@ -2494,10 +2494,7 @@ impl<'a, 'b> Import<'a, 'b> {
         Ok(())
     }
 }
-fn declaration_in_with_allocation_budget(
-    value: &StableDeclarationRef,
-    allocations: &mut AllocationBudget,
-) -> Result<DeclarationId, ArtifactError> {
+fn declaration_in_with_allocation_budget(value: &StableDeclarationRef, allocations: &mut AllocationBudget) -> Result<DeclarationId, ArtifactError> {
     if value.path.len() != 1 || value.path[0].is_empty() {
         return Err(invalid("invalid canonical declaration path"));
     }
@@ -2505,33 +2502,22 @@ fn declaration_in_with_allocation_budget(
     let name = allocations.boxed_str(&value.path[0]).map_err(ArtifactError::Allocation)?;
     Ok(DeclarationId::new(module, name))
 }
-fn module_in_with_allocation_budget(
-    value: &StableModuleRef,
-    allocations: &mut AllocationBudget,
-) -> Result<ModuleId, ArtifactError> {
+fn module_in_with_allocation_budget(value: &StableModuleRef, allocations: &mut AllocationBudget) -> Result<ModuleId, ArtifactError> {
     if !matches!(&value.project, StableProjectRef::Builtin { namespace, version } if namespace.as_ref() == "universe" && version.as_ref() == "0.1.0") {
         return Err(invalid("canonical type owner has incompatible project identity"));
     }
     crate::artifact::import::import_stable_module_with_allocation_budget(value, allocations)
 }
-fn callable_in_with_allocation_budget(
-    value: &StableCallableRef,
-    allocations: &mut AllocationBudget,
-) -> Result<CallableId, ArtifactError> {
+fn callable_in_with_allocation_budget(value: &StableCallableRef, allocations: &mut AllocationBudget) -> Result<CallableId, ArtifactError> {
     let owner = match &value.owner {
-        StableCallableOwnerRef::Declaration(owner) => {
-            CallableOwnerId::Declaration(declaration_in_with_allocation_budget(owner, allocations)?)
-        }
+        StableCallableOwnerRef::Declaration(owner) => CallableOwnerId::Declaration(declaration_in_with_allocation_budget(owner, allocations)?),
         StableCallableOwnerRef::Variant(variant) => CallableOwnerId::Variant(VariantId::new(
             declaration_in_with_allocation_budget(&variant.owner, allocations)?,
             crate::artifact::import::import_stable_selector_with_allocation_budget(&variant.selector, allocations)?,
         )),
         StableCallableOwnerRef::Conformance(owner) => {
             let module = module_in_with_allocation_budget(&owner.module, allocations)?;
-            CallableOwnerId::Conformance(crate::identity::ImplId::new(
-                module,
-                crate::identity::ImplLocalId(owner.local_id),
-            ))
+            CallableOwnerId::Conformance(crate::identity::ImplId::new(module, crate::identity::ImplLocalId(owner.local_id)))
         }
     };
     Ok(CallableId {
@@ -2540,23 +2526,13 @@ fn callable_in_with_allocation_budget(
         selector: crate::artifact::import::import_stable_selector_with_allocation_budget(&value.selector, allocations)?,
     })
 }
-fn owner_in_with_allocation_budget(
-    value: &ParameterOwnerV1,
-    allocations: &mut AllocationBudget,
-) -> Result<TypeParameterOwner, ArtifactError> {
+fn owner_in_with_allocation_budget(value: &ParameterOwnerV1, allocations: &mut AllocationBudget) -> Result<TypeParameterOwner, ArtifactError> {
     Ok(match value {
-        ParameterOwnerV1::Declaration { owner } => {
-            TypeParameterOwner::Declaration(declaration_in_with_allocation_budget(owner, allocations)?)
-        }
-        ParameterOwnerV1::Callable { owner } => {
-            TypeParameterOwner::Callable(callable_in_with_allocation_budget(owner, allocations)?)
-        }
+        ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(declaration_in_with_allocation_budget(owner, allocations)?),
+        ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(callable_in_with_allocation_budget(owner, allocations)?),
         ParameterOwnerV1::Impl { owner } => {
             let module = module_in_with_allocation_budget(&owner.module, allocations)?;
-            TypeParameterOwner::Impl(crate::identity::ImplId::new(
-                module,
-                crate::identity::ImplLocalId(owner.local_id),
-            ))
+            TypeParameterOwner::Impl(crate::identity::ImplId::new(module, crate::identity::ImplLocalId(owner.local_id)))
         }
     })
 }
@@ -2572,11 +2548,7 @@ pub(crate) fn integer_in_with_allocation_budget(
         Some(digits) => (true, digits),
         None => (false, decimal),
     };
-    if digits.is_empty()
-        || !digits.bytes().all(|byte| byte.is_ascii_digit())
-        || (digits.len() > 1 && digits.starts_with('0'))
-        || (negative && digits == "0")
-    {
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) || (digits.len() > 1 && digits.starts_with('0')) || (negative && digits == "0") {
         return Err(invalid("static integer is not normalized decimal"));
     }
     if let Ok(small) = decimal.parse::<i64>() {
@@ -2602,11 +2574,7 @@ pub(crate) fn integer_in_with_allocation_budget(
             words.push(carry as u32);
         }
     }
-    let sign = if negative {
-        num_bigint::Sign::Minus
-    } else {
-        num_bigint::Sign::Plus
-    };
+    let sign = if negative { num_bigint::Sign::Minus } else { num_bigint::Sign::Plus };
     #[cfg(target_pointer_width = "64")]
     {
         // `BigInt::new` packs pairs of public base-2^32 words into an internal
@@ -2620,11 +2588,7 @@ pub(crate) fn integer_in_with_allocation_budget(
     let value = num_bigint::BigInt::new(sign, words);
     StaticInt::new_with_allocation_budget(value, allocations).map_err(ArtifactError::Allocation)
 }
-fn key_in_with_allocation_budget(
-    value: &FieldKeyV1,
-    limits: &ValidationLimits,
-    allocations: &mut AllocationBudget,
-) -> Result<FieldKey, ArtifactError> {
+fn key_in_with_allocation_budget(value: &FieldKeyV1, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<FieldKey, ArtifactError> {
     Ok(match value {
         FieldKeyV1::Symbol { value } => FieldKey::Symbol(allocations.arc_str(value).map_err(ArtifactError::Allocation)?),
         FieldKeyV1::String { value } => FieldKey::String(allocations.arc_str(value).map_err(ArtifactError::Allocation)?),
@@ -2661,19 +2625,13 @@ fn rest_in(value: &RestModeV1) -> RestMode {
         RestModeV1::Complete => RestMode::Complete,
     }
 }
-fn selector_in_with_allocation_budget(
-    value: &TypeMemberSelectorV1,
-    allocations: &mut AllocationBudget,
-) -> Result<TypeMemberSelector, ArtifactError> {
+fn selector_in_with_allocation_budget(value: &TypeMemberSelectorV1, allocations: &mut AllocationBudget) -> Result<TypeMemberSelector, ArtifactError> {
     Ok(match value {
         TypeMemberSelectorV1::Named { name } => TypeMemberSelector::Named(allocations.boxed_str(name).map_err(ArtifactError::Allocation)?),
         TypeMemberSelectorV1::Subscript => TypeMemberSelector::Subscript,
     })
 }
-fn operation_in_with_allocation_budget(
-    value: &OperationV1,
-    allocations: &mut AllocationBudget,
-) -> Result<FamilyOperationShape, ArtifactError> {
+fn operation_in_with_allocation_budget(value: &OperationV1, allocations: &mut AllocationBudget) -> Result<FamilyOperationShape, ArtifactError> {
     let kind = match value.kind {
         SelectorKindV1::Getter => SelectorKind::Getter,
         SelectorKindV1::Setter => SelectorKind::Setter,
@@ -2809,7 +2767,10 @@ impl TypeStore {
             scoped_to_id_vec.push(ScopedTypeId(i as u32));
         }
         scoped_to_id_vec.sort_unstable_by(|&a, &b| scoped_types[a.index()].cmp(&scoped_types[b.index()]));
-        if scoped_to_id_vec.windows(2).any(|pair| scoped_types[pair[0].index()] == scoped_types[pair[1].index()]) {
+        if scoped_to_id_vec
+            .windows(2)
+            .any(|pair| scoped_types[pair[0].index()] == scoped_types[pair[1].index()])
+        {
             return Err(invalid("duplicate canonical scoped type node"));
         }
         let scoped_to_id = allocations.boxed_slice(scoped_to_id_vec).map_err(ArtifactError::Allocation)?;
@@ -2890,7 +2851,10 @@ impl TypeStore {
             type_to_id_vec.push(TypeId(i as u32));
         }
         type_to_id_vec.sort_unstable_by(|&a, &b| (&types[a.index()], type_kinds[a.index()]).cmp(&(&types[b.index()], type_kinds[b.index()])));
-        if type_to_id_vec.windows(2).any(|pair| (&types[pair[0].index()], type_kinds[pair[0].index()]) == (&types[pair[1].index()], type_kinds[pair[1].index()])) {
+        if type_to_id_vec
+            .windows(2)
+            .any(|pair| (&types[pair[0].index()], type_kinds[pair[0].index()]) == (&types[pair[1].index()], type_kinds[pair[1].index()]))
+        {
             return Err(invalid("duplicate canonical type node"));
         }
         let type_to_id = allocations.boxed_slice(type_to_id_vec).map_err(ArtifactError::Allocation)?;
@@ -2919,7 +2883,10 @@ impl TypeStore {
             static_domain_to_id_vec.push(StaticDomainId(i as u32));
         }
         static_domain_to_id_vec.sort_unstable_by(|&a, &b| static_domains[a.index()].cmp(&static_domains[b.index()]));
-        if static_domain_to_id_vec.windows(2).any(|pair| static_domains[pair[0].index()] == static_domains[pair[1].index()]) {
+        if static_domain_to_id_vec
+            .windows(2)
+            .any(|pair| static_domains[pair[0].index()] == static_domains[pair[1].index()])
+        {
             return Err(invalid("duplicate canonical static domain node"));
         }
         let static_domain_to_id = allocations.boxed_slice(static_domain_to_id_vec).map_err(ArtifactError::Allocation)?;
@@ -2959,7 +2926,10 @@ impl TypeStore {
             family_interner_vec.push(FamilyTypeId(i as u32));
         }
         family_interner_vec.sort_unstable_by(|&a, &b| family_arena[a.index()].cmp(&family_arena[b.index()]));
-        if family_interner_vec.windows(2).any(|pair| family_arena[pair[0].index()] == family_arena[pair[1].index()]) {
+        if family_interner_vec
+            .windows(2)
+            .any(|pair| family_arena[pair[0].index()] == family_arena[pair[1].index()])
+        {
             return Err(invalid("duplicate canonical family node"));
         }
         let family_interner = allocations.boxed_slice(family_interner_vec).map_err(ArtifactError::Allocation)?;
@@ -2976,7 +2946,10 @@ impl TypeStore {
             variant_identity_to_id_vec.push(VariantTypeId(i as u32));
         }
         variant_identity_to_id_vec.sort_unstable_by(|&a, &b| variant_identities[a.index()].cmp(&variant_identities[b.index()]));
-        if variant_identity_to_id_vec.windows(2).any(|pair| variant_identities[pair[0].index()] == variant_identities[pair[1].index()]) {
+        if variant_identity_to_id_vec
+            .windows(2)
+            .any(|pair| variant_identities[pair[0].index()] == variant_identities[pair[1].index()])
+        {
             return Err(invalid("duplicate canonical variant node"));
         }
         let variant_identity_to_id = allocations.boxed_slice(variant_identity_to_id_vec).map_err(ArtifactError::Allocation)?;
@@ -2993,7 +2966,10 @@ impl TypeStore {
             static_constructor_to_id_vec.push(AlgebraicStaticConstructorId(i as u32));
         }
         static_constructor_to_id_vec.sort_unstable_by(|&a, &b| static_constructors[a.index()].cmp(&static_constructors[b.index()]));
-        if static_constructor_to_id_vec.windows(2).any(|pair| static_constructors[pair[0].index()] == static_constructors[pair[1].index()]) {
+        if static_constructor_to_id_vec
+            .windows(2)
+            .any(|pair| static_constructors[pair[0].index()] == static_constructors[pair[1].index()])
+        {
             return Err(invalid("duplicate canonical static constructor node"));
         }
         let static_constructor_to_id = allocations.boxed_slice(static_constructor_to_id_vec).map_err(ArtifactError::Allocation)?;
@@ -3028,10 +3004,12 @@ impl TypeStore {
         }
         for param in type_parameters.iter() {
             let key = (&param.owner, param.index);
-            let found = parameter_to_id_vec.binary_search_by(|&id| {
-                let p = &type_parameters[id.index()];
-                (&p.owner, p.index).cmp(&key)
-            }).is_ok();
+            let found = parameter_to_id_vec
+                .binary_search_by(|&id| {
+                    let p = &type_parameters[id.index()];
+                    (&p.owner, p.index).cmp(&key)
+                })
+                .is_ok();
             if !found {
                 return Err(invalid("missing current binder selection"));
             }
@@ -3048,8 +3026,7 @@ impl TypeStore {
         if variances_vec.windows(2).any(|pair| pair[0].0 == pair[1].0) {
             return Err(invalid("duplicate parameter variance override"));
         }
-        let parameter_variances = BudgetedSortedMap::from_sorted_entries(variances_vec)
-            .map_err(|e| invalid(format!("invalid parameter variances: {e:?}")))?;
+        let parameter_variances = BudgetedSortedMap::from_sorted_entries(variances_vec).map_err(|e| invalid(format!("invalid parameter variances: {e:?}")))?;
 
         let prefix = FrozenTypeStorePrefix {
             id: TypeStore::fresh_id(),
@@ -3102,11 +3079,7 @@ impl TypeStore {
 /// Checks de Bruijn addressability in complete global lambda roots, retaining
 /// outer binder contexts while traversing nested lambda bodies. Arena fragments
 /// are not incorrectly treated as independently closed lambda roots.
-fn validate_scoped_roots(
-    store: &TypeStore,
-    limits: &ValidationLimits,
-    allocations: &mut AllocationBudget,
-) -> Result<(), ArtifactError> {
+fn validate_scoped_roots(store: &TypeStore, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
     struct Validator<'a, 'b> {
         arena: &'a TypeLambdaArena,
         limits: &'a ValidationLimits,
@@ -3149,9 +3122,9 @@ fn validate_scoped_roots(
             if self.calls > self.limits.max_semantic_entries_per_family {
                 return Err(invalid("lambda validation work budget exceeded"));
             }
-            let position = self.seen.binary_search_by(|(seen_id, seen_context)| {
-                seen_id.cmp(&id).then_with(|| seen_context.as_ref().cmp(context))
-            });
+            let position = self
+                .seen
+                .binary_search_by(|(seen_id, seen_context)| seen_id.cmp(&id).then_with(|| seen_context.as_ref().cmp(context)));
             let Err(position) = position else {
                 return Ok(());
             };

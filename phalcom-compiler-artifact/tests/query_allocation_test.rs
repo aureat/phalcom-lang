@@ -49,11 +49,7 @@ fn query_decode_rejects_before_vector_allocation_when_transaction_is_too_small()
     let bytes = encoded_query(50_000);
     let mut transaction = AllocationBudget::new(bytes.len());
     let before = ALLOCATED.load(Ordering::Relaxed);
-    let result = QueryImageV1::decode_with_allocation_budget(
-        &bytes,
-        &ValidationLimits::default(),
-        &mut transaction,
-    );
+    let result = QueryImageV1::decode_with_allocation_budget(&bytes, &ValidationLimits::default(), &mut transaction);
     let allocated = ALLOCATED.load(Ordering::Relaxed) - before;
 
     assert!(result.is_err());
@@ -81,12 +77,7 @@ fn query_decode_debit_matches_allocator_requested_capacity() {
     let expected = Layout::array::<QueryRootEntryV1>(count).unwrap().size();
     let mut transaction = AllocationBudget::new(expected);
     let before = ALLOCATED.load(Ordering::Relaxed);
-    let decoded = QueryImageV1::decode_with_allocation_budget(
-        &bytes,
-        &ValidationLimits::default(),
-        &mut transaction,
-    )
-    .unwrap();
+    let decoded = QueryImageV1::decode_with_allocation_budget(&bytes, &ValidationLimits::default(), &mut transaction).unwrap();
     let allocated = ALLOCATED.load(Ordering::Relaxed) - before;
 
     assert_eq!(decoded.supported_roots.len(), count);

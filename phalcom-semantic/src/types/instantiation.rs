@@ -117,9 +117,7 @@ fn materialize_type_inner(
             let arguments = arguments
                 .iter()
                 .map(|argument| match argument {
-                    super::store::StaticArgument::Term(argument) => {
-                        materialize_term_argument(store, *argument, instantiation, row_mode, visiting_rows)
-                    }
+                    super::store::StaticArgument::Term(argument) => materialize_term_argument(store, *argument, instantiation, row_mode, visiting_rows),
                     super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(materialize_row_id(
                         store,
                         *row,
@@ -344,9 +342,7 @@ fn materialize_type_inner(
                 .arguments
                 .iter()
                 .map(|argument| match argument {
-                    super::store::StaticArgument::Term(argument) => {
-                        materialize_term_argument(store, *argument, instantiation, row_mode, visiting_rows)
-                    }
+                    super::store::StaticArgument::Term(argument) => materialize_term_argument(store, *argument, instantiation, row_mode, visiting_rows),
                     super::store::StaticArgument::RecordRow(row) => Ok(super::store::StaticArgument::RecordRow(materialize_row_id(
                         store,
                         *row,

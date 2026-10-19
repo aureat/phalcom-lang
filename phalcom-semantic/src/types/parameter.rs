@@ -208,10 +208,7 @@ pub enum GenericConstraint {
     Conforms { subject: TypeTerm, trait_ref: crate::traits::TraitRef },
 }
 
-pub(crate) fn clone_type_term_with_allocation_budget(
-    term: &TypeTerm,
-    allocations: &mut AllocationBudget,
-) -> Result<TypeTerm, AllocationError> {
+pub(crate) fn clone_type_term_with_allocation_budget(term: &TypeTerm, allocations: &mut AllocationBudget) -> Result<TypeTerm, AllocationError> {
     Ok(match term {
         TypeTerm::Canonical(ty) => TypeTerm::Canonical(*ty),
         TypeTerm::Infer(variable) => TypeTerm::Infer(*variable),

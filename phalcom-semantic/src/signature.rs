@@ -178,7 +178,11 @@ impl CallableParameterSemantic {
             rest: self.rest,
             declared_type: self.declared_type.clone_with_allocation_budget(allocations)?,
             contract: clone_parameter_contract_with_allocation_budget(&self.contract, allocations)?,
-            source: self.source.as_ref().map(|source| clone_source_span_with_allocation_budget(source, allocations)).transpose()?,
+            source: self
+                .source
+                .as_ref()
+                .map(|source| clone_source_span_with_allocation_budget(source, allocations))
+                .transpose()?,
         })
     }
 
@@ -365,7 +369,9 @@ impl ConstructorInitializationTable {
 
     /// Returns the path for one class-side factory identity.
     pub fn get(&self, factory: &CallableId) -> Option<&ConstructorInitializationProduct> {
-        self.by_factory.get(factory).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(factory)))
+        self.by_factory
+            .get(factory)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(factory)))
     }
 
     /// Returns all paths in stable identity order.
@@ -397,12 +403,24 @@ impl CallableSemanticSignature {
             owner: self.owner.clone_with_allocation_budget(allocations)?,
             side: self.side,
             selector: crate::traits::clone_selector_with_allocation_budget(&self.selector, allocations)?,
-            generics: self.generics.as_ref().map(|signature| signature.clone_with_allocation_budget(allocations)).transpose()?,
+            generics: self
+                .generics
+                .as_ref()
+                .map(|signature| signature.clone_with_allocation_budget(allocations))
+                .transpose()?,
             parameters: allocations.boxed_slice(parameters)?,
             declared_return: self.declared_return.clone_with_allocation_budget(allocations)?,
             return_validation: self.return_validation,
-            inferred_return: self.inferred_return.as_ref().map(|knowledge| knowledge.clone_with_allocation_budget(allocations)).transpose()?,
-            source: self.source.as_ref().map(|source| clone_source_span_with_allocation_budget(source, allocations)).transpose()?,
+            inferred_return: self
+                .inferred_return
+                .as_ref()
+                .map(|knowledge| knowledge.clone_with_allocation_budget(allocations))
+                .transpose()?,
+            source: self
+                .source
+                .as_ref()
+                .map(|source| clone_source_span_with_allocation_budget(source, allocations))
+                .transpose()?,
             implementation: self.implementation,
             native_id: self.native_id,
             effects: self.effects,
@@ -448,10 +466,7 @@ impl CallableSemanticSignature {
             .unwrap_or_else(|| self.declared_return.to_knowledge())
     }
 
-    pub(crate) fn published_return_knowledge_with_allocation_budget(
-        &self,
-        allocations: &mut AllocationBudget,
-    ) -> Result<TypeKnowledge, AllocationError> {
+    pub(crate) fn published_return_knowledge_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<TypeKnowledge, AllocationError> {
         if self.declared_return.is_known() {
             if self.declared_return.basis == DeclaredTypeBasis::SourceAnnotation
                 && self.return_validation == ReturnContractValidation::Satisfied(EvidenceStatus::Established)
@@ -663,12 +678,19 @@ impl FieldSemanticSignature {
             name: allocations.boxed_str(&self.name)?,
             mutable: self.mutable,
             declared_type: self.declared_type.clone_with_allocation_budget(allocations)?,
-            source: self.source.as_ref().map(|source| clone_source_span_with_allocation_budget(source, allocations)).transpose()?,
+            source: self
+                .source
+                .as_ref()
+                .map(|source| clone_source_span_with_allocation_budget(source, allocations))
+                .transpose()?,
         })
     }
 }
 
-fn clone_parameter_contract_with_allocation_budget(contract: &ParameterContract, allocations: &mut AllocationBudget) -> Result<ParameterContract, AllocationError> {
+fn clone_parameter_contract_with_allocation_budget(
+    contract: &ParameterContract,
+    allocations: &mut AllocationBudget,
+) -> Result<ParameterContract, AllocationError> {
     Ok(match contract {
         ParameterContract::Fixed(fact) => ParameterContract::Fixed(fact.clone_with_allocation_budget(allocations)?),
         ParameterContract::Rest { mode, contract } => ParameterContract::Rest {
@@ -765,12 +787,10 @@ impl CallableSignatureTable {
 
     pub fn insert(&mut self, sig: CallableSemanticSignature) {
         debug_assert!(
-            self.frozen.as_ref().is_none_or(|frozen| {
-                frozen
-                    .entries
-                    .binary_search_by(|signature| signature.callable.cmp(&sig.callable))
-                    .is_err()
-            }) && self.parent.as_ref().is_none_or(|parent| parent.get(&sig.callable).is_none()),
+            self.frozen
+                .as_ref()
+                .is_none_or(|frozen| { frozen.entries.binary_search_by(|signature| signature.callable.cmp(&sig.callable)).is_err() })
+                && self.parent.as_ref().is_none_or(|parent| parent.get(&sig.callable).is_none()),
             "local mutation cannot overwrite canonical parent callable: {:?}",
             sig.callable
         );
@@ -1097,8 +1117,7 @@ impl FieldSignatureTable {
                 .get(&owner)
                 .into_iter()
                 .flat_map(|ids| ids.iter())
-                .filter_map(move |id| table.by_id.get_key_value(id))
-                ;
+                .filter_map(move |id| table.by_id.get_key_value(id));
             frozen.chain(local)
         })
     }

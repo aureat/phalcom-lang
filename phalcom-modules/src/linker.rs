@@ -158,7 +158,11 @@ impl ModuleLinker {
     /// Creates a linker. The interface map is the complete source universe for
     /// this linking generation; no source is parsed during linking.
     pub fn new(universe: Arc<ProjectUniverse>, interfaces: BTreeMap<ModuleId, UnlinkedModuleInterface>) -> Self {
-        Self { universe, interfaces, external: None }
+        Self {
+            universe,
+            interfaces,
+            external: None,
+        }
     }
 
     /// Resolves remote exports against completed immutable module products.
@@ -371,7 +375,9 @@ impl ModuleLinker {
                         range: path.1,
                     });
                 };
-                if self.is_external(&target) { continue; }
+                if self.is_external(&target) {
+                    continue;
+                }
                 if reachable.insert(target.clone()) {
                     pending.push(target.clone());
                 }
@@ -394,7 +400,9 @@ impl ModuleLinker {
                 let UnlinkedExportTarget::CanonicalDeclaration { module: target, .. } = &export.target else {
                     continue;
                 };
-                if self.is_external(target) { continue; }
+                if self.is_external(target) {
+                    continue;
+                }
                 if !self.interfaces.contains_key(target) {
                     return Err(LinkError::MissingModule { module: target.clone() });
                 }
@@ -925,7 +933,10 @@ impl<'a> LinkContext<'a> {
     fn resolve_export(&mut self, module: &ModuleId, name: &str, range: SourceRange, importer: &ModuleId) -> Result<LinkedExport, LinkError> {
         if let Some(remote) = self.linker.external.as_ref().and_then(|image| image.linked().modules.get(module)) {
             return remote.interface.exports.get(name).cloned().ok_or_else(|| LinkError::MissingExport {
-                module: module.clone(), importer: importer.clone(), name: name.to_owned(), range,
+                module: module.clone(),
+                importer: importer.clone(),
+                name: name.to_owned(),
+                range,
             });
         }
         let key = (module.clone(), name.to_string());

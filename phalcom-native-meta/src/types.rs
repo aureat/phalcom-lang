@@ -5,7 +5,9 @@ use crate::universe::UniverseKey;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum KindSpec {
     Type,
-    StaticDomain { form: &'static TypeExprSpec },
+    StaticDomain {
+        form: &'static TypeExprSpec,
+    },
     Arrow {
         parameters: &'static [KindSpec],
         result: &'static KindSpec,

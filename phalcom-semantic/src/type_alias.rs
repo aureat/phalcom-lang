@@ -31,11 +31,18 @@ impl TypeAliasInfo {
             declaration: self.declaration.clone_with_allocation_budget(allocations)?,
             kind: self.kind,
             kind_shape: allocations.boxed_str(&self.kind_shape)?,
-            generic_signature: self.generic_signature.as_ref().map(|signature| signature.clone_with_allocation_budget(allocations)).transpose()?,
+            generic_signature: self
+                .generic_signature
+                .as_ref()
+                .map(|signature| signature.clone_with_allocation_budget(allocations))
+                .transpose()?,
             form: self.form,
             structural_form: allocations.boxed_str(&self.structural_form)?,
             dependencies: allocations.boxed_slice(dependencies)?,
-            source: SemanticSourceSpan { module: self.source.module.clone_with_allocation_budget(allocations)?, range: self.source.range },
+            source: SemanticSourceSpan {
+                module: self.source.module.clone_with_allocation_budget(allocations)?,
+                range: self.source.range,
+            },
         })
     }
 }
@@ -145,7 +152,10 @@ impl TypeAliasTable {
     }
 
     pub fn declarations_for_module<'a>(&'a self, module: &'a ModuleId) -> Box<dyn Iterator<Item = &'a DeclarationId> + 'a> {
-        Box::new(self.iter().filter_map(move |(declaration, _)| (&declaration.module == module).then_some(declaration)))
+        Box::new(
+            self.iter()
+                .filter_map(move |(declaration, _)| (&declaration.module == module).then_some(declaration)),
+        )
     }
 
     /// Iterates canonical and local aliases in stable parent-then-local order.

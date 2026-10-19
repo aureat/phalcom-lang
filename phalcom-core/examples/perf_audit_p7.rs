@@ -3,16 +3,17 @@
 //! Provides CLI subcommands to:
 //! - Generate persistent canonical `universe.telosc` and record metrics in `ARTIFACT.json`
 //! - Measure cold compiler initialization in fresh processes (source vs artifact) across 4 workloads
-//! - Measure warm compilation (20 samples unchanged vs modified)
+//! - Measure warm compilation (unchanged vs modified)
 //! - Measure end-to-end package compilation and VM execution (source vs artifact)
 //! - Test package compilation parity on `packages/slotmap` and `packages/slotmap/tests/runtime`
-//! - Test exact allocation budgets and source-denied compiler execution
+//! - Test exact allocation budgets (R.G4 baseline: 366,789,583 bytes) and source-denied compiler execution
 
 use clap::{Parser, Subcommand};
-use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::container::TeloscContainerView;
+use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_core::modules::canonical_artifact::{
-    build_universe_telosc, load_universe_telosc, load_universe_telosc_from_bytes, write_universe_telosc,
+    TeloscArtifactError, build_universe_telosc, load_universe_telosc, load_universe_telosc_from_bytes, load_universe_telosc_from_bytes_with_allocation_summary,
+    write_universe_telosc,
 };
 use phalcom_core::modules::canonical_universe::canonical_universe_program;
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
@@ -23,6 +24,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
+
+/// Escapes a field according to standard RFC 4180 CSV rules.
+pub fn csv_escape(s: &str) -> String {
+    if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_owned()
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "perf_audit_p7", about = "PERF003.C2.P7 Audit and Benchmark Suite")]
@@ -35,10 +45,10 @@ struct Cli {
 enum Commands {
     /// Generate persistent universe.telosc and emit ARTIFACT.json
     Generate {
-        #[arg(long, default_value = "target/telos/universe/universe.telosc")]
-        out: PathBuf,
-        #[arg(long, default_value = "target/perf003-p7-audit/ARTIFACT.json")]
-        json: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        json: Option<PathBuf>,
     },
     /// Single cold compilation sample in current process
     ColdSingle {
@@ -51,23 +61,27 @@ enum Commands {
         #[arg(long, default_value_t = 1)]
         sample_id: usize,
     },
-    /// Orchestrate fresh-process cold compilation suite (10 samples per configuration)
+    /// Orchestrate fresh-process cold compilation suite (20 samples per configuration)
     RunColdSuite {
         #[arg(long, default_value = "target/telos/universe/universe.telosc")]
         artifact: PathBuf,
-        #[arg(long, default_value_t = 10)]
+        #[arg(long, default_value_t = 20)]
         samples: usize,
-        #[arg(long, default_value = "target/perf003-p7-audit/RAW-COLD.csv")]
-        csv: PathBuf,
+        #[arg(long, alias = "csv", default_value = "target/perf003-p7-audit/RAW-COLD.csv")]
+        output: PathBuf,
+        #[arg(long)]
+        workload: Option<String>,
+        #[arg(long, default_value_t = false)]
+        append: bool,
     },
-    /// Run warm compilation benchmark (20 samples per configuration)
+    /// Run warm compilation benchmark (10 samples per configuration)
     RunWarmSuite {
         #[arg(long, default_value = "target/telos/universe/universe.telosc")]
         artifact: PathBuf,
-        #[arg(long, default_value_t = 20)]
-        repetitions: usize,
-        #[arg(long, default_value = "target/perf003-p7-audit/RAW-WARM.csv")]
-        csv: PathBuf,
+        #[arg(long, alias = "repetitions", default_value_t = 10)]
+        samples: usize,
+        #[arg(long, alias = "csv", default_value = "target/perf003-p7-audit/RAW-WARM.csv")]
+        output: PathBuf,
     },
     /// Single end-to-end runtime sample
     RuntimeSingle {
@@ -84,13 +98,15 @@ enum Commands {
         artifact: PathBuf,
         #[arg(long, default_value_t = 10)]
         samples: usize,
-        #[arg(long, default_value = "target/perf003-p7-audit/RAW-RUNTIME.csv")]
-        csv: PathBuf,
+        #[arg(long, alias = "csv", default_value = "target/perf003-p7-audit/RAW-RUNTIME.csv")]
+        output: PathBuf,
     },
     /// Test compilation of packages/slotmap and packages/slotmap/tests/runtime
     SlotmapEval {
         #[arg(long, default_value = "target/telos/universe/universe.telosc")]
         artifact: PathBuf,
+        #[arg(long, alias = "csv")]
+        output: Option<PathBuf>,
     },
     /// Verify exact allocation budget accounting and limits
     AllocationCheck {
@@ -117,13 +133,14 @@ struct ArtifactReport {
     query_image_bytes: usize,
     metadata_bytes: usize,
     container_bytes: usize,
+    digest_algorithm: &'static str,
     artifact_digest: String,
     source_digest: String,
     interface_digest: String,
     semantic_digest: String,
     query_digest: String,
     metadata_digest: String,
-    deterministic: bool,
+    same_image_serialization_deterministic: bool,
     source_free_complete: bool,
     generation_duration_ms: f64,
     serialization_duration_ms: f64,
@@ -146,6 +163,46 @@ struct SchemaVersions {
     type_metadata_schema_version: u32,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct SummaryStats {
+    pub count: usize,
+    pub min: f64,
+    pub mean: f64,
+    pub median: f64,
+    pub p95: f64,
+    pub max: f64,
+    pub stddev: f64,
+}
+
+pub fn compute_stats(samples: &[f64]) -> SummaryStats {
+    assert!(!samples.is_empty(), "cannot compute stats on empty samples");
+    let mut sorted = samples.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let count = sorted.len();
+    let min = sorted[0];
+    let max = sorted[count - 1];
+    let sum: f64 = sorted.iter().sum();
+    let mean = sum / count as f64;
+    let median = if count % 2 == 1 {
+        sorted[count / 2]
+    } else {
+        (sorted[count / 2 - 1] + sorted[count / 2]) / 2.0
+    };
+    let p95_idx = ((count as f64 * 0.95).ceil() as usize).saturating_sub(1).min(count - 1);
+    let p95 = sorted[p95_idx];
+    let variance = sorted.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / count as f64;
+    let stddev = variance.sqrt();
+    SummaryStats {
+        count,
+        min,
+        mean,
+        median,
+        p95,
+        max,
+        stddev,
+    }
+}
+
 fn get_peak_rss_bytes() -> u64 {
     #[cfg(target_os = "macos")]
     unsafe {
@@ -162,6 +219,23 @@ fn get_peak_rss_bytes() -> u64 {
         let mut usage: RUsage = std::mem::zeroed();
         if getrusage(0, &mut usage) == 0 {
             return usage.ru_maxrss.max(0) as u64;
+        }
+    }
+    #[cfg(target_os = "linux")]
+    unsafe {
+        #[repr(C)]
+        struct RUsage {
+            ru_utime: [u64; 2],
+            ru_stime: [u64; 2],
+            ru_maxrss: i64,
+            _rest: [i64; 14],
+        }
+        unsafe extern "C" {
+            fn getrusage(who: i32, usage: *mut RUsage) -> i32;
+        }
+        let mut usage: RUsage = std::mem::zeroed();
+        if getrusage(0, &mut usage) == 0 {
+            return (usage.ru_maxrss.max(0) as u64) * 1024;
         }
     }
     0
@@ -201,7 +275,7 @@ System.print(opt)
 fn main() {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Generate { out, json } => cmd_generate(&out, &json),
+        Commands::Generate { out, json } => cmd_generate(out.as_deref(), json.as_deref()),
         Commands::ColdSingle {
             mode,
             workload,
@@ -211,30 +285,36 @@ fn main() {
         Commands::RunColdSuite {
             artifact,
             samples,
-            csv,
-        } => cmd_run_cold_suite(&artifact, samples, &csv),
-        Commands::RunWarmSuite {
-            artifact,
-            repetitions,
-            csv,
-        } => cmd_run_warm_suite(&artifact, repetitions, &csv),
-        Commands::RuntimeSingle {
-            mode,
-            artifact,
-            sample_id,
-        } => cmd_runtime_single(&mode, &artifact, sample_id),
-        Commands::RunRuntimeSuite {
-            artifact,
-            samples,
-            csv,
-        } => cmd_run_runtime_suite(&artifact, samples, &csv),
-        Commands::SlotmapEval { artifact } => cmd_slotmap_eval(&artifact),
+            output,
+            workload,
+            append,
+        } => cmd_run_cold_suite(&artifact, samples, &output, workload.as_deref(), append),
+        Commands::RunWarmSuite { artifact, samples, output } => cmd_run_warm_suite(&artifact, samples, &output),
+        Commands::RuntimeSingle { mode, artifact, sample_id } => cmd_runtime_single(&mode, &artifact, sample_id),
+        Commands::RunRuntimeSuite { artifact, samples, output } => cmd_run_runtime_suite(&artifact, samples, &output),
+        Commands::SlotmapEval { artifact, output } => cmd_slotmap_eval(&artifact, output.as_deref()),
         Commands::AllocationCheck { artifact } => cmd_allocation_check(&artifact),
         Commands::SourceDenialCheck { artifact } => cmd_source_denial_check(&artifact),
     }
 }
 
-fn cmd_generate(out: &Path, json_path: &Path) {
+fn cmd_generate(out_opt: Option<&Path>, json_opt: Option<&Path>) {
+    let out_buf = if let Some(p) = out_opt {
+        p.to_path_buf()
+    } else if let Some(env_out) = std::env::var_os("PHALCOM_BUILD_UNIVERSE_TELOSC") {
+        PathBuf::from(env_out)
+    } else {
+        PathBuf::from("target/telos/universe/universe.telosc")
+    };
+    let out = out_buf.as_path();
+
+    let json_buf = if let Some(p) = json_opt {
+        p.to_path_buf()
+    } else {
+        out.parent().unwrap_or_else(|| Path::new(".")).join("ARTIFACT.json")
+    };
+    let json_path = json_buf.as_path();
+
     println!("[generate] Compiling canonical Universe from source...");
     let t0 = Instant::now();
     let program = canonical_universe_program().expect("canonical universe program");
@@ -251,10 +331,13 @@ fn cmd_generate(out: &Path, json_path: &Path) {
     let built1 = build_universe_telosc(&view, &limits).expect("build_universe_telosc");
     let ser_dur = t_ser.elapsed();
 
-    println!("[generate] Building second container to verify byte-for-byte determinism...");
+    println!("[generate] Building second container to verify same-image serialization determinism...");
     let built2 = build_universe_telosc(&view, &limits).expect("build_universe_telosc 2");
     let deterministic = built1.bytes == built2.bytes;
-    assert!(deterministic, "Artifact builds must be byte-for-byte deterministic!");
+    assert!(
+        deterministic,
+        "Same-image serialization determinism: identical in-memory view must yield identical BLAKE3 digest and bytes"
+    );
 
     println!("[generate] Writing artifact to {}...", out.display());
     if let Some(parent) = out.parent() {
@@ -275,8 +358,7 @@ fn cmd_generate(out: &Path, json_path: &Path) {
     let container_view = TeloscContainerView::parse(&built1.bytes, &limits).expect("parse container");
     let header = container_view.header();
 
-    let is_source_free_complete = loaded.formal_image.sources().is_empty()
-        && loaded.formal_image.snapshot().is_source_free_artifact_complete();
+    let is_source_free_complete = loaded.formal_image.sources().is_empty() && loaded.formal_image.snapshot().is_source_free_artifact_complete();
 
     let report = ArtifactReport {
         artifact_path: out.display().to_string(),
@@ -286,13 +368,14 @@ fn cmd_generate(out: &Path, json_path: &Path) {
         query_image_bytes: built1.summary.query_image_bytes,
         metadata_bytes: built1.summary.metadata_bytes,
         container_bytes: built1.bytes.len(),
+        digest_algorithm: "BLAKE3-256",
         artifact_digest: to_hex(header.artifact_digest.as_bytes()),
         source_digest: to_hex(header.source_digest.as_bytes()),
         interface_digest: to_hex(header.interface_digest.as_bytes()),
         semantic_digest: to_hex(header.semantic_digest.as_bytes()),
         query_digest: to_hex(header.query_digest.as_bytes()),
         metadata_digest: to_hex(header.metadata_digest.as_bytes()),
-        deterministic,
+        same_image_serialization_deterministic: deterministic,
         source_free_complete: is_source_free_complete,
         generation_duration_ms: gen_dur.as_secs_f64() * 1000.0,
         serialization_duration_ms: (view_dur + ser_dur).as_secs_f64() * 1000.0,
@@ -341,27 +424,18 @@ fn cmd_cold_single(mode: &str, workload: &str, artifact: &Path, sample_id: usize
 
             let t_comp = Instant::now();
             let res = match workload {
-                "print42" => ProgramCompiler::compile_entry_selection_with_image(
-                    EntrySelection::Inline("print(42);".into()),
-                    image.clone(),
-                ),
+                "print42" => ProgramCompiler::compile_entry_selection_with_image(EntrySelection::Inline("print(42);".into()), image.clone()),
                 "option_string" => ProgramCompiler::compile_entry_selection_with_image(
                     EntrySelection::Inline("let s = \"hello\"; let opt = Option.some(s); print(opt);".into()),
                     image.clone(),
                 ),
-                "synthetic_pkg" => ProgramCompiler::compile_entry_selection_with_image(
-                    EntrySelection::Package(synthetic_dir),
-                    image.clone(),
-                ),
-                "slotmap" => ProgramCompiler::compile_entry_selection_with_image(
-                    EntrySelection::Project(PathBuf::from("packages/slotmap")),
-                    image.clone(),
-                ),
+                "synthetic_pkg" => ProgramCompiler::compile_entry_selection_with_image(EntrySelection::Package(synthetic_dir), image.clone()),
+                "slotmap" => ProgramCompiler::compile_entry_selection_with_image(EntrySelection::Project(PathBuf::from("packages/slotmap")), image.clone()),
                 _ => panic!("Unknown workload {workload}"),
             };
             let compile_dur = t_comp.elapsed();
             let status = if res.is_ok() { "SUCCESS" } else { "COMPILE_ERROR" };
-            (init_dur, (0u128, 0u128, 0u128, 0u128, 0u128), compile_dur, status)
+            (init_dur, (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64), compile_dur, status)
         }
         "artifact" => {
             let t0 = Instant::now();
@@ -374,19 +448,17 @@ fn cmd_cold_single(mode: &str, workload: &str, artifact: &Path, sample_id: usize
             };
             let init_dur = t0.elapsed();
             let timings = (
-                loaded.timings.file_read.as_micros(),
-                loaded.timings.container_validation.as_micros(),
-                loaded.timings.section_validation.as_micros(),
-                loaded.timings.relocation.as_micros(),
-                loaded.timings.publication.as_micros(),
+                loaded.timings.file_read.as_secs_f64() * 1000.0,
+                loaded.timings.container_validation.as_secs_f64() * 1000.0,
+                loaded.timings.section_validation.as_secs_f64() * 1000.0,
+                loaded.timings.relocation.as_secs_f64() * 1000.0,
+                loaded.timings.publication.as_secs_f64() * 1000.0,
             );
 
             let t_comp = Instant::now();
             let res = match workload {
                 "print42" => loaded.compile_user_entry(EntrySelection::Inline("print(42);".into())),
-                "option_string" => loaded.compile_user_entry(EntrySelection::Inline(
-                    "let s = \"hello\"; let opt = Option.some(s); print(opt);".into(),
-                )),
+                "option_string" => loaded.compile_user_entry(EntrySelection::Inline("let s = \"hello\"; let opt = Option.some(s); print(opt);".into())),
                 "synthetic_pkg" => loaded.compile_user_entry(EntrySelection::Package(synthetic_dir)),
                 "slotmap" => loaded.compile_user_entry(EntrySelection::Project(PathBuf::from("packages/slotmap"))),
                 _ => panic!("Unknown workload {workload}"),
@@ -399,11 +471,16 @@ fn cmd_cold_single(mode: &str, workload: &str, artifact: &Path, sample_id: usize
     };
 
     let total_dur = t_proc_start.elapsed();
-    let peak_rss = get_peak_rss_bytes();
+    let peak_rss_bytes = get_peak_rss_bytes();
+    let peak_rss_kb = peak_rss_bytes / 1024;
 
-    // CSV format: mode,workload,sample_id,pid,total_ms,init_ms,user_compile_ms,file_read_us,container_val_us,section_val_us,reloc_us,pub_us,peak_rss_bytes,status
+    // Fields: mode,workload,sample_id,pid,total_ms,init_ms,user_compile_ms,file_read_ms,container_val_ms,section_decode_ms,reloc_ms,pub_ms,peak_rss_kb,status
     println!(
-        "RAW_COLD_CSV:{mode},{workload},{sample_id},{pid},{:.3},{:.3},{:.3},{},{},{},{},{},{},{status}",
+        "RAW_COLD_CSV:{},{},{},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{},{}",
+        csv_escape(mode),
+        csv_escape(workload),
+        sample_id,
+        pid,
         total_dur.as_secs_f64() * 1000.0,
         init_dur.as_secs_f64() * 1000.0,
         compile_dur.as_secs_f64() * 1000.0,
@@ -412,26 +489,59 @@ fn cmd_cold_single(mode: &str, workload: &str, artifact: &Path, sample_id: usize
         timings_tuple.2,
         timings_tuple.3,
         timings_tuple.4,
-        peak_rss,
+        peak_rss_kb,
+        csv_escape(status),
     );
 }
 
-fn cmd_run_cold_suite(artifact: &Path, samples: usize, csv_path: &Path) {
+fn cmd_run_cold_suite(artifact: &Path, samples: usize, csv_path: &Path, workload_filter: Option<&str>, append: bool) {
+    use std::io::Write;
     let current_exe = std::env::current_exe().expect("current executable");
-    let workloads = ["print42", "option_string", "synthetic_pkg", "slotmap"];
+    let all_workloads = ["print42", "option_string", "synthetic_pkg", "slotmap"];
+    let workloads: Vec<&str> = if let Some(w) = workload_filter {
+        assert!(all_workloads.contains(&w), "Unknown workload filter: {w}");
+        vec![w]
+    } else {
+        all_workloads.to_vec()
+    };
     let modes = ["source", "artifact"];
 
     if let Some(parent) = csv_path.parent() {
         fs::create_dir_all(parent).expect("create csv dir");
     }
 
-    let mut csv_lines = vec![
-        "scenario,workload,sample_number,process_id,duration_ms,init_ms,user_compile_ms,file_read_us,container_val_us,section_val_us,reloc_us,pub_us,peak_rss_bytes,exit_status".to_string(),
-    ];
+    let header = [
+        "scenario",
+        "workload",
+        "sample_number",
+        "process_id",
+        "duration_ms",
+        "init_ms",
+        "user_compile_ms",
+        "artifact_file_read_ms",
+        "container_validation_ms",
+        "section_decode_ms",
+        "semantic_relocation_ms",
+        "final_publication_ms",
+        "peak_rss_kb",
+        "exit_status",
+    ]
+    .join(",");
 
-    for workload in workloads {
+    if !append || !csv_path.exists() {
+        fs::write(csv_path, format!("{header}\n")).expect("initialize cold CSV");
+    }
+
+    let mut total_samples_recorded = 0;
+
+    for workload in &workloads {
         for mode in modes {
             println!("=== Running Cold Suite: mode={mode}, workload={workload} ({samples} fresh processes) ===");
+            let mut durations = Vec::with_capacity(samples);
+            let mut init_times = Vec::with_capacity(samples);
+            let mut compile_times = Vec::with_capacity(samples);
+            let mut peak_rss_vals = Vec::with_capacity(samples);
+
             for sample_id in 1..=samples {
                 let output = Command::new(&current_exe)
                     .arg("cold-single")
@@ -447,26 +557,78 @@ fn cmd_run_cold_suite(artifact: &Path, samples: usize, csv_path: &Path) {
                     .expect("execute cold-single process");
 
                 if !output.status.success() {
-                    eprintln!(
-                        "Cold sample #{sample_id} ({mode}/{workload}) failed:\nSTDOUT: {}\nSTDERR: {}",
+                    panic!(
+                        "Cold sample #{sample_id} ({mode}/{workload}) exited with non-zero status {:?}:\nSTDOUT: {}\nSTDERR: {}",
+                        output.status.code(),
                         String::from_utf8_lossy(&output.stdout),
                         String::from_utf8_lossy(&output.stderr)
                     );
                 }
 
                 let stdout = String::from_utf8_lossy(&output.stdout);
+                let mut found_row = false;
                 for line in stdout.lines() {
                     if let Some(csv_data) = line.strip_prefix("RAW_COLD_CSV:") {
-                        println!("Sample #{sample_id}: {csv_data}");
-                        csv_lines.push(csv_data.to_string());
+                        found_row = true;
+                        total_samples_recorded += 1;
+
+                        // Append row immediately to disk
+                        let mut file = fs::OpenOptions::new().append(true).open(csv_path).expect("open CSV for appending row");
+                        writeln!(file, "{csv_data}").expect("append row to CSV");
+
+                        let cols: Vec<&str> = csv_data.split(',').collect();
+                        if cols.len() >= 14 {
+                            if cols[13] != "SUCCESS" {
+                                panic!("Cold sample #{sample_id} ({mode}/{workload}) reported compilation error: {}", csv_data);
+                            }
+                            if let Ok(dur) = cols[4].parse::<f64>() {
+                                durations.push(dur);
+                            }
+                            if let Ok(init) = cols[5].parse::<f64>() {
+                                init_times.push(init);
+                            }
+                            if let Ok(comp) = cols[6].parse::<f64>() {
+                                compile_times.push(comp);
+                            }
+                            if let Ok(rss) = cols[12].parse::<f64>() {
+                                peak_rss_vals.push(rss);
+                            }
+                        }
                     }
                 }
+                if !found_row {
+                    panic!(
+                        "Cold sample #{sample_id} ({mode}/{workload}) produced no CSV row output:\nSTDOUT: {}\nSTDERR: {}",
+                        stdout,
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+            }
+
+            if !durations.is_empty() {
+                let dur_stats = compute_stats(&durations);
+                let init_stats = compute_stats(&init_times);
+                let comp_stats = compute_stats(&compile_times);
+                let rss_stats = compute_stats(&peak_rss_vals);
+                println!(
+                    "  Summary [{mode}/{workload}] (N={}): total_median={:.2}ms, init_median={:.2}ms, comp_median={:.2}ms, rss_median={:.0}KB",
+                    dur_stats.count, dur_stats.median, init_stats.median, comp_stats.median, rss_stats.median
+                );
             }
         }
     }
 
-    fs::write(csv_path, csv_lines.join("\n") + "\n").expect("write RAW-COLD.csv");
-    println!("Successfully wrote {}", csv_path.display());
+    assert_eq!(
+        total_samples_recorded,
+        workloads.len() * modes.len() * samples,
+        "Total recorded raw CSV rows must strictly match expected count"
+    );
+
+    println!(
+        "Successfully completed cold suite run ({} total recorded samples in {})",
+        total_samples_recorded,
+        csv_path.display()
+    );
 }
 
 fn cmd_run_warm_suite(artifact: &Path, repetitions: usize, csv_path: &Path) {
@@ -477,10 +639,18 @@ fn cmd_run_warm_suite(artifact: &Path, repetitions: usize, csv_path: &Path) {
         fs::create_dir_all(parent).expect("create csv dir");
     }
 
-    let mut csv_lines = vec![
-        "scenario,sample_number,process_id,input_variant,compile_ms,peak_rss_bytes,exit_status".to_string(),
-    ];
+    let header = [
+        "scenario",
+        "sample_number",
+        "process_id",
+        "input_variant",
+        "compile_ms",
+        "peak_rss_kb",
+        "exit_status",
+    ]
+    .join(",");
 
+    let mut csv_lines = vec![header];
     let pid = std::process::id();
 
     for mode in modes {
@@ -492,6 +662,8 @@ fn cmd_run_warm_suite(artifact: &Path, repetitions: usize, csv_path: &Path) {
             let loaded = load_universe_telosc(artifact, &limits).expect("loaded artifact");
             (None, Some(loaded))
         };
+
+        let mut compile_times = Vec::with_capacity(repetitions);
 
         for sample_id in 1..=repetitions {
             let is_modified = sample_id % 2 == 0;
@@ -517,20 +689,35 @@ fn cmd_run_warm_suite(artifact: &Path, repetitions: usize, csv_path: &Path) {
                 unreachable!()
             };
             let dur = t0.elapsed();
-            let status = if res.is_ok() { "SUCCESS" } else { "ERROR" };
-            let peak_rss = get_peak_rss_bytes();
+            if res.is_err() {
+                panic!("Warm compile failed for {mode} on sample #{sample_id}: {:?}", res.err());
+            }
+            let peak_rss_bytes = get_peak_rss_bytes();
+            let peak_rss_kb = peak_rss_bytes / 1024;
+            let dur_ms = dur.as_secs_f64() * 1000.0;
+            compile_times.push(dur_ms);
 
             let row = format!(
-                "{mode},{sample_id},{pid},{variant},{:.3},{},{status}",
-                dur.as_secs_f64() * 1000.0,
-                peak_rss
+                "{},{},{},{},{:.3},{},SUCCESS",
+                csv_escape(mode),
+                sample_id,
+                pid,
+                csv_escape(variant),
+                dur_ms,
+                peak_rss_kb
             );
             println!("{row}");
             csv_lines.push(row);
         }
+
+        let stats = compute_stats(&compile_times);
+        println!(
+            "  Warm Summary [{mode}] (N={}): min={:.2}ms, median={:.2}ms, mean={:.2}ms, p95={:.2}ms, max={:.2}ms, stddev={:.2}ms",
+            stats.count, stats.min, stats.median, stats.mean, stats.p95, stats.max, stats.stddev
+        );
     }
 
-    fs::write(csv_path, csv_lines.join("\n") + "\n").expect("write RAW-WARM.csv");
+    fs::write(csv_path, csv_lines.join("\n") + "\n").expect("write warm CSV");
     println!("Successfully wrote {}", csv_path.display());
 }
 
@@ -554,8 +741,7 @@ fn cmd_runtime_single(mode: &str, artifact: &Path, sample_id: usize) {
     // 2. User package compilation
     let t_pkg_comp = Instant::now();
     let program = if let Some(image) = &source_image {
-        ProgramCompiler::compile_entry_selection_with_image(EntrySelection::Package(minimal_dir), image.clone())
-            .expect("compile package with source image")
+        ProgramCompiler::compile_entry_selection_with_image(EntrySelection::Package(minimal_dir), image.clone()).expect("compile package with source image")
     } else if let Some(loaded) = &loaded_artifact {
         loaded
             .compile_user_entry(EntrySelection::Package(minimal_dir))
@@ -590,17 +776,22 @@ fn cmd_runtime_single(mode: &str, artifact: &Path, sample_id: usize) {
     };
 
     let total_dur = t_start.elapsed();
-    let peak_rss = get_peak_rss_bytes();
+    let peak_rss_bytes = get_peak_rss_bytes();
+    let peak_rss_kb = peak_rss_bytes / 1024;
 
-    // Format: mode,sample_id,pid,total_ms,comp_init_ms,pkg_comp_ms,vm_init_ms,vm_run_ms,peak_rss_bytes,status,stdout
     println!(
-        "RAW_RUNTIME_CSV:{mode},{sample_id},{pid},{:.3},{:.3},{:.3},{:.3},{:.3},{},{status},{stdout}",
+        "RAW_RUNTIME_CSV:{},{},{},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{}",
+        csv_escape(mode),
+        sample_id,
+        pid,
         total_dur.as_secs_f64() * 1000.0,
         comp_init_dur.as_secs_f64() * 1000.0,
         pkg_comp_dur.as_secs_f64() * 1000.0,
         vm_init_dur.as_secs_f64() * 1000.0,
         vm_run_dur.as_secs_f64() * 1000.0,
-        peak_rss,
+        peak_rss_kb,
+        csv_escape(status),
+        csv_escape(&stdout),
     );
 }
 
@@ -612,9 +803,22 @@ fn cmd_run_runtime_suite(artifact: &Path, samples: usize, csv_path: &Path) {
         fs::create_dir_all(parent).expect("create csv dir");
     }
 
-    let mut csv_lines = vec![
-        "scenario,sample_number,process_id,duration_ms,compiler_init_ms,user_compile_ms,vm_bootstrap_ms,vm_exec_ms,peak_rss_bytes,exit_status,output".to_string(),
-    ];
+    let header = [
+        "scenario",
+        "sample_number",
+        "process_id",
+        "duration_ms",
+        "compiler_init_ms",
+        "user_compile_ms",
+        "vm_bootstrap_ms",
+        "vm_exec_ms",
+        "peak_rss_kb",
+        "exit_status",
+        "output",
+    ]
+    .join(",");
+
+    let mut csv_lines = vec![header];
 
     for mode in modes {
         println!("=== Running Runtime Suite: mode={mode} ({samples} fresh processes) ===");
@@ -631,19 +835,23 @@ fn cmd_run_runtime_suite(artifact: &Path, samples: usize, csv_path: &Path) {
                 .expect("execute runtime-single process");
 
             if !output.status.success() {
-                eprintln!(
-                    "Child sample #{sample_id} (mode={mode}) failed:\nSTDOUT: {}\nSTDERR: {}",
+                panic!(
+                    "Child runtime sample #{sample_id} (mode={mode}) exited with error:\nSTDOUT: {}\nSTDERR: {}",
                     String::from_utf8_lossy(&output.stdout),
                     String::from_utf8_lossy(&output.stderr)
                 );
             }
 
             let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut found_row = false;
             for line in stdout.lines() {
                 if let Some(csv_data) = line.strip_prefix("RAW_RUNTIME_CSV:") {
-                    println!("Sample #{sample_id}: {csv_data}");
+                    found_row = true;
                     csv_lines.push(csv_data.to_string());
                 }
+            }
+            if !found_row {
+                panic!("Runtime sample #{sample_id} ({mode}) produced no CSV row output:\nSTDOUT: {}", stdout);
             }
         }
     }
@@ -652,7 +860,7 @@ fn cmd_run_runtime_suite(artifact: &Path, samples: usize, csv_path: &Path) {
     println!("Successfully wrote {}", csv_path.display());
 }
 
-fn cmd_slotmap_eval(artifact: &Path) {
+fn cmd_slotmap_eval(artifact: &Path, output: Option<&Path>) {
     println!("=== Evaluating packages/slotmap and packages/slotmap/tests/runtime ===");
     let limits = ValidationLimits::default();
 
@@ -662,41 +870,86 @@ fn cmd_slotmap_eval(artifact: &Path) {
     println!("2. Loading canonical source formal image...");
     let source_image = phalcom_semantic::canonical_image::canonical_universe_formal_image().expect("source image");
 
+    let mut csv_rows = vec!["package,mode,modules_count,compile_ms,parity_status".to_string()];
+
     // Case 1: packages/slotmap
     println!("Testing packages/slotmap under Artifact-backed...");
+    let t_art1 = Instant::now();
     let art_prog1 = loaded
         .compile_user_entry(EntrySelection::Project(PathBuf::from("packages/slotmap")))
         .expect("artifact compilation of packages/slotmap");
-    println!("packages/slotmap Artifact compilation: SUCCESS ({} modules)", art_prog1.modules.len());
+    let dur_art1 = t_art1.elapsed().as_secs_f64() * 1000.0;
+    println!(
+        "packages/slotmap Artifact compilation: SUCCESS ({} modules in {:.2}ms)",
+        art_prog1.modules.len(),
+        dur_art1
+    );
 
     println!("Testing packages/slotmap under Source-backed...");
-    let src_prog1 = ProgramCompiler::compile_entry_selection_with_image(
-        EntrySelection::Project(PathBuf::from("packages/slotmap")),
-        (*source_image).clone(),
-    )
-    .expect("source compilation of packages/slotmap");
-    println!("packages/slotmap Source compilation: SUCCESS ({} modules)", src_prog1.modules.len());
+    let t_src1 = Instant::now();
+    let src_prog1 = ProgramCompiler::compile_entry_selection_with_image(EntrySelection::Project(PathBuf::from("packages/slotmap")), (*source_image).clone())
+        .expect("source compilation of packages/slotmap");
+    let dur_src1 = t_src1.elapsed().as_secs_f64() * 1000.0;
+    println!(
+        "packages/slotmap Source compilation: SUCCESS ({} modules in {:.2}ms)",
+        src_prog1.modules.len(),
+        dur_src1
+    );
     println!("Verifying packages/slotmap structural product parity...");
     phalcom_core::modules::parity::assert_compiled_program_parity(&src_prog1, &art_prog1);
     println!("packages/slotmap structural product parity: VERIFIED (topology, interfaces, exports, lowering, bindings match)");
 
+    csv_rows.push(format!("packages/slotmap,artifact,{},{:.3},PASS", art_prog1.modules.len(), dur_art1));
+    csv_rows.push(format!("packages/slotmap,source,{},{:.3},PASS", src_prog1.modules.len(), dur_src1));
+
     // Case 2: packages/slotmap/tests/runtime
     println!("Testing packages/slotmap/tests/runtime under Artifact-backed...");
+    let t_art2 = Instant::now();
     let art_prog2 = loaded
         .compile_user_entry(EntrySelection::Project(PathBuf::from("packages/slotmap/tests/runtime")))
         .expect("artifact compilation of packages/slotmap/tests/runtime");
-    println!("packages/slotmap/tests/runtime Artifact compilation: SUCCESS ({} modules)", art_prog2.modules.len());
+    let dur_art2 = t_art2.elapsed().as_secs_f64() * 1000.0;
+    println!(
+        "packages/slotmap/tests/runtime Artifact compilation: SUCCESS ({} modules in {:.2}ms)",
+        art_prog2.modules.len(),
+        dur_art2
+    );
 
     println!("Testing packages/slotmap/tests/runtime under Source-backed...");
+    let t_src2 = Instant::now();
     let src_prog2 = ProgramCompiler::compile_entry_selection_with_image(
         EntrySelection::Project(PathBuf::from("packages/slotmap/tests/runtime")),
         (*source_image).clone(),
     )
     .expect("source compilation of packages/slotmap/tests/runtime");
-    println!("packages/slotmap/tests/runtime Source compilation: SUCCESS ({} modules)", src_prog2.modules.len());
+    let dur_src2 = t_src2.elapsed().as_secs_f64() * 1000.0;
+    println!(
+        "packages/slotmap/tests/runtime Source compilation: SUCCESS ({} modules in {:.2}ms)",
+        src_prog2.modules.len(),
+        dur_src2
+    );
     println!("Verifying packages/slotmap/tests/runtime structural product parity...");
     phalcom_core::modules::parity::assert_compiled_program_parity(&src_prog2, &art_prog2);
     println!("packages/slotmap/tests/runtime structural product parity: VERIFIED (topology, interfaces, exports, lowering, bindings match)");
+
+    csv_rows.push(format!(
+        "packages/slotmap/tests/runtime,artifact,{},{:.3},PASS",
+        art_prog2.modules.len(),
+        dur_art2
+    ));
+    csv_rows.push(format!(
+        "packages/slotmap/tests/runtime,source,{},{:.3},PASS",
+        src_prog2.modules.len(),
+        dur_src2
+    ));
+
+    if let Some(out_path) = output {
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent).expect("create output parent dir");
+        }
+        fs::write(out_path, csv_rows.join("\n") + "\n").expect("write slotmap results CSV");
+        println!("Successfully wrote {}", out_path.display());
+    }
 
     println!("Slotmap evaluation complete: 100% normalized compilation product parity verified between source-backed and artifact-backed!");
 }
@@ -704,52 +957,38 @@ fn cmd_slotmap_eval(artifact: &Path) {
 fn cmd_allocation_check(artifact: &Path) {
     println!("=== Checking cumulative allocation budgets and limits ===");
     let bytes = fs::read(artifact).expect("read artifact");
+    let limits = ValidationLimits::default();
 
-    // Binary search for exact minimum transaction budget
-    let mut low = 1usize;
-    let mut high = 512 * 1024 * 1024;
-    let mut exact_min = high;
+    let (summary_res, ledger_requested) = load_universe_telosc_from_bytes_with_allocation_summary(&bytes, &limits);
+    let initial_artifact = summary_res.expect("initial load without memory measurement must succeed");
+    drop(initial_artifact);
 
-    while low <= high {
-        let mid = (low + high) / 2;
-        let limits = ValidationLimits {
-            max_total_allocation_bytes: mid as u64,
-            ..ValidationLimits::default()
-        };
-        match load_universe_telosc_from_bytes(&bytes, &limits) {
-            Ok(_) => {
-                exact_min = mid;
-                high = mid.saturating_sub(1);
-            }
-            Err(_) => {
-                low = mid + 1;
-            }
+    println!("Ledger requested bytes (N): {ledger_requested}");
+    assert_eq!(ledger_requested, 366_789_583, "Ledger requested bytes must exactly equal baseline 366,789,583");
+
+    // Verify N-1 fails with typed BudgetExceeded
+    let limits_minus_one = ValidationLimits {
+        max_total_allocation_bytes: (ledger_requested - 1) as u64,
+        ..ValidationLimits::default()
+    };
+    let (failed_cumulative, _) = load_universe_telosc_from_bytes_with_allocation_summary(&bytes, &limits_minus_one);
+    match failed_cumulative {
+        Err(TeloscArtifactError::BudgetExceeded { limit_bytes }) => {
+            assert_eq!(limit_bytes, ledger_requested - 1);
         }
+        Err(other) => panic!("expected TeloscArtifactError::BudgetExceeded, got {other:?}"),
+        Ok(_) => panic!("load with N - 1 budget must fail closed"),
     }
 
-    println!("Exact minimum allocation budget for universe.telosc: {exact_min} bytes ({:.2} MiB)", exact_min as f64 / 1048576.0);
-
-    // Verify N-1 fails
-    let limits_minus_one = ValidationLimits {
-        max_total_allocation_bytes: (exact_min - 1) as u64,
-        ..ValidationLimits::default()
-    };
-    assert!(
-        load_universe_telosc_from_bytes(&bytes, &limits_minus_one).is_err(),
-        "N-1 budget must fail"
-    );
-
-    // Verify N succeeds
+    // Verify exact N succeeds
     let limits_exact = ValidationLimits {
-        max_total_allocation_bytes: exact_min as u64,
+        max_total_allocation_bytes: ledger_requested as u64,
         ..ValidationLimits::default()
     };
-    assert!(
-        load_universe_telosc_from_bytes(&bytes, &limits_exact).is_ok(),
-        "Exact budget N must succeed"
-    );
+    let exact_res = load_universe_telosc_from_bytes(&bytes, &limits_exact);
+    assert!(exact_res.is_ok(), "Exact budget N must succeed");
 
-    println!("Strict bounded allocation accounting confirmed: fail-closed at N-1 bytes, success at N bytes.");
+    println!("R.G4 allocation check verified: exact 366,789,583 bytes, N-1 fail-closed, clean retry PASS.");
 }
 
 fn cmd_source_denial_check(artifact: &Path) {
@@ -758,7 +997,10 @@ fn cmd_source_denial_check(artifact: &Path) {
     let loaded = load_universe_telosc(artifact, &limits).expect("load artifact");
 
     assert!(loaded.formal_image.sources().is_empty(), "Loaded formal image must have 0 sources");
-    assert!(loaded.formal_image.snapshot().is_source_free_artifact_complete(), "Loaded snapshot must be source-free complete");
+    assert!(
+        loaded.formal_image.snapshot().is_source_free_artifact_complete(),
+        "Loaded snapshot must be source-free complete"
+    );
 
     let (pkg_dir, _) = setup_benchmark_packages();
     let compiled = loaded.compile_user_entry(EntrySelection::Package(pkg_dir)).expect("compile user package");

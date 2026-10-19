@@ -99,11 +99,7 @@ impl VariantInfo {
             fields.push(VariantFieldSemantic {
                 id: field.id.clone_with_allocation_budget(allocations)?,
                 local_name: allocations.boxed_str(&field.local_name)?,
-                external_label: field
-                    .external_label
-                    .as_deref()
-                    .map(|label| allocations.boxed_str(label))
-                    .transpose()?,
+                external_label: field.external_label.as_deref().map(|label| allocations.boxed_str(label)).transpose()?,
                 declared_type: field.declared_type.clone_with_allocation_budget(allocations)?,
                 source: clone_source_span_with_allocation_budget(field.source.as_ref(), allocations)?,
             });
@@ -206,11 +202,7 @@ fn clone_constructor_with_allocation_budget(
     for parameter in constructor.parameters.iter() {
         parameters.push(VariantConstructorParameter {
             field: parameter.field.clone_with_allocation_budget(allocations)?,
-            external_label: parameter
-                .external_label
-                .as_deref()
-                .map(|label| allocations.boxed_str(label))
-                .transpose()?,
+            external_label: parameter.external_label.as_deref().map(|label| allocations.boxed_str(label)).transpose()?,
             local_name: allocations.boxed_str(&parameter.local_name)?,
             declared_type: parameter.declared_type.clone_with_allocation_budget(allocations)?,
         });
@@ -291,12 +283,8 @@ impl EnumSemanticTable {
     ) -> Result<Self, crate::parent_map::FrozenParentMapError> {
         let enums = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(enums, allocations)?;
         let variants = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(variants, allocations)?;
-        let enums = allocations
-            .arc(enums)
-            .map_err(crate::parent_map::FrozenParentMapError::Allocation)?;
-        let variants = allocations
-            .arc(variants)
-            .map_err(crate::parent_map::FrozenParentMapError::Allocation)?;
+        let enums = allocations.arc(enums).map_err(crate::parent_map::FrozenParentMapError::Allocation)?;
+        let variants = allocations.arc(variants).map_err(crate::parent_map::FrozenParentMapError::Allocation)?;
         Ok(Self {
             enums,
             variants,

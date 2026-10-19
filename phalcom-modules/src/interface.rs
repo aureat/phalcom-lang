@@ -108,10 +108,7 @@ impl LinkedModuleInterface {
         } else {
             let mut entries = allocations.vector(self.exports.len())?;
             for (name, export) in self.exports.iter() {
-                entries.push((
-                    allocations.boxed_str(name)?,
-                    clone_linked_export_with_allocation_budget(export, allocations)?,
-                ));
+                entries.push((allocations.boxed_str(name)?, clone_linked_export_with_allocation_budget(export, allocations)?));
             }
             ModuleAuthorityMap::from_budgeted_entries(entries, allocations).map_err(|error| match error {
                 ModuleAuthorityBuildError::Allocation(error) => error,

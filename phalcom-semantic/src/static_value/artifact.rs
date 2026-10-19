@@ -11,10 +11,9 @@ use crate::field_key::FieldKey;
 use crate::identity::{DeclarationId, VariantId};
 use crate::metadata::stable_identity::{to_stable_declaration, to_stable_variant};
 use crate::static_value::store::{
-    FrozenStaticValuePrefix, StaticDataValue, StaticDataValueId, StaticFloat, StaticPackBacking, StaticPackBackingId,
-    StaticPackData, StaticPackId, StaticRecordField, StaticRecordId, StaticSequenceData, StaticSequenceFamily, StaticSequenceId,
-    StaticStringId, StaticSymbolId, StaticTupleId, StaticValueData, StaticValueId, StaticValueRef, StaticValueStore,
-    StaticValueStoreError, StaticValueStoreId, StaticVariantValue, StaticVariantValueId,
+    FrozenStaticValuePrefix, StaticDataValue, StaticDataValueId, StaticFloat, StaticPackBacking, StaticPackBackingId, StaticPackData, StaticPackId,
+    StaticRecordField, StaticRecordId, StaticSequenceData, StaticSequenceFamily, StaticSequenceId, StaticStringId, StaticSymbolId, StaticTupleId,
+    StaticValueData, StaticValueId, StaticValueRef, StaticValueStore, StaticValueStoreError, StaticValueStoreId, StaticVariantValue, StaticVariantValueId,
 };
 use crate::types::store::artifact::{TypeExportContext, TypeRelocation};
 use phalcom_compiler_artifact::semantic::static_value::*;
@@ -35,12 +34,18 @@ pub struct StaticRelocation {
 impl StaticRelocation {
     /// Returns the relocated reference for one artifact value identity.
     pub fn value(&self, id: ArtifactStaticValueId) -> Result<StaticValueRef, ArtifactError> {
-        self.values.get(id.0 as usize).copied().ok_or_else(|| referential(format!("unrelocated static value {}", id.0)))
+        self.values
+            .get(id.0 as usize)
+            .copied()
+            .ok_or_else(|| referential(format!("unrelocated static value {}", id.0)))
     }
 
     /// Returns the relocated symbol identity for one artifact symbol identity.
     pub fn symbol(&self, id: ArtifactStaticSymbolId) -> Result<StaticSymbolId, ArtifactError> {
-        self.symbols.get(id.0 as usize).copied().ok_or_else(|| referential(format!("unrelocated static symbol {}", id.0)))
+        self.symbols
+            .get(id.0 as usize)
+            .copied()
+            .ok_or_else(|| referential(format!("unrelocated static symbol {}", id.0)))
     }
 
     /// Fails when used against a foreign store lineage.
@@ -138,9 +143,19 @@ impl StaticExportContext {
     /// before the shared type graph closes.
     pub fn register_type_roots(&self, store: &StaticValueStore, types: &mut TypeExportContext, limits: &ValidationLimits) -> Result<(), ArtifactError> {
         self.verify_store(store)?;
-        fn visit(store: &StaticValueStore, value: StaticValueRef, key: &CanonicalTypeRootKey, ordinal: &mut u32,
-            types: &mut TypeExportContext, active: &mut BTreeSet<StaticValueId>, depth: usize, limits: &ValidationLimits) -> Result<(), ArtifactError> {
-            if depth > limits.max_recursion_depth || !active.insert(value.value_id()) { return Err(referential("cyclic or too deep static root")); }
+        fn visit(
+            store: &StaticValueStore,
+            value: StaticValueRef,
+            key: &CanonicalTypeRootKey,
+            ordinal: &mut u32,
+            types: &mut TypeExportContext,
+            active: &mut BTreeSet<StaticValueId>,
+            depth: usize,
+            limits: &ValidationLimits,
+        ) -> Result<(), ArtifactError> {
+            if depth > limits.max_recursion_depth || !active.insert(value.value_id()) {
+                return Err(referential("cyclic or too deep static root"));
+            }
             let data = store.get_value(value.value_id()).ok_or_else(|| referential("unknown static root"))?;
             let mut children = Vec::new();
             let ty = match data {
@@ -182,24 +197,28 @@ impl StaticExportContext {
                 | StaticValueData::String(_)
                 | StaticValueData::Symbol(_) => None,
             };
-            if let Some(ty)=ty {let mut key=key.clone();key.family_tag=phalcom_compiler_artifact::semantic::type_store::CanonicalRootFamilyTag::StaticValue;key.product_subkey=*ordinal;
-                *ordinal=ordinal.checked_add(1).ok_or_else(||referential("static type root ordinal overflow"))?;
-                types.register_type_root(types.expected_lineage(),key,ty)?;
+            if let Some(ty) = ty {
+                let mut key = key.clone();
+                key.family_tag = phalcom_compiler_artifact::semantic::type_store::CanonicalRootFamilyTag::StaticValue;
+                key.product_subkey = *ordinal;
+                *ordinal = ordinal.checked_add(1).ok_or_else(|| referential("static type root ordinal overflow"))?;
+                types.register_type_root(types.expected_lineage(), key, ty)?;
             }
-            for child in children {visit(store,child,key,ordinal,types,active,depth+1,limits)?;}
-            active.remove(&value.value_id());Ok(())
+            for child in children {
+                visit(store, child, key, ordinal, types, active, depth + 1, limits)?;
+            }
+            active.remove(&value.value_id());
+            Ok(())
         }
-        let mut ordinals=BTreeMap::new();
-        for (key,&value) in &self.roots {let ordinal=ordinals.entry(key.owner.clone()).or_insert(0);visit(store,value,key,ordinal,types,&mut BTreeSet::new(),0,limits)?;}
+        let mut ordinals = BTreeMap::new();
+        for (key, &value) in &self.roots {
+            let ordinal = ordinals.entry(key.owner.clone()).or_insert(0);
+            visit(store, value, key, ordinal, types, &mut BTreeSet::new(), 0, limits)?;
+        }
         Ok(())
     }
 
-    pub fn close_graph(
-        &mut self,
-        store: &StaticValueStore,
-        type_export: &TypeExportContext,
-        limits: &ValidationLimits,
-    ) -> Result<(), ArtifactError> {
+    pub fn close_graph(&mut self, store: &StaticValueStore, type_export: &TypeExportContext, limits: &ValidationLimits) -> Result<(), ArtifactError> {
         self.verify_store(store)?;
         if self.closed {
             return Err(referential("static export graph is already closed"));
@@ -231,11 +250,7 @@ impl StaticExportContext {
                     .ok_or_else(|| referential(format!("unknown static value id {}", val_id.raw())))?;
 
                 match data {
-                    StaticValueData::Unit
-                    | StaticValueData::Bool(_)
-                    | StaticValueData::Char(_)
-                    | StaticValueData::Int(_)
-                    | StaticValueData::Float(_) => {}
+                    StaticValueData::Unit | StaticValueData::Bool(_) | StaticValueData::Char(_) | StaticValueData::Int(_) | StaticValueData::Float(_) => {}
                     StaticValueData::String(sid) => {
                         if !self.context.string_ids.contains_key(sid) {
                             let wid = ArtifactStaticStringId(self.context.string_order.len() as u32);
@@ -432,11 +447,7 @@ impl StaticExportContext {
                 };
                 let result_type = type_export.ty(seq.result_type())?;
                 let elements = seq.elements().iter().map(|&v| self.value(v)).collect::<Result<Vec<_>, _>>()?;
-                Ok(StaticSequenceV1 {
-                    family,
-                    result_type,
-                    elements,
-                })
+                Ok(StaticSequenceV1 { family, result_type, elements })
             })
             .collect::<Result<Vec<StaticSequenceV1>, ArtifactError>>()?;
 
@@ -500,11 +511,7 @@ impl StaticExportContext {
                         })
                     })
                     .collect::<Result<Vec<_>, ArtifactError>>()?;
-                Ok(StaticVariantValueV1 {
-                    variant,
-                    result_type,
-                    fields,
-                })
+                Ok(StaticVariantValueV1 { variant, result_type, fields })
             })
             .collect::<Result<Vec<StaticVariantValueV1>, ArtifactError>>()?;
 
@@ -529,10 +536,7 @@ impl StaticExportContext {
             .iter()
             .map(|pid| {
                 let p = store.get_pack_data(*pid).map_err(store_error)?;
-                let backing = *self
-                    .pack_backing_ids
-                    .get(&p.backing)
-                    .ok_or_else(|| referential("unrelocated pack backing"))?;
+                let backing = *self.pack_backing_ids.get(&p.backing).ok_or_else(|| referential("unrelocated pack backing"))?;
                 Ok(StaticPackSliceV1 {
                     backing,
                     positional_start: p.positional_start,
@@ -652,7 +656,10 @@ pub fn import_static_value_graph_with_allocation_budget(
         string_to_id_vec.push(StaticStringId(i as u32));
     }
     string_to_id_vec.sort_unstable_by(|&a, &b| strings[a.0 as usize].cmp(&strings[b.0 as usize]));
-    if string_to_id_vec.windows(2).any(|pair| strings[pair[0].0 as usize] == strings[pair[1].0 as usize]) {
+    if string_to_id_vec
+        .windows(2)
+        .any(|pair| strings[pair[0].0 as usize] == strings[pair[1].0 as usize])
+    {
         return Err(referential("duplicate canonical static string node"));
     }
     let string_to_id = allocations.boxed_slice(string_to_id_vec).map_err(ArtifactError::Allocation)?;
@@ -669,7 +676,10 @@ pub fn import_static_value_graph_with_allocation_budget(
         symbol_to_id_vec.push(StaticSymbolId(i as u32));
     }
     symbol_to_id_vec.sort_unstable_by(|&a, &b| symbols[a.0 as usize].cmp(&symbols[b.0 as usize]));
-    if symbol_to_id_vec.windows(2).any(|pair| symbols[pair[0].0 as usize] == symbols[pair[1].0 as usize]) {
+    if symbol_to_id_vec
+        .windows(2)
+        .any(|pair| symbols[pair[0].0 as usize] == symbols[pair[1].0 as usize])
+    {
         return Err(referential("duplicate canonical static symbol node"));
     }
     let symbol_to_id = allocations.boxed_slice(symbol_to_id_vec).map_err(ArtifactError::Allocation)?;
@@ -730,11 +740,7 @@ pub fn import_static_value_graph_with_allocation_budget(
             SequenceFamilyV1::Vector => StaticSequenceFamily::Vector,
         };
         let elements = allocations.boxed_slice(elements_vec).map_err(ArtifactError::Allocation)?;
-        sequences_buf.push(StaticSequenceData {
-            family,
-            result_type,
-            elements,
-        });
+        sequences_buf.push(StaticSequenceData { family, result_type, elements });
     }
     let sequences = allocations.boxed_slice(sequences_buf).map_err(ArtifactError::Allocation)?;
 
@@ -743,7 +749,10 @@ pub fn import_static_value_graph_with_allocation_budget(
         sequence_to_id_vec.push(StaticSequenceId(i as u32));
     }
     sequence_to_id_vec.sort_unstable_by(|&a, &b| sequences[a.0 as usize].cmp(&sequences[b.0 as usize]));
-    if sequence_to_id_vec.windows(2).any(|pair| sequences[pair[0].0 as usize] == sequences[pair[1].0 as usize]) {
+    if sequence_to_id_vec
+        .windows(2)
+        .any(|pair| sequences[pair[0].0 as usize] == sequences[pair[1].0 as usize])
+    {
         return Err(referential("duplicate canonical static sequence node"));
     }
     let sequence_to_id = allocations.boxed_slice(sequence_to_id_vec).map_err(ArtifactError::Allocation)?;
@@ -767,7 +776,10 @@ pub fn import_static_value_graph_with_allocation_budget(
         record_to_id_vec.push(StaticRecordId(i as u32));
     }
     record_to_id_vec.sort_unstable_by(|&a, &b| records[a.0 as usize].cmp(&records[b.0 as usize]));
-    if record_to_id_vec.windows(2).any(|pair| records[pair[0].0 as usize] == records[pair[1].0 as usize]) {
+    if record_to_id_vec
+        .windows(2)
+        .any(|pair| records[pair[0].0 as usize] == records[pair[1].0 as usize])
+    {
         return Err(referential("duplicate canonical static record node"));
     }
     let record_to_id = allocations.boxed_slice(record_to_id_vec).map_err(ArtifactError::Allocation)?;
@@ -784,11 +796,18 @@ pub fn import_static_value_graph_with_allocation_budget(
         let mut components_vec = allocations.vector(info.components.len()).map_err(ArtifactError::Allocation)?;
         for (component, wire) in info.components.iter().zip(value.components.iter()) {
             let child_ref = relocation.value(wire.value)?;
-            components_vec.push((component.id.clone_with_allocation_budget(allocations).map_err(ArtifactError::Allocation)?, child_ref));
+            components_vec.push((
+                component.id.clone_with_allocation_budget(allocations).map_err(ArtifactError::Allocation)?,
+                child_ref,
+            ));
         }
         let components = allocations.boxed_slice(components_vec).map_err(ArtifactError::Allocation)?;
         let owner_cloned = owner.clone_with_allocation_budget(allocations).map_err(ArtifactError::Allocation)?;
-        let constructor_cloned = info.constructor.constructor.clone_with_allocation_budget(allocations).map_err(ArtifactError::Allocation)?;
+        let constructor_cloned = info
+            .constructor
+            .constructor
+            .clone_with_allocation_budget(allocations)
+            .map_err(ArtifactError::Allocation)?;
         data_values_buf.push(StaticDataValue {
             owner: owner_cloned,
             constructor: constructor_cloned,
@@ -803,7 +822,10 @@ pub fn import_static_value_graph_with_allocation_budget(
         data_value_to_id_vec.push(StaticDataValueId(i as u32));
     }
     data_value_to_id_vec.sort_unstable_by(|&a, &b| data_values[a.0 as usize].cmp(&data_values[b.0 as usize]));
-    if data_value_to_id_vec.windows(2).any(|pair| data_values[pair[0].0 as usize] == data_values[pair[1].0 as usize]) {
+    if data_value_to_id_vec
+        .windows(2)
+        .any(|pair| data_values[pair[0].0 as usize] == data_values[pair[1].0 as usize])
+    {
         return Err(referential("duplicate canonical static data node"));
     }
     let data_value_to_id = allocations.boxed_slice(data_value_to_id_vec).map_err(ArtifactError::Allocation)?;
@@ -812,7 +834,9 @@ pub fn import_static_value_graph_with_allocation_budget(
     let mut variant_values_buf = allocations.vector(graph.variant_values.len()).map_err(ArtifactError::Allocation)?;
     for value in &graph.variant_values {
         let variant = resolve_variant(&value.variant, allocations)?;
-        let info = enums.variant_info(&variant).ok_or_else(|| referential("static variant has no loaded contract"))?;
+        let info = enums
+            .variant_info(&variant)
+            .ok_or_else(|| referential("static variant has no loaded contract"))?;
         if value.fields.len() != info.fields.len() {
             return Err(referential("static variant field count disagrees with loaded contract"));
         }
@@ -820,14 +844,13 @@ pub fn import_static_value_graph_with_allocation_budget(
         let mut fields_vec = allocations.vector(info.fields.len()).map_err(ArtifactError::Allocation)?;
         for (field, wire) in info.fields.iter().zip(value.fields.iter()) {
             let child_ref = relocation.value(wire.value)?;
-            fields_vec.push((field.id.clone_with_allocation_budget(allocations).map_err(ArtifactError::Allocation)?, child_ref));
+            fields_vec.push((
+                field.id.clone_with_allocation_budget(allocations).map_err(ArtifactError::Allocation)?,
+                child_ref,
+            ));
         }
         let fields = allocations.boxed_slice(fields_vec).map_err(ArtifactError::Allocation)?;
-        variant_values_buf.push(StaticVariantValue {
-            variant,
-            result_type,
-            fields,
-        });
+        variant_values_buf.push(StaticVariantValue { variant, result_type, fields });
     }
     let variant_values = allocations.boxed_slice(variant_values_buf).map_err(ArtifactError::Allocation)?;
 
@@ -836,7 +859,10 @@ pub fn import_static_value_graph_with_allocation_budget(
         variant_value_to_id_vec.push(StaticVariantValueId(i as u32));
     }
     variant_value_to_id_vec.sort_unstable_by(|&a, &b| variant_values[a.0 as usize].cmp(&variant_values[b.0 as usize]));
-    if variant_value_to_id_vec.windows(2).any(|pair| variant_values[pair[0].0 as usize] == variant_values[pair[1].0 as usize]) {
+    if variant_value_to_id_vec
+        .windows(2)
+        .any(|pair| variant_values[pair[0].0 as usize] == variant_values[pair[1].0 as usize])
+    {
         return Err(referential("duplicate canonical static variant node"));
     }
     let variant_value_to_id = allocations.boxed_slice(variant_value_to_id_vec).map_err(ArtifactError::Allocation)?;
@@ -875,7 +901,10 @@ pub fn import_static_value_graph_with_allocation_budget(
         pack_backing_to_id_vec.push(StaticPackBackingId(i as u32));
     }
     pack_backing_to_id_vec.sort_unstable_by(|&a, &b| pack_backings[a.0 as usize].cmp(&pack_backings[b.0 as usize]));
-    if pack_backing_to_id_vec.windows(2).any(|pair| pack_backings[pair[0].0 as usize] == pack_backings[pair[1].0 as usize]) {
+    if pack_backing_to_id_vec
+        .windows(2)
+        .any(|pair| pack_backings[pair[0].0 as usize] == pack_backings[pair[1].0 as usize])
+    {
         return Err(referential("duplicate canonical static pack backing node"));
     }
     let pack_backing_to_id = allocations.boxed_slice(pack_backing_to_id_vec).map_err(ArtifactError::Allocation)?;
@@ -996,11 +1025,7 @@ pub fn import_static_value_graph(
     )
 }
 
-fn key_from_wire_budgeted(
-    key: &FieldKeyV1,
-    limits: &ValidationLimits,
-    allocations: &mut AllocationBudget,
-) -> Result<FieldKey, ArtifactError> {
+fn key_from_wire_budgeted(key: &FieldKeyV1, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<FieldKey, ArtifactError> {
     Ok(match key {
         FieldKeyV1::Symbol { value } => FieldKey::Symbol(allocations.arc_str(value).map_err(ArtifactError::Allocation)?),
         FieldKeyV1::String { value } => FieldKey::String(allocations.arc_str(value).map_err(ArtifactError::Allocation)?),

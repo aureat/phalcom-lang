@@ -503,7 +503,11 @@ pub fn probe_header(input: &str) -> Result<HeaderProbe, DecodeError> {
             let schema_version = schema_version.ok_or(DecodeError::Syntax("missing schema version"))?;
             let profile = profile.ok_or(DecodeError::Syntax("missing profile in header"))?;
             let identity_scheme = identity_scheme.ok_or(DecodeError::Syntax("missing identity scheme in header"))?;
-            return Ok(HeaderProbe { schema_version, profile, identity_scheme });
+            return Ok(HeaderProbe {
+                schema_version,
+                profile,
+                identity_scheme,
+            });
         }
         cursor.skip_value()?;
     }

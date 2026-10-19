@@ -1,8 +1,8 @@
 //! Lazily materialized persistent maps used by local semantic-store overlays.
 
 use im::HashMap;
-use std::hash::Hash;
 use std::fmt;
+use std::hash::Hash;
 
 /// A persistent hash map whose empty state does not allocate its HAMT root.
 ///

@@ -1,11 +1,16 @@
+use phalcom_common::range::SourceRange;
 use phalcom_core::heap::{FamilySpec, Object, RuntimeExportRef};
 use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer};
+use phalcom_core::modules::parity::compare_compiled_programs;
 use phalcom_core::modules::{ProgramCompileError, RuntimeLinkedRead};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
-use phalcom_modules::{LinkedExportTarget, SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
+use phalcom_modules::authority::ModuleAuthorityMap;
+use phalcom_modules::identity::SyntheticProjectId;
+use phalcom_modules::{LinkedExportTarget, ModulePath, SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
 use phalcom_semantic::SemanticWorkspaceSession;
 use phalcom_semantic::identity::SemanticTargetId;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -526,4 +531,153 @@ fn package_less_parity_comparator_rejects_relative_imports() {
         result,
         Err(phalcom_core::modules::compile::ProgramCompileError::StandaloneImportRequiresPackageContext { .. })
     ));
+}
+
+fn compile_sample_parity_program() -> (TempDir, phalcom_core::modules::compile::CompiledProgram) {
+    let temp = TempDir::new().unwrap();
+    write_parity_package(temp.path());
+    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(EntrySelection::Package(temp.path().to_path_buf()))
+        .expect("parity package must compile");
+    (temp, program)
+}
+
+#[test]
+fn comparator_accepts_equivalent_programs() {
+    let (_temp, program) = compile_sample_parity_program();
+    let report = compare_compiled_programs(&program, &program);
+    assert!(report.is_empty(), "Identical programs must produce no differences: {:?}", report.differences);
+}
+
+#[test]
+fn comparator_detects_missing_linked_module() {
+    let (_temp, src) = compile_sample_parity_program();
+    let mut art = src.clone();
+    let mut map: BTreeMap<_, _> = art.linked.modules.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let first_key = map.keys().next().unwrap().clone();
+    map.remove(&first_key);
+    Arc::make_mut(&mut art.linked).modules = ModuleAuthorityMap::from_source(map);
+
+    let report = compare_compiled_programs(&src, &art);
+    assert!(!report.is_empty());
+    assert!(
+        report
+            .differences
+            .iter()
+            .any(|d| d.contains("Linked module set mismatch") || d.contains("has linked entry in src but not art")),
+        "Expected linked module mismatch difference, got: {:?}",
+        report.differences
+    );
+}
+
+#[test]
+fn comparator_detects_additional_linked_module() {
+    let (_temp, src) = compile_sample_parity_program();
+    let mut art = src.clone();
+    let mut map: BTreeMap<_, _> = art.linked.modules.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let synthetic_extra_id = phalcom_modules::ModuleId::synthetic(SyntheticProjectId::from_raw(999), ModulePath::root());
+    let sample_lm = map.values().next().unwrap().clone();
+    map.insert(synthetic_extra_id, sample_lm);
+    Arc::make_mut(&mut art.linked).modules = ModuleAuthorityMap::from_source(map);
+
+    let report = compare_compiled_programs(&src, &art);
+    assert!(!report.is_empty());
+    assert!(
+        report
+            .differences
+            .iter()
+            .any(|d| d.contains("Linked module set mismatch") || d.contains("has linked entry in art but not src")),
+        "Expected linked module mismatch difference, got: {:?}",
+        report.differences
+    );
+}
+
+#[test]
+fn comparator_detects_changed_module_set() {
+    let (_temp, src) = compile_sample_parity_program();
+    let mut art = src.clone();
+    let first_key = art.modules.keys().next().unwrap().clone();
+    art.modules.remove(&first_key);
+
+    let report = compare_compiled_programs(&src, &art);
+    assert!(!report.is_empty());
+    assert!(
+        report.differences.iter().any(|d| d.contains("Module set mismatch")),
+        "Expected module set mismatch difference, got: {:?}",
+        report.differences
+    );
+}
+
+#[test]
+fn comparator_detects_changed_exports() {
+    let (_temp, src) = compile_sample_parity_program();
+    let mut art = src.clone();
+    let (_mod_id, compiled_mod) = art.modules.iter_mut().find(|(_, m)| !m.interface.exports.is_empty()).unwrap();
+    let mut iface = (*compiled_mod.interface).clone();
+    iface.exports = ModuleAuthorityMap::new();
+    compiled_mod.interface = Arc::new(iface);
+
+    let report = compare_compiled_programs(&src, &art);
+    assert!(!report.is_empty());
+    assert!(
+        report
+            .differences
+            .iter()
+            .any(|d| d.contains("Public exports mismatch") || d.contains("Interface fingerprint mismatch")),
+        "Expected exports mismatch difference, got: {:?}",
+        report.differences
+    );
+}
+
+#[test]
+fn comparator_detects_changed_initialization_order() {
+    let (_temp, src) = compile_sample_parity_program();
+    let mut art = src.clone();
+    art.initialization_order.reverse();
+
+    let report = compare_compiled_programs(&src, &art);
+    assert!(!report.is_empty());
+    assert!(
+        report.differences.iter().any(|d| d.contains("Initialization order mismatch")),
+        "Expected initialization order mismatch difference, got: {:?}",
+        report.differences
+    );
+}
+
+#[test]
+fn comparator_detects_changed_graph_edges() {
+    let (_temp, src) = compile_sample_parity_program();
+    let mut art = src.clone();
+    let mut graphs = art.linked.graphs.clone();
+    let extra_id = phalcom_modules::ModuleId::synthetic(SyntheticProjectId::from_raw(999), ModulePath::root());
+    graphs.references.add_node(extra_id);
+    Arc::make_mut(&mut art.linked).graphs = graphs;
+
+    let report = compare_compiled_programs(&src, &art);
+    assert!(!report.is_empty());
+    assert!(
+        report
+            .differences
+            .iter()
+            .any(|d| d.contains("Reference graph") || d.contains("Reference edges")),
+        "Expected reference graph difference, got: {:?}",
+        report.differences
+    );
+}
+
+#[test]
+fn comparator_detects_changed_lowering_product() {
+    let (_temp, src) = compile_sample_parity_program();
+    let mut art = src.clone();
+    let (_id, compiled_mod) = art.modules.iter_mut().next().unwrap();
+    let mut lowering = (*compiled_mod.lowering).clone();
+    lowering.pack_constructions.insert(SourceRange::default());
+    compiled_mod.lowering = Arc::new(lowering);
+
+    let report = compare_compiled_programs(&src, &art);
+    assert!(!report.is_empty());
+    assert!(
+        report.differences.iter().any(|d| d.contains("Lowering pack constructions mismatch")),
+        "Expected lowering pack constructions difference, got: {:?}",
+        report.differences
+    );
 }

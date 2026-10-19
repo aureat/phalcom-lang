@@ -344,9 +344,10 @@ pub(crate) fn hash_generic_signature(signature: &GenericSignature, hasher: &mut 
     // without an unbudgeted allocation on artifact import.
     let mut emitted = 0;
     while emitted < signature.constraints.len() {
-        let next = signature.constraints.iter().find(|candidate| {
-            signature.constraints.iter().filter(|other| *other < *candidate).count() == emitted
-        });
+        let next = signature
+            .constraints
+            .iter()
+            .find(|candidate| signature.constraints.iter().filter(|other| *other < *candidate).count() == emitted);
         let Some(next) = next else { break };
         let duplicates = signature.constraints.iter().filter(|candidate| *candidate == next).count();
         for _ in 0..duplicates {
@@ -3317,7 +3318,10 @@ fn hash_canonical_static_program(program: &crate::static_definition::CanonicalSt
                     parameter_index.hash(hasher);
                     term.hash(hasher);
                 }
-                crate::static_definition::CanonicalStaticApplicationArgument::KindedExpression { parameter_index, application_ordinal } => {
+                crate::static_definition::CanonicalStaticApplicationArgument::KindedExpression {
+                    parameter_index,
+                    application_ordinal,
+                } => {
                     1u8.hash(hasher);
                     parameter_index.hash(hasher);
                     application_ordinal.hash(hasher);

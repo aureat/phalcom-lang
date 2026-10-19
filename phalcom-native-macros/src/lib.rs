@@ -312,7 +312,10 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
         Some("exact") | None => phalcom_native_meta::NativeSignatureMode::Exact,
         Some("abi_erased") => phalcom_native_meta::NativeSignatureMode::AbiErased,
         Some(other) => {
-            return Err(Error::new(Span::call_site(), format!("unknown native signature mode '{other}', expected exact or abi_erased")));
+            return Err(Error::new(
+                Span::call_site(),
+                format!("unknown native signature mode '{other}', expected exact or abi_erased"),
+            ));
         }
     };
 

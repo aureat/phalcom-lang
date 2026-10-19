@@ -238,7 +238,10 @@ impl StaticConstantTable {
     }
 
     pub fn module_constants<'a>(&'a self, module: &'a ModuleId) -> Box<dyn Iterator<Item = &'a Arc<StaticConstantProduct>> + 'a> {
-        let local = self.constants.iter().filter_map(move |(id, product)| (&id.0.module == module).then_some(product));
+        let local = self
+            .constants
+            .iter()
+            .filter_map(move |(id, product)| (&id.0.module == module).then_some(product));
         match &self.parent {
             Some(parent) => Box::new(parent.module_constants(module).chain(local)),
             None => Box::new(local),

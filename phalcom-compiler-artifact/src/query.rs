@@ -117,16 +117,11 @@ impl QueryImageV1 {
         Ok(out.into_vec())
     }
 
-    pub fn decode_with_allocation_budget(
-        bytes: &[u8],
-        limits: &ValidationLimits,
-        transaction: &mut AllocationBudget,
-    ) -> Result<Self, ArtifactError> {
+    pub fn decode_with_allocation_budget(bytes: &[u8], limits: &ValidationLimits, transaction: &mut AllocationBudget) -> Result<Self, ArtifactError> {
         // The input is borrowed. Charge only allocations made while constructing
         // the DTO. A child ledger enforces the section limit independently of
         // the parent transaction and commits only after complete validation.
-        let section_limit = usize::try_from(limits.max_decoded_section_bytes)
-            .map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
         let mut allocation_budget = transaction.child(section_limit);
         let mut reader = BinaryReader::new(bytes);
         let schema = reader.read_u32()?;
@@ -140,8 +135,7 @@ impl QueryImageV1 {
         let mut supported_roots = reserve_vec::<QueryRootEntryV1>(&mut allocation_budget, root_count)?;
         for _ in 0..root_count {
             let kind_raw = reader.read_u16()?;
-            let kind = PortableQueryKindV1::from_raw(kind_raw)
-                .ok_or_else(|| ValidationError::ReferentialIntegrity("unknown query kind".into()))?;
+            let kind = PortableQueryKindV1::from_raw(kind_raw).ok_or_else(|| ValidationError::ReferentialIntegrity("unknown query kind".into()))?;
             let stable_owner_key = read_owned_string(&mut reader, limits, &mut allocation_budget)?;
             let dep_count = reader.read_u32()? as usize;
             if dep_count > limits.max_semantic_entries_per_family {
@@ -163,8 +157,7 @@ impl QueryImageV1 {
         let mut dependency_evidence = reserve_vec::<DependencyEvidenceEntryV1>(&mut allocation_budget, ev_count)?;
         for _ in 0..ev_count {
             let kind_raw = reader.read_u16()?;
-            let kind = PortableQueryKindV1::from_raw(kind_raw)
-                .ok_or_else(|| ValidationError::ReferentialIntegrity("unknown query kind".into()))?;
+            let kind = PortableQueryKindV1::from_raw(kind_raw).ok_or_else(|| ValidationError::ReferentialIntegrity("unknown query kind".into()))?;
             let stable_owner_key = read_owned_string(&mut reader, limits, &mut allocation_budget)?;
             let stable_aggregate_owner = read_owned_string(&mut reader, limits, &mut allocation_budget)?;
             dependency_evidence.push(DependencyEvidenceEntryV1 {
@@ -175,21 +168,20 @@ impl QueryImageV1 {
         if reader.has_remaining() {
             return Err(ValidationError::ReferentialIntegrity("trailing query image bytes".into()).into());
         }
-        let image = Self { supported_roots, dependency_evidence };
+        let image = Self {
+            supported_roots,
+            dependency_evidence,
+        };
         image.validate(limits)?;
-        transaction
-            .commit_child(allocation_budget)
-            .map_err(allocation_error)?;
+        transaction.commit_child(allocation_budget).map_err(allocation_error)?;
         Ok(image)
     }
 
     pub fn decode_with_budget(bytes: &[u8], limits: &ValidationLimits, remaining_budget: &mut u64) -> Result<Self, ArtifactError> {
-        let available = usize::try_from(*remaining_budget)
-            .map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let available = usize::try_from(*remaining_budget).map_err(|_| allocation_error(AllocationError::Overflow))?;
         let mut transaction = AllocationBudget::new(available);
         let image = Self::decode_with_allocation_budget(bytes, limits, &mut transaction)?;
-        *remaining_budget = u64::try_from(transaction.remaining())
-            .map_err(|_| allocation_error(AllocationError::Overflow))?;
+        *remaining_budget = u64::try_from(transaction.remaining()).map_err(|_| allocation_error(AllocationError::Overflow))?;
         Ok(image)
     }
 
@@ -217,11 +209,7 @@ fn reserve_vec<T>(remaining: &mut AllocationBudget, count: usize) -> Result<Vec<
     remaining.vector(count).map_err(allocation_error)
 }
 
-fn read_owned_string(
-    reader: &mut BinaryReader<'_>,
-    limits: &ValidationLimits,
-    remaining: &mut AllocationBudget,
-) -> Result<String, ArtifactError> {
+fn read_owned_string(reader: &mut BinaryReader<'_>, limits: &ValidationLimits, remaining: &mut AllocationBudget) -> Result<String, ArtifactError> {
     let value = reader.read_str(limits.max_string_bytes)?;
     remaining.string(value).map_err(allocation_error)
 }

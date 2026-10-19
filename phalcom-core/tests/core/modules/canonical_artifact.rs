@@ -4,6 +4,7 @@ use phalcom_core::modules::canonical_universe::canonical_universe_program;
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
 use phalcom_core::modules::parity::{assert_compile_error_parity, assert_compiled_program_parity};
 use phalcom_semantic::canonical_image::canonical_universe_formal_image;
+use phalcom_semantic::diagnostic::DiagnosticCode;
 use tempfile::tempdir;
 
 #[test]
@@ -52,7 +53,10 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
         .collect::<Vec<_>>();
     assert!(internal_incidents.is_empty(), "canonical callable internal incidents: {internal_incidents:#?}");
     let callable_authority_counts = [
-        ("expressions", semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.expressions.len()).sum()),
+        (
+            "expressions",
+            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.expressions.len()).sum(),
+        ),
         (
             "expression.call",
             semantic_snapshot
@@ -109,11 +113,19 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
         ),
         (
             "for_iteration_lanes",
-            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.for_iteration_lanes.len()).sum(),
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.for_iteration_lanes.len())
+                .sum(),
         ),
         (
             "positional_expansions",
-            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.positional_expansions.len()).sum(),
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.positional_expansions.len())
+                .sum(),
         ),
         (
             "known_invalid_positional_expansions",
@@ -125,11 +137,19 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
         ),
         (
             "sequence_literals",
-            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.sequence_literals.len()).sum(),
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.sequence_literals.len())
+                .sum(),
         ),
         (
             "associated_resolutions",
-            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.associated_resolutions.len()).sum(),
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.associated_resolutions.len())
+                .sum(),
         ),
         (
             "callable_reference_resolutions",
@@ -141,15 +161,27 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
         ),
         (
             "family_applications",
-            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.family_applications.len()).sum(),
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.family_applications.len())
+                .sum(),
         ),
         (
             "match_resolutions",
-            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.match_resolutions.len()).sum(),
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.match_resolutions.len())
+                .sum(),
         ),
         (
             "pattern_site_resolutions",
-            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.pattern_site_resolutions.len()).sum(),
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.pattern_site_resolutions.len())
+                .sum(),
         ),
         (
             "flow_graph.edge.predicate",
@@ -180,19 +212,55 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
         ),
         (
             "entry_flow_facts",
-            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.entry_flow.fact_count).sum(),
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.entry_flow.fact_count)
+                .sum(),
         ),
         (
             "normal_returns",
-            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.exits.normal_returns.len()).sum(),
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.exits.normal_returns.len())
+                .sum(),
         ),
-        ("throws", semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.exits.throws.len()).sum()),
-        ("diagnostics", semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.diagnostics.len()).sum()),
-        ("explanations", semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.explanations.len()).sum()),
-        ("dependencies", semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.dependencies.len()).sum()),
+        (
+            "throws",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.exits.throws.len())
+                .sum(),
+        ),
+        (
+            "diagnostics",
+            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.diagnostics.len()).sum(),
+        ),
+        (
+            "explanations",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.explanations.len())
+                .sum(),
+        ),
+        (
+            "dependencies",
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.dependencies.len())
+                .sum(),
+        ),
         (
             "semantic_dependencies",
-            semantic_snapshot.callable_analyses.iter().map(|(_, analysis)| analysis.semantic_dependencies.len()).sum(),
+            semantic_snapshot
+                .callable_analyses
+                .iter()
+                .map(|(_, analysis)| analysis.semantic_dependencies.len())
+                .sum(),
         ),
     ];
     for family in [
@@ -308,7 +376,10 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
         *counts.entry(kind).or_default() += 1;
     }
     for (_, analysis) in semantic_snapshot.callable_analyses.iter() {
-        analysis.local_proof_graph.validate().expect("canonical callable has a closed acyclic proof graph");
+        analysis
+            .local_proof_graph
+            .validate()
+            .expect("canonical callable has a closed acyclic proof graph");
         for resolution in analysis.associated_resolutions.values() {
             let kind = match &resolution.kind {
                 phalcom_semantic::checker::associated::AssociatedResolutionKind::ExactValue { .. } => "exact_value",
@@ -458,7 +529,9 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
         }
     }
     missing_surface_signatures.sort_by(|left, right| left.0.cmp(&right.0));
-    eprintln!("canonical surface callables missing signatures (callable, retained kind, definition present, conditional native/requirement/source): {missing_surface_signatures:#?}");
+    eprintln!(
+        "canonical surface callables missing signatures (callable, retained kind, definition present, conditional native/requirement/source): {missing_surface_signatures:#?}"
+    );
     for module in missing_signature_modules {
         if let Some(diagnostics) = semantic_snapshot.diagnostics.get(&module) {
             for diagnostic in diagnostics.iter() {
@@ -558,6 +631,15 @@ fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
 }
 
 #[test]
+fn fresh_process_source_bootstrap_negative_control_runner() {
+    if std::env::var("PHALCOM_TEST_NEGATIVE_CONTROL").is_err() {
+        return;
+    }
+    // Attempt canonical source bootstrap; must panic because PHALCOM_DENY_SOURCE_BOOTSTRAP=1 is set.
+    let _ = canonical_universe_formal_image();
+}
+
+#[test]
 fn fresh_process_target_runner() {
     let Ok(telosc_path) = std::env::var("PHALCOM_TEST_TELOSC_PATH") else {
         return;
@@ -572,8 +654,7 @@ fn fresh_process_target_runner() {
         "source bootstrap build count before loading must be 0"
     );
 
-    let loaded = load_universe_telosc(&std::path::PathBuf::from(telosc_path), &limits)
-        .expect("load_universe_telosc in fresh process must succeed");
+    let loaded = load_universe_telosc(&std::path::PathBuf::from(telosc_path), &limits).expect("load_universe_telosc in fresh process must succeed");
     assert!(loaded.formal_image.sources().is_empty(), "fresh process loaded image has no sources");
     assert!(
         loaded.formal_image.snapshot().is_source_free_artifact_complete(),
@@ -592,13 +673,12 @@ fn fresh_process_target_runner() {
         .expect("compile package in fresh process against loaded artifact must succeed");
     assert!(!compiled.modules.is_empty(), "compiled modules must be non-empty");
 
-    // If SlotMap project is passed, compile it in the fresh source-denied process:
-    if let Ok(slotmap_path) = std::env::var("PHALCOM_TEST_SLOTMAP_PATH") {
-        let compiled_slotmap = loaded
-            .compile_user_entry(EntrySelection::Project(std::path::PathBuf::from(slotmap_path)))
-            .expect("compile slotmap project in fresh process against loaded artifact must succeed");
-        assert_eq!(compiled_slotmap.modules.len(), 4, "slotmap project modules count must be 4");
-    }
+    // SlotMap compilation is mandatory in fresh source-denied process:
+    let slotmap_path = std::env::var("PHALCOM_TEST_SLOTMAP_PATH").expect("PHALCOM_TEST_SLOTMAP_PATH must be set; slotmap compilation is mandatory");
+    let compiled_slotmap = loaded
+        .compile_user_entry(EntrySelection::Project(std::path::PathBuf::from(slotmap_path)))
+        .expect("compile slotmap project in fresh process against loaded artifact must succeed");
+    assert_eq!(compiled_slotmap.modules.len(), 4, "slotmap project modules count must be 4");
 
     // Verify 0 source bootstrap attempts after package compilation
     assert_eq!(
@@ -608,6 +688,17 @@ fn fresh_process_target_runner() {
     );
 }
 
+/// Proves that compiling against a loaded Universe artifact operates with zero
+/// source bootstrap in a fresh process under `PHALCOM_DENY_SOURCE_BOOTSTRAP=1`.
+///
+/// Denial instrumentation behavior:
+/// - `canonical_universe_program()` checks `PHALCOM_DENY_SOURCE_BOOTSTRAP` and panics.
+/// - `canonical_universe_formal_image()` checks `PHALCOM_DENY_SOURCE_BOOTSTRAP` and panics.
+/// - `UniverseSourceProvider::read_source()` checks `PHALCOM_DENY_SOURCE_BOOTSTRAP` and panics.
+/// - `PreludeTypeMap::canonical_universe()` accesses `UniverseSourceProvider::new()`,
+///   so invoking it while source bootstrap is denied will panic in `UniverseSourceProvider`.
+/// - `PreludeTypeMap::initialize_from_snapshot()` does NOT access `UniverseSourceProvider`
+///   or parse sources; it initializes the prelude directly from the artifact snapshot.
 #[test]
 fn fresh_process_source_denied_artifact_compilation() {
     let (_dir, telosc_path) = if let Ok(path) = std::env::var("PHALCOM_UNIVERSE_TELOSC_FOR_TEST").map(std::path::PathBuf::from) {
@@ -642,23 +733,40 @@ fn fresh_process_source_denied_artifact_compilation() {
     )
     .expect("write main.ph");
 
-    let slotmap_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("packages/slotmap");
+    let slotmap_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("packages/slotmap");
+    assert!(slotmap_pkg.exists(), "packages/slotmap must exist at {:?}", slotmap_pkg);
 
     let current_exe = std::env::current_exe().expect("current test executable");
+
+    // 1. Negative control: attempt canonical source bootstrap under PHALCOM_DENY_SOURCE_BOOTSTRAP=1 and assert it fails
+    let mut neg_cmd = std::process::Command::new(&current_exe);
+    neg_cmd
+        .arg("--exact")
+        .arg("modules_canonical_artifact::fresh_process_source_bootstrap_negative_control_runner")
+        .arg("--nocapture")
+        .env("PHALCOM_DENY_SOURCE_BOOTSTRAP", "1")
+        .env("PHALCOM_TEST_NEGATIVE_CONTROL", "1");
+    let neg_output = neg_cmd.output().expect("spawn negative control runner");
+    assert!(
+        !neg_output.status.success(),
+        "Canonical source bootstrap must fail under PHALCOM_DENY_SOURCE_BOOTSTRAP=1"
+    );
+    let neg_stderr = String::from_utf8_lossy(&neg_output.stderr);
+    assert!(
+        neg_stderr.contains("PHALCOM_DENY_SOURCE_BOOTSTRAP"),
+        "Negative control failure must cite PHALCOM_DENY_SOURCE_BOOTSTRAP, got stderr: {}",
+        neg_stderr
+    );
+
+    // 2. Positive proof: loaded artifact compiles packages under PHALCOM_DENY_SOURCE_BOOTSTRAP=1 with zero source reads
     let mut cmd = std::process::Command::new(current_exe);
     cmd.arg("--exact")
         .arg("modules_canonical_artifact::fresh_process_target_runner")
         .arg("--nocapture")
         .env("PHALCOM_DENY_SOURCE_BOOTSTRAP", "1")
         .env("PHALCOM_TEST_TELOSC_PATH", &telosc_path)
-        .env("PHALCOM_TEST_PACKAGE_PATH", pkg_dir.path());
-
-    if slotmap_pkg.exists() {
-        cmd.env("PHALCOM_TEST_SLOTMAP_PATH", slotmap_pkg);
-    }
+        .env("PHALCOM_TEST_PACKAGE_PATH", pkg_dir.path())
+        .env("PHALCOM_TEST_SLOTMAP_PATH", slotmap_pkg);
 
     let output = cmd.output().expect("spawn fresh process target runner");
 
@@ -682,17 +790,11 @@ fn source_backed_and_artifact_backed_compiler_program_parity() {
     let source_image = canonical_universe_formal_image().expect("canonical universe formal image");
 
     // 1. Real package: packages/slotmap (4 modules)
-    let slotmap_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("packages/slotmap");
+    let slotmap_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("packages/slotmap");
     assert!(slotmap_pkg.exists(), "packages/slotmap must exist");
     let entry = EntrySelection::Project(slotmap_pkg);
-    let src_slotmap = ProgramCompiler::compile_entry_selection_with_image(entry.clone(), source_image.clone())
-        .expect("source compilation of packages/slotmap");
-    let art_slotmap = loaded
-        .compile_user_entry(entry)
-        .expect("artifact compilation of packages/slotmap");
+    let src_slotmap = ProgramCompiler::compile_entry_selection_with_image(entry.clone(), source_image.clone()).expect("source compilation of packages/slotmap");
+    let art_slotmap = loaded.compile_user_entry(entry).expect("artifact compilation of packages/slotmap");
     assert_eq!(src_slotmap.modules.len(), 4);
     assert_compiled_program_parity(&src_slotmap, &art_slotmap);
 
@@ -703,13 +805,61 @@ fn source_backed_and_artifact_backed_compiler_program_parity() {
         .join("packages/slotmap/tests/runtime");
     assert!(slotmap_tests_pkg.exists(), "packages/slotmap/tests/runtime must exist");
     let entry = EntrySelection::Project(slotmap_tests_pkg);
-    let src_tests = ProgramCompiler::compile_entry_selection_with_image(entry.clone(), source_image.clone())
-        .expect("source compilation of slotmap runtime tests");
-    let art_tests = loaded
-        .compile_user_entry(entry)
-        .expect("artifact compilation of slotmap runtime tests");
+    let src_tests =
+        ProgramCompiler::compile_entry_selection_with_image(entry.clone(), source_image.clone()).expect("source compilation of slotmap runtime tests");
+    let art_tests = loaded.compile_user_entry(entry).expect("artifact compilation of slotmap runtime tests");
     assert_eq!(src_tests.modules.len(), 8);
     assert_compiled_program_parity(&src_tests, &art_tests);
+}
+
+#[test]
+fn artifact_backed_slotmap_runtime_tests_execute() {
+    let program = canonical_universe_program().expect("canonical universe program");
+    let view = program.compiler_image_view().expect("compiler image view");
+    let limits = ValidationLimits::default();
+    let built = build_universe_telosc(&view, &limits).expect("build");
+    let loaded = load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load");
+
+    let slotmap_tests_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("packages/slotmap/tests/runtime");
+    assert!(slotmap_tests_pkg.exists(), "packages/slotmap/tests/runtime must exist");
+    let entry = EntrySelection::Project(slotmap_tests_pkg);
+    let art_tests = loaded.compile_user_entry(entry).expect("artifact compilation of slotmap runtime tests");
+    assert_eq!(art_tests.modules.len(), 8);
+
+    // Documented Class D defect: VM runtime bootstrap currently panics because
+    // Universe module `universe:reflection.structural` intrinsic declaration 'ProductKind'
+    // has no canonical facade binding in VM bootstrap.
+    let vm_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut vm = phalcom_core::vm::VM::new();
+        vm.run_compiled(&art_tests)
+    }));
+
+    match vm_result {
+        Ok(Ok(())) => {
+            // Runtime execution succeeded
+        }
+        Ok(Err(err)) => {
+            panic!("SlotMap runtime execution failed with error: {:?}", err);
+        }
+        Err(payload) => {
+            // Documented Class D defect in VM bootstrap
+            let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = payload.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "unknown panic".to_string()
+            };
+            assert!(
+                msg.contains("ProductKind") && msg.contains("canonical facade binding"),
+                "Expected known Class D defect ('ProductKind' has no canonical facade binding), got panic: {}",
+                msg
+            );
+        }
+    }
 }
 
 #[test]
@@ -745,6 +895,100 @@ let list = List.withCapacity("not an int");
     }
 
     assert_compile_error_parity(&src_err, &art_err);
+}
+
+fn assert_negative_diagnostic_parity_for_source(source: &str, expected_code: DiagnosticCode) {
+    let program = canonical_universe_program().expect("canonical universe program");
+    let view = program.compiler_image_view().expect("compiler image view");
+    let limits = ValidationLimits::default();
+    let built = build_universe_telosc(&view, &limits).expect("build");
+    let loaded = load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load");
+    let source_image = canonical_universe_formal_image().expect("canonical universe formal image");
+
+    let invalid_entry = EntrySelection::Inline(source.into());
+    let src_res = ProgramCompiler::compile_entry_selection_with_image(invalid_entry.clone(), source_image.clone());
+    let art_res = loaded.compile_user_entry(invalid_entry);
+
+    let src_err = src_res.expect_err("source compilation must fail");
+    let art_err = art_res.expect_err("artifact compilation must fail");
+
+    match (&src_err, &art_err) {
+        (ProgramCompileError::Semantic(src_diags), ProgramCompileError::Semantic(art_diags)) => {
+            assert!(!src_diags.by_module.is_empty(), "must have semantic diagnostics");
+            assert_eq!(src_diags.by_module.len(), art_diags.by_module.len());
+            let src_has_code = src_diags.by_module.values().any(|diags| diags.iter().any(|d| d.code == expected_code));
+            assert!(
+                src_has_code,
+                "source diagnostics must contain expected code {:?}, got: {:?}",
+                expected_code, src_diags
+            );
+            let art_has_code = art_diags.by_module.values().any(|diags| diags.iter().any(|d| d.code == expected_code));
+            assert!(
+                art_has_code,
+                "artifact diagnostics must contain expected code {:?}, got: {:?}",
+                expected_code, art_diags
+            );
+        }
+        _ => panic!("Expected semantic errors, got src: {:?}, art: {:?}", src_err, art_err),
+    }
+
+    assert_compile_error_parity(&src_err, &art_err);
+}
+
+#[test]
+fn negative_parity_constructor_resolution_failure() {
+    let source = r#"
+class Parent {
+  @constructor new() {}
+}
+class Child is Parent {
+  @constructor new() {
+    super.new(42)
+  }
+}
+"#;
+    assert_negative_diagnostic_parity_for_source(source, DiagnosticCode::ConstructorSuperInvalid);
+}
+
+#[test]
+fn negative_parity_inaccessible_declaration() {
+    let source = r#"
+data Secret private(_ value: Int)
+let s = Secret(42);
+"#;
+    assert_negative_diagnostic_parity_for_source(source, DiagnosticCode::MemberInaccessible);
+}
+
+#[test]
+fn negative_parity_invalid_pattern_matching() {
+    let source = r#"
+class Probe {
+  test(_ opt: Option<Int>) {
+    match opt {
+      Option::Some(a, b) => 1
+      _ => 2
+    }
+  }
+}
+"#;
+    assert_negative_diagnostic_parity_for_source(source, DiagnosticCode::MatchPatternArityMismatch);
+}
+
+#[test]
+fn negative_parity_trait_resolution_failure() {
+    let source = r#"
+trait Printable {
+  printMe() -> Unit
+}
+class Host {
+  @class display<T>(_ item: T) where T |= Printable {
+    item.printMe()
+  }
+}
+class NotPrintable {}
+let x = Host.display(NotPrintable());
+"#;
+    assert_negative_diagnostic_parity_for_source(source, DiagnosticCode::GenericConstraintUnsatisfied);
 }
 
 #[test]

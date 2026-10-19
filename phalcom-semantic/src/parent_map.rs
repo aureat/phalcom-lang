@@ -1,9 +1,9 @@
 //! Immutable canonical maps with local-only mutable workspace contributions.
 
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedMap, SortedMapEntriesError};
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 use std::sync::Arc;
-use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedMap, SortedMapEntriesError};
 
 /// A deterministic map whose canonical parent is shared without copying entries.
 /// Mutations affect only local entries; canonical identities cannot be shadowed.
@@ -35,10 +35,7 @@ impl<K: Ord, V> ParentMap<K, V> {
     }
 
     /// Publishes immutable sorted authority from an already budgeted entry buffer.
-    pub fn from_frozen_entries_with_allocation_budget(
-        mut entries: Vec<(K, V)>,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, FrozenParentMapError> {
+    pub fn from_frozen_entries_with_allocation_budget(mut entries: Vec<(K, V)>, allocations: &mut AllocationBudget) -> Result<Self, FrozenParentMapError> {
         entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
         let frozen = BudgetedSortedMap::from_sorted_entries(entries).map_err(|error| match error {
             SortedMapEntriesError::DuplicateKey => FrozenParentMapError::DuplicateKey,
@@ -72,8 +69,7 @@ impl<K: Ord, V> ParentMap<K, V> {
     /// Inserts a local entry, rejecting collisions with canonical identities.
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         assert!(
-            !self.parent.as_ref().is_some_and(|parent| parent.contains_key(&key))
-                && !self.frozen.as_ref().is_some_and(|frozen| frozen.contains_key(&key)),
+            !self.parent.as_ref().is_some_and(|parent| parent.contains_key(&key)) && !self.frozen.as_ref().is_some_and(|frozen| frozen.contains_key(&key)),
             "cannot overwrite a canonical map entry"
         );
         self.local.insert(key, value)

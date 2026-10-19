@@ -156,4 +156,3 @@ fn test_allocation_helpers() {
     assert!(short_budget.arc_str(s).is_err());
     assert_eq!(short_budget.requested(), 0);
 }
-

@@ -155,9 +155,7 @@ impl CallableSignature {
                         RestValueContractKnowledge::Unconstrained => RestValueContractKnowledge::Unconstrained,
                         RestValueContractKnowledge::Element(ty) => RestValueContractKnowledge::Element(ty.clone_with_allocation_budget(allocations)?),
                         RestValueContractKnowledge::Lane(ty) => RestValueContractKnowledge::Lane(*ty),
-                        RestValueContractKnowledge::Invalid(reason) => {
-                            RestValueContractKnowledge::Invalid(reason.clone_with_allocation_budget(allocations)?)
-                        }
+                        RestValueContractKnowledge::Invalid(reason) => RestValueContractKnowledge::Invalid(reason.clone_with_allocation_budget(allocations)?),
                     },
                 },
             };
@@ -173,7 +171,11 @@ impl CallableSignature {
             selector: crate::traits::clone_selector_with_allocation_budget(&self.selector, allocations)?,
             parameters,
             return_type: self.return_type.clone_with_allocation_budget(allocations)?,
-            generics: self.generics.as_ref().map(|generics| generics.clone_with_allocation_budget(allocations)).transpose()?,
+            generics: self
+                .generics
+                .as_ref()
+                .map(|generics| generics.clone_with_allocation_budget(allocations))
+                .transpose()?,
             kind: self.kind,
         })
     }
@@ -386,13 +388,12 @@ impl SurfaceDispatchResolver {
         type_declarations: Vec<(TypeId, DeclarationId)>,
         allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
     ) -> Result<Self, FrozenDispatchImportError> {
-        let surfaces = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(surfaces, allocations)
-            .map_err(|error| match error {
-                crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
-                crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateOwner,
-            })?;
-        let type_declarations = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(type_declarations, allocations)
-            .map_err(|error| match error {
+        let surfaces = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(surfaces, allocations).map_err(|error| match error {
+            crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
+            crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateOwner,
+        })?;
+        let type_declarations =
+            crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(type_declarations, allocations).map_err(|error| match error {
                 crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
                 crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateType,
             })?;
@@ -417,22 +418,18 @@ impl SurfaceDispatchResolver {
         inherent_impl_domains: Vec<(crate::identity::ImplId, Arc<crate::impls::InherentImplDomain>)>,
         allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
     ) -> Result<Self, FrozenDispatchImportError> {
-        let conditional_members = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(conditional_members, allocations)
-            .map_err(|error| match error {
+        let conditional_members =
+            crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(conditional_members, allocations).map_err(|error| match error {
                 crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
                 crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateConditionalTarget,
             })?;
-        let inherent_impl_domains = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(inherent_impl_domains, allocations)
-            .map_err(|error| match error {
+        let inherent_impl_domains =
+            crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(inherent_impl_domains, allocations).map_err(|error| match error {
                 crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
                 crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateDomain,
             })?;
-        self.conditional_members = allocations
-            .arc(conditional_members)
-            .map_err(FrozenDispatchImportError::Allocation)?;
-        self.inherent_impl_domains = allocations
-            .arc(inherent_impl_domains)
-            .map_err(FrozenDispatchImportError::Allocation)?;
+        self.conditional_members = allocations.arc(conditional_members).map_err(FrozenDispatchImportError::Allocation)?;
+        self.inherent_impl_domains = allocations.arc(inherent_impl_domains).map_err(FrozenDispatchImportError::Allocation)?;
         Ok(self)
     }
 

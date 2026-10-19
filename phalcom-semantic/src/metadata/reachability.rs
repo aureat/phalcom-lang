@@ -1,9 +1,9 @@
+use super::export::MetadataExporter;
 use crate::declarations::DeclarationTypeTable;
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, FieldId, ModuleId};
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::type_alias::TypeAliasTable;
 use crate::types::id::TypeId;
-use super::export::MetadataExporter;
 use phalcom_type_meta::header::MetadataProfile;
 use std::collections::{BTreeSet, VecDeque};
 
@@ -23,19 +23,11 @@ impl MetadataRootSet {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.runtime_types.is_empty()
-            && self.declarations.is_empty()
-            && self.aliases.is_empty()
-            && self.callables.is_empty()
-            && self.fields.is_empty()
+        self.runtime_types.is_empty() && self.declarations.is_empty() && self.aliases.is_empty() && self.callables.is_empty() && self.fields.is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.runtime_types.len()
-            + self.declarations.len()
-            + self.aliases.len()
-            + self.callables.len()
-            + self.fields.len()
+        self.runtime_types.len() + self.declarations.len() + self.aliases.len() + self.callables.len() + self.fields.len()
     }
 
     pub fn insert_runtime_type(&mut self, ty: TypeId) -> bool {
@@ -69,7 +61,11 @@ pub struct MetadataRetentionRequest<'a> {
 
 impl<'a> MetadataRetentionRequest<'a> {
     pub fn new(profile: MetadataProfile, roots: &'a MetadataRootSet) -> Self {
-        Self { profile, roots, member_surfaces: None }
+        Self {
+            profile,
+            roots,
+            member_surfaces: None,
+        }
     }
 
     /// Uses canonical published visibility when retaining declaration members.
@@ -139,14 +135,7 @@ where
             roots: &roots,
             member_surfaces: request.member_surfaces,
         };
-        let (closure, round_metrics) = compute_entity_closure(
-            &round_request,
-            declarations,
-            callables,
-            fields,
-            aliases,
-            &is_external_module,
-        );
+        let (closure, round_metrics) = compute_entity_closure(&round_request, declarations, callables, fields, aliases, &is_external_module);
 
         accumulated_metrics.entities_visited += round_metrics.entities_visited;
         accumulated_metrics.dependency_edges_traversed += round_metrics.dependency_edges_traversed;
@@ -257,8 +246,14 @@ where
                         if request.profile != MetadataProfile::RuntimeMinimal {
                             if let Some(call_table) = callables {
                                 for (cid, _) in call_table.iter_declaration_owner(&decl_id) {
-                                    if request.member_surfaces.is_some_and(|surfaces| surfaces.get(&decl_id)
-                                        .and_then(|surface| surface.surface(cid.side).callable_visibility.get(&cid.selector)) != Some(&crate::surface::MemberVisibility::Public)) { continue; }
+                                    if request.member_surfaces.is_some_and(|surfaces| {
+                                        surfaces
+                                            .get(&decl_id)
+                                            .and_then(|surface| surface.surface(cid.side).callable_visibility.get(&cid.selector))
+                                            != Some(&crate::surface::MemberVisibility::Public)
+                                    }) {
+                                        continue;
+                                    }
                                     metrics.dependency_edges_traversed += 1;
                                     if !is_external_module(cid.owner.module()) {
                                         if closure.callables.insert(cid.clone()) {
@@ -272,8 +267,14 @@ where
 
                             if let Some(field_table) = fields {
                                 for (fid, _) in field_table.iter_owner(&decl_id) {
-                                    if request.member_surfaces.is_some_and(|surfaces| surfaces.get(&decl_id)
-                                        .and_then(|surface| surface.surface(fid.side).field_visibility.get(fid.name.as_ref())) != Some(&crate::surface::MemberVisibility::Public)) { continue; }
+                                    if request.member_surfaces.is_some_and(|surfaces| {
+                                        surfaces
+                                            .get(&decl_id)
+                                            .and_then(|surface| surface.surface(fid.side).field_visibility.get(fid.name.as_ref()))
+                                            != Some(&crate::surface::MemberVisibility::Public)
+                                    }) {
+                                        continue;
+                                    }
                                     metrics.dependency_edges_traversed += 1;
                                     if !is_external_module(&fid.owner.module) {
                                         if closure.fields.insert(fid.clone()) {
@@ -364,7 +365,6 @@ where
                     }
                 }
             }
-
         }
     }
 
@@ -376,11 +376,7 @@ where
     (closure, metrics)
 }
 
-fn enqueue_generic_signature(
-    sig: &crate::types::parameter::GenericSignature,
-    closure: &mut MetadataReachabilityClosure,
-    metrics: &mut ReachabilityMetrics,
-) {
+fn enqueue_generic_signature(sig: &crate::types::parameter::GenericSignature, closure: &mut MetadataReachabilityClosure, metrics: &mut ReachabilityMetrics) {
     for constraint in sig.constraints.iter() {
         match constraint {
             crate::types::parameter::GenericConstraint::Subtype { lower, upper } => {
@@ -498,14 +494,10 @@ mod tests {
         minimal_roots.insert_declaration(local_decl.clone());
 
         let req_minimal = MetadataRetentionRequest::new(MetadataProfile::RuntimeMinimal, &minimal_roots);
-        let (closure_min, metrics_min) = compute_entity_closure(
-            &req_minimal,
-            Some(&decl_table),
-            Some(&call_table),
-            Some(&field_table),
-            None,
-            &|m: &ModuleId| m.project.is_universe(),
-        );
+        let (closure_min, metrics_min) =
+            compute_entity_closure(&req_minimal, Some(&decl_table), Some(&call_table), Some(&field_table), None, &|m: &ModuleId| {
+                m.project.is_universe()
+            });
 
         assert_eq!(closure_min.declarations.len(), 1);
         assert_eq!(closure_min.callables.len(), 0);
@@ -518,14 +510,9 @@ mod tests {
         public_roots.insert_declaration(local_decl.clone());
 
         let req_pub = MetadataRetentionRequest::new(MetadataProfile::RuntimePublic, &public_roots);
-        let (closure_pub, metrics_pub) = compute_entity_closure(
-            &req_pub,
-            Some(&decl_table),
-            Some(&call_table),
-            Some(&field_table),
-            None,
-            &|m: &ModuleId| m.project.is_universe(),
-        );
+        let (closure_pub, metrics_pub) = compute_entity_closure(&req_pub, Some(&decl_table), Some(&call_table), Some(&field_table), None, &|m: &ModuleId| {
+            m.project.is_universe()
+        });
 
         assert_eq!(closure_pub.declarations.len(), 1);
         assert_eq!(closure_pub.callables.len(), 1);
@@ -544,14 +531,7 @@ mod tests {
         roots.insert_declaration(canonical_decl.clone());
 
         let req = MetadataRetentionRequest::new(MetadataProfile::RuntimePublic, &roots);
-        let (closure, metrics) = compute_entity_closure(
-            &req,
-            None,
-            None,
-            None,
-            None,
-            &|m: &ModuleId| m.project.is_universe(),
-        );
+        let (closure, metrics) = compute_entity_closure(&req, None, None, None, None, &|m: &ModuleId| m.project.is_universe());
 
         assert_eq!(closure.declarations.len(), 0);
         assert_eq!(metrics.canonical_declarations_elided, 1);
@@ -565,10 +545,7 @@ mod tests {
 
         let mut store = TypeStore::new();
         let mut alloc = phalcom_modules::identity::SyntheticProjectIdAllocator;
-        let local_mod = ModuleId::synthetic(
-            alloc.allocate(),
-            phalcom_modules::identity::ModulePath::root(),
-        );
+        let local_mod = ModuleId::synthetic(alloc.allocate(), phalcom_modules::identity::ModulePath::root());
         let external_mod = ModuleId::universe_root();
 
         let decl_record = DeclarationId::new(local_mod.clone(), "RecordChild".into());
@@ -635,52 +612,40 @@ mod tests {
 
         // Test 1: RuntimePublic profile - all valid nested local nominals discovered, external elided, failing rolled back
         let req_pub = MetadataRetentionRequest::new(MetadataProfile::RuntimePublic, &roots);
-        let mut exporter_pub = MetadataExporter::new(
-            &store,
-            Some(&decl_table),
-            None,
-            None,
-            MetadataProfile::RuntimePublic,
-        );
+        let mut exporter_pub = MetadataExporter::new(&store, Some(&decl_table), None, None, MetadataProfile::RuntimePublic);
 
-        let (closure_pub, metrics_pub) = compute_reachability_closure(
-            &req_pub,
-            Some(&decl_table),
-            None,
-            None,
-            None,
-            &mut exporter_pub,
-            |m| m.project.is_universe(),
-        );
+        let (closure_pub, metrics_pub) =
+            compute_reachability_closure(&req_pub, Some(&decl_table), None, None, None, &mut exporter_pub, |m| m.project.is_universe());
 
         assert!(closure_pub.declarations.contains(&decl_record), "Record child nominal must be discovered");
         assert!(closure_pub.declarations.contains(&decl_callable), "Callable child nominal must be discovered");
         assert!(closure_pub.declarations.contains(&decl_pack), "Pack child nominal must be discovered");
-        assert!(closure_pub.declarations.contains(&decl_proj_subj), "Projection subject child nominal must be discovered");
-        assert!(closure_pub.declarations.contains(&decl_proj_arg), "Projection argument child nominal must be discovered");
-        assert!(!closure_pub.declarations.contains(&decl_external), "External child nominal must be elided from retained declarations");
-        assert_eq!(metrics_pub.canonical_declarations_elided, 1, "External child nominal must be counted in elided metric");
-        assert!(!closure_pub.declarations.contains(&decl_rolled_back), "Failed type root dependencies must be rolled back");
+        assert!(
+            closure_pub.declarations.contains(&decl_proj_subj),
+            "Projection subject child nominal must be discovered"
+        );
+        assert!(
+            closure_pub.declarations.contains(&decl_proj_arg),
+            "Projection argument child nominal must be discovered"
+        );
+        assert!(
+            !closure_pub.declarations.contains(&decl_external),
+            "External child nominal must be elided from retained declarations"
+        );
+        assert_eq!(
+            metrics_pub.canonical_declarations_elided, 1,
+            "External child nominal must be counted in elided metric"
+        );
+        assert!(
+            !closure_pub.declarations.contains(&decl_rolled_back),
+            "Failed type root dependencies must be rolled back"
+        );
 
         // Test 2: RuntimeMinimal profile - nested nominal declarations are not retained into declarations closure
         let req_min = MetadataRetentionRequest::new(MetadataProfile::RuntimeMinimal, &roots);
-        let mut exporter_min = MetadataExporter::new(
-            &store,
-            Some(&decl_table),
-            None,
-            None,
-            MetadataProfile::RuntimeMinimal,
-        );
+        let mut exporter_min = MetadataExporter::new(&store, Some(&decl_table), None, None, MetadataProfile::RuntimeMinimal);
 
-        let (closure_min, _) = compute_reachability_closure(
-            &req_min,
-            Some(&decl_table),
-            None,
-            None,
-            None,
-            &mut exporter_min,
-            |m| m.project.is_universe(),
-        );
+        let (closure_min, _) = compute_reachability_closure(&req_min, Some(&decl_table), None, None, None, &mut exporter_min, |m| m.project.is_universe());
 
         assert!(!closure_min.declarations.contains(&decl_record));
         assert!(!closure_min.declarations.contains(&decl_callable));

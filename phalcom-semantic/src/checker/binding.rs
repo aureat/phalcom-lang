@@ -99,9 +99,7 @@ impl BindingConsistency {
             Self::Validated => Self::Validated,
             Self::Assumed { basis } => Self::Assumed {
                 basis: match basis {
-                    AssumptionBasis::MissingValueEvidence(reason) => {
-                        AssumptionBasis::MissingValueEvidence(reason.clone_with_allocation_budget(allocations)?)
-                    }
+                    AssumptionBasis::MissingValueEvidence(reason) => AssumptionBasis::MissingValueEvidence(reason.clone_with_allocation_budget(allocations)?),
                     AssumptionBasis::CallableParameterContract => AssumptionBasis::CallableParameterContract,
                     AssumptionBasis::ContextualParameterContract => AssumptionBasis::ContextualParameterContract,
                     AssumptionBasis::DerivedEvidence(origin) => AssumptionBasis::DerivedEvidence(*origin),

@@ -50,14 +50,8 @@ fn validate_module_id(ids: &[ModuleId], id: ArtifactModuleId) -> Result<(), Arti
         Err(invalid("out-of-range artifact module reference"))
     }
 }
-fn module_id(
-    ids: &[ModuleId],
-    id: ArtifactModuleId,
-    allocations: &mut AllocationBudget,
-) -> Result<ModuleId, ArtifactError> {
-    let source = ids
-        .get(id.0 as usize)
-        .ok_or_else(|| invalid("out-of-range artifact module reference"))?;
+fn module_id(ids: &[ModuleId], id: ArtifactModuleId, allocations: &mut AllocationBudget) -> Result<ModuleId, ArtifactError> {
+    let source = ids.get(id.0 as usize).ok_or_else(|| invalid("out-of-range artifact module reference"))?;
     source.clone_with_allocation_budget(allocations).map_err(allocation_error)
 }
 fn portable_id(ids: &BTreeMap<ModuleId, ArtifactModuleId>, id: &ModuleId) -> Result<ArtifactModuleId, ArtifactError> {
@@ -264,12 +258,7 @@ fn literal_out(value: &MetadataLiteral, depth: usize, limits: &ValidationLimits)
         },
     })
 }
-fn literal_in(
-    value: &LiteralV1,
-    depth: usize,
-    limits: &ValidationLimits,
-    allocations: &mut AllocationBudget,
-) -> Result<MetadataLiteral, ArtifactError> {
+fn literal_in(value: &LiteralV1, depth: usize, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<MetadataLiteral, ArtifactError> {
     if depth >= limits.max_recursion_depth {
         return Err(invalid("metadata nesting exceeds limit"));
     }
@@ -316,11 +305,7 @@ fn metadata_out(value: &ModuleMetadata, limits: &ValidationLimits) -> Result<Vec
         })
         .collect()
 }
-fn metadata_in(
-    value: &[MetadataV1],
-    limits: &ValidationLimits,
-    allocations: &mut AllocationBudget,
-) -> Result<ModuleMetadata, ArtifactError> {
+fn metadata_in(value: &[MetadataV1], limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<ModuleMetadata, ArtifactError> {
     let mut attributes = allocations.vector::<ModuleMetadataAttribute>(value.len()).map_err(allocation_error)?;
     for attribute in value {
         let name = allocations.string(&attribute.name).map_err(allocation_error)?;
@@ -352,11 +337,7 @@ fn target_out(target: &LinkedReadSpec, ids: &BTreeMap<ModuleId, ArtifactModuleId
         },
     })
 }
-fn target_in(
-    target: &TargetV1,
-    ids: &[ModuleId],
-    allocations: &mut AllocationBudget,
-) -> Result<LinkedReadSpec, ArtifactError> {
+fn target_in(target: &TargetV1, ids: &[ModuleId], allocations: &mut AllocationBudget) -> Result<LinkedReadSpec, ArtifactError> {
     Ok(match target {
         TargetV1::Module { module } => LinkedReadSpec::Module(module_id(ids, *module, allocations)?),
         TargetV1::Binding { module, name } => {
@@ -381,11 +362,7 @@ fn node_out(node: &SemanticNodeId, ids: &BTreeMap<ModuleId, ArtifactModuleId>) -
         },
     })
 }
-fn node_in(
-    node: &SemanticNodeV1,
-    ids: &[ModuleId],
-    allocations: &mut AllocationBudget,
-) -> Result<SemanticNodeId, ArtifactError> {
+fn node_in(node: &SemanticNodeV1, ids: &[ModuleId], allocations: &mut AllocationBudget) -> Result<SemanticNodeId, ArtifactError> {
     Ok(match node {
         SemanticNodeV1::Module { module } => SemanticNodeId::Module(module_id(ids, *module, allocations)?),
         SemanticNodeV1::Declaration { module, name } => {
@@ -666,13 +643,23 @@ fn load_module_world_inner(
     if entry != ModuleId::universe_root() {
         return Err(invalid("Universe artifact entry must be its root module"));
     }
-    let mut interfaces_entries = allocations.vector::<(ModuleId, Arc<UnlinkedModuleInterface>)>(wire.modules.len()).map_err(allocation_error)?;
+    let mut interfaces_entries = allocations
+        .vector::<(ModuleId, Arc<UnlinkedModuleInterface>)>(wire.modules.len())
+        .map_err(allocation_error)?;
     let mut modules_entries = allocations.vector::<(ModuleId, LinkedModule)>(wire.modules.len()).map_err(allocation_error)?;
-    let mut ref_graph_entries = allocations.vector::<(ModuleId, Vec<ReferenceEdge>)>(wire.modules.len()).map_err(allocation_error)?;
-    let mut runtime_graph_entries = allocations.vector::<(ModuleId, Vec<RuntimeDependencyEdge>)>(wire.modules.len()).map_err(allocation_error)?;
+    let mut ref_graph_entries = allocations
+        .vector::<(ModuleId, Vec<ReferenceEdge>)>(wire.modules.len())
+        .map_err(allocation_error)?;
+    let mut runtime_graph_entries = allocations
+        .vector::<(ModuleId, Vec<RuntimeDependencyEdge>)>(wire.modules.len())
+        .map_err(allocation_error)?;
     let mut nodes_entries = allocations.vector::<(ModuleId, TopologyNode)>(wire.modules.len()).map_err(allocation_error)?;
-    let mut children_entries = allocations.vector::<(ModuleId, ModuleAuthoritySet<ModuleId>)>(wire.modules.len()).map_err(allocation_error)?;
-    let mut exposed_entries = allocations.vector::<(ModuleId, ModuleAuthoritySet<ModuleComponent>)>(wire.modules.len()).map_err(allocation_error)?;
+    let mut children_entries = allocations
+        .vector::<(ModuleId, ModuleAuthoritySet<ModuleId>)>(wire.modules.len())
+        .map_err(allocation_error)?;
+    let mut exposed_entries = allocations
+        .vector::<(ModuleId, ModuleAuthoritySet<ModuleComponent>)>(wire.modules.len())
+        .map_err(allocation_error)?;
 
     for (index, payload) in wire.modules.iter().enumerate() {
         let id = &ids[index];
@@ -687,7 +674,9 @@ fn load_module_world_inner(
         ordered_names(payload.import_bindings.iter().map(|value| value.name.as_str()))?;
         ordered_names(payload.exposed_children.iter().map(String::as_str))?;
 
-        let mut decl_entries = allocations.vector::<(String, DeclarationSurface)>(payload.declarations.len()).map_err(allocation_error)?;
+        let mut decl_entries = allocations
+            .vector::<(String, DeclarationSurface)>(payload.declarations.len())
+            .map_err(allocation_error)?;
         for value in &payload.declarations {
             let key_name = allocations.string(&value.name).map_err(allocation_error)?;
             let surface_name = allocations.string(&value.name).map_err(allocation_error)?;
@@ -712,19 +701,15 @@ fn load_module_world_inner(
             let exported_name = allocations.string(&value.exported_name).map_err(allocation_error)?;
             let internal_name = allocations.string(&value.internal_name).map_err(allocation_error)?;
             let target = match &value.target {
-                UnlinkedTargetV1::Local { name } => {
-                    UnlinkedExportTarget::Local(allocations.string(name).map_err(allocation_error)?)
-                }
+                UnlinkedTargetV1::Local { name } => UnlinkedExportTarget::Local(allocations.string(name).map_err(allocation_error)?),
                 UnlinkedTargetV1::ReExport { path, remote } => UnlinkedExportTarget::ReExport {
                     path: path_in(path, allocations)?,
                     remote: allocations.string(remote).map_err(allocation_error)?,
                 },
-                UnlinkedTargetV1::CanonicalDeclaration { module, name } => {
-                    UnlinkedExportTarget::CanonicalDeclaration {
-                        module: module_id(&ids, *module, allocations)?,
-                        name: allocations.string(name).map_err(allocation_error)?,
-                    }
-                }
+                UnlinkedTargetV1::CanonicalDeclaration { module, name } => UnlinkedExportTarget::CanonicalDeclaration {
+                    module: module_id(&ids, *module, allocations)?,
+                    name: allocations.string(name).map_err(allocation_error)?,
+                },
             };
             export_entries.push((
                 key_name,
@@ -743,7 +728,9 @@ fn load_module_world_inner(
             imports.push(import_in(import, allocations)?);
         }
 
-        let mut exposed_vec = allocations.vector::<ModuleComponent>(payload.exposed_children.len()).map_err(allocation_error)?;
+        let mut exposed_vec = allocations
+            .vector::<ModuleComponent>(payload.exposed_children.len())
+            .map_err(allocation_error)?;
         for value in &payload.exposed_children {
             ModuleComponent::validate_identifier(value).map_err(|e| invalid(e))?;
             let boxed = allocations.boxed_str(value).map_err(allocation_error)?;
@@ -781,7 +768,9 @@ fn load_module_world_inner(
             return Err(invalid("unlinked interface fingerprint mismatch"));
         }
 
-        let mut linked_export_entries = allocations.vector::<(Box<str>, LinkedExport)>(payload.linked_exports.len()).map_err(allocation_error)?;
+        let mut linked_export_entries = allocations
+            .vector::<(Box<str>, LinkedExport)>(payload.linked_exports.len())
+            .map_err(allocation_error)?;
         for value in &payload.linked_exports {
             let target = match target_in(&value.target, &ids, allocations)? {
                 LinkedReadSpec::Module(module) => LinkedExportTarget::Module(module),
@@ -817,14 +806,18 @@ fn load_module_world_inner(
             return Err(invalid("linked interface fingerprint mismatch"));
         }
 
-        let mut globals_entries = allocations.vector::<(Box<str>, GlobalBindingId)>(payload.globals.len()).map_err(allocation_error)?;
+        let mut globals_entries = allocations
+            .vector::<(Box<str>, GlobalBindingId)>(payload.globals.len())
+            .map_err(allocation_error)?;
         for value in &payload.globals {
             let name = allocations.boxed_str(&value.name).map_err(allocation_error)?;
             globals_entries.push((name, GlobalBindingId(value.index)));
         }
         let globals = ModuleAuthorityMap::from_budgeted_sorted_entries(globals_entries, allocations).map_err(authority_error)?;
 
-        let mut import_binding_entries = allocations.vector::<(Box<str>, ImportBindingId)>(payload.import_bindings.len()).map_err(allocation_error)?;
+        let mut import_binding_entries = allocations
+            .vector::<(Box<str>, ImportBindingId)>(payload.import_bindings.len())
+            .map_err(allocation_error)?;
         for value in &payload.import_bindings {
             let name = allocations.boxed_str(&value.name).map_err(allocation_error)?;
             import_binding_entries.push((name, ImportBindingId(value.index)));
@@ -883,7 +876,9 @@ fn load_module_world_inner(
         }
         ref_graph_entries.push((id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, ref_edges));
 
-        let mut rt_edges = allocations.vector::<RuntimeDependencyEdge>(payload.runtime_edges.len()).map_err(allocation_error)?;
+        let mut rt_edges = allocations
+            .vector::<RuntimeDependencyEdge>(payload.runtime_edges.len())
+            .map_err(allocation_error)?;
         for edge in &payload.runtime_edges {
             rt_edges.push(RuntimeDependencyEdge {
                 importer: id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
@@ -997,7 +992,9 @@ fn load_module_world_inner(
     {
         return Err(invalid("duplicate semantic graph row"));
     }
-    let mut semantic_entries = allocations.vector::<(SemanticNodeId, Vec<SemanticEdge>)>(wire.semantic_rows.len()).map_err(allocation_error)?;
+    let mut semantic_entries = allocations
+        .vector::<(SemanticNodeId, Vec<SemanticEdge>)>(wire.semantic_rows.len())
+        .map_err(allocation_error)?;
     for row in &wire.semantic_rows {
         let node = node_in(&row.node, &ids, allocations)?;
         let mut edges = allocations.vector::<SemanticEdge>(row.edges.len()).map_err(allocation_error)?;
@@ -1068,10 +1065,8 @@ fn load_module_world_inner(
     // Ordering evidence above proves the eager subgraph; validate all modules too.
     validate_runtime_dag(&graphs.runtime, &ids, allocations)?;
     let universe = allocations.arc(ProjectUniverse::new()).map_err(allocation_error)?;
-    let empty_sources = ModuleAuthorityMap::from_budgeted_sorted_entries(
-        allocations.vector(0).map_err(allocation_error)?,
-        allocations,
-    ).map_err(authority_error)?;
+    let empty_sources =
+        ModuleAuthorityMap::from_budgeted_sorted_entries(allocations.vector(0).map_err(allocation_error)?, allocations).map_err(authority_error)?;
     let topology = ModuleTopology {
         generation: ResolverGeneration(0),
         fingerprint: TopologyFingerprint(wire.topology_fingerprint),
@@ -1146,9 +1141,9 @@ fn has_expected_topology_parent(id: &ModuleId, parent: Option<&ModuleId>) -> boo
     let components = id.path.components();
     match components.split_last() {
         None => parent.is_none(),
-        Some((_, expected_components)) => parent.is_some_and(|parent| {
-            parent.project == crate::ProjectIdentity::Universe && parent.path.components() == expected_components
-        }),
+        Some((_, expected_components)) => {
+            parent.is_some_and(|parent| parent.project == crate::ProjectIdentity::Universe && parent.path.components() == expected_components)
+        }
     }
 }
 

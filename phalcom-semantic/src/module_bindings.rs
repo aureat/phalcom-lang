@@ -11,8 +11,8 @@ use phalcom_ast::ast::{BindingKind, LetBinding, Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::linker::SymbolId;
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
-use std::fmt::Write as _;
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -95,7 +95,10 @@ impl ModuleStaticBindingCatalog {
             };
             bindings.insert(symbol.clone(), seed);
         }
-        let visible_names = index.visible_symbol_bindings().map(|(name, symbol)| (name.into(), symbol.clone())).collect::<BTreeMap<_, _>>();
+        let visible_names = index
+            .visible_symbol_bindings()
+            .map(|(name, symbol)| (name.into(), symbol.clone()))
+            .collect::<BTreeMap<_, _>>();
         Self {
             module: index.module().clone(),
             bindings: bindings.into(),
@@ -126,8 +129,7 @@ impl ModuleStaticBindingCatalog {
                 },
             ));
         }
-        let bindings = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(bindings, allocations)
-            .map_err(map_catalog_map_error)?;
+        let bindings = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(bindings, allocations).map_err(map_catalog_map_error)?;
 
         let visible_count = index.visible_symbol_bindings().count();
         let mut visible_names = allocations
@@ -139,8 +141,8 @@ impl ModuleStaticBindingCatalog {
                 clone_symbol_with_allocation_budget(symbol, allocations).map_err(ModuleStaticBindingCatalogBuildError::Allocation)?,
             ));
         }
-        let visible_names = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(visible_names, allocations)
-            .map_err(map_catalog_map_error)?;
+        let visible_names =
+            crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(visible_names, allocations).map_err(map_catalog_map_error)?;
 
         Ok(Self {
             module: index
@@ -153,10 +155,7 @@ impl ModuleStaticBindingCatalog {
     }
 
     /// Creates a budgeted empty catalog for a module with no checker index.
-    pub(crate) fn empty_with_allocation_budget(
-        module: &ModuleId,
-        allocations: &mut AllocationBudget,
-    ) -> Result<Self, AllocationError> {
+    pub(crate) fn empty_with_allocation_budget(module: &ModuleId, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
         Ok(Self {
             module: module.clone_with_allocation_budget(allocations)?,
             bindings: crate::ordered_map::OrderedMap::default(),
@@ -217,10 +216,7 @@ impl ModuleStaticBindingCatalog {
 
     /// Computes the source-compatible fingerprint while budgeting its exact
     /// temporary formatted-range buffer.
-    pub(crate) fn input_fingerprint_with_allocation_budget(
-        &self,
-        allocations: &mut AllocationBudget,
-    ) -> Result<InputFingerprint, AllocationError> {
+    pub(crate) fn input_fingerprint_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<InputFingerprint, AllocationError> {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.module.hash(&mut hasher);
         for (name, seed) in self.visible_bindings() {
@@ -257,10 +253,7 @@ fn clone_symbol_with_allocation_budget(symbol: &SymbolId, allocations: &mut Allo
     })
 }
 
-fn format_ranges_with_allocation_budget(
-    seed: &ModuleStaticBindingSeed,
-    allocations: &mut AllocationBudget,
-) -> Result<String, AllocationError> {
+fn format_ranges_with_allocation_budget(seed: &ModuleStaticBindingSeed, allocations: &mut AllocationBudget) -> Result<String, AllocationError> {
     struct CountWriter(usize);
     impl std::fmt::Write for CountWriter {
         fn write_str(&mut self, text: &str) -> std::fmt::Result {
@@ -280,8 +273,14 @@ fn format_ranges_with_allocation_budget(
     let mut count = CountWriter(0);
     write!(&mut count, "{:?}{:?}{:?}", seed.binding_range, seed.declaration_range, seed.initializer_range).map_err(|_| AllocationError::Overflow)?;
     let mut bytes = allocations.vector::<u8>(count.0)?;
-    write!(&mut ByteWriter(&mut bytes), "{:?}{:?}{:?}", seed.binding_range, seed.declaration_range, seed.initializer_range)
-        .map_err(|_| AllocationError::Failed)?;
+    write!(
+        &mut ByteWriter(&mut bytes),
+        "{:?}{:?}{:?}",
+        seed.binding_range,
+        seed.declaration_range,
+        seed.initializer_range
+    )
+    .map_err(|_| AllocationError::Failed)?;
     String::from_utf8(bytes).map_err(|_| AllocationError::Failed)
 }
 
@@ -322,7 +321,11 @@ impl ModuleStaticBindingIndex {
         if bindings.iter().any(|(symbol, fact)| symbol != &fact.symbol) || visible_names.values().any(|symbol| !bindings.contains_key(symbol)) {
             return Err("module binding artifact parts contain a mismatched owner or dangling visible name");
         }
-        Ok(Self { module, bindings, visible_names })
+        Ok(Self {
+            module,
+            bindings,
+            visible_names,
+        })
     }
 
     /// Builds the stable module handoff from the final ordinary `<main>`

@@ -38,12 +38,10 @@ impl Scanner<'_> {
     }
 
     fn token(&mut self) -> Result<(), MetadataSectionError> {
-        let actual = self.counts.tokens.checked_add(1).ok_or(
-            MetadataSectionError::TokenBudgetExceeded {
-                limit: self.limits.max_token_count,
-                actual: u32::MAX,
-            },
-        )?;
+        let actual = self.counts.tokens.checked_add(1).ok_or(MetadataSectionError::TokenBudgetExceeded {
+            limit: self.limits.max_token_count,
+            actual: u32::MAX,
+        })?;
         if actual > self.limits.max_token_count {
             return Err(MetadataSectionError::TokenBudgetExceeded {
                 limit: self.limits.max_token_count,
@@ -55,12 +53,10 @@ impl Scanner<'_> {
     }
 
     fn container(&mut self, depth: u16) -> Result<(), MetadataSectionError> {
-        let actual = self.counts.containers.checked_add(1).ok_or(
-            MetadataSectionError::ContainerBudgetExceeded {
-                limit: self.limits.max_container_count,
-                actual: u32::MAX,
-            },
-        )?;
+        let actual = self.counts.containers.checked_add(1).ok_or(MetadataSectionError::ContainerBudgetExceeded {
+            limit: self.limits.max_container_count,
+            actual: u32::MAX,
+        })?;
         if actual > self.limits.max_container_count {
             return Err(MetadataSectionError::ContainerBudgetExceeded {
                 limit: self.limits.max_container_count,
@@ -213,9 +209,10 @@ impl Scanner<'_> {
     }
 
     fn parse_literal(&mut self, literal: &[u8]) -> Result<(), MetadataSectionError> {
-        let end = self.cursor.checked_add(literal.len()).ok_or_else(|| {
-            MetadataSectionError::InvalidEncodedBundle("JSON literal offset overflow".into())
-        })?;
+        let end = self
+            .cursor
+            .checked_add(literal.len())
+            .ok_or_else(|| MetadataSectionError::InvalidEncodedBundle("JSON literal offset overflow".into()))?;
         if self.bytes.get(self.cursor..end) != Some(literal) {
             return self.invalid("invalid JSON literal");
         }

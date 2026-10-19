@@ -4,12 +4,12 @@ use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::query::{DependencyEvidenceEntryV1, PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1};
 use phalcom_compiler_artifact::semantic::world::{CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1, CallableFlowNodeV1};
 use phalcom_semantic::artifact::import::import_callable_flow_graph_with_allocation_budget;
-use phalcom_semantic::checker::flow::graph::{FlowEdgeKind, FlowGraph, FlowNodeKind};
 use phalcom_semantic::artifact::query::validate_query_image_closure_with_allocation_budget;
+use phalcom_semantic::checker::flow::graph::{FlowEdgeKind, FlowGraph, FlowNodeKind};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 struct CountingAllocator;
 
@@ -55,11 +55,7 @@ fn valid_query_dag(count: usize) -> QueryImageV1 {
                 kind: PortableQueryKindV1::CallableSignature,
                 stable_owner_key: format!("callable:{index}"),
             },
-            dependency_indices: if index == 0 {
-                Vec::new()
-            } else {
-                vec![(index - 1) as u32]
-            },
+            dependency_indices: if index == 0 { Vec::new() } else { vec![(index - 1) as u32] },
         })
         .collect();
     QueryImageV1 {
@@ -155,7 +151,10 @@ fn query_closure_debits_exact_allocator_requests_and_rolls_back_on_exhaustion() 
                 } else {
                     CallableFlowNodeKindV1::Statement { index: index as u32 }
                 },
-                range: phalcom_compiler_artifact::module_world::SpanV1 { start: index as u64, end: index as u64 },
+                range: phalcom_compiler_artifact::module_world::SpanV1 {
+                    start: index as u64,
+                    end: index as u64,
+                },
             })
             .collect(),
         edges: (1..graph_node_count)
@@ -177,10 +176,20 @@ fn query_closure_debits_exact_allocator_requests_and_rolls_back_on_exhaustion() 
             CallableFlowNodeKindV1::Statement { index } => FlowNodeKind::Statement(*index as usize),
             _ => unreachable!("fixture contains only entry, exit, and statement nodes"),
         };
-        source_graph.add_node(kind, phalcom_common::range::SourceRange { start: node.range.start as usize, end: node.range.end as usize }).unwrap();
+        source_graph
+            .add_node(
+                kind,
+                phalcom_common::range::SourceRange {
+                    start: node.range.start as usize,
+                    end: node.range.end as usize,
+                },
+            )
+            .unwrap();
     }
     source_graph.try_set_entry(Some(phalcom_semantic::identity::FlowNodeId(0))).unwrap();
-    source_graph.try_push_exit(phalcom_semantic::identity::FlowNodeId((graph_node_count - 1) as u32)).unwrap();
+    source_graph
+        .try_push_exit(phalcom_semantic::identity::FlowNodeId((graph_node_count - 1) as u32))
+        .unwrap();
     source_graph.try_push_exit(phalcom_semantic::identity::FlowNodeId(1)).unwrap();
     for edge in &flow.edges {
         source_graph

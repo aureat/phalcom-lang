@@ -1024,6 +1024,7 @@ impl SemanticWorkspaceSession {
             ::telos_observability::PerfContext::current_thread().record_counter(::telos_observability::PerfCounter::CanonicalParentHandlesAttached, 10);
         }
         let snapshot = image.snapshot();
+        crate::prelude::PreludeTypeMap::initialize_from_snapshot(snapshot);
         let db = SemanticDb::with_canonical_image(workspace, image.clone());
         let store = Arc::new(snapshot.store.fork_from_baseline());
         let static_values = snapshot.static_values.clone();
@@ -2868,7 +2869,8 @@ impl SemanticWorkspaceSession {
         associated_scope.finish(SemanticPerfOutcome::Success);
         // Case identity is structural source authority. Publish it before the
         // alias/header/member signature scheduler reads any annotation.
-        let mut static_case_catalogs = aggregate_snapshot.map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| (*snapshot.static_case_catalogs).clone());
+        let mut static_case_catalogs =
+            aggregate_snapshot.map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| (*snapshot.static_case_catalogs).clone());
         for (module_id, shard) in &self.semantic_structure_shards {
             let mut candidates = BTreeMap::<crate::identity::StaticDomainDeclarationId, Vec<&phalcom_ast::ast::AlgebraicDef>>::new();
             for statement in &shard.source.program.statements {
@@ -2938,7 +2940,8 @@ impl SemanticWorkspaceSession {
         }
         resolver.update_static_case_catalogs(&static_case_catalogs);
         let static_case_sources = collect_static_case_sources(&self.semantic_structure_shards, &resolver, &static_case_catalogs);
-        let mut static_case_signatures_table = aggregate_snapshot.map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| (*snapshot.static_case_signatures).clone());
+        let mut static_case_signatures_table =
+            aggregate_snapshot.map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| (*snapshot.static_case_signatures).clone());
         for case in &signature_case_work {
             static_case_signatures_table.remove(case);
         }
@@ -5168,7 +5171,9 @@ impl SemanticWorkspaceSession {
         let mut enum_requirements_table = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_enum_requirements.clone(), |snapshot| (*snapshot.enum_requirements).clone());
-        let mut associated_static_domains_table = aggregate_snapshot.map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| (*snapshot.associated_static_domains).clone());
+        let mut associated_static_domains_table = aggregate_snapshot.map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| {
+            (*snapshot.associated_static_domains).clone()
+        });
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             data_semantics.remove_module(module);
             enum_semantics.remove_module(module);

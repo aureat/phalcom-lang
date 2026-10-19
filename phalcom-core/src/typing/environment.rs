@@ -160,9 +160,7 @@ fn instantiate_type_ref(
                     let mut new_args = Vec::with_capacity(arguments.len());
                     for arg in arguments.iter() {
                         new_args.push(match arg {
-                            crate::typing::overlay::RuntimeStaticArgument::Term(arg) => {
-                                instantiate_static_argument(*arg, env, context, registry, depth + 1)?
-                            }
+                            crate::typing::overlay::RuntimeStaticArgument::Term(arg) => instantiate_static_argument(*arg, env, context, registry, depth + 1)?,
                             crate::typing::overlay::RuntimeStaticArgument::RecordRow(row) => {
                                 crate::typing::overlay::RuntimeStaticArgument::RecordRow(instantiate_record_row(row, env, context, registry, depth + 1)?)
                             }
@@ -275,13 +273,9 @@ fn instantiate_type_ref(
                     let mut new_args = Vec::with_capacity(arguments.len());
                     for arg in arguments.iter() {
                         new_args.push(match arg {
-                            phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) => instantiate_static_argument(
-                                RuntimeTypeRef::Base { pool, node: *arg },
-                                env,
-                                context,
-                                registry,
-                                depth + 1,
-                            )?,
+                            phalcom_type_meta::type_node::StaticArgumentRef::Term(arg) => {
+                                instantiate_static_argument(RuntimeTypeRef::Base { pool, node: *arg }, env, context, registry, depth + 1)?
+                            }
                             phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) => {
                                 let mut fields = Vec::with_capacity(row.fields.len());
                                 for field in row.fields.iter() {
@@ -422,7 +416,9 @@ fn instantiate_static_argument(
             Some(crate::typing::overlay::RuntimeStaticArgument::Term(bound)) => Some(crate::typing::overlay::RuntimeStaticArgument::Term(*bound)),
             Some(crate::typing::overlay::RuntimeStaticArgument::RecordRow(row)) => Some(crate::typing::overlay::RuntimeStaticArgument::RecordRow(row.clone())),
             Some(crate::typing::overlay::RuntimeStaticArgument::DynamicType) => Some(crate::typing::overlay::RuntimeStaticArgument::DynamicType),
-            None => Some(crate::typing::overlay::RuntimeStaticArgument::Term(instantiate_type_ref(ty, env, context, registry, depth)?)),
+            None => Some(crate::typing::overlay::RuntimeStaticArgument::Term(instantiate_type_ref(
+                ty, env, context, registry, depth,
+            )?)),
         };
     }
     Some(crate::typing::overlay::RuntimeStaticArgument::Term(instantiate_type_ref(

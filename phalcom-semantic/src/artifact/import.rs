@@ -1,8 +1,8 @@
 //! Semantic-owned artifact import for structural primary contracts (`PERF003.C2.P7.T7.A`).
 
-pub(super) mod proof;
-mod explanation;
 mod diagnostic;
+mod explanation;
+pub(super) mod proof;
 
 use crate::data_semantics::{
     DataComponentSemantic, DataConstructorParameter, DataConstructorParameterContribution, DataConstructorSignature, DataConstructorTemplate, DataInfo,
@@ -127,7 +127,7 @@ pub(crate) fn import_stable_module_with_allocation_budget(
     }
     Ok(crate::identity::ModuleId {
         project,
-            path: crate::identity::ModulePath::from_components(allocations.boxed_slice(components).map_err(allocation_error)?),
+        path: crate::identity::ModulePath::from_components(allocations.boxed_slice(components).map_err(allocation_error)?),
     })
 }
 
@@ -356,12 +356,9 @@ pub fn import_callable_query_owner(
             for slot in &selector.slots {
                 slots.push(import_selector_slot_with_allocation_budget(slot, &mut child)?);
             }
-            let selector = phalcom_common::selector::Selector::new(
-                base,
-                import_selector_kind(&selector.kind),
-                child.boxed_slice(slots).map_err(allocation_error)?,
-            )
-                .map_err(|_| referential("callable query-owner selector is invalid"))?;
+            let selector =
+                phalcom_common::selector::Selector::new(base, import_selector_kind(&selector.kind), child.boxed_slice(slots).map_err(allocation_error)?)
+                    .map_err(|_| referential("callable query-owner selector is invalid"))?;
             QueryKey::TraitDispatchBucket(TraitDispatchBucketKey {
                 target_family,
                 selector,
@@ -517,17 +514,10 @@ pub(super) fn import_generic_signature_with_allocation_budget(
     Ok(reconstructed)
 }
 
-fn import_parameter_owner_with_allocation_budget(
-    owner: &ParameterOwnerV1,
-    allocations: &mut AllocationBudget,
-) -> Result<TypeParameterOwner, ArtifactError> {
+fn import_parameter_owner_with_allocation_budget(owner: &ParameterOwnerV1, allocations: &mut AllocationBudget) -> Result<TypeParameterOwner, ArtifactError> {
     Ok(match owner {
-        ParameterOwnerV1::Declaration { owner } => {
-            TypeParameterOwner::Declaration(import_stable_declaration_with_allocation_budget(owner, allocations)?)
-        }
-        ParameterOwnerV1::Callable { owner } => {
-            TypeParameterOwner::Callable(import_stable_callable_with_allocation_budget(owner, allocations)?)
-        }
+        ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(import_stable_declaration_with_allocation_budget(owner, allocations)?),
+        ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(import_stable_callable_with_allocation_budget(owner, allocations)?),
         ParameterOwnerV1::Impl { owner } => TypeParameterOwner::Impl(import_stable_impl_with_allocation_budget(owner, allocations)?),
     })
 }
@@ -601,9 +591,7 @@ fn import_declared_type_fact_with_allocation_budget(
             UnknownReasonV1::NoTypeEvidence => UnknownReason::NoTypeEvidence,
             UnknownReasonV1::MissingInitializer => UnknownReason::MissingInitializer,
             UnknownReasonV1::UnannotatedDeclaration => UnknownReason::UnannotatedDeclaration,
-            UnknownReasonV1::UnresolvedName { name } => UnknownReason::UnresolvedName(
-                allocations.boxed_str(name).map_err(allocation_error)?,
-            ),
+            UnknownReasonV1::UnresolvedName { name } => UnknownReason::UnresolvedName(allocations.boxed_str(name).map_err(allocation_error)?),
             UnknownReasonV1::DynamicMessageSend => UnknownReason::DynamicMessageSend,
             UnknownReasonV1::OpaqueNative => UnknownReason::OpaqueNative,
             UnknownReasonV1::RecursiveFixpoint => UnknownReason::RecursiveFixpoint,
@@ -619,7 +607,10 @@ fn import_declared_type_fact_with_allocation_budget(
             UnknownReasonV1::ExistentialEscape => UnknownReason::ExistentialEscape,
         }),
     };
-    Ok(DeclaredTypeFact { state, basis: import_declared_type_basis(&fact.basis) })
+    Ok(DeclaredTypeFact {
+        state,
+        basis: import_declared_type_basis(&fact.basis),
+    })
 }
 
 pub fn import_visibility(visibility: &VisibilityV1) -> Visibility {
@@ -708,7 +699,10 @@ pub fn import_case_environment(env: &CaseEnvironmentV1, relocation: &TypeRelocat
         .collect::<Result<Vec<_>, _>>()?
         .into_boxed_slice();
 
-    Ok(CaseTypeEnvironment { bindings: bindings.into(), equalities })
+    Ok(CaseTypeEnvironment {
+        bindings: bindings.into(),
+        equalities,
+    })
 }
 
 fn import_case_environment_with_allocation_budget(
@@ -720,11 +714,10 @@ fn import_case_environment_with_allocation_budget(
     for binding in &env.bindings {
         bindings.push((relocation.parameter(binding.parameter)?, relocation.ty(binding.ty)?));
     }
-    let bindings = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(bindings, allocations)
-        .map_err(|error| match error {
-            crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
-            crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("case environment binding parameter is duplicated"),
-        })?;
+    let bindings = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(bindings, allocations).map_err(|error| match error {
+        crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+        crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("case environment binding parameter is duplicated"),
+    })?;
     let mut equalities = allocations.vector(env.equalities.len()).map_err(allocation_error)?;
     for equality in &env.equalities {
         equalities.push(import_constraint_with_allocation_budget(equality, relocation, allocations)?);
@@ -773,10 +766,7 @@ fn clone_variant_family_with_allocation_budget(
     ))
 }
 
-fn debug_boxed_str_with_allocation_budget<T: std::fmt::Debug>(
-    value: &T,
-    allocations: &mut AllocationBudget,
-) -> Result<Box<str>, ArtifactError> {
+fn debug_boxed_str_with_allocation_budget<T: std::fmt::Debug>(value: &T, allocations: &mut AllocationBudget) -> Result<Box<str>, ArtifactError> {
     use std::fmt::Write as _;
 
     struct Length(usize);
@@ -850,8 +840,8 @@ pub fn import_structural_primary_contracts(
         let key = sig.owner.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
         generic_signature_entries.push((key, sig));
     }
-    let generic_signatures = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(generic_signature_entries, allocations)
-        .map_err(|error| match error {
+    let generic_signatures =
+        crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(generic_signature_entries, allocations).map_err(|error| match error {
             crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
             crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("generic signature owner is duplicated after relocation"),
         })?;
@@ -931,7 +921,10 @@ pub fn import_structural_primary_contracts(
             match contrib {
                 DataProductContributionV1::Component { .. } => {
                     let comp = component_iter.next().ok_or_else(|| referential("shape contribution component index error"))?;
-                    shape_contributions.push(DataProductContribution::Component(clone_data_component_with_allocation_budget(comp, allocations)?));
+                    shape_contributions.push(DataProductContribution::Component(clone_data_component_with_allocation_budget(
+                        comp,
+                        allocations,
+                    )?));
                     if let Some(parameters) = &mut constructor_param_contributions {
                         parameters.push(DataConstructorParameterContribution::Parameter(DataConstructorParameter {
                             component: comp.id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
@@ -952,7 +945,10 @@ pub fn import_structural_primary_contracts(
                         operand,
                         source: None,
                     };
-                    shape_contributions.push(DataProductContribution::Expansion(clone_data_expansion_with_allocation_budget(&exp, allocations)?));
+                    shape_contributions.push(DataProductContribution::Expansion(clone_data_expansion_with_allocation_budget(
+                        &exp,
+                        allocations,
+                    )?));
                     if let Some(parameters) = &mut constructor_param_contributions {
                         parameters.push(DataConstructorParameterContribution::Expansion(exp));
                     }
@@ -1145,10 +1141,11 @@ pub fn import_structural_primary_contracts(
         enum_entries.push((key, allocations.arc(enum_info).map_err(allocation_error)?));
     }
 
-    let enum_table = EnumSemanticTable::from_frozen_entries_with_allocation_budget(enum_entries, variant_entries, allocations).map_err(|error| match error {
-        crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
-        crate::parent_map::FrozenParentMapError::DuplicateKey => referential("enum or variant owner is duplicated after relocation"),
-    })?;
+    let enum_table =
+        EnumSemanticTable::from_frozen_entries_with_allocation_budget(enum_entries, variant_entries, allocations).map_err(|error| match error {
+            crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
+            crate::parent_map::FrozenParentMapError::DuplicateKey => referential("enum or variant owner is duplicated after relocation"),
+        })?;
 
     let alias_count = contracts.hierarchy_and_aliases.iter().filter(|entry| entry.aliased_type.is_some()).count();
     let mut alias_entries = allocations.vector(alias_count).map_err(allocation_error)?;
@@ -1162,7 +1159,9 @@ pub fn import_structural_primary_contracts(
         if let Some(superclass_ref) = &entry.superclass {
             let super_decl = import_stable_declaration_with_allocation_budget(superclass_ref, allocations)?;
             superclass_entries.push((decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?, super_decl));
-            hierarchy_declaration_count = hierarchy_declaration_count.checked_add(1).ok_or_else(|| allocation_error(AllocationError::Overflow))?;
+            hierarchy_declaration_count = hierarchy_declaration_count
+                .checked_add(1)
+                .ok_or_else(|| allocation_error(AllocationError::Overflow))?;
         }
         if let Some(alias_wire) = entry.aliased_type {
             let form = type_relocation.ty(alias_wire)?;
@@ -1211,13 +1210,18 @@ pub fn import_structural_primary_contracts(
     for shell in &contracts.declaration_shells {
         let decl = import_stable_declaration_with_allocation_budget(&shell.declaration, allocations)?;
         let form = type_relocation.ty(shell.self_type)?;
-        let class_object_type = store.class_object_type_id_with_allocation_budget(&decl, allocations).map_err(allocation_error)?
+        let class_object_type = store
+            .class_object_type_id_with_allocation_budget(&decl, allocations)
+            .map_err(allocation_error)?
             .ok_or_else(|| referential("declaration shell has no canonical class-object type"))?;
         let kind = store.kind_of(form);
         let generic_sig = generic_signature_for_declaration(&generic_signatures, &decl)
-            .map(|signature| signature.clone_with_allocation_budget(allocations).map_err(allocation_error)).transpose()?;
-        let generic_binder_header = generic_sig.as_ref()
-            .map(|signature| GenericBinderHeader::from_signature_with_allocation_budget(store, signature, allocations).map_err(allocation_error)).transpose()?;
+            .map(|signature| signature.clone_with_allocation_budget(allocations).map_err(allocation_error))
+            .transpose()?;
+        let generic_binder_header = generic_sig
+            .as_ref()
+            .map(|signature| GenericBinderHeader::from_signature_with_allocation_budget(store, signature, allocations).map_err(allocation_error))
+            .transpose()?;
         let supertype_template = hierarchy.supertype_template(&decl).cloned();
         let key = decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
 
@@ -1233,12 +1237,13 @@ pub fn import_structural_primary_contracts(
         };
         declaration_entries.push((key, info));
     }
-    let declaration_table = DeclarationTypeTable::from_frozen_entries_with_allocation_budget(declaration_entries, allocations).map_err(|error| match error {
-        crate::declarations::FrozenDeclarationTypeTableError::Allocation(error) => allocation_error(error),
-        crate::declarations::FrozenDeclarationTypeTableError::DuplicateDeclaration => {
-            referential("declaration shell owner is duplicated after stable-identity relocation")
-        }
-    })?;
+    let declaration_table =
+        DeclarationTypeTable::from_frozen_entries_with_allocation_budget(declaration_entries, allocations).map_err(|error| match error {
+            crate::declarations::FrozenDeclarationTypeTableError::Allocation(error) => allocation_error(error),
+            crate::declarations::FrozenDeclarationTypeTableError::DuplicateDeclaration => {
+                referential("declaration shell owner is duplicated after stable-identity relocation")
+            }
+        })?;
 
     Ok(LoadedStructuralContracts {
         declaration_table: allocations.arc(declaration_table).map_err(allocation_error)?,
@@ -1479,10 +1484,7 @@ fn import_exact_callable(callable: &StableCallableRef) -> Result<CallableId, Art
     ))
 }
 
-fn import_exact_callable_with_allocation_budget(
-    callable: &StableCallableRef,
-    allocations: &mut AllocationBudget,
-) -> Result<CallableId, ArtifactError> {
+fn import_exact_callable_with_allocation_budget(callable: &StableCallableRef, allocations: &mut AllocationBudget) -> Result<CallableId, ArtifactError> {
     // The budgeted stable-identity parser enforces the exact canonical
     // selector grammar while charging every owned identity component.
     import_stable_callable_with_allocation_budget(callable, allocations)
@@ -1597,14 +1599,12 @@ impl<'a> CallableEvidenceImporter<'a> {
                     owner: import_stable_declaration_with_allocation_budget(owner, self.allocations)?,
                 },
             }),
-            wire::CallableStructuralClassificationV1::UnorderedProduct { form } => {
-                crate::structural::StructuralClassification::UnorderedProduct(match form {
-                    wire::CallableUnorderedProductFormV1::Record => crate::structural::UnorderedProductForm::Record,
-                    wire::CallableUnorderedProductFormV1::Data { owner } => crate::structural::UnorderedProductForm::Data {
-                        owner: import_stable_declaration_with_allocation_budget(owner, self.allocations)?,
-                    },
-                })
-            }
+            wire::CallableStructuralClassificationV1::UnorderedProduct { form } => crate::structural::StructuralClassification::UnorderedProduct(match form {
+                wire::CallableUnorderedProductFormV1::Record => crate::structural::UnorderedProductForm::Record,
+                wire::CallableUnorderedProductFormV1::Data { owner } => crate::structural::UnorderedProductForm::Data {
+                    owner: import_stable_declaration_with_allocation_budget(owner, self.allocations)?,
+                },
+            }),
             wire::CallableStructuralClassificationV1::Sum { owner } => crate::structural::StructuralClassification::Sum {
                 owner: import_stable_declaration_with_allocation_budget(owner, self.allocations)?,
             },
@@ -1773,10 +1773,11 @@ impl<'a> CallableEvidenceImporter<'a> {
             impl_bindings.push((self.relocation.parameter(binding.parameter)?, self.relocation.ty(binding.ty)?));
         }
         impl_bindings.sort_unstable_by_key(|(parameter, _)| *parameter);
-        let impl_bindings = crate::types::substitution::TypeSubstitution::from_budgeted_entries(impl_bindings, self.allocations).map_err(|error| match error {
-            crate::checker::analysis_map::AnalysisMapBuildError::Entries(_) => referential("callable Derived conformance bindings are not canonical"),
-            crate::checker::analysis_map::AnalysisMapBuildError::Allocation(error) => allocation_error(error),
-        })?;
+        let impl_bindings =
+            crate::types::substitution::TypeSubstitution::from_budgeted_entries(impl_bindings, self.allocations).map_err(|error| match error {
+                crate::checker::analysis_map::AnalysisMapBuildError::Entries(_) => referential("callable Derived conformance bindings are not canonical"),
+                crate::checker::analysis_map::AnalysisMapBuildError::Allocation(error) => allocation_error(error),
+            })?;
 
         let mut nested = self.allocations.vector(evidence.nested.len()).map_err(allocation_error)?;
         for item in &evidence.nested {
@@ -2122,18 +2123,14 @@ pub(crate) fn import_callable_expression_dispatch_authority(
             .conditional_capability
             .as_ref()
             .map(|capability| -> Result<_, ArtifactError> {
-                if expression.conditional_dispatch.as_ref() != Some(&capability.selection)
-                    || capability.selection.impl_id != capability.applicability.impl_id
-                {
-                    return Err(referential("conditional call capability disagrees with its expression selection or implementation"));
+                if expression.conditional_dispatch.as_ref() != Some(&capability.selection) || capability.selection.impl_id != capability.applicability.impl_id {
+                    return Err(referential(
+                        "conditional call capability disagrees with its expression selection or implementation",
+                    ));
                 }
                 Ok(crate::dispatch::ConditionalSelectedCallCapability {
                     selection: import_conditional_dispatch_selection(&capability.selection, importer.allocations)?,
-                    applicability: import_callable_inherent_specialization(
-                        &capability.applicability,
-                        &record.conformance_evidence,
-                        &mut importer,
-                    )?,
+                    applicability: import_callable_inherent_specialization(&capability.applicability, &record.conformance_evidence, &mut importer)?,
                 })
             })
             .transpose()?;
@@ -2159,9 +2156,7 @@ pub(crate) fn import_callable_expression_dispatch_authority(
                         let evidence_fingerprint = crate::db::fingerprint::generic_conformance_evidence_fingerprint(&evidence);
                         let mut targets = importer
                             .allocations
-                            .vector::<(crate::traits::TraitRequirementId, crate::impls::RequirementSelectionTemplate)>(
-                                selection.requirement_targets.len(),
-                            )
+                            .vector::<(crate::traits::TraitRequirementId, crate::impls::RequirementSelectionTemplate)>(selection.requirement_targets.len())
                             .map_err(allocation_error)?;
                         for target in &selection.requirement_targets {
                             targets.push((
@@ -2169,30 +2164,18 @@ pub(crate) fn import_callable_expression_dispatch_authority(
                                 import_callable_requirement_selection(&target.selection, &record.conformance_evidence, &mut importer, 0)?,
                             ));
                         }
-                        let requirement_targets = import_analysis_map(
-                            targets,
-                            importer.allocations,
-                            "trait dispatch requirement targets are not canonical",
-                        )?;
+                        let requirement_targets = import_analysis_map(targets, importer.allocations, "trait dispatch requirement targets are not canonical")?;
                         let source_impl = import_stable_impl_with_allocation_budget(&selection.source_impl, importer.allocations)?;
                         let exact_target = relocation.ty(selection.exact_target)?;
                         let exact_trait_ref = import_trait_ref_identity(&selection.exact_trait_ref, relocation, importer.allocations)?;
-                        let requirement = import_callable_requirement_identity_with_allocation_budget(
-                            &selection.requirement,
-                            importer.allocations,
-                        )?;
+                        let requirement = import_callable_requirement_identity_with_allocation_budget(&selection.requirement, importer.allocations)?;
                         let callable = selection
                             .callable
                             .as_ref()
                             .map(|callable| import_stable_callable_with_allocation_budget(callable, importer.allocations))
                             .transpose()?;
                         let signature = import_callable_signature(&selection.signature, relocation, store, importer.allocations)?;
-                        let sel_res = import_callable_requirement_selection(
-                            &selection.selection,
-                            &record.conformance_evidence,
-                            &mut importer,
-                            0,
-                        )?;
+                        let sel_res = import_callable_requirement_selection(&selection.selection, &record.conformance_evidence, &mut importer, 0)?;
                         crate::trait_dispatch::TraitDispatchSite::Evidenced(crate::trait_dispatch::TraitDispatchSelection {
                             source_impl,
                             exact_target,
@@ -2213,12 +2196,13 @@ pub(crate) fn import_callable_expression_dispatch_authority(
             .trait_dispatch_candidates
             .as_ref()
             .map(|candidates| {
-                let mut imported = importer
-                    .allocations
-                    .vector(candidates.len())
-                    .map_err(allocation_error)?;
+                let mut imported = importer.allocations.vector(candidates.len()).map_err(allocation_error)?;
                 for candidate in candidates {
-                    imported.push(import_callable_trait_dispatch_candidate(candidate, &record.conformance_evidence, &mut importer)?);
+                    imported.push(import_callable_trait_dispatch_candidate(
+                        candidate,
+                        &record.conformance_evidence,
+                        &mut importer,
+                    )?);
                 }
                 Ok::<_, ArtifactError>(importer.allocations.boxed_slice(imported).map_err(allocation_error)?)
             })
@@ -2251,10 +2235,7 @@ fn import_callable_trait_dispatch_candidate(
 
     let evidence = importer.evidence(evidence_nodes, candidate.evidence, 0)?;
     let evidence_fingerprint = crate::db::fingerprint::generic_conformance_evidence_fingerprint(&evidence);
-    let mut targets = importer
-        .allocations
-        .vector(candidate.requirement_targets.len())
-        .map_err(allocation_error)?;
+    let mut targets = importer.allocations.vector(candidate.requirement_targets.len()).map_err(allocation_error)?;
     for target in &candidate.requirement_targets {
         targets.push((
             import_callable_requirement_identity_with_allocation_budget(&target.requirement, importer.allocations)?,
@@ -2263,9 +2244,9 @@ fn import_callable_trait_dispatch_candidate(
     }
     let requirement_targets = import_analysis_map(targets, importer.allocations, "trait dispatch candidate requirement targets are not canonical")?;
     let convergence = match &candidate.convergence {
-        Portable::Inherent { callable } => crate::trait_dispatch::TraitDispatchConvergenceKey::Inherent(
-            import_stable_callable_with_allocation_budget(callable, importer.allocations)?,
-        ),
+        Portable::Inherent { callable } => {
+            crate::trait_dispatch::TraitDispatchConvergenceKey::Inherent(import_stable_callable_with_allocation_budget(callable, importer.allocations)?)
+        }
         Portable::ConditionalInherent {
             callable,
             implementation,
@@ -2275,9 +2256,10 @@ fn import_callable_trait_dispatch_candidate(
             impl_id: import_stable_impl_with_allocation_budget(implementation, importer.allocations)?,
             applicability_fingerprint: crate::db::ProductFingerprint::new(*applicability_fingerprint),
         },
-        Portable::DataComponent { owner, index } => crate::trait_dispatch::TraitDispatchConvergenceKey::DataComponent(
-            crate::identity::DataComponentId::new(import_stable_declaration_with_allocation_budget(owner, importer.allocations)?, *index),
-        ),
+        Portable::DataComponent { owner, index } => crate::trait_dispatch::TraitDispatchConvergenceKey::DataComponent(crate::identity::DataComponentId::new(
+            import_stable_declaration_with_allocation_budget(owner, importer.allocations)?,
+            *index,
+        )),
         Portable::ConformanceCallable { callable } => crate::trait_dispatch::TraitDispatchConvergenceKey::ConformanceCallable(
             import_stable_callable_with_allocation_budget(callable, importer.allocations)?,
         ),
@@ -2418,10 +2400,7 @@ fn import_callable_contextual_realization(
         operation,
         realization: capability(&realization.realization, importer)?,
     };
-    importer
-        .allocations
-        .arc(realization)
-        .map_err(allocation_error)
+    importer.allocations.arc(realization).map_err(allocation_error)
 }
 
 fn import_unknown_reason_with_allocation_budget(reason: &UnknownReasonV1, allocations: &mut AllocationBudget) -> Result<UnknownReason, ArtifactError> {
@@ -2511,44 +2490,39 @@ pub(crate) fn import_trait_surface_diagnostic(
     let mut imported_guidance = allocations.vector(record.guidance.len()).map_err(allocation_error)?;
     for guidance in &record.guidance {
         imported_guidance.push(match guidance {
-                CallableEvidenceDiagnosticGuidanceV1::ChangeAnnotation { range: source_range, ty } => DiagnosticGuidance::ChangeAnnotation {
-                    range: range(source_range)?,
-                    ty: relocation.ty(*ty)?,
-                },
-                CallableEvidenceDiagnosticGuidanceV1::SupplyAssignableValue { expected } => DiagnosticGuidance::SupplyAssignableValue {
-                    expected: relocation.ty(*expected)?,
-                },
-                CallableEvidenceDiagnosticGuidanceV1::UseCallableShape { callable } => DiagnosticGuidance::UseCallableShape {
-                    callable: import_exact_callable_with_allocation_budget(callable, allocations)?,
-                },
-                CallableEvidenceDiagnosticGuidanceV1::EstablishTypeEvidence { range: source_range, expected } => DiagnosticGuidance::EstablishTypeEvidence {
-                    range: range(source_range)?,
-                    expected: expected.map(|ty| relocation.ty(ty)).transpose()?,
-                },
-                CallableEvidenceDiagnosticGuidanceV1::ResolveGenericParameter { parameter } => DiagnosticGuidance::ResolveGenericParameter {
-                    parameter: relocation.parameter(*parameter)?,
-                },
-            });
+            CallableEvidenceDiagnosticGuidanceV1::ChangeAnnotation { range: source_range, ty } => DiagnosticGuidance::ChangeAnnotation {
+                range: range(source_range)?,
+                ty: relocation.ty(*ty)?,
+            },
+            CallableEvidenceDiagnosticGuidanceV1::SupplyAssignableValue { expected } => DiagnosticGuidance::SupplyAssignableValue {
+                expected: relocation.ty(*expected)?,
+            },
+            CallableEvidenceDiagnosticGuidanceV1::UseCallableShape { callable } => DiagnosticGuidance::UseCallableShape {
+                callable: import_exact_callable_with_allocation_budget(callable, allocations)?,
+            },
+            CallableEvidenceDiagnosticGuidanceV1::EstablishTypeEvidence { range: source_range, expected } => DiagnosticGuidance::EstablishTypeEvidence {
+                range: range(source_range)?,
+                expected: expected.map(|ty| relocation.ty(ty)).transpose()?,
+            },
+            CallableEvidenceDiagnosticGuidanceV1::ResolveGenericParameter { parameter } => DiagnosticGuidance::ResolveGenericParameter {
+                parameter: relocation.parameter(*parameter)?,
+            },
+        });
     }
     let guidance = imported_guidance;
     let mut explanations = allocations.vector(record.explanations.len()).map_err(allocation_error)?;
     for reference in &record.explanations {
         explanations.push(ExplanationRef::new(
-                import_exact_callable_with_allocation_budget(&reference.callable, allocations)?,
-                crate::identity::ExplanationId(reference.ordinal),
-            ));
+            import_exact_callable_with_allocation_budget(&reference.callable, allocations)?,
+            crate::identity::ExplanationId(reference.ordinal),
+        ));
     }
     let mut fixes = allocations.vector(record.fixes.len()).map_err(allocation_error)?;
     for fix in &record.fixes {
         let replacement = fix
             .replacement
             .as_ref()
-            .map(|replacement| {
-                Ok::<_, ArtifactError>((
-                    range(&replacement.range)?,
-                    allocations.string(&replacement.text).map_err(allocation_error)?,
-                ))
-            })
+            .map(|replacement| Ok::<_, ArtifactError>((range(&replacement.range)?, allocations.string(&replacement.text).map_err(allocation_error)?)))
             .transpose()?;
         fixes.push(DiagnosticFix {
             message: allocations.string(&fix.message).map_err(allocation_error)?,
@@ -2706,7 +2680,9 @@ fn import_callable_effective_inherent_witness(
             Target::Declaration { declaration } => {
                 crate::impls::InherentImplTarget::Declaration(import_stable_declaration_with_allocation_budget(declaration, importer.allocations)?)
             }
-            Target::ExactEnumCase { variant } => crate::impls::InherentImplTarget::ExactEnumCase(import_stable_variant_with_allocation_budget(variant, importer.allocations)?),
+            Target::ExactEnumCase { variant } => {
+                crate::impls::InherentImplTarget::ExactEnumCase(import_stable_variant_with_allocation_budget(variant, importer.allocations)?)
+            }
         };
         let generic_signature = domain
             .generic_signature
@@ -2822,14 +2798,15 @@ fn import_callable_derived_conformance_rule(
     let target_parameter = importer.relocation.parameter(rule.target_parameter)?;
     let target_template = importer.relocation.ty(rule.target_template)?;
     let trait_ref = import_trait_ref_identity(&rule.trait_ref, importer.relocation, importer.allocations)?;
-    let generic_signature = import_generic_signature_with_allocation_budget(
-        &rule.generic_signature,
+    let generic_signature =
+        import_generic_signature_with_allocation_budget(&rule.generic_signature, importer.relocation, importer.store, importer.allocations)?;
+    let associated_type_plan = import_callable_associated_type_plan(
+        &rule.associated_type_plan,
+        &impl_id,
+        &trait_ref.declaration,
         importer.relocation,
-        importer.store,
         importer.allocations,
     )?;
-    let associated_type_plan =
-        import_callable_associated_type_plan(&rule.associated_type_plan, &impl_id, &trait_ref.declaration, importer.relocation, importer.allocations)?;
 
     let mut requirement_views = importer.allocations.vector(rule.requirement_views.len()).map_err(allocation_error)?;
     for view in &rule.requirement_views {
@@ -3037,10 +3014,7 @@ fn import_return_flow(flow: &phalcom_compiler_artifact::semantic::world::ReturnF
     })
 }
 
-fn matches_native_type_expr(
-    spec: &phalcom_native_meta::TypeExprSpec,
-    wire: &phalcom_compiler_artifact::semantic::world::TypeExprSpecV1,
-) -> bool {
+fn matches_native_type_expr(spec: &phalcom_native_meta::TypeExprSpec, wire: &phalcom_compiler_artifact::semantic::world::TypeExprSpecV1) -> bool {
     use phalcom_compiler_artifact::semantic::world::TypeExprSpecV1;
     use phalcom_native_meta::TypeExprSpec as Native;
     match (spec, wire) {
@@ -3049,22 +3023,33 @@ fn matches_native_type_expr(
         (Native::SelfType, TypeExprSpecV1::SelfType) => true,
         (Native::Universe(owner), TypeExprSpecV1::Universe { owner: wire_owner }) => owner.name() == wire_owner.as_ref(),
         (Native::Parameter(name), TypeExprSpecV1::Parameter { name: wire_name }) => *name == wire_name.as_ref(),
-        (Native::Applied { origin, arguments }, TypeExprSpecV1::Applied { origin: wire_origin, arguments: wire_args }) => {
+        (
+            Native::Applied { origin, arguments },
+            TypeExprSpecV1::Applied {
+                origin: wire_origin,
+                arguments: wire_args,
+            },
+        ) => {
             matches_native_type_expr(origin, wire_origin)
                 && arguments.len() == wire_args.len()
                 && arguments.iter().zip(wire_args.iter()).all(|(a, w)| matches_native_type_expr(a, w))
         }
         (Native::Union(members), TypeExprSpecV1::Union { members: wire_members }) => {
-            members.len() == wire_members.len()
-                && members.iter().zip(wire_members.iter()).all(|(m, w)| matches_native_type_expr(m, w))
+            members.len() == wire_members.len() && members.iter().zip(wire_members.iter()).all(|(m, w)| matches_native_type_expr(m, w))
         }
         (Native::Tuple(tuple), TypeExprSpecV1::Tuple { tuple: wire_tuple }) => {
             tuple.positional.len() == wire_tuple.positional.len()
-                && tuple.positional.iter().zip(wire_tuple.positional.iter()).all(|(p, w)| matches_native_type_expr(p, w))
+                && tuple
+                    .positional
+                    .iter()
+                    .zip(wire_tuple.positional.iter())
+                    .all(|(p, w)| matches_native_type_expr(p, w))
                 && tuple.labeled.len() == wire_tuple.labeled.len()
-                && tuple.labeled.iter().zip(wire_tuple.labeled.iter()).all(|(l, w)| {
-                    l.label == w.label.as_ref() && matches_native_type_expr(l.ty, &w.ty)
-                })
+                && tuple
+                    .labeled
+                    .iter()
+                    .zip(wire_tuple.labeled.iter())
+                    .all(|(l, w)| l.label == w.label.as_ref() && matches_native_type_expr(l.ty, &w.ty))
                 && match (tuple.rest, &wire_tuple.rest) {
                     (None, None) => true,
                     (Some(r), Some(wr)) => match (r.ty, &wr.ty) {
@@ -3107,8 +3092,7 @@ fn matches_native_raises(spec: phalcom_native_meta::RaisesSpec, wire: &phalcom_c
     match (spec, wire) {
         (phalcom_native_meta::RaisesSpec::Unknown, RaisesSpecV1::Unknown) => true,
         (phalcom_native_meta::RaisesSpec::Known(types), RaisesSpecV1::Known { types: wire_types }) => {
-            types.len() == wire_types.len()
-                && types.iter().zip(wire_types.iter()).all(|(t, w)| matches_native_type_expr(t, w))
+            types.len() == wire_types.len() && types.iter().zip(wire_types.iter()).all(|(t, w)| matches_native_type_expr(t, w))
         }
         _ => false,
     }
@@ -3120,22 +3104,15 @@ fn matches_return_flow(spec: phalcom_native_meta::ReturnFlowSpec, wire: &phalcom
     match (spec, wire) {
         (ReturnFlowSpec::Value, ReturnFlowV1::Value) => true,
         (ReturnFlowSpec::Receiver, ReturnFlowV1::Receiver) => true,
-        (ReturnFlowSpec::Argument(index), ReturnFlowV1::Argument { index: wire_index }) => {
-            u64::try_from(index).ok() == Some(*wire_index)
-        }
+        (ReturnFlowSpec::Argument(index), ReturnFlowV1::Argument { index: wire_index }) => u64::try_from(index).ok() == Some(*wire_index),
         (ReturnFlowSpec::Never, ReturnFlowV1::Never) => true,
         (ReturnFlowSpec::Unknown, ReturnFlowV1::Unknown) => true,
         _ => false,
     }
 }
 
-fn matches_native_lifecycle(
-    spec: phalcom_native_meta::NativeLifecycleSpec,
-    wire: &phalcom_compiler_artifact::semantic::world::NativeLifecycleSpecV1,
-) -> bool {
-    spec.since == wire.since.as_deref()
-        && spec.deprecated_since == wire.deprecated_since.as_deref()
-        && spec.replacement == wire.replacement.as_deref()
+fn matches_native_lifecycle(spec: phalcom_native_meta::NativeLifecycleSpec, wire: &phalcom_compiler_artifact::semantic::world::NativeLifecycleSpecV1) -> bool {
+    spec.since == wire.since.as_deref() && spec.deprecated_since == wire.deprecated_since.as_deref() && spec.replacement == wire.replacement.as_deref()
 }
 
 fn import_native_metadata(
@@ -3295,11 +3272,9 @@ fn import_callable_signature(
             _ => return Err(referential("callable parameter rest mode is invalid")),
         };
         let contract = match &parameter.contract {
-            ParameterContractV1::Fixed { fact } => crate::signature::ParameterContract::Fixed(import_declared_type_fact_with_allocation_budget(
-                fact,
-                relocation,
-                allocations,
-            )?),
+            ParameterContractV1::Fixed { fact } => {
+                crate::signature::ParameterContract::Fixed(import_declared_type_fact_with_allocation_budget(fact, relocation, allocations)?)
+            }
             ParameterContractV1::Rest { mode, contract } => {
                 let mode = match mode {
                     1 => phalcom_ast::ast::RestMode::Positional,
@@ -3311,9 +3286,9 @@ fn import_callable_signature(
                     mode,
                     contract: match contract {
                         RestValueContractV1::Unconstrained => crate::signature::RestValueContract::Unconstrained,
-                        RestValueContractV1::Element { fact } => crate::signature::RestValueContract::Element(
-                            import_declared_type_fact_with_allocation_budget(fact, relocation, allocations)?,
-                        ),
+                        RestValueContractV1::Element { fact } => {
+                            crate::signature::RestValueContract::Element(import_declared_type_fact_with_allocation_budget(fact, relocation, allocations)?)
+                        }
                         RestValueContractV1::Lane { ty } => crate::signature::RestValueContract::Lane(relocation.ty(*ty)?),
                         RestValueContractV1::Invalid { reason } => {
                             crate::signature::RestValueContract::Invalid(import_unknown_reason_with_allocation_budget(reason, allocations)?)
@@ -3446,8 +3421,10 @@ fn import_callable_definition(
                         decl_to_impl.push((declaration, implementation));
                     }
                     Ok(crate::impls::CoveringImplSubstitution {
-                        impl_to_decl: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(impl_to_decl, allocations).map_err(frozen_ordered_map_error)?,
-                        decl_to_impl: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(decl_to_impl, allocations).map_err(frozen_ordered_map_error)?,
+                        impl_to_decl: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(impl_to_decl, allocations)
+                            .map_err(frozen_ordered_map_error)?,
+                        decl_to_impl: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(decl_to_impl, allocations)
+                            .map_err(frozen_ordered_map_error)?,
                     })
                 })
                 .transpose()?;
@@ -3708,9 +3685,9 @@ fn import_static_case_domain_with_allocation_budget(
 ) -> Result<crate::identity::StaticDomainDeclarationId, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world::StaticCaseDomainV1;
     Ok(match domain {
-        StaticCaseDomainV1::Nominal { declaration } => crate::identity::StaticDomainDeclarationId::Nominal(
-            import_stable_declaration_with_allocation_budget(declaration, allocations)?,
-        ),
+        StaticCaseDomainV1::Nominal { declaration } => {
+            crate::identity::StaticDomainDeclarationId::Nominal(import_stable_declaration_with_allocation_budget(declaration, allocations)?)
+        }
         StaticCaseDomainV1::Associated { declaration } => crate::identity::StaticDomainDeclarationId::Associated(
             import_associated_static_domain_declaration_with_allocation_budget(declaration, allocations)?,
         ),
@@ -3745,7 +3722,7 @@ pub(crate) fn import_exact_selector_with_budget(
         import_selector_kind(&selector.kind),
         allocations.boxed_slice(slots).map_err(allocation_error)?,
     )
-        .map_err(|error| referential(format!("static-case selector is malformed: {error}")))
+    .map_err(|error| referential(format!("static-case selector is malformed: {error}")))
 }
 
 fn import_static_semantic_dependency(
@@ -3926,10 +3903,10 @@ fn import_static_case_owners(
         let product = allocations.arc(product).map_err(allocation_error)?;
         signature_entries.push((id, product));
     }
-    let imported_catalogs = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(catalog_entries, allocations)
-        .map_err(frozen_ordered_map_error)?;
-    let imported_signatures = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(signature_entries, allocations)
-        .map_err(frozen_ordered_map_error)?;
+    let imported_catalogs =
+        crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(catalog_entries, allocations).map_err(frozen_ordered_map_error)?;
+    let imported_signatures =
+        crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(signature_entries, allocations).map_err(frozen_ordered_map_error)?;
     Ok((imported_catalogs, imported_signatures))
 }
 
@@ -4032,7 +4009,7 @@ fn import_behavioral_family_spec_with_allocation_budget(
                 import_selector_kind(&selector.kind),
                 allocations.boxed_slice(slots).map_err(allocation_error)?,
             )
-                .map_err(|_| referential("behavioral exact selector is invalid"))?;
+            .map_err(|_| referential("behavioral exact selector is invalid"))?;
             crate::checker::associated::BehavioralFamilySpec::Exact(selector)
         }
         BehavioralFamilySpecV1::Pattern { pattern } => {
@@ -4046,33 +4023,33 @@ fn import_selector_pattern_with_allocation_budget(
     allocations: &mut AllocationBudget,
 ) -> Result<phalcom_common::selector::SelectorPattern, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world::SelectorKindPatternV1;
-            let base = import_selector_base_with_allocation_budget(&pattern.base, allocations)?;
-            let kind = match &pattern.kind {
-                SelectorKindPatternV1::AnyNamed => phalcom_common::selector::SelectorKindPattern::AnyNamed,
-                SelectorKindPatternV1::NamedAccessors => phalcom_common::selector::SelectorKindPattern::NamedAccessors,
-                SelectorKindPatternV1::AnySubscript => phalcom_common::selector::SelectorKindPattern::AnySubscript,
-                SelectorKindPatternV1::Exact { kind } => phalcom_common::selector::SelectorKindPattern::Exact(import_selector_kind(kind)),
-            };
-            let mut prefix = allocations
-                .vector::<phalcom_common::selector::SelectorSlot>(pattern.prefix.len())
-                .map_err(allocation_error)?;
-            for slot in &pattern.prefix {
-                prefix.push(import_selector_slot_with_allocation_budget(slot, allocations)?);
-            }
-            let mut suffix = allocations
-                .vector::<phalcom_common::selector::SelectorSlot>(pattern.suffix.len())
-                .map_err(allocation_error)?;
-            for slot in &pattern.suffix {
-                suffix.push(import_selector_slot_with_allocation_budget(slot, allocations)?);
-            }
-            let pattern = phalcom_common::selector::SelectorPattern::new(
-                base,
-                kind,
-                allocations.boxed_slice(prefix).map_err(allocation_error)?,
-                allocations.boxed_slice(suffix).map_err(allocation_error)?,
-                pattern.has_gap,
-            )
-                .map_err(|_| referential("behavioral selector pattern is invalid"))?;
+    let base = import_selector_base_with_allocation_budget(&pattern.base, allocations)?;
+    let kind = match &pattern.kind {
+        SelectorKindPatternV1::AnyNamed => phalcom_common::selector::SelectorKindPattern::AnyNamed,
+        SelectorKindPatternV1::NamedAccessors => phalcom_common::selector::SelectorKindPattern::NamedAccessors,
+        SelectorKindPatternV1::AnySubscript => phalcom_common::selector::SelectorKindPattern::AnySubscript,
+        SelectorKindPatternV1::Exact { kind } => phalcom_common::selector::SelectorKindPattern::Exact(import_selector_kind(kind)),
+    };
+    let mut prefix = allocations
+        .vector::<phalcom_common::selector::SelectorSlot>(pattern.prefix.len())
+        .map_err(allocation_error)?;
+    for slot in &pattern.prefix {
+        prefix.push(import_selector_slot_with_allocation_budget(slot, allocations)?);
+    }
+    let mut suffix = allocations
+        .vector::<phalcom_common::selector::SelectorSlot>(pattern.suffix.len())
+        .map_err(allocation_error)?;
+    for slot in &pattern.suffix {
+        suffix.push(import_selector_slot_with_allocation_budget(slot, allocations)?);
+    }
+    let pattern = phalcom_common::selector::SelectorPattern::new(
+        base,
+        kind,
+        allocations.boxed_slice(prefix).map_err(allocation_error)?,
+        allocations.boxed_slice(suffix).map_err(allocation_error)?,
+        pattern.has_gap,
+    )
+    .map_err(|_| referential("behavioral selector pattern is invalid"))?;
     Ok(pattern)
 }
 
@@ -5179,7 +5156,7 @@ pub(super) fn import_callable_analysis_records(
 ) -> Result<
     (
         crate::checker::analysis::CallableAnalysisTable,
-            crate::parent_map::ParentMap<CallableId, crate::ordered_map::OrderedMap<BindingId, SourceRange>>,
+        crate::parent_map::ParentMap<CallableId, crate::ordered_map::OrderedMap<BindingId, SourceRange>>,
     ),
     ArtifactError,
 > {
@@ -5208,8 +5185,8 @@ pub(super) fn import_callable_analysis_records(
         }
         let bindings = import_analysis_map(binding_entries, &mut child, "callable binding rows are not canonical")?;
         let binding_origins = import_analysis_map(origin_entries, &mut child, "callable binding origins are not canonical")?;
-        let formal_ranges = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(formal_range_entries, &mut child)
-            .map_err(|error| match error {
+        let formal_ranges =
+            crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(formal_range_entries, &mut child).map_err(|error| match error {
                 crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
                 crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("callable binding source range is duplicated"),
             })?;
@@ -5217,8 +5194,15 @@ pub(super) fn import_callable_analysis_records(
 
         let facts = import_callable_expression_facts(record, relocation, &mut child)?;
         let statuses = import_callable_expression_statuses(&record.expressions, relocation, &mut child)?;
-        let dispatch =
-            import_callable_expression_dispatch_authority(record, body, relocation, store, source_plan_fingerprints, &mut child, limits.max_recursion_depth)?;
+        let dispatch = import_callable_expression_dispatch_authority(
+            record,
+            body,
+            relocation,
+            store,
+            source_plan_fingerprints,
+            &mut child,
+            limits.max_recursion_depth,
+        )?;
         let specializations = import_callable_call_specializations(
             &record.expressions,
             &record.conformance_evidence,
@@ -5382,10 +5366,11 @@ pub(super) fn import_callable_analysis_records(
         crate::checker::analysis::CallableAnalysisTableBuildError::Allocation(error) => allocation_error(error),
         crate::checker::analysis::CallableAnalysisTableBuildError::ModuleIndex(_) => referential("callable analysis module index is not canonical"),
     })?;
-    let binding_ranges = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(binding_range_entries, &mut child).map_err(|error| match error {
-        crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
-        crate::parent_map::FrozenParentMapError::DuplicateKey => referential("callable binding range owner is duplicated"),
-    })?;
+    let binding_ranges =
+        crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(binding_range_entries, &mut child).map_err(|error| match error {
+            crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
+            crate::parent_map::FrozenParentMapError::DuplicateKey => referential("callable binding range owner is duplicated"),
+        })?;
     allocations.commit_child(child).map_err(allocation_error)?;
     Ok((table, binding_ranges))
 }
@@ -5438,8 +5423,8 @@ pub(super) fn import_associated_authority(
         let product = allocations.arc(product).map_err(allocation_error)?;
         type_member_entries.push((key, product));
     }
-    let type_member_declarations = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(type_member_entries, allocations)
-        .map_err(|error| match error {
+    let type_member_declarations =
+        crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(type_member_entries, allocations).map_err(|error| match error {
             crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
             crate::parent_map::FrozenParentMapError::DuplicateKey => referential("duplicate type-member declaration in semantic artifact"),
         })?;
@@ -5464,8 +5449,8 @@ pub(super) fn import_associated_authority(
         let product = allocations.arc(product).map_err(allocation_error)?;
         static_domain_entries.push((key, product));
     }
-    let associated_static_domains = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(static_domain_entries, allocations)
-        .map_err(frozen_ordered_map_error)?;
+    let associated_static_domains =
+        crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(static_domain_entries, allocations).map_err(frozen_ordered_map_error)?;
 
     let mut surface_entries = allocations.vector(surface_records.len()).map_err(allocation_error)?;
     for rec in surface_records {
@@ -5488,18 +5473,22 @@ pub(super) fn import_associated_authority(
             };
             family_entries.push((base, family_info));
         }
-        let families = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(family_entries, allocations)
-            .map_err(frozen_ordered_map_error)?;
-        let surface = crate::associated::AssociatedSurface { owner: surface_owner, families };
+        let families =
+            crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(family_entries, allocations).map_err(frozen_ordered_map_error)?;
+        let surface = crate::associated::AssociatedSurface {
+            owner: surface_owner,
+            families,
+        };
         let surface = allocations.arc(surface).map_err(allocation_error)?;
         surface_entries.push((owner, surface));
     }
-    let surfaces = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(surface_entries, allocations)
-        .map_err(|error| match error {
-            crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
-            crate::parent_map::FrozenParentMapError::DuplicateKey => referential("duplicate associated surface in semantic artifact"),
-        })?;
-    let associated_surfaces = crate::associated::AssociatedFamilyTable { surfaces: allocations.arc(surfaces).map_err(allocation_error)? };
+    let surfaces = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(surface_entries, allocations).map_err(|error| match error {
+        crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
+        crate::parent_map::FrozenParentMapError::DuplicateKey => referential("duplicate associated surface in semantic artifact"),
+    })?;
+    let associated_surfaces = crate::associated::AssociatedFamilyTable {
+        surfaces: allocations.arc(surfaces).map_err(allocation_error)?,
+    };
 
     Ok(ImportedAssociatedAuthority {
         associated_surfaces,
@@ -5577,33 +5566,39 @@ fn import_static_definition_owners(
         }
         let alias_info = match &record.alias_info {
             Some(alias) if alias == &record.id => {
-                let alias = structural_contracts.type_aliases.get(&id).ok_or_else(|| {
-                    referential("static definition alias link has no imported structural alias owner")
-                })?.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+                let alias = structural_contracts
+                    .type_aliases
+                    .get(&id)
+                    .ok_or_else(|| referential("static definition alias link has no imported structural alias owner"))?
+                    .clone_with_allocation_budget(allocations)
+                    .map_err(allocation_error)?;
                 Some(allocations.arc(alias).map_err(allocation_error)?)
             }
             Some(_) => return Err(referential("static definition alias link belongs to another declaration")),
             None => None,
         };
         let key = id.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
-        let definition = allocations.arc(crate::static_definition::StaticDefinition {
-            id,
-            signature,
-            body,
-            source_range,
-        }).map_err(allocation_error)?;
+        let definition = allocations
+            .arc(crate::static_definition::StaticDefinition {
+                id,
+                signature,
+                body,
+                source_range,
+            })
+            .map_err(allocation_error)?;
         let diagnostics = allocations.arc_slice(diagnostics).map_err(allocation_error)?;
-        let product = allocations.arc(crate::static_definition::StaticDefinitionProduct {
-            definition,
-            diagnostics,
-            alias_info,
-            canonical_program: Some(program),
-            checked_body: None,
-        }).map_err(allocation_error)?;
+        let product = allocations
+            .arc(crate::static_definition::StaticDefinitionProduct {
+                definition,
+                diagnostics,
+                alias_info,
+                canonical_program: Some(program),
+                checked_body: None,
+            })
+            .map_err(allocation_error)?;
         entries.push((key, product));
     }
-    crate::static_definition::StaticDefinitionTable::from_frozen_entries_with_allocation_budget(entries, allocations)
-        .map_err(frozen_ordered_map_error)
+    crate::static_definition::StaticDefinitionTable::from_frozen_entries_with_allocation_budget(entries, allocations).map_err(frozen_ordered_map_error)
 }
 
 fn import_static_constant_symbol(
@@ -5696,8 +5691,7 @@ fn import_static_constant_owners(
         };
         entries.push((key, allocations.arc(product).map_err(allocation_error)?));
     }
-    crate::static_constant::StaticConstantTable::from_frozen_entries_with_allocation_budget(entries, allocations)
-        .map_err(frozen_ordered_map_error)
+    crate::static_constant::StaticConstantTable::from_frozen_entries_with_allocation_budget(entries, allocations).map_err(frozen_ordered_map_error)
 }
 
 fn frozen_ordered_map_error(error: crate::ordered_map::FrozenOrderedMapError) -> ArtifactError {
@@ -5799,18 +5793,19 @@ fn import_module_static_binding_indexes(
             let name = allocations.boxed_str(&visible.name).map_err(allocation_error)?;
             visible_entries.push((name, symbol));
         }
-        let bindings = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(binding_entries, allocations)
-            .map_err(|error| match error {
+        let bindings =
+            crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(binding_entries, allocations).map_err(|error| match error {
                 crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
                 crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("module static-binding owner is duplicated"),
             })?;
-        let visible_names = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(visible_entries, allocations)
-            .map_err(|error| match error {
+        let visible_names =
+            crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(visible_entries, allocations).map_err(|error| match error {
                 crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
                 crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("module visible static-binding name is duplicated"),
             })?;
         let module_for_index = module.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
-        let index = crate::module_bindings::ModuleStaticBindingIndex::from_frozen_artifact_parts(module_for_index, bindings, visible_names).map_err(referential)?;
+        let index =
+            crate::module_bindings::ModuleStaticBindingIndex::from_frozen_artifact_parts(module_for_index, bindings, visible_names).map_err(referential)?;
         indexes.push((module, allocations.arc(index).map_err(allocation_error)?));
     }
     crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(indexes, allocations).map_err(|error| match error {
@@ -5874,12 +5869,10 @@ fn validate_and_import_semantic_world_inner(
     world.validate_with_allocation_budget(limits, allocations)?;
     ensure_complete_callable_analysis_payload(&world.callable_analyses)?;
     // 3. Fresh TypeStore with checked TypeRelocation
-    let (mut type_store, type_relocation) =
-        TypeStore::import_type_graph_with_allocation_budget(&world.type_graph, limits, allocations)?;
+    let (mut type_store, type_relocation) = TypeStore::import_type_graph_with_allocation_budget(&world.type_graph, limits, allocations)?;
 
     // 4. Structural primary contracts (shells, hierarchy, aliases, data/enum contracts, signatures)
-    let structural_contracts =
-        import_structural_primary_contracts(&world.structural_contracts, &mut type_store, &type_relocation, limits, allocations)?;
+    let structural_contracts = import_structural_primary_contracts(&world.structural_contracts, &mut type_store, &type_relocation, limits, allocations)?;
 
     // 5. Fresh StaticValueStore through validated factories
     let (static_values, static_relocation) = import_static_value_graph_with_allocation_budget(
@@ -5906,23 +5899,18 @@ fn validate_and_import_semantic_world_inner(
     }
 
     // 8. Reconstruct callable signatures and definitions (P7.T7.B)
-    let mut callable_signature_entries = allocations
-        .vector(world.callable_signatures.len())
-        .map_err(allocation_error)?;
+    let mut callable_signature_entries = allocations.vector(world.callable_signatures.len()).map_err(allocation_error)?;
     for rec in &world.callable_signatures {
         let sig = import_callable_signature(rec, &type_relocation, &type_store, allocations)?;
         callable_signature_entries.push(sig);
     }
-    let callable_signatures = crate::signature::CallableSignatureTable::from_frozen_entries_with_allocation_budget(
-        callable_signature_entries,
-        allocations,
-    )
-    .map_err(|error| match error {
-        crate::signature::FrozenCallableSignaturesError::Allocation(error) => allocation_error(error),
-        crate::signature::FrozenCallableSignaturesError::DuplicateCallable => {
-            referential("callable signature owner is duplicated after stable-identity relocation")
-        }
-    })?;
+    let callable_signatures = crate::signature::CallableSignatureTable::from_frozen_entries_with_allocation_budget(callable_signature_entries, allocations)
+        .map_err(|error| match error {
+            crate::signature::FrozenCallableSignaturesError::Allocation(error) => allocation_error(error),
+            crate::signature::FrozenCallableSignaturesError::DuplicateCallable => {
+                referential("callable signature owner is duplicated after stable-identity relocation")
+            }
+        })?;
     let mut callable_definition_entries = allocations
         .vector::<(crate::identity::CallableId, crate::impls::EffectiveCallableDefinition)>(world.callable_definitions.len())
         .map_err(allocation_error)?;
@@ -5931,12 +5919,10 @@ fn validate_and_import_semantic_world_inner(
         let key = definition.callable.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
         callable_definition_entries.push((key, definition));
     }
-    let callable_definitions_map = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(callable_definition_entries, allocations)
-        .map_err(|error| match error {
+    let callable_definitions_map =
+        crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(callable_definition_entries, allocations).map_err(|error| match error {
             crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
-            crate::parent_map::FrozenParentMapError::DuplicateKey => {
-                referential("callable definition owner is duplicated after stable-identity relocation")
-            }
+            crate::parent_map::FrozenParentMapError::DuplicateKey => referential("callable definition owner is duplicated after stable-identity relocation"),
         })?;
 
     let enum_requirements = import_enum_requirements(
@@ -6031,17 +6017,14 @@ fn validate_and_import_semantic_world_inner(
                 },
             ));
         }
-        let members = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(member_entries, allocations)
-            .map_err(|error| match error {
+        let members = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(member_entries, allocations).map_err(|error| match error {
+            crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+            crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("trait member owner is duplicated after identity relocation"),
+        })?;
+        let associated_types =
+            crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(associated_entries, allocations).map_err(|error| match error {
                 crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
-                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("trait member owner is duplicated after identity relocation"),
-            })?;
-        let associated_types = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(associated_entries, allocations)
-            .map_err(|error| match error {
-                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
-                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => {
-                    referential("trait associated-type owner is duplicated after identity relocation")
-                }
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("trait associated-type owner is duplicated after identity relocation"),
             })?;
         let mut diagnostics = allocations.vector(rec.diagnostics.len()).map_err(allocation_error)?;
         for diagnostic in &rec.diagnostics {
@@ -6049,11 +6032,12 @@ fn validate_and_import_semantic_world_inner(
         }
         let diagnostics = allocations.boxed_slice(diagnostics).map_err(allocation_error)?;
         let surface_decl = decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
-        let surface = crate::traits::TraitSurface::from_frozen_import_parts(surface_decl, generic_signature, members, associated_types, diagnostics, allocations)
-            .map_err(|error| match error {
-                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
-                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("trait requirement layout contains a duplicate identity"),
-            })?;
+        let surface =
+            crate::traits::TraitSurface::from_frozen_import_parts(surface_decl, generic_signature, members, associated_types, diagnostics, allocations)
+                .map_err(|error| match error {
+                    crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+                    crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("trait requirement layout contains a duplicate identity"),
+                })?;
         let surface_key = decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
         trait_surface_entries.push((surface_key, allocations.arc(surface).map_err(allocation_error)?));
         let header_source = import_source_span_with_allocation_budget(&rec.header_source, allocations)?;
@@ -6063,21 +6047,23 @@ fn validate_and_import_semantic_world_inner(
             .as_ref()
             .map(|signature| import_generic_signature_with_allocation_budget(signature, &type_relocation, &type_store, allocations))
             .transpose()?;
-        let header = allocations.arc(crate::traits::TraitHeader {
-            declaration: header_declaration,
-            generic_signature: header_generic_signature,
-            source: header_source,
-        }).map_err(allocation_error)?;
+        let header = allocations
+            .arc(crate::traits::TraitHeader {
+                declaration: header_declaration,
+                generic_signature: header_generic_signature,
+                source: header_source,
+            })
+            .map_err(allocation_error)?;
         let header_key = decl.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
         trait_header_entries.push((header_key, header));
     }
-    let trait_surfaces = crate::traits::TraitSurfaceTable::from_frozen_entries_with_allocation_budget(trait_surface_entries, allocations)
-        .map_err(|error| match error {
+    let trait_surfaces =
+        crate::traits::TraitSurfaceTable::from_frozen_entries_with_allocation_budget(trait_surface_entries, allocations).map_err(|error| match error {
             crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
             crate::parent_map::FrozenParentMapError::DuplicateKey => referential("trait surface owner is duplicated after identity relocation"),
         })?;
-    let trait_headers = crate::traits::TraitHeaderTable::from_frozen_entries_with_allocation_budget(trait_header_entries, allocations)
-        .map_err(|error| match error {
+    let trait_headers =
+        crate::traits::TraitHeaderTable::from_frozen_entries_with_allocation_budget(trait_header_entries, allocations).map_err(|error| match error {
             crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
             crate::parent_map::FrozenParentMapError::DuplicateKey => referential("trait header owner is duplicated after identity relocation"),
         })?;
@@ -6118,7 +6104,9 @@ fn validate_and_import_semantic_world_inner(
                 let mut projected = crate::checker::declaration_signature::project_semantic_signature_with_allocation_budget(semantic, allocations)
                     .map_err(allocation_error)?;
                 projected.return_type = import_type_knowledge_with_allocation_budget(&fact.knowledge, &type_relocation, allocations)?;
-                members.add_callable(cid, projected, import_visibility(&fact.visibility), allocations).map_err(allocation_error)?;
+                members
+                    .add_callable(cid, projected, import_visibility(&fact.visibility), allocations)
+                    .map_err(allocation_error)?;
             }
             for field in rec.fields.iter().filter(|field| field.side == side_wire) {
                 let owner = import_stable_declaration_with_allocation_budget(&field.owner, allocations)?;
@@ -6149,10 +6137,8 @@ fn validate_and_import_semantic_world_inner(
                             Ok(SemanticSourceSpan::new(
                                 owner.module.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
                                 SourceRange {
-                                    start: usize::try_from(source.start)
-                                        .map_err(|_| referential("declaration field source start exceeds address space"))?,
-                                    end: usize::try_from(source.end)
-                                        .map_err(|_| referential("declaration field source end exceeds address space"))?,
+                                    start: usize::try_from(source.start).map_err(|_| referential("declaration field source start exceeds address space"))?,
+                                    end: usize::try_from(source.end).map_err(|_| referential("declaration field source end exceeds address space"))?,
                                 },
                             ))
                         })
@@ -6193,22 +6179,22 @@ fn validate_and_import_semantic_world_inner(
         crate::dispatch::FrozenDispatchImportError::DuplicateConditionalTarget => {
             referential("conditional inherent target is duplicated after identity relocation")
         }
-        crate::dispatch::FrozenDispatchImportError::DuplicateDomain => {
-            referential("inherent implementation domain is duplicated after identity relocation")
-        }
+        crate::dispatch::FrozenDispatchImportError::DuplicateDomain => referential("inherent implementation domain is duplicated after identity relocation"),
     })?;
-    let field_signatures = crate::signature::FieldSignatureTable::from_frozen_entries_with_allocation_budget(field_signature_entries, allocations)
-        .map_err(|error| match error {
+    let field_signatures = crate::signature::FieldSignatureTable::from_frozen_entries_with_allocation_budget(field_signature_entries, allocations).map_err(
+        |error| match error {
             crate::signature::FrozenFieldSignatureTableError::Allocation(error) => allocation_error(error),
             crate::signature::FrozenFieldSignatureTableError::DuplicateField => referential("field signature owner is duplicated after identity relocation"),
-        })?;
+        },
+    )?;
 
-    let domain_count = world.conditional_inherent_sets.iter().try_fold(0usize, |count, set| count.checked_add(set.domains.len()))
+    let domain_count = world
+        .conditional_inherent_sets
+        .iter()
+        .try_fold(0usize, |count, set| count.checked_add(set.domains.len()))
         .ok_or_else(|| allocation_error(AllocationError::Overflow))?;
     let mut conditional_member_entries = allocations
-        .vector::<(crate::impls::InherentImplTarget, Arc<crate::impls::ConditionalInherentMemberSet>)>(
-            world.conditional_inherent_sets.len(),
-        )
+        .vector::<(crate::impls::InherentImplTarget, Arc<crate::impls::ConditionalInherentMemberSet>)>(world.conditional_inherent_sets.len())
         .map_err(allocation_error)?;
     let mut inherent_domain_entries = allocations
         .vector::<(crate::identity::ImplId, Arc<crate::impls::InherentImplDomain>)>(domain_count)
@@ -6219,9 +6205,9 @@ fn validate_and_import_semantic_world_inner(
             InherentImplTargetV1::Declaration { declaration } => {
                 crate::impls::InherentImplTarget::Declaration(import_stable_declaration_with_allocation_budget(declaration, allocations)?)
             }
-            InherentImplTargetV1::ExactEnumCase { variant } => crate::impls::InherentImplTarget::ExactEnumCase(
-                import_stable_variant_with_allocation_budget(variant, allocations)?,
-            ),
+            InherentImplTargetV1::ExactEnumCase { variant } => {
+                crate::impls::InherentImplTarget::ExactEnumCase(import_stable_variant_with_allocation_budget(variant, allocations)?)
+            }
         };
         let mut domain_entries = allocations
             .vector::<(crate::identity::ImplId, Arc<crate::impls::InherentImplDomain>)>(set_record.domains.len())
@@ -6247,22 +6233,25 @@ fn validate_and_import_semantic_world_inner(
             };
             let domain_impl_id = impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
             let constraints = allocations.boxed_slice(constraints).map_err(allocation_error)?;
-            let imported = allocations.arc(crate::impls::InherentImplDomain {
-                impl_id: domain_impl_id,
-                target: domain_target,
-                head_type: type_relocation.ty(domain.head_type)?,
-                generic_signature,
-                constraints,
-            })
-            .map_err(allocation_error)?;
-            inherent_domain_entries.push((impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, Arc::clone(&imported)));
+            let imported = allocations
+                .arc(crate::impls::InherentImplDomain {
+                    impl_id: domain_impl_id,
+                    target: domain_target,
+                    head_type: type_relocation.ty(domain.head_type)?,
+                    generic_signature,
+                    constraints,
+                })
+                .map_err(allocation_error)?;
+            inherent_domain_entries.push((
+                impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                Arc::clone(&imported),
+            ));
             domain_entries.push((impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, imported));
         }
-        let domains = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(domain_entries, allocations)
-            .map_err(|error| match error {
-                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
-                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("conditional inherent domain is duplicated after identity relocation"),
-            })?;
+        let domains = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(domain_entries, allocations).map_err(|error| match error {
+            crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
+            crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("conditional inherent domain is duplicated after identity relocation"),
+        })?;
         let mut members = allocations.vector(set_record.members.len()).map_err(allocation_error)?;
         for member in &set_record.members {
             let impl_id = import_stable_impl_with_allocation_budget(&member.impl_id, allocations)?;
@@ -6348,21 +6337,24 @@ fn validate_and_import_semantic_world_inner(
         };
         let key = impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
         let source_span_module = source_module.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
-        conformance_entries.push((key, crate::impls::ConformanceContribution {
-            impl_id,
-            source_module,
-            trait_ref: crate::traits::TraitRef::new(trait_decl, allocations.boxed_slice(args).map_err(allocation_error)?),
-            target,
-            target_head,
-            generic_signature,
-            authorized: rec.authorized,
-            eligible: rec.eligible,
-            source: crate::diagnostic::SemanticSourceSpan::new(source_span_module, phalcom_common::range::SourceRange::default()),
-            diagnostics: Box::new([]),
-        }));
+        conformance_entries.push((
+            key,
+            crate::impls::ConformanceContribution {
+                impl_id,
+                source_module,
+                trait_ref: crate::traits::TraitRef::new(trait_decl, allocations.boxed_slice(args).map_err(allocation_error)?),
+                target,
+                target_head,
+                generic_signature,
+                authorized: rec.authorized,
+                eligible: rec.eligible,
+                source: crate::diagnostic::SemanticSourceSpan::new(source_span_module, phalcom_common::range::SourceRange::default()),
+                diagnostics: Box::new([]),
+            },
+        ));
     }
-    let conformance_index = crate::impls::ConformanceIndex::from_frozen_entries_with_allocation_budget(conformance_entries, allocations)
-        .map_err(|error| match error {
+    let conformance_index =
+        crate::impls::ConformanceIndex::from_frozen_entries_with_allocation_budget(conformance_entries, allocations).map_err(|error| match error {
             crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
             crate::parent_map::FrozenParentMapError::DuplicateKey => referential("conformance head is duplicated after identity relocation"),
         })?;
@@ -6416,8 +6408,8 @@ fn validate_and_import_semantic_world_inner(
             };
             requirement_view_entries.push((key, imported));
         }
-        let requirement_views = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(requirement_view_entries, allocations)
-            .map_err(|error| match error {
+        let requirement_views =
+            crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(requirement_view_entries, allocations).map_err(|error| match error {
                 crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
                 crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("witness requirement view is duplicated"),
             })?;
@@ -6438,18 +6430,15 @@ fn validate_and_import_semantic_world_inner(
             if requirement.owner != trait_decl {
                 return Err(referential("witness requirement selection belongs to another trait"));
             }
-            let key = requirement.clone_with_allocation_budget(evidence_importer.allocations).map_err(allocation_error)?;
-            let selection = import_callable_requirement_selection(
-                &entry.selection,
-                &witness.conformance_evidence,
-                &mut evidence_importer,
-                0,
-            )?;
+            let key = requirement
+                .clone_with_allocation_budget(evidence_importer.allocations)
+                .map_err(allocation_error)?;
+            let selection = import_callable_requirement_selection(&entry.selection, &witness.conformance_evidence, &mut evidence_importer, 0)?;
             requirement_entries.push((key, selection));
         }
         drop(evidence_importer);
-        let requirements = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(requirement_entries, allocations)
-            .map_err(|error| match error {
+        let requirements =
+            crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(requirement_entries, allocations).map_err(|error| match error {
                 crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
                 crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("witness requirement selection is duplicated"),
             })?;
@@ -6475,11 +6464,14 @@ fn validate_and_import_semantic_world_inner(
         );
 
         source_plan_fingerprints.push((impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, plan.fingerprint));
-        witness_plan_entries.push((impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, allocations.arc(plan).map_err(allocation_error)?));
+        witness_plan_entries.push((
+            impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+            allocations.arc(plan).map_err(allocation_error)?,
+        ));
     }
 
-    let witness_plans_map = crate::impls::ConformanceWitnessPlans::from_frozen_entries_with_allocation_budget(witness_plan_entries, allocations)
-        .map_err(|error| match error {
+    let witness_plans_map =
+        crate::impls::ConformanceWitnessPlans::from_frozen_entries_with_allocation_budget(witness_plan_entries, allocations).map_err(|error| match error {
             crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
             crate::parent_map::FrozenParentMapError::DuplicateKey => referential("witness plan is duplicated after identity relocation"),
         })?;
@@ -6507,16 +6499,14 @@ fn validate_and_import_semantic_world_inner(
         )?;
         imported_derived_conformance_rules.push(rule);
     }
-    let derived_conformance_rules = crate::derived_conformance::DerivedConformanceRuleIndex::from_frozen_rules_with_allocation_budget(
-        imported_derived_conformance_rules,
-        allocations,
-    )
-    .map_err(|error| match error {
-        crate::derived_conformance::FrozenDerivedConformanceRuleIndexError::Allocation(error) => allocation_error(error),
-        crate::derived_conformance::FrozenDerivedConformanceRuleIndexError::DuplicateKey => {
-            referential("derived conformance rule implementation is duplicated after identity relocation")
-        }
-    })?;
+    let derived_conformance_rules =
+        crate::derived_conformance::DerivedConformanceRuleIndex::from_frozen_rules_with_allocation_budget(imported_derived_conformance_rules, allocations)
+            .map_err(|error| match error {
+                crate::derived_conformance::FrozenDerivedConformanceRuleIndexError::Allocation(error) => allocation_error(error),
+                crate::derived_conformance::FrozenDerivedConformanceRuleIndexError::DuplicateKey => {
+                    referential("derived conformance rule implementation is duplicated after identity relocation")
+                }
+            })?;
     let trait_dispatch_index = crate::trait_dispatch::TraitDispatchIndex::build_with_allocation_budget(&conformance_index, &trait_surfaces, allocations)
         .map_err(|error| match error {
             crate::trait_dispatch::FrozenTraitDispatchIndexError::Allocation(error) => allocation_error(error),
@@ -6537,37 +6527,53 @@ fn validate_and_import_semantic_world_inner(
         let mut default_fields = allocations.vector(rec.default_fields.len()).map_err(allocation_error)?;
         for name in &rec.default_fields {
             default_fields.push(crate::identity::FieldId::new(
-                initializer.owner.declaration().clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                initializer
+                    .owner
+                    .declaration()
+                    .clone_with_allocation_budget(allocations)
+                    .map_err(allocation_error)?,
                 allocations.boxed_str(name).map_err(allocation_error)?,
                 crate::identity::DispatchSide::Instance,
             ));
         }
         let mut parameter_fields = allocations.vector(rec.parameter_fields.len()).map_err(allocation_error)?;
         for pf in &rec.parameter_fields {
-                let side = match pf.field_side {
-                    0 => crate::identity::DispatchSide::Instance,
-                    _ => crate::identity::DispatchSide::Class,
-                };
-                parameter_fields.push(crate::signature::ConstructorParameterField {
-                    parameter: crate::identity::CallableParameterId::new(factory.clone_with_allocation_budget(allocations).map_err(allocation_error)?, pf.parameter_index),
-                    field: crate::identity::FieldId::new(
-                        initializer.owner.declaration().clone_with_allocation_budget(allocations).map_err(allocation_error)?,
-                        allocations.boxed_str(&pf.field_name).map_err(allocation_error)?, side),
-                });
+            let side = match pf.field_side {
+                0 => crate::identity::DispatchSide::Instance,
+                _ => crate::identity::DispatchSide::Class,
+            };
+            parameter_fields.push(crate::signature::ConstructorParameterField {
+                parameter: crate::identity::CallableParameterId::new(
+                    factory.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                    pf.parameter_index,
+                ),
+                field: crate::identity::FieldId::new(
+                    initializer
+                        .owner
+                        .declaration()
+                        .clone_with_allocation_budget(allocations)
+                        .map_err(allocation_error)?,
+                    allocations.boxed_str(&pf.field_name).map_err(allocation_error)?,
+                    side,
+                ),
+            });
         }
         let key = factory.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
-        constructor_entries.push((key, crate::signature::ConstructorInitializationProduct {
-            factory,
-            initializer,
-            origin,
-            field_input_fingerprint,
-            default_fields: allocations.boxed_slice(default_fields).map_err(allocation_error)?,
-            parameter_fields: allocations.boxed_slice(parameter_fields).map_err(allocation_error)?,
-        }));
+        constructor_entries.push((
+            key,
+            crate::signature::ConstructorInitializationProduct {
+                factory,
+                initializer,
+                origin,
+                field_input_fingerprint,
+                default_fields: allocations.boxed_slice(default_fields).map_err(allocation_error)?,
+                parameter_fields: allocations.boxed_slice(parameter_fields).map_err(allocation_error)?,
+            },
+        ));
     }
-    let constructor_initializations = crate::signature::ConstructorInitializationTable::from_frozen_entries_with_allocation_budget(
-        constructor_entries, allocations,
-    ).map_err(frozen_ordered_map_error)?;
+    let constructor_initializations =
+        crate::signature::ConstructorInitializationTable::from_frozen_entries_with_allocation_budget(constructor_entries, allocations)
+            .map_err(frozen_ordered_map_error)?;
 
     let ImportedAssociatedAuthority {
         associated_surfaces,
@@ -6606,9 +6612,8 @@ fn validate_and_import_semantic_world_inner(
         }
         callable_module_entries.push((module, allocations.boxed_slice(callables).map_err(allocation_error)?));
     }
-    let callable_definitions_by_module = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(
-        callable_module_entries, allocations,
-    ).map_err(frozen_ordered_map_error)?;
+    let callable_definitions_by_module =
+        crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(callable_module_entries, allocations).map_err(frozen_ordered_map_error)?;
 
     let surfaces = dispatch_resolver.surfaces().clone();
     let formal_projection = crate::presentation::FormalSemanticProjection::from_callable_analysis_table_with_binding_ranges_and_allocation_budget(
@@ -6618,12 +6623,8 @@ fn validate_and_import_semantic_world_inner(
     )
     .map_err(|error| match error {
         crate::presentation::FormalSemanticProjectionBuildError::Allocation(error) => allocation_error(error),
-        crate::presentation::FormalSemanticProjectionBuildError::DuplicateFact => {
-            referential("formal projection contains a duplicate callable fact")
-        }
-        crate::presentation::FormalSemanticProjectionBuildError::DuplicateModule => {
-            referential("formal projection contains a duplicate module")
-        }
+        crate::presentation::FormalSemanticProjectionBuildError::DuplicateFact => referential("formal projection contains a duplicate callable fact"),
+        crate::presentation::FormalSemanticProjectionBuildError::DuplicateModule => referential("formal projection contains a duplicate module"),
     })?;
     let formal_projection = allocations.arc(formal_projection).map_err(allocation_error)?;
     let type_store = allocations.arc(type_store).map_err(allocation_error)?;
@@ -6718,7 +6719,9 @@ fn validate_and_import_semantic_world_inner(
     let snapshot = allocations.arc(snapshot).map_err(allocation_error)?;
 
     // Build secondary owner indexes in a single O(N) pass (P7.T8)
-    let mut declarations = allocations.vector(world.structural_contracts.declaration_shells.len()).map_err(allocation_error)?;
+    let mut declarations = allocations
+        .vector(world.structural_contracts.declaration_shells.len())
+        .map_err(allocation_error)?;
     declarations.extend(world.structural_contracts.declaration_shells.into_iter().map(|shell| shell.declaration));
     let mut data = allocations.vector(world.structural_contracts.data_contracts.len()).map_err(allocation_error)?;
     data.extend(world.structural_contracts.data_contracts.into_iter().map(|data| data.owner));
@@ -7711,7 +7714,10 @@ mod tests {
                 evidence: CallableDerivedConformanceEvidenceV1 {
                     origin: CallableDerivedConformanceOriginV1::ConditionalSource { exact_source: 1 },
                     impl_bindings: vec![],
-                    nested: vec![CallableNestedGenericEvidenceV1::Conformance { evidence: 0 }, CallableNestedGenericEvidenceV1::Equivalent],
+                    nested: vec![
+                        CallableNestedGenericEvidenceV1::Conformance { evidence: 0 },
+                        CallableNestedGenericEvidenceV1::Equivalent,
+                    ],
                 },
             },
         ];
@@ -7913,7 +7919,10 @@ mod tests {
         let crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } = &derived.origin else {
             panic!("derived conditional source must be preserved");
         };
-        assert!(std::sync::Arc::ptr_eq(exact_source, evidence), "shared exact evidence must remain shared after import");
+        assert!(
+            std::sync::Arc::ptr_eq(exact_source, evidence),
+            "shared exact evidence must remain shared after import"
+        );
         let mut wrong_kind = expressions.clone();
         wrong_kind[3].call_specialization.as_mut().unwrap().conformances[0].source = CallableGenericCallConformanceSourceV1::Exact { evidence: 0 };
         let mut negative_allocations = AllocationBudget::new(8192);
@@ -7926,7 +7935,7 @@ mod tests {
             &mut negative_allocations,
             16,
         )
-            .expect_err("a compiler-derived node cannot satisfy an Exact binding");
+        .expect_err("a compiler-derived node cannot satisfy an Exact binding");
         assert!(error.to_string().contains("references a node of the wrong kind"));
 
         let mut dangling = expressions.clone();
@@ -7963,15 +7972,7 @@ mod tests {
         assert!(error.to_string().contains("contains a cycle"));
 
         let mut negative_allocations = AllocationBudget::new(8192);
-        let error = import_callable_call_specializations(
-            &expressions,
-            &evidence_nodes,
-            &relocation,
-            &store,
-            &[],
-            &mut negative_allocations,
-            16,
-        )
+        let error = import_callable_call_specializations(&expressions, &evidence_nodes, &relocation, &store, &[], &mut negative_allocations, 16)
             .expect_err("Exact evidence without its source witness fingerprint must be rejected");
         assert!(error.to_string().contains("no reconstructed source witness plan"));
         assert!(import_callable_call_specializations(&[], &[], &relocation, &store, &source_plan_fingerprints, &mut allocations, 16).is_ok());
@@ -8350,8 +8351,7 @@ mod tests {
             exact_expansions: vec![],
         });
         let mut budget = AllocationBudget::new(1 << 20);
-        let (table, ranges) =
-            import_callable_analysis_records(std::slice::from_ref(&record), &relocation, &store, &[], &limits, &mut budget).unwrap();
+        let (table, ranges) = import_callable_analysis_records(std::slice::from_ref(&record), &relocation, &store, &[], &limits, &mut budget).unwrap();
         let analysis = table.get(&callable).unwrap();
         assert_eq!(table.iter_module(callable.module()).count(), 1);
         assert!(analysis.expressions.is_frozen());
@@ -8364,7 +8364,9 @@ mod tests {
             analysis.dependency_fingerprint,
             crate::db::fingerprint::callable_body_product_fingerprint(analysis)
         );
-        let projection = crate::presentation::FormalSemanticProjection::from_callable_analysis_table_with_binding_ranges_and_allocation_budget(&table, &ranges, &mut budget).unwrap();
+        let projection =
+            crate::presentation::FormalSemanticProjection::from_callable_analysis_table_with_binding_ranges_and_allocation_budget(&table, &ranges, &mut budget)
+                .unwrap();
         assert_eq!(
             projection.binding_attachment_range(&callable, BindingId(0)),
             Some(SourceRange { start: 2, end: 7 })
