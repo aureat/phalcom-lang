@@ -18,18 +18,20 @@ use crate::diagnostic::SemanticDiagnostic;
 use crate::identity::{CallableId, CallableOwnerId, DispatchSide, ImplId};
 use crate::impls::{
     AssociatedTypeBindingFailure, AssociatedTypeBindingFailureKind, AssociatedTypeBindingTemplate,
-    AssociatedTypeBindingValue,
+    AssociatedTypeBindingValue, ConformanceCompleteness, ConformanceFailure, RequirementFailure,
 };
 use crate::surface::MemberVisibility;
 use crate::traits::{AssociatedTypeRequirementId, InstantiatedTraitRequirement, TraitRef, TraitRequirementId};
 use crate::types::id::TypeId;
+use crate::types::outcome::DynamicBoundaryObligation;
 use crate::types::parameter::GenericSignature;
 use phalcom_compiler_artifact::semantic::aggregates::VisibilityV1;
 use phalcom_compiler_artifact::semantic::world::{
     CallableAssociatedTypeBindingFailureKindV1, CallableAssociatedTypeBindingFailureV1,
     CallableAssociatedTypeBindingTemplateV1, CallableAssociatedTypeBindingValueV1,
     CallableAssociatedTypeRequirementIdentityV1, CallableConformanceAssociatedTypePlanV1,
-    CallableRequirementIdentityV1, CallableRequirementViewV1, WitnessPlanV1,
+    CallableConformanceCompletenessV1, CallableConformanceFailureV1, CallableRequirementIdentityV1,
+    CallableRequirementViewV1, WitnessPlanV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
@@ -62,6 +64,7 @@ pub struct ImportedWitnessPlanPreflight {
     pub generic_signature: Option<GenericSignature>,
     pub requirement_views: Box<[(TraitRequirementId, InstantiatedTraitRequirement)]>,
     pub associated_type_plan: ImportedAssociatedTypePlan,
+    pub completeness: ConformanceCompleteness,
     pub selected_callables: Box<[CallableId]>,
     pub invalid_explicit_members: bool,
     pub diagnostics: Box<[SemanticDiagnostic]>,
@@ -245,6 +248,13 @@ fn reconstruct_plan(
         owners,
         allocations,
     )?;
+    let completeness = reconstruct_completeness(
+        &record.completeness,
+        &trait_declaration,
+        types,
+        owners,
+        allocations,
+    )?;
 
     let mut selected_callables = allocations
         .vector::<CallableId>(record.ordered_selected_callables.len())
@@ -277,6 +287,7 @@ fn reconstruct_plan(
         generic_signature,
         requirement_views: allocations.boxed_slice(views).map_err(ArtifactError::Allocation)?,
         associated_type_plan,
+        completeness,
         selected_callables: allocations
             .boxed_slice(selected_callables)
             .map_err(ArtifactError::Allocation)?,
@@ -285,6 +296,76 @@ fn reconstruct_plan(
         requirement_selection_count: record.requirements.len(),
         conformance_evidence_count: record.conformance_evidence.len(),
         wire_fingerprint: record.fingerprint,
+    })
+}
+
+fn reconstruct_completeness(
+    completeness: &CallableConformanceCompletenessV1,
+    expected_trait: &crate::identity::DeclarationId,
+    types: &ReconstructedTypeGraph,
+    owners: &StableOwnerCatalog<'_>,
+    allocations: &mut AllocationBudget,
+) -> Result<ConformanceCompleteness, ArtifactError> {
+    Ok(match completeness {
+        CallableConformanceCompletenessV1::Complete => ConformanceCompleteness::Complete,
+        CallableConformanceCompletenessV1::Incomplete { failures } => {
+            let mut imported = allocations
+                .vector::<ConformanceFailure>(failures.len())
+                .map_err(ArtifactError::Allocation)?;
+            for failure in failures {
+                imported.push(match failure {
+                    CallableConformanceFailureV1::Behavioral { requirement, reason } => {
+                        let requirement = requirement_identity(requirement, owners)?;
+                        if &requirement.owner != expected_trait {
+                            return Err(invalid("witness completeness behavioral failure belongs to another trait"));
+                        }
+                        ConformanceFailure::Behavioral(RequirementFailure {
+                            requirement,
+                            reason: allocations.boxed_str(reason).map_err(ArtifactError::Allocation)?,
+                        })
+                    }
+                    CallableConformanceFailureV1::AssociatedType { failure } => {
+                        let failure = reconstruct_associated_type_failure(failure, owners, allocations)?;
+                        if failure
+                            .requirement
+                            .as_ref()
+                            .is_some_and(|requirement| &requirement.owner != expected_trait)
+                        {
+                            return Err(invalid("witness completeness associated-type failure belongs to another trait"));
+                        }
+                        ConformanceFailure::AssociatedType(failure)
+                    }
+                });
+            }
+            ConformanceCompleteness::Incomplete {
+                failures: allocations.boxed_slice(imported).map_err(ArtifactError::Allocation)?,
+            }
+        }
+        CallableConformanceCompletenessV1::Unknown { reason } => {
+            ConformanceCompleteness::Unknown(super::callable_import::import_unknown_reason(reason, allocations)?)
+        }
+        CallableConformanceCompletenessV1::Blocked { reason } => {
+            ConformanceCompleteness::Blocked(super::callable_binding_import::block_reason(
+                reason,
+                types,
+                owners,
+                allocations,
+            )?)
+        }
+        CallableConformanceCompletenessV1::Dynamic { reason } => {
+            ConformanceCompleteness::Dynamic(DynamicBoundaryObligation {
+                reason: allocations.string(reason).map_err(ArtifactError::Allocation)?,
+            })
+        }
+        CallableConformanceCompletenessV1::Cancelled => ConformanceCompleteness::Cancelled,
+        CallableConformanceCompletenessV1::BudgetExceeded { report } => {
+            ConformanceCompleteness::BudgetExceeded(super::callable_binding_import::budget_report(report))
+        }
+        CallableConformanceCompletenessV1::InternalFailure { message } => {
+            ConformanceCompleteness::InternalFailure(
+                allocations.boxed_str(message).map_err(ArtifactError::Allocation)?,
+            )
+        }
     })
 }
 
