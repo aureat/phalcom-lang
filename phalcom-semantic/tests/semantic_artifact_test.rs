@@ -22,7 +22,8 @@ use phalcom_compiler_artifact::semantic::type_store::{
 use phalcom_compiler_artifact::semantic::world::{
     AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1,
     CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableSignatureRecordV1,
-    EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1, ExactSelectorV1, ImplementationKindV1, NativeLifecycleSpecV1,
+    ConstructorInitializationRecordV1, EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1, ExactSelectorV1,
+    ImplementationKindV1, NativeLifecycleSpecV1,
     RaisesSpecV1, ReturnContractValidationV1,
     ReturnFlowV1, SelectorKindV1, SemanticWorldV3, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
     StaticDomainCaseCatalogRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
@@ -1095,6 +1096,92 @@ fn p7_enum_requirements_reconstruct_as_snapshot_authority_without_ready_query() 
         imported.query_products.len(),
         0,
         "EnumRequirements is snapshot authority only and must not be fabricated into a reusable Ready query"
+    );
+}
+
+#[test]
+fn p7_constructor_initialization_reconstructs_as_snapshot_authority_without_ready_query() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+
+    let owner = StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: vec!["core".into()].into_boxed_slice(),
+        },
+        path: vec!["Constructed".into()].into_boxed_slice(),
+    };
+    let factory = StableCallableRef {
+        owner: StableCallableOwnerRef::Declaration(owner.clone()),
+        side: StableDispatchSide::Class,
+        selector: "new".into(),
+    };
+    let initializer = StableCallableRef {
+        owner: StableCallableOwnerRef::Declaration(owner.clone()),
+        side: StableDispatchSide::Instance,
+        selector: "initialize".into(),
+    };
+    let signature = |callable: StableCallableRef, side: u8, selector: &str| CallableSignatureRecordV1 {
+        callable,
+        owner: owner.clone(),
+        side,
+        selector: selector.into(),
+        generics: None,
+        parameters: vec![],
+        declared_return: DeclaredTypeFactV1 {
+            state: DeclaredTypeStateV1::Unknown {
+                reason: UnknownReasonV1::NoTypeEvidence,
+            },
+            basis: DeclaredTypeBasisV1::Unspecified,
+        },
+        return_validation: ReturnContractValidationV1::NotApplicable,
+        inferred_return: None,
+        source: None,
+        implementation: ImplementationKindV1::Phalcom,
+        native_id: None,
+        effects: EffectSpecV1::Unknown,
+        raises: RaisesSpecV1::Unknown,
+        flow: ReturnFlowV1::Unknown,
+        lifecycle: NativeLifecycleSpecV1 {
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+        },
+    };
+    image
+        .semantic_world
+        .callable_signatures
+        .push(signature(factory.clone(), 1, "new"));
+    image
+        .semantic_world
+        .callable_signatures
+        .push(signature(initializer.clone(), 0, "initialize"));
+    image.semantic_world.constructor_initializations.push(ConstructorInitializationRecordV1 {
+        factory,
+        initializer,
+        origin: 1,
+        field_input_fingerprint: 0xA11CE,
+        default_fields: vec![],
+        parameter_fields: vec![],
+    });
+
+    let bytes = encode_artifact(&image).expect("encode P7 constructor authority");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
+        .expect("validate P7 constructor authority");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget)
+        .expect("reconstruct P7 constructor authority");
+
+    assert_eq!(imported.constructor_initialization_authority.len(), 1);
+    assert_eq!(
+        imported.query_products.len(),
+        0,
+        "ConstructorInitialization remains snapshot authority until its current query reuse contract is explicitly imported"
     );
 }
 
