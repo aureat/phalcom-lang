@@ -402,6 +402,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             &callable_authority,
             &reconstructed,
             &owners,
+            &self.limits,
             child,
         )?;
         let enum_requirement_authority = enum_requirement_import::reconstruct_enum_requirement_authority(
