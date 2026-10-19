@@ -21,8 +21,11 @@ use phalcom_compiler_artifact::semantic::type_store::{
 };
 use phalcom_compiler_artifact::semantic::world::{
     AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1,
+    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1,
+    CallableBindingAuthorityV1, CallableBindingConsistencyV1, CallableBindingRowV1, CallableCausalInvalidityV1,
     CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1,
-    CallableDiagnosticSeverityV1, CallableEvidenceDiagnosticV1, CallableSignatureRecordV1,
+    CallableDiagnosticSeverityV1, CallableEvidenceDiagnosticV1, CallableFlowGraphV1, CallableFlowStateSummaryV1,
+    CallableGeneratedBindingReasonV1, CallableInitializationStateV1, CallableSignatureRecordV1, SemanticDenotationV1,
     ConditionalInherentMemberV1, ConditionalInherentSetV1, ConformanceHeadRecordV1, ConformanceTargetV1,
     ConstructorInitializationRecordV1, DeclarationSurfaceRecordV1, DispatchCallableFactV1, EffectSpecV1,
     EnumRequirementOwnerV1, EnumRequirementRecordV1, EnumRequirementSourceV1,
@@ -1607,6 +1610,136 @@ fn p7_witness_preflight_binds_portable_plan_to_live_conformance_and_trait_author
         imported.query_products.len(),
         0,
         "witness preflight is proof staging and must not make ConformanceDispatch Ready"
+    );
+}
+
+#[test]
+fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysis() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+
+    let owner = StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: vec!["core".into()].into_boxed_slice(),
+        },
+        path: vec!["BindingOwner".into()].into_boxed_slice(),
+    };
+    let callable = StableCallableRef {
+        owner: StableCallableOwnerRef::Declaration(owner.clone()),
+        side: StableDispatchSide::Instance,
+        selector: "run".into(),
+    };
+    image.semantic_world.callable_signatures.push(CallableSignatureRecordV1 {
+        callable: callable.clone(),
+        owner,
+        side: 0,
+        selector: "run".into(),
+        generics: None,
+        parameters: vec![],
+        declared_return: DeclaredTypeFactV1 {
+            state: DeclaredTypeStateV1::Unknown {
+                reason: UnknownReasonV1::NoTypeEvidence,
+            },
+            basis: DeclaredTypeBasisV1::Unspecified,
+        },
+        return_validation: ReturnContractValidationV1::NotApplicable,
+        inferred_return: None,
+        source: None,
+        implementation: ImplementationKindV1::Phalcom,
+        native_id: None,
+        effects: EffectSpecV1::Unknown,
+        raises: RaisesSpecV1::Unknown,
+        flow: ReturnFlowV1::Unknown,
+        lifecycle: NativeLifecycleSpecV1 {
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+        },
+    });
+    image.semantic_world.callable_analyses.push(CallableAnalysisRecordV1 {
+        callable: callable.clone(),
+        body_source_owner: Some(CallableAnalysisSourceOwnerV1::Callable {
+            callable: callable.clone(),
+        }),
+        body_range: SpanV1 { start: 0, end: 0 },
+        status: CallableAnalysisStatusV1::Complete,
+        exits_unreachable: false,
+        flow_graph: CallableFlowGraphV1 {
+            nodes: vec![],
+            edges: vec![],
+            entry: None,
+            exits: vec![],
+        },
+        constructor_super_initializer: None,
+        expressions: vec![],
+        conformance_evidence: vec![],
+        bindings: vec![CallableBindingRowV1 {
+            ordinal: 0,
+            name: "self".into(),
+            parameter: None,
+            range: SpanV1 { start: 0, end: 0 },
+            contract: None,
+            current: TypeKnowledgeV1::Unknown {
+                reason: UnknownReasonV1::NoTypeEvidence,
+            },
+            denotation: Some(SemanticDenotationV1::TypeForm {
+                ty: ArtifactTypeId(0),
+            }),
+            consistency: CallableBindingConsistencyV1::Unconstrained,
+            causal_invalidity: CallableCausalInvalidityV1::Clean,
+            mutable: false,
+            initialization: CallableInitializationStateV1::DefinitelyInitialized,
+            version: 0,
+            explanation: None,
+            authority: CallableBindingAuthorityV1::BodyLocalGenerated {
+                reason: CallableGeneratedBindingReasonV1::ImplicitReceiver,
+            },
+        }],
+        for_iteration_lanes: vec![],
+        positional_expansions: vec![],
+        known_invalid_positional_expansions: vec![],
+        sequence_literals: vec![],
+        associated_resolutions: vec![],
+        callable_reference_resolutions: vec![],
+        family_applications: vec![],
+        local_proof_graph: None,
+        match_resolutions: vec![],
+        pattern_site_resolutions: vec![],
+        entry_flow: CallableFlowStateSummaryV1 {
+            bindings: vec![],
+            fields: vec![],
+            fact_count: 0,
+        },
+        normal_returns: vec![],
+        throws: vec![],
+        return_validation: ReturnContractValidationV1::NotApplicable,
+        explanations: vec![],
+        return_explanation: None,
+        diagnostic_cause_count: 0,
+        diagnostics: vec![],
+        dependencies: vec![],
+        semantic_dependencies: vec![],
+    });
+
+    let bytes = encode_artifact(&image).expect("encode P7 callable binding authority");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
+        .expect("validate P7 callable binding authority");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget)
+        .expect("reconstruct P7 callable binding authority");
+
+    assert_eq!(imported.callable_binding_authority.callable_len(), 1);
+    assert_eq!(imported.callable_binding_authority.binding_len(), 1);
+    assert_eq!(
+        imported.query_products.len(),
+        0,
+        "binding-state staging must not pretend a complete CallableBody query is Ready"
     );
 }
 
