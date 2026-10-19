@@ -3,7 +3,13 @@
 //! (ARTF001.C1.P2)
 
 mod query_policy;
-pub use query_policy::{portable_query_kind, query_kind_profile_support};
+mod semantic_import;
+mod static_import;
+mod type_import;
+pub use query_policy::{CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_profile_support};
+pub use semantic_import::ImportedSemanticAggregates;
+pub use static_import::ImportedStaticValueGraph;
+pub use type_import::ImportedTypeGraph;
 
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::header::TeloscHeaderV2;
@@ -56,6 +62,14 @@ pub struct ImportedCompilerImage {
     /// Project identity graph retained for subsequent semantic import and local overlays.
     pub project_universe: Arc<ProjectUniverse>,
     pub metadata_bundle: SemanticMetadataBundle,
+    /// Relocated current-main type graph. The semantic/query DTOs below remain
+    /// transport input until the corresponding product import stages complete.
+    pub type_graph: Arc<ImportedTypeGraph>,
+    /// Relocated current-main static-value graph. Semantic/query DTOs below
+    /// remain transport input until their corresponding import stages complete.
+    pub static_values: Arc<ImportedStaticValueGraph>,
+    /// Reconstructed structural declaration products (data, enums, variants).
+    pub semantic_aggregates: Arc<ImportedSemanticAggregates>,
     pub semantic_world: SemanticWorldV3,
     pub query_image: QueryImageV3,
 }
@@ -71,6 +85,9 @@ pub struct ArtifactImportTransaction<'a> {
     pub limits: ValidationLimits,
     pub staged_module_world: Option<Arc<CanonicalExternalModuleWorld>>,
     pub staged_metadata_bundle: Option<SemanticMetadataBundle>,
+    pub staged_type_graph: Option<Arc<ImportedTypeGraph>>,
+    pub staged_static_values: Option<Arc<ImportedStaticValueGraph>>,
+    pub staged_semantic_aggregates: Option<Arc<ImportedSemanticAggregates>>,
     pub staged_semantic_world: Option<SemanticWorldV3>,
     pub staged_query_image: Option<QueryImageV3>,
     project_catalog: Option<Arc<ProjectUniverse>>,
@@ -87,6 +104,9 @@ impl<'a> ArtifactImportTransaction<'a> {
             limits,
             staged_module_world: None,
             staged_metadata_bundle: None,
+            staged_type_graph: None,
+            staged_static_values: None,
+            staged_semantic_aggregates: None,
             staged_semantic_world: None,
             staged_query_image: None,
             project_catalog: None,
@@ -188,7 +208,21 @@ impl<'a> ArtifactImportTransaction<'a> {
             })?;
         self.staged_metadata_bundle = Some(bundle);
 
-        // 3. Stage semantic world and query image
+        // 3. Relocate portable type-graph rows into the current semantic store.
+        // The relocation is private until all semantic and query rows are staged.
+        let projects = self
+            .project_catalog
+            .as_deref()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged project catalog".into())))?;
+        let reconstructed = type_import::reconstruct_type_graph(&payload.semantic_world.type_graph, &self.limits, projects, child)?;
+        let static_values = static_import::reconstruct_static_values(&payload.semantic_world.static_values, &reconstructed, projects, &self.limits, child)?;
+        self.staged_static_values = Some(child.arc(static_values).map_err(ArtifactError::Allocation)?);
+        let semantic_aggregates =
+            semantic_import::reconstruct_structural_aggregates(&payload.semantic_world.structural_contracts, &reconstructed, projects, &self.limits, child)?;
+        self.staged_semantic_aggregates = Some(child.arc(semantic_aggregates).map_err(ArtifactError::Allocation)?);
+        self.staged_type_graph = Some(child.arc(ImportedTypeGraph { inner: reconstructed }).map_err(ArtifactError::Allocation)?);
+
+        // 4. Stage remaining semantic world and query wire data.
         self.staged_semantic_world = Some(payload.semantic_world);
         self.staged_query_image = Some(payload.query_image);
 
@@ -220,6 +254,18 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_metadata_bundle
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged metadata bundle".into())))?;
+        let type_graph = self
+            .staged_type_graph
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged semantic type graph".into())))?;
+        let static_values = self
+            .staged_static_values
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged semantic static-value graph".into())))?;
+        let semantic_aggregates = self
+            .staged_semantic_aggregates
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged semantic aggregates".into())))?;
         let semantic_world = self
             .staged_semantic_world
             .take()
@@ -244,6 +290,9 @@ impl<'a> ArtifactImportTransaction<'a> {
             external_world,
             project_universe,
             metadata_bundle,
+            type_graph,
+            static_values,
+            semantic_aggregates,
             semantic_world,
             query_image,
         })
@@ -256,6 +305,9 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.child_ledger = None;
             self.staged_module_world = None;
             self.staged_metadata_bundle = None;
+            self.staged_type_graph = None;
+            self.staged_static_values = None;
+            self.staged_semantic_aggregates = None;
             self.staged_semantic_world = None;
             self.staged_query_image = None;
             self.project_catalog = None;

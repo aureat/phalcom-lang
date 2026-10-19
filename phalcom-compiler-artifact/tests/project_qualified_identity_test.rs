@@ -146,7 +146,7 @@ fn sample_payload() -> CompilerArtifactPayload {
         dependency_fingerprint: 0,
     };
 
-    let module_world = ModuleWorldV2 {
+    let mut module_world = ModuleWorldV2 {
         entry: ArtifactModuleId(0),
         initialization_order: vec![ArtifactModuleId(0)],
         modules: vec![root_module],
@@ -154,6 +154,7 @@ fn sample_payload() -> CompilerArtifactPayload {
         external_projects: vec![],
         topology_fingerprint: 0,
     };
+    module_world.refresh_portable_topology_fingerprint().unwrap();
 
     let semantic_world = SemanticWorldV3 {
         type_graph: TypeGraphV1 {
@@ -267,7 +268,7 @@ fn same_path_in_distinct_projects_remains_distinct() {
         vec!["math".into()],
     );
 
-    let world = ModuleWorldV2 {
+    let mut world = ModuleWorldV2 {
         entry: ArtifactModuleId(0),
         initialization_order: vec![ArtifactModuleId(0)],
         modules: vec![mod_u, mod_ext],
@@ -275,8 +276,58 @@ fn same_path_in_distinct_projects_remains_distinct() {
         external_projects: vec![external_project_a()],
         topology_fingerprint: 0,
     };
+    world.refresh_portable_topology_fingerprint().unwrap();
 
     assert!(world.validate(&ValidationLimits::default()).is_ok());
+}
+
+#[test]
+fn portable_topology_fingerprint_rejects_represented_identity_edge_and_exposure_changes() {
+    let root_identity = StableModuleRef {
+        project: universe_project(),
+        path: Box::new([]),
+    };
+    let child_identity = StableModuleRef {
+        project: universe_project(),
+        path: Box::new(["math".into()]),
+    };
+    let mut root = empty_module(root_identity, vec![]);
+    root.topology_children = vec![ArtifactModuleId(1)];
+    root.exposed_children = vec!["math".into()];
+    let mut child = empty_module(child_identity, vec!["math".into()]);
+    child.topology_parent = Some(ArtifactModuleId(0));
+
+    let mut world = ModuleWorldV2 {
+        entry: ArtifactModuleId(0),
+        initialization_order: vec![ArtifactModuleId(0)],
+        modules: vec![root, child],
+        semantic_rows: vec![],
+        external_projects: vec![],
+        topology_fingerprint: 0,
+    };
+    world.refresh_portable_topology_fingerprint().unwrap();
+    assert!(world.validate(&ValidationLimits::default()).is_ok());
+
+    let mut changed_identity = world.clone();
+    changed_identity.modules[1].identity.project = external_project_a();
+    changed_identity.external_projects = vec![external_project_a()];
+    assert_portable_topology_mismatch(changed_identity);
+
+    let mut changed_edge = world.clone();
+    changed_edge.modules[0].topology_children.clear();
+    assert_portable_topology_mismatch(changed_edge);
+
+    let mut changed_exposure = world;
+    changed_exposure.modules[0].exposed_children[0] = "other".into();
+    assert_portable_topology_mismatch(changed_exposure);
+}
+
+fn assert_portable_topology_mismatch(world: ModuleWorldV2) {
+    let error = world.validate(&ValidationLimits::default()).unwrap_err();
+    assert!(
+        error.to_string().contains("portable module topology fingerprint mismatch"),
+        "unexpected error: {error}"
+    );
 }
 
 #[test]

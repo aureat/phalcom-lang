@@ -3,7 +3,7 @@
 use crate::module_world::{Decode, Wire, invalid, tagged};
 use crate::semantic::static_value::ArtifactStaticValueId;
 use crate::semantic::type_store::ArtifactTypeId;
-use crate::{ArtifactError, BinaryWriter, ValidationError, ValidationLimits};
+use crate::{ArtifactError, BinaryWriter, ValidationLimits};
 use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
 
 tagged!(StaticBinaryOpV1 {
@@ -212,11 +212,12 @@ pub(crate) fn validate_op(
 }
 
 fn validate_module(module: &StableModuleRef, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    crate::identity::validate_persistent_project_ref(&module.project, limits)?;
     let project_strings: Vec<&str> = match &module.project {
         StableProjectRef::Builtin { namespace, version } => vec![namespace, version],
         StableProjectRef::Package { package, version, .. } => vec![package, version],
         StableProjectRef::SourceArtifact { logical_uri, .. } => vec![logical_uri],
-        StableProjectRef::Session { .. } => Vec::new(),
+        StableProjectRef::Session { .. } => return Err(invalid("session project identity is not persistent")),
     };
     if project_strings.iter().any(|value| value.is_empty() || value.len() > limits.max_string_bytes)
         || module.path.is_empty()
@@ -229,19 +230,7 @@ fn validate_module(module: &StableModuleRef, limits: &ValidationLimits) -> Resul
 }
 
 fn validate_owner(value: &StableDeclarationRef, limits: &ValidationLimits) -> Result<(), ArtifactError> {
-    match &value.module.project {
-        phalcom_type_meta::identity::StableProjectRef::Builtin { namespace, version } => {
-            if namespace.is_empty() || version.is_empty() {
-                return Err(invalid("empty namespace or version in structural owner"));
-            }
-            if namespace.len() > limits.max_string_bytes || version.len() > limits.max_string_bytes {
-                return Err(invalid("structural owner identity exceeds string budget"));
-            }
-        }
-        _ => {
-            return Err(ValidationError::ReferentialIntegrity("structural owner is not a builtin Universe identity".into()).into());
-        }
-    }
+    crate::identity::validate_persistent_project_ref(&value.module.project, limits)?;
     if value.module.path.is_empty() || value.path.is_empty() {
         return Err(invalid("structural owner identity has an empty path"));
     }

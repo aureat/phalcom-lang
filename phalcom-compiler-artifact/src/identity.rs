@@ -2,6 +2,7 @@
 
 use crate::digest::{ArtifactDigest, ArtifactHasher};
 use crate::error::ValidationError;
+use crate::{ArtifactError, ValidationLimits};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::StableProjectRef;
 use serde::{Deserialize, Serialize};
@@ -107,6 +108,27 @@ impl TryFrom<&StableProjectRef> for TeloscPackageIdentity {
             )),
         }
     }
+}
+
+/// Validates the portable syntax of a persistent project identity.
+///
+/// This check deliberately does not authorize an identity against a workspace
+/// catalog. Semantic import performs that exact binding check before it
+/// publishes reconstructed products.
+pub(crate) fn validate_persistent_project_ref(project: &StableProjectRef, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    let valid_text = |value: &str| !value.is_empty() && value.len() <= limits.max_string_bytes;
+    let valid = match project {
+        StableProjectRef::Builtin { namespace, version } => valid_text(namespace) && valid_text(version),
+        StableProjectRef::Package { package, version, .. } => valid_text(package) && valid_text(version),
+        StableProjectRef::SourceArtifact { logical_uri, .. } => valid_text(logical_uri),
+        StableProjectRef::Session { .. } => {
+            return Err(ValidationError::ReferentialIntegrity("session project identity is not persistent".into()).into());
+        }
+    };
+    if !valid {
+        return Err(ValidationError::ReferentialIntegrity("persistent project identity is empty or exceeds the string limit".into()).into());
+    }
+    Ok(())
 }
 
 /// Portable semantic compatibility structure comparing two images across processes.

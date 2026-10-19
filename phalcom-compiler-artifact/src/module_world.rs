@@ -1,4 +1,5 @@
 //! Portable, source-free module authority. Every enum tag is explicit wire ABI.
+use crate::digest::ArtifactHasher;
 use crate::{ArtifactError, BinaryReader, BinaryWriter, CodecError, ValidationLimits};
 use phalcom_type_meta::Fingerprint128;
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
@@ -622,6 +623,114 @@ record!(ModuleWorldV2 {
 });
 
 impl ModuleWorldV2 {
+    /// Recomputes the artifact-scoped topology fingerprint from portable module
+    /// identities and the module links represented in this wire image.
+    pub fn portable_topology_fingerprint(&self) -> Result<u64, ArtifactError> {
+        let mut out = PortableTopologyHasher::new();
+        out.count(self.external_projects.len())?;
+        for project in &self.external_projects {
+            out.project(project)?;
+        }
+
+        out.count(self.modules.len())?;
+        for module in &self.modules {
+            out.module_identity(&module.identity)?;
+            out.u8(match module.kind {
+                ModuleKindV1::Module => 0,
+                ModuleKindV1::Package => 1,
+            });
+            match module.topology_parent {
+                None => out.u8(0),
+                Some(parent) => {
+                    out.u8(1);
+                    out.module_id(&self.modules, parent)?;
+                }
+            }
+            out.count(module.topology_children.len())?;
+            for child in &module.topology_children {
+                out.module_id(&self.modules, *child)?;
+            }
+            out.count(module.exposed_children.len())?;
+            for child in &module.exposed_children {
+                out.text(child)?;
+            }
+
+            out.count(module.exports.len())?;
+            for export in &module.exports {
+                match &export.target {
+                    UnlinkedTargetV1::CanonicalDeclaration { module: target, name } => {
+                        out.u8(1);
+                        out.text(&export.exported_name)?;
+                        out.module_id(&self.modules, *target)?;
+                        out.text(name)?;
+                    }
+                    UnlinkedTargetV1::Local { .. } | UnlinkedTargetV1::ReExport { .. } => out.u8(0),
+                }
+            }
+
+            out.count(module.linked_exports.len())?;
+            for export in &module.linked_exports {
+                out.text(&export.name)?;
+                out.target_link(&self.modules, &export.target)?;
+            }
+            out.count(module.linked_reads.len())?;
+            for read in &module.linked_reads {
+                out.target_link(&self.modules, read)?;
+            }
+
+            out.count(module.runtime_dependencies.len())?;
+            for dependency in &module.runtime_dependencies {
+                out.module_id(&self.modules, *dependency)?;
+            }
+            out.count(module.references.len())?;
+            for reference in &module.references {
+                out.u8(match reference.kind {
+                    ReferenceKindV1::WholeModuleImport => 0,
+                    ReferenceKindV1::SelectiveImport => 1,
+                    ReferenceKindV1::ReExport => 2,
+                    ReferenceKindV1::InterfaceOnly => 3,
+                });
+                out.module_id(&self.modules, reference.target)?;
+            }
+            out.count(module.runtime_edges.len())?;
+            for edge in &module.runtime_edges {
+                out.u8(match edge.reason {
+                    RuntimeReasonV1::WholeModuleImport => 0,
+                    RuntimeReasonV1::SelectiveValueImport => 1,
+                    RuntimeReasonV1::ReExport => 2,
+                    RuntimeReasonV1::RuntimeDeclarationReference => 3,
+                });
+                out.module_id(&self.modules, edge.dependency)?;
+            }
+        }
+
+        out.count(self.semantic_rows.len())?;
+        for row in &self.semantic_rows {
+            out.semantic_node(&self.modules, &row.node)?;
+            out.count(row.edges.len())?;
+            for edge in &row.edges {
+                out.u8(match edge.kind {
+                    SemanticEdgeKindV1::ModuleInterface => 0,
+                    SemanticEdgeKindV1::TypeReference => 1,
+                    SemanticEdgeKindV1::Superclass => 2,
+                    SemanticEdgeKindV1::ProtocolReference => 3,
+                    SemanticEdgeKindV1::ConstraintReference => 4,
+                    SemanticEdgeKindV1::CallbackSignature => 5,
+                    SemanticEdgeKindV1::AdtReference => 6,
+                });
+                out.semantic_node(&self.modules, &edge.target)?;
+            }
+        }
+
+        Ok(out.finish())
+    }
+
+    /// Updates the stored fingerprint after constructing or modifying a wire image.
+    pub fn refresh_portable_topology_fingerprint(&mut self) -> Result<(), ArtifactError> {
+        self.topology_fingerprint = self.portable_topology_fingerprint()?;
+        Ok(())
+    }
+
     pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
         let mut out = BinaryWriter::new();
         out.write_u32(MODULE_WORLD_SCHEMA_V2);
@@ -693,15 +802,11 @@ impl ModuleWorldV2 {
             }
         }
         for project in &self.external_projects {
-            if matches!(project, StableProjectRef::Session { .. }) {
-                return Err(invalid("session project identity in external_projects is not permitted"));
-            }
+            crate::identity::validate_persistent_project_ref(project, limits)?;
         }
 
         for (mod_idx, module) in self.modules.iter().enumerate() {
-            if matches!(module.identity.project, StableProjectRef::Session { .. }) {
-                return Err(invalid("session project identity in module identity is not permitted"));
-            }
+            crate::identity::validate_persistent_project_ref(&module.identity.project, limits)?;
             if module.path.len() != module.identity.path.len()
                 || !module.path.iter().zip(module.identity.path.iter()).all(|(a, b)| a.as_str() == b.as_ref())
             {
@@ -817,6 +922,10 @@ impl ModuleWorldV2 {
             }
         }
 
+        if self.portable_topology_fingerprint()? != self.topology_fingerprint {
+            return Err(invalid("portable module topology fingerprint mismatch"));
+        }
+
         Ok(())
     }
 
@@ -831,6 +940,116 @@ impl ModuleWorldV2 {
     pub fn decode(bytes: &[u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {
         let mut budget = limits.max_decoded_section_bytes;
         Self::decode_with_budget(bytes, limits, &mut budget)
+    }
+}
+
+struct PortableTopologyHasher {
+    hasher: ArtifactHasher,
+}
+
+impl PortableTopologyHasher {
+    fn new() -> Self {
+        Self {
+            hasher: ArtifactHasher::new_domain("telos.telosc.v2.portable-module-topology"),
+        }
+    }
+
+    fn u8(&mut self, value: u8) {
+        self.hasher.write_u8(value);
+    }
+
+    fn u32(&mut self, value: u32) {
+        self.hasher.write_u32(value);
+    }
+
+    fn count(&mut self, value: usize) -> Result<(), ArtifactError> {
+        self.u32(u32::try_from(value).map_err(|_| invalid("portable topology collection exceeds u32"))?);
+        Ok(())
+    }
+
+    fn text(&mut self, value: &str) -> Result<(), ArtifactError> {
+        self.count(value.len())?;
+        self.hasher.write(value.as_bytes());
+        Ok(())
+    }
+
+    fn project(&mut self, project: &StableProjectRef) -> Result<(), ArtifactError> {
+        match project {
+            StableProjectRef::Builtin { namespace, version } => {
+                self.u8(0);
+                self.text(namespace)?;
+                self.text(version)?;
+            }
+            StableProjectRef::Package {
+                package,
+                version,
+                artifact_fingerprint,
+            } => {
+                self.u8(1);
+                self.text(package)?;
+                self.text(version)?;
+                self.hasher.write(artifact_fingerprint.as_bytes());
+            }
+            StableProjectRef::SourceArtifact {
+                logical_uri,
+                source_fingerprint,
+            } => {
+                self.u8(2);
+                self.text(logical_uri)?;
+                self.hasher.write(source_fingerprint.as_bytes());
+            }
+            StableProjectRef::Session { .. } => return Err(invalid("session project identity in portable topology")),
+        }
+        Ok(())
+    }
+
+    fn module_identity(&mut self, module: &StableModuleRef) -> Result<(), ArtifactError> {
+        self.project(&module.project)?;
+        self.count(module.path.len())?;
+        for segment in &module.path {
+            self.text(segment)?;
+        }
+        Ok(())
+    }
+
+    fn module_id(&mut self, modules: &[ModuleV2], id: ArtifactModuleId) -> Result<(), ArtifactError> {
+        let module = modules.get(id.0 as usize).ok_or_else(|| invalid("module link references missing module"))?;
+        self.module_identity(&module.identity)
+    }
+
+    fn target_link(&mut self, modules: &[ModuleV2], target: &TargetV1) -> Result<(), ArtifactError> {
+        match target {
+            TargetV1::Module { module } => {
+                self.u8(0);
+                self.module_id(modules, *module)?;
+            }
+            TargetV1::Binding { module, name } => {
+                self.u8(1);
+                self.module_id(modules, *module)?;
+                self.text(name)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn semantic_node(&mut self, modules: &[ModuleV2], node: &SemanticNodeV1) -> Result<(), ArtifactError> {
+        match node {
+            SemanticNodeV1::Module { module } => {
+                self.u8(0);
+                self.module_id(modules, *module)?;
+            }
+            SemanticNodeV1::Declaration { module, name } => {
+                self.u8(1);
+                self.module_id(modules, *module)?;
+                self.text(name)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> u64 {
+        let digest = self.hasher.finalize();
+        u64::from_le_bytes(digest.as_bytes()[..8].try_into().expect("digest prefix is eight bytes"))
     }
 }
 

@@ -22,7 +22,7 @@ use phalcom_semantic::types::variance::Variance;
 use phalcom_type_meta::declaration::{AlgebraicPhaseRef, AlgebraicShapeRef};
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::header::MetadataProfile;
-use phalcom_type_meta::identity::StableProjectRef;
+use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
 use phalcom_type_meta::kind::{KindNode, StaticDomainRef};
 use phalcom_type_meta::type_node::{StaticArgumentRef, TypeNode};
 use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
@@ -111,6 +111,47 @@ fn stable_builtin_and_synthetic_projects_remain_explicitly_scoped() {
     let synthetic = projects.allocate_synthetic_id();
     let session = phalcom_semantic::metadata::stable_identity::to_stable_project(&ProjectIdentity::Synthetic(synthetic));
     assert!(matches!(session, StableProjectRef::Session { session_fingerprint } if session_fingerprint != Fingerprint128::ZERO));
+}
+
+#[test]
+fn stable_declaration_import_requires_the_exact_canonical_path_shape() {
+    let module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("collections").unwrap(),
+        ModuleComponent::from_identifier("list").unwrap(),
+    ]));
+    let projects = ProjectUniverse::new();
+    let stable_module = StableModuleRef {
+        project: StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        },
+        path: module
+            .path
+            .components()
+            .iter()
+            .map(|component| component.to_string().into_boxed_str())
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    };
+
+    let canonical = StableDeclarationRef {
+        module: stable_module.clone(),
+        path: Box::new(["List".into()]),
+    };
+    assert_eq!(
+        phalcom_semantic::metadata::import::resolve_stable_declaration(&canonical, &projects),
+        Some(DeclarationId::new(module, "List".into()))
+    );
+
+    let nested_alias = StableDeclarationRef {
+        module: stable_module,
+        path: Box::new(["Outer".into(), "List".into()]),
+    };
+    assert_eq!(
+        phalcom_semantic::metadata::import::resolve_stable_declaration(&nested_alias, &projects),
+        None,
+        "a nested path must not collapse to the final declaration name"
+    );
 }
 
 #[test]

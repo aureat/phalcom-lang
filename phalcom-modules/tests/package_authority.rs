@@ -39,14 +39,16 @@ impl TrustedPackageResolver for TestResolver {
 }
 
 fn package_module_world(package: StableProjectRef) -> ModuleWorldV2 {
-    ModuleWorldV2 {
+    let mut world = ModuleWorldV2 {
         entry: ArtifactModuleId(0),
         initialization_order: Vec::new(),
         modules: Vec::new(),
         semantic_rows: Vec::new(),
         external_projects: vec![package],
         topology_fingerprint: 0,
-    }
+    };
+    world.refresh_portable_topology_fingerprint().unwrap();
+    world
 }
 
 #[test]

@@ -535,12 +535,18 @@ impl<'a> GraphBudget<'a> {
     }
     fn owner(&mut self, owner: &StableDeclarationRef) -> Result<(), ArtifactError> {
         use phalcom_type_meta::identity::StableProjectRef;
+        crate::identity::validate_persistent_project_ref(&owner.module.project, self.limits)?;
         match &owner.module.project {
-            StableProjectRef::Builtin { namespace, version } if namespace.as_ref() == "universe" => {
+            StableProjectRef::Builtin { namespace, version } => {
                 self.text(namespace)?;
                 self.text(version)?;
             }
-            _ => return Err(malformed("static owner is not a canonical Universe identity")),
+            StableProjectRef::Package { package, version, .. } => {
+                self.text(package)?;
+                self.text(version)?;
+            }
+            StableProjectRef::SourceArtifact { logical_uri, .. } => self.text(logical_uri)?,
+            StableProjectRef::Session { .. } => return Err(malformed("static owner is not a persistent project identity")),
         }
         self.collection::<Box<str>>(owner.module.path.len(), self.limits.max_semantic_entries_per_family)?;
         self.collection::<Box<str>>(owner.path.len(), self.limits.max_semantic_entries_per_family)?;

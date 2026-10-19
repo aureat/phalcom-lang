@@ -2846,6 +2846,7 @@ fn validate_static_application_graph(applications: &[CanonicalCheckedStaticAppli
 
 fn validate_static_constant_symbol(symbol: &StaticConstantSymbolV1, limits: &ValidationLimits) -> Result<(), ArtifactError> {
     let module = &symbol.module;
+    crate::identity::validate_persistent_project_ref(&module.project, limits)?;
     let valid_project = match &module.project {
         StableProjectRef::Builtin { namespace, version } => {
             !namespace.is_empty() && namespace.len() <= limits.max_string_bytes && !version.is_empty() && version.len() <= limits.max_string_bytes
@@ -2854,7 +2855,7 @@ fn validate_static_constant_symbol(symbol: &StaticConstantSymbolV1, limits: &Val
             !package.is_empty() && package.len() <= limits.max_string_bytes && !version.is_empty() && version.len() <= limits.max_string_bytes
         }
         StableProjectRef::SourceArtifact { logical_uri, .. } => !logical_uri.is_empty() && logical_uri.len() <= limits.max_string_bytes,
-        StableProjectRef::Session { .. } => true,
+        StableProjectRef::Session { .. } => false,
     };
     if !valid_project
         || module.path.len() > limits.max_semantic_entries_per_family

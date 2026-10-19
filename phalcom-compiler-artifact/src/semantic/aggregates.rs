@@ -13,7 +13,7 @@ use crate::semantic::type_store::{
     ArtifactKindId, ArtifactStaticConstructorId, ArtifactStaticDomainId, ArtifactTypeId, ArtifactTypeParameterId, ArtifactVariantTypeId, ParameterModeV1,
     ParameterOwnerV1, SelfTypeV1, VarianceV1,
 };
-use crate::{ArtifactError, BinaryReader, BinaryWriter, ValidationError, ValidationLimits};
+use crate::{ArtifactError, BinaryReader, BinaryWriter, ValidationLimits};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{StableDeclarationRef, StableVariantRef};
 
@@ -496,17 +496,7 @@ fn validate_name(value: &str, limits: &ValidationLimits) -> Result<(), ArtifactE
 }
 
 pub(crate) fn validate_owner(value: &StableDeclarationRef, limits: &ValidationLimits) -> Result<(), ArtifactError> {
-    use phalcom_type_meta::identity::StableProjectRef;
-    match &value.module.project {
-        StableProjectRef::Builtin { namespace, version } if !namespace.is_empty() && !version.is_empty() => {
-            if namespace.len() > limits.max_string_bytes || version.len() > limits.max_string_bytes {
-                return Err(invalid("structural owner identity exceeds string budget"));
-            }
-        }
-        _ => {
-            return Err(ValidationError::ReferentialIntegrity("structural owner is not a builtin Universe identity".into()).into());
-        }
-    }
+    crate::identity::validate_persistent_project_ref(&value.module.project, limits)?;
     if value.module.path.is_empty() || value.path.is_empty() {
         return Err(invalid("structural owner identity has an empty path"));
     }
@@ -518,4 +508,54 @@ pub(crate) fn validate_owner(value: &StableDeclarationRef, limits: &ValidationLi
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod owner_validation_tests {
+    use super::*;
+    use crate::ValidationError;
+    use phalcom_type_meta::fingerprint::Fingerprint128;
+    use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
+
+    fn contracts(project: StableProjectRef) -> StructuralPrimaryContractsV1 {
+        StructuralPrimaryContractsV1 {
+            declaration_shells: vec![DeclarationShellV1 {
+                declaration: StableDeclarationRef {
+                    module: StableModuleRef {
+                        project,
+                        path: Box::new(["library".into()]),
+                    },
+                    path: Box::new(["Widget".into()]),
+                },
+                self_type: ArtifactTypeId(0),
+                parameters: vec![],
+            }],
+            hierarchy_and_aliases: vec![],
+            generic_signatures: vec![],
+            data_contracts: vec![],
+            enum_contracts: vec![],
+            variant_contracts: vec![],
+        }
+    }
+
+    #[test]
+    fn structural_owner_syntax_accepts_persistent_package_identity() {
+        let package = StableProjectRef::Package {
+            package: "example.library".into(),
+            version: "1.2.3".into(),
+            artifact_fingerprint: Fingerprint128([9; 16]),
+        };
+        assert!(contracts(package).validate(&ValidationLimits::default()).is_ok());
+    }
+
+    #[test]
+    fn structural_owner_syntax_rejects_session_identity() {
+        let session = StableProjectRef::Session {
+            session_fingerprint: Fingerprint128([9; 16]),
+        };
+        assert!(matches!(
+            contracts(session).validate(&ValidationLimits::default()),
+            Err(ArtifactError::Validation(ValidationError::ReferentialIntegrity(message))) if message.contains("not persistent")
+        ));
+    }
 }

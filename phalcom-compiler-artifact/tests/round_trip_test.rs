@@ -132,14 +132,16 @@ fn sample_module_world() -> ModuleWorldV2 {
         dependency_fingerprint: 0,
     };
 
-    ModuleWorldV2 {
+    let mut module_world = ModuleWorldV2 {
         entry: ArtifactModuleId(0),
         initialization_order: vec![ArtifactModuleId(0), ArtifactModuleId(1)],
         modules: vec![root_module, child_module],
         semantic_rows: vec![],
         external_projects: vec![],
         topology_fingerprint: 0,
-    }
+    };
+    module_world.refresh_portable_topology_fingerprint().unwrap();
+    module_world
 }
 
 fn sample_semantic_world() -> SemanticWorldV3 {

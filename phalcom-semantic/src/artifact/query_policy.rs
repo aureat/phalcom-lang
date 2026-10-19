@@ -7,6 +7,22 @@
 use crate::db::key::QueryKind;
 use phalcom_compiler_artifact::query::{PortableQueryKindV1, QueryProfileSupport};
 
+/// Current-main persistence policy for one query family.
+///
+/// This is deliberately independent from [`QueryProfileSupport`]: product
+/// location says where data is encoded, while persistence says whether a
+/// validated product can be reused in a receiving workspace.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanonicalQueryPersistence {
+    /// A structurally positive product may be retained if its product and
+    /// dependency contracts validate during import.
+    EligibleStructural,
+    /// The result can depend on an extensible local candidate universe.
+    OpenWorld,
+    /// No current relocation/immutability contract permits importing it.
+    Unsupported,
+}
+
 pub const fn portable_query_kind(kind: QueryKind) -> PortableQueryKindV1 {
     match kind {
         QueryKind::ParsedModule => PortableQueryKindV1::ParsedModule,
@@ -62,6 +78,65 @@ pub const fn query_kind_profile_support(kind: QueryKind) -> QueryProfileSupport 
     portable_query_kind(kind).profile_support()
 }
 
+/// Exhaustive current-main query reuse contract, ported from certified
+/// PERF003.C2.P7's `canonical_query_persistence` at `077d93d3`.
+///
+/// Artifact product location and per-root checks are additional gates: an
+/// eligible family still requires a typed product, matching fingerprints,
+/// current owner authority, and a closed acyclic dependency graph. Open-world
+/// families are retained as semantic source rows when needed but are never
+/// imported as unconditionally reusable `Ready` products.
+pub const fn canonical_query_persistence(kind: QueryKind) -> CanonicalQueryPersistence {
+    match kind {
+        QueryKind::ParsedModule
+        | QueryKind::UnlinkedInterface
+        | QueryKind::ResolvedImports
+        | QueryKind::LinkedInterface
+        | QueryKind::DeclarationShell
+        | QueryKind::HierarchyEdge
+        | QueryKind::CallableDefinition
+        | QueryKind::CallableSignature
+        | QueryKind::FieldSignature
+        | QueryKind::DeclarationSurface
+        | QueryKind::TraitHeader
+        | QueryKind::TraitSurface
+        | QueryKind::DataDeclaration
+        | QueryKind::EnumDeclaration
+        | QueryKind::AssociatedSurface
+        | QueryKind::TypeMemberDeclaration
+        | QueryKind::ModuleStaticBindingCatalog
+        | QueryKind::ModuleStaticBindings => CanonicalQueryPersistence::EligibleStructural,
+        QueryKind::GenericConformance
+        | QueryKind::ConformanceDispatch
+        | QueryKind::TraitDispatchBucket
+        | QueryKind::CallableBody
+        | QueryKind::CheckedStaticBody => CanonicalQueryPersistence::OpenWorld,
+        QueryKind::SemanticComponent
+        | QueryKind::ConstructorInitialization
+        | QueryKind::CallableEffects
+        | QueryKind::CallableControl
+        | QueryKind::CallableTermination
+        | QueryKind::CallableContracts
+        | QueryKind::AttributeArgument
+        | QueryKind::VerificationConditions
+        | QueryKind::SourceStructure
+        | QueryKind::SourceFormalAttachment
+        | QueryKind::AdvisoryCallable
+        | QueryKind::AdvisoryModule
+        | QueryKind::ModuleDiagnostics
+        | QueryKind::ModuleMetadata
+        | QueryKind::EnumRequirements
+        | QueryKind::StaticDomainCaseCatalog
+        | QueryKind::StaticCaseSignature
+        | QueryKind::AssociatedStaticDomainDeclaration
+        | QueryKind::ResolvedImport
+        | QueryKind::LinkedName
+        | QueryKind::PublicExport
+        | QueryKind::StaticDefinition
+        | QueryKind::StaticConstant => CanonicalQueryPersistence::Unsupported,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,6 +155,28 @@ mod tests {
     fn static_query_families_have_explicit_semantic_world_dispositions() {
         for kind in [QueryKind::StaticDefinition, QueryKind::StaticConstant, QueryKind::CheckedStaticBody] {
             assert_eq!(query_kind_profile_support(kind), QueryProfileSupport::RepresentedBySemanticWorld);
+        }
+    }
+
+    #[test]
+    fn all_46_query_kinds_have_an_explicit_persistence_contract() {
+        assert_eq!(QueryKind::ALL.len(), 46);
+        for kind in QueryKind::ALL {
+            let _ = canonical_query_persistence(kind);
+        }
+        assert_eq!(canonical_query_persistence(QueryKind::AttributeArgument), CanonicalQueryPersistence::Unsupported);
+    }
+
+    #[test]
+    fn open_world_families_are_never_classified_as_structurally_reusable() {
+        for kind in [
+            QueryKind::GenericConformance,
+            QueryKind::ConformanceDispatch,
+            QueryKind::TraitDispatchBucket,
+            QueryKind::CallableBody,
+            QueryKind::CheckedStaticBody,
+        ] {
+            assert_eq!(canonical_query_persistence(kind), CanonicalQueryPersistence::OpenWorld);
         }
     }
 }

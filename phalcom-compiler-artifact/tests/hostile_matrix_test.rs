@@ -133,7 +133,7 @@ fn sample_payload() -> CompilerArtifactPayload {
         dependency_fingerprint: 0,
     };
 
-    let module_world = ModuleWorldV2 {
+    let mut module_world = ModuleWorldV2 {
         entry: ArtifactModuleId(0),
         initialization_order: vec![ArtifactModuleId(0)],
         modules: vec![root_module],
@@ -141,6 +141,7 @@ fn sample_payload() -> CompilerArtifactPayload {
         external_projects: vec![],
         topology_fingerprint: 0,
     };
+    module_world.refresh_portable_topology_fingerprint().unwrap();
 
     let semantic_world = SemanticWorldV3 {
         type_graph: TypeGraphV1 {

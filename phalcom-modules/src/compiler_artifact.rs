@@ -5,17 +5,17 @@ use crate::graph::*;
 use crate::interface::*;
 use crate::linker::*;
 use crate::metadata::*;
-use crate::{ModuleComponent, ModuleId, ModuleKind, ModulePath, ModuleTopology, ProjectUniverse, ResolverGeneration, TopologyFingerprint, TopologyNode};
+use crate::{ModuleComponent, ModuleId, ModuleKind, ModulePath, ModuleTopology, ProjectUniverse, ResolverGeneration, TopologyNode};
 use phalcom_ast::ast::{
     ExportAlias, ExportItem, ImportAlias, ImportItem, ImportPath, ImportRoot, MetadataLiteral, ModuleImportDecl, PathSegment, ReExportDecl, SelectiveImportDecl,
 };
 use phalcom_common::range::SourceRange;
+use phalcom_compiler_artifact::digest::ArtifactDigest;
+use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::module_world::*;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
-use phalcom_compiler_artifact::digest::ArtifactDigest;
-use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -652,14 +652,16 @@ pub fn project_module_world(world: &CanonicalExternalModuleWorld, limits: &Valid
             })
         })
         .collect::<Result<_, ArtifactError>>()?;
-    Ok(ModuleWorldV2 {
+    let mut wire = ModuleWorldV2 {
         entry: portable_id(&ids, &linked.entry)?,
         initialization_order: linked.initialization_order.iter().map(|id| portable_id(&ids, id)).collect::<Result<_, _>>()?,
         modules,
         semantic_rows,
         external_projects: vec![],
-        topology_fingerprint: world.topology().fingerprint.raw(),
-    })
+        topology_fingerprint: 0,
+    };
+    wire.refresh_portable_topology_fingerprint()?;
+    Ok(wire)
 }
 
 /// Loads completed canonical products directly, with no source parsing or linking.
@@ -675,6 +677,10 @@ pub fn load_module_world_with_allocation_budget(
     limits: &ValidationLimits,
     transaction: &mut AllocationBudget,
 ) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
+    if wire.portable_topology_fingerprint()? != wire.topology_fingerprint {
+        return Err(invalid("portable module topology fingerprint mismatch"));
+    }
+
     load_module_world_with_project_catalog_and_allocation_budget(wire, limits, transaction, Arc::new(ProjectUniverse::new()))
 }
 
@@ -1182,7 +1188,7 @@ fn load_module_world_inner(
     validate_runtime_dag(&graphs.runtime, &ids, allocations)?;
     let topology = ModuleTopology {
         generation: ResolverGeneration(0),
-        fingerprint: TopologyFingerprint(wire.topology_fingerprint),
+        fingerprint: ModuleTopology::fingerprint_for_parts(&universe, &nodes, &exposed),
         nodes,
         source_modules: BTreeMap::new(),
         children,

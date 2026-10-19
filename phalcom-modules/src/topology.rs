@@ -48,6 +48,14 @@ pub struct ModuleTopology {
 }
 
 impl ModuleTopology {
+    pub(crate) fn fingerprint_for_parts(
+        universe: &ProjectUniverse,
+        nodes: &BTreeMap<ModuleId, TopologyNode>,
+        exposed_children: &BTreeMap<ModuleId, BTreeSet<ModuleComponent>>,
+    ) -> TopologyFingerprint {
+        compute_topology_fingerprint(universe, nodes, exposed_children)
+    }
+
     pub fn validate_completed(&self, universe: &ProjectUniverse) -> Result<(), String> {
         if compute_topology_fingerprint(universe, &self.nodes, &self.exposed_children) != self.fingerprint {
             return Err("module topology fingerprint mismatch".into());
@@ -120,7 +128,7 @@ impl ModuleTopology {
             }
         }
 
-        let fingerprint = compute_topology_fingerprint(universe, &nodes, &exposed_children);
+        let fingerprint = Self::fingerprint_for_parts(universe, &nodes, &exposed_children);
 
         Self {
             generation,

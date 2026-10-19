@@ -33,8 +33,14 @@ pub fn resolve_stable_module(module: &StableModuleRef, projects: &ProjectUnivers
 }
 
 pub fn resolve_stable_declaration(decl: &StableDeclarationRef, projects: &ProjectUniverse) -> Option<DeclarationId> {
+    // `DeclarationId` is module + one canonical declaration name. Do not accept
+    // a longer stable path and silently collapse it to the last component: that
+    // would make distinct wire identities alias the same live declaration.
+    if decl.path.len() != 1 {
+        return None;
+    }
     let module = resolve_stable_module(&decl.module, projects)?;
-    let name = decl.path.last()?.clone();
+    let name = decl.path.first()?.clone();
     Some(DeclarationId::new(module, name))
 }
 

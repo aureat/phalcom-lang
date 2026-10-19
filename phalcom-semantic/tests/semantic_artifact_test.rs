@@ -1,25 +1,23 @@
 use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::header::{
-    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V2, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2,
-    TeloscCapabilities, TeloscHeaderV2,
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V2, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities,
+    TeloscHeaderV2,
 };
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
-use phalcom_compiler_artifact::query::{
-    PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
-};
-use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
-use phalcom_compiler_artifact::semantic::static_value::{StaticValueGraphV1, StaticValueV1};
-use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1, TypeEntryV1, TypeGraphV1, TypeV1};
+use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3};
+use phalcom_compiler_artifact::semantic::aggregates::{DataInfoV1, DataShapeV1, StructuralPrimaryContractsV1, VisibilityV1};
+use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
+use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeGraphV1, TypeV1};
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
 use phalcom_semantic::artifact::{
     CompilerArtifactImage, decode_and_validate_artifact, encode_artifact, import_compiler_image, import_compiler_image_bytes_with_project_catalog,
 };
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::fingerprint::Fingerprint128;
-use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
+use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
 use phalcom_type_meta::{
     ArtifactIdentityScheme, KindNode, KindNodeEntry, KindNodeId, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity,
     SEMANTIC_MODEL_VERSION, SemanticMetadataBundle, SemanticMetadataHeader, TYPE_METADATA_SCHEMA_VERSION, TypeNode, TypeNodeEntry,
@@ -259,14 +257,17 @@ fn transactional_semantic_export_and_import_round_trip() {
     assert_eq!(imported.external_world.linked().modules.len(), 1);
     assert_eq!(imported.metadata_bundle.header.producer.0.as_ref(), "phalcom-compiler");
     assert_eq!(imported.semantic_world.type_graph.types.len(), 1);
+    assert_eq!(imported.static_values.store().len(), 1);
+    let imported_unit = imported.static_values.value(ArtifactStaticValueId(0)).expect("imported static unit row");
+    assert!(matches!(
+        imported.static_values.store().get(imported_unit),
+        Ok(phalcom_semantic::static_value::StaticValueData::Unit)
+    ));
     assert_eq!(imported.query_image.supported_roots.len(), 1);
 
     struct NoPackageResolver;
     impl phalcom_modules::TrustedPackageResolver for NoPackageResolver {
-        fn package_authority_receipt(
-            &self,
-            _stable_project: &StableProjectRef,
-        ) -> Option<phalcom_modules::ValidatedPackageAuthorityReceipt> {
+        fn package_authority_receipt(&self, _stable_project: &StableProjectRef) -> Option<phalcom_modules::ValidatedPackageAuthorityReceipt> {
             None
         }
     }
@@ -284,6 +285,56 @@ fn transactional_semantic_export_and_import_round_trip() {
         Arc::ptr_eq(&imported_with_catalog.project_universe, &imported_with_catalog.external_world.linked().universe),
         "the imported image and module world must retain the same project graph"
     );
+}
+
+#[test]
+fn structural_data_contract_reconstructs_as_native_semantic_product() {
+    let mut image = sample_image();
+    let owner = StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: vec!["core".into()].into_boxed_slice(),
+        },
+        path: vec!["Payload".into()].into_boxed_slice(),
+    };
+    image.semantic_world.type_graph.types.push(TypeEntryV1 {
+        kind: ArtifactKindId(0),
+        form: TypeV1::Nominal { declaration: owner.clone() },
+    });
+    image.semantic_world.structural_contracts.data_contracts.push(DataInfoV1 {
+        owner: owner.clone(),
+        root_form: ArtifactTypeId(1),
+        generic_signature: None,
+        static_data: None,
+        shape: DataShapeV1::Tuple,
+        components: vec![],
+        constructor_visibility: VisibilityV1::Public,
+        constructor_parameters: vec![],
+        constructor_result_type: ArtifactTypeId(1),
+        shape_contributions: vec![],
+    });
+
+    let bytes = encode_artifact(&image).expect("encode structural data artifact");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate structural data artifact");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct structural data contract");
+    let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
+    ]));
+    let owner = phalcom_semantic::identity::DeclarationId::new(module, "Payload".into());
+    let info = imported
+        .semantic_aggregates
+        .data_semantics
+        .get(&owner)
+        .expect("native data declaration product");
+    assert_eq!(info.owner, owner);
+    assert!(info.components.is_empty());
+    assert_eq!(info.shape, phalcom_semantic::data_semantics::DataShape::Tuple);
 }
 
 #[test]
@@ -343,6 +394,10 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
         version: "2.4.1".into(),
     };
     image.module_world.external_projects = vec![stable_package.clone()];
+    image
+        .module_world
+        .refresh_portable_topology_fingerprint()
+        .expect("refresh package topology fingerprint");
     image.metadata.package_digest = image.header.package_identity.digest().0;
     let bytes = encode_artifact(&image).expect("encode package artifact");
 
@@ -366,31 +421,55 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
         .expect("make trusted resolver receipt");
     struct Resolver(phalcom_modules::ValidatedPackageAuthorityReceipt);
     impl phalcom_modules::TrustedPackageResolver for Resolver {
-        fn package_authority_receipt(
-            &self,
-            stable_project: &StableProjectRef,
-        ) -> Option<phalcom_modules::ValidatedPackageAuthorityReceipt> {
+        fn package_authority_receipt(&self, stable_project: &StableProjectRef) -> Option<phalcom_modules::ValidatedPackageAuthorityReceipt> {
             (self.0.stable_project() == stable_project).then(|| self.0.clone())
         }
     }
     let resolver = Resolver(receipt);
 
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image_bytes_with_project_catalog(
-        &bytes,
-        None,
-        &limits,
-        &mut import_budget,
-        &projects,
-        &resolver,
-    )
-    .expect("import package artifact with trusted resolver receipt");
+    let imported = import_compiler_image_bytes_with_project_catalog(&bytes, None, &limits, &mut import_budget, &projects, &resolver)
+        .expect("import package artifact with trusted resolver receipt");
     assert_eq!(
         imported.project_universe.resolve_stable_project(&stable_package),
         Some(phalcom_modules::ProjectIdentity::Resolved(project_id))
     );
-    assert_eq!(imported.project_universe.projects().len(), projects.projects().len(), "receipt registration must not allocate IDs");
+    assert_eq!(
+        imported.project_universe.projects().len(),
+        projects.projects().len(),
+        "receipt registration must not allocate IDs"
+    );
     assert!(Arc::ptr_eq(&imported.project_universe, &imported.external_world.linked().universe));
+
+    let unrelated_manifest = {
+        let unrelated_root = temp.path().join("unrelated-project");
+        std::fs::create_dir_all(unrelated_root.join("src")).expect("create unrelated source root");
+        std::fs::write(
+            unrelated_root.join("project.toml"),
+            "[project]\nname = \"unrelated\"\nnamespace = \"unrelated\"\nversion = \"1.0.0\"\n",
+        )
+        .expect("write unrelated manifest");
+        std::fs::write(unrelated_root.join("src/package.ph"), "").expect("write unrelated package source");
+        unrelated_root.join("project.toml")
+    };
+    let mut projects_with_unrelated = projects.clone();
+    projects_with_unrelated
+        .load_root(unrelated_manifest)
+        .expect("load unrelated persistent project");
+    let mut second_import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported_with_unrelated =
+        import_compiler_image_bytes_with_project_catalog(&bytes, None, &limits, &mut second_import_budget, &projects_with_unrelated, &resolver)
+            .expect("same package artifact imports with an unrelated workspace project");
+    assert_eq!(
+        imported.project_universe.resolve_stable_project(&stable_package),
+        imported_with_unrelated.project_universe.resolve_stable_project(&stable_package),
+        "receipt still targets the same existing project"
+    );
+    assert_ne!(
+        imported.external_world.topology().fingerprint,
+        imported_with_unrelated.external_world.topology().fingerprint,
+        "live topology fingerprints include the distinct receiving workspace graphs"
+    );
 }
 
 #[test]
