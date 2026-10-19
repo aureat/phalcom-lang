@@ -11,6 +11,9 @@ use super::type_import::ReconstructedTypeGraph;
 use crate::declaration_type::DeclaredTypeFact;
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{CallableId, CallableParameterId, DispatchSide};
+use crate::impls::{
+    CallableDefinitionBodyProvenance, CallableDefinitionOrigin, CoveringImplSubstitution, EffectiveCallableDefinition, InherentBodyContext,
+};
 use crate::signature::{
     CallableParameterSemantic, CallableSemanticSignature, ParameterContract, RestValueContract, ReturnContractValidation,
 };
@@ -24,7 +27,8 @@ use phalcom_compiler_artifact::semantic::aggregates::{
     DeclaredTypeFactV1, DynamicReasonV1, UnknownReasonV1,
 };
 use phalcom_compiler_artifact::semantic::world::{
-    CallableSignatureRecordV1, EffectSpecV1, EvidenceOriginV1, EvidenceStatusV1, ImplementationKindV1, ParameterContractV1,
+    CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableSignatureRecordV1, EffectSpecV1,
+    EvidenceOriginV1, EvidenceStatusV1, ImplementationKindV1, ParameterContractV1,
     RaisesSpecV1, RestValueContractV1, ReturnContractValidationV1, ReturnFlowV1, TypeExprSpecV1, TypeKnowledgeV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
@@ -34,11 +38,16 @@ use std::sync::Arc;
 #[derive(Clone, Debug, Default)]
 pub struct ImportedCallableAuthority {
     signatures: Box<[(CallableId, Arc<CallableSemanticSignature>)]>,
+    definitions: Box<[(CallableId, Arc<EffectiveCallableDefinition>)]>,
 }
 
 impl ImportedCallableAuthority {
     pub fn signature_len(&self) -> usize {
         self.signatures.len()
+    }
+
+    pub fn definition_len(&self) -> usize {
+        self.definitions.len()
     }
 
     pub(crate) fn signature(&self, id: &CallableId) -> Option<&Arc<CallableSemanticSignature>> {
@@ -47,12 +56,20 @@ impl ImportedCallableAuthority {
             .ok()
             .map(|index| &self.signatures[index].1)
     }
+
+    pub(crate) fn definition(&self, id: &CallableId) -> Option<&Arc<EffectiveCallableDefinition>> {
+        self.definitions
+            .binary_search_by(|(candidate, _)| candidate.cmp(id))
+            .ok()
+            .map(|index| &self.definitions[index].1)
+    }
 }
 
 /// Transplants P7 callable-signature reconstruction while resolving every
 /// stable owner through the current exact project-qualified owner catalog.
 pub(crate) fn reconstruct_callable_authority(
     rows: &[CallableSignatureRecordV1],
+    definition_rows: &[CallableDefinitionRecordV1],
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
@@ -68,9 +85,151 @@ pub(crate) fn reconstruct_callable_authority(
     if signatures.windows(2).any(|pair| &pair[0].0 == &pair[1].0) {
         return Err(referential("duplicate callable signature after stable-owner relocation"));
     }
+    let mut definitions = allocations
+        .vector::<(CallableId, Arc<EffectiveCallableDefinition>)>(definition_rows.len())
+        .map_err(ArtifactError::Allocation)?;
+    for row in definition_rows {
+        let definition = reconstruct_callable_definition(row, types, owners, allocations)?;
+        let Some((_, canonical_signature)) = signatures
+            .binary_search_by(|(candidate, _)| candidate.cmp(&definition.callable))
+            .ok()
+            .and_then(|index| signatures.get(index))
+        else {
+            return Err(referential("callable definition has no canonical callable-signature authority"));
+        };
+        if canonical_signature.as_ref() != &definition.signature {
+            return Err(referential("callable definition signature disagrees with canonical callable-signature authority"));
+        }
+        definitions.push((
+            definition.callable.clone(),
+            allocations.arc(definition).map_err(ArtifactError::Allocation)?,
+        ));
+    }
+    definitions.sort_by(|left, right| left.0.cmp(&right.0));
+    if definitions.windows(2).any(|pair| &pair[0].0 == &pair[1].0) {
+        return Err(referential("duplicate callable definition after stable-owner relocation"));
+    }
+
     Ok(ImportedCallableAuthority {
         signatures: allocations.boxed_slice(signatures).map_err(ArtifactError::Allocation)?,
+        definitions: allocations.boxed_slice(definitions).map_err(ArtifactError::Allocation)?,
     })
+}
+
+fn reconstruct_callable_definition(
+    record: &CallableDefinitionRecordV1,
+    types: &ReconstructedTypeGraph,
+    owners: &StableOwnerCatalog<'_>,
+    allocations: &mut AllocationBudget,
+) -> Result<EffectiveCallableDefinition, ArtifactError> {
+    let callable = owners.callable(&record.callable)?;
+    let origin = match &record.origin {
+        CallableDefinitionOriginV1::PrimaryDeclaration => CallableDefinitionOrigin::PrimaryDeclaration,
+        CallableDefinitionOriginV1::InherentImpl { impl_id } => {
+            CallableDefinitionOrigin::InherentImpl(owners.implementation(impl_id)?)
+        }
+        CallableDefinitionOriginV1::ConformanceWitness { impl_id } => {
+            CallableDefinitionOrigin::ConformanceWitness(owners.implementation(impl_id)?)
+        }
+    };
+    let signature = reconstruct_callable_signature(&record.signature, types, owners, allocations)?;
+    if signature.callable != callable {
+        return Err(referential("callable definition row key disagrees with its signature"));
+    }
+    let body_provenance = match &record.body_provenance {
+        CallableDefinitionBodyProvenanceV1::SourceBody => CallableDefinitionBodyProvenance::SourceBody,
+        CallableDefinitionBodyProvenanceV1::GeneratedDelegation { target_field } => {
+            CallableDefinitionBodyProvenance::GeneratedDelegation {
+                target_field: allocations.boxed_str(target_field).map_err(ArtifactError::Allocation)?,
+            }
+        }
+    };
+    let inherent_body_context = record
+        .inherent_body_context
+        .as_ref()
+        .map(|context| -> Result<_, ArtifactError> {
+            let generic_signature = context
+                .generic_signature
+                .as_ref()
+                .map(|signature| super::semantic_import::reconstruct_signature(signature, types, owners, allocations))
+                .transpose()?;
+            let covering = context
+                .covering
+                .as_ref()
+                .map(|covering| -> Result<_, ArtifactError> {
+                    let mut impl_to_decl = allocations
+                        .vector(covering.impl_to_decl.len())
+                        .map_err(ArtifactError::Allocation)?;
+                    for binding in &covering.impl_to_decl {
+                        let implementation = types
+                            .parameters
+                            .get(binding.impl_parameter.0 as usize)
+                            .copied()
+                            .ok_or_else(|| referential("covering impl substitution references an absent implementation parameter"))?;
+                        let declaration = types
+                            .parameters
+                            .get(binding.declaration_parameter.0 as usize)
+                            .copied()
+                            .ok_or_else(|| referential("covering impl substitution references an absent declaration parameter"))?;
+                        impl_to_decl.push((implementation, declaration));
+                    }
+                    let mut decl_to_impl = allocations
+                        .vector(covering.decl_to_impl.len())
+                        .map_err(ArtifactError::Allocation)?;
+                    for binding in &covering.decl_to_impl {
+                        let implementation = types
+                            .parameters
+                            .get(binding.impl_parameter.0 as usize)
+                            .copied()
+                            .ok_or_else(|| referential("covering impl substitution references an absent implementation parameter"))?;
+                        let declaration = types
+                            .parameters
+                            .get(binding.declaration_parameter.0 as usize)
+                            .copied()
+                            .ok_or_else(|| referential("covering impl substitution references an absent declaration parameter"))?;
+                        decl_to_impl.push((declaration, implementation));
+                    }
+                    Ok(CoveringImplSubstitution {
+                        impl_to_decl: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(
+                            impl_to_decl,
+                            allocations,
+                        )
+                        .map_err(frozen_ordered_map_error)?,
+                        decl_to_impl: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(
+                            decl_to_impl,
+                            allocations,
+                        )
+                        .map_err(frozen_ordered_map_error)?,
+                    })
+                })
+                .transpose()?;
+            let source_target_head = mapped_type(context.source_target_head, types)?;
+            Ok(InherentBodyContext {
+                generic_signature,
+                covering,
+                source_target_head,
+            })
+        })
+        .transpose()?;
+    let source_member_index = usize::try_from(record.source_member_index)
+        .map_err(|_| referential("callable source member index exceeds address space"))?;
+    Ok(EffectiveCallableDefinition {
+        callable,
+        origin,
+        source_member_index,
+        signature,
+        body_provenance,
+        inherent_body_context,
+    })
+}
+
+fn frozen_ordered_map_error(error: crate::ordered_map::FrozenOrderedMapError) -> ArtifactError {
+    match error {
+        crate::ordered_map::FrozenOrderedMapError::Allocation(error) => ArtifactError::Allocation(error),
+        crate::ordered_map::FrozenOrderedMapError::DuplicateKey => {
+            referential("covering impl substitution contains duplicate parameter identities")
+        }
+    }
 }
 
 fn reconstruct_callable_signature(
