@@ -530,6 +530,48 @@ fn declaration_owner(owner: &PortableQueryOwnerKeyV1) -> Result<&StableDeclarati
     }
 }
 
+fn type_member_owner(owner: &PortableQueryOwnerKeyV1) -> Result<&StableTypeMemberRef, ArtifactError> {
+    match owner {
+        PortableQueryOwnerKeyV1::TypeMember(member) => Ok(member),
+        _ => Err(ValidationError::ReferentialIntegrity("type-member query owner is not a type-member identity".into()).into()),
+    }
+}
+
+fn type_member_row_matches_owner(
+    row: &crate::semantic::world::TypeMemberDeclarationRecordV1,
+    owner: &StableTypeMemberRef,
+) -> bool {
+    if row.owner != owner.owner {
+        return false;
+    }
+    match &row.selector {
+        crate::semantic::type_store::TypeMemberSelectorV1::Named { name } => name.as_str() == owner.selector.as_ref(),
+        crate::semantic::type_store::TypeMemberSelectorV1::Subscript => owner.selector.as_ref() == "[]",
+    }
+}
+
+fn portable_type_member_digest64(
+    domain: &str,
+    row_index: usize,
+    owner: &StableTypeMemberRef,
+    world: &SemanticWorldV3,
+) -> Result<u64, ArtifactError> {
+    let mut out = BinaryWriter::digest(domain);
+    out.write_u16(PortableQueryKindV1::TypeMemberDeclaration as u16);
+    let row = world
+        .type_member_declarations
+        .get(row_index)
+        .ok_or_else(|| ValidationError::ReferentialIntegrity("type-member query product row is out of bounds".into()))?;
+    if !type_member_row_matches_owner(row, owner) {
+        return Err(ValidationError::ReferentialIntegrity("type-member query product row owner differs from query owner".into()).into());
+    }
+    row.write(&mut out)?;
+    let digest = out.into_digest();
+    Ok(u64::from_le_bytes(
+        digest.0[..8].try_into().expect("digest prefix is eight bytes"),
+    ))
+}
+
 fn write_structural_product(
     out: &mut BinaryWriter,
     kind: PortableQueryKindV1,
@@ -622,15 +664,25 @@ pub fn portable_structural_root_fingerprints(
 ) -> Result<Option<(u64, u64)>, ArtifactError> {
     if !matches!(
         root.key.kind,
-        PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration | PortableQueryKindV1::AssociatedSurface
+        PortableQueryKindV1::DataDeclaration
+            | PortableQueryKindV1::EnumDeclaration
+            | PortableQueryKindV1::AssociatedSurface
+            | PortableQueryKindV1::TypeMemberDeclaration
     ) {
         return Ok(None);
     }
     if root.product.kind != root.key.kind {
         return Err(ValidationError::ReferentialIntegrity("query root product family differs from its key kind".into()).into());
     }
-    let owner = declaration_owner(&root.key.owner)?;
     let row_index = root.product.row_index as usize;
+    if root.key.kind == PortableQueryKindV1::TypeMemberDeclaration {
+        let owner = type_member_owner(&root.key.owner)?;
+        return Ok(Some((
+            portable_type_member_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, row_index, owner, world)?,
+            portable_type_member_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, row_index, owner, world)?,
+        )));
+    }
+    let owner = declaration_owner(&root.key.owner)?;
     Ok(Some((
         portable_structural_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, root.key.kind, row_index, owner, world)?,
         portable_structural_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, root.key.kind, row_index, owner, world)?,
