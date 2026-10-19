@@ -29,7 +29,7 @@ impl Default for ValidationLimits {
             max_total_allocation_bytes: 512 * 1024 * 1024, // 512 MiB
             max_section_count: 64,
             max_encoded_section_bytes: 128 * 1024 * 1024, // 128 MiB
-            max_decoded_section_bytes: 256 * 1024 * 1024, // 256 MiB
+            max_decoded_section_bytes: 320 * 1024 * 1024, // 320 MiB; canonical semantic authority may expand beyond 256 MiB
             max_string_bytes: 16 * 1024 * 1024,           // 16 MiB
             max_modules: 10_000,
             max_type_nodes: 1_000_000,

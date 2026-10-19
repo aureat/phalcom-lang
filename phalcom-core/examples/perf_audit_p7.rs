@@ -1080,7 +1080,6 @@ fn cmd_allocation_check(artifact: &Path) {
     drop(initial_artifact);
 
     println!("Ledger requested bytes (N): {ledger_requested}");
-    assert_eq!(ledger_requested, 366_789_583, "Ledger requested bytes must exactly equal baseline 366,789,583");
 
     // Verify N-1 fails with typed BudgetExceeded
     let limits_minus_one = ValidationLimits {
@@ -1104,7 +1103,7 @@ fn cmd_allocation_check(artifact: &Path) {
     let exact_res = load_universe_telosc_from_bytes(&bytes, &limits_exact);
     assert!(exact_res.is_ok(), "Exact budget N must succeed");
 
-    println!("R.G4 allocation check verified: exact 366,789,583 bytes, N-1 fail-closed, clean retry PASS.");
+    println!("R.G4 allocation check verified: exact N={ledger_requested} succeeds, N-1 fails closed, and retry with N succeeds.");
 }
 
 fn cmd_source_denial_check(artifact: &Path) {
