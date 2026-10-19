@@ -1820,6 +1820,8 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
     assert_eq!(imported.callable_expression_authority.callable_len(), 1);
     assert_eq!(imported.callable_expression_authority.expression_len(), 1);
     assert_eq!(imported.callable_expression_authority.deferred_expression_len(), 1);
+    assert_eq!(imported.callable_conformance_evidence_authority.callable_len(), 1);
+    assert_eq!(imported.callable_conformance_evidence_authority.evidence_node_len(), 0);
     assert_eq!(imported.callable_specialization_authority.callable_len(), 1);
     assert_eq!(imported.callable_specialization_authority.specialization_len(), 1);
     let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
