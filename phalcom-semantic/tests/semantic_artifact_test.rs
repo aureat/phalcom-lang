@@ -37,7 +37,7 @@ use phalcom_compiler_artifact::semantic::world::{
     CanonicalStaticProgramV1, ReturnFlowV1, SelectorKindV1, SemanticWorldV3,
     StaticConstantOutcomeV1, StaticConstantRecordV1, StaticConstantSymbolV1, StaticDefinitionRecordV1,
     StaticDefinitionSignatureV1, StaticValueDomainV1, TraitRefV1, TraitSurfaceRecordV1, TypeKnowledgeV1,
-    CallableConformanceAssociatedTypePlanV1, CallableConformanceCompletenessV1, WitnessPlanV1,
+    CallableConformanceAssociatedTypePlanV1, CallableConformanceCompletenessV1, CanonicalCheckedStaticApplicationV1, WitnessPlanV1,
     StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
     StaticDomainCaseCatalogRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
 };
@@ -1920,6 +1920,195 @@ fn p7_static_definition_preserves_source_free_operational_program_without_ast() 
         imported.query_products.len(),
         0,
         "source-free operational authority must not fabricate an AST-backed StaticDefinition query root"
+    );
+}
+
+#[test]
+fn p7_static_application_denotation_binds_to_imported_checked_application_identity() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+
+    let stable_module = StableModuleRef {
+        project: StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        },
+        path: vec!["core".into()].into_boxed_slice(),
+    };
+    let static_owner = StableDeclarationRef {
+        module: stable_module.clone(),
+        path: vec!["StaticBody".into()].into_boxed_slice(),
+    };
+    let static_signature = StaticDefinitionSignatureV1 {
+        parameters: vec![],
+        result_domain: StaticValueDomainV1::ValueType {
+            ty: ArtifactTypeId(0),
+        },
+        generic_signature: None,
+    };
+    image.semantic_world.static_definitions.push(StaticDefinitionRecordV1 {
+        id: static_owner.clone(),
+        signature: static_signature.clone(),
+        source: SpanV1 { start: 40, end: 52 },
+        alias_info: None,
+        canonical_program: CanonicalStaticProgramV1 {
+            owner: static_owner.clone(),
+            parameter_count: 0,
+            local_count: 0,
+            root: OperationalOpV1::Constant {
+                value: ArtifactStaticValueId(0),
+            },
+            applications: vec![CanonicalCheckedStaticApplicationV1 {
+                ordinal: 0,
+                source: SpanV1 { start: 44, end: 48 },
+                target: static_owner.clone(),
+                signature: static_signature,
+                arguments: vec![],
+            }],
+            kinded_parameters: vec![],
+            static_constant_reads: vec![],
+            dependencies: vec![],
+            result: StaticValueDomainV1::ValueType {
+                ty: ArtifactTypeId(0),
+            },
+            input_fingerprint: 0xA770,
+            module_binding_fingerprint: None,
+        },
+        diagnostics: vec![],
+    });
+
+    let callable_owner = StableDeclarationRef {
+        module: stable_module,
+        path: vec!["StaticUser".into()].into_boxed_slice(),
+    };
+    let callable = StableCallableRef {
+        owner: StableCallableOwnerRef::Declaration(callable_owner.clone()),
+        side: StableDispatchSide::Instance,
+        selector: "run".into(),
+    };
+    image.semantic_world.callable_signatures.push(CallableSignatureRecordV1 {
+        callable: callable.clone(),
+        owner: callable_owner,
+        side: 0,
+        selector: "run".into(),
+        generics: None,
+        parameters: vec![],
+        declared_return: DeclaredTypeFactV1 {
+            state: DeclaredTypeStateV1::Unknown {
+                reason: UnknownReasonV1::NoTypeEvidence,
+            },
+            basis: DeclaredTypeBasisV1::Unspecified,
+        },
+        return_validation: ReturnContractValidationV1::NotApplicable,
+        inferred_return: None,
+        source: None,
+        implementation: ImplementationKindV1::Phalcom,
+        native_id: None,
+        effects: EffectSpecV1::Unknown,
+        raises: RaisesSpecV1::Unknown,
+        flow: ReturnFlowV1::Unknown,
+        lifecycle: NativeLifecycleSpecV1 {
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+        },
+    });
+    image.semantic_world.callable_analyses.push(CallableAnalysisRecordV1 {
+        callable: callable.clone(),
+        body_source_owner: Some(CallableAnalysisSourceOwnerV1::Callable {
+            callable: callable.clone(),
+        }),
+        body_range: SpanV1 { start: 0, end: 1 },
+        status: CallableAnalysisStatusV1::Complete,
+        exits_unreachable: false,
+        flow_graph: CallableFlowGraphV1 {
+            nodes: vec![],
+            edges: vec![],
+            entry: None,
+            exits: vec![],
+        },
+        constructor_super_initializer: None,
+        expressions: vec![],
+        conformance_evidence: vec![],
+        bindings: vec![CallableBindingRowV1 {
+            ordinal: 0,
+            name: "resolved".into(),
+            parameter: None,
+            range: SpanV1 { start: 0, end: 1 },
+            contract: None,
+            current: TypeKnowledgeV1::Unknown {
+                reason: UnknownReasonV1::NoTypeEvidence,
+            },
+            denotation: Some(SemanticDenotationV1::StaticApplication {
+                body: static_owner.clone(),
+                ordinal: 0,
+            }),
+            consistency: CallableBindingConsistencyV1::Unconstrained,
+            causal_invalidity: CallableCausalInvalidityV1::Clean,
+            mutable: false,
+            initialization: CallableInitializationStateV1::DefinitelyInitialized,
+            version: 0,
+            explanation: None,
+            authority: CallableBindingAuthorityV1::BodyLocalGenerated {
+                reason: CallableGeneratedBindingReasonV1::ImplicitReceiver,
+            },
+        }],
+        for_iteration_lanes: vec![],
+        positional_expansions: vec![],
+        known_invalid_positional_expansions: vec![],
+        sequence_literals: vec![],
+        associated_resolutions: vec![],
+        callable_reference_resolutions: vec![],
+        family_applications: vec![],
+        local_proof_graph: None,
+        match_resolutions: vec![],
+        pattern_site_resolutions: vec![],
+        entry_flow: CallableFlowStateSummaryV1 {
+            bindings: vec![],
+            fields: vec![],
+            fact_count: 0,
+        },
+        normal_returns: vec![],
+        throws: vec![],
+        return_validation: ReturnContractValidationV1::NotApplicable,
+        explanations: vec![],
+        return_explanation: None,
+        diagnostic_cause_count: 0,
+        diagnostics: vec![],
+        dependencies: vec![],
+        semantic_dependencies: vec![],
+    });
+
+    let bytes = encode_artifact(&image).expect("encode P7 static-application denotation");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
+        .expect("validate P7 static-application denotation");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget)
+        .expect("import P7 static-application denotation");
+
+    let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
+    ]));
+    let callable_id = phalcom_semantic::identity::CallableId::new(
+        phalcom_semantic::identity::DeclarationId::new(module.clone(), "StaticUser".into()),
+        phalcom_common::selector::Selector::decode("run"),
+        phalcom_semantic::identity::DispatchSide::Instance,
+    );
+    let binding = imported
+        .callable_binding_authority
+        .binding(&callable_id, 0)
+        .expect("imported callable binding");
+    let phalcom_semantic::types::denotation::SemanticDenotation::StaticApplication(application) =
+        binding.state.denotation.as_ref().expect("static application denotation")
+    else {
+        panic!("binding denotation must remain a checked static application");
+    };
+    assert_eq!(application.ordinal, 0);
+    assert_eq!(
+        application.body.0,
+        phalcom_semantic::identity::DeclarationId::new(module, "StaticBody".into())
     );
 }
 
