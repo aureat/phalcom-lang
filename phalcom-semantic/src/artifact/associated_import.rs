@@ -288,7 +288,7 @@ fn associated_member(
     Ok(imported)
 }
 
-fn type_member_domain(domain: &TypeMemberDomainV1, types: &ReconstructedTypeGraph) -> Result<TypeMemberDomain, ArtifactError> {
+pub(crate) fn type_member_domain(domain: &TypeMemberDomainV1, types: &ReconstructedTypeGraph) -> Result<TypeMemberDomain, ArtifactError> {
     Ok(match domain {
         TypeMemberDomainV1::Kind { kind } => TypeMemberDomain::Kind(
             *types
