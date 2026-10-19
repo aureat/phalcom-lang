@@ -156,7 +156,6 @@ pub(crate) fn reconstruct_callable_expression_bases(
             expressions.push(reconstruct_expression(
                 expression,
                 body,
-                &callable,
                 expected_bindings.len(),
                 static_definitions,
                 types,
@@ -193,7 +192,6 @@ pub(crate) fn reconstruct_callable_expression_bases(
 fn reconstruct_expression(
     expression: &CallableExpressionRowV1,
     body: BodyId,
-    owner: &CallableId,
     binding_count: usize,
     static_definitions: &ImportedStaticDefinitionAuthority,
     types: &ReconstructedTypeGraph,
@@ -229,16 +227,6 @@ fn reconstruct_expression(
 
     let binding_read = binding_id(expression.binding_read, binding_count, "binding read")?;
     let binding_write = binding_id(expression.binding_write, binding_count, "binding write")?;
-
-    if conditional_dispatch
-        .as_ref()
-        .is_some_and(|selection| selection.callable.module() != owner.module())
-        && expression.conditional_capability.is_none()
-    {
-        // A cross-module conditional selection without its proof capability
-        // must remain explicitly deferred rather than being treated as an
-        // ordinary direct dispatch fact.
-    }
 
     let deferred = ImportedExpressionDeferredAuthority {
         conditional_capability: expression.conditional_capability.is_some(),
