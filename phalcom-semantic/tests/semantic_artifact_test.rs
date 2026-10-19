@@ -22,8 +22,9 @@ use phalcom_compiler_artifact::semantic::type_store::{
 use phalcom_compiler_artifact::semantic::world::{
     AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1,
     CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableSignatureRecordV1,
-    ConstructorInitializationRecordV1, DeclarationSurfaceRecordV1, DispatchCallableFactV1, EffectSpecV1,
-    EnumRequirementOwnerV1, EnumRequirementRecordV1, ExactSelectorV1, FieldSignatureV1, ImplementationKindV1,
+    ConditionalInherentMemberV1, ConditionalInherentSetV1, ConstructorInitializationRecordV1,
+    DeclarationSurfaceRecordV1, DispatchCallableFactV1, EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1,
+    ExactSelectorV1, FieldSignatureV1, ImplementationKindV1, InherentImplDomainV1, InherentImplTargetV1,
     NativeLifecycleSpecV1,
     RaisesSpecV1, ReturnContractValidationV1,
     ReturnFlowV1, SelectorKindV1, SemanticWorldV3, TypeKnowledgeV1, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
@@ -35,7 +36,8 @@ use phalcom_semantic::artifact::{
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::identity::{
-    StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableModuleRef, StableProjectRef, StableTypeMemberRef,
+    StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableImplRef, StableModuleRef,
+    StableProjectRef, StableTypeMemberRef,
 };
 use phalcom_type_meta::{
     ArtifactIdentityScheme, KindNode, KindNodeEntry, KindNodeId, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity,
@@ -1274,6 +1276,107 @@ fn p7_declaration_dispatch_reconstructs_as_budgeted_snapshot_authority() {
         imported.query_products.len(),
         0,
         "declaration dispatch staging must not fabricate DeclarationSurface/FieldSignature Ready roots"
+    );
+}
+
+#[test]
+fn p7_conditional_inherent_dispatch_reconstructs_without_live_selector_index() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+
+    let owner = StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: vec!["core".into()].into_boxed_slice(),
+        },
+        path: vec!["ConditionalOwner".into()].into_boxed_slice(),
+    };
+    image.semantic_world.type_graph.types.push(TypeEntryV1 {
+        kind: ArtifactKindId(0),
+        form: TypeV1::Nominal {
+            declaration: owner.clone(),
+        },
+    });
+
+    let implementation = StableImplRef {
+        module: owner.module.clone(),
+        local_id: 7,
+    };
+    let target = InherentImplTargetV1::Declaration {
+        declaration: owner.clone(),
+    };
+    let callable = StableCallableRef {
+        owner: StableCallableOwnerRef::Declaration(owner.clone()),
+        side: StableDispatchSide::Instance,
+        selector: "special".into(),
+    };
+    let signature = CallableSignatureRecordV1 {
+        callable: callable.clone(),
+        owner: owner.clone(),
+        side: 0,
+        selector: "special".into(),
+        generics: None,
+        parameters: vec![],
+        declared_return: DeclaredTypeFactV1 {
+            state: DeclaredTypeStateV1::Unknown {
+                reason: UnknownReasonV1::NoTypeEvidence,
+            },
+            basis: DeclaredTypeBasisV1::Unspecified,
+        },
+        return_validation: ReturnContractValidationV1::NotApplicable,
+        inferred_return: None,
+        source: None,
+        implementation: ImplementationKindV1::Phalcom,
+        native_id: None,
+        effects: EffectSpecV1::Unknown,
+        raises: RaisesSpecV1::Unknown,
+        flow: ReturnFlowV1::Unknown,
+        lifecycle: NativeLifecycleSpecV1 {
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+        },
+    };
+    image.semantic_world.conditional_inherent_sets.push(ConditionalInherentSetV1 {
+        target: target.clone(),
+        domains: vec![InherentImplDomainV1 {
+            impl_id: implementation.clone(),
+            target,
+            head_type: ArtifactTypeId(1),
+            generic_signature: None,
+            constraints: vec![],
+        }],
+        members: vec![ConditionalInherentMemberV1 {
+            impl_id: implementation,
+            member_order: 0,
+            is_conditionally_applicable: true,
+            callable,
+            signature,
+            visibility: VisibilityV1::Public,
+            source_member_index: 3,
+            is_requirement: false,
+        }],
+    });
+
+    let bytes = encode_artifact(&image).expect("encode P7 conditional inherent authority");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
+        .expect("validate P7 conditional inherent authority");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget)
+        .expect("reconstruct P7 conditional inherent authority");
+
+    assert_eq!(imported.conditional_inherent_authority.set_len(), 1);
+    assert_eq!(imported.conditional_inherent_authority.domain_len(), 1);
+    assert_eq!(imported.conditional_inherent_authority.member_len(), 1);
+    assert_eq!(
+        imported.query_products.len(),
+        0,
+        "conditional inherent staging must not fabricate open-world query authority"
     );
 }
 
