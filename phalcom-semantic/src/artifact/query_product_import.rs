@@ -167,6 +167,7 @@ fn reconstruct_data_root(
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_zero_dependency_contract(root)?;
+    require_relocation_stable_fingerprint_owner(&root.key.owner)?;
     let key = QueryKey::from_portable_owner(root.key.kind, &root.key.owner, owners)?;
     let QueryKey::DataDeclaration(owner) = &key else {
         return Err(invalid("data query root did not relocate to DataDeclaration"));
@@ -186,6 +187,7 @@ fn reconstruct_enum_root(
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_zero_dependency_contract(root)?;
+    require_relocation_stable_fingerprint_owner(&root.key.owner)?;
     let key = QueryKey::from_portable_owner(root.key.kind, &root.key.owner, owners)?;
     let QueryKey::EnumDeclaration(owner) = &key else {
         return Err(invalid("enum query root did not relocate to EnumDeclaration"));
@@ -205,6 +207,7 @@ fn reconstruct_data_evidence(
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_exact_structural_aggregate_owner(evidence)?;
+    require_relocation_stable_fingerprint_owner(&evidence.key.owner)?;
     let key = QueryKey::from_portable_owner(evidence.key.kind, &evidence.key.owner, owners)?;
     let QueryKey::DataDeclaration(owner) = &key else {
         return Err(invalid("data dependency evidence did not relocate to DataDeclaration"));
@@ -224,6 +227,7 @@ fn reconstruct_enum_evidence(
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_exact_structural_aggregate_owner(evidence)?;
+    require_relocation_stable_fingerprint_owner(&evidence.key.owner)?;
     let key = QueryKey::from_portable_owner(evidence.key.kind, &evidence.key.owner, owners)?;
     let QueryKey::EnumDeclaration(owner) = &key else {
         return Err(invalid("enum dependency evidence did not relocate to EnumDeclaration"));
@@ -325,6 +329,22 @@ fn require_exact_structural_aggregate_owner(evidence: &DependencyEvidenceEntryV3
     };
     if key_owner != aggregate_owner {
         return Err(invalid("structural dependency evidence points at a different aggregate owner"));
+    }
+    Ok(())
+}
+
+/// The existing SemanticDb structural fingerprint helpers hash live ModuleId
+/// ownership. Resolved project IDs are graph-local, so their raw fingerprint is
+/// not a portable artifact identity. Until QUERY_FINGERPRINT_ABI defines and
+/// exports a stable-owner fingerprint for relocated project roots, only builtin
+/// owners may use direct wire-vs-live fingerprint equality. Failing closed here
+/// prevents package/source artifacts from being accidentally accepted because
+/// their receiving graph happened to reuse the producer's numeric project ID.
+fn require_relocation_stable_fingerprint_owner(owner: &Owner) -> Result<(), ArtifactError> {
+    if !matches!(owner.project(), phalcom_type_meta::identity::StableProjectRef::Builtin { .. }) {
+        return Err(invalid(
+            "portable query fingerprint validation for relocated non-builtin project owners is not yet defined",
+        ));
     }
     Ok(())
 }
