@@ -7,16 +7,18 @@ use phalcom_compiler_artifact::header::{
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
+use phalcom_compiler_artifact::module_world::SpanV1;
 use phalcom_compiler_artifact::query::{
     DependencyEvidenceEntryV3, PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
 };
 use phalcom_compiler_artifact::semantic::aggregates::{DataInfoV1, DataShapeV1, EnumInfoV1, StructuralPrimaryContractsV1, VisibilityV1};
 use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
 use phalcom_compiler_artifact::semantic::type_store::{
-    ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeGraphV1, TypeMemberSelectorV1, TypeV1,
+    ArtifactKindId, ArtifactTypeId, KindV1, StaticDomainV1, TypeEntryV1, TypeGraphV1, TypeMemberSelectorV1, TypeV1,
 };
 use phalcom_compiler_artifact::semantic::world::{
-    AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1, SemanticWorldV3,
+    AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1, ExactSelectorV1, SelectorKindV1,
+    SemanticWorldV3, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1, StaticDomainCaseCatalogRecordV1,
     TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
 };
 use phalcom_semantic::artifact::{
@@ -833,6 +835,65 @@ fn p7_type_member_product_imports_as_current_main_ready_query() {
         product.signature.result_domain,
         phalcom_semantic::types::type_member::TypeMemberDomain::Kind(phalcom_semantic::types::id::KindId::TYPE)
     ));
+}
+
+#[test]
+fn p7_static_case_catalog_reconstructs_as_semantic_authority_without_ready_query() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+    let owner = StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: vec!["core".into()].into_boxed_slice(),
+        },
+        path: vec!["StaticChoice".into()].into_boxed_slice(),
+    };
+    image
+        .semantic_world
+        .type_graph
+        .static_domains
+        .push(StaticDomainV1::Nominal {
+            declaration: owner.clone(),
+        });
+    image
+        .semantic_world
+        .static_case_catalogs
+        .push(StaticDomainCaseCatalogRecordV1 {
+            domain: StaticCaseDomainV1::Nominal {
+                declaration: owner,
+            },
+            cases: vec![StaticCaseHeaderV1 {
+                selector: ExactSelectorV1 {
+                    base: TypeMemberSelectorV1::Named {
+                        name: "Ready".into(),
+                    },
+                    kind: SelectorKindV1::Getter,
+                    slots: vec![],
+                },
+                shape: StaticCaseShapeV1::Singleton,
+                source: SpanV1 { start: 4, end: 9 },
+            }],
+        });
+
+    let bytes = encode_artifact(&image).expect("encode P7 static-case authority");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload =
+        decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 static-case authority");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported =
+        import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 static-case authority");
+
+    assert_eq!(imported.static_case_authority.catalog_len(), 1);
+    assert_eq!(imported.static_case_authority.signature_len(), 0);
+    assert_eq!(
+        imported.query_products.len(),
+        0,
+        "source-backed static-case input identity must not be fabricated into a reusable Ready query"
+    );
 }
 
 #[test]
