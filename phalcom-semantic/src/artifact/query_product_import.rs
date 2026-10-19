@@ -43,6 +43,9 @@ pub(crate) struct ImportedReadyQueryProduct {
 #[derive(Clone, Debug, Default)]
 pub struct ImportedQueryProducts {
     ready: Vec<ImportedReadyQueryProduct>,
+    /// Fingerprint-validated dependency products. These remain non-authoritative
+    /// until a reusable root proves a closed dependency set that references them.
+    evidence: Vec<ImportedReadyQueryProduct>,
 }
 
 impl ImportedQueryProducts {
@@ -52,6 +55,12 @@ impl ImportedQueryProducts {
 
     pub fn is_empty(&self) -> bool {
         self.ready.is_empty()
+    }
+
+    /// Number of validated dependency-only products retained for future closed
+    /// dependency-set promotion. This count does not imply reusable authority.
+    pub fn validated_evidence_len(&self) -> usize {
+        self.evidence.len()
     }
 
     /// Publishes the staged products into the one current-main semantic database.
@@ -120,6 +129,9 @@ pub(crate) fn reconstruct_structural_query_products(
     let mut ready = allocations
         .vector::<ImportedReadyQueryProduct>(root_count)
         .map_err(ArtifactError::Allocation)?;
+    let mut evidence_products = allocations
+        .vector::<ImportedReadyQueryProduct>(evidence_count)
+        .map_err(ArtifactError::Allocation)?;
     let empty_diagnostics = allocations
         .arc_slice(Vec::<SemanticDiagnostic>::new())
         .map_err(ArtifactError::Allocation)?;
@@ -137,25 +149,46 @@ pub(crate) fn reconstruct_structural_query_products(
     // Future query-family import promotes only evidence reachable from a root
     // whose complete dependency contract has also been reconstructed.
     for evidence in &image.dependency_evidence {
-        match evidence.key.kind {
-            Kind::DataDeclaration => {
-                reconstruct_data_evidence(evidence, aggregates, owners, world, empty_diagnostics.clone(), allocations)?;
-            }
-            Kind::EnumDeclaration => {
-                reconstruct_enum_evidence(evidence, aggregates, owners, world, empty_diagnostics.clone(), allocations)?;
-            }
-            _ => {}
+        let imported = match evidence.key.kind {
+            Kind::DataDeclaration => Some(reconstruct_data_evidence(
+                evidence,
+                aggregates,
+                owners,
+                world,
+                empty_diagnostics.clone(),
+                allocations,
+            )?),
+            Kind::EnumDeclaration => Some(reconstruct_enum_evidence(
+                evidence,
+                aggregates,
+                owners,
+                world,
+                empty_diagnostics.clone(),
+                allocations,
+            )?),
+            _ => None,
+        };
+        if let Some(imported) = imported {
+            evidence_products.push(imported);
         }
     }
 
-    // Wire keys are unique already; this catches any stable-owner relocation
-    // aliasing before publication.
+    // Wire keys are unique already; these checks catch any stable-owner
+    // relocation aliasing before either roots or dependency evidence can become
+    // database authority.
     ready.sort_by(|left, right| left.key.cmp(&right.key));
     if ready.windows(2).any(|pair| pair[0].key == pair[1].key) {
         return Err(invalid("multiple artifact query roots relocate to the same live query key"));
     }
+    evidence_products.sort_by(|left, right| left.key.cmp(&right.key));
+    if evidence_products.windows(2).any(|pair| pair[0].key == pair[1].key) {
+        return Err(invalid("multiple artifact dependency entries relocate to the same live query key"));
+    }
 
-    Ok(ImportedQueryProducts { ready })
+    Ok(ImportedQueryProducts {
+        ready,
+        evidence: evidence_products,
+    })
 }
 
 fn reconstruct_data_root(
@@ -205,15 +238,17 @@ fn reconstruct_data_evidence(
     world: &SemanticWorldV3,
     diagnostics: Arc<[SemanticDiagnostic]>,
     allocations: &mut AllocationBudget,
-) -> Result<(), ArtifactError> {
+) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_exact_structural_aggregate_owner(evidence)?;
     validate_portable_evidence_fingerprint(evidence, world)?;
     let key = QueryKey::from_portable_owner(evidence.key.kind, &evidence.key.owner, owners)?;
     let QueryKey::DataDeclaration(owner) = &key else {
         return Err(invalid("data dependency evidence did not relocate to DataDeclaration"));
     };
-    let _product = data_product(owner, aggregates, diagnostics, allocations)?;
-    Ok(())
+    let product = data_product(owner, aggregates, diagnostics, allocations)?;
+    let input_fingerprint = data_declaration_input_fingerprint(&product);
+    let product_fingerprint = data_declaration_product_fingerprint(&product);
+    Ok(ready(key, input_fingerprint, product_fingerprint, SemanticProduct::DataDeclaration(product)))
 }
 
 fn reconstruct_enum_evidence(
@@ -223,15 +258,17 @@ fn reconstruct_enum_evidence(
     world: &SemanticWorldV3,
     diagnostics: Arc<[SemanticDiagnostic]>,
     allocations: &mut AllocationBudget,
-) -> Result<(), ArtifactError> {
+) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_exact_structural_aggregate_owner(evidence)?;
     validate_portable_evidence_fingerprint(evidence, world)?;
     let key = QueryKey::from_portable_owner(evidence.key.kind, &evidence.key.owner, owners)?;
     let QueryKey::EnumDeclaration(owner) = &key else {
         return Err(invalid("enum dependency evidence did not relocate to EnumDeclaration"));
     };
-    let _product = enum_product(owner, aggregates, diagnostics, allocations)?;
-    Ok(())
+    let product = enum_product(owner, aggregates, diagnostics, allocations)?;
+    let input_fingerprint = enum_declaration_input_fingerprint(&product);
+    let product_fingerprint = enum_declaration_product_fingerprint(&product);
+    Ok(ready(key, input_fingerprint, product_fingerprint, SemanticProduct::EnumDeclaration(product)))
 }
 
 fn data_product(
