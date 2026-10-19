@@ -1,7 +1,6 @@
 //! Portable `QUERY_IMAGE` wire DTOs and exhaustive profile dispositions (`PERF003.C2.P7.T9`).
 
 use crate::codec::{BinaryReader, BinaryWriter};
-use crate::digest::ArtifactDigest;
 use crate::error::{ArtifactError, ValidationError};
 use crate::limits::ValidationLimits;
 use crate::module_world::{Decode, ModuleWorldV1, ModuleWorldV2, Wire};
@@ -524,11 +523,6 @@ pub struct QueryImageV3 {
 }
 
 
-fn portable_query_digest64(domain: &str, bytes: &[u8]) -> u64 {
-    let digest = ArtifactDigest::digest_domain(domain, bytes);
-    u64::from_le_bytes(digest.0[..8].try_into().expect("digest prefix is eight bytes"))
-}
-
 fn declaration_owner(owner: &PortableQueryOwnerKeyV1) -> Result<&StableDeclarationRef, ArtifactError> {
     match owner {
         PortableQueryOwnerKeyV1::Declaration(declaration) => Ok(declaration),
@@ -536,13 +530,13 @@ fn declaration_owner(owner: &PortableQueryOwnerKeyV1) -> Result<&StableDeclarati
     }
 }
 
-fn encode_structural_product_bytes(
+fn write_structural_product(
+    out: &mut BinaryWriter,
     kind: PortableQueryKindV1,
     row_index: usize,
     owner: &StableDeclarationRef,
     world: &SemanticWorldV3,
-) -> Result<Vec<u8>, ArtifactError> {
-    let mut out = BinaryWriter::new();
+) -> Result<(), ArtifactError> {
     out.write_u16(kind as u16);
     match kind {
         PortableQueryKindV1::DataDeclaration => {
@@ -554,7 +548,7 @@ fn encode_structural_product_bytes(
             if &row.owner != owner {
                 return Err(ValidationError::ReferentialIntegrity("data query product row owner differs from query owner".into()).into());
             }
-            row.write(&mut out)?;
+            row.write(out)?;
         }
         PortableQueryKindV1::EnumDeclaration => {
             let row = world
@@ -565,7 +559,7 @@ fn encode_structural_product_bytes(
             if &row.owner != owner {
                 return Err(ValidationError::ReferentialIntegrity("enum query product row owner differs from query owner".into()).into());
             }
-            row.write(&mut out)?;
+            row.write(out)?;
             out.write_u32(u32::try_from(row.variants.len()).map_err(|_| ValidationError::ReferentialIntegrity("enum variant count exceeds u32".into()))?);
             for variant in &row.variants {
                 let mut matches = world.structural_contracts.variant_contracts.iter().filter(|candidate| candidate.variant == *variant);
@@ -575,7 +569,7 @@ fn encode_structural_product_bytes(
                 if matches.next().is_some() {
                     return Err(ValidationError::ReferentialIntegrity("enum query product variant row is ambiguous".into()).into());
                 }
-                variant_row.write(&mut out)?;
+                variant_row.write(out)?;
             }
         }
         _ => {
@@ -585,7 +579,22 @@ fn encode_structural_product_bytes(
             .into());
         }
     }
-    Ok(out.into_vec())
+    Ok(())
+}
+
+fn portable_structural_digest64(
+    domain: &str,
+    kind: PortableQueryKindV1,
+    row_index: usize,
+    owner: &StableDeclarationRef,
+    world: &SemanticWorldV3,
+) -> Result<u64, ArtifactError> {
+    let mut out = BinaryWriter::digest(domain);
+    write_structural_product(&mut out, kind, row_index, owner, world)?;
+    let digest = out.into_digest();
+    Ok(u64::from_le_bytes(
+        digest.0[..8].try_into().expect("digest prefix is eight bytes"),
+    ))
 }
 
 /// Computes QUERY_FINGERPRINT_ABI_V2 evidence for structural query roots.
@@ -605,10 +614,10 @@ pub fn portable_structural_root_fingerprints(
         return Err(ValidationError::ReferentialIntegrity("query root product family differs from its key kind".into()).into());
     }
     let owner = declaration_owner(&root.key.owner)?;
-    let bytes = encode_structural_product_bytes(root.key.kind, root.product.row_index as usize, owner, world)?;
+    let row_index = root.product.row_index as usize;
     Ok(Some((
-        portable_query_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, &bytes),
-        portable_query_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, &bytes),
+        portable_structural_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, root.key.kind, row_index, owner, world)?,
+        portable_structural_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, root.key.kind, row_index, owner, world)?,
     )))
 }
 
@@ -647,8 +656,13 @@ pub fn portable_structural_dependency_product_fingerprint(
         }
         _ => unreachable!("guarded structural kind"),
     };
-    let bytes = encode_structural_product_bytes(key.kind, row_index, owner, world)?;
-    Ok(Some(portable_query_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, &bytes)))
+    Ok(Some(portable_structural_digest64(
+        DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2,
+        key.kind,
+        row_index,
+        owner,
+        world,
+    )?))
 }
 
 impl QueryImageV3 {
