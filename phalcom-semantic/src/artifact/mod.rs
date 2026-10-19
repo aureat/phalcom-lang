@@ -13,7 +13,7 @@ pub use identity::StableOwnerCatalog;
 pub use query_policy::{
     CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_from_portable, query_kind_profile_support, query_root_is_reusable,
 };
-pub use query_product_import::{ImportedQueryProducts, ImportedReadyQueryProduct};
+pub use query_product_import::ImportedQueryProducts;
 pub use semantic_import::ImportedSemanticAggregates;
 pub use static_import::ImportedStaticValueGraph;
 pub use type_import::ImportedTypeGraph;
