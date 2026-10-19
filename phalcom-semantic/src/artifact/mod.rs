@@ -8,6 +8,7 @@ mod query_import;
 mod query_policy;
 mod query_product_import;
 mod semantic_import;
+mod static_case_import;
 mod static_import;
 mod type_import;
 pub use associated_import::ImportedAssociatedAuthority;
@@ -17,6 +18,7 @@ pub use query_policy::{
 };
 pub use query_product_import::ImportedQueryProducts;
 pub use semantic_import::ImportedSemanticAggregates;
+pub use static_case_import::ImportedStaticCaseAuthority;
 pub use static_import::ImportedStaticValueGraph;
 pub use type_import::ImportedTypeGraph;
 
@@ -82,6 +84,10 @@ pub struct ImportedCompilerImage {
     /// P7 associated semantic authority reconstructed once and shared by
     /// snapshot/session publication and reusable query-product publication.
     pub associated_authority: Arc<ImportedAssociatedAuthority>,
+    /// P7 static-case catalogs/signatures reconstructed for snapshot authority.
+    /// Their current query input identity remains source-backed, so they are
+    /// staged semantically but are not published as unconditional Ready roots.
+    pub static_case_authority: Arc<ImportedStaticCaseAuthority>,
     /// Reconstructed, canonical-fingerprint-validated reusable query products.
     /// T4 installs these into the imported generation's one SemanticDb.
     pub query_products: Arc<ImportedQueryProducts>,
@@ -116,6 +122,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_static_values: Option<Arc<ImportedStaticValueGraph>>,
     pub staged_semantic_aggregates: Option<Arc<ImportedSemanticAggregates>>,
     pub staged_associated_authority: Option<Arc<ImportedAssociatedAuthority>>,
+    pub staged_static_case_authority: Option<Arc<ImportedStaticCaseAuthority>>,
     pub staged_query_products: Option<Arc<ImportedQueryProducts>>,
     pub staged_semantic_world: Option<SemanticWorldV3>,
     pub staged_query_image: Option<QueryImageV3>,
@@ -137,6 +144,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_static_values: None,
             staged_semantic_aggregates: None,
             staged_associated_authority: None,
+            staged_static_case_authority: None,
             staged_query_products: None,
             staged_semantic_world: None,
             staged_query_image: None,
@@ -255,6 +263,13 @@ impl<'a> ArtifactImportTransaction<'a> {
             semantic_import::reconstruct_structural_aggregates(&payload.semantic_world.structural_contracts, &reconstructed, &owners, &self.limits, child)?;
         let associated_authority =
             associated_import::reconstruct_associated_authority(&payload.semantic_world, &reconstructed, &owners, child)?;
+        let static_case_authority = static_case_import::reconstruct_static_case_authority(
+            &payload.semantic_world.static_case_catalogs,
+            &payload.semantic_world.static_case_signatures,
+            &reconstructed,
+            &owners,
+            child,
+        )?;
         let query_products = query_product_import::reconstruct_structural_query_products(
             &payload.query_image,
             &semantic_aggregates,
@@ -265,6 +280,7 @@ impl<'a> ArtifactImportTransaction<'a> {
         )?;
         self.staged_semantic_aggregates = Some(child.arc(semantic_aggregates).map_err(ArtifactError::Allocation)?);
         self.staged_associated_authority = Some(child.arc(associated_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_static_case_authority = Some(child.arc(static_case_authority).map_err(ArtifactError::Allocation)?);
         self.staged_query_products = Some(child.arc(query_products).map_err(ArtifactError::Allocation)?);
         self.staged_type_graph = Some(child.arc(ImportedTypeGraph { inner: reconstructed }).map_err(ArtifactError::Allocation)?);
 
@@ -316,6 +332,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_associated_authority
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged associated semantic authority".into())))?;
+        let static_case_authority = self
+            .staged_static_case_authority
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged static-case semantic authority".into())))?;
         let query_products = self
             .staged_query_products
             .take()
@@ -348,6 +368,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             static_values,
             semantic_aggregates,
             associated_authority,
+            static_case_authority,
             query_products,
             semantic_world,
             query_image,
@@ -365,6 +386,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_static_values = None;
             self.staged_semantic_aggregates = None;
             self.staged_associated_authority = None;
+            self.staged_static_case_authority = None;
             self.staged_query_products = None;
             self.staged_semantic_world = None;
             self.staged_query_image = None;
