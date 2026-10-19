@@ -440,7 +440,7 @@ fn reconstruct_static_data(
     })
 }
 
-fn reconstruct_signature(
+pub(crate) fn reconstruct_signature(
     row: &wire::GenericSignatureV1,
     types: &super::type_import::ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
@@ -480,6 +480,18 @@ fn reconstruct_signature(
             phalcom_compiler_artifact::semantic::type_store::ParameterModeV1::CompletePack => GenericParameterMode::CompletePack,
         });
     }
+    let mut parameter_kind_shapes = allocations
+        .vector::<Box<str>>(row.parameter_kind_shapes.len())
+        .map_err(ArtifactError::Allocation)?;
+    for shape in &row.parameter_kind_shapes {
+        parameter_kind_shapes.push(allocations.boxed_str(shape).map_err(ArtifactError::Allocation)?);
+    }
+    let mut constraint_shapes = allocations
+        .vector::<Box<str>>(row.constraint_shapes.len())
+        .map_err(ArtifactError::Allocation)?;
+    for shape in &row.constraint_shapes {
+        constraint_shapes.push(allocations.boxed_str(shape).map_err(ArtifactError::Allocation)?);
+    }
     let mut constraints = allocations
         .vector::<GenericConstraint>(row.constraints.len())
         .map_err(ArtifactError::Allocation)?;
@@ -490,10 +502,10 @@ fn reconstruct_signature(
         owner,
         parameters: allocations.boxed_slice(parameters).map_err(ArtifactError::Allocation)?,
         parameter_kinds: allocations.boxed_slice(parameter_kinds).map_err(ArtifactError::Allocation)?,
-        parameter_kind_shapes: allocations.boxed_slice(row.parameter_kind_shapes.clone()).map_err(ArtifactError::Allocation)?,
+        parameter_kind_shapes: allocations.boxed_slice(parameter_kind_shapes).map_err(ArtifactError::Allocation)?,
         parameter_variances: allocations.boxed_slice(parameter_variances).map_err(ArtifactError::Allocation)?,
         parameter_modes: allocations.boxed_slice(parameter_modes).map_err(ArtifactError::Allocation)?,
-        constraint_shapes: allocations.boxed_slice(row.constraint_shapes.clone()).map_err(ArtifactError::Allocation)?,
+        constraint_shapes: allocations.boxed_slice(constraint_shapes).map_err(ArtifactError::Allocation)?,
         constraints: allocations.boxed_slice(constraints).map_err(ArtifactError::Allocation)?,
     };
     for (index, parameter) in signature.parameters.iter().enumerate() {
