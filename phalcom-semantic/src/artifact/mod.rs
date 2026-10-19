@@ -19,6 +19,8 @@ mod query_policy;
 mod query_product_import;
 mod semantic_import;
 mod static_case_import;
+mod static_constant_import;
+mod static_dependency_import;
 mod static_import;
 mod trait_import;
 mod type_import;
@@ -39,6 +41,7 @@ pub use query_policy::{
 pub use query_product_import::ImportedQueryProducts;
 pub use semantic_import::ImportedSemanticAggregates;
 pub use static_case_import::ImportedStaticCaseAuthority;
+pub use static_constant_import::ImportedStaticConstantAuthority;
 pub use static_import::ImportedStaticValueGraph;
 pub use trait_import::ImportedTraitAuthority;
 pub use type_import::ImportedTypeGraph;
@@ -101,6 +104,9 @@ pub struct ImportedCompilerImage {
     /// Relocated current-main static-value graph. Semantic/query DTOs below
     /// remain transport input until their corresponding import stages complete.
     pub static_values: Arc<ImportedStaticValueGraph>,
+    /// Certified-P7 checked static constants reconstructed against the same
+    /// relocated type/static-value graphs and retained for T4 publication.
+    pub static_constant_authority: Arc<ImportedStaticConstantAuthority>,
     /// Reconstructed structural declaration products (data, enums, variants).
     pub semantic_aggregates: Arc<ImportedSemanticAggregates>,
     /// P7 associated semantic authority reconstructed once and shared by
@@ -175,6 +181,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_metadata_bundle: Option<SemanticMetadataBundle>,
     pub staged_type_graph: Option<Arc<ImportedTypeGraph>>,
     pub staged_static_values: Option<Arc<ImportedStaticValueGraph>>,
+    pub staged_static_constant_authority: Option<Arc<ImportedStaticConstantAuthority>>,
     pub staged_semantic_aggregates: Option<Arc<ImportedSemanticAggregates>>,
     pub staged_associated_authority: Option<Arc<ImportedAssociatedAuthority>>,
     pub staged_static_case_authority: Option<Arc<ImportedStaticCaseAuthority>>,
@@ -207,6 +214,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_metadata_bundle: None,
             staged_type_graph: None,
             staged_static_values: None,
+            staged_static_constant_authority: None,
             staged_semantic_aggregates: None,
             staged_associated_authority: None,
             staged_static_case_authority: None,
@@ -333,7 +341,16 @@ impl<'a> ArtifactImportTransaction<'a> {
         query_import::validate_structural_root_row_ownership(&payload.query_image, &payload.semantic_world)?;
         let reconstructed = type_import::reconstruct_type_graph(&payload.semantic_world.type_graph, &self.limits, &owners, child)?;
         let static_values = static_import::reconstruct_static_values(&payload.semantic_world.static_values, &reconstructed, &owners, &self.limits, child)?;
+        let static_constant_authority = static_constant_import::reconstruct_static_constants(
+            &payload.semantic_world.static_constants,
+            &static_values,
+            &reconstructed,
+            &owners,
+            child,
+        )?;
         self.staged_static_values = Some(child.arc(static_values).map_err(ArtifactError::Allocation)?);
+        self.staged_static_constant_authority =
+            Some(child.arc(static_constant_authority).map_err(ArtifactError::Allocation)?);
         let semantic_aggregates =
             semantic_import::reconstruct_structural_aggregates(&payload.semantic_world.structural_contracts, &reconstructed, &owners, &self.limits, child)?;
         let associated_authority =
@@ -483,6 +500,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_static_values
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged semantic static-value graph".into())))?;
+        let static_constant_authority = self
+            .staged_static_constant_authority
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged static-constant authority".into())))?;
         let semantic_aggregates = self
             .staged_semantic_aggregates
             .take()
@@ -565,6 +586,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             metadata_bundle,
             type_graph,
             static_values,
+            static_constant_authority,
             semantic_aggregates,
             associated_authority,
             static_case_authority,
@@ -593,6 +615,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_metadata_bundle = None;
             self.staged_type_graph = None;
             self.staged_static_values = None;
+            self.staged_static_constant_authority = None;
             self.staged_semantic_aggregates = None;
             self.staged_associated_authority = None;
             self.staged_static_case_authority = None;
