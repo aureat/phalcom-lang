@@ -21,14 +21,16 @@ use phalcom_compiler_artifact::semantic::type_store::{
 };
 use phalcom_compiler_artifact::semantic::world::{
     AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1,
-    CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableSignatureRecordV1,
+    CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1,
+    CallableDiagnosticSeverityV1, CallableEvidenceDiagnosticV1, CallableSignatureRecordV1,
     ConditionalInherentMemberV1, ConditionalInherentSetV1, ConformanceHeadRecordV1, ConformanceTargetV1,
     ConstructorInitializationRecordV1, DeclarationSurfaceRecordV1, DispatchCallableFactV1, EffectSpecV1,
-    EnumRequirementOwnerV1, EnumRequirementRecordV1,
+    EnumRequirementOwnerV1, EnumRequirementRecordV1, EnumRequirementSourceV1,
     ExactSelectorV1, FieldSignatureV1, ImplementationKindV1, InherentImplDomainV1, InherentImplTargetV1,
     NativeLifecycleSpecV1,
     RaisesSpecV1, ReturnContractValidationV1,
-    ReturnFlowV1, SelectorKindV1, SemanticWorldV3, TraitRefV1, TypeKnowledgeV1, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
+    ReturnFlowV1, SelectorKindV1, SemanticWorldV3, TraitRefV1, TraitSurfaceRecordV1, TypeKnowledgeV1,
+    StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
     StaticDomainCaseCatalogRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
 };
 use phalcom_semantic::artifact::{
@@ -1440,6 +1442,68 @@ fn p7_conformance_head_reconstructs_with_current_authorization_check() {
         imported.query_products.len(),
         0,
         "ConformanceDispatch is open-world and must not become unconditional Ready authority"
+    );
+}
+
+#[test]
+fn p7_trait_surface_reconstructs_complete_diagnostic_payload() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+
+    let module = StableModuleRef {
+        project: StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        },
+        path: vec!["core".into()].into_boxed_slice(),
+    };
+    let declaration = StableDeclarationRef {
+        module: module.clone(),
+        path: vec!["ProtocolWithDiagnostic".into()].into_boxed_slice(),
+    };
+    let source = EnumRequirementSourceV1 {
+        module: module.clone(),
+        range: SpanV1 { start: 4, end: 8 },
+    };
+    image.semantic_world.trait_surfaces.push(TraitSurfaceRecordV1 {
+        declaration,
+        generic_signature: None,
+        header_source: source.clone(),
+        members: vec![],
+        associated_types: vec![],
+        diagnostics: vec![CallableEvidenceDiagnosticV1 {
+            code: "trait.member.conflict".into(),
+            severity: CallableDiagnosticSeverityV1::Warning,
+            message: "conflicting trait member".into(),
+            primary: source,
+            primary_range: SpanV1 { start: 4, end: 8 },
+            labels: vec![],
+            notes: vec!["retained P7 note".into()],
+            helps: vec!["retained P7 help".into()],
+            guidance: vec![],
+            explanations: vec![],
+            fixes: vec![],
+            root_cause: None,
+        }],
+    });
+
+    let bytes = encode_artifact(&image).expect("encode P7 trait authority");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
+        .expect("validate P7 trait authority");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget)
+        .expect("reconstruct P7 trait authority");
+
+    assert_eq!(imported.trait_authority.surface_len(), 1);
+    assert_eq!(imported.trait_authority.member_len(), 0);
+    assert_eq!(imported.trait_authority.associated_type_len(), 0);
+    assert_eq!(imported.trait_authority.diagnostic_len(), 1);
+    assert_eq!(
+        imported.query_products.len(),
+        0,
+        "trait snapshot authority must not bypass TraitHeader/TraitSurface dependency closure"
     );
 }
 
