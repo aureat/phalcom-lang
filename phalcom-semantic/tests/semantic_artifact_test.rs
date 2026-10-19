@@ -413,6 +413,108 @@ fn structural_data_contract_reconstructs_as_native_semantic_product() {
 }
 
 #[test]
+fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_fingerprints() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+    let stable_owner = StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: vec!["core".into()].into_boxed_slice(),
+        },
+        path: vec!["CachedPayload".into()].into_boxed_slice(),
+    };
+    image.semantic_world.type_graph.types.push(TypeEntryV1 {
+        kind: ArtifactKindId(0),
+        form: TypeV1::Nominal {
+            declaration: stable_owner.clone(),
+        },
+    });
+    image.semantic_world.structural_contracts.data_contracts.push(DataInfoV1 {
+        owner: stable_owner.clone(),
+        root_form: ArtifactTypeId(1),
+        generic_signature: None,
+        static_data: None,
+        shape: DataShapeV1::Tuple,
+        components: vec![],
+        constructor_visibility: VisibilityV1::Public,
+        constructor_parameters: vec![],
+        constructor_result_type: ArtifactTypeId(1),
+        shape_contributions: vec![],
+    });
+
+    // First reconstruct the structural row without a DataDeclaration query root
+    // so the test obtains the receiving compiler's canonical current-main
+    // fingerprints rather than duplicating fingerprint logic in the fixture.
+    let limits = ValidationLimits::default();
+    let seed_bytes = encode_artifact(&image).expect("encode structural seed artifact");
+    let mut seed_decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let seed_payload =
+        decode_and_validate_artifact(&seed_bytes, &limits, None, &mut seed_decode_budget).expect("validate structural seed artifact");
+    let mut seed_import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let seed_import = import_compiler_image(seed_payload, &limits, &mut seed_import_budget).expect("reconstruct structural seed");
+
+    let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
+    ]));
+    let owner = phalcom_semantic::identity::DeclarationId::new(module, "CachedPayload".into());
+    let info = seed_import
+        .semantic_aggregates
+        .data_semantics
+        .get(&owner)
+        .expect("reconstructed data declaration")
+        .clone();
+    let diagnostics: Arc<[phalcom_semantic::diagnostic::SemanticDiagnostic]> = Arc::from([]);
+    let product = phalcom_semantic::db::product::DataDeclarationProduct { info, diagnostics };
+    let input_fingerprint = phalcom_semantic::db::fingerprint::data_declaration_input_fingerprint(&product).raw();
+    let product_fingerprint = phalcom_semantic::db::fingerprint::data_declaration_product_fingerprint(&product).raw();
+
+    image.query_image.supported_roots.push(QueryRootEntryV3 {
+        key: PortableQueryKeyV1 {
+            kind: PortableQueryKindV1::DataDeclaration,
+            owner: PortableQueryOwnerKeyV1::Declaration(stable_owner),
+        },
+        product: QueryProductRefV2 {
+            kind: PortableQueryKindV1::DataDeclaration,
+            row_index: 0,
+        },
+        input_fingerprint,
+        product_fingerprint,
+        dependency_indices: vec![],
+    });
+
+    let bytes = encode_artifact(&image).expect("encode fingerprinted structural artifact");
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate fingerprinted structural artifact");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("import fingerprinted structural product");
+    assert_eq!(imported.query_products.len(), 1, "DataDeclaration must be staged as a typed reusable product");
+
+    let data_root = image
+        .query_image
+        .supported_roots
+        .iter_mut()
+        .find(|root| root.key.kind == PortableQueryKindV1::DataDeclaration)
+        .expect("data query root");
+    data_root.product_fingerprint ^= 1;
+
+    let stale_bytes = encode_artifact(&image).expect("encode stale structural artifact");
+    let mut stale_decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let stale_payload =
+        decode_and_validate_artifact(&stale_bytes, &limits, None, &mut stale_decode_budget).expect("container remains structurally valid");
+    let mut stale_import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let stale = import_compiler_image(stale_payload, &limits, &mut stale_import_budget);
+    assert!(stale.is_err(), "stale query product fingerprint must fail closed");
+    assert_eq!(
+        stale_import_budget.requested(),
+        0,
+        "failed fingerprint validation must not commit staged allocation authority"
+    );
+}
+
+#[test]
 fn exact_allocation_accounting_n_succeeds_n_minus_1_fails_and_retry_succeeds() {
     let image = sample_image();
     let bytes = encode_artifact(&image).unwrap();
