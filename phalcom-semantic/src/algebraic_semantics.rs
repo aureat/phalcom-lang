@@ -22,7 +22,7 @@ pub enum AlgebraicRepresentation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AlgebraicSumInfo {
     pub enum_info: Arc<EnumInfo>,
-    pub variants: Arc<[VariantInfo]>,
+    pub variants: Arc<[Arc<VariantInfo>]>,
 }
 
 /// Canonical static-domain registration for a type-only algebraic declaration.
