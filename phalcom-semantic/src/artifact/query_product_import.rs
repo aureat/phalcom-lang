@@ -7,31 +7,23 @@
 //! wire DTOs until their complete current-main dependency contract is imported.
 
 use crate::artifact::identity::StableOwnerCatalog;
-use crate::associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedMemberId, AssociatedSurface};
 use crate::db::fingerprint::{
     associated_surface_input_fingerprint, associated_surface_product_fingerprint, data_declaration_input_fingerprint,
     data_declaration_product_fingerprint, enum_declaration_input_fingerprint, enum_declaration_product_fingerprint,
     type_member_declaration_input_fingerprint, type_member_declaration_product_fingerprint,
 };
-use crate::db::product::{DataDeclarationProduct, EnumDeclarationProduct, TypeMemberDeclarationProduct};
+use crate::db::product::{DataDeclarationProduct, EnumDeclarationProduct};
 use crate::db::{InputFingerprint, ProductFingerprint, QueryKey, SemanticDb, SemanticProduct};
 use crate::diagnostic::SemanticDiagnostic;
 use crate::enum_semantics::VariantInfo;
-use crate::identity::{
-    AssociatedFamilyId, AssociatedStaticDomainDeclarationId, DataConstructorId, DeclarationId,
-};
+use crate::identity::DeclarationId;
 use phalcom_compiler_artifact::query::{
-    DependencyEvidenceEntryV3, PortableQueryKindV1 as Kind, PortableQueryOwnerKeyV1 as Owner, QueryImageV3, QueryRootEntryV3,
+    DependencyEvidenceEntryV3, PortableQueryKindV1 as Kind, QueryImageV3, QueryRootEntryV3,
     portable_structural_dependency_product_fingerprint, portable_structural_root_fingerprints,
 };
-use phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1;
-use phalcom_compiler_artifact::semantic::world::{
-    AssociatedFamilyKindV1, AssociatedMemberV1, AssociatedSurfaceRecordV1, IntrinsicTypeOperationV1, SemanticWorldV3,
-    TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
-};
+use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// One typed, fingerprint-validated query product staged from an artifact.
@@ -121,9 +113,9 @@ impl ImportedQueryProducts {
 pub(crate) fn reconstruct_structural_query_products(
     image: &QueryImageV3,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
+    associated: &super::associated_import::ImportedAssociatedAuthority,
     owners: &StableOwnerCatalog<'_>,
     world: &SemanticWorldV3,
-    types: &super::type_import::ReconstructedTypeGraph,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedQueryProducts, ArtifactError> {
     let root_count = image
@@ -151,8 +143,8 @@ pub(crate) fn reconstruct_structural_query_products(
         let imported = match root.key.kind {
             Kind::DataDeclaration => reconstruct_data_root(root, aggregates, owners, world, empty_diagnostics.clone(), allocations)?,
             Kind::EnumDeclaration => reconstruct_enum_root(root, aggregates, owners, world, empty_diagnostics.clone(), allocations)?,
-            Kind::AssociatedSurface => reconstruct_associated_surface_root(root, owners, world, allocations)?,
-            Kind::TypeMemberDeclaration => reconstruct_type_member_root(root, owners, world, types, allocations)?,
+            Kind::AssociatedSurface => reconstruct_associated_surface_root(root, associated, owners, world)?,
+            Kind::TypeMemberDeclaration => reconstruct_type_member_root(root, associated, owners, world)?,
             _ => continue,
         };
         ready.push(imported);
@@ -179,7 +171,8 @@ pub(crate) fn reconstruct_structural_query_products(
                 empty_diagnostics.clone(),
                 allocations,
             )?),
-            Kind::AssociatedSurface => Some(reconstruct_associated_surface_evidence(evidence, owners, world, allocations)?),
+            Kind::AssociatedSurface => Some(reconstruct_associated_surface_evidence(evidence, associated, owners, world)?),
+            Kind::TypeMemberDeclaration => Some(reconstruct_type_member_evidence(evidence, associated, owners, world)?),
             _ => None,
         };
         if let Some(imported) = imported {
@@ -287,9 +280,9 @@ fn reconstruct_enum_evidence(
 
 fn reconstruct_associated_surface_root(
     root: &QueryRootEntryV3,
+    associated: &super::associated_import::ImportedAssociatedAuthority,
     owners: &StableOwnerCatalog<'_>,
     world: &SemanticWorldV3,
-    allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_zero_dependency_contract(root)?;
     validate_portable_root_fingerprints(root, world)?;
@@ -297,11 +290,10 @@ fn reconstruct_associated_surface_root(
     let QueryKey::AssociatedSurface(owner) = &key else {
         return Err(invalid("associated-surface query root did not relocate to AssociatedSurface"));
     };
-    let row = world
-        .associated_surfaces
-        .get(root.product.row_index as usize)
-        .ok_or_else(|| invalid("associated-surface query product row is out of bounds"))?;
-    let surface = reconstruct_associated_surface(row, owner, owners, allocations)?;
+    let surface = associated
+        .surface(owner)
+        .cloned()
+        .ok_or_else(|| invalid("associated-surface query owner has no reconstructed P7 semantic authority"))?;
     let input_fingerprint = associated_surface_input_fingerprint(&surface);
     let product_fingerprint = associated_surface_product_fingerprint(&surface);
     Ok(ready(
@@ -314,9 +306,9 @@ fn reconstruct_associated_surface_root(
 
 fn reconstruct_associated_surface_evidence(
     evidence: &DependencyEvidenceEntryV3,
+    associated: &super::associated_import::ImportedAssociatedAuthority,
     owners: &StableOwnerCatalog<'_>,
     world: &SemanticWorldV3,
-    allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_exact_structural_aggregate_owner(evidence)?;
     validate_portable_evidence_fingerprint(evidence, world)?;
@@ -324,17 +316,10 @@ fn reconstruct_associated_surface_evidence(
     let QueryKey::AssociatedSurface(owner) = &key else {
         return Err(invalid("associated-surface dependency evidence did not relocate to AssociatedSurface"));
     };
-    let Owner::Declaration(stable_owner) = &evidence.key.owner else {
-        return Err(invalid("associated-surface dependency evidence is not declaration-owned"));
-    };
-    let mut rows = world.associated_surfaces.iter().filter(|row| &row.owner == stable_owner);
-    let row = rows
-        .next()
-        .ok_or_else(|| invalid("associated-surface dependency evidence has no semantic product row"))?;
-    if rows.next().is_some() {
-        return Err(invalid("associated-surface dependency evidence owner is ambiguous"));
-    }
-    let surface = reconstruct_associated_surface(row, owner, owners, allocations)?;
+    let surface = associated
+        .surface(owner)
+        .cloned()
+        .ok_or_else(|| invalid("associated-surface dependency owner has no reconstructed P7 semantic authority"))?;
     let input_fingerprint = associated_surface_input_fingerprint(&surface);
     let product_fingerprint = associated_surface_product_fingerprint(&surface);
     Ok(ready(
@@ -345,155 +330,22 @@ fn reconstruct_associated_surface_evidence(
     ))
 }
 
-fn reconstruct_associated_surface(
-    row: &AssociatedSurfaceRecordV1,
-    expected_owner: &DeclarationId,
-    owners: &StableOwnerCatalog<'_>,
-    allocations: &mut AllocationBudget,
-) -> Result<Arc<AssociatedSurface>, ArtifactError> {
-    let owner = owners.declaration(&row.owner)?;
-    if &owner != expected_owner {
-        return Err(invalid("associated-surface semantic row owner differs from relocated query owner"));
-    }
-
-    let mut families = BTreeMap::new();
-    for family in &row.families {
-        let base = selector_base(&family.selector, allocations)?;
-        let kind = associated_family_kind(family.kind.clone());
-        let mut members = allocations
-            .vector::<AssociatedMemberId>(family.members.len())
-            .map_err(ArtifactError::Allocation)?;
-        for member in &family.members {
-            let (member_kind, member) = associated_member(member, &owner, owners, allocations)?;
-            let category_matches = member_kind == kind
-                || (member_kind == AssociatedFamilyKind::TypeMember && kind == AssociatedFamilyKind::IntrinsicTypeMember);
-            if !category_matches {
-                return Err(invalid("associated-surface member category differs from its family category"));
-            }
-            members.push(member);
-        }
-        let id = AssociatedFamilyId::new(owner.clone(), base.clone());
-        let info = AssociatedFamilyInfo {
-            id,
-            kind,
-            members: allocations.boxed_slice(members).map_err(ArtifactError::Allocation)?,
-        };
-        if families.insert(base, info).is_some() {
-            return Err(invalid("associated-surface contains duplicate family selectors"));
-        }
-    }
-
-    allocations
-        .arc(AssociatedSurface { owner, families })
-        .map_err(ArtifactError::Allocation)
-}
-
-fn associated_member(
-    member: &AssociatedMemberV1,
-    expected_owner: &DeclarationId,
-    owners: &StableOwnerCatalog<'_>,
-    allocations: &mut AllocationBudget,
-) -> Result<(AssociatedFamilyKind, AssociatedMemberId), ArtifactError> {
-    let pair = match member {
-        AssociatedMemberV1::Variant { variant } => {
-            let variant = owners.variant(variant)?;
-            if &variant.owner != expected_owner {
-                return Err(invalid("associated variant belongs to another declaration"));
-            }
-            (AssociatedFamilyKind::Variant, AssociatedMemberId::Variant(variant))
-        }
-        AssociatedMemberV1::DataConstructor { owner } => {
-            let owner = owners.declaration(owner)?;
-            if &owner != expected_owner {
-                return Err(invalid("associated data constructor belongs to another declaration"));
-            }
-            (
-                AssociatedFamilyKind::DataConstructor,
-                AssociatedMemberId::DataConstructor(DataConstructorId::new(owner)),
-            )
-        }
-        AssociatedMemberV1::DataComponent { .. } => {
-            return Err(invalid("data components are not declaration associated-surface family members"));
-        }
-        AssociatedMemberV1::StaticDomain { declaration } => {
-            let owner = owners.declaration(&declaration.owner)?;
-            if &owner != expected_owner {
-                return Err(invalid("associated static domain belongs to another declaration"));
-            }
-            let name = allocations.boxed_str(&declaration.name).map_err(ArtifactError::Allocation)?;
-            (
-                AssociatedFamilyKind::StaticDomain,
-                AssociatedMemberId::StaticDomain(AssociatedStaticDomainDeclarationId::new(owner, name)),
-            )
-        }
-        AssociatedMemberV1::TypeMember { owner, selector } => {
-            let owner = owners.declaration(owner)?;
-            if &owner != expected_owner {
-                return Err(invalid("associated type member belongs to another declaration"));
-            }
-            let selector = type_member_selector(selector, allocations)?;
-            (
-                AssociatedFamilyKind::TypeMember,
-                AssociatedMemberId::TypeMember(crate::types::type_member::TypeMemberDeclarationId::new(owner, selector)),
-            )
-        }
-    };
-    Ok(pair)
-}
-
-fn selector_base(selector: &TypeMemberSelectorV1, allocations: &mut AllocationBudget) -> Result<phalcom_common::selector::SelectorBase, ArtifactError> {
-    Ok(match selector {
-        TypeMemberSelectorV1::Named { name } => phalcom_common::selector::SelectorBase::Named(
-            allocations.string(name).map_err(ArtifactError::Allocation)?,
-        ),
-        TypeMemberSelectorV1::Subscript => phalcom_common::selector::SelectorBase::Subscript,
-    })
-}
-
-fn type_member_selector(
-    selector: &TypeMemberSelectorV1,
-    allocations: &mut AllocationBudget,
-) -> Result<crate::types::type_member::TypeMemberSelector, ArtifactError> {
-    Ok(match selector {
-        TypeMemberSelectorV1::Named { name } => crate::types::type_member::TypeMemberSelector::Named(
-            allocations.boxed_str(name).map_err(ArtifactError::Allocation)?,
-        ),
-        TypeMemberSelectorV1::Subscript => crate::types::type_member::TypeMemberSelector::Subscript,
-    })
-}
-
-fn associated_family_kind(kind: AssociatedFamilyKindV1) -> AssociatedFamilyKind {
-    match kind {
-        AssociatedFamilyKindV1::Variant => AssociatedFamilyKind::Variant,
-        AssociatedFamilyKindV1::DataConstructor => AssociatedFamilyKind::DataConstructor,
-        AssociatedFamilyKindV1::StaticDomain => AssociatedFamilyKind::StaticDomain,
-        AssociatedFamilyKindV1::TypeMember => AssociatedFamilyKind::TypeMember,
-        AssociatedFamilyKindV1::IntrinsicTypeMember => AssociatedFamilyKind::IntrinsicTypeMember,
-    }
-}
-
-
 fn reconstruct_type_member_root(
     root: &QueryRootEntryV3,
+    associated: &super::associated_import::ImportedAssociatedAuthority,
     owners: &StableOwnerCatalog<'_>,
     world: &SemanticWorldV3,
-    types: &super::type_import::ReconstructedTypeGraph,
-    allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
-    // Ported from certified PERF003 P7 import_associated_authority:
-    // TypeMemberDeclaration has no live dependency edges and is reconstructed
-    // directly from its checked semantic-world record.
     require_zero_dependency_contract(root)?;
     validate_portable_root_fingerprints(root, world)?;
     let key = QueryKey::from_portable_owner(root.key.kind, &root.key.owner, owners)?;
-    let QueryKey::TypeMemberDeclaration(expected_id) = &key else {
+    let QueryKey::TypeMemberDeclaration(id) = &key else {
         return Err(invalid("type-member query root did not relocate to TypeMemberDeclaration"));
     };
-    let row = world
-        .type_member_declarations
-        .get(root.product.row_index as usize)
-        .ok_or_else(|| invalid("type-member query product row is out of bounds"))?;
-    let product = reconstruct_type_member_product(row, expected_id, owners, types, allocations)?;
+    let product = associated
+        .type_member(id)
+        .cloned()
+        .ok_or_else(|| invalid("type-member query owner has no reconstructed P7 semantic authority"))?;
     let input_fingerprint = type_member_declaration_input_fingerprint(None, &product);
     let product_fingerprint = type_member_declaration_product_fingerprint(&product);
     Ok(ready(
@@ -504,96 +356,30 @@ fn reconstruct_type_member_root(
     ))
 }
 
-fn reconstruct_type_member_product(
-    row: &TypeMemberDeclarationRecordV1,
-    expected_id: &crate::types::type_member::TypeMemberDeclarationId,
+fn reconstruct_type_member_evidence(
+    evidence: &DependencyEvidenceEntryV3,
+    associated: &super::associated_import::ImportedAssociatedAuthority,
     owners: &StableOwnerCatalog<'_>,
-    types: &super::type_import::ReconstructedTypeGraph,
-    allocations: &mut AllocationBudget,
-) -> Result<Arc<TypeMemberDeclarationProduct>, ArtifactError> {
-    use crate::types::type_member::{IntrinsicTypeOperation, TypeMemberDomain, TypeMemberParameter, TypeMemberSignature};
-    use phalcom_common::modifier::ImplementationKind;
-
-    let owner = owners.declaration(&row.owner)?;
-    let selector = type_member_selector(&row.selector, allocations)?;
-    if owner != expected_id.owner || selector != expected_id.selector {
-        return Err(invalid("type-member semantic row identity differs from relocated query owner"));
-    }
-
-    let mut parameters = allocations
-        .vector::<TypeMemberParameter>(row.parameters.len())
-        .map_err(ArtifactError::Allocation)?;
-    for parameter in &row.parameters {
-        parameters.push(TypeMemberParameter {
-            name: allocations.boxed_str(&parameter.name).map_err(ArtifactError::Allocation)?,
-            domain: type_member_domain(&parameter.domain, types)?,
-        });
-    }
-
-    let intrinsic = row.intrinsic.as_ref().map(|operation| match operation {
-        IntrinsicTypeOperationV1::TuplePositionals => IntrinsicTypeOperation::TuplePositionals,
-        IntrinsicTypeOperationV1::TupleLabeled => IntrinsicTypeOperation::TupleLabeled,
-        IntrinsicTypeOperationV1::TupleEntries => IntrinsicTypeOperation::TupleEntries,
-        IntrinsicTypeOperationV1::TupleElement => IntrinsicTypeOperation::TupleElement,
-        IntrinsicTypeOperationV1::TupleAt => IntrinsicTypeOperation::TupleAt,
-        IntrinsicTypeOperationV1::TupleMap => IntrinsicTypeOperation::TupleMap,
-        IntrinsicTypeOperationV1::RecordFields => IntrinsicTypeOperation::RecordFields,
-        IntrinsicTypeOperationV1::RecordValue => IntrinsicTypeOperation::RecordValue,
-        IntrinsicTypeOperationV1::RecordMap => IntrinsicTypeOperation::RecordMap,
-        IntrinsicTypeOperationV1::TypePackMap => IntrinsicTypeOperation::TypePackMap,
-        IntrinsicTypeOperationV1::LabeledTypePackMap => IntrinsicTypeOperation::LabeledTypePackMap,
-        IntrinsicTypeOperationV1::RecordRowMap => IntrinsicTypeOperation::RecordRowMap,
-        IntrinsicTypeOperationV1::CompleteTypePackPositionals => IntrinsicTypeOperation::CompleteTypePackPositionals,
-        IntrinsicTypeOperationV1::CompleteTypePackLabeled => IntrinsicTypeOperation::CompleteTypePackLabeled,
-        IntrinsicTypeOperationV1::CompleteTypePackMap => IntrinsicTypeOperation::CompleteTypePackMap,
-        IntrinsicTypeOperationV1::UnorderedShapeLookup => IntrinsicTypeOperation::UnorderedShapeLookup,
-        IntrinsicTypeOperationV1::UnorderedShapeView => IntrinsicTypeOperation::UnorderedShapeView,
-        IntrinsicTypeOperationV1::UnorderedShapeTail => IntrinsicTypeOperation::UnorderedShapeTail,
-    });
-    let implementation = match &row.implementation {
-        TypeMemberImplementationV1::Phalcom => ImplementationKind::Phalcom,
-        TypeMemberImplementationV1::Native => ImplementationKind::Native,
-        TypeMemberImplementationV1::Foreign => ImplementationKind::Foreign,
-        TypeMemberImplementationV1::Intrinsic => ImplementationKind::Intrinsic,
+    world: &SemanticWorldV3,
+) -> Result<ImportedReadyQueryProduct, ArtifactError> {
+    require_exact_structural_aggregate_owner(evidence)?;
+    validate_portable_evidence_fingerprint(evidence, world)?;
+    let key = QueryKey::from_portable_owner(evidence.key.kind, &evidence.key.owner, owners)?;
+    let QueryKey::TypeMemberDeclaration(id) = &key else {
+        return Err(invalid("type-member dependency evidence did not relocate to TypeMemberDeclaration"));
     };
-
-    allocations
-        .arc(TypeMemberDeclarationProduct {
-            id: expected_id.clone(),
-            signature: TypeMemberSignature {
-                selector,
-                parameters: allocations.boxed_slice(parameters).map_err(ArtifactError::Allocation)?,
-                result_domain: type_member_domain(&row.result_domain, types)?,
-                intrinsic,
-                implementation,
-            },
-            // P7's wire record intentionally carries checked semantics, not
-            // source presentation. Source-backed overlays therefore compute a
-            // different input fingerprint and invalidate this imported baseline.
-            source_range: phalcom_common::range::SourceRange::default(),
-        })
-        .map_err(ArtifactError::Allocation)
-}
-
-fn type_member_domain(
-    domain: &TypeMemberDomainV1,
-    types: &super::type_import::ReconstructedTypeGraph,
-) -> Result<crate::types::type_member::TypeMemberDomain, ArtifactError> {
-    use crate::types::type_member::TypeMemberDomain;
-    Ok(match domain {
-        TypeMemberDomainV1::Kind { kind } => TypeMemberDomain::Kind(
-            *types
-                .kinds
-                .get(kind.0 as usize)
-                .ok_or_else(|| invalid("type-member domain references an absent kind row"))?,
-        ),
-        TypeMemberDomainV1::ValueType { ty } => TypeMemberDomain::ValueType(
-            *types
-                .types
-                .get(ty.0 as usize)
-                .ok_or_else(|| invalid("type-member domain references an absent type row"))?,
-        ),
-    })
+    let product = associated
+        .type_member(id)
+        .cloned()
+        .ok_or_else(|| invalid("type-member dependency owner has no reconstructed P7 semantic authority"))?;
+    let input_fingerprint = type_member_declaration_input_fingerprint(None, &product);
+    let product_fingerprint = type_member_declaration_product_fingerprint(&product);
+    Ok(ready(
+        key,
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::TypeMemberDeclaration(product),
+    ))
 }
 
 fn data_product(
@@ -681,14 +467,8 @@ fn require_zero_dependency_contract(root: &QueryRootEntryV3) -> Result<(), Artif
 }
 
 fn require_exact_structural_aggregate_owner(evidence: &DependencyEvidenceEntryV3) -> Result<(), ArtifactError> {
-    let Owner::Declaration(key_owner) = &evidence.key.owner else {
-        return Err(invalid("structural dependency evidence key is not declaration-owned"));
-    };
-    let Owner::Declaration(aggregate_owner) = &evidence.stable_aggregate_owner else {
-        return Err(invalid("structural dependency evidence aggregate owner is not a declaration"));
-    };
-    if key_owner != aggregate_owner {
-        return Err(invalid("structural dependency evidence points at a different aggregate owner"));
+    if evidence.key.owner != evidence.stable_aggregate_owner {
+        return Err(invalid("structural dependency evidence points at a different exact stable owner"));
     }
     Ok(())
 }
