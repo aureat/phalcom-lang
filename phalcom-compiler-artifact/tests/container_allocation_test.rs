@@ -79,8 +79,9 @@ fn container_parse_ledger_matches_allocator_requests() {
         (SectionKind::Metadata, b"metadata".as_slice()),
     ] {
         let schema = match kind {
+            SectionKind::ModuleWorld => phalcom_compiler_artifact::module_world::MODULE_WORLD_SCHEMA_V2,
             SectionKind::SemanticWorld => phalcom_compiler_artifact::semantic::world::SEMANTIC_WORLD_SCHEMA_V3,
-            SectionKind::QueryImage => phalcom_compiler_artifact::query::QUERY_IMAGE_SCHEMA_V2,
+            SectionKind::QueryImage => phalcom_compiler_artifact::query::QUERY_IMAGE_SCHEMA_V3,
             _ => 1,
         };
         builder.add_section(kind, schema, SectionFlags::REQUIRED, data.to_vec());

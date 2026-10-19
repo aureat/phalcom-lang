@@ -1,6 +1,6 @@
 use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::limits::ValidationLimits;
-use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV2, QueryProductRefV2, QueryRootEntryV2};
+use phalcom_compiler_artifact::query::{LegacyPortableQueryKeyV1, PortableQueryKindV1, QueryImageV2, QueryProductRefV2, QueryRootEntryV2};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -32,7 +32,7 @@ fn encoded_query(count: usize) -> Vec<u8> {
     QueryImageV2 {
         supported_roots: (0..count)
             .map(|index| QueryRootEntryV2 {
-                key: PortableQueryKeyV1 {
+                key: LegacyPortableQueryKeyV1 {
                     kind: PortableQueryKindV1::CallableSignature,
                     stable_owner_key: format!("{index:05}"),
                 },

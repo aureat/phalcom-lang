@@ -5,17 +5,19 @@
 mod query_policy;
 pub use query_policy::{portable_query_kind, query_kind_profile_support};
 
+use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::header::TeloscHeaderV2;
 use phalcom_compiler_artifact::identity::CanonicalCompatibilityIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
-use phalcom_compiler_artifact::module_world::ModuleWorldV1;
+use phalcom_compiler_artifact::module_world::ModuleWorldV2;
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
-use phalcom_compiler_artifact::query::QueryImageV2;
+use phalcom_compiler_artifact::query::QueryImageV3;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_modules::canonical_products::CanonicalExternalModuleWorld;
-use phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget;
+use phalcom_modules::compiler_artifact::{load_module_world_with_allocation_budget, load_module_world_with_project_catalog_and_allocation_budget};
+use phalcom_modules::{ProjectUniverse, TrustedPackageResolver, stage_artifact_project_authorities};
 use phalcom_type_meta::SemanticMetadataBundle;
 use phalcom_type_meta::allocation::AllocationBudget;
 use std::sync::Arc;
@@ -24,9 +26,9 @@ use std::sync::Arc;
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompilerArtifactImage {
     pub header: TeloscHeaderV2,
-    pub module_world: ModuleWorldV1,
+    pub module_world: ModuleWorldV2,
     pub semantic_world: SemanticWorldV3,
-    pub query_image: QueryImageV2,
+    pub query_image: QueryImageV3,
     pub metadata: MetadataSectionV1,
 }
 
@@ -51,9 +53,11 @@ impl CompilerArtifactImage {
 #[derive(Clone, Debug)]
 pub struct ImportedCompilerImage {
     pub external_world: Arc<CanonicalExternalModuleWorld>,
+    /// Project identity graph retained for subsequent semantic import and local overlays.
+    pub project_universe: Arc<ProjectUniverse>,
     pub metadata_bundle: SemanticMetadataBundle,
     pub semantic_world: SemanticWorldV3,
-    pub query_image: QueryImageV2,
+    pub query_image: QueryImageV3,
 }
 
 /// Transactional staging loader for compiler artifacts.
@@ -68,7 +72,9 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_module_world: Option<Arc<CanonicalExternalModuleWorld>>,
     pub staged_metadata_bundle: Option<SemanticMetadataBundle>,
     pub staged_semantic_world: Option<SemanticWorldV3>,
-    pub staged_query_image: Option<QueryImageV2>,
+    pub staged_query_image: Option<QueryImageV3>,
+    project_catalog: Option<Arc<ProjectUniverse>>,
+    trusted_package_resolver: Option<&'a dyn TrustedPackageResolver>,
     committed: bool,
 }
 
@@ -83,12 +89,37 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_metadata_bundle: None,
             staged_semantic_world: None,
             staged_query_image: None,
+            project_catalog: None,
+            trusted_package_resolver: None,
             committed: false,
         }
     }
 
+    /// Creates an import transaction bound to the caller's existing project graph.
+    /// Package authority is obtained from `trusted_package_resolver` and registered
+    /// only in the transaction's private project-catalog candidate.
+    pub fn with_project_catalog(
+        budget: &'a mut AllocationBudget,
+        limits: ValidationLimits,
+        projects: &ProjectUniverse,
+        trusted_package_resolver: &'a dyn TrustedPackageResolver,
+    ) -> Self {
+        let mut transaction = Self::new(budget, limits);
+        transaction.project_catalog = Some(Arc::new(projects.clone()));
+        transaction.trusted_package_resolver = Some(trusted_package_resolver);
+        transaction
+    }
+
     /// Stages an already-parsed and verified `CompilerArtifactPayload`.
     pub fn stage_payload(&mut self, payload: CompilerArtifactPayload) -> Result<&mut Self, ArtifactError> {
+        self.stage_payload_with_digest(payload, None)
+    }
+
+    fn stage_payload_with_digest(
+        &mut self,
+        payload: CompilerArtifactPayload,
+        validated_artifact_digest: Option<ArtifactDigest>,
+    ) -> Result<&mut Self, ArtifactError> {
         payload.validate_cross_section(&self.limits)?;
 
         let child = self
@@ -96,9 +127,48 @@ impl<'a> ArtifactImportTransaction<'a> {
             .as_mut()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("transaction already committed".into())))?;
 
-        // 1. Stage module world under child ledger
-        let external = load_module_world_with_allocation_budget(&payload.module_world, &self.limits, child)?;
+        // 1. Resolve and stage exact project authority, then reconstruct the module world.
+        let external = if let Some(projects) = self.project_catalog.as_ref() {
+            let package_refs_present = payload
+                .module_world
+                .external_projects
+                .iter()
+                .chain(payload.module_world.modules.iter().map(|module| &module.identity.project))
+                .any(|project| matches!(project, phalcom_type_meta::identity::StableProjectRef::Package { .. }));
+            if package_refs_present && validated_artifact_digest.is_none() {
+                return Err(ArtifactError::Validation(ValidationError::ReferentialIntegrity(
+                    "package project authority requires a validated artifact-byte digest".into(),
+                )));
+            }
+            let resolver = self.trusted_package_resolver.ok_or_else(|| {
+                ArtifactError::Validation(ValidationError::ReferentialIntegrity(
+                    "package project authority requires the caller's trusted resolver".into(),
+                ))
+            })?;
+            let project_universe = stage_artifact_project_authorities(
+                projects,
+                &payload.module_world,
+                &payload.header.package_identity,
+                validated_artifact_digest.unwrap_or(ArtifactDigest::ZERO),
+                resolver,
+            )?;
+            load_module_world_with_project_catalog_and_allocation_budget(&payload.module_world, &self.limits, child, project_universe)?
+        } else {
+            let package_refs_present = payload
+                .module_world
+                .external_projects
+                .iter()
+                .chain(payload.module_world.modules.iter().map(|module| &module.identity.project))
+                .any(|project| matches!(project, phalcom_type_meta::identity::StableProjectRef::Package { .. }));
+            if package_refs_present {
+                return Err(ArtifactError::Validation(ValidationError::ReferentialIntegrity(
+                    "package project authority requires a caller-supplied project catalog and trusted resolver".into(),
+                )));
+            }
+            load_module_world_with_allocation_budget(&payload.module_world, &self.limits, child)?
+        };
         self.staged_module_world = Some(child.arc(external).map_err(ArtifactError::Allocation)?);
+        self.project_catalog = Some(self.staged_module_world.as_ref().expect("staged above").linked().universe.clone());
 
         // 2. Stage metadata bundle under child ledger
         let preflight = metadata_preflight_limits(&self.limits);
@@ -127,12 +197,15 @@ impl<'a> ArtifactImportTransaction<'a> {
 
     /// Stages a raw `.telosc` binary buffer.
     pub fn stage_bytes(&mut self, bytes: &[u8], expected_identity: Option<&CanonicalCompatibilityIdentity>) -> Result<&mut Self, ArtifactError> {
-        let child = self
-            .child_ledger
-            .as_mut()
-            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("transaction already committed".into())))?;
-        let payload = CompilerArtifactPayload::decode_and_validate(bytes, &self.limits, expected_identity, child)?;
-        self.stage_payload(payload)
+        let payload = {
+            let child = self
+                .child_ledger
+                .as_mut()
+                .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("transaction already committed".into())))?;
+            CompilerArtifactPayload::decode_and_validate(bytes, &self.limits, expected_identity, child)?
+        };
+        let artifact_digest = payload.header.artifact_digest;
+        self.stage_payload_with_digest(payload, Some(artifact_digest))
     }
 
     /// Commits staged transport data into an `ImportedCompilerImage` value.
@@ -155,6 +228,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_query_image
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged query image".into())))?;
+        let project_universe = self
+            .project_catalog
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged project catalog".into())))?;
         let child = self
             .child_ledger
             .take()
@@ -165,6 +242,7 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.committed = true;
         Ok(ImportedCompilerImage {
             external_world,
+            project_universe,
             metadata_bundle,
             semantic_world,
             query_image,
@@ -180,6 +258,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_metadata_bundle = None;
             self.staged_semantic_world = None;
             self.staged_query_image = None;
+            self.project_catalog = None;
         }
     }
 }
@@ -220,4 +299,20 @@ pub fn import_compiler_image(
     let mut tx = ArtifactImportTransaction::new(budget, *limits);
     tx.stage_payload(artifact)?;
     tx.commit()
+}
+
+/// Decodes and stages artifact bytes against an existing workspace project graph.
+/// Package references require validated bytes and receipts from the supplied
+/// trusted package resolver. The returned image retains the resulting graph.
+pub fn import_compiler_image_bytes_with_project_catalog(
+    bytes: &[u8],
+    expected_identity: Option<&CanonicalCompatibilityIdentity>,
+    limits: &ValidationLimits,
+    budget: &mut AllocationBudget,
+    projects: &ProjectUniverse,
+    trusted_package_resolver: &dyn TrustedPackageResolver,
+) -> Result<ImportedCompilerImage, ArtifactError> {
+    let mut transaction = ArtifactImportTransaction::with_project_catalog(budget, *limits, projects, trusted_package_resolver);
+    transaction.stage_bytes(bytes, expected_identity)?;
+    transaction.commit()
 }

@@ -13,8 +13,74 @@ use phalcom_common::range::SourceRange;
 use phalcom_compiler_artifact::module_world::*;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
+use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
+use phalcom_compiler_artifact::digest::ArtifactDigest;
+use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+
+/// Builds a private project-catalog candidate for importing an artifact.
+///
+/// Every package reference in the module world must be backed by a receipt from
+/// the caller's trusted resolver and an existing persistent project. The package
+/// identified by the artifact header is additionally bound to the digest of the
+/// validated artifact bytes. The input graph is never mutated.
+pub fn stage_artifact_project_authorities(
+    projects: &ProjectUniverse,
+    module_world: &ModuleWorldV2,
+    package_identity: &TeloscPackageIdentity,
+    artifact_digest: ArtifactDigest,
+    resolver: &dyn crate::TrustedPackageResolver,
+) -> Result<Arc<ProjectUniverse>, ArtifactError> {
+    let mut stable_projects = module_world.external_projects.iter().cloned().collect::<BTreeSet<_>>();
+    stable_projects.extend(module_world.modules.iter().map(|module| module.identity.project.clone()));
+
+    let artifact_package = match package_identity {
+        TeloscPackageIdentity::Package { package, version } => {
+            let mut matching = stable_projects.iter().filter(|project| {
+                matches!(project, StableProjectRef::Package { package: name, version: candidate, .. } if name == package && candidate == version)
+            });
+            let stable_project = matching
+                .next()
+                .cloned()
+                .ok_or_else(|| invalid("package artifact header has no exact stable package owner in the module world"))?;
+            if matching.next().is_some() {
+                return Err(invalid("package artifact header matches multiple stable package owners"));
+            }
+            Some(stable_project)
+        }
+        TeloscPackageIdentity::Builtin { namespace, version } => {
+            let exact = StableProjectRef::Builtin {
+                namespace: namespace.clone(),
+                version: version.clone(),
+            };
+            if !stable_projects.contains(&exact) {
+                return Err(invalid("builtin artifact header has no exact stable builtin owner in the module world"));
+            }
+            None
+        }
+    };
+
+    let mut staged = projects.clone();
+    for stable_project in &stable_projects {
+        match stable_project {
+            StableProjectRef::Package { .. } => {
+                let expected_digest = (artifact_package.as_ref() == Some(stable_project)).then_some(artifact_digest);
+                staged
+                    .register_trusted_package_authority(stable_project, expected_digest, resolver)
+                    .map_err(|error| invalid(format!("package project authority rejected: {error}")))?;
+            }
+            StableProjectRef::Session { .. } => return Err(invalid("session project owner is forbidden")),
+            StableProjectRef::Builtin { .. } | StableProjectRef::SourceArtifact { .. } => {
+                if staged.resolve_stable_project(stable_project).is_none() {
+                    return Err(invalid(format!("stable project has no exact persistent workspace binding: {stable_project:?}")));
+                }
+            }
+        }
+    }
+
+    Ok(Arc::new(staged))
+}
 
 fn invalid(message: impl Into<String>) -> ArtifactError {
     ValidationError::ReferentialIntegrity(message.into()).into()
@@ -380,10 +446,10 @@ fn ordered_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Result<(), Art
 }
 
 /// Projects completed authority. Stable Universe paths define artifact-local indices.
-pub fn project_module_world(world: &CanonicalExternalModuleWorld, limits: &ValidationLimits) -> Result<ModuleWorldV1, ArtifactError> {
+pub fn project_module_world(world: &CanonicalExternalModuleWorld, limits: &ValidationLimits) -> Result<ModuleWorldV2, ArtifactError> {
     let linked = world.linked();
     if !linked.universe.projects().is_empty() || linked.modules.keys().any(|id| !id.project.is_universe()) {
-        return Err(invalid("v1 Universe projection cannot persist user project graph identities"));
+        return Err(invalid("v2 Universe projection cannot persist user project graph identities"));
     }
     if linked.modules.len() > limits.max_modules {
         return Err(invalid("too many canonical modules"));
@@ -408,7 +474,23 @@ pub fn project_module_world(world: &CanonicalExternalModuleWorld, limits: &Valid
                 return Err(invalid("unlinked and linked metadata differ"));
             }
             let node = world.topology().nodes.get(id).ok_or_else(|| invalid("missing canonical topology node"))?;
-            Ok(ModuleV1 {
+            let identity = StableModuleRef {
+                project: match &id.project {
+                    crate::ProjectIdentity::Universe => StableProjectRef::Builtin {
+                        namespace: "universe".into(),
+                        version: "0.1.0".into(),
+                    },
+                    crate::ProjectIdentity::Resolved(_) => {
+                        return Err(invalid("v2 Universe projection cannot persist user project graph identities"));
+                    }
+                    crate::ProjectIdentity::Synthetic(_) => {
+                        return Err(invalid("synthetic project cannot be projected into stable artifact"));
+                    }
+                },
+                path: id.path.components().iter().map(|part| part.as_str().into()).collect::<Vec<Box<str>>>().into_boxed_slice(),
+            };
+            Ok(ModuleV2 {
+                identity,
                 path: id.path.components().iter().map(|part| part.as_str().to_owned()).collect(),
                 kind: kind_out(interface.kind),
                 declarations: interface
@@ -570,17 +652,18 @@ pub fn project_module_world(world: &CanonicalExternalModuleWorld, limits: &Valid
             })
         })
         .collect::<Result<_, ArtifactError>>()?;
-    Ok(ModuleWorldV1 {
+    Ok(ModuleWorldV2 {
         entry: portable_id(&ids, &linked.entry)?,
         initialization_order: linked.initialization_order.iter().map(|id| portable_id(&ids, id)).collect::<Result<_, _>>()?,
         modules,
         semantic_rows,
+        external_projects: vec![],
         topology_fingerprint: world.topology().fingerprint.raw(),
     })
 }
 
 /// Loads completed canonical products directly, with no source parsing or linking.
-pub fn load_module_world(wire: &ModuleWorldV1, limits: &ValidationLimits) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
+pub fn load_module_world(wire: &ModuleWorldV2, limits: &ValidationLimits) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
     let budget_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
     let mut allocations = AllocationBudget::new(budget_limit);
     load_module_world_with_allocation_budget(wire, limits, &mut allocations)
@@ -588,13 +671,23 @@ pub fn load_module_world(wire: &ModuleWorldV1, limits: &ValidationLimits) -> Res
 
 /// Loads module authority using the caller's cumulative load transaction.
 pub fn load_module_world_with_allocation_budget(
-    wire: &ModuleWorldV1,
+    wire: &ModuleWorldV2,
     limits: &ValidationLimits,
     transaction: &mut AllocationBudget,
 ) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
+    load_module_world_with_project_catalog_and_allocation_budget(wire, limits, transaction, Arc::new(ProjectUniverse::new()))
+}
+
+/// Loads module authority while retaining the validated caller-owned project catalog.
+pub fn load_module_world_with_project_catalog_and_allocation_budget(
+    wire: &ModuleWorldV2,
+    limits: &ValidationLimits,
+    transaction: &mut AllocationBudget,
+    projects: Arc<ProjectUniverse>,
+) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
     let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
     let mut allocations = transaction.child(section_limit);
-    let world = load_module_world_inner(wire, limits, &mut allocations)?;
+    let world = load_module_world_inner(wire, limits, &mut allocations, projects)?;
     transaction.commit_child(allocations).map_err(allocation_error)?;
     Ok(world)
 }
@@ -604,17 +697,47 @@ fn allocation_error(error: AllocationError) -> ArtifactError {
 }
 
 fn load_module_world_inner(
-    wire: &ModuleWorldV1,
+    wire: &ModuleWorldV2,
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
+    universe: Arc<ProjectUniverse>,
 ) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
+    // Validate external projects
+    for project in &wire.external_projects {
+        if matches!(project, StableProjectRef::Session { .. }) {
+            return Err(invalid("session project identity in external_projects is not permitted"));
+        }
+    }
+    for adjacent in wire.external_projects.windows(2) {
+        if adjacent[0] == adjacent[1] {
+            return Err(invalid(format!("duplicate external project identity: {:?}", adjacent[0])));
+        }
+        if adjacent[0] > adjacent[1] {
+            return Err(invalid("external projects are not in canonical sorted order"));
+        }
+    }
+
     if wire.modules.is_empty() || wire.modules.len() > limits.max_modules {
         return Err(invalid("invalid canonical module count"));
     }
     let mut ids = allocations.vector::<ModuleId>(wire.modules.len()).map_err(allocation_error)?;
     for module in &wire.modules {
+        if matches!(module.identity.project, StableProjectRef::Session { .. }) {
+            return Err(invalid("session project identity in module identity is not permitted"));
+        }
+        let project = universe
+            .resolve_stable_project(&module.identity.project)
+            .ok_or_else(|| invalid(format!("module project has no exact workspace binding: {:?}", module.identity.project)))?;
         if module.path.len() > limits.max_recursion_depth {
             return Err(invalid("module path exceeds depth limit"));
+        }
+        if module.path.len() != module.identity.path.len()
+            || !module.path.iter().zip(module.identity.path.iter()).all(|(a, b)| a.as_str() == b.as_ref())
+        {
+            return Err(invalid(format!(
+                "module path does not match stable module identity: {:?} vs {:?}",
+                module.path, module.identity.path
+            )));
         }
         let mut components = allocations.vector::<ModuleComponent>(module.path.len()).map_err(allocation_error)?;
         for part in &module.path {
@@ -625,15 +748,15 @@ fn load_module_world_inner(
         }
         let boxed_components = allocations.boxed_slice(components).map_err(allocation_error)?;
         let path = ModulePath::from_components(boxed_components);
-        let id = ModuleId::universe(path);
+        let id = ModuleId { project, path };
         if ids.last().is_some_and(|previous| previous >= &id) {
             return Err(invalid("module paths must be unique and sorted"));
         }
         ids.push(id);
     }
     let entry = module_id(&ids, wire.entry, allocations)?;
-    if entry != ModuleId::universe_root() {
-        return Err(invalid("Universe artifact entry must be its root module"));
+    if !entry.path.is_root() {
+        return Err(invalid("canonical artifact entry must be its project root module"));
     }
     let mut interfaces_entries = allocations
         .vector::<(ModuleId, Arc<UnlinkedModuleInterface>)>(wire.modules.len())
@@ -657,7 +780,7 @@ fn load_module_world_inner(
         let id = &ids[index];
         let kind = kind_in(&payload.kind);
         if id.path.is_root() && kind != ModuleKind::Package {
-            return Err(invalid("Universe root must be a package"));
+            return Err(invalid("project root must be a package"));
         }
         ordered_names(payload.declarations.iter().map(|value| value.name.as_str()))?;
         ordered_names(payload.exports.iter().map(|value| value.exported_name.as_str()))?;
@@ -1057,7 +1180,6 @@ fn load_module_world_inner(
 
     // Ordering evidence above proves the eager subgraph; validate all modules too.
     validate_runtime_dag(&graphs.runtime, &ids, allocations)?;
-    let universe = allocations.arc(ProjectUniverse::new()).map_err(allocation_error)?;
     let topology = ModuleTopology {
         generation: ResolverGeneration(0),
         fingerprint: TopologyFingerprint(wire.topology_fingerprint),
@@ -1133,7 +1255,7 @@ fn has_expected_topology_parent(id: &ModuleId, parent: Option<&ModuleId>) -> boo
     match components.split_last() {
         None => parent.is_none(),
         Some((_, expected_components)) => {
-            parent.is_some_and(|parent| parent.project == crate::ProjectIdentity::Universe && parent.path.components() == expected_components)
+            parent.is_some_and(|parent| parent.project == id.project && parent.path.components() == expected_components)
         }
     }
 }
@@ -1160,7 +1282,7 @@ impl CanonicalExternalModuleWorld {
         project_module_world(self, limits)?.encode()
     }
     pub fn decode_artifact(bytes: &[u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {
-        load_module_world(&ModuleWorldV1::decode(bytes, limits)?, limits)
+        load_module_world(&ModuleWorldV2::decode(bytes, limits)?, limits)
     }
 }
 
@@ -1171,10 +1293,11 @@ mod allocation_materialization_tests {
     use crate::identity::{ModuleComponent, ModuleId, ModulePath};
     use phalcom_common::range::SourceRange;
     use phalcom_compiler_artifact::module_world::{
-        AliasV1, ArtifactModuleId, BindingV1, ImportPathV1, ImportRootV1, ImportV1, ModuleKindV1, ModuleV1, ModuleWorldV1, SegmentV1, SpanV1,
+        AliasV1, ArtifactModuleId, BindingV1, ImportPathV1, ImportRootV1, ImportV1, ModuleKindV1, ModuleV2, ModuleWorldV2, SegmentV1, SpanV1,
     };
     use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
     use phalcom_type_meta::allocation::AllocationBudget;
+    use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
     use std::alloc::Layout;
 
     fn module(name: &str) -> ModuleId {
@@ -1191,8 +1314,16 @@ mod allocation_materialization_tests {
         });
     }
 
-    fn module_wire(path: Vec<String>) -> ModuleV1 {
-        ModuleV1 {
+    fn module_wire(path: Vec<String>) -> ModuleV2 {
+        let boxed_path = path.iter().map(|s| s.as_str().into()).collect::<Vec<Box<str>>>().into_boxed_slice();
+        ModuleV2 {
+            identity: StableModuleRef {
+                project: StableProjectRef::Builtin {
+                    namespace: "universe".into(),
+                    version: "0.1.0".into(),
+                },
+                path: boxed_path,
+            },
             path,
             kind: ModuleKindV1::Package,
             declarations: vec![],
@@ -1215,17 +1346,18 @@ mod allocation_materialization_tests {
         }
     }
 
-    fn world(modules: Vec<ModuleV1>) -> ModuleWorldV1 {
-        ModuleWorldV1 {
+    fn world(modules: Vec<ModuleV2>) -> ModuleWorldV2 {
+        ModuleWorldV2 {
             entry: ArtifactModuleId(0),
             initialization_order: vec![],
             modules,
             semantic_rows: vec![],
+            external_projects: vec![],
             topology_fingerprint: 0,
         }
     }
 
-    fn assert_referential_rejection(world: &ModuleWorldV1, expected: &str) {
+    fn assert_referential_rejection(world: &ModuleWorldV2, expected: &str) {
         assert!(matches!(
             load_module_world(world, &ValidationLimits::default()),
             Err(ArtifactError::Validation(ValidationError::ReferentialIntegrity(message))) if message == expected

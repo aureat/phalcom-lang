@@ -5,6 +5,9 @@ use crate::identity::{
     ImportRootTarget, ModuleComponent, ModulePath, ProjectSourceIdentity, ResolvedProjectId, SyntheticProjectId, SyntheticProjectIdAllocator,
 };
 use crate::manifest::{DependencyProvider, DependencySpec, NullDependencyProvider, ProjectManifest};
+use phalcom_compiler_artifact::digest::ArtifactDigest;
+use phalcom_type_meta::fingerprint::Fingerprint128;
+use phalcom_type_meta::identity::StableProjectRef;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -32,6 +35,70 @@ pub struct ResolvedProject {
     pub persistent_project: bool,
     /// The validated project manifest, if loaded from a project.toml.
     pub manifest: Option<crate::manifest::ValidatedProjectManifest>,
+}
+
+/// A package resolver's validated authority statement for a persistent project.
+///
+/// The caller must obtain receipts from its configured trusted package resolver.
+/// The receipt binds the full stable package identity to the validated artifact
+/// digest and an existing project ID. The artifact importer still checks these
+/// fields against the artifact and current project universe before registration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedPackageAuthorityReceipt {
+    stable_project: StableProjectRef,
+    artifact_digest: ArtifactDigest,
+    project_id: ResolvedProjectId,
+}
+
+impl ValidatedPackageAuthorityReceipt {
+    /// Creates a receipt at the trusted resolver boundary.
+    ///
+    /// Callers must not construct receipts from artifact contents alone. The
+    /// resolver is responsible for authenticating the package and verifying
+    /// the artifact digest before issuing this value.
+    pub fn from_trusted_resolver(stable_project: StableProjectRef, artifact_digest: ArtifactDigest, project_id: ResolvedProjectId) -> Option<Self> {
+        matches!(&stable_project, StableProjectRef::Package { .. }).then_some(Self {
+            stable_project,
+            artifact_digest,
+            project_id,
+        })
+    }
+
+    pub fn stable_project(&self) -> &StableProjectRef {
+        &self.stable_project
+    }
+
+    pub fn artifact_digest(&self) -> ArtifactDigest {
+        self.artifact_digest
+    }
+
+    pub fn project_id(&self) -> ResolvedProjectId {
+        self.project_id
+    }
+}
+
+/// Trusted capability for obtaining package authority receipts during import.
+///
+/// The capability implementation is supplied by the caller's configured
+/// package resolver. A missing receipt is a hard failure for package owners.
+pub trait TrustedPackageResolver {
+    fn package_authority_receipt(&self, stable_project: &StableProjectRef) -> Option<ValidatedPackageAuthorityReceipt>;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum PackageAuthorityRegistrationError {
+    #[error("trusted package resolver did not provide an authority receipt")]
+    MissingReceipt,
+    #[error("package authority receipt names a different stable project")]
+    ReceiptProjectMismatch,
+    #[error("package authority receipt digest does not match the validated artifact")]
+    ArtifactDigestMismatch,
+    #[error("package authority receipt targets an unknown project")]
+    UnknownProject,
+    #[error("package authority receipt targets a non-persistent project")]
+    NonPersistentProject,
+    #[error("package authority receipt conflicts with an existing binding")]
+    ConflictingBinding,
 }
 
 impl ResolvedProject {
@@ -86,6 +153,7 @@ fn collect_source_files(root: &Path, files: &mut Vec<PathBuf>) {
 pub struct ProjectUniverse {
     projects: Vec<ResolvedProject>,
     roots: BTreeMap<ProjectSourceIdentity, ResolvedProjectId>,
+    package_authorities: BTreeMap<StableProjectRef, ValidatedPackageAuthorityReceipt>,
     synthetic_ids: SyntheticProjectIdAllocator,
 }
 
@@ -100,6 +168,7 @@ impl ProjectUniverse {
         Self {
             projects: Vec::new(),
             roots: BTreeMap::new(),
+            package_authorities: BTreeMap::new(),
             synthetic_ids: SyntheticProjectIdAllocator,
         }
     }
@@ -112,6 +181,96 @@ impl ProjectUniverse {
     /// Gets a resolved project by its non-zero graph-node ID.
     pub fn get_project(&self, id: ResolvedProjectId) -> Option<&ResolvedProject> {
         self.projects.get((id.raw() - 1) as usize)
+    }
+
+    /// Resolves a stable persistent project reference by exact identity.
+    ///
+    /// Source references compare both logical URI and current source fingerprint.
+    /// Package references require a previously registered resolver receipt.
+    /// Session identities never resolve through the persistent project graph.
+    pub fn resolve_stable_project(&self, stable_project: &StableProjectRef) -> Option<crate::identity::ProjectIdentity> {
+        match stable_project {
+            StableProjectRef::Builtin { namespace, version } if namespace.as_ref() == "universe" && version.as_ref() == "0.1.0" => {
+                Some(crate::identity::ProjectIdentity::Universe)
+            }
+            StableProjectRef::SourceArtifact {
+                logical_uri,
+                source_fingerprint,
+            } => {
+                let mut matches = self.projects.iter().filter(|project| {
+                    project.persistent_project
+                        && project.source_identity.0.to_string_lossy() == **logical_uri
+                        && Fingerprint128(project.revision_fingerprint().0) == *source_fingerprint
+                });
+                let project_id = matches.next()?.id;
+                matches.next().is_none().then_some(crate::identity::ProjectIdentity::Resolved(project_id))
+            }
+            StableProjectRef::Package { .. } => {
+                let receipt = self.package_authorities.get(stable_project)?;
+                self.get_project(receipt.project_id())
+                    .filter(|project| project.persistent_project)
+                    .map(|_| crate::identity::ProjectIdentity::Resolved(receipt.project_id()))
+            }
+            StableProjectRef::Builtin { .. } | StableProjectRef::Session { .. } => None,
+        }
+    }
+
+    /// Checks a package receipt without changing this project universe.
+    pub fn validate_package_authority_receipt(
+        &self,
+        stable_project: &StableProjectRef,
+        receipt: &ValidatedPackageAuthorityReceipt,
+        expected_artifact_digest: Option<ArtifactDigest>,
+    ) -> Result<ResolvedProjectId, PackageAuthorityRegistrationError> {
+        if !matches!(stable_project, StableProjectRef::Package { .. }) || receipt.stable_project() != stable_project {
+            return Err(PackageAuthorityRegistrationError::ReceiptProjectMismatch);
+        }
+        if expected_artifact_digest.is_some_and(|expected| receipt.artifact_digest() != expected) {
+            return Err(PackageAuthorityRegistrationError::ArtifactDigestMismatch);
+        }
+        let project = self
+            .get_project(receipt.project_id())
+            .ok_or(PackageAuthorityRegistrationError::UnknownProject)?;
+        if !project.persistent_project {
+            return Err(PackageAuthorityRegistrationError::NonPersistentProject);
+        }
+        if self
+            .package_authorities
+            .get(stable_project)
+            .is_some_and(|registered| registered != receipt)
+        {
+            return Err(PackageAuthorityRegistrationError::ConflictingBinding);
+        }
+        Ok(receipt.project_id())
+    }
+
+    /// Registers a receipt after the importer has validated its package artifact.
+    pub fn register_package_authority_receipt(
+        &mut self,
+        stable_project: &StableProjectRef,
+        receipt: ValidatedPackageAuthorityReceipt,
+        expected_artifact_digest: Option<ArtifactDigest>,
+    ) -> Result<ResolvedProjectId, PackageAuthorityRegistrationError> {
+        let project_id = self.validate_package_authority_receipt(stable_project, &receipt, expected_artifact_digest)?;
+        self.package_authorities.entry(stable_project.clone()).or_insert(receipt);
+        Ok(project_id)
+    }
+
+    /// Obtains and registers package authority through the caller's trusted resolver.
+    ///
+    /// `expected_artifact_digest` must be supplied for the package artifact currently
+    /// being imported. External package owners may use `None`: their receipt is still
+    /// checked against the exact stable identity and an existing persistent project.
+    pub fn register_trusted_package_authority(
+        &mut self,
+        stable_project: &StableProjectRef,
+        expected_artifact_digest: Option<ArtifactDigest>,
+        resolver: &dyn TrustedPackageResolver,
+    ) -> Result<ResolvedProjectId, PackageAuthorityRegistrationError> {
+        let receipt = resolver
+            .package_authority_receipt(stable_project)
+            .ok_or(PackageAuthorityRegistrationError::MissingReceipt)?;
+        self.register_package_authority_receipt(stable_project, receipt, expected_artifact_digest)
     }
 
     /// Allocates a fresh synthetic execution identity for inline/standalone code.

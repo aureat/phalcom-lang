@@ -11,6 +11,11 @@ pub const TELOSC_MAGIC: &[u8; 8] = b"TELOSC\x01\x00";
 pub const TELOSC_CONTAINER_SCHEMA_V2: u32 = 2;
 pub const TELOSC_MIN_READER_SCHEMA_V2: u32 = 2;
 
+pub const MODULE_SEMANTIC_ABI_V2: u32 = 2;
+pub const QUERY_FINGERPRINT_ABI_V2: u32 = 2;
+pub const SEMANTIC_ARTIFACT_ABI_V2: u32 = 2;
+pub const STABLE_IDENTITY_SCHEMA_V1: u32 = 1;
+
 bitflags::bitflags! {
     /// Capabilities declared by the `.telosc` artifact.
     #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]

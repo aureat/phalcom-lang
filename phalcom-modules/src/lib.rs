@@ -29,7 +29,10 @@ pub mod topology;
 pub use artifact::{PackageArtifactProvider, ResolvedPackageArtifact, ResolvedPackageId as PublishedPackageId};
 pub use builtin::{UNIVERSE_NODES, UniverseNodeSpec, UniverseSourceProvider};
 pub use canonical_products::{CanonicalExternalModuleWorld, CanonicalModuleProducts};
-pub use compiler_artifact::{load_module_world, load_module_world_with_allocation_budget, project_module_world};
+pub use compiler_artifact::{
+    load_module_world, load_module_world_with_allocation_budget, load_module_world_with_project_catalog_and_allocation_budget, project_module_world,
+    stage_artifact_project_authorities,
+};
 pub use declaration::{DeclarationBlueprint, DeclarationId, DeclarationKind, DeclarationRealizationError, DeclarationShell, DeclarationShellTable, ShellState};
 pub use diagnostic::{ModuleDiagnostic, ModuleDiagnosticCode, ModuleDiagnosticKind};
 pub use dunder::{DunderCategory, DunderPolicy, DunderPolicyError, DunderRole};
@@ -63,7 +66,10 @@ pub use metadata::{MetadataTarget, ModuleMetadata, ModuleMetadataAttribute};
 pub use package_info::{
     PackageArtifactIdentity, PackageAuthorDescriptor, PackageInfoDescriptor, PackageOrigin, PackageRequirementDescriptor, ResolvedProjectDependencyDescriptor,
 };
-pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project, discover_standalone_package_root};
+pub use project::{
+    PackageAuthorityRegistrationError, ProjectUniverse, ResolvedProject, TrustedPackageResolver, ValidatedPackageAuthorityReceipt, discover_owning_project,
+    discover_standalone_package_root,
+};
 pub use query::{ModuleQueryFacade, query_fallback_scan_count, reset_query_fallback_scan_count};
 pub use resolver::{
     AbsentCandidateFact, ImportPathIdentity, ImportResolutionProduct, ImportResolutionTrace, ModuleResolver, ResolutionFingerprint,

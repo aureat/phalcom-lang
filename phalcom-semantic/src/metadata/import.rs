@@ -10,9 +10,9 @@ use crate::types::row::{RecordRowField, RecordRowTail};
 use crate::types::store::{StaticArgument, TupleTypeElement, TypeStore};
 use phalcom_common::selector::Selector;
 use phalcom_modules::ProjectUniverse;
-use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ProjectIdentity};
+use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath};
 use phalcom_type_meta::bundle::SemanticMetadataBundle;
-use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
+use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef};
 use phalcom_type_meta::static_value::{StaticValueNode, StaticValueNodeId};
 use phalcom_type_meta::type_node::{StaticArgumentRef, TypeNode, TypeNodeId};
 use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
@@ -20,16 +20,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub fn resolve_stable_module(module: &StableModuleRef, projects: &ProjectUniverse) -> Option<ModuleId> {
-    let project = match &module.project {
-        StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe" => ProjectIdentity::Universe,
-        StableProjectRef::SourceArtifact { logical_uri, .. } => projects
-            .projects()
-            .iter()
-            .find(|p| *p.source_identity.0.to_string_lossy() == **logical_uri)
-            .map(|p| ProjectIdentity::Resolved(p.id))?,
-        StableProjectRef::Session { .. } => ProjectIdentity::Synthetic(phalcom_modules::identity::SyntheticProjectIdAllocator.allocate()),
-        _ => return None,
-    };
+    let project = projects.resolve_stable_project(&module.project)?;
     let components = module
         .path
         .iter()
@@ -262,5 +253,86 @@ impl<'a> SemanticMetadataImporter<'a> {
         }
 
         Ok(self.value_map.values().copied().collect())
+    }
+}
+
+#[cfg(test)]
+mod stable_module_identity_tests {
+    use super::resolve_stable_module;
+    use phalcom_modules::ProjectUniverse;
+    use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ProjectIdentity};
+    use phalcom_type_meta::fingerprint::Fingerprint128;
+    use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn loaded_project() -> (TempDir, ProjectUniverse, StableModuleRef) {
+        let temp = TempDir::new().expect("create temporary project");
+        let root = temp.path().join("project");
+        fs::create_dir_all(root.join("src")).expect("create source root");
+        fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"sample\"\nnamespace = \"sample\"\nversion = \"1.0.0\"\n",
+        )
+        .expect("write manifest");
+        fs::write(root.join("src/package.ph"), "").expect("write package root");
+
+        let mut projects = ProjectUniverse::new();
+        let project_id = projects.load_root(root.join("project.toml")).expect("load project");
+        let project = projects.get_project(project_id).expect("loaded project exists");
+        let stable_module = StableModuleRef {
+            project: StableProjectRef::SourceArtifact {
+                logical_uri: project.source_identity.0.to_string_lossy().into_owned().into_boxed_str(),
+                source_fingerprint: Fingerprint128(project.revision_fingerprint().0),
+            },
+            path: Box::new(["sample".into()]),
+        };
+        (temp, projects, stable_module)
+    }
+
+    #[test]
+    fn source_artifact_resolution_checks_uri_and_source_fingerprint() {
+        let (_temp, projects, stable_module) = loaded_project();
+        let components = vec![ModuleComponent::from_identifier("sample").expect("module component")];
+        let expected = ModuleId {
+            project: ProjectIdentity::Resolved(projects.projects()[0].id),
+            path: ModulePath::from_components(components),
+        };
+        assert_eq!(resolve_stable_module(&stable_module, &projects), Some(expected));
+
+        let mut stale = stable_module;
+        if let StableProjectRef::SourceArtifact { source_fingerprint, .. } = &mut stale.project {
+            source_fingerprint.0[0] ^= 1;
+        }
+        assert_eq!(resolve_stable_module(&stale, &projects), None, "matching URI cannot authorize a stale fingerprint");
+    }
+
+    #[test]
+    fn only_exact_builtin_identity_resolves_and_session_identity_fails_closed() {
+        let builtin = StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: Box::new([]),
+        };
+        assert_eq!(resolve_stable_module(&builtin, &ProjectUniverse::new()), Some(ModuleId::universe_root()));
+
+        let wrong_version = StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.1".into(),
+            },
+            path: Box::new([]),
+        };
+        assert_eq!(resolve_stable_module(&wrong_version, &ProjectUniverse::new()), None);
+
+        let session = StableModuleRef {
+            project: StableProjectRef::Session {
+                session_fingerprint: Fingerprint128::ZERO,
+            },
+            path: Box::new([]),
+        };
+        assert_eq!(resolve_stable_module(&session, &ProjectUniverse::new()), None);
     }
 }

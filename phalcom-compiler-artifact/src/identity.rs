@@ -71,27 +71,40 @@ impl TeloscPackageIdentity {
             }),
         }
     }
+
+    /// Returns true if this container package identity matches the given stable project reference.
+    pub fn matches_project(&self, project: &StableProjectRef) -> bool {
+        match (self, project) {
+            (Self::Builtin { namespace, version }, StableProjectRef::Builtin { namespace: ns, version: v }) => {
+                namespace == ns && version == v
+            }
+            (Self::Package { package, version }, StableProjectRef::Package { package: p, version: v, .. }) => {
+                package == p && version == v
+            }
+            _ => false,
+        }
+    }
 }
 
-impl From<&StableProjectRef> for TeloscPackageIdentity {
-    fn from(pref: &StableProjectRef) -> Self {
+impl TryFrom<&StableProjectRef> for TeloscPackageIdentity {
+    type Error = ValidationError;
+
+    fn try_from(pref: &StableProjectRef) -> Result<Self, Self::Error> {
         match pref {
-            StableProjectRef::Builtin { namespace, version } => Self::Builtin {
+            StableProjectRef::Builtin { namespace, version } => Ok(Self::Builtin {
                 namespace: namespace.clone(),
                 version: version.clone(),
-            },
-            StableProjectRef::Package { package, version, .. } => Self::Package {
+            }),
+            StableProjectRef::Package { package, version, .. } => Ok(Self::Package {
                 package: package.clone(),
                 version: version.clone(),
-            },
-            StableProjectRef::SourceArtifact { logical_uri, .. } => Self::Package {
-                package: logical_uri.clone(),
-                version: "0.1.0".into(),
-            },
-            StableProjectRef::Session { .. } => Self::Builtin {
-                namespace: "session".into(),
-                version: "0.1.0".into(),
-            },
+            }),
+            StableProjectRef::SourceArtifact { .. } => Err(ValidationError::ReferentialIntegrity(
+                "source artifact project reference is not a canonical package identity".into(),
+            )),
+            StableProjectRef::Session { .. } => Err(ValidationError::ReferentialIntegrity(
+                "session project reference is not a persistent package identity".into(),
+            )),
         }
     }
 }

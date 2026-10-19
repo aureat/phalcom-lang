@@ -81,6 +81,8 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 - `cargo test -p phalcom-core --test cli-smoke`: PASS (3/3 tests in 131.31s).
 - `cargo run -p phalcom-core --bin phalcom -- packages/slotmap/tests/runtime`: PASS (`ok: slotmap-basic`, `ok: dense-slotmap-basic`, `slotmap runtime tests complete`).
 - `cargo test -p phalcom-core --test core modules_parse_package::parse_project_compiles_from_declared_entry`: PASS (one selected test; 136.15s).
+- R2 follow-up: `cargo test -p phalcom-compiler-artifact --test module_world_allocation_test`: PASS (1 test; legacy module-world validation scratch is included in the allocation ledger, and N-1 failure leaves the parent budget unchanged). This is focused validation evidence, not whole-load publication accounting.
+- R2 follow-up: `cargo test -p phalcom-semantic --lib metadata::import::stable_module_identity_tests`: PASS (2 tests; exact builtin version, SourceArtifact URI plus source fingerprint, stale fingerprint rejection, and Session rejection).
 
 ### P2 audit findings still open
 
@@ -102,6 +104,27 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 - **Decision (2026-10-19):** Use each module row's full `StableModuleRef` as its identity. Add an explicit sorted, unique allowlist of persistent external `StableProjectRef` identities. Internal owners must resolve to an exact module row; external owners are accepted only when their exact project identity is allowlisted. Reject session identities, wildcards, unlisted projects, absent internal modules, and ambiguous matches. Query owners and dependency evidence use project-qualified identities and must agree with referenced products.
 - **Versioning:** Bump the module-world section schema for stable module identities and the external-project allowlist. Bump the query-image schema for project-qualified query owners. Keep the outer container schema unchanged. Bump `module_semantic_abi` and `query_fingerprint_abi`; leave `stable_identity_schema` unchanged while reusing the existing stable reference encodings. Bump `semantic_artifact_abi` if the semantic-owner validation contract receives a separate version.
 - **Plan impact:** This is a Level 2 material amendment to P2. Update the active P2 handoff and P3 consumers. Focused gates must cover same-path modules in different projects, all semantic owner families, query and dependency owners, exact allowlist acceptance/rejection, and rejection of old module/query schemas. Keep P3 proposed until P2 closes.
+
+### P2.R2 consultation and Level 2 amendment
+
+- **Trigger:** `ModuleWorldV2` and semantic/query rows carry persistent project-qualified identities, but the live module-world loader still constructs Universe-only `ModuleId`s. Artifact staging receives no workspace project graph. The existing metadata resolver is unsuitable because it matches source projects by URI without checking the fingerprint and maps session identities to newly allocated synthetic projects.
+- **Decision:** The binding from exact `StableProjectRef` values to existing `ProjectIdentity` values belongs to the workspace-owned `WorkspaceModuleSession` / `ProjectUniverse`. Artifact import must receive the populated graph, validate exact identity fields and authority before publication, and retain that same graph for local overlays. It must not invent project IDs or create a parallel artifact-owned identity registry.
+- **Plan impact:** The principal-architect amendment in `ARTF001-C1-P2-R2-plan.md` updates T2/T4 ownership and tests. The user selected exact `StableProjectRef::Package` bindings, including package name, version, and artifact fingerprint, in the existing workspace-owned catalog. This requires an implementation-backed catalog entry and exact matching; P2 cannot pass external-owner acceptance until that binding and its rejection cases are verified.
+- **Verification required:** Exact existing-catalog relocation, source URI fingerprint mismatch rejection, unbound-but-allowlisted rejection, same-path modules under distinct projects, and confirmation that the imported session and overlay retain the same project IDs.
+
+### Package artifact authority source
+
+- **Trigger:** Exact `StableProjectRef::Package` registration requires a trusted source for `artifact_fingerprint`. The current container header carries package name and version only. The artifact digest covers the package reference encoded inside the artifact, so deriving the reference fingerprint from that digest would be self-referential. Project manifests also provide no artifact fingerprint.
+- **Decision (2026-10-19):** The user selected a receipt from the caller's trusted package resolver. It binds the complete package/version/fingerprint reference, full validated `ArtifactDigest`, and an existing persistent `ResolvedProjectId`. Import validates the current artifact digest and header package/version, checks every receipt and target, then registers the exact binding in the supplied `ProjectUniverse`. Trust provisioning stays with the configured resolver; P2 adds no signature scheme or trust root. Missing authority fails closed.
+- **Plan impact:** The principal architect updated the Level 2 amendment and T2 acceptance conditions in `ARTF001-C1-P2-R2-plan.md`. Do not derive a fingerprint from the container digest or trust an in-artifact receipt. Package-owner acceptance requires receipt, digest, exact-tuple, target, and conflict coverage.
+
+### P2.R2 topology-fingerprint Level 2 amendment
+
+- **Trigger:** Importing a package artifact against the required persistent resolver target failed with `module topology fingerprint mismatch`. The artifact module-world fingerprint was created with an empty graph; live topology validation hashes every project in the receiving `ProjectUniverse`, including graph-local IDs and import roots.
+- **Decision (2026-10-19):** Give `ModuleWorldV2.topology_fingerprint` a portable, artifact-scoped meaning over the stable module identities, module kinds, parent/child structure, exposed children, and represented module links. Validate it against the wire rows. Then build the live workspace-scoped `ModuleTopology` using the caller's project graph and calculate its independent fingerprint. Receipt targets and unrelated receiving projects do not alter portable artifact validity; different receiving graphs may yield different live fingerprints.
+- **Plan impact:** Principal-architect consultation required a Level 2 amendment to `ARTF001-C1-P2-R2-plan.md`. Module-world ABI V2 owns this meaning before release; if V2 has been published, bump `module_semantic_abi` before accepting it. P2 must add empty-graph/receipt-target equivalence, live-fingerprint difference, and represented-topology mutation rejection tests.
+- **Verification required:** Exact same artifact loads under both valid graphs; returned module-world fingerprint reflects the receiving graph; changed represented identities, edges, or exposures fail wire-topology verification.
+- **Status:** Adopted; implementation and focused tests remain open.
 
 ## Current API surface (not yet a P3 takeover)
 
@@ -130,4 +153,4 @@ pub struct ArtifactImportTransaction<'a> { ... }
 
 ## Active plan
 
-`ARTF001.C1.P2` closure remediation — reconstruct artifact products into current semantic stores and the workspace session, complete query persistence and owner validation, and prove whole-load allocation behavior. P3 remains proposed until this is accepted.
+`ARTF001.C1.P2.R2` closure remediation — reconstruct artifact products into current semantic stores and the workspace session, complete query persistence and owner validation, and prove whole-load allocation behavior. The T2/T4 project mapping is owned by the supplied workspace graph. Exact Package bindings require receipts from the caller's trusted resolver. P3 remains proposed until P2 is accepted.

@@ -1,13 +1,18 @@
 use phalcom_compiler_artifact::container::{TeloscContainerBuilder, TeloscContainerView};
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::error::{ArtifactError, CodecError, ContainerError, ValidationError};
-use phalcom_compiler_artifact::header::{TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities, TeloscHeaderV2};
+use phalcom_compiler_artifact::header::{
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V2, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2,
+    TeloscCapabilities, TeloscHeaderV2,
+};
 use phalcom_compiler_artifact::identity::{CanonicalCompatibilityIdentity, TeloscPackageIdentity};
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
-use phalcom_compiler_artifact::module_world::{ArtifactModuleId, MODULE_WORLD_SCHEMA_V1, ModuleKindV1, ModuleV1, ModuleWorldV1};
+use phalcom_compiler_artifact::module_world::{ArtifactModuleId, MODULE_WORLD_SCHEMA_V2, ModuleKindV1, ModuleV2, ModuleWorldV2};
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
-use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV2, QueryProductRefV2, QueryRootEntryV2};
+use phalcom_compiler_artifact::query::{
+    PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
+};
 use phalcom_compiler_artifact::section::{SectionFlags, SectionKind};
 use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
 use phalcom_compiler_artifact::semantic::static_value::{StaticValueGraphV1, StaticValueV1};
@@ -15,6 +20,7 @@ use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1, Ty
 use phalcom_compiler_artifact::semantic::world::{SEMANTIC_WORLD_SCHEMA_V3, SemanticWorldV3};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::fingerprint::Fingerprint128;
+use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
 use phalcom_type_meta::{
     ArtifactIdentityScheme, KindNode, KindNodeEntry, KindNodeId, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity,
     SEMANTIC_MODEL_VERSION, SemanticMetadataBundle, SemanticMetadataHeader, TYPE_METADATA_SCHEMA_VERSION, TypeNode, TypeNodeEntry,
@@ -80,9 +86,9 @@ fn sample_payload() -> CompilerArtifactPayload {
         package_identity: pkg_id.clone(),
         semantic_model_version: 1,
         stable_identity_schema: 1,
-        module_semantic_abi: 1,
-        semantic_artifact_abi: 1,
-        query_fingerprint_abi: 1,
+        module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
+        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V2,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [1; 16],
         type_metadata_schema_version: 13,
@@ -96,7 +102,16 @@ fn sample_payload() -> CompilerArtifactPayload {
         section_count: 4,
     };
 
-    let root_module = ModuleV1 {
+    let universe_project = StableProjectRef::Builtin {
+        namespace: "universe".into(),
+        version: "0.1.0".into(),
+    };
+
+    let root_module = ModuleV2 {
+        identity: StableModuleRef {
+            project: universe_project,
+            path: Box::new([]),
+        },
         path: vec![],
         kind: ModuleKindV1::Package,
         declarations: vec![],
@@ -118,11 +133,12 @@ fn sample_payload() -> CompilerArtifactPayload {
         dependency_fingerprint: 0,
     };
 
-    let module_world = ModuleWorldV1 {
+    let module_world = ModuleWorldV2 {
         entry: ArtifactModuleId(0),
         initialization_order: vec![ArtifactModuleId(0)],
         modules: vec![root_module],
         semantic_rows: vec![],
+        external_projects: vec![],
         topology_fingerprint: 0,
     };
 
@@ -185,7 +201,7 @@ fn sample_payload() -> CompilerArtifactPayload {
         associated_surfaces: vec![],
     };
 
-    let query_image = QueryImageV2 {
+    let query_image = QueryImageV3 {
         supported_roots: vec![],
         dependency_evidence: vec![],
     };
@@ -228,8 +244,8 @@ fn duplicate_required_section_rejected() {
     let payload = sample_payload();
     let mut builder = TeloscContainerBuilder::new(payload.header.clone());
     let mw = payload.module_world.encode().unwrap();
-    builder.add_section(SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V1, SectionFlags::REQUIRED, mw.clone());
-    builder.add_section(SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V1, SectionFlags::REQUIRED, mw);
+    builder.add_section(SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V2, SectionFlags::REQUIRED, mw.clone());
+    builder.add_section(SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V2, SectionFlags::REQUIRED, mw);
     let bytes = builder.build().unwrap();
 
     let limits = ValidationLimits::default();
@@ -286,7 +302,7 @@ fn unsupported_schema_version_rejected() {
     let mut builder = TeloscContainerBuilder::new(header);
     builder.add_section(
         SectionKind::ModuleWorld,
-        MODULE_WORLD_SCHEMA_V1,
+        MODULE_WORLD_SCHEMA_V2,
         SectionFlags::REQUIRED,
         payload.module_world.encode().unwrap(),
     );
@@ -315,9 +331,9 @@ fn wrong_project_provenance_rejected() {
         semantic_digest: ArtifactDigest::ZERO,
         semantic_model_version: 1,
         stable_identity_schema: 1,
-        module_semantic_abi: 1,
-        semantic_artifact_abi: 1,
-        query_fingerprint_abi: 1,
+        module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
+        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V2,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [1; 16],
         type_metadata_schema_version: 13,
@@ -335,12 +351,19 @@ fn wrong_project_provenance_rejected() {
 
 #[test]
 fn duplicate_query_root_key_rejected() {
-    let query_image = QueryImageV2 {
+    let owner = PortableQueryOwnerKeyV1::Module(StableModuleRef {
+        project: StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        },
+        path: Box::new(["core".into()]),
+    });
+    let query_image = QueryImageV3 {
         supported_roots: vec![
-            QueryRootEntryV2 {
+            QueryRootEntryV3 {
                 key: PortableQueryKeyV1 {
                     kind: PortableQueryKindV1::LinkedInterface,
-                    stable_owner_key: "core".into(),
+                    owner: owner.clone(),
                 },
                 product: QueryProductRefV2 {
                     kind: PortableQueryKindV1::LinkedInterface,
@@ -350,10 +373,10 @@ fn duplicate_query_root_key_rejected() {
                 product_fingerprint: 0,
                 dependency_indices: vec![],
             },
-            QueryRootEntryV2 {
+            QueryRootEntryV3 {
                 key: PortableQueryKeyV1 {
                     kind: PortableQueryKindV1::LinkedInterface,
-                    stable_owner_key: "core".into(),
+                    owner,
                 },
                 product: QueryProductRefV2 {
                     kind: PortableQueryKindV1::LinkedInterface,
@@ -374,11 +397,17 @@ fn duplicate_query_root_key_rejected() {
 
 #[test]
 fn out_of_bounds_query_dependency_rejected() {
-    let query_image = QueryImageV2 {
-        supported_roots: vec![QueryRootEntryV2 {
+    let query_image = QueryImageV3 {
+        supported_roots: vec![QueryRootEntryV3 {
             key: PortableQueryKeyV1 {
                 kind: PortableQueryKindV1::LinkedInterface,
-                stable_owner_key: "core".into(),
+                owner: PortableQueryOwnerKeyV1::Module(StableModuleRef {
+                    project: StableProjectRef::Builtin {
+                        namespace: "universe".into(),
+                        version: "0.1.0".into(),
+                    },
+                    path: Box::new(["core".into()]),
+                }),
             },
             product: QueryProductRefV2 {
                 kind: PortableQueryKindV1::LinkedInterface,
@@ -399,11 +428,10 @@ fn out_of_bounds_query_dependency_rejected() {
 #[test]
 fn query_product_reference_must_target_an_existing_module_row() {
     let mut payload = sample_payload();
-    let module_path = payload.module_world.modules[0].path.join(".");
-    payload.query_image.supported_roots = vec![QueryRootEntryV2 {
+    payload.query_image.supported_roots = vec![QueryRootEntryV3 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::LinkedInterface,
-            stable_owner_key: module_path,
+            owner: PortableQueryOwnerKeyV1::Module(payload.module_world.modules[0].identity.clone()),
         },
         product: QueryProductRefV2 {
             kind: PortableQueryKindV1::LinkedInterface,
@@ -421,10 +449,13 @@ fn query_product_reference_must_target_an_existing_module_row() {
 #[test]
 fn static_query_product_reference_must_target_its_semantic_world_table() {
     let mut payload = sample_payload();
-    payload.query_image.supported_roots = vec![QueryRootEntryV2 {
+    payload.query_image.supported_roots = vec![QueryRootEntryV3 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::StaticDefinition,
-            stable_owner_key: "package:core::Static".into(),
+            owner: PortableQueryOwnerKeyV1::Declaration(StableDeclarationRef {
+                module: payload.module_world.modules[0].identity.clone(),
+                path: Box::new(["Static".into()]),
+            }),
         },
         product: QueryProductRefV2 {
             kind: PortableQueryKindV1::StaticDefinition,

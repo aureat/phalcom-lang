@@ -1,17 +1,25 @@
 use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::digest::ArtifactDigest;
-use phalcom_compiler_artifact::header::{TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities, TeloscHeaderV2};
+use phalcom_compiler_artifact::header::{
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V2, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2,
+    TeloscCapabilities, TeloscHeaderV2,
+};
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
-use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV2, QueryProductRefV2, QueryRootEntryV2};
+use phalcom_compiler_artifact::query::{
+    PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
+};
 use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
 use phalcom_compiler_artifact::semantic::static_value::{StaticValueGraphV1, StaticValueV1};
 use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1, TypeEntryV1, TypeGraphV1, TypeV1};
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
-use phalcom_semantic::artifact::{CompilerArtifactImage, decode_and_validate_artifact, encode_artifact, import_compiler_image};
+use phalcom_semantic::artifact::{
+    CompilerArtifactImage, decode_and_validate_artifact, encode_artifact, import_compiler_image, import_compiler_image_bytes_with_project_catalog,
+};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::fingerprint::Fingerprint128;
+use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
 use phalcom_type_meta::{
     ArtifactIdentityScheme, KindNode, KindNodeEntry, KindNodeId, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity,
     SEMANTIC_MODEL_VERSION, SemanticMetadataBundle, SemanticMetadataHeader, TYPE_METADATA_SCHEMA_VERSION, TypeNode, TypeNodeEntry,
@@ -67,9 +75,9 @@ fn sample_image() -> CompilerArtifactImage {
         package_identity: pkg_id.clone(),
         semantic_model_version: 1,
         stable_identity_schema: 1,
-        module_semantic_abi: 1,
-        semantic_artifact_abi: 1,
-        query_fingerprint_abi: 1,
+        module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
+        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V2,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [7; 16],
         type_metadata_schema_version: 13,
@@ -189,11 +197,17 @@ fn sample_image() -> CompilerArtifactImage {
         associated_surfaces: vec![],
     };
 
-    let query_image = QueryImageV2 {
-        supported_roots: vec![QueryRootEntryV2 {
+    let query_image = QueryImageV3 {
+        supported_roots: vec![QueryRootEntryV3 {
             key: PortableQueryKeyV1 {
                 kind: PortableQueryKindV1::LinkedInterface,
-                stable_owner_key: "".into(),
+                owner: PortableQueryOwnerKeyV1::Module(StableModuleRef {
+                    project: StableProjectRef::Builtin {
+                        namespace: "universe".into(),
+                        version: "0.1.0".into(),
+                    },
+                    path: Box::new([]),
+                }),
             },
             product: QueryProductRefV2 {
                 kind: PortableQueryKindV1::LinkedInterface,
@@ -246,6 +260,30 @@ fn transactional_semantic_export_and_import_round_trip() {
     assert_eq!(imported.metadata_bundle.header.producer.0.as_ref(), "phalcom-compiler");
     assert_eq!(imported.semantic_world.type_graph.types.len(), 1);
     assert_eq!(imported.query_image.supported_roots.len(), 1);
+
+    struct NoPackageResolver;
+    impl phalcom_modules::TrustedPackageResolver for NoPackageResolver {
+        fn package_authority_receipt(
+            &self,
+            _stable_project: &StableProjectRef,
+        ) -> Option<phalcom_modules::ValidatedPackageAuthorityReceipt> {
+            None
+        }
+    }
+    let mut catalog_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported_with_catalog = import_compiler_image_bytes_with_project_catalog(
+        &bytes,
+        None,
+        &limits,
+        &mut catalog_budget,
+        &phalcom_modules::ProjectUniverse::new(),
+        &NoPackageResolver,
+    )
+    .expect("import through the caller's project catalog");
+    assert!(
+        Arc::ptr_eq(&imported_with_catalog.project_universe, &imported_with_catalog.external_world.linked().universe),
+        "the imported image and module world must retain the same project graph"
+    );
 }
 
 #[test]
@@ -290,6 +328,69 @@ fn exact_allocation_accounting_n_succeeds_n_minus_1_fails_and_retry_succeeds() {
     let retried = import_compiler_image(retry_artifact, &limits, &mut retry_budget);
     assert!(retried.is_ok(), "retry with N must succeed");
     assert_eq!(retry_budget.remaining(), 0);
+}
+
+#[test]
+fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph() {
+    let mut image = sample_image();
+    let stable_package = StableProjectRef::Package {
+        package: "shared-package".into(),
+        version: "2.4.1".into(),
+        artifact_fingerprint: Fingerprint128([0x51; 16]),
+    };
+    image.header.package_identity = TeloscPackageIdentity::Package {
+        package: "shared-package".into(),
+        version: "2.4.1".into(),
+    };
+    image.module_world.external_projects = vec![stable_package.clone()];
+    image.metadata.package_digest = image.header.package_identity.digest().0;
+    let bytes = encode_artifact(&image).expect("encode package artifact");
+
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let validated_payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate package bytes");
+    let artifact_digest = validated_payload.header.artifact_digest;
+
+    let temp = tempfile::TempDir::new().expect("create package project root");
+    let project_root = temp.path().join("resolver-target");
+    std::fs::create_dir_all(project_root.join("src")).expect("create source root");
+    std::fs::write(
+        project_root.join("project.toml"),
+        "[project]\nname = \"resolver-target\"\nnamespace = \"resolver_target\"\nversion = \"1.0.0\"\n",
+    )
+    .expect("write project manifest");
+    std::fs::write(project_root.join("src/package.ph"), "").expect("write package source");
+    let mut projects = phalcom_modules::ProjectUniverse::new();
+    let project_id = projects.load_root(project_root.join("project.toml")).expect("load persistent resolver target");
+    let receipt = phalcom_modules::ValidatedPackageAuthorityReceipt::from_trusted_resolver(stable_package.clone(), artifact_digest, project_id)
+        .expect("make trusted resolver receipt");
+    struct Resolver(phalcom_modules::ValidatedPackageAuthorityReceipt);
+    impl phalcom_modules::TrustedPackageResolver for Resolver {
+        fn package_authority_receipt(
+            &self,
+            stable_project: &StableProjectRef,
+        ) -> Option<phalcom_modules::ValidatedPackageAuthorityReceipt> {
+            (self.0.stable_project() == stable_project).then(|| self.0.clone())
+        }
+    }
+    let resolver = Resolver(receipt);
+
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image_bytes_with_project_catalog(
+        &bytes,
+        None,
+        &limits,
+        &mut import_budget,
+        &projects,
+        &resolver,
+    )
+    .expect("import package artifact with trusted resolver receipt");
+    assert_eq!(
+        imported.project_universe.resolve_stable_project(&stable_package),
+        Some(phalcom_modules::ProjectIdentity::Resolved(project_id))
+    );
+    assert_eq!(imported.project_universe.projects().len(), projects.projects().len(), "receipt registration must not allocate IDs");
+    assert!(Arc::ptr_eq(&imported.project_universe, &imported.external_world.linked().universe));
 }
 
 #[test]

@@ -1,17 +1,23 @@
 use phalcom_compiler_artifact::digest::ArtifactDigest;
-use phalcom_compiler_artifact::header::{TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities, TeloscHeaderV2};
+use phalcom_compiler_artifact::header::{
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V2, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2,
+    TeloscCapabilities, TeloscHeaderV2,
+};
 use phalcom_compiler_artifact::identity::{CanonicalCompatibilityIdentity, TeloscPackageIdentity};
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
-use phalcom_compiler_artifact::module_world::{ArtifactModuleId, ModuleKindV1, ModuleV1, ModuleWorldV1};
+use phalcom_compiler_artifact::module_world::{ArtifactModuleId, ModuleKindV1, ModuleV2, ModuleWorldV2};
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
-use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV2, QueryProductRefV2, QueryRootEntryV2};
+use phalcom_compiler_artifact::query::{
+    PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
+};
 use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
 use phalcom_compiler_artifact::semantic::static_value::{StaticValueGraphV1, StaticValueV1};
 use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1, TypeEntryV1, TypeGraphV1, TypeV1};
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_type_meta::fingerprint::Fingerprint128;
+use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
 use phalcom_type_meta::{
     ArtifactIdentityScheme, KindNode, KindNodeEntry, KindNodeId, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity,
     SEMANTIC_MODEL_VERSION, SemanticMetadataBundle, SemanticMetadataHeader, TYPE_METADATA_SCHEMA_VERSION, TypeNode, TypeNodeEntry,
@@ -69,8 +75,16 @@ fn sample_metadata_section(pkg_identity: &TeloscPackageIdentity) -> MetadataSect
     MetadataSectionV1::from_bundle(&bundle, pkg_identity.digest().0, &limits, &phalcom_type_meta::ValidationLimits::default()).expect("create metadata section")
 }
 
-fn sample_module_world() -> ModuleWorldV1 {
-    let root_module = ModuleV1 {
+fn sample_module_world() -> ModuleWorldV2 {
+    let universe_project = StableProjectRef::Builtin {
+        namespace: "universe".into(),
+        version: "0.1.0".into(),
+    };
+    let root_module = ModuleV2 {
+        identity: StableModuleRef {
+            project: universe_project.clone(),
+            path: Box::new([]),
+        },
         path: vec![],
         kind: ModuleKindV1::Package,
         declarations: vec![],
@@ -92,7 +106,11 @@ fn sample_module_world() -> ModuleWorldV1 {
         dependency_fingerprint: 0,
     };
 
-    let child_module = ModuleV1 {
+    let child_module = ModuleV2 {
+        identity: StableModuleRef {
+            project: universe_project,
+            path: Box::new(["core".into()]),
+        },
         path: vec!["core".into()],
         kind: ModuleKindV1::Module,
         declarations: vec![],
@@ -114,11 +132,12 @@ fn sample_module_world() -> ModuleWorldV1 {
         dependency_fingerprint: 0,
     };
 
-    ModuleWorldV1 {
+    ModuleWorldV2 {
         entry: ArtifactModuleId(0),
         initialization_order: vec![ArtifactModuleId(0), ArtifactModuleId(1)],
         modules: vec![root_module, child_module],
         semantic_rows: vec![],
+        external_projects: vec![],
         topology_fingerprint: 0,
     }
 }
@@ -188,12 +207,18 @@ fn sample_semantic_world() -> SemanticWorldV3 {
     }
 }
 
-fn sample_query_image() -> QueryImageV2 {
-    QueryImageV2 {
-        supported_roots: vec![QueryRootEntryV2 {
+fn sample_query_image() -> QueryImageV3 {
+    QueryImageV3 {
+        supported_roots: vec![QueryRootEntryV3 {
             key: PortableQueryKeyV1 {
                 kind: PortableQueryKindV1::LinkedInterface,
-                stable_owner_key: "".into(),
+                owner: PortableQueryOwnerKeyV1::Module(StableModuleRef {
+                    project: StableProjectRef::Builtin {
+                        namespace: "universe".into(),
+                        version: "0.1.0".into(),
+                    },
+                    path: Box::new([]),
+                }),
             },
             product: QueryProductRefV2 {
                 kind: PortableQueryKindV1::LinkedInterface,
@@ -215,9 +240,9 @@ fn sample_payload() -> CompilerArtifactPayload {
         package_identity: pkg_id.clone(),
         semantic_model_version: 1,
         stable_identity_schema: 1,
-        module_semantic_abi: 1,
-        semantic_artifact_abi: 1,
-        query_fingerprint_abi: 1,
+        module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
+        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V2,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [5; 16],
         type_metadata_schema_version: 13,

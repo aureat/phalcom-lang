@@ -14,7 +14,7 @@ fn builtin_universe_module_identity_round_trips_deterministically() {
         namespace: "universe".into(),
         version: "0.1.0".into(),
     };
-    let pkg_id = TeloscPackageIdentity::from(&builtin_project);
+    let pkg_id = TeloscPackageIdentity::try_from(&builtin_project).expect("convert builtin project");
     assert_eq!(pkg_id, TeloscPackageIdentity::universe());
     assert!(pkg_id.is_universe());
     assert!(pkg_id.is_exact_universe());
@@ -41,7 +41,7 @@ fn ordinary_project_module_identity_survives_process_separation() {
         version: "1.0.0".into(),
         artifact_fingerprint: project_fp,
     };
-    let pkg_id = TeloscPackageIdentity::from(&package_project);
+    let pkg_id = TeloscPackageIdentity::try_from(&package_project).expect("convert package project");
     assert_eq!(
         pkg_id,
         TeloscPackageIdentity::Package {
@@ -203,4 +203,18 @@ fn compatibility_identity_structural_equivalence() {
     let deserialized: CanonicalCompatibilityIdentity = serde_json::from_str(&serialized).expect("deserialize compat identity");
     assert_eq!(compat1, deserialized);
     assert!(compat1.check_compatible(&deserialized).is_ok());
+}
+
+#[test]
+fn session_and_source_artifact_projects_fail_conversion_to_package_identity() {
+    let session = StableProjectRef::Session {
+        session_fingerprint: Fingerprint128::from_u128(42),
+    };
+    assert!(TeloscPackageIdentity::try_from(&session).is_err());
+
+    let source_artifact = StableProjectRef::SourceArtifact {
+        logical_uri: "pkg:test".into(),
+        source_fingerprint: Fingerprint128::from_u128(43),
+    };
+    assert!(TeloscPackageIdentity::try_from(&source_artifact).is_err());
 }

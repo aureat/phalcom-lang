@@ -8,19 +8,20 @@ use crate::header::TeloscHeaderV2;
 use crate::identity::CanonicalCompatibilityIdentity;
 use crate::limits::ValidationLimits;
 use crate::metadata::{METADATA_SECTION_SCHEMA_V1, MetadataSectionV1};
-use crate::module_world::{MODULE_WORLD_SCHEMA_V1, ModuleWorldV1};
-use crate::query::{QUERY_IMAGE_SCHEMA_V2, QueryImageV2, QueryProfileSupport};
+use crate::module_world::{MODULE_WORLD_SCHEMA_V2, ModuleWorldV2};
+use crate::query::{QUERY_IMAGE_SCHEMA_V3, QueryImageV3};
 use crate::section::{SectionFlags, SectionKind};
 use crate::semantic::world::{SEMANTIC_WORLD_SCHEMA_V3, SemanticWorldV3};
 use phalcom_type_meta::allocation::AllocationBudget;
+use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
 
 /// In-memory representation of a complete compiler image artifact payload.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompilerArtifactPayload {
     pub header: TeloscHeaderV2,
-    pub module_world: ModuleWorldV1,
+    pub module_world: ModuleWorldV2,
     pub semantic_world: SemanticWorldV3,
-    pub query_image: QueryImageV2,
+    pub query_image: QueryImageV3,
     pub metadata: MetadataSectionV1,
 }
 
@@ -39,9 +40,9 @@ impl CompilerArtifactPayload {
         header.metadata_digest = ArtifactDigest::digest_domain(DOMAIN_METADATA, &metadata_bytes);
 
         let mut builder = TeloscContainerBuilder::new(header);
-        builder.add_section(SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V1, SectionFlags::REQUIRED, module_bytes);
+        builder.add_section(SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V2, SectionFlags::REQUIRED, module_bytes);
         builder.add_section(SectionKind::SemanticWorld, SEMANTIC_WORLD_SCHEMA_V3, SectionFlags::REQUIRED, semantic_bytes);
-        builder.add_section(SectionKind::QueryImage, QUERY_IMAGE_SCHEMA_V2, SectionFlags::REQUIRED, query_bytes);
+        builder.add_section(SectionKind::QueryImage, QUERY_IMAGE_SCHEMA_V3, SectionFlags::REQUIRED, query_bytes);
         builder.add_section(SectionKind::Metadata, METADATA_SECTION_SCHEMA_V1, SectionFlags::REQUIRED, metadata_bytes);
 
         builder.build()
@@ -84,9 +85,9 @@ impl CompilerArtifactPayload {
         let metadata_data = view.require_section(SectionKind::Metadata)?;
 
         // Decodes under budget
-        let module_world = ModuleWorldV1::decode_with_allocation_budget(module_data, limits, &mut load_budget)?;
+        let module_world = ModuleWorldV2::decode_with_allocation_budget(module_data, limits, &mut load_budget)?;
         let semantic_world = SemanticWorldV3::decode_with_allocation_budget(semantic_data, limits, &mut load_budget)?;
-        let query_image = QueryImageV2::decode_with_allocation_budget(query_data, limits, &mut load_budget)?;
+        let query_image = QueryImageV3::decode_with_allocation_budget(query_data, limits, &mut load_budget)?;
         let metadata = MetadataSectionV1::decode_with_allocation_budget(metadata_data, limits, &mut load_budget)?;
 
         let payload = Self {
@@ -110,52 +111,70 @@ impl CompilerArtifactPayload {
     /// Cross-section referential integrity and consistency validation.
     pub fn validate_cross_section(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
         self.query_image.validate(limits)?;
-        self.query_image.validate_product_references(&self.module_world, &self.semantic_world)?;
+
         // 1. Verify that the metadata package digest matches package identity
         let expected_pkg_digest = self.header.package_identity.digest().0;
         if self.metadata.package_digest != expected_pkg_digest {
             return Err(ValidationError::IncompatibleWorld("metadata package digest mismatch with container header".into()).into());
         }
 
-        // 2. Verify that all declaration references in semantic_world belong to modules
-        //    defined in module_world.
+        let validate_project = |proj: &StableProjectRef| -> Result<(), ArtifactError> {
+            if matches!(proj, StableProjectRef::Session { .. }) {
+                return Err(ValidationError::ReferentialIntegrity("session project owner is forbidden".into()).into());
+            }
+            if self.module_world.modules.iter().any(|module| &module.identity.project == proj) {
+                return Ok(());
+            }
+            if self.module_world.external_projects.contains(proj) {
+                return Ok(());
+            }
+            Err(ValidationError::ReferentialIntegrity(format!("unlisted external project owner: {proj:?}")).into())
+        };
+
+        let validate_module = |module: &StableModuleRef| -> Result<(), ArtifactError> {
+            validate_project(&module.project)?;
+            if self.module_world.modules.iter().any(|row| row.identity.project == module.project) {
+                if !self.module_world.modules.iter().any(|m| m.identity == *module) {
+                    return Err(ValidationError::ReferentialIntegrity(format!("missing internal module owner: {module:?}")).into());
+                }
+            }
+            Ok(())
+        };
+
+        // 2. Verify all module rows in module_world have valid project ownership
+        for m in &self.module_world.modules {
+            validate_project(&m.identity.project)?;
+        }
+
+        // 3. Verify static definitions and static constants in semantic_world
         for decl in &self.semantic_world.static_definitions {
-            let mod_path = &decl.id.module.path;
-            if !self
-                .module_world
-                .modules
-                .iter()
-                .any(|m| m.path.len() == mod_path.len() && m.path.iter().zip(mod_path.iter()).all(|(a, b)| a.as_str() == b.as_ref()))
-            {
-                return Err(ValidationError::ReferentialIntegrity(format!("static definition owner {:?} is not in module world", decl.id)).into());
+            validate_module(&decl.id.module)?;
+        }
+        for constant in &self.semantic_world.static_constants {
+            validate_module(&constant.symbol.module)?;
+        }
+
+        // 4. Verify all query root owners and dependency evidence owners
+        for root in &self.query_image.supported_roots {
+            validate_project(root.key.owner.project())?;
+            if let Some(m) = root.key.owner.module() {
+                validate_module(m)?;
+            }
+        }
+        for ev in &self.query_image.dependency_evidence {
+            validate_project(ev.key.owner.project())?;
+            validate_project(ev.stable_aggregate_owner.project())?;
+            if let Some(m) = ev.key.owner.module() {
+                validate_module(m)?;
+            }
+            if let Some(m) = ev.stable_aggregate_owner.module() {
+                validate_module(m)?;
             }
         }
 
-        // 3. Verify query root keys reference known module products
-        for root in &self.query_image.supported_roots {
-            if root.product.kind.profile_support() == QueryProfileSupport::RepresentedByModuleWorld {
-                let module = self
-                    .module_world
-                    .modules
-                    .get(root.product.row_index as usize)
-                    .ok_or_else(|| ValidationError::ReferentialIntegrity("query module product row is out of bounds".into()))?;
-                if !module_path_matches(&module.path, &root.key.stable_owner_key) {
-                    return Err(ValidationError::ReferentialIntegrity(format!(
-                        "query root owner {} does not match referenced module {:?}",
-                        root.key.stable_owner_key, module.path
-                    ))
-                    .into());
-                }
-            }
-        }
+        // 5. Verify product references
+        self.query_image.validate_product_references(&self.module_world, &self.semantic_world)?;
 
         Ok(())
     }
-}
-
-fn module_path_matches(path: &[String], stable_owner_key: &str) -> bool {
-    if path.is_empty() {
-        return stable_owner_key.is_empty();
-    }
-    path.iter().map(String::as_str).eq(stable_owner_key.split('.'))
 }
