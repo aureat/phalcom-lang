@@ -8,6 +8,7 @@ mod constructor_import;
 mod dispatch_import;
 mod enum_requirement_import;
 mod identity;
+mod inherent_import;
 mod query_import;
 mod query_policy;
 mod query_product_import;
@@ -21,6 +22,7 @@ pub use constructor_import::ImportedConstructorInitializationAuthority;
 pub use dispatch_import::ImportedDispatchAuthority;
 pub use enum_requirement_import::ImportedEnumRequirementAuthority;
 pub use identity::StableOwnerCatalog;
+pub use inherent_import::ImportedConditionalInherentAuthority;
 pub use query_policy::{
     CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_from_portable, query_kind_profile_support, query_root_is_reusable,
 };
@@ -106,6 +108,9 @@ pub struct ImportedCompilerImage {
     /// Certified-P7 declaration dispatch members and field signatures staged
     /// without constructing unbudgeted live HashMap surfaces.
     pub dispatch_authority: Arc<ImportedDispatchAuthority>,
+    /// Certified-P7 conditional inherent domains and members, staged without
+    /// constructing the live selector HashMap before T4 publication.
+    pub conditional_inherent_authority: Arc<ImportedConditionalInherentAuthority>,
     /// Certified-P7 closed-enum requirements and per-case obligation statuses,
     /// staged for T4 snapshot publication. This authority is not independently
     /// promoted to a reusable SemanticDb root.
@@ -148,6 +153,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_callable_authority: Option<Arc<ImportedCallableAuthority>>,
     pub staged_constructor_initialization_authority: Option<Arc<ImportedConstructorInitializationAuthority>>,
     pub staged_dispatch_authority: Option<Arc<ImportedDispatchAuthority>>,
+    pub staged_conditional_inherent_authority: Option<Arc<ImportedConditionalInherentAuthority>>,
     pub staged_enum_requirement_authority: Option<Arc<ImportedEnumRequirementAuthority>>,
     pub staged_query_products: Option<Arc<ImportedQueryProducts>>,
     pub staged_semantic_world: Option<SemanticWorldV3>,
@@ -174,6 +180,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_callable_authority: None,
             staged_constructor_initialization_authority: None,
             staged_dispatch_authority: None,
+            staged_conditional_inherent_authority: None,
             staged_enum_requirement_authority: None,
             staged_query_products: None,
             staged_semantic_world: None,
@@ -320,6 +327,12 @@ impl<'a> ArtifactImportTransaction<'a> {
             &owners,
             child,
         )?;
+        let conditional_inherent_authority = inherent_import::reconstruct_conditional_inherent_authority(
+            &payload.semantic_world.conditional_inherent_sets,
+            &reconstructed,
+            &owners,
+            child,
+        )?;
         let enum_requirement_authority = enum_requirement_import::reconstruct_enum_requirement_authority(
             &payload.semantic_world.enum_requirements,
             &semantic_aggregates,
@@ -343,6 +356,8 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.staged_constructor_initialization_authority =
             Some(child.arc(constructor_initialization_authority).map_err(ArtifactError::Allocation)?);
         self.staged_dispatch_authority = Some(child.arc(dispatch_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_conditional_inherent_authority =
+            Some(child.arc(conditional_inherent_authority).map_err(ArtifactError::Allocation)?);
         self.staged_enum_requirement_authority =
             Some(child.arc(enum_requirement_authority).map_err(ArtifactError::Allocation)?);
         self.staged_query_products = Some(child.arc(query_products).map_err(ArtifactError::Allocation)?);
@@ -412,6 +427,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_dispatch_authority
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged declaration dispatch authority".into())))?;
+        let conditional_inherent_authority = self
+            .staged_conditional_inherent_authority
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged conditional inherent authority".into())))?;
         let enum_requirement_authority = self
             .staged_enum_requirement_authority
             .take()
@@ -452,6 +471,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             callable_authority,
             constructor_initialization_authority,
             dispatch_authority,
+            conditional_inherent_authority,
             enum_requirement_authority,
             query_products,
             semantic_world,
@@ -474,6 +494,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_callable_authority = None;
             self.staged_constructor_initialization_authority = None;
             self.staged_dispatch_authority = None;
+            self.staged_conditional_inherent_authority = None;
             self.staged_enum_requirement_authority = None;
             self.staged_query_products = None;
             self.staged_semantic_world = None;
