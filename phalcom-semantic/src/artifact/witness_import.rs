@@ -1125,7 +1125,7 @@ pub(crate) fn reconstruct_requirement_view(
     Ok((requirement, imported))
 }
 
-fn requirement_identity(
+pub(crate) fn requirement_identity(
     identity: &CallableRequirementIdentityV1,
     owners: &StableOwnerCatalog<'_>,
 ) -> Result<TraitRequirementId, ArtifactError> {
