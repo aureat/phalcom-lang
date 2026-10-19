@@ -51,7 +51,7 @@ impl ImportedStaticDefinitionAuthority {
         self.definitions.is_empty()
     }
 
-    pub(crate) fn get(&self, id: &DeclarationId) -> Option<&ImportedStaticDefinition> {
+    pub fn get(&self, id: &DeclarationId) -> Option<&ImportedStaticDefinition> {
         self.definitions
             .binary_search_by(|candidate| candidate.id.cmp(id))
             .ok()
