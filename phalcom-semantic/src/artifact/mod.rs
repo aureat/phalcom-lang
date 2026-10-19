@@ -397,6 +397,7 @@ impl<'a> ArtifactImportTransaction<'a> {
         let callable_binding_authority = callable_binding_import::reconstruct_callable_bindings(
             &payload.semantic_world.callable_analyses,
             &reconstructed,
+            &static_definition_authority,
             &owners,
             child,
         )?;
