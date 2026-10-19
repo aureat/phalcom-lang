@@ -355,6 +355,7 @@ fn reconstruct_plan(
         }
         let selection = reconstruct_requirement_selection(
             &entry.selection,
+            &trait_declaration,
             callables,
             types,
             owners,
@@ -418,6 +419,7 @@ fn reconstruct_plan(
 
 fn reconstruct_requirement_selection(
     selection: &CallableRequirementSelectionV1,
+    expected_trait: &crate::identity::DeclarationId,
     callables: &ImportedCallableAuthority,
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
@@ -482,15 +484,9 @@ fn reconstruct_requirement_selection(
                 evidence_count,
                 allocations,
             )?;
-            let expected_trait = candidate
-                .callable
-                .owner
-                .try_declaration()
-                .cloned()
-                .unwrap_or_else(|| candidate.owner.clone());
             let pending = reconstruct_completeness(
                 pending,
-                &expected_trait,
+                expected_trait,
                 types,
                 owners,
                 allocations,
@@ -500,6 +496,7 @@ fn reconstruct_requirement_selection(
                 .map(|selection| {
                     let selection = reconstruct_requirement_selection(
                         selection,
+                        expected_trait,
                         callables,
                         types,
                         owners,
@@ -725,13 +722,13 @@ fn reconstruct_type_environment(
     for binding in &environment.bindings {
         let parameter = mapped_parameter(binding.parameter, types, "type environment parameter")?;
         seen.push(parameter);
-        match binding.argument {
+        match &binding.argument {
             StaticArgumentV1::Term { term } => {
-                type_bindings.push((parameter, mapped_type(term, types, "type environment type")?));
+                type_bindings.push((parameter, mapped_type(*term, types, "type environment type")?));
             }
             StaticArgumentV1::DynamicType => dynamic_bindings.push(parameter),
             StaticArgumentV1::RecordRow { row } => {
-                row_bindings.push((parameter, mapped_row(row, types, "type environment row")?));
+                row_bindings.push((parameter, mapped_row(*row, types, "type environment row")?));
             }
         }
     }
