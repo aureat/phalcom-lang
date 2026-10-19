@@ -923,7 +923,7 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
         selector: "run".into(),
     };
     let signature_record = CallableSignatureRecordV1 {
-        callable,
+        callable: callable.clone(),
         owner,
         side: 0,
         selector: "run".into(),
@@ -958,6 +958,24 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
         body_provenance: CallableDefinitionBodyProvenanceV1::SourceBody,
         inherent_body_context: None,
     });
+    image.query_image.supported_roots.push(QueryRootEntryV3 {
+        key: PortableQueryKeyV1 {
+            kind: PortableQueryKindV1::CallableDefinition,
+            owner: PortableQueryOwnerKeyV1::Callable(callable),
+        },
+        product: QueryProductRefV2 {
+            kind: PortableQueryKindV1::CallableDefinition,
+            row_index: 0,
+        },
+        input_fingerprint: 0,
+        product_fingerprint: 0,
+        dependency_indices: vec![],
+    });
+    image.query_image.supported_roots.sort_by(|left, right| left.key.cmp(&right.key));
+    image
+        .query_image
+        .refresh_portable_structural_fingerprints(&image.semantic_world)
+        .expect("refresh P7 callable-definition portable evidence");
 
     let bytes = encode_artifact(&image).expect("encode P7 callable-signature authority");
     let limits = ValidationLimits::default();
@@ -972,8 +990,17 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
     assert_eq!(imported.callable_authority.definition_len(), 1);
     assert_eq!(
         imported.query_products.len(),
-        0,
-        "callable semantic authority must not bypass current-main dependency closure to become a Ready query"
+        1,
+        "zero-dependency CallableDefinition may become Ready, while CallableSignature remains semantic-only until its dependency closure is imported"
+    );
+    let mut db = phalcom_semantic::db::SemanticDb::new();
+    imported
+        .publish_query_products_into_empty_db(&mut db)
+        .expect("publish imported callable definition");
+    assert!(
+        db.query_keys()
+            .any(|key| matches!(key, phalcom_semantic::db::QueryKey::CallableDefinition(_))),
+        "the reusable root must publish the exact current-main CallableDefinition family"
     );
 }
 
