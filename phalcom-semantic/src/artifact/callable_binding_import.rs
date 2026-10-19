@@ -93,6 +93,7 @@ impl ImportedCallableBindingAuthority {
 pub(crate) fn reconstruct_callable_bindings(
     records: &[CallableAnalysisRecordV1],
     types: &ReconstructedTypeGraph,
+    static_definitions: &super::static_definition_import::ImportedStaticDefinitionAuthority,
     owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedCallableBindingAuthority, ArtifactError> {
@@ -109,7 +110,13 @@ pub(crate) fn reconstruct_callable_bindings(
             if usize::try_from(row.ordinal).ok() != Some(index) {
                 return Err(invalid("callable binding rows are not dense and ordinal-sorted"));
             }
-            rows.push(reconstruct_binding_row(row, types, owners, allocations)?);
+            rows.push(reconstruct_binding_row(
+                row,
+                types,
+                static_definitions,
+                owners,
+                allocations,
+            )?);
         }
         imported.push(ImportedCallableBindings {
             callable,
@@ -130,6 +137,7 @@ pub(crate) fn reconstruct_callable_bindings(
 fn reconstruct_binding_row(
     row: &CallableBindingRowV1,
     types: &ReconstructedTypeGraph,
+    static_definitions: &super::static_definition_import::ImportedStaticDefinitionAuthority,
     owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedCallableBindingRow, ArtifactError> {
@@ -173,7 +181,15 @@ fn reconstruct_binding_row(
     let denotation = row
         .denotation
         .as_ref()
-        .map(|denotation| super::denotation_import::reconstruct_semantic_denotation(denotation, types, owners, allocations))
+        .map(|denotation| {
+            super::denotation_import::reconstruct_semantic_denotation(
+                denotation,
+                types,
+                static_definitions,
+                owners,
+                allocations,
+            )
+        })
         .transpose()?;
     let consistency = binding_consistency(&row.consistency, types, owners, allocations)?;
     let causal_invalidity = match row.causal_invalidity {
