@@ -4,6 +4,7 @@
 
 mod associated_import;
 mod callable_import;
+mod enum_requirement_import;
 mod identity;
 mod query_import;
 mod query_policy;
@@ -14,6 +15,7 @@ mod static_import;
 mod type_import;
 pub use associated_import::ImportedAssociatedAuthority;
 pub use callable_import::ImportedCallableAuthority;
+pub use enum_requirement_import::ImportedEnumRequirementAuthority;
 pub use identity::StableOwnerCatalog;
 pub use query_policy::{
     CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_from_portable, query_kind_profile_support, query_root_is_reusable,
@@ -94,6 +96,10 @@ pub struct ImportedCompilerImage {
     /// semantic products. Query Ready publication remains gated on current-main
     /// dependency closure.
     pub callable_authority: Arc<ImportedCallableAuthority>,
+    /// Certified-P7 closed-enum requirements and per-case obligation statuses,
+    /// staged for T4 snapshot publication. This authority is not independently
+    /// promoted to a reusable SemanticDb root.
+    pub enum_requirement_authority: Arc<ImportedEnumRequirementAuthority>,
     /// Reconstructed, canonical-fingerprint-validated reusable query products.
     /// T4 installs these into the imported generation's one SemanticDb.
     pub query_products: Arc<ImportedQueryProducts>,
@@ -130,6 +136,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_associated_authority: Option<Arc<ImportedAssociatedAuthority>>,
     pub staged_static_case_authority: Option<Arc<ImportedStaticCaseAuthority>>,
     pub staged_callable_authority: Option<Arc<ImportedCallableAuthority>>,
+    pub staged_enum_requirement_authority: Option<Arc<ImportedEnumRequirementAuthority>>,
     pub staged_query_products: Option<Arc<ImportedQueryProducts>>,
     pub staged_semantic_world: Option<SemanticWorldV3>,
     pub staged_query_image: Option<QueryImageV3>,
@@ -153,6 +160,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_associated_authority: None,
             staged_static_case_authority: None,
             staged_callable_authority: None,
+            staged_enum_requirement_authority: None,
             staged_query_products: None,
             staged_semantic_world: None,
             staged_query_image: None,
@@ -285,6 +293,13 @@ impl<'a> ArtifactImportTransaction<'a> {
             &owners,
             child,
         )?;
+        let enum_requirement_authority = enum_requirement_import::reconstruct_enum_requirement_authority(
+            &payload.semantic_world.enum_requirements,
+            &semantic_aggregates,
+            &reconstructed,
+            &owners,
+            child,
+        )?;
         let query_products = query_product_import::reconstruct_structural_query_products(
             &payload.query_image,
             &semantic_aggregates,
@@ -298,6 +313,8 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.staged_associated_authority = Some(child.arc(associated_authority).map_err(ArtifactError::Allocation)?);
         self.staged_static_case_authority = Some(child.arc(static_case_authority).map_err(ArtifactError::Allocation)?);
         self.staged_callable_authority = Some(child.arc(callable_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_enum_requirement_authority =
+            Some(child.arc(enum_requirement_authority).map_err(ArtifactError::Allocation)?);
         self.staged_query_products = Some(child.arc(query_products).map_err(ArtifactError::Allocation)?);
         self.staged_type_graph = Some(child.arc(ImportedTypeGraph { inner: reconstructed }).map_err(ArtifactError::Allocation)?);
 
@@ -357,6 +374,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_callable_authority
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged callable semantic authority".into())))?;
+        let enum_requirement_authority = self
+            .staged_enum_requirement_authority
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged enum-requirement semantic authority".into())))?;
         let query_products = self
             .staged_query_products
             .take()
@@ -391,6 +412,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             associated_authority,
             static_case_authority,
             callable_authority,
+            enum_requirement_authority,
             query_products,
             semantic_world,
             query_image,
@@ -410,6 +432,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_associated_authority = None;
             self.staged_static_case_authority = None;
             self.staged_callable_authority = None;
+            self.staged_enum_requirement_authority = None;
             self.staged_query_products = None;
             self.staged_semantic_world = None;
             self.staged_query_image = None;
