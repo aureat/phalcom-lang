@@ -3879,6 +3879,8 @@ pub struct InherentMemberContribution {
     pub visibility: MemberVisibility,
     pub source_member: usize,
     pub is_requirement: bool,
+    /// Portable authority for how this contributed callable body is obtained.
+    pub body_provenance: CallableDefinitionBodyProvenance,
 }
 
 /// Canonical contribution product for an inherent impl block.
@@ -4022,6 +4024,17 @@ pub enum CallableDefinitionOrigin {
     ConformanceWitness(ImplId),
 }
 
+/// Portable provenance for how an accepted callable body is obtained.
+///
+/// Transplanted from certified PERF003 P7. The distinction is required for a
+/// source-free compiler image: generated delegation bodies cannot be recovered
+/// by pretending they were source members.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CallableDefinitionBodyProvenance {
+    SourceBody,
+    GeneratedDelegation { target_field: Box<str> },
+}
+
 /// Canonical definition provenance for an accepted callable.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectiveCallableDefinition {
@@ -4029,6 +4042,8 @@ pub struct EffectiveCallableDefinition {
     pub origin: CallableDefinitionOrigin,
     pub source_member_index: usize,
     pub signature: CallableSemanticSignature,
+    /// Portable authority for how the callable body is obtained.
+    pub body_provenance: CallableDefinitionBodyProvenance,
     /// Source-only provenance for an accepted inherent implementation body.
     /// The published signature remains declaration-canonical.
     pub inherent_body_context: Option<InherentBodyContext>,
@@ -4295,6 +4310,7 @@ pub fn build_effective_surface(
                         origin: CallableDefinitionOrigin::PrimaryDeclaration,
                         source_member_index: 0,
                         signature: sem_sig.clone(),
+                        body_provenance: CallableDefinitionBodyProvenance::SourceBody,
                         inherent_body_context: None,
                     },
                 );
@@ -4407,6 +4423,7 @@ pub fn build_effective_surface(
                         origin: CallableDefinitionOrigin::InherentImpl(contribution.id.clone()),
                         source_member_index: member.source_member,
                         signature: member.signature.clone(),
+                        body_provenance: member.body_provenance.clone(),
                         inherent_body_context: Some(InherentBodyContext {
                             generic_signature: contribution.generic_signature.clone(),
                             covering: contribution.covering.clone(),
@@ -6083,6 +6100,9 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
                     visibility: delegated_member_visibility(&delegation.name, &delegation.attributes),
                     source_member: source_member_idx,
                     is_requirement: false,
+                    body_provenance: CallableDefinitionBodyProvenance::GeneratedDelegation {
+                        target_field: delegation.target_field.clone().into_boxed_str(),
+                    },
                 });
             }
             continue;
@@ -6316,6 +6336,7 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
             visibility,
             source_member: source_member_idx,
             is_requirement,
+            body_provenance: CallableDefinitionBodyProvenance::SourceBody,
         });
     }
 
