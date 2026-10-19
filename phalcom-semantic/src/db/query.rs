@@ -2684,31 +2684,8 @@ pub fn query_callable_definition(
     definition: Arc<crate::impls::EffectiveCallableDefinition>,
 ) -> QueryOutcome<Arc<crate::impls::EffectiveCallableDefinition>> {
     let key = QueryKey::CallableDefinition(definition.callable.clone());
-    let signature_fingerprint = crate::db::fingerprint::callable_signature_product_fingerprint(&definition.signature);
-    let origin_tag = match &definition.origin {
-        crate::impls::CallableDefinitionOrigin::PrimaryDeclaration => 0_u64,
-        crate::impls::CallableDefinitionOrigin::InherentImpl(impl_id) => {
-            let mut hasher = DefaultHasher::new();
-            impl_id.hash(&mut hasher);
-            hasher.finish()
-        }
-        crate::impls::CallableDefinitionOrigin::ConformanceWitness(impl_id) => {
-            let mut hasher = DefaultHasher::new();
-            impl_id.hash(&mut hasher);
-            hasher.finish().rotate_left(7)
-        }
-    };
-    let body_context_tag = definition
-        .inherent_body_context
-        .as_ref()
-        .map_or(0, crate::db::fingerprint::inherent_body_context_fingerprint);
-    let body_provenance_tag = crate::db::fingerprint::callable_definition_body_provenance_fingerprint(&definition.body_provenance);
-    let value = signature_fingerprint.raw()
-        ^ origin_tag.rotate_left(17)
-        ^ (definition.source_member_index as u64).rotate_left(33)
-        ^ body_context_tag.rotate_left(11)
-        ^ body_provenance_tag.rotate_left(23);
-    let input_fingerprint = crate::db::InputFingerprint::new(value);
+    let input_fingerprint = crate::db::fingerprint::callable_definition_input_fingerprint(&definition);
+    let product_fingerprint = crate::db::fingerprint::callable_definition_product_fingerprint(&definition);
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_callable_definition()) {
             db.metrics().record_hit();
@@ -2723,7 +2700,7 @@ pub fn query_callable_definition(
         db,
         key.clone(),
         input_fingerprint,
-        crate::db::ProductFingerprint::new(value),
+        product_fingerprint,
         SemanticProduct::CallableDefinition(definition.clone()),
         Vec::new(),
     ) {
