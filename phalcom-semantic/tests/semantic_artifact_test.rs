@@ -492,6 +492,26 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
     let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("import fingerprinted structural product");
     assert_eq!(imported.query_products.len(), 1, "DataDeclaration must be staged as a typed reusable product");
 
+    let mut db = phalcom_semantic::db::SemanticDb::new();
+    imported
+        .publish_query_products_into_empty_db(&mut db)
+        .expect("publish structural product into fresh semantic db");
+    let query_key = phalcom_semantic::db::QueryKey::DataDeclaration(owner.clone());
+    let published = db
+        .product(&query_key)
+        .and_then(|product| product.as_data_declaration())
+        .expect("typed DataDeclaration product must be Ready");
+    assert_eq!(published.info.owner, owner);
+    assert_eq!(
+        db.ready_product_fingerprint(&query_key).map(|fingerprint| fingerprint.raw()),
+        Some(product_fingerprint),
+        "published database state must use the verified current-main product fingerprint"
+    );
+    assert!(
+        imported.publish_query_products_into_empty_db(&mut db).is_err(),
+        "artifact authority must not be merged into an already-populated semantic database"
+    );
+
     let data_root = image
         .query_image
         .supported_roots
