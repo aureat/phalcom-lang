@@ -444,7 +444,7 @@ fn reconstruct_derived(
     })
 }
 
-fn reconstruct_derived_rule(
+pub(crate) fn reconstruct_derived_rule(
     rule: &CallableDerivedConformanceRuleV1,
     evidence_count: usize,
     traits: &ImportedTraitAuthority,
