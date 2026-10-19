@@ -16,7 +16,7 @@ use crate::db::{InputFingerprint, ProductFingerprint, QueryKey, SemanticDb, Sema
 use crate::diagnostic::SemanticDiagnostic;
 use crate::enum_semantics::VariantInfo;
 use crate::identity::{
-    AssociatedFamilyId, AssociatedStaticDomainDeclarationId, DataComponentId, DataConstructorId, DeclarationId,
+    AssociatedFamilyId, AssociatedStaticDomainDeclarationId, DataConstructorId, DeclarationId,
 };
 use phalcom_compiler_artifact::query::{
     DependencyEvidenceEntryV3, PortableQueryKindV1 as Kind, PortableQueryOwnerKeyV1 as Owner, QueryImageV3, QueryRootEntryV3,
@@ -358,7 +358,9 @@ fn reconstruct_associated_surface(
             .map_err(ArtifactError::Allocation)?;
         for member in &family.members {
             let (member_kind, member) = associated_member(member, &owner, owners, allocations)?;
-            if member_kind != kind {
+            let category_matches = member_kind == kind
+                || (member_kind == AssociatedFamilyKind::TypeMember && kind == AssociatedFamilyKind::IntrinsicTypeMember);
+            if !category_matches {
                 return Err(invalid("associated-surface member category differs from its family category"));
             }
             members.push(member);
