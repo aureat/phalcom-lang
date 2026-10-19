@@ -207,6 +207,10 @@ impl ImportedWitnessPreflightAuthority {
             .ok()
             .map(|index| &self.plans[index])
     }
+
+    pub(crate) fn plans(&self) -> &[ImportedWitnessPlanPreflight] {
+        &self.plans
+    }
 }
 
 pub(crate) fn reconstruct_witness_preflight(
