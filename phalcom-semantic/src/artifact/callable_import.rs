@@ -232,7 +232,7 @@ fn frozen_ordered_map_error(error: crate::ordered_map::FrozenOrderedMapError) ->
     }
 }
 
-fn reconstruct_callable_signature(
+pub(crate) fn reconstruct_callable_signature(
     record: &CallableSignatureRecordV1,
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
