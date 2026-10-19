@@ -33,7 +33,8 @@ use phalcom_compiler_artifact::semantic::world::{
     ModuleStaticBindingIndexV1, ModuleStaticBindingPhaseV1, ModuleStaticBindingRecordV1, ModuleStaticBindingVisibleNameV1,
     NativeLifecycleSpecV1,
     RaisesSpecV1, ReturnContractValidationV1,
-    ReturnFlowV1, SelectorKindV1, SemanticWorldV3, StaticConstantSymbolV1, TraitRefV1, TraitSurfaceRecordV1, TypeKnowledgeV1,
+    ReturnFlowV1, SelectorKindV1, SemanticWorldV3, StaticConstantOutcomeV1, StaticConstantRecordV1, StaticConstantSymbolV1,
+    TraitRefV1, TraitSurfaceRecordV1, TypeKnowledgeV1,
     CallableConformanceAssociatedTypePlanV1, CallableConformanceCompletenessV1, WitnessPlanV1,
     StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
     StaticDomainCaseCatalogRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
@@ -1793,6 +1794,53 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
         imported.query_products.len(),
         0,
         "binding-state staging must not pretend a complete CallableBody query is Ready"
+    );
+}
+
+#[test]
+fn p7_static_constant_reconstructs_typed_authority_without_checked_body_fabrication() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+    let stable_module = StableModuleRef {
+        project: StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        },
+        path: vec!["core".into()].into_boxed_slice(),
+    };
+    image.semantic_world.static_constants.push(StaticConstantRecordV1 {
+        symbol: StaticConstantSymbolV1 {
+            module: stable_module,
+            name: "cachedUnit".into(),
+        },
+        declaration_source: SpanV1 { start: 4, end: 12 },
+        initializer_source: SpanV1 { start: 10, end: 12 },
+        input_fingerprint: 0x51A71C,
+        dependencies: vec![],
+        static_constant_reads: vec![],
+        record_key_static_constant_reads: vec![],
+        result_type: Some(ArtifactTypeId(0)),
+        outcome: StaticConstantOutcomeV1::Reduced {
+            value: ArtifactStaticValueId(0),
+        },
+        lkg_value: Some(ArtifactStaticValueId(0)),
+        diagnostics: vec![],
+    });
+
+    let bytes = encode_artifact(&image).expect("encode P7 static constant authority");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
+        .expect("validate P7 static constant authority");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget)
+        .expect("reconstruct P7 static constant authority");
+
+    assert_eq!(imported.static_constant_authority.len(), 1);
+    assert_eq!(
+        imported.query_products.len(),
+        0,
+        "static-constant authority must not invent a CheckedStaticBody or reusable StaticConstant query root"
     );
 }
 
