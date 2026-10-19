@@ -20,7 +20,8 @@ use phalcom_compiler_artifact::semantic::type_store::{
     ArtifactKindId, ArtifactTypeId, KindV1, StaticDomainV1, TypeEntryV1, TypeGraphV1, TypeMemberSelectorV1, TypeV1,
 };
 use phalcom_compiler_artifact::semantic::world::{
-    AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1, CallableSignatureRecordV1,
+    AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1,
+    CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableSignatureRecordV1,
     EffectSpecV1, ExactSelectorV1, ImplementationKindV1, NativeLifecycleSpecV1, RaisesSpecV1, ReturnContractValidationV1,
     ReturnFlowV1, SelectorKindV1, SemanticWorldV3, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
     StaticDomainCaseCatalogRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
@@ -921,7 +922,7 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
         side: StableDispatchSide::Instance,
         selector: "run".into(),
     };
-    image.semantic_world.callable_signatures.push(CallableSignatureRecordV1 {
+    let signature_record = CallableSignatureRecordV1 {
         callable,
         owner,
         side: 0,
@@ -947,6 +948,15 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
             deprecated_since: None,
             replacement: None,
         },
+    };
+    image.semantic_world.callable_signatures.push(signature_record.clone());
+    image.semantic_world.callable_definitions.push(CallableDefinitionRecordV1 {
+        callable: signature_record.callable.clone(),
+        origin: CallableDefinitionOriginV1::PrimaryDeclaration,
+        source_member_index: 0,
+        signature: signature_record,
+        body_provenance: CallableDefinitionBodyProvenanceV1::SourceBody,
+        inherent_body_context: None,
     });
 
     let bytes = encode_artifact(&image).expect("encode P7 callable-signature authority");
@@ -959,6 +969,7 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
         import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 callable-signature authority");
 
     assert_eq!(imported.callable_authority.signature_len(), 1);
+    assert_eq!(imported.callable_authority.definition_len(), 1);
     assert_eq!(
         imported.query_products.len(),
         0,
