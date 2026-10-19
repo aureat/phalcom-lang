@@ -12,6 +12,10 @@ pub const TELOSC_CONTAINER_SCHEMA_V2: u32 = 2;
 pub const TELOSC_MIN_READER_SCHEMA_V2: u32 = 2;
 
 pub const MODULE_SEMANTIC_ABI_V2: u32 = 2;
+/// Query fingerprint ABI v2 separates portable artifact evidence from
+/// receiving-workspace SemanticDb fingerprints. Structural Data/Enum roots hash
+/// canonical stable-owner semantic rows under query-specific domains; live DB
+/// fingerprints are recomputed after relocation and typed reconstruction.
 pub const QUERY_FINGERPRINT_ABI_V2: u32 = 2;
 pub const SEMANTIC_ARTIFACT_ABI_V2: u32 = 2;
 pub const STABLE_IDENTITY_SCHEMA_V1: u32 = 1;
