@@ -172,8 +172,9 @@ impl CompilerArtifactPayload {
             }
         }
 
-        // 5. Verify product references
+        // 5. Verify product references and portable QUERY_FINGERPRINT_ABI_V2 evidence.
         self.query_image.validate_product_references(&self.module_world, &self.semantic_world)?;
+        self.query_image.validate_portable_structural_fingerprints(&self.semantic_world)?;
 
         Ok(())
     }
