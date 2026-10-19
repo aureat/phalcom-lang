@@ -4,6 +4,7 @@ kind: implementation-plan-handoff
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
+superseded_by: ARTF001.C1.P2.R2
 base_revision: 3cf206757638b23884e59edb602c3ff0c3d28150
 implementation_revision: ea136a0b5320c0a1c7ac78de5dc798b9d58e3b95
 checkpoint: ARTF001.C1
@@ -12,6 +13,8 @@ prepared: 2026-10-19
 ---
 
 # ARTF001.C1.P2 — Handoff: Artifact Substrate and Import Closure
+
+> **Historical snapshot:** This handoff records the first P2 closure attempt at implementation revision `ea136a0b5320c0a1c7ac78de5dc798b9d58e3b95`. The checkout description and task list below are no longer current. Continue from `ARTF001-C1-P2-R2-handoff.md`, with shared state in `CHECKPOINT.md` and the active contract in `ARTF001-C1-P2-R2-plan.md`.
 
 ## Current State
 

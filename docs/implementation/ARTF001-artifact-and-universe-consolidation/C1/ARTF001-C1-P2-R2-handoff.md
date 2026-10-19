@@ -1,5 +1,58 @@
 # ARTF001.C1.P2.R2 — Implementation Handoff: Complete Artifact Import and Semantic Authority Publication
 
+## Current continuation snapshot (2026-10-20)
+
+This snapshot supersedes state-specific descriptions later in this document that refer to the original P2.R2 starting revision. The architecture, acceptance criteria, and invariants below remain authoritative.
+
+- Current code revision: `37d2b0d810e78e8ca08b71cc8fcad123eedcceb6` (`37d2b0d8`), on `feat/artifact-universe-consolidation`, synchronized with its origin branch. The implementation tree was clean at that revision before the lifecycle update.
+- Current status: `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. Project-qualified schema and identity import, exact resolver-receipt package binding, current-main type/static relocation, primary data/enum/variant aggregates, query persistence classification, and typed query-owner conversion exist. Query products and session authority are not yet published.
+- Preserve these decisions: exact package/version/artifact-fingerprint matching uses a validated receipt from the caller's trusted package resolver. The receipt also binds the full validated artifact digest and an existing persistent project ID. The supplied `ProjectUniverse` remains the sole project-identity authority. The portable artifact topology fingerprint is separate from the workspace-scoped live fingerprint.
+- Next implementation: continue T3 with typed query product reconstruction and current fingerprint/dependency checks; use the existing `SemanticDb`. T4 session construction, atomic snapshot publication, whole-load allocation accounting, and the complete hostile matrix remain open.
+- Branch instruction: work directly in the existing `.worktrees/artifact` checkout on `feat/artifact-universe-consolidation`, commit directly to it, and push to `origin/feat/artifact-universe-consolidation`. Do not create or switch to a new branch. The lifecycle-update delivery commit may be ahead of `37d2b0d8`; inspect the current branch tip before editing.
+- Other delivered files: this lifecycle update also includes four previously untracked toolchain specifications: `docs/specs/toolchain/README.md`, `package-model-and-manifest.md`, `registry.md`, and `local-registry.md`. They are outside P2; leave them intact unless separately requested.
+- P3: keep `ARTF001.C1.P3` proposed. P2's session, dependency, allocation, and hostile-input acceptance criteria are not met.
+
+### T1–T6 status at the code anchor
+
+| Task | Status and boundary |
+|---|---|
+| T1 | Project-qualified module/query schemas and caller-owned project bindings are implemented and focused-tested. Remaining end-to-end owner/product/dependency checks stay in P2 closure. |
+| T2 | Partial: type and static-value graphs and primary data/enum/variant tables reconstruct into current-main stores. Declaration shells, hierarchy/aliases, enum requirements, callables, conformances, proofs, and operational products remain open. |
+| T3 | Partial: all query kinds have an explicit persistence classification; root location is gated; exact portable-owner conversion is implemented where the wire identity is complete. Typed product reconstruction, fingerprint recomputation, dependency freshness/closure, and `SemanticDb` publication remain open. |
+| T4 | Not started: no artifact-backed, source-free `SemanticWorkspaceSession` constructor or atomic session/snapshot publication. |
+| T5 | Not started: existing N/N−1/retry evidence measures import-budget reservations after decode, not actual allocation across bytes-to-publication. |
+| T6 | Partial: focused identity, corruption, relocation, and query-owner rejection coverage exists; full hostile matrix is still required. |
+
+### Latest focused evidence at the code anchor
+
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib artifact::type_import` — PASS, 4/4.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib artifact::static_import` — PASS, 2/2.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test artifact_query_import_test` — PASS, 4/4.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib artifact::query_policy` — PASS, 5/5.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic-artifact` — PASS, 5/5.
+
+These focused results do not certify P2 or the workspace. The latest implementation details and the complete remaining-work sequence are recorded in `CHECKPOINT.md` and `ARTF001-C1-P2-R2-plan.md`.
+
+### Current findings and restart path
+
+- `phalcom-semantic/src/artifact/mod.rs`: `ArtifactImportTransaction::stage_payload_with_digest` validates the payload, obtains exact package authority from the caller's graph/resolver, builds `StableOwnerCatalog`, relocates type/static data and primary structural aggregates, validates query-owner authority, then retains the rest of `SemanticWorldV3` and `QueryImageV3` as wire DTOs. `commit()` returns `ImportedCompilerImage`; it does not install products in `SemanticDb` or a session.
+- `phalcom-semantic/src/artifact/identity.rs`: `StableOwnerCatalog` is the common owner authority. Internal module owners must match a full module row. External owners must be exactly allowlisted and resolve in the supplied persistent project graph. Session owners fail closed. Keep using this catalog; do not add a parallel identity map.
+- `phalcom-semantic/src/artifact/type_import.rs`, `static_import.rs`, and `semantic_import.rs`: type and static-value rows relocate into current-main stores; structural data, enum, and variant records reconstruct into native tables. Their owners use the same catalog. Declaration shells, hierarchy/aliases, enum requirements, callable/conformance/proof products, and operational products remain unimplemented.
+- `phalcom-semantic/src/artifact/query_policy.rs` and `query_import.rs`: policy classification and root-location gating are implemented. `QueryKey::from_portable_owner` converts identities only where the portable owner is complete. It intentionally rejects lossy GenericConformance propositions, TraitDispatchBucket targets, AttributeArgument context, and StaticCaseSignature domain identity. Keep these paths fail-closed until the wire identity carries enough information.
+- `phalcom-compiler-artifact/src/query.rs`: `QueryImageV3::validate_product_references` checks transport references and row bounds. T3 still must tie each root to the exact live product owner, recompute current input/product fingerprints, reconstruct and validate dependency edges, prove freshness/closure/acyclicity, and publish only policy-eligible roots.
+- A bounded T3 starting slice is DataDeclaration and EnumDeclaration. The semantic rows and native structural tables exist; current query evaluators in `phalcom-semantic/src/db/query.rs` recompute the canonical fingerprints in `db/fingerprint.rs` and publish with no dependencies. Use these helpers as the authority, verify the wire row references/owner before constructing each typed product, and do not infer that other families share this simple dependency contract.
+- `phalcom-semantic/src/db/mod.rs` already has `SemanticDb::publish_product_ready`; use the one current-main database. `phalcom-semantic/src/session.rs` has no imported-generation constructor: normal `with_workspace()` calls `canonical_universe_semantic_baseline().instantiate(workspace)`, and the session owns many coupled tables, stores, overlays, and snapshots. Treat T4 as a cross-layer design gate. If a correct source-free constructor requires changing ownership or publication contracts, use `docs/workflow/shared-consultation-escalation-protocol.md` before implementing a workaround.
+- Allocation evidence is narrower than the target contract. The semantic artifact N/N−1/retry check measures `AllocationBudget` reservations for import after decode; it is not allocator-requested bytes for decode, reconstruction, index retention, and session publication.
+- No failure from the latest focused R2 checks is recorded. The predecessor baseline file documents six unrelated failures reproduced on `origin/main` at `39334961` (including `builtin_catalog` fixtures and semantic checker/invalidation fixtures). Do not rerun or repair them for this task without a causal reason; the full workspace was not recertified during this slice.
+
+### Ordered continuation
+
+1. Start in `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/artifact`; inspect `git status --short --branch`, `git log -1`, and the origin tracking branch. Stay on `feat/artifact-universe-consolidation`; make commits directly there and push to `origin/feat/artifact-universe-consolidation`. Do not create a branch.
+2. Read this snapshot, `CHECKPOINT.md`, the current P2 plan, and only the source files listed above. The old P2 handoff/walkthrough describe the original `ea136a0b` state and are historical.
+3. Continue T3: reconstruct a minimal supported typed product slice, starting with data/enum declarations if live row shapes still match this snapshot; recompute canonical fingerprints and validate root owner, product row, policy, and dependencies before staging. Add focused semantic artifact query import coverage. Preserve fail-closed behavior for unrepresentable owners.
+4. Only after typed query import is sound, design T4 around the existing `SemanticWorkspaceSession`, `SemanticDb`, and `SemanticSnapshot`; test source-free construction, graph retention, overlays, invalidation, and rollback. Escalate architecture changes before editing.
+5. Complete remaining semantic families, whole-load allocation accounting, and hostile compatibility coverage; update the checkpoint at coherent gates. Run only focused tests first. Do not claim P2 complete or start P3 until the plan's operational session, dependency, allocation, hostile, and source-mode acceptance criteria are met.
+
 - **Program:** `ARTF001`
 - **Checkpoint:** `ARTF001.C1`
 - **Phase:** `ARTF001.C1.P2`
@@ -9,10 +62,10 @@
 - **Verification:** `FOCUSED_TESTED`
 - **Repository:** `aureat/phalcom-lang`
 - **Branch:** `feat/artifact-universe-consolidation`
-- **Starting revision:** `9f0d2f66af0196739dc562b0df19f140576ec861`
+- **Original plan baseline revision:** `9f0d2f66af0196739dc562b0df19f140576ec861`
 - **Upstream main anchor:** `39334961e61cc3b9e251d03bcd348bceb50abbc6`
 - **PERF003 reference revision:** `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`
-- **Successor phase:** `ARTF001.C1.P3` — BLOCKED
+- **Successor phase:** `ARTF001.C1.P3` — PROPOSED; do not start until P2 is accepted
 
 ---
 
@@ -111,7 +164,9 @@ P2 must nevertheless provide the real importer and session-construction capabili
 
 ---
 
-# 2. Starting state and evidence
+# 2. Original starting state and evidence (historical)
+
+This section records the original plan baseline. Use the current continuation snapshot above and the checkpoint's latest evidence for the live implementation state.
 
 The starting commit `9f0d2f66` contains:
 
@@ -142,7 +197,7 @@ Current reported passing results:
 
 These are starting evidence, not P2 completion certification.
 
-## 2.1 Known incomplete implementation
+## 2.1 Known incomplete implementation at the original baseline
 
 At the starting revision:
 

@@ -4,6 +4,7 @@ kind: implementation-plan-walkthrough
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
+followup_plan: ARTF001.C1.P2.R2
 planning_revision: 3cf206757638b23884e59edb602c3ff0c3d28150
 implementation_revision: ea136a0b5320c0a1c7ac78de5dc798b9d58e3b95
 checkpoint: ARTF001.C1
@@ -13,15 +14,23 @@ prepared: 2026-10-19
 
 # ARTF001.C1.P2 — Walkthrough: Artifact Substrate and Import Closure
 
+> **Historical snapshot:** This walkthrough records the first P2 closure attempt at implementation revision `ea136a0b5320c0a1c7ac78de5dc798b9d58e3b95`. Its descriptions of the current implementation are superseded by the P2.R2 continuation state in `CHECKPOINT.md` and `ARTF001-C1-P2-R2-handoff.md`.
+
 ## Outcome
 
 P2 has a substantial implementation, but the P2 audit identified acceptance gaps that prevent `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. The repository state remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 is not ready to start.
 
+## Later closure progress — 2026-10-20
+
+Since the recorded implementation revision, P2.R2 added project-qualified module ownership, exact package resolver receipts, a workspace-owned `StableOwnerCatalog`, current-main type and static-value relocation, primary data/enum/variant reconstruction, and query persistence classification plus typed query-owner conversion. The latest focused tests recorded in the checkpoint pass. P2 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`: query products, dependency validation, `SemanticDb` and session publication, whole-load allocation accounting, and the complete hostile matrix remain open. P3 stays proposed.
+
+The earlier gate table and audit findings below describe that first closure attempt. Use the current R2 handoff and checkpoint for the remaining work and latest evidence.
+
 The implementation introduces the `phalcom-compiler-artifact` crate and current artifact container, module-world, metadata, semantic-world, and query-image wire schemas. Stable declaration/project/module identity is represented with durable refs, and static metadata is routed through the current `phalcom-type-meta` model. The default compiler remains source-based.
 
-The importer currently validates and stages a module world and metadata bundle, then moves the `SemanticWorldV3` and `QueryImageV2` DTOs into `ImportedCompilerImage`. It does not reconstruct those DTOs into live current-main `TypeStore`/`StaticValueStore` state, publish a `SemanticSnapshot`, or install typed query products in `SemanticDb`. The type and query DTOs therefore must not be described as an imported live semantic generation.
+At implementation revision `ea136a0b`, the importer validated and staged a module world and metadata bundle, then moved the `SemanticWorldV3` and `QueryImageV2` DTOs into `ImportedCompilerImage`. Later P2.R2 work added type/static relocation and primary structural aggregates, as recorded above. The DTOs still are not published into a `SemanticSnapshot` or a typed `SemanticDb`, so the import result is not yet a complete live semantic generation.
 
-## Corrective changes in the current working tree
+## Corrective changes in the original closure working tree
 
 - Added `query_fingerprint_abi` to `CanonicalCompatibilityIdentity` comparison.
 - Changed metadata section decode to use the load allocation budget; allocation failures retain their typed `AllocationError`.
