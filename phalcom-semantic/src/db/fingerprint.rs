@@ -1575,6 +1575,44 @@ pub fn callable_signature_product_fingerprint(signature: &CallableSemanticSignat
     finish_product(hasher)
 }
 
+fn callable_definition_fingerprint_value(definition: &crate::impls::EffectiveCallableDefinition) -> u64 {
+    let signature_fingerprint = callable_signature_product_fingerprint(&definition.signature);
+    let origin_tag = match &definition.origin {
+        crate::impls::CallableDefinitionOrigin::PrimaryDeclaration => 0_u64,
+        crate::impls::CallableDefinitionOrigin::InherentImpl(impl_id) => {
+            let mut hasher = DefaultHasher::new();
+            impl_id.hash(&mut hasher);
+            hasher.finish()
+        }
+        crate::impls::CallableDefinitionOrigin::ConformanceWitness(impl_id) => {
+            let mut hasher = DefaultHasher::new();
+            impl_id.hash(&mut hasher);
+            hasher.finish().rotate_left(7)
+        }
+    };
+    let body_context_tag = definition
+        .inherent_body_context
+        .as_ref()
+        .map_or(0, inherent_body_context_fingerprint);
+    let body_provenance_tag = callable_definition_body_provenance_fingerprint(&definition.body_provenance);
+    signature_fingerprint.raw()
+        ^ origin_tag.rotate_left(17)
+        ^ (definition.source_member_index as u64).rotate_left(33)
+        ^ body_context_tag.rotate_left(11)
+        ^ body_provenance_tag.rotate_left(23)
+}
+
+/// Computes the current-main input identity of one complete accepted callable
+/// definition. The same semantic fields define the product identity because
+/// incidental source ranges live in the embedded signature's product hash.
+pub fn callable_definition_input_fingerprint(definition: &crate::impls::EffectiveCallableDefinition) -> InputFingerprint {
+    InputFingerprint::new(callable_definition_fingerprint_value(definition))
+}
+
+pub fn callable_definition_product_fingerprint(definition: &crate::impls::EffectiveCallableDefinition) -> ProductFingerprint {
+    ProductFingerprint::new(callable_definition_fingerprint_value(definition))
+}
+
 /// Computes the source-sensitive input identity of a canonical field signature.
 pub fn field_signature_input_fingerprint(signature: &FieldSemanticSignature) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
