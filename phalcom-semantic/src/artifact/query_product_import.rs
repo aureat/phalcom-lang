@@ -29,7 +29,7 @@ use std::sync::Arc;
 /// dependency edges. A future family with dependencies must carry and validate
 /// those edges explicitly rather than extending this representation implicitly.
 #[derive(Clone, Debug)]
-pub struct ImportedReadyQueryProduct {
+pub(crate) struct ImportedReadyQueryProduct {
     pub key: QueryKey,
     pub input_fingerprint: InputFingerprint,
     pub product_fingerprint: ProductFingerprint,
