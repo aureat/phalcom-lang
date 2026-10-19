@@ -17,7 +17,9 @@ use crate::enum_semantics::VariantInfo;
 use crate::identity::DeclarationId;
 use phalcom_compiler_artifact::query::{
     DependencyEvidenceEntryV3, PortableQueryKindV1 as Kind, PortableQueryOwnerKeyV1 as Owner, QueryImageV3, QueryRootEntryV3,
+    portable_structural_dependency_product_fingerprint, portable_structural_root_fingerprints,
 };
+use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
 use std::sync::Arc;
@@ -100,6 +102,7 @@ pub(crate) fn reconstruct_structural_query_products(
     image: &QueryImageV3,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
     owners: &StableOwnerCatalog<'_>,
+    world: &SemanticWorldV3,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedQueryProducts, ArtifactError> {
     let root_count = image
@@ -122,8 +125,8 @@ pub(crate) fn reconstruct_structural_query_products(
 
     for root in &image.supported_roots {
         let imported = match root.key.kind {
-            Kind::DataDeclaration => reconstruct_data_root(root, aggregates, owners, empty_diagnostics.clone(), allocations)?,
-            Kind::EnumDeclaration => reconstruct_enum_root(root, aggregates, owners, empty_diagnostics.clone(), allocations)?,
+            Kind::DataDeclaration => reconstruct_data_root(root, aggregates, owners, world, empty_diagnostics.clone(), allocations)?,
+            Kind::EnumDeclaration => reconstruct_enum_root(root, aggregates, owners, world, empty_diagnostics.clone(), allocations)?,
             _ => continue,
         };
         ready.push(imported);
@@ -135,10 +138,10 @@ pub(crate) fn reconstruct_structural_query_products(
     for evidence in &image.dependency_evidence {
         match evidence.key.kind {
             Kind::DataDeclaration => {
-                reconstruct_data_evidence(evidence, aggregates, owners, empty_diagnostics.clone(), allocations)?;
+                reconstruct_data_evidence(evidence, aggregates, owners, world, empty_diagnostics.clone(), allocations)?;
             }
             Kind::EnumDeclaration => {
-                reconstruct_enum_evidence(evidence, aggregates, owners, empty_diagnostics.clone(), allocations)?;
+                reconstruct_enum_evidence(evidence, aggregates, owners, world, empty_diagnostics.clone(), allocations)?;
             }
             _ => {}
         }
@@ -158,11 +161,12 @@ fn reconstruct_data_root(
     root: &QueryRootEntryV3,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
     owners: &StableOwnerCatalog<'_>,
+    world: &SemanticWorldV3,
     diagnostics: Arc<[SemanticDiagnostic]>,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_zero_dependency_contract(root)?;
-    require_relocation_stable_fingerprint_owner(&root.key.owner)?;
+    validate_portable_root_fingerprints(root, world)?;
     let key = QueryKey::from_portable_owner(root.key.kind, &root.key.owner, owners)?;
     let QueryKey::DataDeclaration(owner) = &key else {
         return Err(invalid("data query root did not relocate to DataDeclaration"));
@@ -170,7 +174,6 @@ fn reconstruct_data_root(
     let product = data_product(owner, aggregates, diagnostics, allocations)?;
     let input_fingerprint = data_declaration_input_fingerprint(&product);
     let product_fingerprint = data_declaration_product_fingerprint(&product);
-    validate_root_fingerprints(root, input_fingerprint, product_fingerprint)?;
     Ok(ready(key, input_fingerprint, product_fingerprint, SemanticProduct::DataDeclaration(product)))
 }
 
@@ -178,6 +181,7 @@ fn reconstruct_enum_root(
     root: &QueryRootEntryV3,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
     owners: &StableOwnerCatalog<'_>,
+    world: &SemanticWorldV3,
     diagnostics: Arc<[SemanticDiagnostic]>,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
@@ -190,7 +194,6 @@ fn reconstruct_enum_root(
     let product = enum_product(owner, aggregates, diagnostics, allocations)?;
     let input_fingerprint = enum_declaration_input_fingerprint(&product);
     let product_fingerprint = enum_declaration_product_fingerprint(&product);
-    validate_root_fingerprints(root, input_fingerprint, product_fingerprint)?;
     Ok(ready(key, input_fingerprint, product_fingerprint, SemanticProduct::EnumDeclaration(product)))
 }
 
@@ -198,24 +201,25 @@ fn reconstruct_data_evidence(
     evidence: &DependencyEvidenceEntryV3,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
     owners: &StableOwnerCatalog<'_>,
+    world: &SemanticWorldV3,
     diagnostics: Arc<[SemanticDiagnostic]>,
     allocations: &mut AllocationBudget,
 ) -> Result<(), ArtifactError> {
     require_exact_structural_aggregate_owner(evidence)?;
-    require_relocation_stable_fingerprint_owner(&evidence.key.owner)?;
+    validate_portable_evidence_fingerprint(evidence, world)?;
     let key = QueryKey::from_portable_owner(evidence.key.kind, &evidence.key.owner, owners)?;
     let QueryKey::DataDeclaration(owner) = &key else {
         return Err(invalid("data dependency evidence did not relocate to DataDeclaration"));
     };
-    let product = data_product(owner, aggregates, diagnostics, allocations)?;
-    let product_fingerprint = data_declaration_product_fingerprint(&product);
-    validate_evidence_fingerprint(evidence, product_fingerprint)
+    let _product = data_product(owner, aggregates, diagnostics, allocations)?;
+    Ok(())
 }
 
 fn reconstruct_enum_evidence(
     evidence: &DependencyEvidenceEntryV3,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
     owners: &StableOwnerCatalog<'_>,
+    world: &SemanticWorldV3,
     diagnostics: Arc<[SemanticDiagnostic]>,
     allocations: &mut AllocationBudget,
 ) -> Result<(), ArtifactError> {
@@ -225,9 +229,8 @@ fn reconstruct_enum_evidence(
     let QueryKey::EnumDeclaration(owner) = &key else {
         return Err(invalid("enum dependency evidence did not relocate to EnumDeclaration"));
     };
-    let product = enum_product(owner, aggregates, diagnostics, allocations)?;
-    let product_fingerprint = enum_declaration_product_fingerprint(&product);
-    validate_evidence_fingerprint(evidence, product_fingerprint)
+    let _product = enum_product(owner, aggregates, diagnostics, allocations)?;
+    Ok(())
 }
 
 fn data_product(
@@ -324,46 +327,32 @@ fn require_exact_structural_aggregate_owner(evidence: &DependencyEvidenceEntryV3
     Ok(())
 }
 
-/// The existing SemanticDb structural fingerprint helpers hash live ModuleId
-/// ownership. Resolved project IDs are graph-local, so their raw fingerprint is
-/// not a portable artifact identity. Until QUERY_FINGERPRINT_ABI defines and
-/// exports a stable-owner fingerprint for relocated project roots, only builtin
-/// owners may use direct wire-vs-live fingerprint equality. Failing closed here
-/// prevents package/source artifacts from being accidentally accepted because
-/// their receiving graph happened to reuse the producer's numeric project ID.
-fn require_relocation_stable_fingerprint_owner(owner: &Owner) -> Result<(), ArtifactError> {
-    if !matches!(owner.project(), phalcom_type_meta::identity::StableProjectRef::Builtin { .. }) {
-        return Err(invalid(
-            "portable query fingerprint validation for relocated non-builtin project owners is not yet defined",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_root_fingerprints(
-    root: &QueryRootEntryV3,
-    input_fingerprint: InputFingerprint,
-    product_fingerprint: ProductFingerprint,
-) -> Result<(), ArtifactError> {
-    if input_fingerprint.raw() != root.input_fingerprint {
+fn validate_portable_root_fingerprints(root: &QueryRootEntryV3, world: &SemanticWorldV3) -> Result<(), ArtifactError> {
+    let Some((input, product)) = portable_structural_root_fingerprints(root, world)? else {
+        return Err(invalid("portable structural fingerprint requested for a non-structural query root"));
+    };
+    if root.input_fingerprint != input {
         return Err(invalid(format!(
-            "artifact {:?} input fingerprint is stale or does not match the reconstructed product",
+            "artifact {:?} portable input fingerprint is stale or does not match its canonical semantic row",
             root.key.kind
         )));
     }
-    if product_fingerprint.raw() != root.product_fingerprint {
+    if root.product_fingerprint != product {
         return Err(invalid(format!(
-            "artifact {:?} product fingerprint is stale or does not match the reconstructed product",
+            "artifact {:?} portable product fingerprint is stale or does not match its canonical semantic row",
             root.key.kind
         )));
     }
     Ok(())
 }
 
-fn validate_evidence_fingerprint(evidence: &DependencyEvidenceEntryV3, product_fingerprint: ProductFingerprint) -> Result<(), ArtifactError> {
-    if product_fingerprint.raw() != evidence.product_fingerprint {
+fn validate_portable_evidence_fingerprint(evidence: &DependencyEvidenceEntryV3, world: &SemanticWorldV3) -> Result<(), ArtifactError> {
+    let Some(product) = portable_structural_dependency_product_fingerprint(&evidence.key, world)? else {
+        return Err(invalid("portable structural dependency fingerprint requested for a non-structural query key"));
+    };
+    if evidence.product_fingerprint != product {
         return Err(invalid(format!(
-            "artifact {:?} dependency evidence fingerprint is stale or does not match the reconstructed product",
+            "artifact {:?} portable dependency fingerprint is stale or does not match its canonical semantic row",
             evidence.key.kind
         )));
     }
