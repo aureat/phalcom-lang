@@ -84,6 +84,18 @@ pub struct ImportedCompilerImage {
     pub query_image: QueryImageV3,
 }
 
+impl ImportedCompilerImage {
+    /// Publishes fingerprint-validated imported query products into a fresh
+    /// current-main semantic database.
+    ///
+    /// T3 owns typed product reconstruction and database publication. T4 owns
+    /// construction of the surrounding artifact-backed workspace generation;
+    /// callers therefore may not merge this authority into a populated DB.
+    pub fn publish_query_products_into_empty_db(&self, db: &mut crate::db::SemanticDb) -> Result<(), ArtifactError> {
+        self.query_products.publish_into_empty_db(db)
+    }
+}
+
 /// Transactional staging loader for compiler artifacts.
 ///
 /// Ensures fail-closed semantics: allocations are tracked against a budget,
