@@ -212,6 +212,7 @@ impl ImportedWitnessPreflightAuthority {
 pub(crate) fn reconstruct_witness_preflight(
     records: &[WitnessPlanV1],
     conformances: &ImportedConformanceAuthority,
+    prior_witnesses: &[ImportedWitnessPlanPreflight],
     traits: &ImportedTraitAuthority,
     callables: &ImportedCallableAuthority,
     types: &ReconstructedTypeGraph,
@@ -224,16 +225,18 @@ pub(crate) fn reconstruct_witness_preflight(
         .map_err(ArtifactError::Allocation)?;
 
     for record in records {
-        plans.push(reconstruct_plan(
+        let plan = reconstruct_plan(
             record,
             conformances,
+            &plans,
             traits,
             callables,
             types,
             owners,
             limits,
             allocations,
-        )?);
+        )?;
+        plans.push(plan);
     }
 
     plans.sort_by(|left, right| left.impl_id.cmp(&right.impl_id));
@@ -375,6 +378,7 @@ fn reconstruct_plan(
         super::conformance_evidence_import::reconstruct_conformance_evidence_graph(
             &record.conformance_evidence,
             conformances,
+            prior_witnesses,
             traits,
             callables,
             types,
