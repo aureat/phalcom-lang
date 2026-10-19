@@ -699,9 +699,35 @@ pub fn portable_structural_dependency_product_fingerprint(
 ) -> Result<Option<u64>, ArtifactError> {
     if !matches!(
         key.kind,
-        PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration | PortableQueryKindV1::AssociatedSurface
+        PortableQueryKindV1::DataDeclaration
+            | PortableQueryKindV1::EnumDeclaration
+            | PortableQueryKindV1::AssociatedSurface
+            | PortableQueryKindV1::TypeMemberDeclaration
     ) {
         return Ok(None);
+    }
+    if key.kind == PortableQueryKindV1::TypeMemberDeclaration {
+        let owner = type_member_owner(&key.owner)?;
+        let mut matches = world
+            .type_member_declarations
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| type_member_row_matches_owner(row, owner));
+        let (row_index, _) = matches
+            .next()
+            .ok_or_else(|| ValidationError::ReferentialIntegrity("type-member dependency evidence has no semantic product row".into()))?;
+        if matches.next().is_some() {
+            return Err(ValidationError::ReferentialIntegrity(
+                "type-member dependency evidence semantic owner is ambiguous".into(),
+            )
+            .into());
+        }
+        return Ok(Some(portable_type_member_digest64(
+            DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2,
+            row_index,
+            owner,
+            world,
+        )?));
     }
     let owner = declaration_owner(&key.owner)?;
     let row_index = match key.kind {
@@ -766,7 +792,7 @@ impl QueryImageV3 {
         for evidence in &mut self.dependency_evidence {
             if matches!(
                 evidence.key.kind,
-                PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration | PortableQueryKindV1::AssociatedSurface
+                PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration | PortableQueryKindV1::AssociatedSurface | PortableQueryKindV1::TypeMemberDeclaration
             ) {
                 if evidence.key.owner != evidence.stable_aggregate_owner {
                     return Err(ValidationError::ReferentialIntegrity(
@@ -810,7 +836,7 @@ impl QueryImageV3 {
         for evidence in &self.dependency_evidence {
             if matches!(
                 evidence.key.kind,
-                PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration | PortableQueryKindV1::AssociatedSurface
+                PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration | PortableQueryKindV1::AssociatedSurface | PortableQueryKindV1::TypeMemberDeclaration
             ) {
                 if evidence.key.owner != evidence.stable_aggregate_owner {
                     return Err(ValidationError::ReferentialIntegrity(
