@@ -30,6 +30,7 @@ use phalcom_compiler_artifact::semantic::world::{
     NativeLifecycleSpecV1,
     RaisesSpecV1, ReturnContractValidationV1,
     ReturnFlowV1, SelectorKindV1, SemanticWorldV3, TraitRefV1, TraitSurfaceRecordV1, TypeKnowledgeV1,
+    CallableConformanceAssociatedTypePlanV1, CallableConformanceCompletenessV1, WitnessPlanV1,
     StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
     StaticDomainCaseCatalogRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
 };
@@ -1504,6 +1505,108 @@ fn p7_trait_surface_reconstructs_complete_diagnostic_payload() {
         imported.query_products.len(),
         0,
         "trait snapshot authority must not bypass TraitHeader/TraitSurface dependency closure"
+    );
+}
+
+#[test]
+fn p7_witness_preflight_binds_portable_plan_to_live_conformance_and_trait_authority() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+
+    let module = StableModuleRef {
+        project: StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        },
+        path: vec!["core".into()].into_boxed_slice(),
+    };
+    let target = StableDeclarationRef {
+        module: module.clone(),
+        path: vec!["WitnessTarget".into()].into_boxed_slice(),
+    };
+    let trait_owner = StableDeclarationRef {
+        module: module.clone(),
+        path: vec!["WitnessProtocol".into()].into_boxed_slice(),
+    };
+    let implementation = StableImplRef {
+        module: module.clone(),
+        local_id: 11,
+    };
+
+    image.semantic_world.type_graph.types.push(TypeEntryV1 {
+        kind: ArtifactKindId(0),
+        form: TypeV1::Nominal {
+            declaration: target.clone(),
+        },
+    });
+    image.semantic_world.trait_surfaces.push(TraitSurfaceRecordV1 {
+        declaration: trait_owner.clone(),
+        generic_signature: None,
+        header_source: EnumRequirementSourceV1 {
+            module: module.clone(),
+            range: SpanV1 { start: 0, end: 0 },
+        },
+        members: vec![],
+        associated_types: vec![],
+        diagnostics: vec![],
+    });
+    image.semantic_world.conformance_heads.push(ConformanceHeadRecordV1 {
+        impl_id: implementation.clone(),
+        source_module: module.clone(),
+        target: ConformanceTargetV1::Declaration {
+            declaration: target,
+        },
+        target_type: ArtifactTypeId(1),
+        trait_ref: TraitRefV1 {
+            declaration: trait_owner.clone(),
+            arguments: vec![],
+        },
+        generic_signature: None,
+        authorized: true,
+        eligible: true,
+    });
+    image.semantic_world.witness_plans.push(WitnessPlanV1 {
+        impl_id: implementation.clone(),
+        source_module: module,
+        trait_ref_template: TraitRefV1 {
+            declaration: trait_owner,
+            arguments: vec![],
+        },
+        target_template: ArtifactTypeId(1),
+        generic_signature: None,
+        requirement_views: vec![],
+        requirements: vec![],
+        associated_type_plan: CallableConformanceAssociatedTypePlanV1 {
+            impl_id: implementation,
+            bindings: vec![],
+            failures: vec![],
+            diagnostics: vec![],
+        },
+        invalid_explicit_members: false,
+        completeness: CallableConformanceCompletenessV1::Complete,
+        diagnostics: vec![],
+        conformance_evidence: vec![],
+        fingerprint: 0,
+        ordered_selected_callables: vec![],
+        slot_layout_fingerprint: [0; 32],
+    });
+
+    let bytes = encode_artifact(&image).expect("encode P7 witness preflight");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
+        .expect("validate P7 witness preflight");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget)
+        .expect("bind P7 witness plan to live authorities");
+
+    assert_eq!(imported.witness_preflight_authority.len(), 1);
+    assert_eq!(imported.witness_preflight_authority.requirement_view_len(), 0);
+    assert_eq!(imported.witness_preflight_authority.evidence_node_len(), 0);
+    assert_eq!(
+        imported.query_products.len(),
+        0,
+        "witness preflight is proof staging and must not make ConformanceDispatch Ready"
     );
 }
 
