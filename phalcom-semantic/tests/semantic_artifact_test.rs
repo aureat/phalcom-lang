@@ -22,7 +22,8 @@ use phalcom_compiler_artifact::semantic::type_store::{
 use phalcom_compiler_artifact::semantic::world::{
     AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1,
     CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableSignatureRecordV1,
-    EffectSpecV1, ExactSelectorV1, ImplementationKindV1, NativeLifecycleSpecV1, RaisesSpecV1, ReturnContractValidationV1,
+    EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1, ExactSelectorV1, ImplementationKindV1, NativeLifecycleSpecV1,
+    RaisesSpecV1, ReturnContractValidationV1,
     ReturnFlowV1, SelectorKindV1, SemanticWorldV3, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
     StaticDomainCaseCatalogRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
 };
@@ -1001,6 +1002,99 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
         db.query_keys()
             .any(|key| matches!(key, phalcom_semantic::db::QueryKey::CallableDefinition(_))),
         "the reusable root must publish the exact current-main CallableDefinition family"
+    );
+}
+
+#[test]
+fn p7_enum_requirements_reconstruct_as_snapshot_authority_without_ready_query() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+
+    let enum_owner = StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: vec!["core".into()].into_boxed_slice(),
+        },
+        path: vec!["RequirementEnum".into()].into_boxed_slice(),
+    };
+    image.semantic_world.type_graph.types.push(TypeEntryV1 {
+        kind: ArtifactKindId(0),
+        form: TypeV1::Nominal {
+            declaration: enum_owner.clone(),
+        },
+    });
+    image.semantic_world.structural_contracts.enum_contracts.push(EnumInfoV1 {
+        owner: enum_owner.clone(),
+        root_form: ArtifactTypeId(1),
+        generic_signature: None,
+        static_data: None,
+        default_result_type: ArtifactTypeId(1),
+        variants: vec![],
+    });
+
+    let requirement = StableCallableRef {
+        owner: StableCallableOwnerRef::Declaration(enum_owner.clone()),
+        side: StableDispatchSide::Instance,
+        selector: "render".into(),
+    };
+    let signature = CallableSignatureRecordV1 {
+        callable: requirement.clone(),
+        owner: enum_owner.clone(),
+        side: 0,
+        selector: "render".into(),
+        generics: None,
+        parameters: vec![],
+        declared_return: DeclaredTypeFactV1 {
+            state: DeclaredTypeStateV1::Unknown {
+                reason: UnknownReasonV1::NoTypeEvidence,
+            },
+            basis: DeclaredTypeBasisV1::Unspecified,
+        },
+        return_validation: ReturnContractValidationV1::NotApplicable,
+        inferred_return: None,
+        source: None,
+        implementation: ImplementationKindV1::Phalcom,
+        native_id: None,
+        effects: EffectSpecV1::Unknown,
+        raises: RaisesSpecV1::Unknown,
+        flow: ReturnFlowV1::Unknown,
+        lifecycle: NativeLifecycleSpecV1 {
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+        },
+    };
+    image.semantic_world.callable_signatures.push(signature.clone());
+    image.semantic_world.enum_requirements.push(EnumRequirementOwnerV1 {
+        owner: enum_owner,
+        requirements: vec![EnumRequirementRecordV1 {
+            requirement,
+            signature,
+            source_order: 0,
+            source: None,
+        }],
+        case_statuses: vec![],
+    });
+
+    let bytes = encode_artifact(&image).expect("encode P7 enum-requirement authority");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
+        .expect("validate P7 enum-requirement authority");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget)
+        .expect("reconstruct P7 enum-requirement authority");
+
+    assert_eq!(imported.enum_requirement_authority.owner_len(), 1);
+    assert_eq!(imported.enum_requirement_authority.requirement_len(), 1);
+    assert_eq!(imported.enum_requirement_authority.case_status_len(), 0);
+    assert_eq!(
+        imported.query_products.len(),
+        0,
+        "EnumRequirements is snapshot authority only and must not be fabricated into a reusable Ready query"
     );
 }
 
