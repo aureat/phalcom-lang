@@ -537,6 +537,45 @@ fn type_member_owner(owner: &PortableQueryOwnerKeyV1) -> Result<&StableTypeMembe
     }
 }
 
+fn callable_owner(owner: &PortableQueryOwnerKeyV1) -> Result<&StableCallableRef, ArtifactError> {
+    match owner {
+        PortableQueryOwnerKeyV1::Callable(callable) => Ok(callable),
+        _ => Err(ValidationError::ReferentialIntegrity("callable-definition query owner is not a callable identity".into()).into()),
+    }
+}
+
+fn callable_definition_row_matches_owner(
+    row: &crate::semantic::world::CallableDefinitionRecordV1,
+    owner: &StableCallableRef,
+) -> bool {
+    &row.callable == owner && &row.signature.callable == owner
+}
+
+fn portable_callable_definition_digest64(
+    domain: &str,
+    row_index: usize,
+    owner: &StableCallableRef,
+    world: &SemanticWorldV3,
+) -> Result<u64, ArtifactError> {
+    let mut out = BinaryWriter::digest(domain);
+    out.write_u16(PortableQueryKindV1::CallableDefinition as u16);
+    let row = world
+        .callable_definitions
+        .get(row_index)
+        .ok_or_else(|| ValidationError::ReferentialIntegrity("callable-definition query product row is out of bounds".into()))?;
+    if !callable_definition_row_matches_owner(row, owner) {
+        return Err(ValidationError::ReferentialIntegrity(
+            "callable-definition query product row owner differs from query owner".into(),
+        )
+        .into());
+    }
+    row.write(&mut out)?;
+    let digest = out.into_digest();
+    Ok(u64::from_le_bytes(
+        digest.0[..8].try_into().expect("digest prefix is eight bytes"),
+    ))
+}
+
 fn type_member_row_matches_owner(
     row: &crate::semantic::world::TypeMemberDeclarationRecordV1,
     owner: &StableTypeMemberRef,
@@ -668,6 +707,7 @@ pub fn portable_structural_root_fingerprints(
             | PortableQueryKindV1::EnumDeclaration
             | PortableQueryKindV1::AssociatedSurface
             | PortableQueryKindV1::TypeMemberDeclaration
+            | PortableQueryKindV1::CallableDefinition
     ) {
         return Ok(None);
     }
@@ -680,6 +720,13 @@ pub fn portable_structural_root_fingerprints(
         return Ok(Some((
             portable_type_member_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, row_index, owner, world)?,
             portable_type_member_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, row_index, owner, world)?,
+        )));
+    }
+    if root.key.kind == PortableQueryKindV1::CallableDefinition {
+        let owner = callable_owner(&root.key.owner)?;
+        return Ok(Some((
+            portable_callable_definition_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, row_index, owner, world)?,
+            portable_callable_definition_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, row_index, owner, world)?,
         )));
     }
     let owner = declaration_owner(&root.key.owner)?;
@@ -703,6 +750,7 @@ pub fn portable_structural_dependency_product_fingerprint(
             | PortableQueryKindV1::EnumDeclaration
             | PortableQueryKindV1::AssociatedSurface
             | PortableQueryKindV1::TypeMemberDeclaration
+            | PortableQueryKindV1::CallableDefinition
     ) {
         return Ok(None);
     }
@@ -723,6 +771,29 @@ pub fn portable_structural_dependency_product_fingerprint(
             .into());
         }
         return Ok(Some(portable_type_member_digest64(
+            DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2,
+            row_index,
+            owner,
+            world,
+        )?));
+    }
+    if key.kind == PortableQueryKindV1::CallableDefinition {
+        let owner = callable_owner(&key.owner)?;
+        let mut matches = world
+            .callable_definitions
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| callable_definition_row_matches_owner(row, owner));
+        let (row_index, _) = matches
+            .next()
+            .ok_or_else(|| ValidationError::ReferentialIntegrity("callable-definition dependency evidence has no semantic product row".into()))?;
+        if matches.next().is_some() {
+            return Err(ValidationError::ReferentialIntegrity(
+                "callable-definition dependency evidence semantic owner is ambiguous".into(),
+            )
+            .into());
+        }
+        return Ok(Some(portable_callable_definition_digest64(
             DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2,
             row_index,
             owner,
@@ -792,7 +863,11 @@ impl QueryImageV3 {
         for evidence in &mut self.dependency_evidence {
             if matches!(
                 evidence.key.kind,
-                PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration | PortableQueryKindV1::AssociatedSurface | PortableQueryKindV1::TypeMemberDeclaration
+                PortableQueryKindV1::DataDeclaration
+                    | PortableQueryKindV1::EnumDeclaration
+                    | PortableQueryKindV1::AssociatedSurface
+                    | PortableQueryKindV1::TypeMemberDeclaration
+                    | PortableQueryKindV1::CallableDefinition
             ) {
                 if evidence.key.owner != evidence.stable_aggregate_owner {
                     return Err(ValidationError::ReferentialIntegrity(
@@ -836,7 +911,11 @@ impl QueryImageV3 {
         for evidence in &self.dependency_evidence {
             if matches!(
                 evidence.key.kind,
-                PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration | PortableQueryKindV1::AssociatedSurface | PortableQueryKindV1::TypeMemberDeclaration
+                PortableQueryKindV1::DataDeclaration
+                    | PortableQueryKindV1::EnumDeclaration
+                    | PortableQueryKindV1::AssociatedSurface
+                    | PortableQueryKindV1::TypeMemberDeclaration
+                    | PortableQueryKindV1::CallableDefinition
             ) {
                 if evidence.key.owner != evidence.stable_aggregate_owner {
                     return Err(ValidationError::ReferentialIntegrity(
