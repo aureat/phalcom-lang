@@ -601,6 +601,9 @@ pub fn portable_structural_root_fingerprints(
     if !matches!(root.key.kind, PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration) {
         return Ok(None);
     }
+    if root.product.kind != root.key.kind {
+        return Err(ValidationError::ReferentialIntegrity("query root product family differs from its key kind".into()).into());
+    }
     let owner = declaration_owner(&root.key.owner)?;
     let bytes = encode_structural_product_bytes(root.key.kind, root.product.row_index as usize, owner, world)?;
     Ok(Some((
