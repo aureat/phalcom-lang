@@ -120,7 +120,7 @@ fn reconstruct_data_info(
             id: id.clone(),
             local_name: component.local_name.clone(),
             external_label: component.external_label.clone(),
-            declared_type: reconstruct_declared_type(&component.declared_type, types, owners)?,
+            declared_type: reconstruct_declared_type(&component.declared_type, types, owners, allocations)?,
             source: None,
         });
         let parameter = row
@@ -131,7 +131,7 @@ fn reconstruct_data_info(
             component: id,
             external_label: parameter.external_label.clone(),
             local_name: parameter.local_name.clone(),
-            declared_type: reconstruct_declared_type(&parameter.declared_type, types, owners)?,
+            declared_type: reconstruct_declared_type(&parameter.declared_type, types, owners, allocations)?,
         });
     }
 
@@ -164,7 +164,7 @@ fn reconstruct_data_info(
             DataProductContributionV1::Expansion { mode, operand } => {
                 let expansion = DataProductExpansionSemantic {
                     mode: map_expansion_mode(mode.clone()),
-                    operand: reconstruct_declared_type(operand, types, owners)?,
+                    operand: reconstruct_declared_type(operand, types, owners, allocations)?,
                     source: None,
                 };
                 contributions.push(DataProductContribution::Expansion(expansion.clone()));
@@ -303,7 +303,7 @@ fn reconstruct_variant_info(
             id: VariantFieldId::new(id.clone(), u32::try_from(index).map_err(|_| referential("variant field index exceeds u32"))?),
             local_name: field.local_name.clone(),
             external_label: field.external_label.clone(),
-            declared_type: reconstruct_declared_type(&field.declared_type, types, owners)?,
+            declared_type: reconstruct_declared_type(&field.declared_type, types, owners, allocations)?,
             source: None,
         });
     }
@@ -389,7 +389,7 @@ fn reconstruct_variant_constructor(
             field: field.id.clone(),
             external_label: parameter.external_label.clone(),
             local_name: parameter.local_name.clone(),
-            declared_type: reconstruct_declared_type(&parameter.declared_type, types, owners)?,
+            declared_type: reconstruct_declared_type(&parameter.declared_type, types, owners, allocations)?,
         });
     }
     let result_type_template = type_id(row.result_type, types)?;
@@ -571,10 +571,11 @@ fn reconstruct_term(row: &TypeTermV1, types: &super::type_import::ReconstructedT
     })
 }
 
-fn reconstruct_declared_type(
+pub(crate) fn reconstruct_declared_type(
     row: &wire::DeclaredTypeFactV1,
     types: &super::type_import::ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
+    allocations: &mut AllocationBudget,
 ) -> Result<DeclaredTypeFact, ArtifactError> {
     let state = match &row.state {
         DeclaredTypeStateV1::Known { term } => DeclaredTypeState::Known(reconstruct_term(term, types, owners)?),
@@ -587,7 +588,9 @@ fn reconstruct_declared_type(
             UnknownReasonV1::NoTypeEvidence => UnknownReason::NoTypeEvidence,
             UnknownReasonV1::MissingInitializer => UnknownReason::MissingInitializer,
             UnknownReasonV1::UnannotatedDeclaration => UnknownReason::UnannotatedDeclaration,
-            UnknownReasonV1::UnresolvedName { name } => UnknownReason::UnresolvedName(name.clone()),
+            UnknownReasonV1::UnresolvedName { name } => {
+                UnknownReason::UnresolvedName(allocations.boxed_str(name).map_err(ArtifactError::Allocation)?)
+            },
             UnknownReasonV1::DynamicMessageSend => UnknownReason::DynamicMessageSend,
             UnknownReasonV1::OpaqueNative => UnknownReason::OpaqueNative,
             UnknownReasonV1::RecursiveFixpoint => UnknownReason::RecursiveFixpoint,
