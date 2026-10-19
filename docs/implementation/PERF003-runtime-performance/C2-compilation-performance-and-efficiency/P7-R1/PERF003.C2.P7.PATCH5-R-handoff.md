@@ -51,8 +51,8 @@ verification: FOCUSED_TESTED
 
 - **Resolved: source-owned intrinsic runtime ADTs:**
   `ProductKind` and similar declarations in `universe:reflection.structural` have generic semantic enum/data lowering and no `IntrinsicRuntimeOwner`. Compiler dispatch now uses the facade path only when semantic lowering contains a matching facade; the native source index keeps the remaining declarations source-owned. The artifact-backed bootstrap regression verifies that `VM::new()` succeeds after compiling the SlotMap runtime package.
-- **Deferred: SlotMap runtime fixture execution:**
-  `RUSTFLAGS='' cargo run -p phalcom-core --bin phalcom -- packages/slotmap/tests/runtime` now proceeds beyond Universe bootstrap, then fails with `Fields can only be accessed within a class: _keys`. This is a separate SlotMap source/compiler issue and was not changed in the intrinsic-dispatch correction. Full SlotMap runtime execution remains unverified.
+- **Resolved: SlotMap runtime fixture execution follow-up:**
+  Owner-class `makeIterator` helpers keep `_slots`, `_keys`, and `_values` access inside their declaring classes. Semantic session publication and source-body replay now include class indexers, using the canonical member callable identity; the regression checks proven match coverage and incremental replay. `RUSTFLAGS='' cargo check -p phalcom-semantic` passed, and `RUSTFLAGS='' cargo run -p phalcom-core --bin phalcom -- packages/slotmap/tests/runtime` passed both runtime modules and printed `slotmap runtime tests complete`. The focused semantic integration test could not run because the monolithic `semantic` target fails to compile 412 unrelated stale fixtures that still use old `AnalysisMap` and `ModuleAuthorityMap` shapes. This follow-up does not change the P7 allocation-gate classification.
 
 ## Recommended verification commands for takeover
 

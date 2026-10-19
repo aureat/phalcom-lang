@@ -262,6 +262,78 @@ impl User {
 }
 
 #[test]
+fn class_indexer_match_publishes_callable_body_and_proven_resolution() {
+    let module = test_module();
+    let source = r#"
+data Lookup {
+  @variant Found(_ value: Int)
+  @variant Missing
+}
+
+class Table {
+  [_ key: Int] -> Int {
+    match Lookup::Found(key) {
+      Lookup::Found(value) => value
+      Lookup::Missing => 0
+    }
+  }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let callable = CallableId::new(
+        DeclarationId::new(module.clone(), "Table".into()),
+        Selector::subscript_get([phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        DispatchSide::Instance,
+    );
+    let analysis = update
+        .snapshot
+        .callable_analyses
+        .get(&callable)
+        .expect("indexer body analysis should be present");
+    let (match_expression, resolution) = analysis.match_resolutions.iter().next().expect("indexer match resolution should be present");
+    assert_eq!(
+        resolution.exhaustiveness,
+        phalcom_semantic::match_semantics::ExhaustivenessResult::Proven,
+        "indexer match should retain proven coverage"
+    );
+    let expression = analysis.expressions.get(match_expression).expect("match expression analysis should be present");
+    assert_eq!(
+        source.get(expression.range.start..expression.range.end),
+        Some("match Lookup::Found(key) {\n      Lookup::Found(value) => value\n      Lookup::Missing => 0\n    }")
+    );
+
+    let query_key = QueryKey::CallableBody(callable.clone());
+    let changed_source = format!("{source}\nclass Refresh {{}}\n");
+    let refreshed = session
+        .update(single_module_input(module, &changed_source))
+        .expect("incremental semantic update should succeed");
+    assert!(
+        !refreshed.snapshot.has_errors(),
+        "incremental diagnostics: {:?}",
+        refreshed.snapshot.diagnostics
+    );
+    assert_eq!(
+        session.db().query_state(&query_key).and_then(|state| state.revision()),
+        Some(refreshed.snapshot.id.revision()),
+        "the indexer body should be selected for source-body replay"
+    );
+    assert!(
+        refreshed.snapshot.callable_analyses.get(&callable).is_some_and(|analysis| {
+            analysis
+                .match_resolutions
+                .values()
+                .any(|resolution| resolution.exhaustiveness == phalcom_semantic::match_semantics::ExhaustivenessResult::Proven)
+        }),
+        "incremental replay should retain the proven indexer match"
+    );
+}
+
+#[test]
 fn test_class_side_impl_body_and_self() {
     let module = test_module();
     let src = r#"
