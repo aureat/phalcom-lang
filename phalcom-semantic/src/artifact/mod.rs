@@ -20,8 +20,10 @@ mod query_product_import;
 mod semantic_import;
 mod static_case_import;
 mod static_constant_import;
+mod static_definition_import;
 mod static_dependency_import;
 mod static_import;
+mod static_program_import;
 mod trait_import;
 mod type_import;
 mod witness_import;
@@ -42,7 +44,13 @@ pub use query_product_import::ImportedQueryProducts;
 pub use semantic_import::ImportedSemanticAggregates;
 pub use static_case_import::ImportedStaticCaseAuthority;
 pub use static_constant_import::ImportedStaticConstantAuthority;
+pub use static_definition_import::ImportedStaticDefinitionAuthority;
 pub use static_import::ImportedStaticValueGraph;
+pub use static_program_import::{
+    ImportedCanonicalCheckedStaticApplication, ImportedCanonicalStaticApplicationArgument,
+    ImportedCanonicalStaticProgram, ImportedOperationalNode, ImportedOperationalTarget,
+    ImportedStaticBinaryOp, ImportedStaticUnaryOp,
+};
 pub use trait_import::ImportedTraitAuthority;
 pub use type_import::ImportedTypeGraph;
 pub use witness_import::ImportedWitnessPreflightAuthority;
@@ -107,6 +115,9 @@ pub struct ImportedCompilerImage {
     /// Certified-P7 checked static constants reconstructed against the same
     /// relocated type/static-value graphs and retained for T4 publication.
     pub static_constant_authority: Arc<ImportedStaticConstantAuthority>,
+    /// Certified-P7 source-free static-definition programs staged as typed
+    /// operational authority without fabricating current-main AST bodies.
+    pub static_definition_authority: Arc<ImportedStaticDefinitionAuthority>,
     /// Reconstructed structural declaration products (data, enums, variants).
     pub semantic_aggregates: Arc<ImportedSemanticAggregates>,
     /// P7 associated semantic authority reconstructed once and shared by
@@ -182,6 +193,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_type_graph: Option<Arc<ImportedTypeGraph>>,
     pub staged_static_values: Option<Arc<ImportedStaticValueGraph>>,
     pub staged_static_constant_authority: Option<Arc<ImportedStaticConstantAuthority>>,
+    pub staged_static_definition_authority: Option<Arc<ImportedStaticDefinitionAuthority>>,
     pub staged_semantic_aggregates: Option<Arc<ImportedSemanticAggregates>>,
     pub staged_associated_authority: Option<Arc<ImportedAssociatedAuthority>>,
     pub staged_static_case_authority: Option<Arc<ImportedStaticCaseAuthority>>,
@@ -215,6 +227,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_type_graph: None,
             staged_static_values: None,
             staged_static_constant_authority: None,
+            staged_static_definition_authority: None,
             staged_semantic_aggregates: None,
             staged_associated_authority: None,
             staged_static_case_authority: None,
@@ -348,9 +361,20 @@ impl<'a> ArtifactImportTransaction<'a> {
             &owners,
             child,
         )?;
+        let static_definition_authority = static_definition_import::reconstruct_static_definitions(
+            &payload.semantic_world.static_definitions,
+            &payload.semantic_world.structural_contracts,
+            &static_values,
+            &reconstructed,
+            &owners,
+            &self.limits,
+            child,
+        )?;
         self.staged_static_values = Some(child.arc(static_values).map_err(ArtifactError::Allocation)?);
         self.staged_static_constant_authority =
             Some(child.arc(static_constant_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_static_definition_authority =
+            Some(child.arc(static_definition_authority).map_err(ArtifactError::Allocation)?);
         let semantic_aggregates =
             semantic_import::reconstruct_structural_aggregates(&payload.semantic_world.structural_contracts, &reconstructed, &owners, &self.limits, child)?;
         let associated_authority =
@@ -504,6 +528,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_static_constant_authority
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged static-constant authority".into())))?;
+        let static_definition_authority = self
+            .staged_static_definition_authority
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged static-definition authority".into())))?;
         let semantic_aggregates = self
             .staged_semantic_aggregates
             .take()
@@ -587,6 +615,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             type_graph,
             static_values,
             static_constant_authority,
+            static_definition_authority,
             semantic_aggregates,
             associated_authority,
             static_case_authority,
@@ -616,6 +645,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_type_graph = None;
             self.staged_static_values = None;
             self.staged_static_constant_authority = None;
+            self.staged_static_definition_authority = None;
             self.staged_semantic_aggregates = None;
             self.staged_associated_authority = None;
             self.staged_static_case_authority = None;
