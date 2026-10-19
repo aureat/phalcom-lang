@@ -139,6 +139,7 @@ impl ImportedConformanceEvidenceGraph {
 pub(crate) fn reconstruct_conformance_evidence_graph(
     records: &[CallableConformanceEvidenceNodeV1],
     conformances: &ImportedConformanceAuthority,
+    prior_witnesses: &[super::witness_import::ImportedWitnessPlanPreflight],
     traits: &ImportedTraitAuthority,
     callables: &ImportedCallableAuthority,
     types: &ReconstructedTypeGraph,
@@ -160,6 +161,7 @@ pub(crate) fn reconstruct_conformance_evidence_graph(
                     evidence,
                     records,
                     conformances,
+                    prior_witnesses,
                     traits,
                     callables,
                     types,
@@ -206,6 +208,7 @@ fn reconstruct_exact(
     record: &CallableExactConformanceEvidenceV1,
     all_nodes: &[CallableConformanceEvidenceNodeV1],
     conformances: &ImportedConformanceAuthority,
+    prior_witnesses: &[super::witness_import::ImportedWitnessPlanPreflight],
     traits: &ImportedTraitAuthority,
     callables: &ImportedCallableAuthority,
     types: &ReconstructedTypeGraph,
@@ -214,8 +217,19 @@ fn reconstruct_exact(
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedExactConformanceEvidence, ArtifactError> {
     let source_impl = owners.implementation(&record.source_impl)?;
+    // Certified P7 resolves Exact evidence against source witness plans that
+    // were already reconstructed earlier in canonical witness order. The
+    // native source-plan fingerprint is intentionally unavailable until T4,
+    // but the ordering/identity dependency must already be proven here.
+    if !prior_witnesses.iter().any(|plan| plan.impl_id == source_impl) {
+        return Err(invalid(
+            "exact conformance evidence has no previously staged source witness plan",
+        ));
+    }
     if conformances.get(&source_impl).is_none() {
-        return Err(invalid("exact conformance evidence references an absent imported conformance head"));
+        return Err(invalid(
+            "exact conformance evidence source witness has no imported conformance head",
+        ));
     }
     let exact_target = mapped_type(record.exact_target, types, "exact conformance target")?;
     let exact_trait_ref = trait_ref(&record.exact_trait_ref, types, owners, allocations)?;
