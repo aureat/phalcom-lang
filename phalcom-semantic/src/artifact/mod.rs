@@ -6,6 +6,7 @@ mod associated_import;
 mod callable_binding_import;
 mod callable_expression_import;
 mod callable_import;
+mod callable_specialization_import;
 mod conformance_evidence_import;
 mod conformance_import;
 mod denotation_import;
@@ -37,6 +38,9 @@ pub use callable_expression_import::{
     ImportedExpressionDeferredAuthority,
 };
 pub use callable_import::ImportedCallableAuthority;
+pub use callable_specialization_import::{
+    ImportedCallSpecialization, ImportedCallableSpecializationAuthority,
+};
 pub use conformance_import::ImportedConformanceAuthority;
 pub use constructor_import::ImportedConstructorInitializationAuthority;
 pub use derived_import::ImportedDerivedConformanceAuthority;
@@ -146,6 +150,9 @@ pub struct ImportedCompilerImage {
     /// Proof-bearing sidecars remain explicitly deferred per expression until
     /// the separate dispatch/evidence transplant is complete.
     pub callable_expression_authority: Arc<ImportedCallableExpressionAuthority>,
+    /// P7 generic call specialization sidecars, including relocated static
+    /// arguments and conformance-evidence references.
+    pub callable_specialization_authority: Arc<ImportedCallableSpecializationAuthority>,
     /// Certified-P7 module-static namespace facts joined to the canonical
     /// imported callable-binding rows without duplicating BindingState.
     pub module_static_binding_authority: Arc<ImportedModuleStaticBindingAuthority>,
@@ -215,6 +222,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_callable_authority: Option<Arc<ImportedCallableAuthority>>,
     pub staged_callable_binding_authority: Option<Arc<ImportedCallableBindingAuthority>>,
     pub staged_callable_expression_authority: Option<Arc<ImportedCallableExpressionAuthority>>,
+    pub staged_callable_specialization_authority: Option<Arc<ImportedCallableSpecializationAuthority>>,
     pub staged_module_static_binding_authority: Option<Arc<ImportedModuleStaticBindingAuthority>>,
     pub staged_constructor_initialization_authority: Option<Arc<ImportedConstructorInitializationAuthority>>,
     pub staged_dispatch_authority: Option<Arc<ImportedDispatchAuthority>>,
@@ -251,6 +259,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_callable_authority: None,
             staged_callable_binding_authority: None,
             staged_callable_expression_authority: None,
+            staged_callable_specialization_authority: None,
             staged_module_static_binding_authority: None,
             staged_constructor_initialization_authority: None,
             staged_dispatch_authority: None,
@@ -427,6 +436,14 @@ impl<'a> ArtifactImportTransaction<'a> {
             &owners,
             child,
         )?;
+        let callable_specialization_authority =
+            callable_specialization_import::reconstruct_callable_specializations(
+                &payload.semantic_world.callable_analyses,
+                &callable_authority,
+                &reconstructed,
+                &owners,
+                child,
+            )?;
         let module_static_binding_authority = module_static_import::reconstruct_module_static_bindings(
             &payload.semantic_world.module_static_bindings,
             &callable_binding_authority,
@@ -509,6 +526,8 @@ impl<'a> ArtifactImportTransaction<'a> {
             Some(child.arc(callable_binding_authority).map_err(ArtifactError::Allocation)?);
         self.staged_callable_expression_authority =
             Some(child.arc(callable_expression_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_callable_specialization_authority =
+            Some(child.arc(callable_specialization_authority).map_err(ArtifactError::Allocation)?);
         self.staged_module_static_binding_authority =
             Some(child.arc(module_static_binding_authority).map_err(ArtifactError::Allocation)?);
         self.staged_constructor_initialization_authority =
@@ -599,6 +618,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_callable_expression_authority
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged callable expression authority".into())))?;
+        let callable_specialization_authority = self
+            .staged_callable_specialization_authority
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged callable specialization authority".into())))?;
         let module_static_binding_authority = self
             .staged_module_static_binding_authority
             .take()
@@ -673,6 +696,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             callable_authority,
             callable_binding_authority,
             callable_expression_authority,
+            callable_specialization_authority,
             module_static_binding_authority,
             constructor_initialization_authority,
             dispatch_authority,
@@ -705,6 +729,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_callable_authority = None;
             self.staged_callable_binding_authority = None;
             self.staged_callable_expression_authority = None;
+            self.staged_callable_specialization_authority = None;
             self.staged_module_static_binding_authority = None;
             self.staged_constructor_initialization_authority = None;
             self.staged_dispatch_authority = None;
