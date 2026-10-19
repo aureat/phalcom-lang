@@ -239,7 +239,7 @@ fn behavioral_spec(
     })
 }
 
-fn exact_selector(
+pub(crate) fn exact_selector(
     selector: &ExactSelectorV1,
     allocations: &mut AllocationBudget,
 ) -> Result<Selector, ArtifactError> {
