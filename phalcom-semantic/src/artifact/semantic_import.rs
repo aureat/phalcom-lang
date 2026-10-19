@@ -557,7 +557,7 @@ pub(crate) fn reconstruct_constraint(
     })
 }
 
-fn reconstruct_term(row: &TypeTermV1, types: &super::type_import::ReconstructedTypeGraph, owners: &StableOwnerCatalog<'_>) -> Result<TypeTerm, ArtifactError> {
+pub(crate) fn reconstruct_term(row: &TypeTermV1, types: &super::type_import::ReconstructedTypeGraph, owners: &StableOwnerCatalog<'_>) -> Result<TypeTerm, ArtifactError> {
     Ok(match row {
         TypeTermV1::Canonical { ty } => TypeTerm::Canonical(type_id(*ty, types)?),
         TypeTermV1::SelfType { term } => TypeTerm::SelfType(SelfTypeTerm {
