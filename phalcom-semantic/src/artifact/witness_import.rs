@@ -665,7 +665,7 @@ fn reconstruct_inherent_domain(
         .map_err(ArtifactError::Allocation)
 }
 
-fn reconstruct_inherent_specialization(
+pub(crate) fn reconstruct_inherent_specialization(
     specialization: &CallableInherentImplSpecializationV1,
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
