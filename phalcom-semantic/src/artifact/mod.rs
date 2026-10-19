@@ -6,6 +6,7 @@ mod associated_import;
 mod callable_import;
 mod conformance_import;
 mod constructor_import;
+mod diagnostic_import;
 mod dispatch_import;
 mod enum_requirement_import;
 mod identity;
@@ -16,6 +17,7 @@ mod query_product_import;
 mod semantic_import;
 mod static_case_import;
 mod static_import;
+mod trait_import;
 mod type_import;
 pub use associated_import::ImportedAssociatedAuthority;
 pub use callable_import::ImportedCallableAuthority;
@@ -32,6 +34,7 @@ pub use query_product_import::ImportedQueryProducts;
 pub use semantic_import::ImportedSemanticAggregates;
 pub use static_case_import::ImportedStaticCaseAuthority;
 pub use static_import::ImportedStaticValueGraph;
+pub use trait_import::ImportedTraitAuthority;
 pub use type_import::ImportedTypeGraph;
 
 use phalcom_compiler_artifact::digest::ArtifactDigest;
@@ -116,6 +119,9 @@ pub struct ImportedCompilerImage {
     /// Certified-P7 explicit conformance heads, with authorization rechecked
     /// against the relocated current-main project graph.
     pub conformance_authority: Arc<ImportedConformanceAuthority>,
+    /// Certified-P7 trait headers, requirements, associated types, and complete
+    /// diagnostics staged for the one imported snapshot.
+    pub trait_authority: Arc<ImportedTraitAuthority>,
     /// Certified-P7 closed-enum requirements and per-case obligation statuses,
     /// staged for T4 snapshot publication. This authority is not independently
     /// promoted to a reusable SemanticDb root.
@@ -160,6 +166,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_dispatch_authority: Option<Arc<ImportedDispatchAuthority>>,
     pub staged_conditional_inherent_authority: Option<Arc<ImportedConditionalInherentAuthority>>,
     pub staged_conformance_authority: Option<Arc<ImportedConformanceAuthority>>,
+    pub staged_trait_authority: Option<Arc<ImportedTraitAuthority>>,
     pub staged_enum_requirement_authority: Option<Arc<ImportedEnumRequirementAuthority>>,
     pub staged_query_products: Option<Arc<ImportedQueryProducts>>,
     pub staged_semantic_world: Option<SemanticWorldV3>,
@@ -188,6 +195,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_dispatch_authority: None,
             staged_conditional_inherent_authority: None,
             staged_conformance_authority: None,
+            staged_trait_authority: None,
             staged_enum_requirement_authority: None,
             staged_query_products: None,
             staged_semantic_world: None,
@@ -346,6 +354,12 @@ impl<'a> ArtifactImportTransaction<'a> {
             &owners,
             child,
         )?;
+        let trait_authority = trait_import::reconstruct_trait_authority(
+            &payload.semantic_world.trait_surfaces,
+            &reconstructed,
+            &owners,
+            child,
+        )?;
         let enum_requirement_authority = enum_requirement_import::reconstruct_enum_requirement_authority(
             &payload.semantic_world.enum_requirements,
             &semantic_aggregates,
@@ -372,6 +386,7 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.staged_conditional_inherent_authority =
             Some(child.arc(conditional_inherent_authority).map_err(ArtifactError::Allocation)?);
         self.staged_conformance_authority = Some(child.arc(conformance_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_trait_authority = Some(child.arc(trait_authority).map_err(ArtifactError::Allocation)?);
         self.staged_enum_requirement_authority =
             Some(child.arc(enum_requirement_authority).map_err(ArtifactError::Allocation)?);
         self.staged_query_products = Some(child.arc(query_products).map_err(ArtifactError::Allocation)?);
@@ -449,6 +464,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_conformance_authority
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged conformance-head authority".into())))?;
+        let trait_authority = self
+            .staged_trait_authority
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged trait semantic authority".into())))?;
         let enum_requirement_authority = self
             .staged_enum_requirement_authority
             .take()
@@ -491,6 +510,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             dispatch_authority,
             conditional_inherent_authority,
             conformance_authority,
+            trait_authority,
             enum_requirement_authority,
             query_products,
             semantic_world,
@@ -515,6 +535,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_dispatch_authority = None;
             self.staged_conditional_inherent_authority = None;
             self.staged_conformance_authority = None;
+            self.staged_trait_authority = None;
             self.staged_enum_requirement_authority = None;
             self.staged_query_products = None;
             self.staged_semantic_world = None;
