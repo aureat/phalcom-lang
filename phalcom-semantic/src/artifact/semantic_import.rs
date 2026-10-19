@@ -526,7 +526,7 @@ pub(crate) fn reconstruct_signature(
     Ok(signature)
 }
 
-fn reconstruct_constraint(
+pub(crate) fn reconstruct_constraint(
     row: &GenericConstraintV1,
     types: &super::type_import::ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
