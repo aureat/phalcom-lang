@@ -52,10 +52,6 @@ impl ImportedQueryProducts {
         self.ready.is_empty()
     }
 
-    pub(crate) fn ready(&self) -> &[ImportedReadyQueryProduct] {
-        &self.ready
-    }
-
     /// Publishes the staged products into the one current-main semantic database.
     ///
     /// Imported generation publication is deliberately restricted to a fresh
@@ -204,7 +200,7 @@ fn reconstruct_data_evidence(
     owners: &StableOwnerCatalog<'_>,
     diagnostics: Arc<[SemanticDiagnostic]>,
     allocations: &mut AllocationBudget,
-) -> Result<ImportedReadyQueryProduct, ArtifactError> {
+) -> Result<(), ArtifactError> {
     require_exact_structural_aggregate_owner(evidence)?;
     require_relocation_stable_fingerprint_owner(&evidence.key.owner)?;
     let key = QueryKey::from_portable_owner(evidence.key.kind, &evidence.key.owner, owners)?;
@@ -212,10 +208,8 @@ fn reconstruct_data_evidence(
         return Err(invalid("data dependency evidence did not relocate to DataDeclaration"));
     };
     let product = data_product(owner, aggregates, diagnostics, allocations)?;
-    let input_fingerprint = data_declaration_input_fingerprint(&product);
     let product_fingerprint = data_declaration_product_fingerprint(&product);
-    validate_evidence_fingerprint(evidence, product_fingerprint)?;
-    Ok(ready(key, input_fingerprint, product_fingerprint, SemanticProduct::DataDeclaration(product)))
+    validate_evidence_fingerprint(evidence, product_fingerprint)
 }
 
 fn reconstruct_enum_evidence(
@@ -224,7 +218,7 @@ fn reconstruct_enum_evidence(
     owners: &StableOwnerCatalog<'_>,
     diagnostics: Arc<[SemanticDiagnostic]>,
     allocations: &mut AllocationBudget,
-) -> Result<ImportedReadyQueryProduct, ArtifactError> {
+) -> Result<(), ArtifactError> {
     require_exact_structural_aggregate_owner(evidence)?;
     require_relocation_stable_fingerprint_owner(&evidence.key.owner)?;
     let key = QueryKey::from_portable_owner(evidence.key.kind, &evidence.key.owner, owners)?;
@@ -232,10 +226,8 @@ fn reconstruct_enum_evidence(
         return Err(invalid("enum dependency evidence did not relocate to EnumDeclaration"));
     };
     let product = enum_product(owner, aggregates, diagnostics, allocations)?;
-    let input_fingerprint = enum_declaration_input_fingerprint(&product);
     let product_fingerprint = enum_declaration_product_fingerprint(&product);
-    validate_evidence_fingerprint(evidence, product_fingerprint)?;
-    Ok(ready(key, input_fingerprint, product_fingerprint, SemanticProduct::EnumDeclaration(product)))
+    validate_evidence_fingerprint(evidence, product_fingerprint)
 }
 
 fn data_product(
