@@ -1,6 +1,7 @@
 //! Portable `QUERY_IMAGE` wire DTOs and exhaustive profile dispositions (`PERF003.C2.P7.T9`).
 
 use crate::codec::{BinaryReader, BinaryWriter};
+use crate::digest::ArtifactDigest;
 use crate::error::{ArtifactError, ValidationError};
 use crate::limits::ValidationLimits;
 use crate::module_world::{Decode, ModuleWorldV1, ModuleWorldV2, Wire};
@@ -13,6 +14,16 @@ use phalcom_type_meta::identity::{
 
 pub const QUERY_IMAGE_SCHEMA_V2: u32 = 2;
 pub const QUERY_IMAGE_SCHEMA_V3: u32 = 3;
+
+
+/// QUERY_FINGERPRINT_ABI_V2 domains for portable structural query evidence.
+///
+/// These fingerprints belong to the artifact wire contract, not to
+/// `SemanticDb`. They are computed from stable-owner semantic rows and remain
+/// valid when the receiving workspace relocates a persistent project to a
+/// different graph-local `ResolvedProjectId`.
+const DOMAIN_STRUCTURAL_QUERY_INPUT_V2: &str = "telos.telosc.v2.query-input.structural";
+const DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2: &str = "telos.telosc.v2.query-product.structural";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(u16)]
@@ -510,6 +521,131 @@ pub struct DependencyEvidenceEntryV3 {
 pub struct QueryImageV3 {
     pub supported_roots: Vec<QueryRootEntryV3>,
     pub dependency_evidence: Vec<DependencyEvidenceEntryV3>,
+}
+
+
+fn portable_query_digest64(domain: &str, bytes: &[u8]) -> u64 {
+    let digest = ArtifactDigest::digest_domain(domain, bytes);
+    u64::from_le_bytes(digest.0[..8].try_into().expect("digest prefix is eight bytes"))
+}
+
+fn declaration_owner(owner: &PortableQueryOwnerKeyV1) -> Result<&StableDeclarationRef, ArtifactError> {
+    match owner {
+        PortableQueryOwnerKeyV1::Declaration(declaration) => Ok(declaration),
+        _ => Err(ValidationError::ReferentialIntegrity("structural declaration query owner is not a declaration".into()).into()),
+    }
+}
+
+fn encode_structural_product_bytes(
+    kind: PortableQueryKindV1,
+    row_index: usize,
+    owner: &StableDeclarationRef,
+    world: &SemanticWorldV3,
+) -> Result<Vec<u8>, ArtifactError> {
+    let mut out = BinaryWriter::new();
+    out.write_u16(kind as u16);
+    match kind {
+        PortableQueryKindV1::DataDeclaration => {
+            let row = world
+                .structural_contracts
+                .data_contracts
+                .get(row_index)
+                .ok_or_else(|| ValidationError::ReferentialIntegrity("data query product row is out of bounds".into()))?;
+            if &row.owner != owner {
+                return Err(ValidationError::ReferentialIntegrity("data query product row owner differs from query owner".into()).into());
+            }
+            row.write(&mut out)?;
+        }
+        PortableQueryKindV1::EnumDeclaration => {
+            let row = world
+                .structural_contracts
+                .enum_contracts
+                .get(row_index)
+                .ok_or_else(|| ValidationError::ReferentialIntegrity("enum query product row is out of bounds".into()))?;
+            if &row.owner != owner {
+                return Err(ValidationError::ReferentialIntegrity("enum query product row owner differs from query owner".into()).into());
+            }
+            row.write(&mut out)?;
+            out.write_u32(u32::try_from(row.variants.len()).map_err(|_| ValidationError::ReferentialIntegrity("enum variant count exceeds u32".into()))?);
+            for variant in &row.variants {
+                let mut matches = world.structural_contracts.variant_contracts.iter().filter(|candidate| candidate.variant == *variant);
+                let variant_row = matches
+                    .next()
+                    .ok_or_else(|| ValidationError::ReferentialIntegrity("enum query product references a missing variant row".into()))?;
+                if matches.next().is_some() {
+                    return Err(ValidationError::ReferentialIntegrity("enum query product variant row is ambiguous".into()).into());
+                }
+                variant_row.write(&mut out)?;
+            }
+        }
+        _ => {
+            return Err(ValidationError::ReferentialIntegrity(
+                "portable structural fingerprint requested for unsupported query family".into(),
+            )
+            .into());
+        }
+    }
+    Ok(out.into_vec())
+}
+
+/// Computes QUERY_FINGERPRINT_ABI_V2 evidence for structural query roots.
+///
+/// The returned values are portable artifact fingerprints. A receiving semantic
+/// database must compute its own current-main input/product fingerprints after
+/// typed reconstruction; graph-local DB fingerprints are never compared to
+/// these wire fingerprints.
+pub fn portable_structural_root_fingerprints(
+    root: &QueryRootEntryV3,
+    world: &SemanticWorldV3,
+) -> Result<Option<(u64, u64)>, ArtifactError> {
+    if !matches!(root.key.kind, PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration) {
+        return Ok(None);
+    }
+    let owner = declaration_owner(&root.key.owner)?;
+    let bytes = encode_structural_product_bytes(root.key.kind, root.product.row_index as usize, owner, world)?;
+    Ok(Some((
+        portable_query_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, &bytes),
+        portable_query_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, &bytes),
+    )))
+}
+
+/// Computes portable structural product evidence for a dependency-only key.
+///
+/// Dependency evidence has no row index, so the semantic row is selected by
+/// exact stable declaration owner. Duplicate/missing rows fail closed.
+pub fn portable_structural_dependency_product_fingerprint(
+    key: &PortableQueryKeyV1,
+    world: &SemanticWorldV3,
+) -> Result<Option<u64>, ArtifactError> {
+    if !matches!(key.kind, PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration) {
+        return Ok(None);
+    }
+    let owner = declaration_owner(&key.owner)?;
+    let row_index = match key.kind {
+        PortableQueryKindV1::DataDeclaration => {
+            let mut matches = world.structural_contracts.data_contracts.iter().enumerate().filter(|(_, row)| &row.owner == owner);
+            let (index, _) = matches
+                .next()
+                .ok_or_else(|| ValidationError::ReferentialIntegrity("data dependency evidence has no structural product row".into()))?;
+            if matches.next().is_some() {
+                return Err(ValidationError::ReferentialIntegrity("data dependency evidence structural owner is ambiguous".into()).into());
+            }
+            index
+        }
+        PortableQueryKindV1::EnumDeclaration => {
+            let mut matches = world.structural_contracts.enum_contracts.iter().enumerate().filter(|(_, row)| &row.owner == owner);
+            let (index, _) = matches
+                .next()
+                .ok_or_else(|| ValidationError::ReferentialIntegrity("enum dependency evidence has no structural product row".into()))?;
+            if matches.next().is_some() {
+                return Err(ValidationError::ReferentialIntegrity("enum dependency evidence structural owner is ambiguous".into()).into());
+            }
+            index
+        }
+        _ => unreachable!("guarded structural kind"),
+    };
+    let bytes = encode_structural_product_bytes(key.kind, row_index, owner, world)?;
+    Ok(Some(portable_query_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, &bytes)))
 }
 
 impl QueryImageV3 {
