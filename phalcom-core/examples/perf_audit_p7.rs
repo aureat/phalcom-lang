@@ -22,7 +22,7 @@ use phalcom_core::vm::VM;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Instant;
 
 /// Escapes a field according to standard RFC 4180 CSV rules.
@@ -74,7 +74,7 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         append: bool,
     },
-    /// Run warm compilation benchmark (10 samples per configuration)
+    /// Run warm compilation benchmark in isolated source/artifact child processes
     RunWarmSuite {
         #[arg(long, default_value = "target/telos/universe/universe.telosc")]
         artifact: PathBuf,
@@ -82,6 +82,16 @@ enum Commands {
         samples: usize,
         #[arg(long, alias = "csv", default_value = "target/perf003-p7-audit/RAW-WARM.csv")]
         output: PathBuf,
+    },
+    /// Execute one warm benchmark scenario. Parent harness only.
+    #[command(name = "warm-child", hide = true)]
+    WarmChild {
+        #[arg(long)]
+        mode: String,
+        #[arg(long, default_value = "target/telos/universe/universe.telosc")]
+        artifact: PathBuf,
+        #[arg(long, default_value_t = 10)]
+        repetitions: usize,
     },
     /// Single end-to-end runtime sample
     RuntimeSingle {
@@ -290,6 +300,7 @@ fn main() {
             append,
         } => cmd_run_cold_suite(&artifact, samples, &output, workload.as_deref(), append),
         Commands::RunWarmSuite { artifact, samples, output } => cmd_run_warm_suite(&artifact, samples, &output),
+        Commands::WarmChild { mode, artifact, repetitions } => cmd_warm_child(&mode, &artifact, repetitions),
         Commands::RuntimeSingle { mode, artifact, sample_id } => cmd_runtime_single(&mode, &artifact, sample_id),
         Commands::RunRuntimeSuite { artifact, samples, output } => cmd_run_runtime_suite(&artifact, samples, &output),
         Commands::SlotmapEval { artifact, output } => cmd_slotmap_eval(&artifact, output.as_deref()),
@@ -631,10 +642,73 @@ fn cmd_run_cold_suite(artifact: &Path, samples: usize, csv_path: &Path, workload
     );
 }
 
-fn cmd_run_warm_suite(artifact: &Path, repetitions: usize, csv_path: &Path) {
-    let limits = ValidationLimits::default();
-    let modes = ["source", "artifact"];
+#[derive(Debug)]
+struct WarmSampleRow {
+    csv: String,
+    compile_ms: f64,
+    peak_rss_bytes: u64,
+}
 
+fn validate_warm_child_output(stdout: &str, mode: &str, repetitions: usize, pid: u32) -> Result<Vec<WarmSampleRow>, String> {
+    let rows: Vec<&str> = stdout.lines().filter_map(|line| line.strip_prefix("RAW_WARM_CSV:")).collect();
+    if rows.len() != repetitions {
+        return Err(format!("expected {repetitions} warm rows, received {}", rows.len()));
+    }
+
+    rows.into_iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let columns: Vec<&str> = row.split(',').collect();
+            if columns.len() != 8 {
+                return Err(format!("row {} has {} columns, expected 8", index + 1, columns.len()));
+            }
+            if columns[0] != mode {
+                return Err(format!("row {} has scenario {:?}, expected {mode:?}", index + 1, columns[0]));
+            }
+            if columns[1].parse::<usize>().ok() != Some(index + 1) {
+                return Err(format!("row {} has invalid sample number {:?}", index + 1, columns[1]));
+            }
+            if columns[2].parse::<u32>().ok() != Some(pid) {
+                return Err(format!("row {} does not report child PID {pid}", index + 1));
+            }
+            if columns[3] != "1" {
+                return Err(format!("row {} must report exactly one untimed warmup", index + 1));
+            }
+            let expected_variant = if index == 0 {
+                "first_compilation"
+            } else if (index + 1) % 2 == 0 {
+                "modified_input"
+            } else {
+                "unchanged_input"
+            };
+            if columns[4] != expected_variant {
+                return Err(format!("row {} has input variant {:?}, expected {expected_variant:?}", index + 1, columns[4]));
+            }
+            let compile_ms = columns[5]
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite() && *value >= 0.0)
+                .ok_or_else(|| format!("row {} has invalid compile duration {:?}", index + 1, columns[5]))?;
+            let peak_rss_bytes = columns[6]
+                .parse::<u64>()
+                .ok()
+                .filter(|value| *value > 0)
+                .ok_or_else(|| format!("row {} has invalid peak RSS {:?}", index + 1, columns[6]))?;
+            if columns[7] != "SUCCESS" {
+                return Err(format!("row {} reports non-success status {:?}", index + 1, columns[7]));
+            }
+            Ok(WarmSampleRow {
+                csv: row.to_owned(),
+                compile_ms,
+                peak_rss_bytes,
+            })
+        })
+        .collect()
+}
+
+fn cmd_run_warm_suite(artifact: &Path, repetitions: usize, csv_path: &Path) {
+    assert!(repetitions > 0, "warm suite requires at least one timed repetition");
+    let modes = ["source", "artifact"];
     if let Some(parent) = csv_path.parent() {
         fs::create_dir_all(parent).expect("create csv dir");
     }
@@ -643,82 +717,124 @@ fn cmd_run_warm_suite(artifact: &Path, repetitions: usize, csv_path: &Path) {
         "scenario",
         "sample_number",
         "process_id",
+        "warmup_count",
         "input_variant",
         "compile_ms",
-        "peak_rss_kb",
+        "peak_rss_bytes",
         "exit_status",
     ]
     .join(",");
-
     let mut csv_lines = vec![header];
-    let pid = std::process::id();
+    let current_exe = std::env::current_exe().expect("current executable");
+    let mut process_ids = Vec::with_capacity(modes.len());
 
     for mode in modes {
         println!("=== Running Warm Suite: mode={mode} ({repetitions} repetitions) ===");
-        let (source_image, loaded_artifact) = if mode == "source" {
-            let img = phalcom_semantic::canonical_image::canonical_universe_formal_image().expect("source image");
-            (Some(img), None)
-        } else {
-            let loaded = load_universe_telosc(artifact, &limits).expect("loaded artifact");
-            (None, Some(loaded))
-        };
-
-        let mut compile_times = Vec::with_capacity(repetitions);
-
-        for sample_id in 1..=repetitions {
-            let is_modified = sample_id % 2 == 0;
-            let code = if is_modified {
-                "let greeting = \"modified warm string\"; let opt = Option.some(greeting); print(opt);"
-            } else {
-                "let greeting = \"warm string unchanged\"; let opt = Option.some(greeting); print(opt);"
-            };
-            let variant = if sample_id == 1 {
-                "first_compilation"
-            } else if is_modified {
-                "modified_input"
-            } else {
-                "unchanged_input"
-            };
-
-            let t0 = Instant::now();
-            let res = if let Some(image) = &source_image {
-                ProgramCompiler::compile_entry_selection_with_image(EntrySelection::Inline(code.into()), (*image).clone())
-            } else if let Some(loaded) = &loaded_artifact {
-                loaded.compile_user_entry(EntrySelection::Inline(code.into()))
-            } else {
-                unreachable!()
-            };
-            let dur = t0.elapsed();
-            if res.is_err() {
-                panic!("Warm compile failed for {mode} on sample #{sample_id}: {:?}", res.err());
-            }
-            let peak_rss_bytes = get_peak_rss_bytes();
-            let peak_rss_kb = peak_rss_bytes / 1024;
-            let dur_ms = dur.as_secs_f64() * 1000.0;
-            compile_times.push(dur_ms);
-
-            let row = format!(
-                "{},{},{},{},{:.3},{},SUCCESS",
-                csv_escape(mode),
-                sample_id,
-                pid,
-                csv_escape(variant),
-                dur_ms,
-                peak_rss_kb
+        let child = Command::new(&current_exe)
+            .arg("warm-child")
+            .arg("--mode")
+            .arg(mode)
+            .arg("--artifact")
+            .arg(artifact)
+            .arg("--repetitions")
+            .arg(repetitions.to_string())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn isolated warm scenario");
+        let pid = child.id();
+        let output = child.wait_with_output().expect("wait for isolated warm scenario");
+        if !output.status.success() {
+            panic!(
+                "Warm scenario {mode} exited with status {:?}:\nstdout:\n{}\nstderr:\n{}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
             );
-            println!("{row}");
-            csv_lines.push(row);
         }
+        let stdout = String::from_utf8(output.stdout).expect("warm child stdout is UTF-8");
+        let rows = validate_warm_child_output(&stdout, mode, repetitions, pid).unwrap_or_else(|error| {
+            panic!(
+                "Invalid warm child output for {mode}: {error}\nstdout:\n{stdout}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+        });
+        let compile_times: Vec<f64> = rows.iter().map(|row| row.compile_ms).collect();
+        let peak_rss_values: Vec<f64> = rows.iter().map(|row| row.peak_rss_bytes as f64).collect();
+        csv_lines.extend(rows.into_iter().map(|row| row.csv));
+        process_ids.push(pid);
 
         let stats = compute_stats(&compile_times);
+        let rss_stats = compute_stats(&peak_rss_values);
         println!(
-            "  Warm Summary [{mode}] (N={}): min={:.2}ms, median={:.2}ms, mean={:.2}ms, p95={:.2}ms, max={:.2}ms, stddev={:.2}ms",
-            stats.count, stats.min, stats.median, stats.mean, stats.p95, stats.max, stats.stddev
+            "  Warm Summary [{mode}] (N={}): min={:.2}ms, median={:.2}ms, mean={:.2}ms, p95={:.2}ms, max={:.2}ms, stddev={:.2}ms, peak_rss={:.0} bytes",
+            stats.count, stats.min, stats.median, stats.mean, stats.p95, stats.max, stats.stddev, rss_stats.max
         );
     }
 
+    assert_ne!(
+        process_ids[0], process_ids[1],
+        "source and artifact warm scenarios must run in different processes"
+    );
     fs::write(csv_path, csv_lines.join("\n") + "\n").expect("write warm CSV");
     println!("Successfully wrote {}", csv_path.display());
+}
+
+fn cmd_warm_child(mode: &str, artifact: &Path, repetitions: usize) {
+    assert!(matches!(mode, "source" | "artifact"), "unknown warm mode {mode}");
+    assert!(repetitions > 0, "warm child requires at least one timed repetition");
+    let limits = ValidationLimits::default();
+    let source_image = if mode == "source" {
+        Some(phalcom_semantic::canonical_image::canonical_universe_formal_image().expect("source image"))
+    } else {
+        None
+    };
+    let loaded_artifact = if mode == "artifact" {
+        Some(load_universe_telosc(artifact, &limits).expect("loaded artifact"))
+    } else {
+        None
+    };
+    let compile = |code: &str| {
+        if let Some(image) = &source_image {
+            ProgramCompiler::compile_entry_selection_with_image(EntrySelection::Inline(code.into()), (**image).clone())
+        } else if let Some(loaded) = &loaded_artifact {
+            loaded.compile_user_entry(EntrySelection::Inline(code.into()))
+        } else {
+            unreachable!()
+        }
+    };
+
+    let warmup = "let greeting = \"warmup baseline\"; let opt = Option.some(greeting); print(opt);";
+    compile(warmup).unwrap_or_else(|error| panic!("Warmup compile failed for {mode}: {error:?}"));
+    let pid = std::process::id();
+    for sample_id in 1..=repetitions {
+        let is_modified = sample_id % 2 == 0;
+        let code = if is_modified {
+            "let greeting = \"modified warm string\"; let opt = Option.some(greeting); print(opt);"
+        } else {
+            "let greeting = \"warm string unchanged\"; let opt = Option.some(greeting); print(opt);"
+        };
+        let variant = if sample_id == 1 {
+            "first_compilation"
+        } else if is_modified {
+            "modified_input"
+        } else {
+            "unchanged_input"
+        };
+        let started = Instant::now();
+        compile(code).unwrap_or_else(|error| panic!("Warm compile failed for {mode} on sample #{sample_id}: {error:?}"));
+        let compile_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let peak_rss_bytes = get_peak_rss_bytes();
+        println!(
+            "RAW_WARM_CSV:{},{},{},1,{},{:.3},{},SUCCESS",
+            csv_escape(mode),
+            sample_id,
+            pid,
+            csv_escape(variant),
+            compile_ms,
+            peak_rss_bytes
+        );
+    }
 }
 
 fn cmd_runtime_single(mode: &str, artifact: &Path, sample_id: usize) {
@@ -1007,4 +1123,51 @@ fn cmd_source_denial_check(artifact: &Path) {
     assert!(!compiled.modules.is_empty(), "Compiled modules must be non-empty");
 
     println!("Source-free compiler authority verified: 0 sources, complete snapshot, successful user package compilation.");
+}
+
+#[cfg(test)]
+mod warm_child_output_tests {
+    use super::validate_warm_child_output;
+
+    #[test]
+    fn accepts_complete_rows_from_the_expected_child_process() {
+        let output = concat!(
+            "RAW_WARM_CSV:source,1,42,1,first_compilation,1.250,4096,SUCCESS\n",
+            "RAW_WARM_CSV:source,2,42,1,modified_input,1.500,4096,SUCCESS\n",
+        );
+        let rows = validate_warm_child_output(output, "source", 2, 42).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1].compile_ms, 1.5);
+        assert_eq!(rows[0].peak_rss_bytes, 4096);
+    }
+
+    #[test]
+    fn rejects_missing_rows_and_wrong_process_ids() {
+        let missing = "RAW_WARM_CSV:source,1,42,1,first_compilation,1.250,4096,SUCCESS\n";
+        assert!(
+            validate_warm_child_output(missing, "source", 2, 42)
+                .unwrap_err()
+                .contains("expected 2 warm rows")
+        );
+
+        let wrong_pid = "RAW_WARM_CSV:source,1,43,1,first_compilation,1.250,4096,SUCCESS\n";
+        assert!(validate_warm_child_output(wrong_pid, "source", 1, 42).unwrap_err().contains("child PID 42"));
+    }
+
+    #[test]
+    fn rejects_failed_or_malformed_rows() {
+        let failed = "RAW_WARM_CSV:artifact,1,42,1,first_compilation,1.250,4096,COMPILE_ERROR\n";
+        assert!(
+            validate_warm_child_output(failed, "artifact", 1, 42)
+                .unwrap_err()
+                .contains("non-success status")
+        );
+
+        let malformed = "RAW_WARM_CSV:artifact,1,42,1,first_compilation,NaN,4096,SUCCESS\n";
+        assert!(
+            validate_warm_child_output(malformed, "artifact", 1, 42)
+                .unwrap_err()
+                .contains("invalid compile duration")
+        );
+    }
 }
