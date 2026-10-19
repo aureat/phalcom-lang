@@ -199,7 +199,7 @@ fn invocation_target(
     })
 }
 
-fn conditional_selection(
+pub(crate) fn conditional_selection(
     selection: &ConditionalDispatchSelectionV1,
     owners: &StableOwnerCatalog<'_>,
 ) -> Result<ConditionalDispatchSelection, ArtifactError> {
