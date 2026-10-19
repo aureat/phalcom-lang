@@ -2702,8 +2702,12 @@ pub fn query_callable_definition(
         .inherent_body_context
         .as_ref()
         .map_or(0, crate::db::fingerprint::inherent_body_context_fingerprint);
-    let value =
-        signature_fingerprint.raw() ^ origin_tag.rotate_left(17) ^ (definition.source_member_index as u64).rotate_left(33) ^ body_context_tag.rotate_left(11);
+    let body_provenance_tag = crate::db::fingerprint::callable_definition_body_provenance_fingerprint(&definition.body_provenance);
+    let value = signature_fingerprint.raw()
+        ^ origin_tag.rotate_left(17)
+        ^ (definition.source_member_index as u64).rotate_left(33)
+        ^ body_context_tag.rotate_left(11)
+        ^ body_provenance_tag.rotate_left(23);
     let input_fingerprint = crate::db::InputFingerprint::new(value);
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_callable_definition()) {
