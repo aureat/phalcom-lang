@@ -10,11 +10,11 @@ active_plan: null
 latest_completed_plan: PERF003.C2.P7.PATCH5-R
 next_plan: PERF003.C2.P8
 next_action: >
-  P7 is COMPLETE. R.G1–R.G7 PASS.
-  P8 (executable VM bootstrap) is ready for takeover. The P7 ProductKind
-  bootstrap blocker is resolved. A follow-up SlotMap runtime smoke now passes
-  after owner-class iterator helpers and class-indexer match publication were
-  corrected; this does not change the P7 allocation-gate evidence.
+  The October 19 closure records P7 COMPLETE / IMPLEMENTED / FOCUSED_TESTED
+  with R.G1–R.G7 PASS. Independent certification reconciliation remains open
+  for R.G6/R.G7 raw benchmark provenance, warm-process isolation, final tested-
+  revision attribution, and complete R.T7 evidence. P8 takeover is blocked
+  pending that reconciliation or explicit acceptance of the recorded evidence.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
 execution_tree_head: fb49f61c
 latest_tested_revision: fb49f61c
@@ -66,7 +66,29 @@ P7 is **COMPLETE**. Verification status: **FOCUSED_TESTED**.
 
 7. **Acceptance Matrix & P8 Readiness (Task G / Gate G / R.G7):**
    - Full regression battery verified: format check, compiler workspace check, container/serialization tests, semantic artifact tests, comparator negative tests, exact allocation regression, and linker tests.
-   - P8 (executable VM bootstrap) unblocked for takeover. P7's ProductKind dispatch issue and the separate SlotMap runtime fixture blockers are resolved; the runtime smoke is additional evidence outside R.G7's artifact acceptance.
+   - The October 19 closure records R.G7 PASS and P7 COMPLETE. P8 implementation remains gated on the independent R.G6/R.G7 certification reconciliation stated in the checkpoint next action.
+
+## SlotMap/indexer runtime follow-up — 2026-10-19
+
+Commit `b003600b` completes the SlotMap runtime follow-up without changing the
+recorded P7 allocation-gate evidence. Owner-class iterator helpers preserve
+private storage access, and class-indexer callable publication/replay now uses
+the canonical member identity.
+
+- `RUSTFLAGS='' cargo test -p phalcom-semantic --test session-indexer-match -- --nocapture` — PASS, 1 test. It verifies cold callable-body publication, proven match coverage, and replay after editing the indexer body.
+- `RUSTFLAGS='' cargo run -p phalcom-core --bin phalcom -- packages/slotmap/tests/runtime` — PASS; sparse and dense modules complete and print `slotmap runtime tests complete`.
+- The monolithic semantic target fails with 412 stale fixture/API errors both at clean predecessor `08e2b2f5` and in the current worktree based on `b003600b`. This confirms the target failure predates the runtime repair. No unrelated fixture migration was made.
+
+The October 19 recorded P7 closure remains COMPLETE / IMPLEMENTED /
+FOCUSED_TESTED. Independent certification review remains pending for R.G6/R.G7
+raw benchmark provenance, warm-process isolation, final tested-revision
+attribution, and complete R.T7 evidence. P8 takeover remains blocked until that
+review is reconciled or the recorded certification is explicitly accepted.
+
+## Historical PATCH5-R execution log
+
+> Entries below record intermediate state at their stated date and revision.
+> They are historical and do not override the October 19 final closure above.
 
 ## PATCH5-R R.T5 closure hardening and R.G5 certification — 2026-10-18
 
@@ -988,9 +1010,9 @@ After:
 | `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Explicit compiler image product contract, zero-copy parent overlays across all core tables, canonical persistence inventory/capabilities, query classification, CanonicalCompilerImageView boundary, and observability cardinality guards (CanonicalAggregateEntriesCopied == 0) implemented and certified. |
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | ModuleLoweringInputView, module-indexed callable analyses/definitions/declarations/data/enums, reverse-target occurrence resolution, precomputed TraitRequirementLayout, and direct inherent impl domain indexing implemented and certified. |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
-| `PERF003.C2.P7` (normalized) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | PATCH4 source-free compiler lifecycle remains implemented, but current independent allocation measurement finds a 205,461,325-byte full-load accounting delta and successful realistic-package parity is not established. PATCH5-R owns remaining closure. |
-| `PERF003.C2.P7.PATCH5-R` | Corrective compiler-only Universe artifact closure | Loaded compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | R.G0 baseline passed. R.T1's semantic-import allocator equality is exact on the current layout at `264,140,626 / 264,140,626`; the prior c7 layout was `264,140,594 / 264,140,594` on the same artifact. Consultation `INC-PATCH5R-E-BASELINE-20261018` classifies the +32 as the `ModuleQueryProducts` representation-size change. R.T2/R.G2 is active; R.G3-R.G7 remain unverified. |
-| `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | PLANNED | NOT_STARTED | UNVERIFIED | Detailed plan prepared; BUILD depends on complete P7 compiler interfaces; deferred P7/P8 acceptance still controls closure |
+| `PERF003.C2.P7` (normalized, historical) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical status before PATCH5-R closure; superseded by the October 19 `PERF003.C2.P7.PATCH5-R` final closure recorded above. |
+| `PERF003.C2.P7.PATCH5-R` | Corrective compiler-only Universe artifact closure | Loaded compiler artifact | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | October 19 final closure records R.G0-R.G7 PASS. Independent certification reconciliation remains open for R.G6/R.G7 raw benchmark provenance, warm-process isolation, tested-revision attribution, and complete R.T7 evidence; see the current next action. |
+| `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | BLOCKED | NOT_STARTED | UNVERIFIED | Detailed plan prepared. Do not begin takeover until P7 certification evidence is reconciled or explicitly accepted. |
 
 ## P7 flow-graph allocation ruling — 2026-10-15
 

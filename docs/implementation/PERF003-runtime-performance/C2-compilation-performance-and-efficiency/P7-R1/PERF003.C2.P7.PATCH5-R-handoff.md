@@ -12,9 +12,9 @@ verification: FOCUSED_TESTED
 
 - Branch: `perf/universe-characterization` (tracked against `origin/perf/universe-characterization`).
 - Checkpoint: `PERF003.C2` (Compilation Performance and Efficiency).
-- Verification status: `FOCUSED_TESTED`. All gates R.G0 through R.G7 are CERTIFIED.
-- P7 Status: `COMPLETE`.
-- Next plan: `PERF003.C2.P8` (Portable Executable Universe).
+- Recorded P7 status: `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`; the October 19 closure records R.G0 through R.G7 as PASS.
+- Independent certification reconciliation: pending for R.G6/R.G7 raw benchmark provenance, warm-process isolation, final tested-revision attribution, and complete R.T7 evidence.
+- Next plan: `PERF003.C2.P8` (Portable Executable Universe), blocked from takeover until certification reconciliation or explicit acceptance of the recorded evidence.
 
 ## Takeover map and stable interfaces
 
@@ -52,7 +52,11 @@ verification: FOCUSED_TESTED
 - **Resolved: source-owned intrinsic runtime ADTs:**
   `ProductKind` and similar declarations in `universe:reflection.structural` have generic semantic enum/data lowering and no `IntrinsicRuntimeOwner`. Compiler dispatch now uses the facade path only when semantic lowering contains a matching facade; the native source index keeps the remaining declarations source-owned. The artifact-backed bootstrap regression verifies that `VM::new()` succeeds after compiling the SlotMap runtime package.
 - **Resolved: SlotMap runtime fixture execution follow-up:**
-  Owner-class `makeIterator` helpers keep `_slots`, `_keys`, and `_values` access inside their declaring classes. Semantic session publication and source-body replay now include class indexers, using the canonical member callable identity; the regression checks proven match coverage and incremental replay. `RUSTFLAGS='' cargo check -p phalcom-semantic` passed, and `RUSTFLAGS='' cargo run -p phalcom-core --bin phalcom -- packages/slotmap/tests/runtime` passed both runtime modules and printed `slotmap runtime tests complete`. The focused semantic integration test could not run because the monolithic `semantic` target fails to compile 412 unrelated stale fixtures that still use old `AnalysisMap` and `ModuleAuthorityMap` shapes. This follow-up does not change the P7 allocation-gate classification.
+  Owner-class `makeIterator` helpers keep `_slots`, `_keys`, and `_values` access inside their declaring classes. Semantic session publication and source-body replay include class indexers through the canonical member callable identity. The dedicated `session-indexer-match` target passes 1/1 and checks cold proven-match publication plus replay after editing the indexer body. The exact SlotMap runtime command passes both modules and prints `slotmap runtime tests complete`. The monolithic semantic target fails with 412 stale fixture/API errors at clean predecessor `08e2b2f5` and in the current worktree based on `b003600b`; this confirms inherited target drift. No unrelated fixture migration was made, and P7 allocation-gate evidence is unchanged.
+
+## Certification reconciliation
+
+The October 19 checkpoint closure is the recorded P7 status. Its October 18 R.T2 and earlier progress entries are historical. Independent review still needs to reconcile R.G6/R.G7 raw benchmark provenance, warm-process isolation, final tested-revision attribution, and complete R.T7 evidence before P8 takeover. The SlotMap runtime follow-up and dedicated semantic test do not resolve those audit items.
 
 ## Recommended verification commands for takeover
 

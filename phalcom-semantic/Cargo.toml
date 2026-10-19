@@ -36,6 +36,10 @@ telos-observability = { path = "../telos-observability" }
 name = "semantic"
 path = "tests/semantic.rs"
 
+[[test]]
+name = "session-indexer-match"
+path = "tests/session_indexer_match.rs"
+
 # Keep the test-only global allocator isolated from the parallel semantic suite.
 [[test]]
 name = "artifact-allocation"
