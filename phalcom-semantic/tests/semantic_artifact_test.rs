@@ -7,7 +7,9 @@ use phalcom_compiler_artifact::header::{
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
-use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3};
+use phalcom_compiler_artifact::query::{
+    DependencyEvidenceEntryV3, PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
+};
 use phalcom_compiler_artifact::semantic::aggregates::{DataInfoV1, DataShapeV1, StructuralPrimaryContractsV1, VisibilityV1};
 use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
 use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeGraphV1, TypeV1};
@@ -531,6 +533,42 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         stale_import_budget.requested(),
         0,
         "failed fingerprint validation must not commit staged allocation authority"
+    );
+
+    let data_root = image
+        .query_image
+        .supported_roots
+        .iter_mut()
+        .find(|root| root.key.kind == PortableQueryKindV1::DataDeclaration)
+        .expect("data query root");
+    data_root.product_fingerprint = product_fingerprint;
+    let data_key = data_root.key.clone();
+    image.query_image.dependency_evidence.push(DependencyEvidenceEntryV3 {
+        key: data_key,
+        stable_aggregate_owner: PortableQueryOwnerKeyV1::Declaration(StableDeclarationRef {
+            module: StableModuleRef {
+                project: StableProjectRef::Builtin {
+                    namespace: "universe".into(),
+                    version: "0.1.0".into(),
+                },
+                path: vec!["core".into()].into_boxed_slice(),
+            },
+            path: vec!["OtherPayload".into()].into_boxed_slice(),
+        }),
+        product_fingerprint,
+    });
+
+    let mismatched_bytes = encode_artifact(&image).expect("encode mismatched dependency owner artifact");
+    let mut mismatch_decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let mismatch_payload =
+        decode_and_validate_artifact(&mismatched_bytes, &limits, None, &mut mismatch_decode_budget).expect("wire owner remains structurally valid");
+    let mut mismatch_import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let mismatch = import_compiler_image(mismatch_payload, &limits, &mut mismatch_import_budget);
+    assert!(mismatch.is_err(), "dependency evidence must bind to the exact structural aggregate owner");
+    assert_eq!(
+        mismatch_import_budget.requested(),
+        0,
+        "mismatched dependency evidence must fail before committing import allocations"
     );
 }
 
