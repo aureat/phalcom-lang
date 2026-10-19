@@ -30,9 +30,10 @@ use phalcom_compiler_artifact::semantic::world::{
     ConstructorInitializationRecordV1, DeclarationSurfaceRecordV1, DispatchCallableFactV1, EffectSpecV1,
     EnumRequirementOwnerV1, EnumRequirementRecordV1, EnumRequirementSourceV1,
     ExactSelectorV1, FieldSignatureV1, ImplementationKindV1, InherentImplDomainV1, InherentImplTargetV1,
+    ModuleStaticBindingIndexV1, ModuleStaticBindingPhaseV1, ModuleStaticBindingRecordV1, ModuleStaticBindingVisibleNameV1,
     NativeLifecycleSpecV1,
     RaisesSpecV1, ReturnContractValidationV1,
-    ReturnFlowV1, SelectorKindV1, SemanticWorldV3, TraitRefV1, TraitSurfaceRecordV1, TypeKnowledgeV1,
+    ReturnFlowV1, SelectorKindV1, SemanticWorldV3, StaticConstantSymbolV1, TraitRefV1, TraitSurfaceRecordV1, TypeKnowledgeV1,
     CallableConformanceAssociatedTypePlanV1, CallableConformanceCompletenessV1, WitnessPlanV1,
     StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
     StaticDomainCaseCatalogRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
@@ -1618,14 +1619,15 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
 
-    let owner = StableDeclarationRef {
-        module: StableModuleRef {
-            project: StableProjectRef::Builtin {
-                namespace: "universe".into(),
-                version: "0.1.0".into(),
-            },
-            path: vec!["core".into()].into_boxed_slice(),
+    let stable_module = StableModuleRef {
+        project: StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
         },
+        path: vec!["core".into()].into_boxed_slice(),
+    };
+    let owner = StableDeclarationRef {
+        module: stable_module.clone(),
         path: vec!["BindingOwner".into()].into_boxed_slice(),
     };
     let callable = StableCallableRef {
@@ -1677,28 +1679,54 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
         constructor_super_initializer: None,
         expressions: vec![],
         conformance_evidence: vec![],
-        bindings: vec![CallableBindingRowV1 {
-            ordinal: 0,
-            name: "self".into(),
-            parameter: None,
-            range: SpanV1 { start: 0, end: 0 },
-            contract: None,
-            current: TypeKnowledgeV1::Unknown {
-                reason: UnknownReasonV1::NoTypeEvidence,
+        bindings: vec![
+            CallableBindingRowV1 {
+                ordinal: 0,
+                name: "self".into(),
+                parameter: None,
+                range: SpanV1 { start: 0, end: 0 },
+                contract: None,
+                current: TypeKnowledgeV1::Unknown {
+                    reason: UnknownReasonV1::NoTypeEvidence,
+                },
+                denotation: Some(SemanticDenotationV1::TypeForm {
+                    ty: ArtifactTypeId(0),
+                }),
+                consistency: CallableBindingConsistencyV1::Unconstrained,
+                causal_invalidity: CallableCausalInvalidityV1::Clean,
+                mutable: false,
+                initialization: CallableInitializationStateV1::DefinitelyInitialized,
+                version: 0,
+                explanation: None,
+                authority: CallableBindingAuthorityV1::BodyLocalGenerated {
+                    reason: CallableGeneratedBindingReasonV1::ImplicitReceiver,
+                },
             },
-            denotation: Some(SemanticDenotationV1::TypeForm {
-                ty: ArtifactTypeId(0),
-            }),
-            consistency: CallableBindingConsistencyV1::Unconstrained,
-            causal_invalidity: CallableCausalInvalidityV1::Clean,
-            mutable: false,
-            initialization: CallableInitializationStateV1::DefinitelyInitialized,
-            version: 0,
-            explanation: None,
-            authority: CallableBindingAuthorityV1::BodyLocalGenerated {
-                reason: CallableGeneratedBindingReasonV1::ImplicitReceiver,
+            CallableBindingRowV1 {
+                ordinal: 1,
+                name: "cached".into(),
+                parameter: None,
+                range: SpanV1 { start: 1, end: 2 },
+                contract: None,
+                current: TypeKnowledgeV1::Unknown {
+                    reason: UnknownReasonV1::NoTypeEvidence,
+                },
+                denotation: None,
+                consistency: CallableBindingConsistencyV1::Unconstrained,
+                causal_invalidity: CallableCausalInvalidityV1::Clean,
+                mutable: false,
+                initialization: CallableInitializationStateV1::DefinitelyInitialized,
+                version: 0,
+                explanation: None,
+                authority: CallableBindingAuthorityV1::BodyLocalSource {
+                    site_owner: CallableAnalysisSourceOwnerV1::Callable {
+                        callable: callable.clone(),
+                    },
+                    site_local: 1,
+                    declaration_range: SpanV1 { start: 1, end: 2 },
+                },
             },
-        }],
+        ],
         for_iteration_lanes: vec![],
         positional_expansions: vec![],
         known_invalid_positional_expansions: vec![],
@@ -1725,6 +1753,28 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
         semantic_dependencies: vec![],
     });
 
+    image.semantic_world.module_static_bindings.push(ModuleStaticBindingIndexV1 {
+        module: stable_module.clone(),
+        bindings: vec![ModuleStaticBindingRecordV1 {
+            symbol: StaticConstantSymbolV1 {
+                module: stable_module.clone(),
+                name: "cached".into(),
+            },
+            source_body: callable,
+            source_binding_ordinal: 1,
+            phase: ModuleStaticBindingPhaseV1::StaticConstant,
+            declaration_source: SpanV1 { start: 1, end: 2 },
+            initializer_source: Some(SpanV1 { start: 2, end: 2 }),
+        }],
+        visible_names: vec![ModuleStaticBindingVisibleNameV1 {
+            name: "cached".into(),
+            symbol: StaticConstantSymbolV1 {
+                module: stable_module,
+                name: "cached".into(),
+            },
+        }],
+    });
+
     let bytes = encode_artifact(&image).expect("encode P7 callable binding authority");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
@@ -1735,7 +1785,10 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
         .expect("reconstruct P7 callable binding authority");
 
     assert_eq!(imported.callable_binding_authority.callable_len(), 1);
-    assert_eq!(imported.callable_binding_authority.binding_len(), 1);
+    assert_eq!(imported.callable_binding_authority.binding_len(), 2);
+    assert_eq!(imported.module_static_binding_authority.module_len(), 1);
+    assert_eq!(imported.module_static_binding_authority.binding_len(), 1);
+    assert_eq!(imported.module_static_binding_authority.visible_name_len(), 1);
     assert_eq!(
         imported.query_products.len(),
         0,
