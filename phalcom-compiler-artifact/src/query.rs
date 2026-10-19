@@ -572,6 +572,19 @@ fn write_structural_product(
                 variant_row.write(out)?;
             }
         }
+        PortableQueryKindV1::AssociatedSurface => {
+            let row = world
+                .associated_surfaces
+                .get(row_index)
+                .ok_or_else(|| ValidationError::ReferentialIntegrity("associated-surface query product row is out of bounds".into()))?;
+            if &row.owner != owner {
+                return Err(ValidationError::ReferentialIntegrity(
+                    "associated-surface query product row owner differs from query owner".into(),
+                )
+                .into());
+            }
+            row.write(out)?;
+        }
         _ => {
             return Err(ValidationError::ReferentialIntegrity(
                 "portable structural fingerprint requested for unsupported query family".into(),
@@ -607,7 +620,10 @@ pub fn portable_structural_root_fingerprints(
     root: &QueryRootEntryV3,
     world: &SemanticWorldV3,
 ) -> Result<Option<(u64, u64)>, ArtifactError> {
-    if !matches!(root.key.kind, PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration) {
+    if !matches!(
+        root.key.kind,
+        PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration | PortableQueryKindV1::AssociatedSurface
+    ) {
         return Ok(None);
     }
     if root.product.kind != root.key.kind {
@@ -629,7 +645,10 @@ pub fn portable_structural_dependency_product_fingerprint(
     key: &PortableQueryKeyV1,
     world: &SemanticWorldV3,
 ) -> Result<Option<u64>, ArtifactError> {
-    if !matches!(key.kind, PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration) {
+    if !matches!(
+        key.kind,
+        PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration | PortableQueryKindV1::AssociatedSurface
+    ) {
         return Ok(None);
     }
     let owner = declaration_owner(&key.owner)?;
@@ -651,6 +670,19 @@ pub fn portable_structural_dependency_product_fingerprint(
                 .ok_or_else(|| ValidationError::ReferentialIntegrity("enum dependency evidence has no structural product row".into()))?;
             if matches.next().is_some() {
                 return Err(ValidationError::ReferentialIntegrity("enum dependency evidence structural owner is ambiguous".into()).into());
+            }
+            index
+        }
+        PortableQueryKindV1::AssociatedSurface => {
+            let mut matches = world.associated_surfaces.iter().enumerate().filter(|(_, row)| &row.owner == owner);
+            let (index, _) = matches
+                .next()
+                .ok_or_else(|| ValidationError::ReferentialIntegrity("associated-surface dependency evidence has no semantic product row".into()))?;
+            if matches.next().is_some() {
+                return Err(ValidationError::ReferentialIntegrity(
+                    "associated-surface dependency evidence owner is ambiguous".into(),
+                )
+                .into());
             }
             index
         }
@@ -680,7 +712,10 @@ impl QueryImageV3 {
             }
         }
         for evidence in &mut self.dependency_evidence {
-            if matches!(evidence.key.kind, PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration) {
+            if matches!(
+                evidence.key.kind,
+                PortableQueryKindV1::DataDeclaration | PortableQueryKindV1::EnumDeclaration | PortableQueryKindV1::AssociatedSurface
+            ) {
                 if evidence.key.owner != evidence.stable_aggregate_owner {
                     return Err(ValidationError::ReferentialIntegrity(
                         "structural dependency evidence key and aggregate owner differ".into(),
