@@ -10,7 +10,7 @@ use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSecti
 use phalcom_compiler_artifact::query::{
     DependencyEvidenceEntryV3, PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
 };
-use phalcom_compiler_artifact::semantic::aggregates::{DataInfoV1, DataShapeV1, StructuralPrimaryContractsV1, VisibilityV1};
+use phalcom_compiler_artifact::semantic::aggregates::{DataInfoV1, DataShapeV1, EnumInfoV1, StructuralPrimaryContractsV1, VisibilityV1};
 use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
 use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeGraphV1, TypeV1};
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
@@ -428,10 +428,20 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         },
         path: vec!["CachedPayload".into()].into_boxed_slice(),
     };
+    let stable_enum_owner = StableDeclarationRef {
+        module: stable_owner.module.clone(),
+        path: vec!["CachedChoice".into()].into_boxed_slice(),
+    };
     image.semantic_world.type_graph.types.push(TypeEntryV1 {
         kind: ArtifactKindId(0),
         form: TypeV1::Nominal {
             declaration: stable_owner.clone(),
+        },
+    });
+    image.semantic_world.type_graph.types.push(TypeEntryV1 {
+        kind: ArtifactKindId(0),
+        form: TypeV1::Nominal {
+            declaration: stable_enum_owner.clone(),
         },
     });
     image.semantic_world.structural_contracts.data_contracts.push(DataInfoV1 {
@@ -445,6 +455,14 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         constructor_parameters: vec![],
         constructor_result_type: ArtifactTypeId(1),
         shape_contributions: vec![],
+    });
+    image.semantic_world.structural_contracts.enum_contracts.push(EnumInfoV1 {
+        owner: stable_enum_owner.clone(),
+        root_form: ArtifactTypeId(2),
+        generic_signature: None,
+        static_data: None,
+        default_result_type: ArtifactTypeId(2),
+        variants: vec![],
     });
 
     // First reconstruct the structural row without a DataDeclaration query root
@@ -469,9 +487,31 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         .expect("reconstructed data declaration")
         .clone();
     let diagnostics: Arc<[phalcom_semantic::diagnostic::SemanticDiagnostic]> = Arc::from([]);
-    let product = phalcom_semantic::db::product::DataDeclarationProduct { info, diagnostics };
+    let product = phalcom_semantic::db::product::DataDeclarationProduct {
+        info,
+        diagnostics: diagnostics.clone(),
+    };
     let input_fingerprint = phalcom_semantic::db::fingerprint::data_declaration_input_fingerprint(&product).raw();
     let product_fingerprint = phalcom_semantic::db::fingerprint::data_declaration_product_fingerprint(&product).raw();
+
+    let enum_owner = phalcom_semantic::identity::DeclarationId::new(
+        owner.module.clone(),
+        "CachedChoice".into(),
+    );
+    let enum_info = seed_import
+        .semantic_aggregates
+        .enum_semantics
+        .enums
+        .get(&enum_owner)
+        .expect("reconstructed enum declaration")
+        .clone();
+    let enum_product = phalcom_semantic::db::product::EnumDeclarationProduct {
+        info: enum_info,
+        variants: Arc::from([]),
+        diagnostics,
+    };
+    let enum_input_fingerprint = phalcom_semantic::db::fingerprint::enum_declaration_input_fingerprint(&enum_product).raw();
+    let enum_product_fingerprint = phalcom_semantic::db::fingerprint::enum_declaration_product_fingerprint(&enum_product).raw();
 
     image.query_image.supported_roots.push(QueryRootEntryV3 {
         key: PortableQueryKeyV1 {
@@ -486,13 +526,30 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         product_fingerprint,
         dependency_indices: vec![],
     });
+    image.query_image.supported_roots.push(QueryRootEntryV3 {
+        key: PortableQueryKeyV1 {
+            kind: PortableQueryKindV1::EnumDeclaration,
+            owner: PortableQueryOwnerKeyV1::Declaration(stable_enum_owner),
+        },
+        product: QueryProductRefV2 {
+            kind: PortableQueryKindV1::EnumDeclaration,
+            row_index: 0,
+        },
+        input_fingerprint: enum_input_fingerprint,
+        product_fingerprint: enum_product_fingerprint,
+        dependency_indices: vec![],
+    });
 
     let bytes = encode_artifact(&image).expect("encode fingerprinted structural artifact");
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
     let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate fingerprinted structural artifact");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
     let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("import fingerprinted structural product");
-    assert_eq!(imported.query_products.len(), 1, "DataDeclaration must be staged as a typed reusable product");
+    assert_eq!(
+        imported.query_products.len(),
+        2,
+        "DataDeclaration and EnumDeclaration must be staged as typed reusable products"
+    );
 
     let mut db = phalcom_semantic::db::SemanticDb::new();
     imported
@@ -508,6 +565,17 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         db.ready_product_fingerprint(&query_key).map(|fingerprint| fingerprint.raw()),
         Some(product_fingerprint),
         "published database state must use the verified current-main product fingerprint"
+    );
+    let enum_query_key = phalcom_semantic::db::QueryKey::EnumDeclaration(enum_owner.clone());
+    let published_enum = db
+        .product(&enum_query_key)
+        .and_then(|product| product.as_enum_declaration())
+        .expect("typed EnumDeclaration product must be Ready");
+    assert_eq!(published_enum.info.owner, enum_owner);
+    assert_eq!(
+        db.ready_product_fingerprint(&enum_query_key).map(|fingerprint| fingerprint.raw()),
+        Some(enum_product_fingerprint),
+        "published enum state must use the verified current-main product fingerprint"
     );
     assert!(
         imported.publish_query_products_into_empty_db(&mut db).is_err(),
