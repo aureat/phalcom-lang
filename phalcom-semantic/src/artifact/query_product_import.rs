@@ -96,29 +96,29 @@ impl ImportedQueryProducts {
 /// called. Here they are relocated to live keys, rebuilt as current-main typed
 /// products, and compared against canonical current-main fingerprints.
 ///
-/// Structural dependency evidence is also reconstructed. This is important for
-/// later query families: a dependency-only DataDeclaration/EnumDeclaration must
-/// become a real database product before a dependent root can be validated.
+/// Structural dependency evidence is also reconstructed and fingerprint-checked,
+/// but evidence alone is never promoted to `Ready`. Later query families must
+/// explicitly prove a closed dependency set reachable from an imported root
+/// before those dependency products become database authority.
 pub(crate) fn reconstruct_structural_query_products(
     image: &QueryImageV3,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
     owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedQueryProducts, ArtifactError> {
-    let candidate_count = image
+    let root_count = image
         .supported_roots
         .iter()
         .filter(|root| is_structural_kind(root.key.kind))
-        .count()
-        .checked_add(image.dependency_evidence.iter().filter(|evidence| is_structural_kind(evidence.key.kind)).count())
-        .ok_or_else(|| ArtifactError::Allocation(phalcom_type_meta::allocation::AllocationError::Overflow))?;
+        .count();
+    let evidence_count = image.dependency_evidence.iter().filter(|evidence| is_structural_kind(evidence.key.kind)).count();
 
-    if candidate_count == 0 {
+    if root_count == 0 && evidence_count == 0 {
         return Ok(ImportedQueryProducts::default());
     }
 
     let mut ready = allocations
-        .vector::<ImportedReadyQueryProduct>(candidate_count)
+        .vector::<ImportedReadyQueryProduct>(root_count)
         .map_err(ArtifactError::Allocation)?;
     let empty_diagnostics = allocations
         .arc_slice(Vec::<SemanticDiagnostic>::new())
@@ -133,28 +133,27 @@ pub(crate) fn reconstruct_structural_query_products(
         ready.push(imported);
     }
 
+    // Dependency evidence is validated but is not a reusable root by itself.
+    // Future query-family import promotes only evidence reachable from a root
+    // whose complete dependency contract has also been reconstructed.
     for evidence in &image.dependency_evidence {
-        let imported = match evidence.key.kind {
-            Kind::DataDeclaration => reconstruct_data_evidence(evidence, aggregates, owners, empty_diagnostics.clone(), allocations)?,
-            Kind::EnumDeclaration => reconstruct_enum_evidence(evidence, aggregates, owners, empty_diagnostics.clone(), allocations)?,
-            _ => continue,
-        };
-        ready.push(imported);
-    }
-
-    // Portable validation rejects duplicate roots/evidence within their own
-    // collections. A key may legitimately be both a root and dependency
-    // evidence for another root, so relocated duplicates are accepted only when
-    // their canonical fingerprints agree.
-    ready.sort_by(|left, right| left.key.cmp(&right.key));
-    for pair in ready.windows(2) {
-        if pair[0].key == pair[1].key
-            && (pair[0].input_fingerprint != pair[1].input_fingerprint || pair[0].product_fingerprint != pair[1].product_fingerprint)
-        {
-            return Err(invalid("artifact root and dependency evidence disagree for the same live query key"));
+        match evidence.key.kind {
+            Kind::DataDeclaration => {
+                reconstruct_data_evidence(evidence, aggregates, owners, empty_diagnostics.clone(), allocations)?;
+            }
+            Kind::EnumDeclaration => {
+                reconstruct_enum_evidence(evidence, aggregates, owners, empty_diagnostics.clone(), allocations)?;
+            }
+            _ => {}
         }
     }
-    ready.dedup_by(|left, right| left.key == right.key);
+
+    // Wire keys are unique already; this catches any stable-owner relocation
+    // aliasing before publication.
+    ready.sort_by(|left, right| left.key.cmp(&right.key));
+    if ready.windows(2).any(|pair| pair[0].key == pair[1].key) {
+        return Err(invalid("multiple artifact query roots relocate to the same live query key"));
+    }
 
     Ok(ImportedQueryProducts { ready })
 }
