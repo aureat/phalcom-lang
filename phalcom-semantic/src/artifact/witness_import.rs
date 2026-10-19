@@ -9,6 +9,7 @@
 //! ConformanceWitnessPlan is published here.
 
 use super::callable_import::ImportedCallableAuthority;
+use super::conformance_evidence_import::ImportedConformanceEvidenceGraph;
 use super::conformance_import::ImportedConformanceAuthority;
 use super::diagnostic_import::{reconstruct_semantic_diagnostic, source_span};
 use super::identity::{StableOwnerCatalog, canonical_selector};
@@ -150,8 +151,7 @@ pub struct ImportedWitnessPlanPreflight {
     pub selected_callables: Box<[CallableId]>,
     pub invalid_explicit_members: bool,
     pub diagnostics: Box<[SemanticDiagnostic]>,
-    pub requirement_selection_count: usize,
-    pub conformance_evidence_count: usize,
+    pub conformance_evidence: ImportedConformanceEvidenceGraph,
     wire_fingerprint: u64,
 }
 
@@ -194,7 +194,7 @@ impl ImportedWitnessPreflightAuthority {
     }
 
     pub fn evidence_node_len(&self) -> usize {
-        self.plans.iter().map(|plan| plan.conformance_evidence_count).sum()
+        self.plans.iter().map(|plan| plan.conformance_evidence.len()).sum()
     }
 
     pub fn requirement_selection_len(&self) -> usize {
@@ -231,7 +231,7 @@ pub(crate) fn reconstruct_witness_preflight(
             callables,
             types,
             owners,
-            limits.max_recursion_depth,
+            limits,
             allocations,
         )?);
     }
@@ -253,7 +253,7 @@ fn reconstruct_plan(
     callables: &ImportedCallableAuthority,
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
-    max_depth: usize,
+    limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedWitnessPlanPreflight, ArtifactError> {
     if compute_witness_layout_fingerprint(&record.ordered_selected_callables)
@@ -360,7 +360,7 @@ fn reconstruct_plan(
             types,
             owners,
             record.conformance_evidence.len(),
-            max_depth,
+            limits.max_recursion_depth,
             0,
             allocations,
         )?;
@@ -370,6 +370,18 @@ fn reconstruct_plan(
     if requirement_selections.windows(2).any(|pair| pair[0].0 == pair[1].0) {
         return Err(invalid("witness requirement selection is duplicated after relocation"));
     }
+
+    let conformance_evidence =
+        super::conformance_evidence_import::reconstruct_conformance_evidence_graph(
+            &record.conformance_evidence,
+            conformances,
+            traits,
+            callables,
+            types,
+            owners,
+            limits,
+            allocations,
+        )?;
 
     let mut selected_callables = allocations
         .vector::<CallableId>(record.ordered_selected_callables.len())
@@ -411,8 +423,7 @@ fn reconstruct_plan(
             .map_err(ArtifactError::Allocation)?,
         invalid_explicit_members: record.invalid_explicit_members,
         diagnostics: allocations.boxed_slice(diagnostics).map_err(ArtifactError::Allocation)?,
-        requirement_selection_count: record.requirements.len(),
-        conformance_evidence_count: record.conformance_evidence.len(),
+        conformance_evidence,
         wire_fingerprint: record.fingerprint,
     })
 }
