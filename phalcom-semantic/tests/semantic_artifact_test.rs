@@ -25,7 +25,8 @@ use phalcom_compiler_artifact::semantic::world::{
     CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1,
     CallableBindingAuthorityV1, CallableBindingConsistencyV1, CallableBindingRowV1, CallableCausalInvalidityV1,
     CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1,
-    CallableDiagnosticSeverityV1, CallableEvidenceDiagnosticV1, CallableFlowGraphV1, CallableFlowStateSummaryV1,
+    CallableBindingReadSafetyV1, CallableDiagnosticSeverityV1, CallableEvidenceDiagnosticV1, CallableExpressionRowV1,
+    CallableExpressionStatusV1, CallableFlowGraphV1, CallableFlowStateSummaryV1,
     CallableGeneratedBindingReasonV1, CallableInitializationStateV1, CallableSignatureRecordV1, SemanticDenotationV1,
     ConditionalInherentMemberV1, ConditionalInherentSetV1, ConformanceHeadRecordV1, ConformanceTargetV1,
     ConstructorInitializationRecordV1, DeclarationSurfaceRecordV1, DispatchCallableFactV1, EffectSpecV1,
@@ -1681,7 +1682,29 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
             exits: vec![],
         },
         constructor_super_initializer: None,
-        expressions: vec![],
+        expressions: vec![CallableExpressionRowV1 {
+            ordinal: 0,
+            range: SpanV1 { start: 1, end: 2 },
+            knowledge: TypeKnowledgeV1::Unknown {
+                reason: UnknownReasonV1::NoTypeEvidence,
+            },
+            callable: Some(callable.clone()),
+            conditional_dispatch: None,
+            conditional_capability: None,
+            trait_dispatch: None,
+            trait_dispatch_candidates: None,
+            contextual_realization: None,
+            status: CallableExpressionStatusV1::Ready,
+            causal_invalidity: CallableCausalInvalidityV1::Clean,
+            explanation: None,
+            binding_read_safety: Some(CallableBindingReadSafetyV1::ProvenInitialized),
+            binding_read: Some(1),
+            binding_write: None,
+            denotation: Some(SemanticDenotationV1::TypeForm {
+                ty: ArtifactTypeId(0),
+            }),
+            call_specialization: None,
+        }],
         conformance_evidence: vec![],
         bindings: vec![
             CallableBindingRowV1 {
@@ -1790,6 +1813,31 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
 
     assert_eq!(imported.callable_binding_authority.callable_len(), 1);
     assert_eq!(imported.callable_binding_authority.binding_len(), 2);
+    assert_eq!(imported.callable_expression_authority.callable_len(), 1);
+    assert_eq!(imported.callable_expression_authority.expression_len(), 1);
+    assert_eq!(imported.callable_expression_authority.deferred_expression_len(), 0);
+    let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
+    ]));
+    let callable_id = phalcom_semantic::identity::CallableId::new(
+        phalcom_semantic::identity::DeclarationId::new(module, "BindingOwner".into()),
+        phalcom_common::selector::Selector::decode("run"),
+        phalcom_semantic::identity::DispatchSide::Instance,
+    );
+    let expression = imported
+        .callable_expression_authority
+        .expression(&callable_id, 0)
+        .expect("relocated base expression");
+    assert_eq!(expression.binding_read, Some(phalcom_semantic::identity::BindingId(1)));
+    assert!(matches!(expression.status, phalcom_semantic::checker::analysis::AnalysisStatus::Ready));
+    assert!(matches!(
+        expression.binding_read_safety,
+        Some(phalcom_semantic::checker::flow::BindingReadSafety::ProvenInitialized)
+    ));
+    assert!(matches!(
+        expression.denotation,
+        Some(phalcom_semantic::types::denotation::SemanticDenotation::TypeForm(_))
+    ));
     assert_eq!(imported.module_static_binding_authority.module_len(), 1);
     assert_eq!(imported.module_static_binding_authority.binding_len(), 1);
     assert_eq!(imported.module_static_binding_authority.visible_name_len(), 1);
