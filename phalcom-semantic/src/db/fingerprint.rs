@@ -355,14 +355,31 @@ pub(crate) fn inherent_body_context_fingerprint(context: &crate::impls::Inherent
     match &context.covering {
         Some(covering) => {
             1u8.hash(&mut hasher);
-            let mut mappings = covering.impl_to_decl.iter().collect::<Vec<_>>();
-            mappings.sort_unstable_by_key(|(implementation, _)| **implementation);
-            mappings.hash(&mut hasher);
-            let mut inverse_mappings = covering.decl_to_impl.iter().collect::<Vec<_>>();
-            inverse_mappings.sort_unstable_by_key(|(declaration, _)| **declaration);
-            inverse_mappings.hash(&mut hasher);
+            covering.impl_to_decl.len().hash(&mut hasher);
+            for (implementation, declaration) in covering.impl_to_decl.iter() {
+                implementation.hash(&mut hasher);
+                declaration.hash(&mut hasher);
+            }
+            covering.decl_to_impl.len().hash(&mut hasher);
+            for (declaration, implementation) in covering.decl_to_impl.iter() {
+                declaration.hash(&mut hasher);
+                implementation.hash(&mut hasher);
+            }
         }
         None => 0u8.hash(&mut hasher),
+    }
+    hasher.finish()
+}
+
+/// Fingerprints body-generation authority without relying on source syntax.
+pub(crate) fn callable_definition_body_provenance_fingerprint(provenance: &crate::impls::CallableDefinitionBodyProvenance) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    match provenance {
+        crate::impls::CallableDefinitionBodyProvenance::SourceBody => 0u8.hash(&mut hasher),
+        crate::impls::CallableDefinitionBodyProvenance::GeneratedDelegation { target_field } => {
+            1u8.hash(&mut hasher);
+            target_field.hash(&mut hasher);
+        }
     }
     hasher.finish()
 }
