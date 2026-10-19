@@ -22,12 +22,13 @@ use phalcom_compiler_artifact::semantic::type_store::{
 use phalcom_compiler_artifact::semantic::world::{
     AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1,
     CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableSignatureRecordV1,
-    ConditionalInherentMemberV1, ConditionalInherentSetV1, ConstructorInitializationRecordV1,
-    DeclarationSurfaceRecordV1, DispatchCallableFactV1, EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1,
+    ConditionalInherentMemberV1, ConditionalInherentSetV1, ConformanceHeadRecordV1, ConformanceTargetV1,
+    ConstructorInitializationRecordV1, DeclarationSurfaceRecordV1, DispatchCallableFactV1, EffectSpecV1,
+    EnumRequirementOwnerV1, EnumRequirementRecordV1,
     ExactSelectorV1, FieldSignatureV1, ImplementationKindV1, InherentImplDomainV1, InherentImplTargetV1,
     NativeLifecycleSpecV1,
     RaisesSpecV1, ReturnContractValidationV1,
-    ReturnFlowV1, SelectorKindV1, SemanticWorldV3, TypeKnowledgeV1, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
+    ReturnFlowV1, SelectorKindV1, SemanticWorldV3, TraitRefV1, TypeKnowledgeV1, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
     StaticDomainCaseCatalogRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
 };
 use phalcom_semantic::artifact::{
@@ -1377,6 +1378,68 @@ fn p7_conditional_inherent_dispatch_reconstructs_without_live_selector_index() {
         imported.query_products.len(),
         0,
         "conditional inherent staging must not fabricate open-world query authority"
+    );
+}
+
+#[test]
+fn p7_conformance_head_reconstructs_with_current_authorization_check() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+
+    let module = StableModuleRef {
+        project: StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        },
+        path: vec!["core".into()].into_boxed_slice(),
+    };
+    let target = StableDeclarationRef {
+        module: module.clone(),
+        path: vec!["ConformanceTarget".into()].into_boxed_slice(),
+    };
+    let trait_owner = StableDeclarationRef {
+        module: module.clone(),
+        path: vec!["Protocol".into()].into_boxed_slice(),
+    };
+    image.semantic_world.type_graph.types.push(TypeEntryV1 {
+        kind: ArtifactKindId(0),
+        form: TypeV1::Nominal {
+            declaration: target.clone(),
+        },
+    });
+    image.semantic_world.conformance_heads.push(ConformanceHeadRecordV1 {
+        impl_id: StableImplRef {
+            module: module.clone(),
+            local_id: 9,
+        },
+        source_module: module,
+        target: ConformanceTargetV1::Declaration {
+            declaration: target,
+        },
+        target_type: ArtifactTypeId(1),
+        trait_ref: TraitRefV1 {
+            declaration: trait_owner,
+            arguments: vec![],
+        },
+        generic_signature: None,
+        authorized: true,
+        eligible: true,
+    });
+
+    let bytes = encode_artifact(&image).expect("encode P7 conformance head");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
+        .expect("validate P7 conformance head");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget)
+        .expect("reconstruct P7 conformance head");
+
+    assert_eq!(imported.conformance_authority.len(), 1);
+    assert_eq!(
+        imported.query_products.len(),
+        0,
+        "ConformanceDispatch is open-world and must not become unconditional Ready authority"
     );
 }
 
