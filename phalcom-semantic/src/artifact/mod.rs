@@ -246,8 +246,14 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.staged_static_values = Some(child.arc(static_values).map_err(ArtifactError::Allocation)?);
         let semantic_aggregates =
             semantic_import::reconstruct_structural_aggregates(&payload.semantic_world.structural_contracts, &reconstructed, &owners, &self.limits, child)?;
-        let query_products =
-            query_product_import::reconstruct_structural_query_products(&payload.query_image, &semantic_aggregates, &owners, &payload.semantic_world, child)?;
+        let query_products = query_product_import::reconstruct_structural_query_products(
+            &payload.query_image,
+            &semantic_aggregates,
+            &owners,
+            &payload.semantic_world,
+            &reconstructed,
+            child,
+        )?;
         self.staged_semantic_aggregates = Some(child.arc(semantic_aggregates).map_err(ArtifactError::Allocation)?);
         self.staged_query_products = Some(child.arc(query_products).map_err(ArtifactError::Allocation)?);
         self.staged_type_graph = Some(child.arc(ImportedTypeGraph { inner: reconstructed }).map_err(ArtifactError::Allocation)?);
