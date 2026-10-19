@@ -82,15 +82,15 @@ pub(crate) fn reconstruct_callable_specializations(
         .vector::<ImportedCallableSpecializationOwner>(records.len())
         .map_err(ArtifactError::Allocation)?;
 
-    for (body_index, record) in records.iter().enumerate() {
-        let owner = owners.callable(&record.callable)?;
+    for (body_index, analysis) in records.iter().enumerate() {
+        let owner = owners.callable(&analysis.callable)?;
         let body = BodyId(
             u32::try_from(body_index)
                 .map_err(|_| invalid("callable body ordinal exceeds portable range"))?,
         );
         let mut specializations = allocations
             .vector::<ImportedCallSpecialization>(
-                record
+                analysis
                     .expressions
                     .iter()
                     .filter(|expression| expression.call_specialization.is_some())
@@ -98,17 +98,17 @@ pub(crate) fn reconstruct_callable_specializations(
             )
             .map_err(ArtifactError::Allocation)?;
 
-        for (index, expression) in record.expressions.iter().enumerate() {
+        for (index, expression) in analysis.expressions.iter().enumerate() {
             if usize::try_from(expression.ordinal).ok() != Some(index) {
                 return Err(invalid(
                     "call specialization owner expressions are not dense and ordinal-sorted",
                 ));
             }
-            let Some(record) = expression.call_specialization.as_ref() else {
+            let Some(specialization) = expression.call_specialization.as_ref() else {
                 continue;
             };
 
-            let callable = owners.callable(&record.callable)?;
+            let callable = owners.callable(&specialization.callable)?;
             if callables.signature(&callable).is_none() {
                 return Err(invalid(
                     "call specialization selected callable has no imported canonical signature",
@@ -116,9 +116,9 @@ pub(crate) fn reconstruct_callable_specializations(
             }
 
             let mut bindings = allocations
-                .vector::<(TypeParameterId, StaticArgument)>(record.bindings.len())
+                .vector::<(TypeParameterId, StaticArgument)>(specialization.bindings.len())
                 .map_err(ArtifactError::Allocation)?;
-            for binding in &record.bindings {
+            for binding in &specialization.bindings {
                 let parameter = *types
                     .parameters
                     .get(binding.parameter.0 as usize)
@@ -153,14 +153,14 @@ pub(crate) fn reconstruct_callable_specializations(
             }
 
             let mut conformances = allocations
-                .vector::<ImportedGenericCallConformanceBinding>(record.conformances.len())
+                .vector::<ImportedGenericCallConformanceBinding>(specialization.conformances.len())
                 .map_err(ArtifactError::Allocation)?;
-            for binding in &record.conformances {
+            for binding in &specialization.conformances {
                 conformances.push(super::witness_import::reconstruct_conformance_binding(
                     binding,
                     types,
                     owners,
-                    record_conformance_evidence_count(record, expression, records)?,
+                    analysis.conformance_evidence.len(),
                     allocations,
                 )?);
             }
@@ -201,27 +201,6 @@ pub(crate) fn reconstruct_callable_specializations(
             .boxed_slice(imported)
             .map_err(ArtifactError::Allocation)?,
     })
-}
-
-/// Returns the evidence table cardinality for the exact owning analysis record.
-///
-/// Kept as a helper so a future split representation cannot accidentally use
-/// another callable's ordinal graph.
-fn record_conformance_evidence_count(
-    _specialization: &phalcom_compiler_artifact::semantic::world::CallableCallSpecializationV1,
-    expression: &phalcom_compiler_artifact::semantic::world::CallableExpressionRowV1,
-    records: &[CallableAnalysisRecordV1],
-) -> Result<usize, ArtifactError> {
-    let owner = records
-        .iter()
-        .find(|record| {
-            record
-                .expressions
-                .get(expression.ordinal as usize)
-                .is_some_and(|candidate| std::ptr::eq(candidate, expression))
-        })
-        .ok_or_else(|| invalid("call specialization lost its owning analysis record"))?;
-    Ok(owner.conformance_evidence.len())
 }
 
 fn invalid(message: impl Into<String>) -> ArtifactError {
