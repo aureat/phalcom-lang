@@ -718,6 +718,55 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
         .module_world
         .refresh_portable_topology_fingerprint()
         .expect("refresh package topology fingerprint");
+
+    let stable_cached_owner = StableDeclarationRef {
+        module: StableModuleRef {
+            project: stable_package.clone(),
+            path: Box::new([]),
+        },
+        path: vec!["CachedPackagePayload".into()].into_boxed_slice(),
+    };
+    image.semantic_world.type_graph.types.push(TypeEntryV1 {
+        kind: ArtifactKindId(0),
+        form: TypeV1::Nominal {
+            declaration: stable_cached_owner.clone(),
+        },
+    });
+    image.semantic_world.structural_contracts.data_contracts.push(DataInfoV1 {
+        owner: stable_cached_owner.clone(),
+        root_form: ArtifactTypeId(1),
+        generic_signature: None,
+        static_data: None,
+        shape: DataShapeV1::Tuple,
+        components: vec![],
+        constructor_visibility: VisibilityV1::Public,
+        constructor_parameters: vec![],
+        constructor_result_type: ArtifactTypeId(1),
+        shape_contributions: vec![],
+    });
+    image.query_image.supported_roots.push(QueryRootEntryV3 {
+        key: PortableQueryKeyV1 {
+            kind: PortableQueryKindV1::DataDeclaration,
+            owner: PortableQueryOwnerKeyV1::Declaration(stable_cached_owner),
+        },
+        product: QueryProductRefV2 {
+            kind: PortableQueryKindV1::DataDeclaration,
+            row_index: 0,
+        },
+        input_fingerprint: 0,
+        product_fingerprint: 0,
+        dependency_indices: vec![],
+    });
+    let (portable_input, portable_product) = portable_structural_root_fingerprints(
+        image.query_image.supported_roots.last().expect("package data root"),
+        &image.semantic_world,
+    )
+    .expect("portable package query fingerprint")
+    .expect("structural package root");
+    let package_root = image.query_image.supported_roots.last_mut().expect("package data root");
+    package_root.input_fingerprint = portable_input;
+    package_root.product_fingerprint = portable_product;
+
     image.metadata.package_digest = image.header.package_identity.digest().0;
     let bytes = encode_artifact(&image).expect("encode package artifact");
 
@@ -760,6 +809,22 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
         "receipt registration must not allocate IDs"
     );
     assert!(Arc::ptr_eq(&imported.project_universe, &imported.external_world.linked().universe));
+    assert_eq!(imported.query_products.len(), 1, "package-owned DataDeclaration root must survive portable fingerprint validation");
+    let package_owner = phalcom_semantic::identity::DeclarationId::new(
+        phalcom_modules::ModuleId::resolved(project_id, phalcom_modules::ModulePath::root()),
+        "CachedPackagePayload".into(),
+    );
+    let mut package_db = phalcom_semantic::db::SemanticDb::new();
+    imported
+        .publish_query_products_into_empty_db(&mut package_db)
+        .expect("publish package-owned query product");
+    assert!(
+        package_db
+            .product(&phalcom_semantic::db::QueryKey::DataDeclaration(package_owner.clone()))
+            .and_then(|product| product.as_data_declaration())
+            .is_some(),
+        "first receiving graph must publish the package-owned typed product"
+    );
 
     let unrelated_manifest = {
         let unrelated_root = temp.path().join("unrelated-project");
@@ -774,7 +839,7 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
     };
     let mut projects_with_unrelated = projects.clone();
     projects_with_unrelated
-        .load_root(unrelated_manifest)
+        .load_root(unrelated_manifest.clone())
         .expect("load unrelated persistent project");
     let mut second_import_budget = AllocationBudget::new(32 * 1024 * 1024);
     let imported_with_unrelated =
@@ -783,12 +848,70 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
     assert_eq!(
         imported.project_universe.resolve_stable_project(&stable_package),
         imported_with_unrelated.project_universe.resolve_stable_project(&stable_package),
-        "receipt still targets the same existing project"
+        "adding an unrelated project after the resolver target preserves its existing graph identity"
     );
     assert_ne!(
         imported.external_world.topology().fingerprint,
         imported_with_unrelated.external_world.topology().fingerprint,
         "live topology fingerprints include the distinct receiving workspace graphs"
+    );
+
+    // Build an independent receiving graph with an unrelated project allocated
+    // first so the exact same stable package is bound to a different local
+    // ResolvedProjectId. Portable query fingerprints must remain valid.
+    let second_target_root = temp.path().join("resolver-target-second");
+    std::fs::create_dir_all(second_target_root.join("src")).expect("create second source root");
+    std::fs::write(
+        second_target_root.join("project.toml"),
+        "[project]\nname = \"resolver-target-second\"\nnamespace = \"resolver_target_second\"\nversion = \"1.0.0\"\n",
+    )
+    .expect("write second project manifest");
+    std::fs::write(second_target_root.join("src/package.ph"), "").expect("write second package source");
+
+    let mut relocated_projects = phalcom_modules::ProjectUniverse::new();
+    relocated_projects
+        .load_root(unrelated_manifest)
+        .expect("allocate unrelated graph node first");
+    let relocated_project_id = relocated_projects
+        .load_root(second_target_root.join("project.toml"))
+        .expect("load relocated resolver target");
+    assert_ne!(project_id, relocated_project_id, "test must exercise different graph-local project IDs");
+
+    let relocated_receipt =
+        phalcom_modules::ValidatedPackageAuthorityReceipt::from_trusted_resolver(stable_package.clone(), artifact_digest, relocated_project_id)
+            .expect("make relocated trusted resolver receipt");
+    let relocated_resolver = Resolver(relocated_receipt);
+    let mut relocated_import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let relocated = import_compiler_image_bytes_with_project_catalog(
+        &bytes,
+        None,
+        &limits,
+        &mut relocated_import_budget,
+        &relocated_projects,
+        &relocated_resolver,
+    )
+    .expect("portable query fingerprint must survive package project-ID relocation");
+    assert_eq!(relocated.query_products.len(), 1);
+
+    let relocated_owner = phalcom_semantic::identity::DeclarationId::new(
+        phalcom_modules::ModuleId::resolved(relocated_project_id, phalcom_modules::ModulePath::root()),
+        "CachedPackagePayload".into(),
+    );
+    let mut relocated_db = phalcom_semantic::db::SemanticDb::new();
+    relocated
+        .publish_query_products_into_empty_db(&mut relocated_db)
+        .expect("publish relocated package-owned product");
+    assert!(
+        relocated_db
+            .product(&phalcom_semantic::db::QueryKey::DataDeclaration(relocated_owner))
+            .and_then(|product| product.as_data_declaration())
+            .is_some(),
+        "second receiving graph must publish the same portable root under its own local owner"
+    );
+    assert_ne!(
+        package_owner.module.project,
+        phalcom_modules::ProjectIdentity::Resolved(relocated_project_id),
+        "local DB identities differ even though portable artifact authority is identical"
     );
 }
 
