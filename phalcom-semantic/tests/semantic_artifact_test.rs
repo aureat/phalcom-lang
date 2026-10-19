@@ -17,13 +17,14 @@ use phalcom_compiler_artifact::semantic::type_store::{
 };
 use phalcom_compiler_artifact::semantic::world::{
     AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1, SemanticWorldV3,
+    TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
 };
 use phalcom_semantic::artifact::{
     CompilerArtifactImage, decode_and_validate_artifact, encode_artifact, import_compiler_image, import_compiler_image_bytes_with_project_catalog,
 };
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::fingerprint::Fingerprint128;
-use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
+use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef, StableTypeMemberRef};
 use phalcom_type_meta::{
     ArtifactIdentityScheme, KindNode, KindNodeEntry, KindNodeId, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity,
     SEMANTIC_MODEL_VERSION, SemanticMetadataBundle, SemanticMetadataHeader, TYPE_METADATA_SCHEMA_VERSION, TypeNode, TypeNodeEntry,
@@ -700,6 +701,97 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         0,
         "mismatched dependency evidence must fail before committing decode allocations"
     );
+}
+
+#[test]
+fn p7_type_member_product_imports_as_current_main_ready_query() {
+    let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+
+    let stable_owner = StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: vec!["core".into()].into_boxed_slice(),
+        },
+        path: vec!["TypeOwner".into()].into_boxed_slice(),
+    };
+    image
+        .semantic_world
+        .type_member_declarations
+        .push(TypeMemberDeclarationRecordV1 {
+            owner: stable_owner.clone(),
+            selector: TypeMemberSelectorV1::Named {
+                name: "Element".into(),
+            },
+            parameters: vec![],
+            result_domain: TypeMemberDomainV1::Kind {
+                kind: ArtifactKindId(0),
+            },
+            intrinsic: None,
+            implementation: TypeMemberImplementationV1::Phalcom,
+        });
+
+    image.query_image.supported_roots.push(QueryRootEntryV3 {
+        key: PortableQueryKeyV1 {
+            kind: PortableQueryKindV1::TypeMemberDeclaration,
+            owner: PortableQueryOwnerKeyV1::TypeMember(StableTypeMemberRef {
+                owner: stable_owner,
+                selector: "Element".into(),
+            }),
+        },
+        product: QueryProductRefV2 {
+            kind: PortableQueryKindV1::TypeMemberDeclaration,
+            row_index: 0,
+        },
+        input_fingerprint: 0,
+        product_fingerprint: 0,
+        dependency_indices: vec![],
+    });
+    image
+        .query_image
+        .supported_roots
+        .sort_by(|left, right| left.key.cmp(&right.key));
+    image
+        .query_image
+        .refresh_portable_structural_fingerprints(&image.semantic_world)
+        .expect("refresh type-member portable fingerprint");
+
+    let bytes = encode_artifact(&image).expect("encode type-member artifact");
+    let limits = ValidationLimits::default();
+    let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
+        .expect("validate type-member artifact");
+    let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let imported = import_compiler_image(payload, &limits, &mut import_budget)
+        .expect("import P7 type-member semantic product");
+
+    assert_eq!(imported.query_products.len(), 1, "only the reusable type-member root is reconstructed");
+    let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
+    ]));
+    let owner = phalcom_semantic::identity::DeclarationId::new(module, "TypeOwner".into());
+    let id = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
+        owner,
+        phalcom_semantic::types::type_member::TypeMemberSelector::Named("Element".into()),
+    );
+
+    let mut db = phalcom_semantic::db::SemanticDb::new();
+    imported
+        .publish_query_products_into_empty_db(&mut db)
+        .expect("publish imported type-member query");
+    let product = db
+        .product(&phalcom_semantic::db::QueryKey::TypeMemberDeclaration(id.clone()))
+        .and_then(|product| product.as_type_member_declaration())
+        .expect("typed TypeMemberDeclaration product must be Ready");
+    assert_eq!(product.id, id);
+    assert!(product.signature.parameters.is_empty());
+    assert!(matches!(
+        product.signature.result_domain,
+        phalcom_semantic::types::type_member::TypeMemberDomain::Kind(phalcom_semantic::types::id::KindId::TYPE)
+    ));
 }
 
 #[test]
