@@ -541,11 +541,11 @@ fn type_member_row_matches_owner(
     row: &crate::semantic::world::TypeMemberDeclarationRecordV1,
     owner: &StableTypeMemberRef,
 ) -> bool {
-    if row.owner != owner.owner {
+    if &row.owner != &owner.owner {
         return false;
     }
     match &row.selector {
-        crate::semantic::type_store::TypeMemberSelectorV1::Named { name } => name.as_str() == owner.selector.as_ref(),
+        crate::semantic::type_store::TypeMemberSelectorV1::Named { name } => name.as_ref() == owner.selector.as_ref(),
         crate::semantic::type_store::TypeMemberSelectorV1::Subscript => owner.selector.as_ref() == "[]",
     }
 }
