@@ -9,7 +9,6 @@ use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
 use phalcom_compiler_artifact::query::{
     DependencyEvidenceEntryV3, PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
-    portable_structural_root_fingerprints,
 };
 use phalcom_compiler_artifact::semantic::aggregates::{DataInfoV1, DataShapeV1, EnumInfoV1, StructuralPrimaryContractsV1, VisibilityV1};
 use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
@@ -540,14 +539,10 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         product_fingerprint: 0,
         dependency_indices: vec![],
     });
-    for root in &mut image.query_image.supported_roots {
-        if let Some((portable_input, portable_product)) =
-            portable_structural_root_fingerprints(root, &image.semantic_world).expect("portable structural fingerprints")
-        {
-            root.input_fingerprint = portable_input;
-            root.product_fingerprint = portable_product;
-        }
-    }
+    image
+        .query_image
+        .refresh_portable_structural_fingerprints(&image.semantic_world)
+        .expect("refresh portable structural fingerprints");
 
     let data_portable_product_fingerprint = image
         .query_image
@@ -757,15 +752,10 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
         product_fingerprint: 0,
         dependency_indices: vec![],
     });
-    let (portable_input, portable_product) = portable_structural_root_fingerprints(
-        image.query_image.supported_roots.last().expect("package data root"),
-        &image.semantic_world,
-    )
-    .expect("portable package query fingerprint")
-    .expect("structural package root");
-    let package_root = image.query_image.supported_roots.last_mut().expect("package data root");
-    package_root.input_fingerprint = portable_input;
-    package_root.product_fingerprint = portable_product;
+    image
+        .query_image
+        .refresh_portable_structural_fingerprints(&image.semantic_world)
+        .expect("refresh package query fingerprint");
 
     image.metadata.package_digest = image.header.package_identity.digest().0;
     let bytes = encode_artifact(&image).expect("encode package artifact");
