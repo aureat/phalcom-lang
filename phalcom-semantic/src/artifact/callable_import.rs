@@ -372,7 +372,7 @@ fn reconstruct_declared_type(
     super::semantic_import::reconstruct_declared_type(row, types, owners, allocations)
 }
 
-fn import_type_knowledge(
+pub(crate) fn import_type_knowledge(
     knowledge: &TypeKnowledgeV1,
     types: &ReconstructedTypeGraph,
     allocations: &mut AllocationBudget,
