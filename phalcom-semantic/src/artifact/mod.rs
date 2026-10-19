@@ -5,6 +5,7 @@
 mod identity;
 mod query_import;
 mod query_policy;
+mod query_product_import;
 mod semantic_import;
 mod static_import;
 mod type_import;
@@ -12,6 +13,7 @@ pub use identity::StableOwnerCatalog;
 pub use query_policy::{
     CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_from_portable, query_kind_profile_support, query_root_is_reusable,
 };
+pub use query_product_import::{ImportedQueryProducts, ImportedReadyQueryProduct};
 pub use semantic_import::ImportedSemanticAggregates;
 pub use static_import::ImportedStaticValueGraph;
 pub use type_import::ImportedTypeGraph;
@@ -75,6 +77,9 @@ pub struct ImportedCompilerImage {
     pub static_values: Arc<ImportedStaticValueGraph>,
     /// Reconstructed structural declaration products (data, enums, variants).
     pub semantic_aggregates: Arc<ImportedSemanticAggregates>,
+    /// Reconstructed, canonical-fingerprint-validated reusable query products.
+    /// T4 installs these into the imported generation's one SemanticDb.
+    pub query_products: Arc<ImportedQueryProducts>,
     pub semantic_world: SemanticWorldV3,
     pub query_image: QueryImageV3,
 }
@@ -93,6 +98,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_type_graph: Option<Arc<ImportedTypeGraph>>,
     pub staged_static_values: Option<Arc<ImportedStaticValueGraph>>,
     pub staged_semantic_aggregates: Option<Arc<ImportedSemanticAggregates>>,
+    pub staged_query_products: Option<Arc<ImportedQueryProducts>>,
     pub staged_semantic_world: Option<SemanticWorldV3>,
     pub staged_query_image: Option<QueryImageV3>,
     project_catalog: Option<Arc<ProjectUniverse>>,
@@ -112,6 +118,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             staged_type_graph: None,
             staged_static_values: None,
             staged_semantic_aggregates: None,
+            staged_query_products: None,
             staged_semantic_world: None,
             staged_query_image: None,
             project_catalog: None,
@@ -227,7 +234,9 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.staged_static_values = Some(child.arc(static_values).map_err(ArtifactError::Allocation)?);
         let semantic_aggregates =
             semantic_import::reconstruct_structural_aggregates(&payload.semantic_world.structural_contracts, &reconstructed, &owners, &self.limits, child)?;
+        let query_products = query_product_import::reconstruct_structural_query_products(&payload.query_image, &semantic_aggregates, &owners, child)?;
         self.staged_semantic_aggregates = Some(child.arc(semantic_aggregates).map_err(ArtifactError::Allocation)?);
+        self.staged_query_products = Some(child.arc(query_products).map_err(ArtifactError::Allocation)?);
         self.staged_type_graph = Some(child.arc(ImportedTypeGraph { inner: reconstructed }).map_err(ArtifactError::Allocation)?);
 
         // 4. Stage remaining semantic world and query wire data.
@@ -274,6 +283,10 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_semantic_aggregates
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged semantic aggregates".into())))?;
+        let query_products = self
+            .staged_query_products
+            .take()
+            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged semantic query products".into())))?;
         let semantic_world = self
             .staged_semantic_world
             .take()
@@ -301,6 +314,7 @@ impl<'a> ArtifactImportTransaction<'a> {
             type_graph,
             static_values,
             semantic_aggregates,
+            query_products,
             semantic_world,
             query_image,
         })
@@ -316,6 +330,7 @@ impl Drop for ArtifactImportTransaction<'_> {
             self.staged_type_graph = None;
             self.staged_static_values = None;
             self.staged_semantic_aggregates = None;
+            self.staged_query_products = None;
             self.staged_semantic_world = None;
             self.staged_query_image = None;
             self.project_catalog = None;
