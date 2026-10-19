@@ -1,8 +1,8 @@
 //! Relocates portable `SEMANTIC_WORLD` type-graph rows into the current `TypeStore`.
 
+use crate::artifact::identity::StableOwnerCatalog;
 use crate::field_key::FieldKey;
-use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ImplId, ImplLocalId, VariantId};
-use crate::metadata::import::{resolve_stable_declaration, resolve_stable_module};
+use crate::identity::{CallableId, DeclarationId, ImplId, VariantId};
 use crate::scalar::StaticInt;
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
 use crate::types::family::{FamilyMemberType, FamilyMemberTypeKind, FamilyOperationShape};
@@ -30,9 +30,7 @@ use phalcom_compiler_artifact::semantic::type_store::{
     StaticArgumentV1, StaticDomainV1, TypeMemberArgumentV1, TypeMemberSelectorV1, TypeV1, VarianceV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
-use phalcom_modules::ProjectUniverse;
 use phalcom_type_meta::allocation::AllocationBudget;
-use phalcom_type_meta::identity::{StableCallableOwnerRef, StableDispatchSide};
 use std::collections::HashSet;
 use std::str::FromStr;
 
@@ -76,11 +74,11 @@ impl ImportedTypeGraph {
 pub(crate) fn reconstruct_type_graph(
     graph: &wire::TypeGraphV1,
     limits: &phalcom_compiler_artifact::limits::ValidationLimits,
-    projects: &ProjectUniverse,
+    owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<ReconstructedTypeGraph, ArtifactError> {
     graph.validate(limits)?;
-    let mut importer = TypeGraphImporter::new(graph, projects, allocations)?;
+    let mut importer = TypeGraphImporter::new(graph, owners, allocations)?;
 
     // Resolving each table through the same memoized relocation path accepts
     // arbitrary acyclic row order while rejecting cycles the live interners
@@ -144,7 +142,7 @@ enum GraphNode {
 
 struct TypeGraphImporter<'a> {
     graph: &'a wire::TypeGraphV1,
-    projects: &'a ProjectUniverse,
+    owners: &'a StableOwnerCatalog<'a>,
     allocations: &'a mut AllocationBudget,
     store: TypeStore,
     active: HashSet<GraphNode>,
@@ -162,7 +160,7 @@ struct TypeGraphImporter<'a> {
 }
 
 impl<'a> TypeGraphImporter<'a> {
-    fn new(graph: &'a wire::TypeGraphV1, projects: &'a ProjectUniverse, allocations: &'a mut AllocationBudget) -> Result<Self, ArtifactError> {
+    fn new(graph: &'a wire::TypeGraphV1, owners: &'a StableOwnerCatalog<'a>, allocations: &'a mut AllocationBudget) -> Result<Self, ArtifactError> {
         fn slots<T>(allocations: &mut AllocationBudget, len: usize) -> Result<Vec<Option<T>>, ArtifactError> {
             let mut result = allocations.vector::<Option<T>>(len).map_err(ArtifactError::Allocation)?;
             result.resize_with(len, || None);
@@ -187,7 +185,7 @@ impl<'a> TypeGraphImporter<'a> {
 
         Ok(Self {
             graph,
-            projects,
+            owners,
             allocations,
             store,
             active: HashSet::new(),
@@ -221,8 +219,9 @@ impl<'a> TypeGraphImporter<'a> {
     }
 
     fn declaration(&self, reference: &phalcom_type_meta::identity::StableDeclarationRef) -> Result<DeclarationId, ArtifactError> {
-        resolve_stable_declaration(reference, self.projects)
-            .ok_or_else(|| referential(format!("unresolved or noncanonical stable declaration owner: {reference:?}")))
+        self.owners
+            .declaration(reference)
+            .map_err(|_| referential(format!("unresolved or noncanonical stable declaration owner: {reference:?}")))
     }
 
     fn type_id(&mut self, id: ArtifactTypeId) -> Result<TypeId, ArtifactError> {
@@ -409,7 +408,7 @@ impl<'a> TypeGraphImporter<'a> {
                 TypeV1::Lambda { lambda } => TypeData::Lambda(self.resolve_lambda(lambda.0 as usize)?),
                 TypeV1::SelfType { self_type } => TypeData::SelfType(SelfTypeTerm {
                     owner: self.declaration(&self_type.owner)?,
-                    side: map_dispatch_side(self_type.side),
+                    side: super::identity::dispatch_side(self_type.side),
                     role: match self_type.role.clone() {
                         wire::SelfRoleV1::InstanceType => SelfRole::InstanceType,
                         wire::SelfRoleV1::ReceiverValue => SelfRole::ReceiverValue,
@@ -1189,11 +1188,11 @@ impl<'a> TypeGraphImporter<'a> {
     }
 
     fn callable(&self, reference: &phalcom_type_meta::identity::StableCallableRef) -> Result<CallableId, ArtifactError> {
-        relocate_stable_callable(reference, self.projects)
+        relocate_stable_callable(reference, self.owners)
     }
 
     fn implementation(&self, reference: &phalcom_type_meta::identity::StableImplRef) -> Result<ImplId, ArtifactError> {
-        relocate_stable_impl(reference, self.projects)
+        relocate_stable_impl(reference, self.owners)
     }
 
     fn finish(self) -> Result<ReconstructedTypeGraph, ArtifactError> {
@@ -1220,54 +1219,22 @@ impl<'a> TypeGraphImporter<'a> {
     }
 }
 
-pub(crate) fn relocate_stable_module(
-    reference: &phalcom_type_meta::identity::StableModuleRef,
-    projects: &ProjectUniverse,
-) -> Result<crate::identity::ModuleId, ArtifactError> {
-    resolve_stable_module(reference, projects).ok_or_else(|| referential("unresolved stable module identity"))
-}
-
-pub(crate) fn relocate_stable_declaration(
-    reference: &phalcom_type_meta::identity::StableDeclarationRef,
-    projects: &ProjectUniverse,
-) -> Result<DeclarationId, ArtifactError> {
-    resolve_stable_declaration(reference, projects).ok_or_else(|| referential("unresolved stable declaration identity"))
-}
-
 pub(crate) fn relocate_stable_variant(
     reference: &phalcom_type_meta::identity::StableVariantRef,
-    projects: &ProjectUniverse,
+    owners: &StableOwnerCatalog<'_>,
 ) -> Result<VariantId, ArtifactError> {
-    Ok(VariantId::new(
-        relocate_stable_declaration(&reference.owner, projects)?,
-        parse_selector(&reference.selector)?,
-    ))
+    owners.variant(reference)
 }
 
-pub(crate) fn relocate_stable_impl(reference: &phalcom_type_meta::identity::StableImplRef, projects: &ProjectUniverse) -> Result<ImplId, ArtifactError> {
-    Ok(ImplId::new(
-        relocate_stable_module(&reference.module, projects)?,
-        ImplLocalId(reference.local_id),
-    ))
+pub(crate) fn relocate_stable_impl(reference: &phalcom_type_meta::identity::StableImplRef, owners: &StableOwnerCatalog<'_>) -> Result<ImplId, ArtifactError> {
+    owners.implementation(reference)
 }
 
 pub(crate) fn relocate_stable_callable(
     reference: &phalcom_type_meta::identity::StableCallableRef,
-    projects: &ProjectUniverse,
+    owners: &StableOwnerCatalog<'_>,
 ) -> Result<CallableId, ArtifactError> {
-    let owner = match &reference.owner {
-        StableCallableOwnerRef::Declaration(owner) => CallableOwnerId::Declaration(relocate_stable_declaration(owner, projects)?),
-        StableCallableOwnerRef::Variant(owner) => CallableOwnerId::Variant(relocate_stable_variant(owner, projects)?),
-        StableCallableOwnerRef::Conformance(owner) => CallableOwnerId::Conformance(relocate_stable_impl(owner, projects)?),
-    };
-    Ok(CallableId::new(owner, parse_selector(&reference.selector)?, map_dispatch_side(reference.side)))
-}
-
-pub(crate) fn map_dispatch_side(side: StableDispatchSide) -> DispatchSide {
-    match side {
-        StableDispatchSide::Instance => DispatchSide::Instance,
-        StableDispatchSide::Class => DispatchSide::Class,
-    }
+    owners.callable(reference)
 }
 
 fn map_variance(variance: VarianceV1) -> Variance {
@@ -1417,7 +1384,9 @@ mod tests {
             }],
         );
         let mut budget = AllocationBudget::new(1024 * 1024);
-        let imported = reconstruct_type_graph(&graph, &Default::default(), &ProjectUniverse::new(), &mut budget).unwrap();
+        let (world, projects) = super::super::identity::empty_owner_inputs();
+        let owners = StableOwnerCatalog::new(&world, &projects).unwrap();
+        let imported = reconstruct_type_graph(&graph, &Default::default(), &owners, &mut budget).unwrap();
 
         let TypeData::Tuple(tuple) = imported.store.get(imported.types[2]) else {
             panic!("forward tuple row was not reconstructed");
@@ -1447,7 +1416,9 @@ mod tests {
             vec![],
         );
         let mut budget = AllocationBudget::new(1024 * 1024);
-        let error = reconstruct_type_graph(&graph, &Default::default(), &ProjectUniverse::new(), &mut budget).unwrap_err();
+        let (world, projects) = super::super::identity::empty_owner_inputs();
+        let owners = StableOwnerCatalog::new(&world, &projects).unwrap();
+        let error = reconstruct_type_graph(&graph, &Default::default(), &owners, &mut budget).unwrap_err();
         assert!(matches!(error, ArtifactError::Validation(ValidationError::ReferentialIntegrity(message)) if message.contains("dependency cycle")));
     }
 
@@ -1472,7 +1443,9 @@ mod tests {
             }],
         );
         let mut budget = AllocationBudget::new(1024 * 1024);
-        let error = reconstruct_type_graph(&graph, &Default::default(), &ProjectUniverse::new(), &mut budget).unwrap_err();
+        let (world, projects) = super::super::identity::empty_owner_inputs();
+        let owners = StableOwnerCatalog::new(&world, &projects).unwrap();
+        let error = reconstruct_type_graph(&graph, &Default::default(), &owners, &mut budget).unwrap_err();
         assert!(matches!(error, ArtifactError::Validation(ValidationError::ReferentialIntegrity(message)) if message.contains("dependency cycle")));
     }
 
@@ -1509,7 +1482,9 @@ mod tests {
             vec![],
         );
         let mut budget = AllocationBudget::new(1024 * 1024);
-        let error = reconstruct_type_graph(&graph, &Default::default(), &ProjectUniverse::new(), &mut budget).unwrap_err();
+        let (world, projects) = super::super::identity::empty_owner_inputs();
+        let owners = StableOwnerCatalog::new(&world, &projects).unwrap();
+        let error = reconstruct_type_graph(&graph, &Default::default(), &owners, &mut budget).unwrap_err();
         assert!(matches!(error, ArtifactError::Validation(ValidationError::ReferentialIntegrity(message)) if message.contains("duplicate label")));
     }
 }

@@ -1,20 +1,18 @@
 //! Relocates portable static-value rows into the current `StaticValueStore`.
 
+use crate::artifact::identity::StableOwnerCatalog;
 use crate::artifact::type_import::ReconstructedTypeGraph;
 use crate::field_key::FieldKey;
-use crate::identity::{DataComponentId, DataConstructorId, VariantFieldId, VariantId};
-use crate::metadata::import::resolve_stable_declaration;
+use crate::identity::{DataComponentId, DataConstructorId, VariantFieldId};
 use crate::scalar::StaticInt;
 use crate::static_value::{StaticFloat, StaticSequenceFamily, StaticValueData, StaticValueRef, StaticValueStore};
 use crate::types::store::TypeData;
 use num_bigint::BigInt;
-use phalcom_common::selector::Selector;
 use phalcom_compiler_artifact::semantic::static_value::{
     ArtifactStaticPackBackingId, ArtifactStaticValueId, SequenceFamilyV1, StaticValueGraphV1, StaticValueV1,
 };
 use phalcom_compiler_artifact::semantic::type_store::FieldKeyV1;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
-use phalcom_modules::ProjectUniverse;
 use phalcom_type_meta::allocation::AllocationBudget;
 use std::str::FromStr;
 
@@ -43,13 +41,13 @@ impl ImportedStaticValueGraph {
 pub(crate) fn reconstruct_static_values(
     graph: &StaticValueGraphV1,
     types: &ReconstructedTypeGraph,
-    projects: &ProjectUniverse,
+    owners: &StableOwnerCatalog<'_>,
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedStaticValueGraph, ArtifactError> {
     graph.validate_type_references(types.types.len())?;
     let order = graph.validate_with_allocation_budget(limits, allocations)?;
-    let mut importer = StaticValueImporter::new(graph, types, projects, allocations)?;
+    let mut importer = StaticValueImporter::new(graph, types, owners, allocations)?;
     for value in order {
         importer.resolve_value(value)?;
     }
@@ -71,7 +69,7 @@ pub(crate) fn reconstruct_static_values(
 struct StaticValueImporter<'a> {
     graph: &'a StaticValueGraphV1,
     types: &'a ReconstructedTypeGraph,
-    projects: &'a ProjectUniverse,
+    owners: &'a StableOwnerCatalog<'a>,
     allocations: &'a mut AllocationBudget,
     store: StaticValueStore,
     values: Vec<Option<StaticValueRef>>,
@@ -82,7 +80,7 @@ impl<'a> StaticValueImporter<'a> {
     fn new(
         graph: &'a StaticValueGraphV1,
         types: &'a ReconstructedTypeGraph,
-        projects: &'a ProjectUniverse,
+        owners: &'a StableOwnerCatalog<'a>,
         allocations: &'a mut AllocationBudget,
     ) -> Result<Self, ArtifactError> {
         let mut values = allocations
@@ -96,7 +94,7 @@ impl<'a> StaticValueImporter<'a> {
         Ok(Self {
             graph,
             types,
-            projects,
+            owners,
             allocations,
             store: StaticValueStore::new(),
             values,
@@ -219,9 +217,8 @@ impl<'a> StaticValueImporter<'a> {
                     .data_values
                     .get(data_id.0 as usize)
                     .ok_or_else(|| referential("invalid static data reference"))?;
-                let owner = resolve_stable_declaration(&row.owner, self.projects).ok_or_else(|| referential("unresolved static data owner"))?;
-                let constructor_owner =
-                    resolve_stable_declaration(&row.constructor_owner, self.projects).ok_or_else(|| referential("unresolved static data constructor owner"))?;
+                let owner = self.owners.declaration(&row.owner)?;
+                let constructor_owner = self.owners.declaration(&row.constructor_owner)?;
                 if owner != constructor_owner {
                     return Err(referential("static data constructor does not belong to its data declaration"));
                 }
@@ -246,10 +243,7 @@ impl<'a> StaticValueImporter<'a> {
                     .variant_values
                     .get(variant_id.0 as usize)
                     .ok_or_else(|| referential("invalid static variant reference"))?;
-                let owner = resolve_stable_declaration(&row.variant.owner, self.projects).ok_or_else(|| referential("unresolved static variant owner"))?;
-                let selector =
-                    Selector::try_decode_exact(&row.variant.selector).map_err(|error| referential(format!("invalid static variant selector: {error}")))?;
-                let variant = VariantId::new(owner, selector);
+                let variant = self.owners.variant(&row.variant)?;
                 let result_type = self.type_id(row.result_type)?;
                 match self.types.store.get(result_type) {
                     TypeData::ExactCase { variant: exact, .. } if self.types.store.variant_identity(*exact) == &variant => {}
@@ -389,7 +383,9 @@ mod tests {
     fn reconstructs_static_scalars_and_structural_values_into_the_live_store() {
         let type_graph = empty_type_graph();
         let mut budget = AllocationBudget::new(1024 * 1024);
-        let types = super::super::type_import::reconstruct_type_graph(&type_graph, &ValidationLimits::default(), &ProjectUniverse::new(), &mut budget).unwrap();
+        let (world, projects) = super::super::identity::empty_owner_inputs();
+        let owners = StableOwnerCatalog::new(&world, &projects).unwrap();
+        let types = super::super::type_import::reconstruct_type_graph(&type_graph, &ValidationLimits::default(), &owners, &mut budget).unwrap();
         let graph = StaticValueGraphV1 {
             values: vec![
                 StaticValueV1::Int { decimal: "42".into() },
@@ -429,7 +425,7 @@ mod tests {
             }],
         };
 
-        let imported = reconstruct_static_values(&graph, &types, &ProjectUniverse::new(), &ValidationLimits::default(), &mut budget).unwrap();
+        let imported = reconstruct_static_values(&graph, &types, &owners, &ValidationLimits::default(), &mut budget).unwrap();
         let tuple = imported.value(ArtifactStaticValueId(3)).unwrap();
         let StaticValueData::Tuple(tuple_id) = imported.store.get(tuple).unwrap() else {
             panic!("portable tuple did not become a live tuple");
@@ -454,7 +450,9 @@ mod tests {
     fn rejects_a_static_value_graph_cycle_before_reconstruction() {
         let type_graph = empty_type_graph();
         let mut budget = AllocationBudget::new(1024 * 1024);
-        let types = super::super::type_import::reconstruct_type_graph(&type_graph, &ValidationLimits::default(), &ProjectUniverse::new(), &mut budget).unwrap();
+        let (world, projects) = super::super::identity::empty_owner_inputs();
+        let owners = StableOwnerCatalog::new(&world, &projects).unwrap();
+        let types = super::super::type_import::reconstruct_type_graph(&type_graph, &ValidationLimits::default(), &owners, &mut budget).unwrap();
         let graph = StaticValueGraphV1 {
             values: vec![StaticValueV1::Tuple { id: ArtifactStaticTupleId(0) }],
             strings: vec![],
@@ -467,7 +465,7 @@ mod tests {
             pack_backings: vec![],
             packs: vec![],
         };
-        let error = reconstruct_static_values(&graph, &types, &ProjectUniverse::new(), &ValidationLimits::default(), &mut budget).unwrap_err();
+        let error = reconstruct_static_values(&graph, &types, &owners, &ValidationLimits::default(), &mut budget).unwrap_err();
         assert!(matches!(error, ArtifactError::Validation(ValidationError::ReferentialIntegrity(message)) if message.contains("cyclic")));
     }
 }

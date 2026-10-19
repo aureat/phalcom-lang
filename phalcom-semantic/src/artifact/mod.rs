@@ -2,11 +2,16 @@
 //!
 //! (ARTF001.C1.P2)
 
+mod identity;
+mod query_import;
 mod query_policy;
 mod semantic_import;
 mod static_import;
 mod type_import;
-pub use query_policy::{CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_profile_support};
+pub use identity::StableOwnerCatalog;
+pub use query_policy::{
+    CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_from_portable, query_kind_profile_support, query_root_is_reusable,
+};
 pub use semantic_import::ImportedSemanticAggregates;
 pub use static_import::ImportedStaticValueGraph;
 pub use type_import::ImportedTypeGraph;
@@ -214,11 +219,13 @@ impl<'a> ArtifactImportTransaction<'a> {
             .project_catalog
             .as_deref()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged project catalog".into())))?;
-        let reconstructed = type_import::reconstruct_type_graph(&payload.semantic_world.type_graph, &self.limits, projects, child)?;
-        let static_values = static_import::reconstruct_static_values(&payload.semantic_world.static_values, &reconstructed, projects, &self.limits, child)?;
+        let owners = identity::StableOwnerCatalog::new(&payload.module_world, projects)?;
+        query_import::validate_query_owner_authority(&payload.query_image, &owners)?;
+        let reconstructed = type_import::reconstruct_type_graph(&payload.semantic_world.type_graph, &self.limits, &owners, child)?;
+        let static_values = static_import::reconstruct_static_values(&payload.semantic_world.static_values, &reconstructed, &owners, &self.limits, child)?;
         self.staged_static_values = Some(child.arc(static_values).map_err(ArtifactError::Allocation)?);
         let semantic_aggregates =
-            semantic_import::reconstruct_structural_aggregates(&payload.semantic_world.structural_contracts, &reconstructed, projects, &self.limits, child)?;
+            semantic_import::reconstruct_structural_aggregates(&payload.semantic_world.structural_contracts, &reconstructed, &owners, &self.limits, child)?;
         self.staged_semantic_aggregates = Some(child.arc(semantic_aggregates).map_err(ArtifactError::Allocation)?);
         self.staged_type_graph = Some(child.arc(ImportedTypeGraph { inner: reconstructed }).map_err(ArtifactError::Allocation)?);
 

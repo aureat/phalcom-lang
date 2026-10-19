@@ -1,6 +1,7 @@
 //! Reconstructs structural declaration products into current-main semantic tables.
 
 use crate::algebraic_semantics::StaticAlgebraicDeclarationInfo;
+use crate::artifact::identity::StableOwnerCatalog;
 use crate::data_semantics::{
     DataComponentSemantic, DataConstructorParameter, DataConstructorParameterContribution, DataConstructorSignature, DataInfo, DataProductContribution,
     DataProductExpansionSemantic, DataProductShapeTemplate, DataSemanticTable, DataShape,
@@ -27,7 +28,6 @@ use phalcom_compiler_artifact::semantic::aggregates::{
 };
 use phalcom_compiler_artifact::semantic::type_store::{ArtifactStaticConstructorId, ArtifactStaticDomainId, ArtifactTypeId, ParameterOwnerV1, SelfRoleV1};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
-use phalcom_modules::ProjectUniverse;
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_type_meta::identity::StableDeclarationRef;
 use std::collections::{BTreeMap, HashSet};
@@ -45,14 +45,14 @@ pub struct ImportedSemanticAggregates {
 pub(crate) fn reconstruct_structural_aggregates(
     contracts: &wire::StructuralPrimaryContractsV1,
     types: &super::type_import::ReconstructedTypeGraph,
-    projects: &ProjectUniverse,
+    owners: &StableOwnerCatalog<'_>,
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedSemanticAggregates, ArtifactError> {
     contracts.validate_with_allocation_budget(limits, allocations)?;
     let mut data_semantics = DataSemanticTable::new();
     for row in &contracts.data_contracts {
-        let info = reconstruct_data_info(row, types, projects, allocations)?;
+        let info = reconstruct_data_info(row, types, owners, allocations)?;
         if data_semantics.get(&info.owner).is_some() {
             return Err(referential("duplicate reconstructed data declaration owner"));
         }
@@ -61,14 +61,14 @@ pub(crate) fn reconstruct_structural_aggregates(
 
     let mut enum_semantics = EnumSemanticTable::new();
     for row in &contracts.variant_contracts {
-        let info = reconstruct_variant_info(row, types, projects, allocations)?;
+        let info = reconstruct_variant_info(row, types, owners, allocations)?;
         if enum_semantics.variant_info(&info.id).is_some() {
             return Err(referential("duplicate reconstructed enum variant owner"));
         }
         enum_semantics.insert_variant(Arc::new(info));
     }
     for row in &contracts.enum_contracts {
-        let info = reconstruct_enum_info(row, &enum_semantics, types, projects, allocations)?;
+        let info = reconstruct_enum_info(row, &enum_semantics, types, owners, allocations)?;
         if enum_semantics.enum_info(&info.owner).is_some() {
             return Err(referential("duplicate reconstructed enum declaration owner"));
         }
@@ -84,16 +84,16 @@ pub(crate) fn reconstruct_structural_aggregates(
 fn reconstruct_data_info(
     row: &wire::DataInfoV1,
     types: &super::type_import::ReconstructedTypeGraph,
-    projects: &ProjectUniverse,
+    owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<DataInfo, ArtifactError> {
-    let owner = declaration(&row.owner, projects)?;
+    let owner = declaration(&row.owner, owners)?;
     let root_form = type_id(row.root_form, types)?;
     validate_declaration_form(root_form, &owner, &types.store)?;
     let generic_signature = row
         .generic_signature
         .as_ref()
-        .map(|signature| reconstruct_signature(signature, types, projects, allocations))
+        .map(|signature| reconstruct_signature(signature, types, owners, allocations))
         .transpose()?;
     if generic_signature
         .as_ref()
@@ -120,7 +120,7 @@ fn reconstruct_data_info(
             id: id.clone(),
             local_name: component.local_name.clone(),
             external_label: component.external_label.clone(),
-            declared_type: reconstruct_declared_type(&component.declared_type, types, projects)?,
+            declared_type: reconstruct_declared_type(&component.declared_type, types, owners)?,
             source: None,
         });
         let parameter = row
@@ -131,7 +131,7 @@ fn reconstruct_data_info(
             component: id,
             external_label: parameter.external_label.clone(),
             local_name: parameter.local_name.clone(),
-            declared_type: reconstruct_declared_type(&parameter.declared_type, types, projects)?,
+            declared_type: reconstruct_declared_type(&parameter.declared_type, types, owners)?,
         });
     }
 
@@ -164,7 +164,7 @@ fn reconstruct_data_info(
             DataProductContributionV1::Expansion { mode, operand } => {
                 let expansion = DataProductExpansionSemantic {
                     mode: map_expansion_mode(mode.clone()),
-                    operand: reconstruct_declared_type(operand, types, projects)?,
+                    operand: reconstruct_declared_type(operand, types, owners)?,
                     source: None,
                 };
                 contributions.push(DataProductContribution::Expansion(expansion.clone()));
@@ -218,16 +218,16 @@ fn reconstruct_enum_info(
     row: &wire::EnumInfoV1,
     variants: &EnumSemanticTable,
     types: &super::type_import::ReconstructedTypeGraph,
-    projects: &ProjectUniverse,
+    owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<EnumInfo, ArtifactError> {
-    let owner = declaration(&row.owner, projects)?;
+    let owner = declaration(&row.owner, owners)?;
     let root_form = type_id(row.root_form, types)?;
     validate_declaration_form(root_form, &owner, &types.store)?;
     let generic_signature = row
         .generic_signature
         .as_ref()
-        .map(|signature| reconstruct_signature(signature, types, projects, allocations))
+        .map(|signature| reconstruct_signature(signature, types, owners, allocations))
         .transpose()?;
     if generic_signature
         .as_ref()
@@ -248,7 +248,7 @@ fn reconstruct_enum_info(
     let mut variant_families = allocations.vector::<VariantFamilyId>(row.variants.len()).map_err(ArtifactError::Allocation)?;
     let mut seen_families = HashSet::new();
     for stable_variant in &row.variants {
-        let variant = super::type_import::relocate_stable_variant(stable_variant, projects)?;
+        let variant = super::type_import::relocate_stable_variant(stable_variant, owners)?;
         if variant.owner != owner {
             return Err(referential("enum membership contains a foreign variant owner"));
         }
@@ -277,10 +277,10 @@ fn reconstruct_enum_info(
 fn reconstruct_variant_info(
     row: &wire::VariantInfoV1,
     types: &super::type_import::ReconstructedTypeGraph,
-    projects: &ProjectUniverse,
+    owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<VariantInfo, ArtifactError> {
-    let id = super::type_import::relocate_stable_variant(&row.variant, projects)?;
+    let id = super::type_import::relocate_stable_variant(&row.variant, owners)?;
     let type_handle = mapped(&types.variants, row.variant_type.0, "variant type")?;
     if types.store.variant_identity(type_handle) != &id {
         return Err(referential("variant type row disagrees with its stable identity"));
@@ -303,7 +303,7 @@ fn reconstruct_variant_info(
             id: VariantFieldId::new(id.clone(), u32::try_from(index).map_err(|_| referential("variant field index exceeds u32"))?),
             local_name: field.local_name.clone(),
             external_label: field.external_label.clone(),
-            declared_type: reconstruct_declared_type(&field.declared_type, types, projects)?,
+            declared_type: reconstruct_declared_type(&field.declared_type, types, owners)?,
             source: None,
         });
     }
@@ -319,13 +319,13 @@ fn reconstruct_variant_info(
         .vector::<GenericConstraint>(row.case_environment.equalities.len())
         .map_err(ArtifactError::Allocation)?;
     for equality in &row.case_environment.equalities {
-        equalities.push(reconstruct_constraint(equality, types, projects, allocations)?);
+        equalities.push(reconstruct_constraint(equality, types, owners, allocations)?);
     }
 
     let constructor = row
         .constructor
         .as_ref()
-        .map(|constructor| reconstruct_variant_constructor(constructor, &id, &fields, types, projects, allocations))
+        .map(|constructor| reconstruct_variant_constructor(constructor, &id, &fields, types, owners, allocations))
         .transpose()?;
     let family = id.family();
     Ok(VariantInfo {
@@ -361,7 +361,7 @@ fn reconstruct_variant_constructor(
     variant: &VariantId,
     fields: &[VariantFieldSemantic],
     types: &super::type_import::ReconstructedTypeGraph,
-    projects: &ProjectUniverse,
+    owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<VariantConstructorSignature, ArtifactError> {
     let constructor_id = VariantConstructorId::new(variant.clone());
@@ -369,7 +369,7 @@ fn reconstruct_variant_constructor(
     let generic_signature = row
         .generic_signature
         .as_ref()
-        .map(|signature| reconstruct_signature(signature, types, projects, allocations))
+        .map(|signature| reconstruct_signature(signature, types, owners, allocations))
         .transpose()?;
     if generic_signature
         .as_ref()
@@ -389,7 +389,7 @@ fn reconstruct_variant_constructor(
             field: field.id.clone(),
             external_label: parameter.external_label.clone(),
             local_name: parameter.local_name.clone(),
-            declared_type: reconstruct_declared_type(&parameter.declared_type, types, projects)?,
+            declared_type: reconstruct_declared_type(&parameter.declared_type, types, owners)?,
         });
     }
     let result_type_template = type_id(row.result_type, types)?;
@@ -443,13 +443,13 @@ fn reconstruct_static_data(
 fn reconstruct_signature(
     row: &wire::GenericSignatureV1,
     types: &super::type_import::ReconstructedTypeGraph,
-    projects: &ProjectUniverse,
+    owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<GenericSignature, ArtifactError> {
     let owner = match &row.owner {
-        ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(declaration(owner, projects)?),
-        ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(super::type_import::relocate_stable_callable(owner, projects)?),
-        ParameterOwnerV1::Impl { owner } => TypeParameterOwner::Impl(super::type_import::relocate_stable_impl(owner, projects)?),
+        ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(declaration(owner, owners)?),
+        ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(super::type_import::relocate_stable_callable(owner, owners)?),
+        ParameterOwnerV1::Impl { owner } => TypeParameterOwner::Impl(super::type_import::relocate_stable_impl(owner, owners)?),
     };
     let mut parameters = allocations.vector::<TypeParameterId>(row.parameters.len()).map_err(ArtifactError::Allocation)?;
     for parameter in &row.parameters {
@@ -484,7 +484,7 @@ fn reconstruct_signature(
         .vector::<GenericConstraint>(row.constraints.len())
         .map_err(ArtifactError::Allocation)?;
     for constraint in &row.constraints {
-        constraints.push(reconstruct_constraint(constraint, types, projects, allocations)?);
+        constraints.push(reconstruct_constraint(constraint, types, owners, allocations)?);
     }
     let signature = GenericSignature {
         owner,
@@ -517,17 +517,17 @@ fn reconstruct_signature(
 fn reconstruct_constraint(
     row: &GenericConstraintV1,
     types: &super::type_import::ReconstructedTypeGraph,
-    projects: &ProjectUniverse,
+    owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<GenericConstraint, ArtifactError> {
     Ok(match row {
         GenericConstraintV1::Subtype { lower, upper } => GenericConstraint::Subtype {
-            lower: reconstruct_term(lower, types, projects)?,
-            upper: reconstruct_term(upper, types, projects)?,
+            lower: reconstruct_term(lower, types, owners)?,
+            upper: reconstruct_term(upper, types, owners)?,
         },
         GenericConstraintV1::Equivalent { left, right } => GenericConstraint::Equivalent {
-            left: reconstruct_term(left, types, projects)?,
-            right: reconstruct_term(right, types, projects)?,
+            left: reconstruct_term(left, types, owners)?,
+            right: reconstruct_term(right, types, owners)?,
         },
         GenericConstraintV1::Conforms { subject, trait_ref } => {
             let mut arguments = allocations.vector::<TypeId>(trait_ref.arguments.len()).map_err(ArtifactError::Allocation)?;
@@ -535,9 +535,9 @@ fn reconstruct_constraint(
                 arguments.push(type_id(*argument, types)?);
             }
             GenericConstraint::Conforms {
-                subject: reconstruct_term(subject, types, projects)?,
+                subject: reconstruct_term(subject, types, owners)?,
                 trait_ref: crate::traits::TraitRef::new(
-                    declaration(&trait_ref.declaration, projects)?,
+                    declaration(&trait_ref.declaration, owners)?,
                     allocations.boxed_slice(arguments).map_err(ArtifactError::Allocation)?,
                 ),
             }
@@ -545,12 +545,12 @@ fn reconstruct_constraint(
     })
 }
 
-fn reconstruct_term(row: &TypeTermV1, types: &super::type_import::ReconstructedTypeGraph, projects: &ProjectUniverse) -> Result<TypeTerm, ArtifactError> {
+fn reconstruct_term(row: &TypeTermV1, types: &super::type_import::ReconstructedTypeGraph, owners: &StableOwnerCatalog<'_>) -> Result<TypeTerm, ArtifactError> {
     Ok(match row {
         TypeTermV1::Canonical { ty } => TypeTerm::Canonical(type_id(*ty, types)?),
         TypeTermV1::SelfType { term } => TypeTerm::SelfType(SelfTypeTerm {
-            owner: declaration(&term.owner, projects)?,
-            side: super::type_import::map_dispatch_side(term.side),
+            owner: declaration(&term.owner, owners)?,
+            side: super::identity::dispatch_side(term.side),
             role: match term.role {
                 SelfRoleV1::InstanceType => SelfRole::InstanceType,
                 SelfRoleV1::ReceiverValue => SelfRole::ReceiverValue,
@@ -562,10 +562,10 @@ fn reconstruct_term(row: &TypeTermV1, types: &super::type_import::ReconstructedT
 fn reconstruct_declared_type(
     row: &wire::DeclaredTypeFactV1,
     types: &super::type_import::ReconstructedTypeGraph,
-    projects: &ProjectUniverse,
+    owners: &StableOwnerCatalog<'_>,
 ) -> Result<DeclaredTypeFact, ArtifactError> {
     let state = match &row.state {
-        DeclaredTypeStateV1::Known { term } => DeclaredTypeState::Known(reconstruct_term(term, types, projects)?),
+        DeclaredTypeStateV1::Known { term } => DeclaredTypeState::Known(reconstruct_term(term, types, owners)?),
         DeclaredTypeStateV1::Dynamic { reason } => DeclaredTypeState::Dynamic(match reason {
             DynamicReasonV1::ExplicitEscape => DynamicReason::ExplicitEscape,
             DynamicReasonV1::DynamicRestPack => DynamicReason::DynamicRestPack,
@@ -625,8 +625,8 @@ fn type_id(id: ArtifactTypeId, types: &super::type_import::ReconstructedTypeGrap
     mapped(&types.types, id.0, "type")
 }
 
-fn declaration(id: &StableDeclarationRef, projects: &ProjectUniverse) -> Result<DeclarationId, ArtifactError> {
-    super::type_import::relocate_stable_declaration(id, projects)
+fn declaration(id: &StableDeclarationRef, owners: &StableOwnerCatalog<'_>) -> Result<DeclarationId, ArtifactError> {
+    owners.declaration(id)
 }
 
 fn mapped<T: Copy>(values: &[T], raw: u32, family: &str) -> Result<T, ArtifactError> {

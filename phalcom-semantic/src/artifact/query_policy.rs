@@ -74,8 +74,72 @@ pub const fn portable_query_kind(kind: QueryKind) -> PortableQueryKindV1 {
     }
 }
 
+pub const fn query_kind_from_portable(kind: PortableQueryKindV1) -> QueryKind {
+    match kind {
+        PortableQueryKindV1::ParsedModule => QueryKind::ParsedModule,
+        PortableQueryKindV1::UnlinkedInterface => QueryKind::UnlinkedInterface,
+        PortableQueryKindV1::ResolvedImports => QueryKind::ResolvedImports,
+        PortableQueryKindV1::LinkedInterface => QueryKind::LinkedInterface,
+        PortableQueryKindV1::DeclarationShell => QueryKind::DeclarationShell,
+        PortableQueryKindV1::HierarchyEdge => QueryKind::HierarchyEdge,
+        PortableQueryKindV1::CallableDefinition => QueryKind::CallableDefinition,
+        PortableQueryKindV1::CallableSignature => QueryKind::CallableSignature,
+        PortableQueryKindV1::FieldSignature => QueryKind::FieldSignature,
+        PortableQueryKindV1::DeclarationSurface => QueryKind::DeclarationSurface,
+        PortableQueryKindV1::TraitHeader => QueryKind::TraitHeader,
+        PortableQueryKindV1::TraitSurface => QueryKind::TraitSurface,
+        PortableQueryKindV1::DataDeclaration => QueryKind::DataDeclaration,
+        PortableQueryKindV1::EnumDeclaration => QueryKind::EnumDeclaration,
+        PortableQueryKindV1::AssociatedSurface => QueryKind::AssociatedSurface,
+        PortableQueryKindV1::TypeMemberDeclaration => QueryKind::TypeMemberDeclaration,
+        PortableQueryKindV1::ModuleStaticBindingCatalog => QueryKind::ModuleStaticBindingCatalog,
+        PortableQueryKindV1::ModuleStaticBindings => QueryKind::ModuleStaticBindings,
+        PortableQueryKindV1::SemanticComponent => QueryKind::SemanticComponent,
+        PortableQueryKindV1::ConformanceDispatch => QueryKind::ConformanceDispatch,
+        PortableQueryKindV1::TraitDispatchBucket => QueryKind::TraitDispatchBucket,
+        PortableQueryKindV1::GenericConformance => QueryKind::GenericConformance,
+        PortableQueryKindV1::ConstructorInitialization => QueryKind::ConstructorInitialization,
+        PortableQueryKindV1::CallableBody => QueryKind::CallableBody,
+        PortableQueryKindV1::CallableEffects => QueryKind::CallableEffects,
+        PortableQueryKindV1::CallableControl => QueryKind::CallableControl,
+        PortableQueryKindV1::CallableTermination => QueryKind::CallableTermination,
+        PortableQueryKindV1::CallableContracts => QueryKind::CallableContracts,
+        PortableQueryKindV1::AttributeArgument => QueryKind::AttributeArgument,
+        PortableQueryKindV1::VerificationConditions => QueryKind::VerificationConditions,
+        PortableQueryKindV1::SourceStructure => QueryKind::SourceStructure,
+        PortableQueryKindV1::SourceFormalAttachment => QueryKind::SourceFormalAttachment,
+        PortableQueryKindV1::AdvisoryCallable => QueryKind::AdvisoryCallable,
+        PortableQueryKindV1::AdvisoryModule => QueryKind::AdvisoryModule,
+        PortableQueryKindV1::ModuleDiagnostics => QueryKind::ModuleDiagnostics,
+        PortableQueryKindV1::ModuleMetadata => QueryKind::ModuleMetadata,
+        PortableQueryKindV1::EnumRequirements => QueryKind::EnumRequirements,
+        PortableQueryKindV1::StaticDomainCaseCatalog => QueryKind::StaticDomainCaseCatalog,
+        PortableQueryKindV1::StaticCaseSignature => QueryKind::StaticCaseSignature,
+        PortableQueryKindV1::AssociatedStaticDomainDeclaration => QueryKind::AssociatedStaticDomainDeclaration,
+        PortableQueryKindV1::ResolvedImport => QueryKind::ResolvedImport,
+        PortableQueryKindV1::LinkedName => QueryKind::LinkedName,
+        PortableQueryKindV1::PublicExport => QueryKind::PublicExport,
+        PortableQueryKindV1::StaticDefinition => QueryKind::StaticDefinition,
+        PortableQueryKindV1::StaticConstant => QueryKind::StaticConstant,
+        PortableQueryKindV1::CheckedStaticBody => QueryKind::CheckedStaticBody,
+    }
+}
+
 pub const fn query_kind_profile_support(kind: QueryKind) -> QueryProfileSupport {
     portable_query_kind(kind).profile_support()
+}
+
+/// Returns whether a query family may be imported as a reusable root.
+///
+/// Persistence eligibility and wire product location are independent gates:
+/// `ParsedModule` is structurally classified by PERF003 but source-dependent,
+/// while `HierarchyEdge` is only dependency evidence in this artifact profile.
+pub const fn query_root_is_reusable(kind: QueryKind) -> bool {
+    matches!(canonical_query_persistence(kind), CanonicalQueryPersistence::EligibleStructural)
+        && matches!(
+            query_kind_profile_support(kind),
+            QueryProfileSupport::RepresentedByModuleWorld | QueryProfileSupport::RepresentedBySemanticWorld
+        )
 }
 
 /// Exhaustive current-main query reuse contract, ported from certified
@@ -149,6 +213,7 @@ mod tests {
         assert_eq!(QueryKind::count(), 46);
         assert_eq!(unique.len(), QueryKind::count());
         assert!(unique.iter().all(|kind| PortableQueryKindV1::from_raw(*kind as u16) == Some(*kind)));
+        assert!(QueryKind::ALL.iter().all(|kind| query_kind_from_portable(portable_query_kind(*kind)) == *kind));
     }
 
     #[test]
@@ -164,7 +229,10 @@ mod tests {
         for kind in QueryKind::ALL {
             let _ = canonical_query_persistence(kind);
         }
-        assert_eq!(canonical_query_persistence(QueryKind::AttributeArgument), CanonicalQueryPersistence::Unsupported);
+        assert_eq!(
+            canonical_query_persistence(QueryKind::AttributeArgument),
+            CanonicalQueryPersistence::Unsupported
+        );
     }
 
     #[test]
@@ -178,5 +246,19 @@ mod tests {
         ] {
             assert_eq!(canonical_query_persistence(kind), CanonicalQueryPersistence::OpenWorld);
         }
+    }
+
+    #[test]
+    fn product_location_and_persistence_both_gate_reusable_roots() {
+        for kind in QueryKind::ALL {
+            let expected = canonical_query_persistence(kind) == CanonicalQueryPersistence::EligibleStructural
+                && matches!(
+                    query_kind_profile_support(kind),
+                    QueryProfileSupport::RepresentedByModuleWorld | QueryProfileSupport::RepresentedBySemanticWorld
+                );
+            assert_eq!(query_root_is_reusable(kind), expected, "{kind:?}");
+        }
+        assert!(!query_root_is_reusable(QueryKind::ParsedModule));
+        assert!(!query_root_is_reusable(QueryKind::HierarchyEdge));
     }
 }

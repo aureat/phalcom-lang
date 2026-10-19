@@ -241,6 +241,79 @@ fn sample_image() -> CompilerArtifactImage {
     }
 }
 
+fn sample_module_world_with_core() -> phalcom_compiler_artifact::module_world::ModuleWorldV2 {
+    let universe = Arc::new(phalcom_modules::ProjectUniverse::new());
+    let root = phalcom_modules::ModuleId::universe_root();
+    let core = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
+    ]));
+    let root_interface = phalcom_modules::UnlinkedModuleInterface {
+        id: root.clone(),
+        kind: phalcom_modules::ModuleKind::Package,
+        declarations: std::collections::BTreeMap::new(),
+        exports: std::collections::BTreeMap::new(),
+        imports: vec![],
+        exposed_children: [phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component")]
+            .into_iter()
+            .collect(),
+        metadata: phalcom_modules::ModuleMetadata::default(),
+    };
+    let core_interface = phalcom_modules::UnlinkedModuleInterface {
+        id: core.clone(),
+        kind: phalcom_modules::ModuleKind::Module,
+        declarations: std::collections::BTreeMap::new(),
+        exports: std::collections::BTreeMap::new(),
+        imports: vec![],
+        exposed_children: std::collections::BTreeSet::new(),
+        metadata: phalcom_modules::ModuleMetadata::default(),
+    };
+    let linked_root = phalcom_modules::LinkedModuleInterface {
+        module: root.clone(),
+        kind: phalcom_modules::ModuleKind::Package,
+        exports: std::collections::BTreeMap::new(),
+        metadata: phalcom_modules::ModuleMetadata::default(),
+    };
+    let linked_core = phalcom_modules::LinkedModuleInterface {
+        module: core.clone(),
+        kind: phalcom_modules::ModuleKind::Module,
+        exports: std::collections::BTreeMap::new(),
+        metadata: phalcom_modules::ModuleMetadata::default(),
+    };
+    let mut modules = std::collections::BTreeMap::new();
+    for (id, interface) in [(root.clone(), linked_root.clone()), (core.clone(), linked_core.clone())] {
+        modules.insert(
+            id,
+            phalcom_modules::LinkedModule {
+                interface,
+                bindings: phalcom_modules::ModuleBindingLayout::default(),
+                linked_reads: vec![],
+                runtime_dependencies: vec![],
+            },
+        );
+    }
+    let linked = Arc::new(phalcom_modules::LinkedProgram {
+        universe: universe.clone(),
+        modules,
+        graphs: phalcom_modules::ModuleGraphs::default(),
+        entry: root.clone(),
+        initialization_order: vec![root.clone(), core.clone()],
+    });
+    let mut interfaces = std::collections::BTreeMap::new();
+    interfaces.insert(root.clone(), Arc::new(root_interface.clone()));
+    interfaces.insert(core.clone(), Arc::new(core_interface.clone()));
+    let mut unlinked = std::collections::BTreeMap::new();
+    unlinked.insert(root, root_interface);
+    unlinked.insert(core, core_interface);
+    let topology = Arc::new(phalcom_modules::ModuleTopology::from_parts(
+        phalcom_modules::ResolverGeneration(0),
+        &universe,
+        &unlinked,
+        &std::collections::BTreeMap::new(),
+    ));
+    let world = phalcom_modules::canonical_products::CanonicalExternalModuleWorld::from_parts(linked, interfaces, topology).unwrap();
+    phalcom_modules::compiler_artifact::project_module_world(&world, &ValidationLimits::default()).unwrap()
+}
+
 #[test]
 fn transactional_semantic_export_and_import_round_trip() {
     let image = sample_image();
@@ -290,12 +363,14 @@ fn transactional_semantic_export_and_import_round_trip() {
 #[test]
 fn structural_data_contract_reconstructs_as_native_semantic_product() {
     let mut image = sample_image();
+    image.module_world = sample_module_world_with_core();
+    let universe_project = StableProjectRef::Builtin {
+        namespace: "universe".into(),
+        version: "0.1.0".into(),
+    };
     let owner = StableDeclarationRef {
         module: StableModuleRef {
-            project: StableProjectRef::Builtin {
-                namespace: "universe".into(),
-                version: "0.1.0".into(),
-            },
+            project: universe_project,
             path: vec!["core".into()].into_boxed_slice(),
         },
         path: vec!["Payload".into()].into_boxed_slice(),
