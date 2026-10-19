@@ -1,38 +1,77 @@
 //! Little-endian bounded binary serialization and deserialization primitives.
 
+use crate::digest::{ArtifactDigest, ArtifactHasher};
 use crate::error::CodecError;
 
-/// Streaming little-endian binary serializer.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
+enum BinaryWriterSink {
+    Buffer(Vec<u8>),
+    Digest(ArtifactHasher),
+}
+
+/// Streaming little-endian serializer.
+///
+/// Normal writers retain encoded bytes. Digest writers consume the exact same
+/// canonical wire writes directly into a domain-separated artifact hasher and
+/// therefore require no intermediate allocation.
+#[derive(Clone, Debug)]
 pub struct BinaryWriter {
-    buffer: Vec<u8>,
+    sink: BinaryWriterSink,
+    len: usize,
+}
+
+impl Default for BinaryWriter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BinaryWriter {
     pub fn new() -> Self {
-        Self { buffer: Vec::new() }
+        Self {
+            sink: BinaryWriterSink::Buffer(Vec::new()),
+            len: 0,
+        }
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            buffer: Vec::with_capacity(capacity),
+            sink: BinaryWriterSink::Buffer(Vec::with_capacity(capacity)),
+            len: 0,
         }
     }
 
+    /// Creates an allocation-free writer that hashes canonical wire bytes
+    /// under the supplied artifact domain.
+    pub fn digest(domain: &str) -> Self {
+        Self {
+            sink: BinaryWriterSink::Digest(ArtifactHasher::new_domain(domain)),
+            len: 0,
+        }
+    }
+
+    fn write_raw(&mut self, bytes: &[u8]) {
+        match &mut self.sink {
+            BinaryWriterSink::Buffer(buffer) => buffer.extend_from_slice(bytes),
+            BinaryWriterSink::Digest(hasher) => hasher.write(bytes),
+        }
+        self.len = self.len.checked_add(bytes.len()).expect("binary writer length overflow");
+    }
+
     pub fn write_u8(&mut self, val: u8) {
-        self.buffer.push(val);
+        self.write_raw(&[val]);
     }
 
     pub fn write_u16(&mut self, val: u16) {
-        self.buffer.extend_from_slice(&val.to_le_bytes());
+        self.write_raw(&val.to_le_bytes());
     }
 
     pub fn write_u32(&mut self, val: u32) {
-        self.buffer.extend_from_slice(&val.to_le_bytes());
+        self.write_raw(&val.to_le_bytes());
     }
 
     pub fn write_u64(&mut self, val: u64) {
-        self.buffer.extend_from_slice(&val.to_le_bytes());
+        self.write_raw(&val.to_le_bytes());
     }
 
     pub fn write_bool(&mut self, val: bool) {
@@ -40,11 +79,11 @@ impl BinaryWriter {
     }
 
     pub fn write_fixed<const N: usize>(&mut self, bytes: &[u8; N]) {
-        self.buffer.extend_from_slice(bytes);
+        self.write_raw(bytes);
     }
 
     pub fn write_bytes(&mut self, bytes: &[u8]) {
-        self.buffer.extend_from_slice(bytes);
+        self.write_raw(bytes);
     }
 
     pub fn write_bytes_with_len(&mut self, bytes: &[u8]) {
@@ -76,19 +115,32 @@ impl BinaryWriter {
     }
 
     pub fn len(&self) -> usize {
-        self.buffer.len()
+        self.len
     }
 
     pub fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
+        self.len == 0
     }
 
     pub fn as_slice(&self) -> &[u8] {
-        &self.buffer
+        match &self.sink {
+            BinaryWriterSink::Buffer(buffer) => buffer,
+            BinaryWriterSink::Digest(_) => panic!("digest BinaryWriter has no retained byte slice"),
+        }
     }
 
     pub fn into_vec(self) -> Vec<u8> {
-        self.buffer
+        match self.sink {
+            BinaryWriterSink::Buffer(buffer) => buffer,
+            BinaryWriterSink::Digest(_) => panic!("digest BinaryWriter cannot produce encoded bytes"),
+        }
+    }
+
+    pub fn into_digest(self) -> ArtifactDigest {
+        match self.sink {
+            BinaryWriterSink::Digest(hasher) => hasher.finalize(),
+            BinaryWriterSink::Buffer(_) => panic!("buffer BinaryWriter has no streaming digest"),
+        }
     }
 }
 
