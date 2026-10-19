@@ -18,7 +18,6 @@ use super::witness_import::{
     reconstruct_associated_type_plan, reconstruct_generic_conformance_key,
     reconstruct_requirement_selection, reconstruct_requirement_view, reconstruct_type_environment,
 };
-use crate::derived_conformance::DerivedConformanceRule;
 use crate::generic_evidence::{CompilerDerivedConformanceKind, GenericConformanceKey};
 use crate::identity::{DeclarationId, ImplId, ModuleId};
 use crate::impls::{AssociatedTypeBindingValue, ExactAssociatedTypeBinding};
@@ -35,7 +34,7 @@ use phalcom_compiler_artifact::semantic::world::{
     CallableCompilerDerivedConformanceEvidenceV1, CallableCompilerDerivedConformanceKindV1,
     CallableConformanceEvidenceNodeV1, CallableDerivedConformanceEvidenceV1,
     CallableDerivedConformanceOriginV1, CallableDerivedConformanceRuleV1,
-    CallableExactAssociatedTypeBindingV1, CallableExactConformanceEvidenceV1,
+    CallableExactConformanceEvidenceV1,
     CallableNestedGenericEvidenceV1, CallableOrderedProductFormV1,
     CallableStructuralClassificationV1, CallableUnorderedProductFormV1, TraitRefV1,
 };
@@ -613,8 +612,8 @@ fn trait_ref(
     ))
 }
 
-fn reject_duplicate_keys<T>(
-    rows: &[(TraitRequirementId, T)],
+fn reject_duplicate_keys<K: PartialEq, T>(
+    rows: &[(K, T)],
     message: &'static str,
 ) -> Result<(), ArtifactError> {
     if rows.windows(2).any(|pair| pair[0].0 == pair[1].0) {
