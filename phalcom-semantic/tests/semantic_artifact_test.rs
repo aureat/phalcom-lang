@@ -4,7 +4,7 @@ use phalcom_compiler_artifact::header::{TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_R
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
-use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1};
+use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV2, QueryProductRefV2, QueryRootEntryV2};
 use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
 use phalcom_compiler_artifact::semantic::static_value::{StaticValueGraphV1, StaticValueV1};
 use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1, TypeEntryV1, TypeGraphV1, TypeV1};
@@ -189,12 +189,18 @@ fn sample_image() -> CompilerArtifactImage {
         associated_surfaces: vec![],
     };
 
-    let query_image = QueryImageV1 {
-        supported_roots: vec![QueryRootEntryV1 {
+    let query_image = QueryImageV2 {
+        supported_roots: vec![QueryRootEntryV2 {
             key: PortableQueryKeyV1 {
                 kind: PortableQueryKindV1::LinkedInterface,
                 stable_owner_key: "".into(),
             },
+            product: QueryProductRefV2 {
+                kind: PortableQueryKindV1::LinkedInterface,
+                row_index: 0,
+            },
+            input_fingerprint: 0,
+            product_fingerprint: 0,
             dependency_indices: vec![],
         }],
         dependency_evidence: vec![],
@@ -234,7 +240,7 @@ fn transactional_semantic_export_and_import_round_trip() {
     let artifact = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("decode and validate artifact");
 
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(&artifact, &limits, &mut import_budget).expect("import compiler image");
+    let imported = import_compiler_image(artifact, &limits, &mut import_budget).expect("import compiler image");
 
     assert_eq!(imported.external_world.linked().modules.len(), 1);
     assert_eq!(imported.metadata_bundle.header.producer.0.as_ref(), "phalcom-compiler");
@@ -253,19 +259,22 @@ fn exact_allocation_accounting_n_succeeds_n_minus_1_fails_and_retry_succeeds() {
     let artifact = decode_and_validate_artifact(&bytes, &limits, None, &mut measure_budget).unwrap();
 
     let mut import_measure_budget = AllocationBudget::new(64 * 1024 * 1024);
-    let _imported = import_compiler_image(&artifact, &limits, &mut import_measure_budget).unwrap();
+    let measure_artifact = artifact.clone();
+    let _imported = import_compiler_image(measure_artifact, &limits, &mut import_measure_budget).unwrap();
     let n = import_measure_budget.requested();
     assert!(n > 0, "import must require non-zero allocation budget");
 
     // 2. Exact N succeeds leaving exactly 0 remaining
     let mut exact_budget = AllocationBudget::new(n);
-    let imported = import_compiler_image(&artifact, &limits, &mut exact_budget);
+    let exact_artifact = artifact.clone();
+    let imported = import_compiler_image(exact_artifact, &limits, &mut exact_budget);
     assert!(imported.is_ok(), "exact budget N must succeed");
     assert_eq!(exact_budget.remaining(), 0, "exact budget N must leave 0 remaining");
 
     // 3. N - 1 fails with typed AllocationError::Exhausted
     let mut insufficient_budget = AllocationBudget::new(n - 1);
-    let failed = import_compiler_image(&artifact, &limits, &mut insufficient_budget);
+    let insufficient_artifact = artifact.clone();
+    let failed = import_compiler_image(insufficient_artifact, &limits, &mut insufficient_budget);
     assert!(failed.is_err(), "budget N - 1 must fail");
     let err = failed.unwrap_err();
     assert!(
@@ -277,7 +286,8 @@ fn exact_allocation_accounting_n_succeeds_n_minus_1_fails_and_retry_succeeds() {
 
     // 4. Retry with sufficient budget succeeds
     let mut retry_budget = AllocationBudget::new(n);
-    let retried = import_compiler_image(&artifact, &limits, &mut retry_budget);
+    let retry_artifact = artifact.clone();
+    let retried = import_compiler_image(retry_artifact, &limits, &mut retry_budget);
     assert!(retried.is_ok(), "retry with N must succeed");
     assert_eq!(retry_budget.remaining(), 0);
 }
@@ -295,7 +305,7 @@ fn hostile_corrupted_metadata_fails_closed_without_publishing() {
     artifact.metadata.package_digest = [0xff; 32];
 
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let result = import_compiler_image(&artifact, &limits, &mut import_budget);
+    let result = import_compiler_image(artifact, &limits, &mut import_budget);
     assert!(result.is_err(), "corrupted metadata digest must fail import");
     assert_eq!(import_budget.requested(), 0, "uncommitted import must debit 0 bytes");
 }

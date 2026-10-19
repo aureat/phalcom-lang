@@ -23,7 +23,7 @@ pub const fn supports_type_metadata_schema(version: u32) -> bool {
 }
 
 /// Metadata retention profile.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum MetadataProfile {
     RuntimeMinimal,
     RuntimePublic,
@@ -32,11 +32,11 @@ pub enum MetadataProfile {
 }
 
 /// Feature section identifier.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct FeatureSectionId(pub Box<str>);
 
 /// Enabled features in this metadata artifact.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct MetadataFeatures {
     pub type_lambdas: bool,
     pub record_rows: bool,
@@ -54,18 +54,18 @@ pub struct MetadataFeatures {
 }
 
 /// Producer identity (e.g. phalcomc).
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct ProducerIdentity(pub Box<str>);
 
 /// Artifact identity scheme.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum ArtifactIdentityScheme {
     V1Standard,
     SessionLocal,
 }
 
 /// Root metadata header.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct SemanticMetadataHeader {
     pub schema_version: u32,
     pub semantic_model_version: u32,

@@ -5,7 +5,7 @@ use crate::digest::ArtifactDigest;
 use crate::error::{CodecError, ContainerError};
 use crate::identity::TeloscPackageIdentity;
 use crate::limits::ValidationLimits;
-use phalcom_type_meta::allocation::AllocationBudget;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 
 pub const TELOSC_MAGIC: &[u8; 8] = b"TELOSC\x01\x00";
 pub const TELOSC_CONTAINER_SCHEMA_V2: u32 = 2;
@@ -59,6 +59,30 @@ pub struct TeloscHeaderV2 {
 }
 
 impl TeloscHeaderV2 {
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            container_schema: self.container_schema,
+            minimum_reader_schema: self.minimum_reader_schema,
+            package_identity: self.package_identity.clone_with_allocation_budget(allocations)?,
+            semantic_model_version: self.semantic_model_version,
+            stable_identity_schema: self.stable_identity_schema,
+            module_semantic_abi: self.module_semantic_abi,
+            semantic_artifact_abi: self.semantic_artifact_abi,
+            query_fingerprint_abi: self.query_fingerprint_abi,
+            native_surface_schema_version: self.native_surface_schema_version,
+            native_catalog_fingerprint: self.native_catalog_fingerprint,
+            type_metadata_schema_version: self.type_metadata_schema_version,
+            capabilities: self.capabilities,
+            source_digest: self.source_digest,
+            interface_digest: self.interface_digest,
+            semantic_digest: self.semantic_digest,
+            query_digest: self.query_digest,
+            metadata_digest: self.metadata_digest,
+            artifact_digest: self.artifact_digest,
+            section_count: self.section_count,
+        })
+    }
+
     /// Encodes the header into the writer, returning the byte offset of `artifact_digest`.
     pub fn encode(&self, writer: &mut BinaryWriter) -> usize {
         writer.write_fixed(TELOSC_MAGIC);

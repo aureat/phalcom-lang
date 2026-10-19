@@ -310,15 +310,7 @@ impl MetadataSectionV1 {
 }
 
 fn allocation_error(error: AllocationError) -> ArtifactError {
-    ArtifactError::LimitExceeded(
-        match error {
-            AllocationError::Exhausted => "metadata section allocation budget exceeded",
-            AllocationError::Overflow => "metadata section allocation layout overflow",
-            AllocationError::Failed => "metadata section allocation failed",
-            AllocationError::UnaccountedBoundary => "semantic artifact operation has an unaccounted allocation boundary",
-        }
-        .into(),
-    )
+    ArtifactError::Allocation(error)
 }
 
 /// Checks actual content and reserves encoded payload bytes transactionally.

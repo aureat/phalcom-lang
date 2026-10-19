@@ -3,9 +3,11 @@
 use crate::codec::{BinaryReader, BinaryWriter};
 use crate::error::{ArtifactError, ValidationError};
 use crate::limits::ValidationLimits;
+use crate::module_world::ModuleWorldV1;
+use crate::semantic::world::SemanticWorldV3;
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 
-pub const QUERY_IMAGE_SCHEMA_V1: u32 = 1;
+pub const QUERY_IMAGE_SCHEMA_V2: u32 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(u16)]
@@ -28,21 +30,91 @@ pub enum PortableQueryKindV1 {
     TypeMemberDeclaration = 16,
     ModuleStaticBindingCatalog = 17,
     ModuleStaticBindings = 18,
+    SemanticComponent = 19,
+    ConformanceDispatch = 20,
+    TraitDispatchBucket = 21,
+    GenericConformance = 22,
+    ConstructorInitialization = 23,
+    CallableBody = 24,
+    CallableEffects = 25,
+    CallableControl = 26,
+    CallableTermination = 27,
+    CallableContracts = 28,
+    AttributeArgument = 29,
+    VerificationConditions = 30,
+    SourceStructure = 31,
+    SourceFormalAttachment = 32,
+    AdvisoryCallable = 33,
+    AdvisoryModule = 34,
+    ModuleDiagnostics = 35,
+    ModuleMetadata = 36,
+    EnumRequirements = 37,
+    StaticDomainCaseCatalog = 38,
+    StaticCaseSignature = 39,
+    AssociatedStaticDomainDeclaration = 40,
+    ResolvedImport = 41,
+    LinkedName = 42,
+    PublicExport = 43,
+    StaticDefinition = 44,
+    StaticConstant = 45,
+    CheckedStaticBody = 46,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QueryProfileSupport {
     OmittedSourceDependent,
-    SupportedReusableRoot,
     AggregateDependencyEvidenceOnly,
+    RepresentedByModuleWorld,
+    RepresentedBySemanticWorld,
+    OmittedAdvisoryOnly,
 }
 
 impl PortableQueryKindV1 {
     pub const fn profile_support(self) -> QueryProfileSupport {
         match self {
-            Self::ParsedModule => QueryProfileSupport::OmittedSourceDependent,
+            Self::ParsedModule | Self::SourceStructure | Self::SourceFormalAttachment => QueryProfileSupport::OmittedSourceDependent,
             Self::HierarchyEdge => QueryProfileSupport::AggregateDependencyEvidenceOnly,
-            _ => QueryProfileSupport::SupportedReusableRoot,
+            Self::UnlinkedInterface
+            | Self::ResolvedImports
+            | Self::LinkedInterface
+            | Self::SemanticComponent
+            | Self::ModuleDiagnostics
+            | Self::ModuleMetadata
+            | Self::ResolvedImport
+            | Self::LinkedName
+            | Self::PublicExport => QueryProfileSupport::RepresentedByModuleWorld,
+            Self::DeclarationShell
+            | Self::DeclarationSurface
+            | Self::TraitHeader
+            | Self::TraitSurface
+            | Self::CallableDefinition
+            | Self::CallableSignature
+            | Self::FieldSignature
+            | Self::DataDeclaration
+            | Self::EnumDeclaration
+            | Self::EnumRequirements
+            | Self::AssociatedSurface
+            | Self::TypeMemberDeclaration
+            | Self::ModuleStaticBindings
+            | Self::ConformanceDispatch
+            | Self::TraitDispatchBucket
+            | Self::GenericConformance
+            | Self::ConstructorInitialization
+            | Self::CallableBody
+            | Self::CallableEffects
+            | Self::CallableControl
+            | Self::CallableTermination
+            | Self::CallableContracts
+            | Self::AttributeArgument
+            | Self::VerificationConditions
+            | Self::StaticDomainCaseCatalog
+            | Self::StaticCaseSignature
+            | Self::AssociatedStaticDomainDeclaration
+            | Self::StaticDefinition
+            | Self::StaticConstant
+            | Self::ModuleStaticBindingCatalog
+            | Self::CheckedStaticBody => QueryProfileSupport::RepresentedBySemanticWorld,
+            Self::AdvisoryCallable | Self::AdvisoryModule => QueryProfileSupport::OmittedAdvisoryOnly,
         }
     }
 
@@ -66,6 +138,34 @@ impl PortableQueryKindV1 {
             16 => Some(Self::TypeMemberDeclaration),
             17 => Some(Self::ModuleStaticBindingCatalog),
             18 => Some(Self::ModuleStaticBindings),
+            19 => Some(Self::SemanticComponent),
+            20 => Some(Self::ConformanceDispatch),
+            21 => Some(Self::TraitDispatchBucket),
+            22 => Some(Self::GenericConformance),
+            23 => Some(Self::ConstructorInitialization),
+            24 => Some(Self::CallableBody),
+            25 => Some(Self::CallableEffects),
+            26 => Some(Self::CallableControl),
+            27 => Some(Self::CallableTermination),
+            28 => Some(Self::CallableContracts),
+            29 => Some(Self::AttributeArgument),
+            30 => Some(Self::VerificationConditions),
+            31 => Some(Self::SourceStructure),
+            32 => Some(Self::SourceFormalAttachment),
+            33 => Some(Self::AdvisoryCallable),
+            34 => Some(Self::AdvisoryModule),
+            35 => Some(Self::ModuleDiagnostics),
+            36 => Some(Self::ModuleMetadata),
+            37 => Some(Self::EnumRequirements),
+            38 => Some(Self::StaticDomainCaseCatalog),
+            39 => Some(Self::StaticCaseSignature),
+            40 => Some(Self::AssociatedStaticDomainDeclaration),
+            41 => Some(Self::ResolvedImport),
+            42 => Some(Self::LinkedName),
+            43 => Some(Self::PublicExport),
+            44 => Some(Self::StaticDefinition),
+            45 => Some(Self::StaticConstant),
+            46 => Some(Self::CheckedStaticBody),
             _ => None,
         }
     }
@@ -77,32 +177,48 @@ pub struct PortableQueryKeyV1 {
     pub stable_owner_key: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct QueryProductRefV2 {
+    /// Product family is the current query kind; `row_index` addresses that
+    /// family's typed row in MODULE_WORLD or SEMANTIC_WORLD.
+    pub kind: PortableQueryKindV1,
+    pub row_index: u32,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct QueryRootEntryV1 {
+pub struct QueryRootEntryV2 {
     pub key: PortableQueryKeyV1,
+    pub product: QueryProductRefV2,
+    pub input_fingerprint: u64,
+    pub product_fingerprint: u64,
     pub dependency_indices: Vec<u32>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DependencyEvidenceEntryV1 {
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct DependencyEvidenceEntryV2 {
     pub key: PortableQueryKeyV1,
     pub stable_aggregate_owner: String,
+    pub product_fingerprint: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
-pub struct QueryImageV1 {
-    pub supported_roots: Vec<QueryRootEntryV1>,
-    pub dependency_evidence: Vec<DependencyEvidenceEntryV1>,
+pub struct QueryImageV2 {
+    pub supported_roots: Vec<QueryRootEntryV2>,
+    pub dependency_evidence: Vec<DependencyEvidenceEntryV2>,
 }
 
-impl QueryImageV1 {
+impl QueryImageV2 {
     pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
         let mut out = BinaryWriter::new();
-        out.write_u32(QUERY_IMAGE_SCHEMA_V1);
+        out.write_u32(QUERY_IMAGE_SCHEMA_V2);
         out.write_u32(self.supported_roots.len() as u32);
         for root in &self.supported_roots {
             out.write_u16(root.key.kind as u16);
             out.write_str(&root.key.stable_owner_key);
+            out.write_u16(root.product.kind as u16);
+            out.write_u32(root.product.row_index);
+            out.write_u64(root.input_fingerprint);
+            out.write_u64(root.product_fingerprint);
             out.write_u32(root.dependency_indices.len() as u32);
             for &dep in &root.dependency_indices {
                 out.write_u32(dep);
@@ -113,6 +229,7 @@ impl QueryImageV1 {
             out.write_u16(ev.key.kind as u16);
             out.write_str(&ev.key.stable_owner_key);
             out.write_str(&ev.stable_aggregate_owner);
+            out.write_u64(ev.product_fingerprint);
         }
         Ok(out.into_vec())
     }
@@ -125,18 +242,24 @@ impl QueryImageV1 {
         let mut allocation_budget = transaction.child(section_limit);
         let mut reader = BinaryReader::new(bytes);
         let schema = reader.read_u32()?;
-        if schema != QUERY_IMAGE_SCHEMA_V1 {
+        if schema != QUERY_IMAGE_SCHEMA_V2 {
             return Err(ValidationError::ReferentialIntegrity("unsupported query image schema".into()).into());
         }
         let root_count = reader.read_u32()? as usize;
         if root_count > limits.max_semantic_entries_per_family {
             return Err(ArtifactError::LimitExceeded("too many query roots".into()));
         }
-        let mut supported_roots = reserve_vec::<QueryRootEntryV1>(&mut allocation_budget, root_count)?;
+        let mut supported_roots = reserve_vec::<QueryRootEntryV2>(&mut allocation_budget, root_count)?;
         for _ in 0..root_count {
             let kind_raw = reader.read_u16()?;
             let kind = PortableQueryKindV1::from_raw(kind_raw).ok_or_else(|| ValidationError::ReferentialIntegrity("unknown query kind".into()))?;
             let stable_owner_key = read_owned_string(&mut reader, limits, &mut allocation_budget)?;
+            let product_kind_raw = reader.read_u16()?;
+            let product_kind =
+                PortableQueryKindV1::from_raw(product_kind_raw).ok_or_else(|| ValidationError::ReferentialIntegrity("unknown query product kind".into()))?;
+            let row_index = reader.read_u32()?;
+            let input_fingerprint = reader.read_u64()?;
+            let product_fingerprint = reader.read_u64()?;
             let dep_count = reader.read_u32()? as usize;
             if dep_count > limits.max_semantic_entries_per_family {
                 return Err(ArtifactError::LimitExceeded("too many query dependencies".into()));
@@ -145,8 +268,11 @@ impl QueryImageV1 {
             for _ in 0..dep_count {
                 dependency_indices.push(reader.read_u32()?);
             }
-            supported_roots.push(QueryRootEntryV1 {
+            supported_roots.push(QueryRootEntryV2 {
                 key: PortableQueryKeyV1 { kind, stable_owner_key },
+                product: QueryProductRefV2 { kind: product_kind, row_index },
+                input_fingerprint,
+                product_fingerprint,
                 dependency_indices,
             });
         }
@@ -154,15 +280,17 @@ impl QueryImageV1 {
         if ev_count > limits.max_semantic_entries_per_family {
             return Err(ArtifactError::LimitExceeded("too many dependency evidence entries".into()));
         }
-        let mut dependency_evidence = reserve_vec::<DependencyEvidenceEntryV1>(&mut allocation_budget, ev_count)?;
+        let mut dependency_evidence = reserve_vec::<DependencyEvidenceEntryV2>(&mut allocation_budget, ev_count)?;
         for _ in 0..ev_count {
             let kind_raw = reader.read_u16()?;
             let kind = PortableQueryKindV1::from_raw(kind_raw).ok_or_else(|| ValidationError::ReferentialIntegrity("unknown query kind".into()))?;
             let stable_owner_key = read_owned_string(&mut reader, limits, &mut allocation_budget)?;
             let stable_aggregate_owner = read_owned_string(&mut reader, limits, &mut allocation_budget)?;
-            dependency_evidence.push(DependencyEvidenceEntryV1 {
+            let product_fingerprint = reader.read_u64()?;
+            dependency_evidence.push(DependencyEvidenceEntryV2 {
                 key: PortableQueryKeyV1 { kind, stable_owner_key },
                 stable_aggregate_owner,
+                product_fingerprint,
             });
         }
         if reader.has_remaining() {
@@ -197,11 +325,36 @@ impl QueryImageV1 {
         if self.dependency_evidence.len() > limits.max_semantic_entries_per_family {
             return Err(ArtifactError::LimitExceeded("query dependency evidence exceeds limit".into()));
         }
-        let mut seen_roots = std::collections::BTreeSet::new();
-        for root in &self.supported_roots {
-            if !root.key.stable_owner_key.is_empty() && !seen_roots.insert(&root.key) {
-                return Err(ValidationError::ReferentialIntegrity(format!("duplicate query root key: {:?}", root.key)).into());
+        for adjacent in self.supported_roots.windows(2) {
+            if adjacent[0].key == adjacent[1].key {
+                return Err(ValidationError::ReferentialIntegrity(format!("duplicate query root key: {:?}", adjacent[1].key)).into());
             }
+            if adjacent[0].key > adjacent[1].key {
+                return Err(ValidationError::ReferentialIntegrity("query roots are not in canonical key order".into()).into());
+            }
+        }
+        for root in &self.supported_roots {
+            if root.product.kind != root.key.kind {
+                return Err(ValidationError::ReferentialIntegrity("query root product family differs from its key kind".into()).into());
+            }
+            if !matches!(
+                root.product.kind.profile_support(),
+                QueryProfileSupport::RepresentedByModuleWorld | QueryProfileSupport::RepresentedBySemanticWorld
+            ) {
+                return Err(ValidationError::ReferentialIntegrity("query kind is not reusable in the canonical artifact profile".into()).into());
+            }
+            for adjacent in root.dependency_indices.windows(2) {
+                if adjacent[0] >= adjacent[1] {
+                    return Err(ValidationError::ReferentialIntegrity("query dependency indices are not in canonical unique order".into()).into());
+                }
+            }
+        }
+        for adjacent in self.dependency_evidence.windows(2) {
+            if adjacent[0] >= adjacent[1] {
+                return Err(ValidationError::ReferentialIntegrity("query dependency evidence is not in canonical unique order".into()).into());
+            }
+        }
+        for root in &self.supported_roots {
             for &dep in &root.dependency_indices {
                 if (dep as usize) >= self.dependency_evidence.len() {
                     return Err(ValidationError::ReferentialIntegrity(format!(
@@ -214,6 +367,76 @@ impl QueryImageV1 {
         }
         Ok(())
     }
+
+    /// Validates typed query product references against the artifact sections.
+    pub fn validate_product_references(&self, modules: &ModuleWorldV1, world: &SemanticWorldV3) -> Result<(), ArtifactError> {
+        for root in &self.supported_roots {
+            let row_count = match root.product.kind.profile_support() {
+                QueryProfileSupport::RepresentedByModuleWorld => modules.modules.len(),
+                QueryProfileSupport::RepresentedBySemanticWorld => semantic_product_row_count(root.product.kind, world)
+                    .ok_or_else(|| ValidationError::ReferentialIntegrity("query kind has no semantic product table".into()))?,
+                QueryProfileSupport::OmittedSourceDependent
+                | QueryProfileSupport::AggregateDependencyEvidenceOnly
+                | QueryProfileSupport::OmittedAdvisoryOnly => {
+                    return Err(ValidationError::ReferentialIntegrity("query product reference targets a non-root profile kind".into()).into());
+                }
+            };
+            if root.product.row_index as usize >= row_count {
+                return Err(ValidationError::ReferentialIntegrity(format!(
+                    "query product row {} is out of bounds for {:?} (row count {row_count})",
+                    root.product.row_index, root.product.kind
+                ))
+                .into());
+            }
+        }
+        Ok(())
+    }
+}
+
+fn semantic_product_row_count(kind: PortableQueryKindV1, world: &SemanticWorldV3) -> Option<usize> {
+    Some(match kind {
+        PortableQueryKindV1::DeclarationShell => world.structural_contracts.declaration_shells.len(),
+        PortableQueryKindV1::HierarchyEdge => world.structural_contracts.hierarchy_and_aliases.len(),
+        PortableQueryKindV1::TraitHeader | PortableQueryKindV1::TraitSurface => world.trait_surfaces.len(),
+        PortableQueryKindV1::DeclarationSurface | PortableQueryKindV1::FieldSignature => world.dispatch_surfaces.len(),
+        PortableQueryKindV1::ConformanceDispatch => world.conformance_heads.len(),
+        PortableQueryKindV1::TraitDispatchBucket | PortableQueryKindV1::GenericConformance => world.witness_plans.len(),
+        PortableQueryKindV1::CallableDefinition => world.callable_definitions.len(),
+        PortableQueryKindV1::ConstructorInitialization => world.constructor_initializations.len(),
+        PortableQueryKindV1::CallableSignature => world.callable_signatures.len(),
+        PortableQueryKindV1::CallableEffects => world.callable_signatures.len(),
+        PortableQueryKindV1::CallableBody
+        | PortableQueryKindV1::CallableControl
+        | PortableQueryKindV1::CallableTermination
+        | PortableQueryKindV1::CallableContracts
+        | PortableQueryKindV1::AttributeArgument
+        | PortableQueryKindV1::VerificationConditions => world.callable_analyses.len(),
+        PortableQueryKindV1::DataDeclaration => world.structural_contracts.data_contracts.len(),
+        PortableQueryKindV1::EnumDeclaration => world.structural_contracts.enum_contracts.len(),
+        PortableQueryKindV1::EnumRequirements => world.enum_requirements.len(),
+        PortableQueryKindV1::TypeMemberDeclaration => world.type_member_declarations.len(),
+        PortableQueryKindV1::StaticDomainCaseCatalog => world.static_case_catalogs.len(),
+        PortableQueryKindV1::StaticCaseSignature => world.static_case_signatures.len(),
+        PortableQueryKindV1::AssociatedStaticDomainDeclaration => world.associated_static_domains.len(),
+        PortableQueryKindV1::AssociatedSurface => world.associated_surfaces.len(),
+        PortableQueryKindV1::StaticDefinition | PortableQueryKindV1::CheckedStaticBody => world.static_definitions.len(),
+        PortableQueryKindV1::StaticConstant => world.static_constants.len(),
+        PortableQueryKindV1::ModuleStaticBindingCatalog | PortableQueryKindV1::ModuleStaticBindings => world.module_static_bindings.len(),
+        PortableQueryKindV1::ParsedModule
+        | PortableQueryKindV1::UnlinkedInterface
+        | PortableQueryKindV1::ResolvedImports
+        | PortableQueryKindV1::LinkedInterface
+        | PortableQueryKindV1::SemanticComponent
+        | PortableQueryKindV1::ModuleDiagnostics
+        | PortableQueryKindV1::ModuleMetadata
+        | PortableQueryKindV1::SourceStructure
+        | PortableQueryKindV1::SourceFormalAttachment
+        | PortableQueryKindV1::AdvisoryCallable
+        | PortableQueryKindV1::AdvisoryModule
+        | PortableQueryKindV1::ResolvedImport
+        | PortableQueryKindV1::LinkedName
+        | PortableQueryKindV1::PublicExport => return None,
+    })
 }
 
 fn allocation_error(error: AllocationError) -> ArtifactError {

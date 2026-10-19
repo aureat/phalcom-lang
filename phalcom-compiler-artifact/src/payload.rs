@@ -9,7 +9,7 @@ use crate::identity::CanonicalCompatibilityIdentity;
 use crate::limits::ValidationLimits;
 use crate::metadata::{METADATA_SECTION_SCHEMA_V1, MetadataSectionV1};
 use crate::module_world::{MODULE_WORLD_SCHEMA_V1, ModuleWorldV1};
-use crate::query::{QUERY_IMAGE_SCHEMA_V1, QueryImageV1};
+use crate::query::{QUERY_IMAGE_SCHEMA_V2, QueryImageV2, QueryProfileSupport};
 use crate::section::{SectionFlags, SectionKind};
 use crate::semantic::world::{SEMANTIC_WORLD_SCHEMA_V3, SemanticWorldV3};
 use phalcom_type_meta::allocation::AllocationBudget;
@@ -20,7 +20,7 @@ pub struct CompilerArtifactPayload {
     pub header: TeloscHeaderV2,
     pub module_world: ModuleWorldV1,
     pub semantic_world: SemanticWorldV3,
-    pub query_image: QueryImageV1,
+    pub query_image: QueryImageV2,
     pub metadata: MetadataSectionV1,
 }
 
@@ -41,7 +41,7 @@ impl CompilerArtifactPayload {
         let mut builder = TeloscContainerBuilder::new(header);
         builder.add_section(SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V1, SectionFlags::REQUIRED, module_bytes);
         builder.add_section(SectionKind::SemanticWorld, SEMANTIC_WORLD_SCHEMA_V3, SectionFlags::REQUIRED, semantic_bytes);
-        builder.add_section(SectionKind::QueryImage, QUERY_IMAGE_SCHEMA_V1, SectionFlags::REQUIRED, query_bytes);
+        builder.add_section(SectionKind::QueryImage, QUERY_IMAGE_SCHEMA_V2, SectionFlags::REQUIRED, query_bytes);
         builder.add_section(SectionKind::Metadata, METADATA_SECTION_SCHEMA_V1, SectionFlags::REQUIRED, metadata_bytes);
 
         builder.build()
@@ -55,7 +55,8 @@ impl CompilerArtifactPayload {
         expected_identity: Option<&CanonicalCompatibilityIdentity>,
         budget: &mut AllocationBudget,
     ) -> Result<Self, ArtifactError> {
-        let view = TeloscContainerView::parse_with_allocation_budget(bytes, limits, budget)?;
+        let mut load_budget = budget.clone();
+        let view = TeloscContainerView::parse_with_allocation_budget(bytes, limits, &mut load_budget)?;
 
         // Compatibility checks
         if let Some(expected) = expected_identity {
@@ -68,6 +69,7 @@ impl CompilerArtifactPayload {
                 stable_identity_schema: view.header().stable_identity_schema,
                 module_semantic_abi: view.header().module_semantic_abi,
                 semantic_artifact_abi: view.header().semantic_artifact_abi,
+                query_fingerprint_abi: view.header().query_fingerprint_abi,
                 native_surface_schema_version: view.header().native_surface_schema_version,
                 native_catalog_fingerprint: view.header().native_catalog_fingerprint,
                 type_metadata_schema_version: view.header().type_metadata_schema_version,
@@ -82,13 +84,16 @@ impl CompilerArtifactPayload {
         let metadata_data = view.require_section(SectionKind::Metadata)?;
 
         // Decodes under budget
-        let module_world = ModuleWorldV1::decode_with_allocation_budget(module_data, limits, budget)?;
-        let semantic_world = SemanticWorldV3::decode_with_allocation_budget(semantic_data, limits, budget)?;
-        let query_image = QueryImageV1::decode_with_allocation_budget(query_data, limits, budget)?;
-        let metadata = MetadataSectionV1::decode(metadata_data, limits)?;
+        let module_world = ModuleWorldV1::decode_with_allocation_budget(module_data, limits, &mut load_budget)?;
+        let semantic_world = SemanticWorldV3::decode_with_allocation_budget(semantic_data, limits, &mut load_budget)?;
+        let query_image = QueryImageV2::decode_with_allocation_budget(query_data, limits, &mut load_budget)?;
+        let metadata = MetadataSectionV1::decode_with_allocation_budget(metadata_data, limits, &mut load_budget)?;
 
         let payload = Self {
-            header: view.header().clone(),
+            header: view
+                .header()
+                .clone_with_allocation_budget(&mut load_budget)
+                .map_err(ArtifactError::Allocation)?,
             module_world,
             semantic_world,
             query_image,
@@ -98,11 +103,14 @@ impl CompilerArtifactPayload {
         // Cross-section validation
         payload.validate_cross_section(limits)?;
 
+        *budget = load_budget;
         Ok(payload)
     }
 
     /// Cross-section referential integrity and consistency validation.
-    pub fn validate_cross_section(&self, _limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    pub fn validate_cross_section(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+        self.query_image.validate(limits)?;
+        self.query_image.validate_product_references(&self.module_world, &self.semantic_world)?;
         // 1. Verify that the metadata package digest matches package identity
         let expected_pkg_digest = self.header.package_identity.digest().0;
         if self.metadata.package_digest != expected_pkg_digest {
@@ -125,29 +133,29 @@ impl CompilerArtifactPayload {
 
         // 3. Verify query root keys reference known module products
         for root in &self.query_image.supported_roots {
-            match root.key.kind {
-                crate::query::PortableQueryKindV1::UnlinkedInterface
-                | crate::query::PortableQueryKindV1::ResolvedImports
-                | crate::query::PortableQueryKindV1::LinkedInterface
-                | crate::query::PortableQueryKindV1::ModuleStaticBindingCatalog
-                | crate::query::PortableQueryKindV1::ModuleStaticBindings => {
-                    let key_path = root.key.stable_owner_key.split('.').collect::<Vec<_>>();
-                    let matches_any = self.module_world.modules.iter().any(|m| {
-                        if m.path.is_empty() && root.key.stable_owner_key.is_empty() {
-                            return true;
-                        }
-                        m.path.len() == key_path.len() && m.path.iter().zip(key_path.iter()).all(|(a, b)| a == b)
-                    });
-                    if !matches_any && !root.key.stable_owner_key.is_empty() {
-                        return Err(
-                            ValidationError::ReferentialIntegrity(format!("query root references unknown module {}", root.key.stable_owner_key)).into(),
-                        );
-                    }
+            if root.product.kind.profile_support() == QueryProfileSupport::RepresentedByModuleWorld {
+                let module = self
+                    .module_world
+                    .modules
+                    .get(root.product.row_index as usize)
+                    .ok_or_else(|| ValidationError::ReferentialIntegrity("query module product row is out of bounds".into()))?;
+                if !module_path_matches(&module.path, &root.key.stable_owner_key) {
+                    return Err(ValidationError::ReferentialIntegrity(format!(
+                        "query root owner {} does not match referenced module {:?}",
+                        root.key.stable_owner_key, module.path
+                    ))
+                    .into());
                 }
-                _ => {}
             }
         }
 
         Ok(())
     }
+}
+
+fn module_path_matches(path: &[String], stable_owner_key: &str) -> bool {
+    if path.is_empty() {
+        return stable_owner_key.is_empty();
+    }
+    path.iter().map(String::as_str).eq(stable_owner_key.split('.'))
 }

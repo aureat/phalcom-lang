@@ -152,6 +152,64 @@ pub enum QueryKind {
 }
 
 impl QueryKind {
+    /// Stable inventory used by artifact policy and query-metrics coverage.
+    ///
+    /// Keep this list in one-to-one correspondence with [`QueryKey::kind`].
+    /// The artifact policy is also an exhaustive match, so adding a new query
+    /// requires choosing its persistence disposition explicitly.
+    pub const ALL: [Self; 46] = [
+        Self::ParsedModule,
+        Self::UnlinkedInterface,
+        Self::ResolvedImports,
+        Self::LinkedInterface,
+        Self::DeclarationShell,
+        Self::SemanticComponent,
+        Self::DeclarationSurface,
+        Self::TraitHeader,
+        Self::TraitSurface,
+        Self::ConformanceDispatch,
+        Self::TraitDispatchBucket,
+        Self::GenericConformance,
+        Self::CallableDefinition,
+        Self::HierarchyEdge,
+        Self::FieldSignature,
+        Self::ConstructorInitialization,
+        Self::CallableSignature,
+        Self::CallableBody,
+        Self::CallableEffects,
+        Self::CallableControl,
+        Self::CallableTermination,
+        Self::CallableContracts,
+        Self::AttributeArgument,
+        Self::VerificationConditions,
+        Self::SourceStructure,
+        Self::SourceFormalAttachment,
+        Self::AdvisoryCallable,
+        Self::AdvisoryModule,
+        Self::ModuleDiagnostics,
+        Self::ModuleMetadata,
+        Self::DataDeclaration,
+        Self::EnumDeclaration,
+        Self::EnumRequirements,
+        Self::TypeMemberDeclaration,
+        Self::StaticDomainCaseCatalog,
+        Self::StaticCaseSignature,
+        Self::AssociatedStaticDomainDeclaration,
+        Self::AssociatedSurface,
+        Self::ResolvedImport,
+        Self::LinkedName,
+        Self::PublicExport,
+        Self::StaticDefinition,
+        Self::StaticConstant,
+        Self::ModuleStaticBindingCatalog,
+        Self::ModuleStaticBindings,
+        Self::CheckedStaticBody,
+    ];
+
+    pub const fn count() -> usize {
+        Self::ALL.len()
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ParsedModule => "parsed_module",

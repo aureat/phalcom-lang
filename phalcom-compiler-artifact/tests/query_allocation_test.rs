@@ -1,6 +1,6 @@
 use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::limits::ValidationLimits;
-use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1};
+use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV2, QueryProductRefV2, QueryRootEntryV2};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -29,13 +29,19 @@ unsafe impl GlobalAlloc for CountingAllocator {
 static GLOBAL: CountingAllocator = CountingAllocator;
 
 fn encoded_query(count: usize) -> Vec<u8> {
-    QueryImageV1 {
+    QueryImageV2 {
         supported_roots: (0..count)
-            .map(|_| QueryRootEntryV1 {
+            .map(|index| QueryRootEntryV2 {
                 key: PortableQueryKeyV1 {
                     kind: PortableQueryKindV1::CallableSignature,
-                    stable_owner_key: String::new(),
+                    stable_owner_key: format!("{index:05}"),
                 },
+                product: QueryProductRefV2 {
+                    kind: PortableQueryKindV1::CallableSignature,
+                    row_index: 0,
+                },
+                input_fingerprint: index as u64,
+                product_fingerprint: index as u64 + 1,
                 dependency_indices: Vec::new(),
             })
             .collect(),
@@ -49,7 +55,7 @@ fn query_decode_rejects_before_vector_allocation_when_transaction_is_too_small()
     let bytes = encoded_query(50_000);
     let mut transaction = AllocationBudget::new(bytes.len());
     let before = ALLOCATED.load(Ordering::Relaxed);
-    let result = QueryImageV1::decode_with_allocation_budget(&bytes, &ValidationLimits::default(), &mut transaction);
+    let result = QueryImageV2::decode_with_allocation_budget(&bytes, &ValidationLimits::default(), &mut transaction);
     let allocated = ALLOCATED.load(Ordering::Relaxed) - before;
 
     assert!(result.is_err());
@@ -65,7 +71,7 @@ fn query_decode_enforces_section_limit_independently_of_transaction_budget() {
         ..ValidationLimits::default()
     };
     let mut transaction = AllocationBudget::new(1024 * 1024);
-    let result = QueryImageV1::decode_with_allocation_budget(&bytes, &limits, &mut transaction);
+    let result = QueryImageV2::decode_with_allocation_budget(&bytes, &limits, &mut transaction);
 
     assert!(matches!(result, Err(ArtifactError::Allocation(AllocationError::Exhausted))));
     assert_eq!(transaction.requested(), 0, "failed child decode must not commit");
@@ -74,10 +80,10 @@ fn query_decode_enforces_section_limit_independently_of_transaction_budget() {
 fn query_decode_debit_matches_allocator_requested_capacity() {
     let count = 50_000;
     let bytes = encoded_query(count);
-    let expected = Layout::array::<QueryRootEntryV1>(count).unwrap().size();
+    let expected = Layout::array::<QueryRootEntryV2>(count).unwrap().size() + count * 5;
     let mut transaction = AllocationBudget::new(expected);
     let before = ALLOCATED.load(Ordering::Relaxed);
-    let decoded = QueryImageV1::decode_with_allocation_budget(&bytes, &ValidationLimits::default(), &mut transaction).unwrap();
+    let decoded = QueryImageV2::decode_with_allocation_budget(&bytes, &ValidationLimits::default(), &mut transaction).unwrap();
     let allocated = ALLOCATED.load(Ordering::Relaxed) - before;
 
     assert_eq!(decoded.supported_roots.len(), count);

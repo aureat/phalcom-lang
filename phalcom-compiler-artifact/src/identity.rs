@@ -107,6 +107,7 @@ pub struct CanonicalCompatibilityIdentity {
     pub stable_identity_schema: u32,
     pub module_semantic_abi: u32,
     pub semantic_artifact_abi: u32,
+    pub query_fingerprint_abi: u32,
     pub native_surface_schema_version: u32,
     pub native_catalog_fingerprint: [u8; 16],
     pub type_metadata_schema_version: u32,
@@ -123,6 +124,7 @@ impl CanonicalCompatibilityIdentity {
             stable_identity_schema: self.stable_identity_schema,
             module_semantic_abi: self.module_semantic_abi,
             semantic_artifact_abi: self.semantic_artifact_abi,
+            query_fingerprint_abi: self.query_fingerprint_abi,
             native_surface_schema_version: self.native_surface_schema_version,
             native_catalog_fingerprint: self.native_catalog_fingerprint,
             type_metadata_schema_version: self.type_metadata_schema_version,
@@ -162,6 +164,13 @@ impl CanonicalCompatibilityIdentity {
                 kind: "semantic_artifact_abi",
                 found: self.semantic_artifact_abi,
                 expected: other.semantic_artifact_abi,
+            });
+        }
+        if self.query_fingerprint_abi != other.query_fingerprint_abi {
+            return Err(ValidationError::IncompatibleAbi {
+                kind: "query_fingerprint_abi",
+                found: self.query_fingerprint_abi,
+                expected: other.query_fingerprint_abi,
             });
         }
         if self.native_surface_schema_version != other.native_surface_schema_version {
@@ -213,11 +222,22 @@ mod tests {
             stable_identity_schema: 1,
             module_semantic_abi: 1,
             semantic_artifact_abi: 1,
+            query_fingerprint_abi: 1,
             native_surface_schema_version: 1,
             native_catalog_fingerprint: [1; 16],
             type_metadata_schema_version: 1,
         };
         assert!(identity.check_compatible(&identity).is_ok());
+
+        let mut foreign_query_abi = identity.clone();
+        foreign_query_abi.query_fingerprint_abi = 2;
+        assert!(matches!(
+            identity.check_compatible(&foreign_query_abi),
+            Err(ValidationError::IncompatibleAbi {
+                kind: "query_fingerprint_abi",
+                ..
+            })
+        ));
 
         let mut foreign = identity.clone();
         foreign.native_catalog_fingerprint = [2; 16];

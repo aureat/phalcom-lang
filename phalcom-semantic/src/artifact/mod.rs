@@ -2,13 +2,16 @@
 //!
 //! (ARTF001.C1.P2)
 
+mod query_policy;
+pub use query_policy::{portable_query_kind, query_kind_profile_support};
+
 use phalcom_compiler_artifact::header::TeloscHeaderV2;
 use phalcom_compiler_artifact::identity::CanonicalCompatibilityIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
 use phalcom_compiler_artifact::module_world::ModuleWorldV1;
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
-use phalcom_compiler_artifact::query::QueryImageV1;
+use phalcom_compiler_artifact::query::QueryImageV2;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_modules::canonical_products::CanonicalExternalModuleWorld;
@@ -23,7 +26,7 @@ pub struct CompilerArtifactImage {
     pub header: TeloscHeaderV2,
     pub module_world: ModuleWorldV1,
     pub semantic_world: SemanticWorldV3,
-    pub query_image: QueryImageV1,
+    pub query_image: QueryImageV2,
     pub metadata: MetadataSectionV1,
 }
 
@@ -41,13 +44,16 @@ impl CompilerArtifactImage {
     }
 }
 
-/// An immutable semantic compiler image loaded from a validated `.telosc` container.
+/// Validated artifact data staged for a future live semantic import.
+///
+/// `semantic_world` and `query_image` remain portable wire DTOs here. This value is not a
+/// `SemanticSnapshot`, and it is not published into `SemanticDb`.
 #[derive(Clone, Debug)]
 pub struct ImportedCompilerImage {
     pub external_world: Arc<CanonicalExternalModuleWorld>,
     pub metadata_bundle: SemanticMetadataBundle,
     pub semantic_world: SemanticWorldV3,
-    pub query_image: QueryImageV1,
+    pub query_image: QueryImageV2,
 }
 
 /// Transactional staging loader for compiler artifacts.
@@ -62,7 +68,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_module_world: Option<Arc<CanonicalExternalModuleWorld>>,
     pub staged_metadata_bundle: Option<SemanticMetadataBundle>,
     pub staged_semantic_world: Option<SemanticWorldV3>,
-    pub staged_query_image: Option<QueryImageV1>,
+    pub staged_query_image: Option<QueryImageV2>,
     committed: bool,
 }
 
@@ -82,7 +88,7 @@ impl<'a> ArtifactImportTransaction<'a> {
     }
 
     /// Stages an already-parsed and verified `CompilerArtifactPayload`.
-    pub fn stage_payload(&mut self, payload: &CompilerArtifactPayload) -> Result<&mut Self, ArtifactError> {
+    pub fn stage_payload(&mut self, payload: CompilerArtifactPayload) -> Result<&mut Self, ArtifactError> {
         payload.validate_cross_section(&self.limits)?;
 
         let child = self
@@ -92,7 +98,7 @@ impl<'a> ArtifactImportTransaction<'a> {
 
         // 1. Stage module world under child ledger
         let external = load_module_world_with_allocation_budget(&payload.module_world, &self.limits, child)?;
-        self.staged_module_world = Some(Arc::new(external));
+        self.staged_module_world = Some(child.arc(external).map_err(ArtifactError::Allocation)?);
 
         // 2. Stage metadata bundle under child ledger
         let preflight = metadata_preflight_limits(&self.limits);
@@ -113,8 +119,8 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.staged_metadata_bundle = Some(bundle);
 
         // 3. Stage semantic world and query image
-        self.staged_semantic_world = Some(payload.semantic_world.clone());
-        self.staged_query_image = Some(payload.query_image.clone());
+        self.staged_semantic_world = Some(payload.semantic_world);
+        self.staged_query_image = Some(payload.query_image);
 
         Ok(self)
     }
@@ -126,10 +132,12 @@ impl<'a> ArtifactImportTransaction<'a> {
             .as_mut()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("transaction already committed".into())))?;
         let payload = CompilerArtifactPayload::decode_and_validate(bytes, &self.limits, expected_identity, child)?;
-        self.stage_payload(&payload)
+        self.stage_payload(payload)
     }
 
-    /// Atomically commits staged artifacts into an `ImportedCompilerImage`.
+    /// Commits staged transport data into an `ImportedCompilerImage` value.
+    ///
+    /// This does not publish semantic products into a workspace session.
     pub fn commit(mut self) -> Result<ImportedCompilerImage, ArtifactError> {
         let external_world = self
             .staged_module_world
@@ -201,9 +209,11 @@ pub fn decode_and_validate_artifact(
     CompilerArtifactPayload::decode_and_validate(bytes, limits, expected_identity, budget)
 }
 
-/// Transactionally imports a compiler artifact payload into an `ImportedCompilerImage`.
+/// Transactionally stages a compiler artifact payload into an `ImportedCompilerImage` value.
+///
+/// Semantic/query DTO reconstruction and workspace publication are not implemented yet.
 pub fn import_compiler_image(
-    artifact: &CompilerArtifactPayload,
+    artifact: CompilerArtifactPayload,
     limits: &ValidationLimits,
     budget: &mut AllocationBudget,
 ) -> Result<ImportedCompilerImage, ArtifactError> {

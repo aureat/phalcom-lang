@@ -177,6 +177,7 @@ impl<'a> TeloscContainerView<'a> {
             }
             let supported_schema = match kind {
                 SectionKind::SemanticWorld => Some(crate::semantic::world::SEMANTIC_WORLD_SCHEMA_V3),
+                SectionKind::QueryImage => Some(crate::query::QUERY_IMAGE_SCHEMA_V2),
                 SectionKind::Unknown(_) => None,
                 _ => Some(1),
             };

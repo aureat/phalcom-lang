@@ -5,7 +5,7 @@ use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
 use phalcom_compiler_artifact::module_world::{ArtifactModuleId, ModuleKindV1, ModuleV1, ModuleWorldV1};
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
-use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1};
+use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV2, QueryProductRefV2, QueryRootEntryV2};
 use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
 use phalcom_compiler_artifact::semantic::static_value::{StaticValueGraphV1, StaticValueV1};
 use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1, TypeEntryV1, TypeGraphV1, TypeV1};
@@ -188,13 +188,19 @@ fn sample_semantic_world() -> SemanticWorldV3 {
     }
 }
 
-fn sample_query_image() -> QueryImageV1 {
-    QueryImageV1 {
-        supported_roots: vec![QueryRootEntryV1 {
+fn sample_query_image() -> QueryImageV2 {
+    QueryImageV2 {
+        supported_roots: vec![QueryRootEntryV2 {
             key: PortableQueryKeyV1 {
                 kind: PortableQueryKindV1::LinkedInterface,
-                stable_owner_key: "core".into(),
+                stable_owner_key: "".into(),
             },
+            product: QueryProductRefV2 {
+                kind: PortableQueryKindV1::LinkedInterface,
+                row_index: 0,
+            },
+            input_fingerprint: 1,
+            product_fingerprint: 2,
             dependency_indices: vec![],
         }],
         dependency_evidence: vec![],
@@ -273,6 +279,7 @@ fn compatibility_identity_verifies_matching_and_rejects_foreign() {
         stable_identity_schema: initial.header.stable_identity_schema,
         module_semantic_abi: initial.header.module_semantic_abi,
         semantic_artifact_abi: initial.header.semantic_artifact_abi,
+        query_fingerprint_abi: initial.header.query_fingerprint_abi,
         native_surface_schema_version: initial.header.native_surface_schema_version,
         native_catalog_fingerprint: initial.header.native_catalog_fingerprint,
         type_metadata_schema_version: initial.header.type_metadata_schema_version,

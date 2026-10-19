@@ -12,25 +12,25 @@ use serde::{Deserialize, Serialize};
 
 /// Stable artifact-pool-local index for one durable static value node.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct StaticValueNodeId(pub u32);
 
 /// Stable static value domain reference.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum StaticValueDomainRef {
     Kind(KindNodeId),
     ValueType(TypeNodeId),
 }
 
 /// Structural family of a durable static sequence.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum StaticSequenceFamilyRef {
     Array,
     Vector,
 }
 
 /// Canonical payload for one durable static value node.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum StaticValueNode {
     Unit,
     Bool(bool),
@@ -72,14 +72,14 @@ pub enum StaticValueNode {
 }
 
 /// One entry in the metadata bundle's deduplicated static value table.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct StaticValueNodeEntry {
     pub node: StaticValueNode,
     pub structural_fingerprint: Fingerprint128,
 }
 
 /// Durable static constant record in the metadata bundle.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct StaticConstantRecord {
     pub id: StableStaticConstantRef,
     pub domain: StaticValueDomainRef,

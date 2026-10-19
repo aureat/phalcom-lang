@@ -33,7 +33,7 @@ pub fn decode_metadata_json(json: &str, limits: &ValidationLimits) -> Result<Sem
 pub enum MetadataDecodeError {
     #[error("json decode error: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("budgeted decode error: {0}")]
+    #[error(transparent)]
     Budgeted(#[from] crate::budgeted::DecodeError),
     #[error("validation error: {0}")]
     Validation(Box<MetadataValidationError>),
@@ -60,61 +60,10 @@ pub fn decode_metadata_json_with_allocation_budget(
     }
 
     let mut budget = transaction.clone();
-    let bundle: SemanticMetadataBundle = serde_json::from_str(json).map_err(MetadataDecodeError::Json)?;
-
-    let table_bytes = std::mem::size_of::<SemanticMetadataBundle>()
-        + bundle.kinds.len() * std::mem::size_of::<crate::kind::KindNodeEntry>()
-        + bundle.types.len() * std::mem::size_of::<crate::type_node::TypeNodeEntry>()
-        + bundle.scoped_types.len() * std::mem::size_of::<crate::scoped_type::ScopedTypeNodeEntry>()
-        + bundle.parameters.len() * std::mem::size_of::<crate::generic::TypeParameterRecord>()
-        + bundle.generic_signatures.len() * std::mem::size_of::<crate::generic::GenericSignatureRecord>()
-        + bundle.declarations.len() * std::mem::size_of::<crate::declaration::DeclarationTypeRecord>()
-        + bundle.static_domains.len() * std::mem::size_of::<crate::declaration::StaticDomainDeclarationRecord>()
-        + bundle.aliases.len() * std::mem::size_of::<crate::declaration::TypeAliasRecord>()
-        + bundle.callables.len() * std::mem::size_of::<crate::declaration::CallableSemanticRecord>()
-        + bundle.fields.len() * std::mem::size_of::<crate::declaration::FieldSemanticRecord>()
-        + bundle.static_definitions.len() * std::mem::size_of::<crate::static_definition::StaticDefinitionRecord>()
-        + bundle.static_constants.len() * std::mem::size_of::<crate::static_value::StaticConstantRecord>()
-        + bundle.static_values.len() * std::mem::size_of::<crate::static_value::StaticValueNodeEntry>();
-
-    let mut string_bytes = bundle.header.producer.0.len() + bundle.header.producer_version.len();
-    for d in &bundle.declarations {
-        for p in &d.declaration.path {
-            string_bytes += p.len();
-        }
-    }
-    for p in &bundle.parameters {
-        string_bytes += p.name.len();
-    }
-    for a in &bundle.aliases {
-        for p in &a.declaration.path {
-            string_bytes += p.len();
-        }
-    }
-    for c in &bundle.callables {
-        string_bytes += c.callable.selector.len();
-    }
-    for f in &bundle.fields {
-        string_bytes += f.field.name.len();
-    }
-    for s in &bundle.static_definitions {
-        for p in &s.id.path {
-            string_bytes += p.len();
-        }
-    }
-    for s in &bundle.static_constants {
-        string_bytes += s.id.name.len();
-    }
-    for s in &bundle.static_values {
-        if let crate::static_value::StaticValueNode::String(text) = &s.node {
-            string_bytes += text.len();
-        }
-    }
-
-    budget
-        .reserve_bytes(table_bytes.saturating_add(string_bytes))
-        .map_err(|e| MetadataDecodeError::Budgeted(crate::budgeted::DecodeError::Allocation(e)))?;
-    validate_metadata_bundle(&bundle, limits)?;
+    let mut decoder = crate::budgeted::Decoder::new(json, &mut budget, 256)?;
+    let bundle = <SemanticMetadataBundle as crate::budgeted::BudgetDecode>::decode(&mut decoder)?;
+    decoder.cursor.finish()?;
+    crate::validate::validate_metadata_bundle_with_budget(&bundle, limits, &mut budget)?;
     *transaction = budget;
     Ok(bundle)
 }

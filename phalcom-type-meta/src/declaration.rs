@@ -7,10 +7,10 @@ use crate::type_node::TypeNodeId;
 use serde::{Deserialize, Serialize};
 
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct DeclarationRecordId(pub u32);
 
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct DeclarationTypeFlags {
     pub is_abstract: bool,
     pub is_final: bool,
@@ -18,21 +18,21 @@ pub struct DeclarationTypeFlags {
 }
 
 /// Stable phase of a canonical algebraic declaration.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum AlgebraicPhaseRef {
     Runtime,
     TypeOnly,
 }
 
 /// Stable product/sum shape of a canonical algebraic declaration.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum AlgebraicShapeRef {
     Product,
     Sum,
 }
 
 /// Stable algebraic declaration facts retained alongside the nominal declaration.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct AlgebraicDeclarationRecord {
     pub phase: AlgebraicPhaseRef,
     pub shape: AlgebraicShapeRef,
@@ -41,14 +41,14 @@ pub struct AlgebraicDeclarationRecord {
 /// One parameter of the declaration that owns a static domain. Associated
 /// domain specializations validate their owner environment against this
 /// ordered parameter shape.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct StaticDomainParameterRecord {
     pub kind: KindNodeId,
     pub mode: GenericParameterModeRef,
 }
 
 /// One stable constructor/case declaration in a static domain.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct StaticDomainCaseRecord {
     pub name: Box<str>,
     pub parameter_kinds: Box<[KindNodeId]>,
@@ -57,14 +57,14 @@ pub struct StaticDomainCaseRecord {
 /// Declaration catalog for a nominal or associated static domain. Associated
 /// owner arguments remain on `StaticDomainRef`; this record describes the
 /// declaration shared by all specializations.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct StaticDomainDeclarationRecord {
     pub declaration: StableStaticDomainDeclarationRef,
     pub owner_parameters: Box<[StaticDomainParameterRecord]>,
     pub cases: Box<[StaticDomainCaseRecord]>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct DeclarationTypeRecord {
     pub declaration: StableDeclarationRef,
     pub form: TypeNodeId,
@@ -82,10 +82,10 @@ pub struct DeclarationTypeRecord {
 }
 
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct AliasRecordId(pub u32);
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct TypeAliasRecord {
     pub declaration: StableDeclarationRef,
     pub generic_signature: Option<GenericSignatureRecordId>,
@@ -93,7 +93,7 @@ pub struct TypeAliasRecord {
     pub source: Option<SourceSpanRef>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum PublishedTypeAuthority {
     DeclaredAnnotation,
     TrustedNative,
@@ -101,21 +101,21 @@ pub enum PublishedTypeAuthority {
     CompilerInferred,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum DynamicReasonRef {
     ExplicitEscape,
     UncheckedBoundary,
     UnsupportedNative,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum UnknownReasonRef {
     UnannotatedDeclaration,
     InferenceFailed,
     OpaqueNative,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum MetadataUnavailableReason {
     StrippedByProfile,
     UnloadedModule,
@@ -123,7 +123,7 @@ pub enum MetadataUnavailableReason {
     DynamicReplacement,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum PublishedTypeSlot {
     Known { form: TypeNodeId, authority: PublishedTypeAuthority },
     Dynamic { reason: DynamicReasonRef },
@@ -132,17 +132,17 @@ pub enum PublishedTypeSlot {
 }
 
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct CallableRecordId(pub u32);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum RestModeRef {
     None,
     Anonymous,
     Named,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct CallableParameterRecord {
     pub index: u32,
     pub local_name: Box<str>,
@@ -152,7 +152,7 @@ pub struct CallableParameterRecord {
     pub source: Option<SourceSpanRef>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct CallableSemanticRecord {
     pub callable: StableCallableRef,
     pub generic_signature: Option<GenericSignatureRecordId>,
@@ -162,16 +162,16 @@ pub struct CallableSemanticRecord {
 }
 
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct FieldRecordId(pub u32);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum FieldMutabilityRef {
     Immutable,
     Mutable,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct FieldSemanticRecord {
     pub field: StableFieldRef,
     pub mutability: FieldMutabilityRef,

@@ -6,7 +6,7 @@ use crate::static_value::StaticValueDomainRef;
 use serde::{Deserialize, Serialize};
 
 /// Stable parameter record of a declared static definition.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct StaticParameterRecord {
     pub index: u32,
     pub name: Box<str>,
@@ -15,7 +15,7 @@ pub struct StaticParameterRecord {
 }
 
 /// Durable static definition record in the metadata bundle.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub struct StaticDefinitionRecord {
     pub id: StableDeclarationRef,
     pub parameters: Box<[StaticParameterRecord]>,

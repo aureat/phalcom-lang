@@ -319,6 +319,27 @@ impl BudgetDecode for bool {
         }
     }
 }
+impl BudgetDecode for char {
+    fn decode(json: &mut Decoder<'_, '_>) -> Result<Self, DecodeError> {
+        let t = json.cursor.string_token()?;
+        let mut chars = t.chars();
+        let c = chars.next().ok_or(DecodeError::Syntax("empty char string"))?;
+        if chars.next().is_some() {
+            return Err(DecodeError::Syntax("char string has multiple characters"));
+        }
+        Ok(c)
+    }
+}
+impl<A: BudgetDecode, B: BudgetDecode> BudgetDecode for (A, B) {
+    fn decode(json: &mut Decoder<'_, '_>) -> Result<Self, DecodeError> {
+        json.cursor.expect(b'[')?;
+        let a = A::decode(json)?;
+        json.cursor.expect(b',')?;
+        let b = B::decode(json)?;
+        json.cursor.expect(b']')?;
+        Ok((a, b))
+    }
+}
 impl<T: BudgetDecode> BudgetDecode for Option<T> {
     fn decode(json: &mut Decoder<'_, '_>) -> Result<Self, DecodeError> {
         if json.cursor.peek() == Some(b'n') {

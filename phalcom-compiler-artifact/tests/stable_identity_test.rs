@@ -191,6 +191,7 @@ fn compatibility_identity_structural_equivalence() {
         stable_identity_schema: 1,
         module_semantic_abi: 1,
         semantic_artifact_abi: 1,
+        query_fingerprint_abi: 1,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [9; 16],
         type_metadata_schema_version: 13,

@@ -1329,9 +1329,19 @@ name = "phalcom-type-meta"
 version = "0.1.0"
 dependencies = [
  "num-bigint",
+ "phalcom-type-meta-derive",
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "phalcom-type-meta-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
 ]
 
 [[package]]

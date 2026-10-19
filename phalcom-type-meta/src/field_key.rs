@@ -4,7 +4,7 @@ use crate::scalar::StaticInt;
 use serde::{Deserialize, Serialize};
 
 /// Canonical heterogeneous Record key in a generalized type projection and durable metadata.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize, phalcom_type_meta_derive::BudgetDecode)]
 pub enum FieldKeyRef {
     Symbol(Box<str>),
     String(Box<str>),

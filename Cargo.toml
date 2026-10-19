@@ -16,6 +16,7 @@ members = [
     "phalcom-test-support",
     "phalcom-diagnostics",
     "phalcom-type-meta",
+    "phalcom-type-meta-derive",
     "phalcom-compiler-artifact",
 ]
 resolver = "2"
@@ -33,6 +34,7 @@ default-members = [
     "phalcom-semantic",
     "phalcom-diagnostics",
     "phalcom-type-meta",
+    "phalcom-type-meta-derive",
     "phalcom-compiler-artifact",
 ]
 

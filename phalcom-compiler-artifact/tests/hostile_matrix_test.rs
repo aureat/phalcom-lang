@@ -7,7 +7,7 @@ use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
 use phalcom_compiler_artifact::module_world::{ArtifactModuleId, MODULE_WORLD_SCHEMA_V1, ModuleKindV1, ModuleV1, ModuleWorldV1};
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
-use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1};
+use phalcom_compiler_artifact::query::{PortableQueryKeyV1, PortableQueryKindV1, QueryImageV2, QueryProductRefV2, QueryRootEntryV2};
 use phalcom_compiler_artifact::section::{SectionFlags, SectionKind};
 use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
 use phalcom_compiler_artifact::semantic::static_value::{StaticValueGraphV1, StaticValueV1};
@@ -185,7 +185,7 @@ fn sample_payload() -> CompilerArtifactPayload {
         associated_surfaces: vec![],
     };
 
-    let query_image = QueryImageV1 {
+    let query_image = QueryImageV2 {
         supported_roots: vec![],
         dependency_evidence: vec![],
     };
@@ -218,7 +218,7 @@ fn missing_required_section_rejected() {
     let limits = ValidationLimits::default();
     let err = TeloscContainerView::parse(&bytes, &limits).unwrap_err();
     assert!(matches!(
-        err,
+        &err,
         ArtifactError::Container(ContainerError::MissingRequiredSection(SectionKind::ModuleWorld))
     ));
 }
@@ -235,7 +235,7 @@ fn duplicate_required_section_rejected() {
     let limits = ValidationLimits::default();
     let err = TeloscContainerView::parse(&bytes, &limits).unwrap_err();
     assert!(matches!(
-        err,
+        &err,
         ArtifactError::Container(ContainerError::DuplicateSection(SectionKind::ModuleWorld))
     ));
 }
@@ -248,10 +248,13 @@ fn truncated_section_rejected_with_codec_error() {
 
     let limits = ValidationLimits::default();
     let err = TeloscContainerView::parse(truncated, &limits).unwrap_err();
-    assert!(matches!(
-        err,
-        ArtifactError::Codec(CodecError::UnexpectedEof) | ArtifactError::Container(ContainerError::OutOfFileSection { .. })
-    ));
+    assert!(
+        matches!(
+            err,
+            ArtifactError::Codec(CodecError::UnexpectedEof) | ArtifactError::Container(ContainerError::OutOfFileSection { .. })
+        ),
+        "unexpected truncation error: {err:?}"
+    );
 }
 
 #[test]
@@ -264,10 +267,13 @@ fn whole_container_digest_mismatch_rejected() {
 
     let limits = ValidationLimits::default();
     let err = TeloscContainerView::parse(&encoded, &limits).unwrap_err();
-    assert!(matches!(
-        err,
-        ArtifactError::Container(ContainerError::SectionDigestMismatch { .. }) | ArtifactError::Container(ContainerError::ArtifactDigestMismatch { .. })
-    ));
+    assert!(
+        matches!(
+            err,
+            ArtifactError::Container(ContainerError::SectionDigestMismatch { .. }) | ArtifactError::Container(ContainerError::ArtifactDigestMismatch { .. })
+        ),
+        "unexpected digest error: {err:?}"
+    );
 }
 
 #[test]
@@ -311,6 +317,7 @@ fn wrong_project_provenance_rejected() {
         stable_identity_schema: 1,
         module_semantic_abi: 1,
         semantic_artifact_abi: 1,
+        query_fingerprint_abi: 1,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [1; 16],
         type_metadata_schema_version: 13,
@@ -320,25 +327,40 @@ fn wrong_project_provenance_rejected() {
     let mut budget = AllocationBudget::new(32 * 1024 * 1024);
     let err = CompilerArtifactPayload::decode_and_validate(&encoded, &limits, Some(&foreign_compat), &mut budget);
     assert!(err.is_err());
-    assert!(matches!(err.unwrap_err(), ArtifactError::Validation(ValidationError::IncompatibleWorld(_))));
+    assert!(
+        matches!(&err, Err(ArtifactError::Validation(ValidationError::IncompatibleWorld(_)))),
+        "unexpected compatibility error: {err:?}"
+    );
 }
 
 #[test]
 fn duplicate_query_root_key_rejected() {
-    let query_image = QueryImageV1 {
+    let query_image = QueryImageV2 {
         supported_roots: vec![
-            QueryRootEntryV1 {
+            QueryRootEntryV2 {
                 key: PortableQueryKeyV1 {
                     kind: PortableQueryKindV1::LinkedInterface,
                     stable_owner_key: "core".into(),
                 },
+                product: QueryProductRefV2 {
+                    kind: PortableQueryKindV1::LinkedInterface,
+                    row_index: 0,
+                },
+                input_fingerprint: 0,
+                product_fingerprint: 0,
                 dependency_indices: vec![],
             },
-            QueryRootEntryV1 {
+            QueryRootEntryV2 {
                 key: PortableQueryKeyV1 {
                     kind: PortableQueryKindV1::LinkedInterface,
                     stable_owner_key: "core".into(),
                 },
+                product: QueryProductRefV2 {
+                    kind: PortableQueryKindV1::LinkedInterface,
+                    row_index: 0,
+                },
+                input_fingerprint: 0,
+                product_fingerprint: 0,
                 dependency_indices: vec![],
             },
         ],
@@ -352,12 +374,18 @@ fn duplicate_query_root_key_rejected() {
 
 #[test]
 fn out_of_bounds_query_dependency_rejected() {
-    let query_image = QueryImageV1 {
-        supported_roots: vec![QueryRootEntryV1 {
+    let query_image = QueryImageV2 {
+        supported_roots: vec![QueryRootEntryV2 {
             key: PortableQueryKeyV1 {
                 kind: PortableQueryKindV1::LinkedInterface,
                 stable_owner_key: "core".into(),
             },
+            product: QueryProductRefV2 {
+                kind: PortableQueryKindV1::LinkedInterface,
+                row_index: 0,
+            },
+            input_fingerprint: 0,
+            product_fingerprint: 0,
             dependency_indices: vec![42],
         }],
         dependency_evidence: vec![],
@@ -366,6 +394,49 @@ fn out_of_bounds_query_dependency_rejected() {
     let err = query_image.validate(&ValidationLimits::default());
     assert!(err.is_err());
     assert!(err.unwrap_err().to_string().contains("query dependency index 42 is out of bounds"));
+}
+
+#[test]
+fn query_product_reference_must_target_an_existing_module_row() {
+    let mut payload = sample_payload();
+    let module_path = payload.module_world.modules[0].path.join(".");
+    payload.query_image.supported_roots = vec![QueryRootEntryV2 {
+        key: PortableQueryKeyV1 {
+            kind: PortableQueryKindV1::LinkedInterface,
+            stable_owner_key: module_path,
+        },
+        product: QueryProductRefV2 {
+            kind: PortableQueryKindV1::LinkedInterface,
+            row_index: 1,
+        },
+        input_fingerprint: 1,
+        product_fingerprint: 2,
+        dependency_indices: vec![],
+    }];
+
+    let err = payload.validate_cross_section(&ValidationLimits::default()).unwrap_err();
+    assert!(err.to_string().contains("query product row 1 is out of bounds"));
+}
+
+#[test]
+fn static_query_product_reference_must_target_its_semantic_world_table() {
+    let mut payload = sample_payload();
+    payload.query_image.supported_roots = vec![QueryRootEntryV2 {
+        key: PortableQueryKeyV1 {
+            kind: PortableQueryKindV1::StaticDefinition,
+            stable_owner_key: "package:core::Static".into(),
+        },
+        product: QueryProductRefV2 {
+            kind: PortableQueryKindV1::StaticDefinition,
+            row_index: 0,
+        },
+        input_fingerprint: 1,
+        product_fingerprint: 2,
+        dependency_indices: vec![],
+    }];
+
+    let err = payload.validate_cross_section(&ValidationLimits::default()).unwrap_err();
+    assert!(err.to_string().contains("query product row 0 is out of bounds"));
 }
 
 #[test]
@@ -384,6 +455,6 @@ fn cumulative_budget_exhaustion_and_retry_accounting() {
     // Retry with sufficient budget: succeeds
     let mut sufficient_budget = AllocationBudget::new(32 * 1024 * 1024);
     let restored = CompilerArtifactPayload::decode_and_validate(&encoded, &limits, None, &mut sufficient_budget);
-    assert!(restored.is_ok());
+    assert!(matches!(&restored, Ok(_)), "unexpected retry error: {restored:?}");
     assert!(sufficient_budget.requested() > 0);
 }
