@@ -29,6 +29,7 @@ use crate::types::store::{StaticArgument, TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
 use phalcom_ast::ast::{BehaviorMember, ImplDef, ImplMember, TypeAnnotationExpr};
 use phalcom_native_meta::UniverseKey;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
@@ -335,14 +336,36 @@ pub(crate) fn specialize_witness_signature(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CoveringImplSubstitution {
     /// Mapping: impl-owned TypeParameterId -> declaration-owned TypeParameterId
-    pub impl_to_decl: HashMap<TypeParameterId, TypeParameterId>,
+    pub impl_to_decl: crate::ordered_map::OrderedMap<TypeParameterId, TypeParameterId>,
     /// Inverse: declaration-owned TypeParameterId -> impl-owned TypeParameterId
-    pub decl_to_impl: HashMap<TypeParameterId, TypeParameterId>,
+    pub decl_to_impl: crate::ordered_map::OrderedMap<TypeParameterId, TypeParameterId>,
 }
 
 impl CoveringImplSubstitution {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        fn clone_map(
+            map: &crate::ordered_map::OrderedMap<TypeParameterId, TypeParameterId>,
+            allocations: &mut AllocationBudget,
+        ) -> Result<crate::ordered_map::OrderedMap<TypeParameterId, TypeParameterId>, AllocationError> {
+            let mut entries = allocations.vector(map.len())?;
+            entries.extend(map.iter().map(|(key, value)| (*key, *value)));
+            crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(entries, allocations).map_err(|error| match error {
+                crate::ordered_map::FrozenOrderedMapError::Allocation(error) => error,
+                crate::ordered_map::FrozenOrderedMapError::DuplicateKey => AllocationError::Failed,
+            })
+        }
+
+        Ok(Self {
+            impl_to_decl: clone_map(&self.impl_to_decl, allocations)?,
+            decl_to_impl: clone_map(&self.decl_to_impl, allocations)?,
+        })
+    }
+
     pub fn new(impl_to_decl: HashMap<TypeParameterId, TypeParameterId>, decl_to_impl: HashMap<TypeParameterId, TypeParameterId>) -> Self {
-        Self { impl_to_decl, decl_to_impl }
+        Self {
+            impl_to_decl: impl_to_decl.into_iter().collect::<BTreeMap<_, _>>().into(),
+            decl_to_impl: decl_to_impl.into_iter().collect::<BTreeMap<_, _>>().into(),
+        }
     }
 
     /// Converts the `impl_to_decl` map into a `TypeSubstitution` replacing impl parameter types with declaration parameter types.
