@@ -12,8 +12,12 @@ use phalcom_compiler_artifact::query::{
 };
 use phalcom_compiler_artifact::semantic::aggregates::{DataInfoV1, DataShapeV1, EnumInfoV1, StructuralPrimaryContractsV1, VisibilityV1};
 use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
-use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeGraphV1, TypeV1};
-use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
+use phalcom_compiler_artifact::semantic::type_store::{
+    ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeGraphV1, TypeMemberSelectorV1, TypeV1,
+};
+use phalcom_compiler_artifact::semantic::world::{
+    AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1, SemanticWorldV3,
+};
 use phalcom_semantic::artifact::{
     CompilerArtifactImage, decode_and_validate_artifact, encode_artifact, import_compiler_image, import_compiler_image_bytes_with_project_catalog,
 };
@@ -456,6 +460,18 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         constructor_result_type: ArtifactTypeId(1),
         shape_contributions: vec![],
     });
+    image.semantic_world.associated_surfaces.push(AssociatedSurfaceRecordV1 {
+        owner: stable_owner.clone(),
+        families: vec![AssociatedFamilyRecordV1 {
+            selector: TypeMemberSelectorV1::Named {
+                name: "Construct".to_string(),
+            },
+            kind: AssociatedFamilyKindV1::DataConstructor,
+            members: vec![AssociatedMemberV1::DataConstructor {
+                owner: stable_owner.clone(),
+            }],
+        }],
+    });
     image.semantic_world.structural_contracts.enum_contracts.push(EnumInfoV1 {
         owner: stable_enum_owner.clone(),
         root_form: ArtifactTypeId(2),
@@ -539,6 +555,19 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         product_fingerprint: 0,
         dependency_indices: vec![],
     });
+    image.query_image.supported_roots.push(QueryRootEntryV3 {
+        key: PortableQueryKeyV1 {
+            kind: PortableQueryKindV1::AssociatedSurface,
+            owner: PortableQueryOwnerKeyV1::Declaration(stable_owner.clone()),
+        },
+        product: QueryProductRefV2 {
+            kind: PortableQueryKindV1::AssociatedSurface,
+            row_index: 0,
+        },
+        input_fingerprint: 0,
+        product_fingerprint: 0,
+        dependency_indices: vec![],
+    });
     image.query_image.dependency_evidence.push(DependencyEvidenceEntryV3 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::DataDeclaration,
@@ -567,8 +596,8 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
     let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("import fingerprinted structural product");
     assert_eq!(
         imported.query_products.len(),
-        2,
-        "DataDeclaration and EnumDeclaration must be staged as typed reusable products"
+        3,
+        "DataDeclaration, EnumDeclaration, and AssociatedSurface must be staged as typed reusable products"
     );
     assert_eq!(
         imported.query_products.validated_evidence_len(),
@@ -601,6 +630,18 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         db.ready_product_fingerprint(&enum_query_key).map(|fingerprint| fingerprint.raw()),
         Some(enum_product_fingerprint),
         "published enum state must use the verified current-main product fingerprint"
+    );
+    let associated_query_key = phalcom_semantic::db::QueryKey::AssociatedSurface(owner.clone());
+    let associated = db
+        .product(&associated_query_key)
+        .and_then(|product| product.as_associated_surface())
+        .expect("typed AssociatedSurface product must be Ready");
+    assert_eq!(associated.owner, owner);
+    assert!(
+        associated
+            .families
+            .contains_key(&phalcom_common::selector::SelectorBase::Named("Construct".to_string())),
+        "reconstructed associated namespace must retain the data constructor family"
     );
     assert!(
         imported.publish_query_products_into_empty_db(&mut db).is_err(),
