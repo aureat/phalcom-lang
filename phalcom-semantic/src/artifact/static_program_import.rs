@@ -10,8 +10,8 @@ use super::static_import::ImportedStaticValueGraph;
 use super::type_import::ReconstructedTypeGraph;
 use crate::checker::analysis::SemanticDependency;
 use crate::db::{InputFingerprint, ProductFingerprint};
-use crate::identity::{DataConstructorId, DeclarationId, StaticBodyId, VariantId};
-use crate::static_definition::{StaticApplicationId, StaticDefinitionSignature, StaticParameter};
+use crate::identity::{DataConstructorId, DeclarationId, VariantId};
+use crate::static_definition::{StaticApplicationId, StaticBodyId, StaticDefinitionSignature, StaticParameter};
 use crate::static_domain::StaticValueDomain;
 use crate::static_value::StaticValueRef;
 use crate::types::id::{TypeId, TypeParameterId};
@@ -676,18 +676,17 @@ fn boxed_op(
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<Box<ImportedOperationalNode>, ArtifactError> {
-    allocations
-        .boxed(reconstruct_op(
-            op,
-            static_values,
-            types,
-            owners,
-            program,
-            depth,
-            limits,
-            allocations,
-        )?)
-        .map_err(ArtifactError::Allocation)
+    let node = reconstruct_op(
+        op,
+        static_values,
+        types,
+        owners,
+        program,
+        depth,
+        limits,
+        allocations,
+    )?;
+    allocations.boxed(node).map_err(ArtifactError::Allocation)
 }
 
 fn op_slice(
