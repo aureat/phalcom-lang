@@ -935,7 +935,13 @@ impl<'vm> Compiler<'vm> {
             Statement::Data(data_def) => {
                 if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
                     // TypeOnly declarations have no runtime inhabitants and are not compiled to runtime bytecode
-                } else if data_def.implementation == phalcom_common::modifier::ImplementationKind::Intrinsic {
+                } else if data_def.implementation == phalcom_common::modifier::ImplementationKind::Intrinsic
+                    && self.lowering().is_some_and(|lowering| {
+                        let module = self.vm.heap.module(self.module).id.clone();
+                        let declaration = phalcom_modules::DeclarationId::new(module, data_def.name.clone().into_boxed_str());
+                        lowering.intrinsic_runtime_facades.iter().any(|facade| facade.declaration == declaration)
+                    })
+                {
                     self.compile_intrinsic_runtime_data(&data_def)?;
                 } else if data_def.is_sum() {
                     self.compile_enum(&data_def)?;

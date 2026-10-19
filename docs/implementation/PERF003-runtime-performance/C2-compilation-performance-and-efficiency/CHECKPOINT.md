@@ -11,7 +11,9 @@ latest_completed_plan: PERF003.C2.P7.PATCH5-R
 next_plan: PERF003.C2.P8
 next_action: >
   P7 is COMPLETE. R.G1–R.G7 PASS.
-  P8 (executable VM bootstrap) is ready for takeover.
+  P8 (executable VM bootstrap) is ready for takeover. The P7 ProductKind
+  bootstrap blocker is resolved; the SlotMap runtime command still stops at a
+  separate `_keys` source-compilation error.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
 execution_tree_head: fb49f61c
 latest_tested_revision: fb49f61c
@@ -52,7 +54,8 @@ P7 is **COMPLETE**. Verification status: **FOCUSED_TESTED**.
 
 5. **Operational End-to-End Validation (Task E / Gate E):**
    - Verified structural product parity for real packages: `packages/slotmap` (4 modules) and `packages/slotmap/tests/runtime` (8 modules).
-   - Added `artifact_backed_slotmap_runtime_tests_execute`, explicitly isolating and documenting the pre-existing Class D runtime VM bootstrap defect (`ProductKind` has no canonical facade binding in `reflection.structural`).
+   - Follow-up correction routes only semantic runtime facades (`Tuple`, `Record`, and `Pack`) through native binding; other intrinsic runtime declarations use formal enum/data lowering and remain source-owned in the native source census.
+   - `artifact_backed_slotmap_runtime_tests_bootstrap_vm_with_generic_intrinsic_adts` now verifies artifact compilation and successful VM bootstrap. The requested runtime command proceeds beyond `ProductKind` but still stops at a separate SlotMap `_keys` field-access error; full SlotMap execution is not certified.
 
 6. **Performance Characterization (Task F / Gate F / R.G6):**
    - Generated release audit harness with RFC 4180 CSV escaping, BLAKE3-256 digest terminology, and separated boundary timings.
@@ -62,7 +65,7 @@ P7 is **COMPLETE**. Verification status: **FOCUSED_TESTED**.
 
 7. **Acceptance Matrix & P8 Readiness (Task G / Gate G / R.G7):**
    - Full regression battery verified: format check, compiler workspace check, container/serialization tests, semantic artifact tests, comparator negative tests, exact allocation regression, and linker tests.
-   - P8 (executable VM bootstrap) unblocked for takeover.
+   - P8 (executable VM bootstrap) unblocked for takeover. P7's ProductKind dispatch issue is resolved; the separate SlotMap runtime fixture failure remains outside the completed R.G7 evidence.
 
 ## PATCH5-R R.T5 closure hardening and R.G5 certification — 2026-10-18
 

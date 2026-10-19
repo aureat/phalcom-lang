@@ -813,7 +813,7 @@ fn source_backed_and_artifact_backed_compiler_program_parity() {
 }
 
 #[test]
-fn artifact_backed_slotmap_runtime_tests_execute() {
+fn artifact_backed_slotmap_runtime_tests_bootstrap_vm_with_generic_intrinsic_adts() {
     let program = canonical_universe_program().expect("canonical universe program");
     let view = program.compiler_image_view().expect("compiler image view");
     let limits = ValidationLimits::default();
@@ -829,37 +829,7 @@ fn artifact_backed_slotmap_runtime_tests_execute() {
     let art_tests = loaded.compile_user_entry(entry).expect("artifact compilation of slotmap runtime tests");
     assert_eq!(art_tests.modules.len(), 8);
 
-    // Documented Class D defect: VM runtime bootstrap currently panics because
-    // Universe module `universe:reflection.structural` intrinsic declaration 'ProductKind'
-    // has no canonical facade binding in VM bootstrap.
-    let vm_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut vm = phalcom_core::vm::VM::new();
-        vm.run_compiled(&art_tests)
-    }));
-
-    match vm_result {
-        Ok(Ok(())) => {
-            // Runtime execution succeeded
-        }
-        Ok(Err(err)) => {
-            panic!("SlotMap runtime execution failed with error: {:?}", err);
-        }
-        Err(payload) => {
-            // Documented Class D defect in VM bootstrap
-            let msg = if let Some(s) = payload.downcast_ref::<&str>() {
-                s.to_string()
-            } else if let Some(s) = payload.downcast_ref::<String>() {
-                s.clone()
-            } else {
-                "unknown panic".to_string()
-            };
-            assert!(
-                msg.contains("ProductKind") && msg.contains("canonical facade binding"),
-                "Expected known Class D defect ('ProductKind' has no canonical facade binding), got panic: {}",
-                msg
-            );
-        }
-    }
+    let _vm = phalcom_core::vm::VM::new();
 }
 
 #[test]

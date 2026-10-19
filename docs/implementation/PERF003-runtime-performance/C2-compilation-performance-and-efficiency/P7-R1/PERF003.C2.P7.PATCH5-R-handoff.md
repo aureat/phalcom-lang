@@ -49,11 +49,10 @@ verification: FOCUSED_TESTED
 
 ## Known baseline and deferred defects
 
-- **Class D runtime defect:**
-  `ProductKind` in `universe:reflection.structural` does not have a canonical facade binding in VM bootstrap (`failed to compile Universe module universe:reflection.structural: runtime intrinsic declaration 'ProductKind' has no canonical facade binding`).
-  - This is a pre-existing VM runtime defect that does not affect static compilation or compiler product generation.
-  - Isolated via `std::panic::catch_unwind` in `artifact_backed_slotmap_runtime_tests_execute`.
-  - P8 inherits this as an active VM-level prerequisite.
+- **Resolved: source-owned intrinsic runtime ADTs:**
+  `ProductKind` and similar declarations in `universe:reflection.structural` have generic semantic enum/data lowering and no `IntrinsicRuntimeOwner`. Compiler dispatch now uses the facade path only when semantic lowering contains a matching facade; the native source index keeps the remaining declarations source-owned. The artifact-backed bootstrap regression verifies that `VM::new()` succeeds after compiling the SlotMap runtime package.
+- **Deferred: SlotMap runtime fixture execution:**
+  `RUSTFLAGS='' cargo run -p phalcom-core --bin phalcom -- packages/slotmap/tests/runtime` now proceeds beyond Universe bootstrap, then fails with `Fields can only be accessed within a class: _keys`. This is a separate SlotMap source/compiler issue and was not changed in the intrinsic-dispatch correction. Full SlotMap runtime execution remains unverified.
 
 ## Recommended verification commands for takeover
 
