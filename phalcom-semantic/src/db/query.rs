@@ -4098,7 +4098,7 @@ mod exact_module_fact_tests {
         };
         LinkedProgram {
             universe: Arc::new(ProjectUniverse::new()),
-            modules: BTreeMap::from([(module_id.clone(), linked_module)]),
+            modules: phalcom_modules::authority::ModuleAuthorityMap::from_source(BTreeMap::from([(module_id.clone(), linked_module)])),
             graphs: Default::default(),
             entry: module_id.clone(),
             initialization_order: vec![module_id],

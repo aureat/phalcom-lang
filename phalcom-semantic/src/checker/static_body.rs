@@ -1129,7 +1129,7 @@ mod tests {
         trait_surfaces.insert(Arc::new(surface));
         let trait_dispatch = crate::trait_dispatch::TraitDispatchIndex::default();
         let conformance_index = crate::impls::ConformanceIndex::new();
-        let witness_plans = BTreeMap::new();
+        let witness_plans = crate::parent_map::ParentMap::default();
         let derived_conformance_rules = crate::derived_conformance::DerivedConformanceRuleIndex::new();
         let conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
             trait_dispatch: &trait_dispatch,
@@ -1150,7 +1150,8 @@ mod tests {
         let analysis =
             crate::checker::analysis::ExpressionAnalysis::ready(expression, SourceRange::default(), TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
                 .with_denotation(Some(crate::types::denotation::SemanticDenotation::TypeForm(projection)));
-        let expressions = BTreeMap::from([(expression, analysis)]);
+        let mut expressions = crate::checker::analysis::ExpressionAnalysisIndex::default();
+        expressions.insert_source(expression, analysis).unwrap();
 
         let projections = checked_member_projection_index(&context, &expressions);
         let checked = projections.get(&expression).expect("canonical structural projection site");

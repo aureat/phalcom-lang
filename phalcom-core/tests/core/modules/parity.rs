@@ -6,11 +6,9 @@ use phalcom_core::modules::{ProgramCompileError, RuntimeLinkedRead};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use phalcom_modules::authority::ModuleAuthorityMap;
-use phalcom_modules::identity::SyntheticProjectId;
-use phalcom_modules::{LinkedExportTarget, ModulePath, SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
+use phalcom_modules::{LinkedExportTarget, SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
 use phalcom_semantic::SemanticWorkspaceSession;
 use phalcom_semantic::identity::SemanticTargetId;
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -542,6 +540,21 @@ fn compile_sample_parity_program() -> (TempDir, phalcom_core::modules::compile::
     (temp, program)
 }
 
+fn compile_parity_program_variant(
+    main_source: &str,
+    extra_modules: &[(&str, &str)],
+) -> (TempDir, phalcom_core::modules::compile::CompiledProgram) {
+    let temp = TempDir::new().unwrap();
+    write_parity_package(temp.path());
+    fs::write(temp.path().join("main.ph"), main_source).unwrap();
+    for (name, source) in extra_modules {
+        fs::write(temp.path().join(name), source).unwrap();
+    }
+    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(EntrySelection::Package(temp.path().to_path_buf()))
+        .expect("parity package variant must compile");
+    (temp, program)
+}
+
 #[test]
 fn comparator_accepts_equivalent_programs() {
     let (_temp, program) = compile_sample_parity_program();
@@ -552,11 +565,7 @@ fn comparator_accepts_equivalent_programs() {
 #[test]
 fn comparator_detects_missing_linked_module() {
     let (_temp, src) = compile_sample_parity_program();
-    let mut art = src.clone();
-    let mut map: BTreeMap<_, _> = art.linked.modules.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-    let first_key = map.keys().next().unwrap().clone();
-    map.remove(&first_key);
-    Arc::make_mut(&mut art.linked).modules = ModuleAuthorityMap::from_source(map);
+    let (_variant_temp, art) = compile_parity_program_variant("from .constants import version\n", &[]);
 
     let report = compare_compiled_programs(&src, &art);
     assert!(!report.is_empty());
@@ -573,12 +582,10 @@ fn comparator_detects_missing_linked_module() {
 #[test]
 fn comparator_detects_additional_linked_module() {
     let (_temp, src) = compile_sample_parity_program();
-    let mut art = src.clone();
-    let mut map: BTreeMap<_, _> = art.linked.modules.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-    let synthetic_extra_id = phalcom_modules::ModuleId::synthetic(SyntheticProjectId::from_raw(999), ModulePath::root());
-    let sample_lm = map.values().next().unwrap().clone();
-    map.insert(synthetic_extra_id, sample_lm);
-    Arc::make_mut(&mut art.linked).modules = ModuleAuthorityMap::from_source(map);
+    let (_variant_temp, art) = compile_parity_program_variant(
+        "import .either as EitherModule\nfrom .constants import version\nimport .extra as Extra\n",
+        &[("extra.ph", "class Extra {}\nexport Extra\n")],
+    );
 
     let report = compare_compiled_programs(&src, &art);
     assert!(!report.is_empty());
@@ -647,11 +654,10 @@ fn comparator_detects_changed_initialization_order() {
 #[test]
 fn comparator_detects_changed_graph_edges() {
     let (_temp, src) = compile_sample_parity_program();
-    let mut art = src.clone();
-    let mut graphs = art.linked.graphs.clone();
-    let extra_id = phalcom_modules::ModuleId::synthetic(SyntheticProjectId::from_raw(999), ModulePath::root());
-    graphs.references.add_node(extra_id);
-    Arc::make_mut(&mut art.linked).graphs = graphs;
+    let (_variant_temp, art) = compile_parity_program_variant(
+        "import .either as EitherModule\nfrom .constants import version\nimport .extra as Extra\n",
+        &[("extra.ph", "class Extra {}\nexport Extra\n")],
+    );
 
     let report = compare_compiled_programs(&src, &art);
     assert!(!report.is_empty());

@@ -17,10 +17,12 @@ use phalcom_compiler_artifact::query::{
     QueryImageV2, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
 };
 use phalcom_compiler_artifact::section::{SectionFlags, SectionKind};
-use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
+use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV2;
 use phalcom_compiler_artifact::semantic::static_value::StaticValueGraphV1;
 use phalcom_compiler_artifact::semantic::type_store::TypeGraphV1;
-use phalcom_compiler_artifact::semantic::world::{SEMANTIC_WORLD_SCHEMA_V4, SemanticWorldV3};
+use phalcom_compiler_artifact::semantic::world::{
+    ModuleExecutionAuthorityV1, ModuleImportPhaseProductV1, PhaseEvidenceCoverageV1, SEMANTIC_WORLD_SCHEMA_V4, SemanticWorldV4,
+};
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
@@ -156,7 +158,7 @@ fn sample_payload() -> CompilerArtifactPayload {
     };
     module_world.refresh_portable_topology_fingerprint().unwrap();
 
-    let semantic_world = SemanticWorldV3 {
+    let semantic_world = SemanticWorldV4 {
         type_graph: TypeGraphV1 {
             types: vec![],
             kinds: vec![],
@@ -171,9 +173,12 @@ fn sample_payload() -> CompilerArtifactPayload {
             lambdas: vec![],
             variance_overrides: vec![],
         },
-        structural_contracts: StructuralPrimaryContractsV1 {
+        structural_contracts: StructuralPrimaryContractsV2 {
             declaration_shells: vec![],
-            hierarchy_and_aliases: vec![],
+            intrinsic_static_domains: vec![],
+            intrinsic_type_owners: vec![],
+            hierarchy_edges: vec![],
+            type_aliases: vec![],
             generic_signatures: vec![],
             data_contracts: vec![],
             enum_contracts: vec![],
@@ -210,6 +215,19 @@ fn sample_payload() -> CompilerArtifactPayload {
         static_case_catalogs: vec![],
         static_case_signatures: vec![],
         associated_surfaces: vec![],
+        module_execution_authority: ModuleExecutionAuthorityV1 {
+            import_phase_products: vec![
+                ModuleImportPhaseProductV1 {
+                    module: StableModuleRef {
+                        project: universe_project(),
+                        path: Box::new([]),
+                    },
+                    bindings: vec![],
+                    coverage: PhaseEvidenceCoverageV1::Full,
+                },
+            ],
+            runtime_requirements: vec![],
+        },
     };
 
     let query_image = QueryImageV3 {
@@ -220,7 +238,7 @@ fn sample_payload() -> CompilerArtifactPayload {
     CompilerArtifactPayload {
         header,
         module_world,
-        semantic_world: semantic_world.into(),
+        semantic_world,
         query_image,
         metadata: sample_metadata(&pkg_id),
     }

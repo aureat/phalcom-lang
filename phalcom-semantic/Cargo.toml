@@ -40,6 +40,14 @@ path = "tests/semantic.rs"
 name = "session-indexer-match"
 path = "tests/session_indexer_match.rs"
 
+[[test]]
+name = "semantic-product-request"
+path = "tests/semantic_product_request.rs"
+
+[[test]]
+name = "module-static-binding-fingerprint"
+path = "tests/module_static_binding_fingerprint.rs"
+
 # Keep the test-only global allocator isolated from the parallel semantic suite.
 [[test]]
 name = "artifact-allocation"

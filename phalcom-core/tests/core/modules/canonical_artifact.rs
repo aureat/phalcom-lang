@@ -981,7 +981,10 @@ fn foreign_native_catalog_fingerprint_is_rejected_before_section_materialization
     use phalcom_compiler_artifact::{
         ArtifactDigest,
         container::TeloscContainerBuilder,
-        header::{TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities, TeloscHeaderV2},
+        header::{
+            MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V3, STABLE_IDENTITY_SCHEMA_V1,
+            TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities, TeloscHeaderV2,
+        },
         identity::TeloscPackageIdentity,
         section::{SectionFlags, SectionKind},
     };
@@ -993,10 +996,10 @@ fn foreign_native_catalog_fingerprint_is_rejected_before_section_materialization
         minimum_reader_schema: TELOSC_MIN_READER_SCHEMA_V2,
         package_identity: TeloscPackageIdentity::universe(),
         semantic_model_version: phalcom_type_meta::SEMANTIC_MODEL_VERSION,
-        stable_identity_schema: 1,
-        module_semantic_abi: 1,
-        semantic_artifact_abi: 1,
-        query_fingerprint_abi: 1,
+        stable_identity_schema: STABLE_IDENTITY_SCHEMA_V1,
+        module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
+        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V3,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
         native_surface_schema_version: phalcom_native_meta::NATIVE_SURFACE_SCHEMA_VERSION,
         native_catalog_fingerprint: foreign_catalog,
         type_metadata_schema_version: phalcom_type_meta::TYPE_METADATA_SCHEMA_VERSION,

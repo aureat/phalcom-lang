@@ -174,6 +174,56 @@ impl PreludeTypeMap {
                 ),
             ),
             (
+                "InvalidIntervalError",
+                DeclarationId::new(
+                    ModuleId::universe(ModulePath::from_components(vec![
+                        ModuleComponent::from_identifier("errors").expect("canonical Universe component"),
+                        ModuleComponent::from_identifier("argument").expect("canonical Universe component"),
+                    ])),
+                    "InvalidIntervalError".into(),
+                ),
+            ),
+            (
+                "RangeOverlapError",
+                DeclarationId::new(
+                    ModuleId::universe(ModulePath::from_components(vec![
+                        ModuleComponent::from_identifier("errors").expect("canonical Universe component"),
+                        ModuleComponent::from_identifier("argument").expect("canonical Universe component"),
+                    ])),
+                    "RangeOverlapError".into(),
+                ),
+            ),
+            (
+                "Bound",
+                DeclarationId::new(
+                    ModuleId::universe(ModulePath::from_components(vec![
+                        ModuleComponent::from_identifier("collections").expect("canonical Universe component"),
+                        ModuleComponent::from_identifier("interval").expect("canonical Universe component"),
+                    ])),
+                    "Bound".into(),
+                ),
+            ),
+            (
+                "Interval",
+                DeclarationId::new(
+                    ModuleId::universe(ModulePath::from_components(vec![
+                        ModuleComponent::from_identifier("collections").expect("canonical Universe component"),
+                        ModuleComponent::from_identifier("interval").expect("canonical Universe component"),
+                    ])),
+                    "Interval".into(),
+                ),
+            ),
+            (
+                "RangeMap",
+                DeclarationId::new(
+                    ModuleId::universe(ModulePath::from_components(vec![
+                        ModuleComponent::from_identifier("collections").expect("canonical Universe component"),
+                        ModuleComponent::from_identifier("range_map").expect("canonical Universe component"),
+                    ])),
+                    "RangeMap".into(),
+                ),
+            ),
+            (
                 "Equivalent",
                 DeclarationId::new(crate::core_surface::universe_module(&["core", "proof"]), "Equivalent".into()),
             ),
@@ -188,10 +238,13 @@ impl PreludeTypeMap {
         ];
 
         for (name, decl) in &exceptional_entries {
-            if !contains_decl(decl) {
+            let present = contains_decl(decl);
+            if !present && matches!(*name, "Unit" | "Duration" | "Timestamp" | "DuplicateKeyError" | "Equivalent" | "Subtype" | "Conforms") {
                 panic!("Mandatory prelude declaration {:?} ({:?}) not found in semantic authority", name, decl);
             }
-            entries.insert((*name).into(), decl.clone());
+            if present {
+                entries.insert((*name).into(), decl.clone());
+            }
         }
 
         Self { entries }
@@ -207,9 +260,33 @@ impl PreludeTypeMap {
         }));
         let existing = CANONICAL_UNIVERSE_PRELUDE.get_or_init(|| snapshot_prelude.clone());
         if existing.entries != snapshot_prelude.entries {
+            let missing_authority = existing
+                .entries
+                .iter()
+                .filter(|(name, _)| !snapshot_prelude.entries.contains_key(*name))
+                .map(|(name, declaration)| {
+                    let diagnostics = snapshot
+                        .diagnostics
+                        .get(&declaration.module)
+                        .into_iter()
+                        .flat_map(|diagnostics| diagnostics.iter())
+                        .filter(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error)
+                        .map(|diagnostic| format!("{}: {}", diagnostic.code.as_str(), diagnostic.message))
+                        .collect::<Vec<_>>();
+                    (
+                        name,
+                        declaration,
+                        snapshot.declarations.contains(declaration),
+                        snapshot.type_aliases.contains_key(declaration),
+                        snapshot.trait_headers.contains(declaration),
+                        snapshot.sources.contains_key(&declaration.module),
+                        diagnostics,
+                    )
+                })
+                .collect::<Vec<_>>();
             panic!(
                 "PreludeTypeMap: incompatible initialization — \
-                 entries_only_in_global={:?}, entries_only_in_snapshot={:?}",
+                 entries_only_in_global={:?}, entries_only_in_snapshot={:?}, missing_authority={:?}",
                 existing
                     .entries
                     .keys()
@@ -220,6 +297,7 @@ impl PreludeTypeMap {
                     .keys()
                     .filter(|k| !existing.entries.contains_key(*k))
                     .collect::<Vec<_>>(),
+                missing_authority,
             );
         }
     }

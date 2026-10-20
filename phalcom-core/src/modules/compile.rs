@@ -70,6 +70,72 @@ fn close_covering_body_bindings(
     Ok(closed)
 }
 
+fn static_argument_kind(
+    store: &phalcom_semantic::types::store::TypeStore,
+    argument: phalcom_semantic::types::store::StaticArgument,
+) -> phalcom_semantic::types::id::KindId {
+    use phalcom_semantic::types::{id::KindId, store::StaticArgument};
+
+    match argument {
+        StaticArgument::Term(ty) => store.kind_of(ty),
+        StaticArgument::RecordRow(_) => KindId::RECORD_ROW,
+        StaticArgument::DynamicType => KindId::TYPE,
+    }
+}
+
+fn validate_static_argument_kind(
+    store: &phalcom_semantic::types::store::TypeStore,
+    parameter: phalcom_semantic::types::id::TypeParameterId,
+    argument: phalcom_semantic::types::store::StaticArgument,
+    callable: &phalcom_semantic::identity::CallableId,
+) -> Result<phalcom_semantic::types::id::KindId, ProgramCompileError> {
+    let expected = store.type_parameter(parameter).kind;
+    let actual = static_argument_kind(store, argument);
+    if actual != expected {
+        return Err(ProgramCompileError::GenericEvidenceLayout(format!(
+            "runtime callable {callable:?} has static argument kind {actual:?} for parameter {parameter:?}, expected {expected:?}"
+        )));
+    }
+    Ok(expected)
+}
+
+fn runtime_type_root_for_static_argument(
+    store: &phalcom_semantic::types::store::TypeStore,
+    parameter: phalcom_semantic::types::id::TypeParameterId,
+    argument: phalcom_semantic::types::store::StaticArgument,
+    callable: &phalcom_semantic::identity::CallableId,
+) -> Result<Option<phalcom_semantic::types::id::TypeId>, ProgramCompileError> {
+    use phalcom_semantic::types::{id::KindId, store::StaticArgument};
+
+    let kind = validate_static_argument_kind(store, parameter, argument, callable)?;
+    if kind != KindId::TYPE {
+        return Ok(None);
+    }
+    match argument {
+        StaticArgument::Term(ty) => Ok(Some(ty)),
+        StaticArgument::DynamicType => Ok(None),
+        StaticArgument::RecordRow(_) => unreachable!("record-row kind was validated against a type parameter"),
+    }
+}
+
+fn bind_static_argument(
+    store: &phalcom_semantic::types::store::TypeStore,
+    instantiation: &mut phalcom_semantic::types::instantiation::GenericInstantiation,
+    parameter: phalcom_semantic::types::id::TypeParameterId,
+    argument: phalcom_semantic::types::store::StaticArgument,
+    callable: &phalcom_semantic::identity::CallableId,
+) -> Result<(), ProgramCompileError> {
+    use phalcom_semantic::types::store::StaticArgument;
+
+    validate_static_argument_kind(store, parameter, argument, callable)?;
+    match argument {
+        StaticArgument::Term(ty) => instantiation.bind_type(parameter, ty),
+        StaticArgument::RecordRow(row) => instantiation.bind_row(parameter, row),
+        StaticArgument::DynamicType => instantiation.bind_dynamic(parameter),
+    }
+    Ok(())
+}
+
 /// Collects canonical owners referenced by a runtime metadata type root.
 /// These are graph requirements rather than linked reads: metadata preserves
 /// declaration identity, while runtime values are projected by their own
@@ -1958,18 +2024,12 @@ impl ProgramCompiler {
                         .or_else(|| capability.map(|capability| &capability.selection.callable))
                         .expect("a specialization or conditional capability was checked above");
                     if let Some(specialization) = specialization {
-                        let type_bindings = specialization
-                            .bindings
-                            .iter()
-                            .map(|&(parameter, argument)| {
-                                argument.as_type_id().map(|ty| (parameter, ty)).ok_or_else(|| {
-                                    ProgramCompileError::GenericEvidenceLayout(format!(
-                                        "runtime callable {:?} has a non-type static argument for parameter {parameter:?}",
-                                        specialization.callable
-                                    ))
-                                })
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
+                        let mut type_bindings = Vec::new();
+                        for &(parameter, argument) in specialization.bindings.iter() {
+                            if let Some(ty) = runtime_type_root_for_static_argument(&analyzed.semantic.store, parameter, argument, &specialization.callable)? {
+                                type_bindings.push((parameter, ty));
+                            }
+                        }
                         for (parameter, ty) in close_covering_body_bindings(&analyzed.semantic, &specialization.callable, type_bindings.into_iter())? {
                             runtime_call_root_specs.push((
                                 id.clone(),
@@ -2525,13 +2585,13 @@ impl ProgramCompiler {
                 let mut callee_instantiation = phalcom_semantic::types::instantiation::GenericInstantiation::default();
                 if let Some(specialization) = specialization {
                     for &(parameter, argument) in specialization.bindings.iter() {
-                        let ty = argument.as_type_id().ok_or_else(|| {
-                            ProgramCompileError::GenericEvidenceLayout(format!(
-                                "runtime callable {:?} has a non-type static argument for parameter {parameter:?}",
-                                specialization.callable
-                            ))
-                        })?;
-                        callee_instantiation.bind_type(parameter, ty);
+                        bind_static_argument(
+                            &analyzed.semantic.store,
+                            &mut callee_instantiation,
+                            parameter,
+                            argument,
+                            &specialization.callable,
+                        )?;
                     }
                 }
                 if let Some(capability) = capability {

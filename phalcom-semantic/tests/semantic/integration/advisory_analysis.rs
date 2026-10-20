@@ -11,10 +11,11 @@ use phalcom_semantic::advisory::{AdvisoryAgreement, AdvisoryModuleProduct, Advis
 use phalcom_semantic::checker::BindingConsistency;
 use phalcom_semantic::checker::analysis::{AnalysisStatus, ExpressionAnalysis};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, SourceOwner, SourceSiteId, SourceSiteLocalId};
+use phalcom_semantic::request::SemanticProductRequest;
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
-use phalcom_semantic::{AdvisoryConfidence, AdvisoryFact, AdvisoryOrigin, FormalFactRef, FormalFactStatus, ModuleId, SemanticProductRequest, ValueShape};
+use phalcom_semantic::{AdvisoryConfidence, AdvisoryFact, AdvisoryOrigin, FormalFactRef, FormalFactStatus, ModuleId, ValueShape};
 
 fn module_id() -> ModuleId {
     ModuleId::resolved(
@@ -112,9 +113,9 @@ fn snapshot_publishes_formal_source_and_advisory_products_together() {
 fn runtime_minimal_skips_advisory_publication() {
     let module = module_id();
     let source = "class Box { value() -> Int { return 1 } }\nlet top = 1\n";
-    let mut session = SemanticWorkspaceSession::new();
+    let mut session = SemanticWorkspaceSession::new().with_product_request(SemanticProductRequest::runtime_minimal());
     let update = session
-        .update(input(module.clone(), source, 1).with_product_request(SemanticProductRequest::runtime_minimal()))
+        .update(input(module.clone(), source, 1))
         .expect("runtime-minimal semantic update should succeed");
 
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
@@ -136,22 +137,30 @@ fn runtime_minimal_skips_advisory_publication() {
 }
 
 #[test]
-fn product_request_changes_replace_presentation_coverage() {
+fn product_request_selects_presentation_and_source_semantic_coverage() {
     let module = module_id();
     let source = "class Box { value() -> Int { return 1 } }\n";
-    let mut session = SemanticWorkspaceSession::new();
+    let mut full_session = SemanticWorkspaceSession::new();
 
-    let full = session.update(input(module.clone(), source, 1)).expect("full semantic update should succeed");
+    let full = full_session
+        .update(input(module.clone(), source, 1))
+        .expect("full semantic update should succeed");
     assert!(full.snapshot.source_index().modules().any(|(module, _)| module.project.is_universe()));
+    assert!(!full.snapshot.presentation_sources.is_empty());
+    assert!(!full.snapshot.advisory().modules.is_empty());
 
-    let minimal = session
-        .update(input(module.clone(), source, 2).with_product_request(SemanticProductRequest::runtime_minimal()))
-        .expect("runtime-minimal semantic update should succeed");
+    let mut compiler_image_session = SemanticWorkspaceSession::new().with_product_request(SemanticProductRequest::canonical_compiler_image());
+    let minimal = compiler_image_session
+        .update(input(module.clone(), source, 2))
+        .expect("compiler-image semantic update should succeed");
     assert_eq!(minimal.snapshot.source_index().len(), 1);
     assert_eq!(minimal.snapshot.formal_projection().module_count(), 1);
-
-    let full_again = session.update(input(module, source, 3)).expect("restored full semantic update should succeed");
-    assert!(full_again.snapshot.source_index().modules().any(|(module, _)| module.project.is_universe()));
+    assert!(minimal.snapshot.presentation_sources.is_empty());
+    assert!(minimal.snapshot.advisory().modules.is_empty());
+    assert!(minimal.snapshot.advisory().callables.is_empty());
+    assert_eq!(minimal.stats.advisory_sources_recomputed, 0);
+    assert_eq!(minimal.stats.advisory_callables_recomputed, 0);
+    assert!(minimal.effects.advisory_changed.is_empty());
 }
 
 #[test]

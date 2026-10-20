@@ -8,7 +8,8 @@ use phalcom_compiler_artifact::semantic::world::{
     CallableExpressionRowV1, CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1, CallableFlowNodeV1,
     CallableFlowStateSummaryV1, CallableGenericCallConformanceBindingV1, CallableGenericCallConformanceSourceV1, CallableGenericConformanceProofRefV1,
     CallableInitializationStateV1, CallableTypeEnvironmentV1, ConstructorSuperInitializerV1, EvidenceOriginV1, EvidenceSetV1, EvidenceStatusV1,
-    GenericConformanceKeyV1, ReturnContractValidationV1, SemanticWorldV3, TypeKnowledgeV1,
+    GenericConformanceKeyV1, ModuleStaticBindingIndexV1, ModuleStaticBindingPhaseV1, ModuleStaticBindingRecordV1, ModuleStaticBindingVisibleNameV1,
+    ReturnContractValidationV1, SemanticWorldV3, StaticConstantSymbolV1, TypeKnowledgeV1,
 };
 use phalcom_type_meta::identity::{
     StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableImplRef, StableModuleRef, StableProjectRef,
@@ -684,6 +685,71 @@ fn callable_analysis_status_is_preserved_by_semantic_world_codec() {
             SpanV1 { start: 7, end: 9 }
         );
     }
+}
+
+#[test]
+fn module_static_bindings_accept_exact_module_value_source_authority() {
+    let module = owner_ref().module;
+    let symbol = StaticConstantSymbolV1 {
+        module: module.clone(),
+        name: "shared".into(),
+    };
+    let record = ModuleStaticBindingRecordV1 {
+        symbol: symbol.clone(),
+        source_body: callable(),
+        source_binding_ordinal: 0,
+        phase: ModuleStaticBindingPhaseV1::Runtime,
+        declaration_source: SpanV1 { start: 0, end: 8 },
+        initializer_source: None,
+    };
+    let mut current = world(CallableAnalysisStatusV1::Complete);
+    current.callable_analyses[0].bindings[0].authority = CallableBindingAuthorityV1::ModuleValue {
+        module: module.clone(),
+        name: "shared".into(),
+        import_binding: None,
+    };
+    current.module_static_bindings.push(ModuleStaticBindingIndexV1 {
+        module,
+        bindings: vec![record],
+        visible_names: vec![ModuleStaticBindingVisibleNameV1 {
+            name: "shared".into(),
+            symbol,
+        }],
+    });
+
+    current.validate(&Default::default()).expect("module binding must accept its exact same-module declaration authority");
+}
+
+#[test]
+fn module_static_bindings_reject_import_alias_authority() {
+    let module = owner_ref().module;
+    let symbol = StaticConstantSymbolV1 {
+        module: module.clone(),
+        name: "shared".into(),
+    };
+    let mut imported = world(CallableAnalysisStatusV1::Complete);
+    imported.callable_analyses[0].bindings[0].authority = CallableBindingAuthorityV1::ModuleValue {
+        module: module.clone(),
+        name: "shared".into(),
+        import_binding: Some(1),
+    };
+    imported.module_static_bindings.push(ModuleStaticBindingIndexV1 {
+        module,
+        bindings: vec![ModuleStaticBindingRecordV1 {
+            symbol: symbol.clone(),
+            source_body: callable(),
+            source_binding_ordinal: 0,
+            phase: ModuleStaticBindingPhaseV1::Runtime,
+            declaration_source: SpanV1 { start: 0, end: 8 },
+            initializer_source: None,
+        }],
+        visible_names: vec![ModuleStaticBindingVisibleNameV1 {
+            name: "shared".into(),
+            symbol,
+        }],
+    });
+
+    assert!(imported.validate(&Default::default()).is_err(), "an imported alias is not a declaration owned by this module");
 }
 
 fn explanation_node() -> phalcom_compiler_artifact::semantic::world::CallableExplanationNodeV1 {

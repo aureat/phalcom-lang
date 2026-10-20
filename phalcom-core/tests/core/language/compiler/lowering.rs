@@ -126,7 +126,7 @@ let result = value.isSome
     assert!(
         matches!(
             recipe.bindings.as_ref(),
-            [(_, phalcom_core::typing::RuntimeCallArgumentRecipe::Term(RuntimeTypeRecipe::Closed(_)))]
+            [(_, RuntimeTypeRecipe::Closed(_))]
         ),
         "concrete Option<Int>.isSome must lower Option.T as Closed(Int), got {recipe:?}"
     );
@@ -143,7 +143,7 @@ let result = value.isSome
     let runtime_recipe = runtime_chunk.executable_semantics.call_environment_recipe(recipe_index);
     assert!(matches!(
         runtime_recipe.bindings.as_ref(),
-        [(_, phalcom_core::typing::RuntimeCallArgumentRecipe::Term(RuntimeTypeRecipe::Closed(RuntimeTypeRef::Base { pool, .. })))] if *pool != MetadataPoolId(0)
+        [(_, RuntimeTypeRecipe::Closed(RuntimeTypeRef::Base { pool, .. }))] if *pool != MetadataPoolId(0)
     ));
     assert!(
         _vm.typing_registry.pool_count() > 1,
@@ -169,7 +169,7 @@ class Probe<T> {
     assert!(
         matches!(
             recipes[0].bindings.as_ref(),
-            [(_, phalcom_core::typing::RuntimeCallArgumentRecipe::Term(RuntimeTypeRecipe::Template(_)))]
+            [(_, RuntimeTypeRecipe::Template(_))]
         ),
         "generic Probe<T>.check must forward Probe.T as a template, got {:?}",
         recipes[0]

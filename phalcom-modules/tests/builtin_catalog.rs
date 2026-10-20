@@ -45,7 +45,7 @@ fn bcat_02_reflection_exposed_children_in_nodes() {
         }
     }
 
-    assert_eq!(exposed.len(), 22, "expected 22 expose declarations in reflection/package.ph");
+    assert_eq!(exposed.len(), 23, "expected 23 expose declarations in reflection/package.ph");
 
     for child in &exposed {
         let path = &["reflection", child.as_str()];
@@ -141,8 +141,11 @@ fn bcat_08_root_alias_does_not_create_synthetic_declaration() {
 
     let mut interfaces = BTreeMap::from([(root_id.clone(), root)]);
     for (name, owner) in &aliases {
-        let source = provider.load_interface(owner).expect("canonical source interface");
+        let mut source = provider.load_interface(owner).expect("canonical source interface");
         assert!(source.declarations.contains_key(*name), "{name} must be declared by {owner}");
+        // This fixture isolates root alias ownership. Dependencies of the
+        // canonical owner bodies are covered by component-linking tests.
+        source.imports.clear();
         interfaces.insert(owner.clone(), source);
     }
 

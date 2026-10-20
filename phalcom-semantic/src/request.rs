@@ -38,6 +38,9 @@ pub struct SemanticProductRequest {
     pub presentation: PresentationLevel,
     /// Requested advisory-analysis coverage.
     pub advisory: AdvisoryLevel,
+    /// Whether checked static bodies must also publish their canonical
+    /// operational programs for source-independent compiler images.
+    pub canonical_static_programs: bool,
 }
 
 impl SemanticProductRequest {
@@ -47,6 +50,7 @@ impl SemanticProductRequest {
             source_semantics: SourceSemanticLevel::CompilerRequired,
             presentation: PresentationLevel::None,
             advisory: AdvisoryLevel::None,
+            canonical_static_programs: false,
         }
     }
 
@@ -56,18 +60,21 @@ impl SemanticProductRequest {
             source_semantics: SourceSemanticLevel::Full,
             presentation: PresentationLevel::Full,
             advisory: AdvisoryLevel::Full,
+            canonical_static_programs: false,
         }
     }
 
     /// Explicit canonical compiler-image product request.
     ///
     /// Excludes editor-only presentation text and advisory dataflow while
-    /// publishing all compiler-required formal and source semantic products.
+    /// publishing all compiler-required formal and source semantic products,
+    /// including source-independent static programs.
     pub const fn canonical_compiler_image() -> Self {
         Self {
             source_semantics: SourceSemanticLevel::CompilerRequired,
             presentation: PresentationLevel::None,
             advisory: AdvisoryLevel::None,
+            canonical_static_programs: true,
         }
     }
 }
@@ -98,6 +105,7 @@ mod tests {
         assert_eq!(minimal.source_semantics, SourceSemanticLevel::CompilerRequired);
         assert_eq!(minimal.presentation, PresentationLevel::None);
         assert_eq!(minimal.advisory, AdvisoryLevel::None);
+        assert!(!minimal.canonical_static_programs);
     }
 
     #[test]
@@ -106,8 +114,10 @@ mod tests {
         assert_eq!(canonical.source_semantics, SourceSemanticLevel::CompilerRequired);
         assert_eq!(canonical.presentation, PresentationLevel::None);
         assert_eq!(canonical.advisory, AdvisoryLevel::None);
+        assert!(canonical.canonical_static_programs);
         assert_ne!(canonical, SemanticProductRequest::default());
         assert_ne!(canonical, SemanticProductRequest::full());
+        assert_ne!(canonical, SemanticProductRequest::runtime_minimal());
     }
 
     #[test]

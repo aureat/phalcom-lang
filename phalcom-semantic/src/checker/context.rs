@@ -1123,6 +1123,7 @@ impl<'a> CheckingContext<'a> {
     pub(crate) fn seed_symbolic_module_import_values(
         &mut self,
         semantic_module: &phalcom_modules::linker::SemanticLinkedModule,
+        linked_module: &phalcom_modules::linker::LinkedModule,
         bindings: &crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
     ) {
         for import_binding in semantic_module.imports.bindings.values() {
@@ -1133,12 +1134,24 @@ impl<'a> CheckingContext<'a> {
                 continue;
             };
             let local_name = import_binding.local_name.to_string();
+            let import_id = linked_module
+                .bindings
+                .imports
+                .get(local_name.as_str())
+                .copied()
+                .expect("symbolic imported binding must have a linked import slot");
+            assert!(matches!(
+                linked_module.linked_reads.get(import_id.0 as usize),
+                Some(phalcom_modules::linker::LinkedReadSpec::Binding(linked_symbol)) if linked_symbol == symbol
+            ), "symbolic imported binding slot must resolve to the same canonical symbol");
             self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::LinkedName(
                 self.current_module.clone(),
                 local_name.clone(),
             ));
             self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
-            if let BindingDeclarationResult::Inserted(binding_id) = self.declare_checked_binding(local_name, &fact.state, fact.phase) {
+            if let BindingDeclarationResult::Inserted(binding_id) =
+                self.declare_module_value_binding(local_name, &fact.state, fact.phase, symbol.clone(), Some(import_id))
+            {
                 self.imported_source_bindings.insert(binding_id, import_binding.id.clone());
             }
         }

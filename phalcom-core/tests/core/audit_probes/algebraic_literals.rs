@@ -511,7 +511,7 @@ let exact = projected === expected
     assert!(
         recipe.bindings.iter().any(|(_, ty)| matches!(
             ty,
-            phalcom_core::typing::RuntimeCallArgumentRecipe::Term(phalcom_core::typing::RuntimeTypeRecipe::Template(_))
+            phalcom_core::typing::RuntimeTypeRecipe::Template(_)
         )),
         "nested call must receive an impl-relative template type argument",
     );

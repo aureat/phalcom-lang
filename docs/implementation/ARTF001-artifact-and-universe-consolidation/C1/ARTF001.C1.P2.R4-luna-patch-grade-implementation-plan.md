@@ -1034,6 +1034,10 @@ This task closes the semantic-authority concerns that R3 split across T1–T5 un
 
 Run the strongest existing P7-style lifecycle test, adapted to current names/APIs.
 
+Before building the canonical image, propagate `SemanticProductRequest::canonical_compiler_image()` into semantic session publication. The session must honor the request at the owning generation paths before optional products are computed, while existing/default session callers continue to publish full tooling products. Compiler-image publication retains all compiler-required formal and source semantic products and omits presentation-only and advisory products. Do not compute those products and strip them afterward, weaken publication validation, or change the request to `Full`.
+
+Focused discriminator: publish the same suitable semantic input through a default/full session and a compiler-image-configured session. Confirm the full session retains advisory and presentation products, while the compiler-image session retains required formal/source semantic products, publishes no advisory or presentation products, and avoids advisory analysis. Then run the canonical image build/publication discriminator below.
+
 Required scenario:
 
 ```text

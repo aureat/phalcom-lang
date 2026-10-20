@@ -1108,6 +1108,7 @@ mod callable_analysis_table_tests {
             constructor_super_initializer: None,
             dependency_fingerprint: crate::db::ProductFingerprint(0),
             status: CallableAnalysisStatus::Complete,
+            observed_import_phases: Arc::new(std::collections::BTreeMap::new()),
         })
     }
 

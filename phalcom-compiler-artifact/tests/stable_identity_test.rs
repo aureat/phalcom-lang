@@ -1,4 +1,5 @@
 use phalcom_compiler_artifact::digest::ArtifactDigest;
+use phalcom_compiler_artifact::header::{MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V3, STABLE_IDENTITY_SCHEMA_V1};
 use phalcom_compiler_artifact::identity::{CanonicalCompatibilityIdentity, TeloscPackageIdentity};
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::generic::{GenericParameterModeRef, StableTypeParameterOwnerRef, StableTypeParameterRef, TypeParameterRecord, VarianceRef};
@@ -188,10 +189,10 @@ fn compatibility_identity_structural_equivalence() {
         interface_digest: ArtifactDigest([2; 32]),
         semantic_digest: ArtifactDigest([3; 32]),
         semantic_model_version: 1,
-        stable_identity_schema: 1,
-        module_semantic_abi: 1,
-        semantic_artifact_abi: 1,
-        query_fingerprint_abi: 1,
+        stable_identity_schema: STABLE_IDENTITY_SCHEMA_V1,
+        module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
+        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V3,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [9; 16],
         type_metadata_schema_version: 13,

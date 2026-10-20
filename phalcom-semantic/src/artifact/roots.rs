@@ -1654,6 +1654,7 @@ mod tests {
             constructor_super_initializer: None,
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status: CallableAnalysisStatus::Complete,
+            observed_import_phases: Arc::new(std::collections::BTreeMap::new()),
         }
     }
 
@@ -1735,17 +1736,17 @@ mod tests {
                 vec![argument].into_boxed_slice(),
             ),
         ));
-        let reason = BlockReason::UnavailableSemanticOwner(key);
+        let reason = BlockReason::UnavailableSemanticOwner(Box::new(key));
         let blocked = || reason.clone();
         let exit_subject = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "BlockedExitSubjectRoot".into()));
         let exit_argument = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "BlockedExitTraitArgumentRoot".into()));
-        let exit_reason = BlockReason::UnavailableSemanticOwner(crate::db::QueryKey::GenericConformance(GenericConformanceKey::new(
+        let exit_reason = BlockReason::UnavailableSemanticOwner(Box::new(crate::db::QueryKey::GenericConformance(GenericConformanceKey::new(
             TypeTerm::Canonical(exit_subject),
             crate::traits::TraitRef::new(
                 DeclarationId::new(ModuleId::universe_root(), "BlockedExitTraitRoot".into()),
                 vec![exit_argument].into_boxed_slice(),
             ),
-        )));
+        ))));
         let expression_id = ExpressionId::new(BodyId(8), LocalExpressionId(0));
         let mut analysis = callable_analysis(callable);
 
@@ -1768,13 +1769,13 @@ mod tests {
         );
         let exact_case = VariantId::new(callable_owner.clone(), Selector::getter("BlockedCase").unwrap());
         let exact_case_type = store.intern_variant_identity(exact_case.clone());
-        binding.consistency = crate::checker::binding::BindingConsistency::Blocked(BlockReason::UnavailableSemanticOwner(
+        binding.consistency = crate::checker::binding::BindingConsistency::Blocked(BlockReason::UnavailableSemanticOwner(Box::new(
             crate::db::QueryKey::TraitDispatchBucket(crate::trait_dispatch::TraitDispatchBucketKey {
                 target_family: crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(exact_case),
                 selector: Selector::getter("blocked").unwrap(),
                 side: DispatchSide::Instance,
             }),
-        ));
+        )));
         analysis.bindings.insert_source(binding_id, binding).unwrap();
 
         analysis.exits.normal_returns.push(crate::checker::analysis::NormalReturnFact {
@@ -3114,13 +3115,13 @@ mod tests {
             SourceRange { start: 0, end: 1 },
             TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
         );
-        expression.status = crate::checker::analysis::AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnavailableSemanticOwner(
+        expression.status = crate::checker::analysis::AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnavailableSemanticOwner(Box::new(
             crate::db::QueryKey::TraitDispatchBucket(crate::trait_dispatch::TraitDispatchBucketKey {
                 target_family: crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(variant),
                 selector: Selector::getter("blocked").unwrap(),
                 side: DispatchSide::Instance,
             }),
-        ));
+        )));
         analysis.expressions.insert_source(expression_id, expression).unwrap();
 
         let store = TypeStore::new();

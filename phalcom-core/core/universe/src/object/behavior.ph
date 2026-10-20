@@ -27,3 +27,5 @@ native primitive class Behavior is Object {
   /// @returns List of matching attached attributes.
   attributesOfType(_ cls) { rawAttributes.filter(|a| a is cls) }
 }
+
+export Behavior

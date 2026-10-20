@@ -1358,6 +1358,41 @@ fn build_catching_panics(provider: &UniverseSourceProvider) -> Result<Arc<Canoni
         .map_err(|_| CanonicalImageError::BootstrapPanicked)?
 }
 
+fn canonical_semantic_linked_program(
+    provider: &UniverseSourceProvider,
+    modules: &CanonicalModuleProducts,
+) -> Result<Arc<phalcom_modules::linker::SemanticLinkedProgram>, CanonicalImageError> {
+    let filesystem = phalcom_modules::FilesystemSourceProvider::new();
+    let mut resolver = phalcom_modules::ModuleResolver::with_universe_source_provider(
+        &modules.linked().universe,
+        &filesystem,
+        provider.clone(),
+    );
+    let interfaces = modules
+        .interfaces()
+        .iter()
+        .map(|(module, interface)| (module.clone(), (**interface).clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mut resolved = BTreeMap::new();
+    for (module, interface) in &interfaces {
+        for import in &interface.imports {
+            let path = match import {
+                phalcom_modules::ImportSurface::Module(decl) => &decl.path,
+                phalcom_modules::ImportSurface::Selective(decl) => &decl.path,
+                phalcom_modules::ImportSurface::ReExport(decl) => &decl.path,
+            };
+            let target = resolver
+                .resolve_import(module, path)
+                .map_err(|error| CanonicalImageError::ModuleProducts(format!("resolve canonical semantic import {module}::{path}: {error}")))?;
+            resolved.insert((module.clone(), path.to_string()), target.id);
+        }
+    }
+    let linked = phalcom_modules::ModuleLinker::new(modules.linked().universe.clone(), interfaces)
+        .link_semantic(ModuleId::universe_root(), &resolved)
+        .map_err(|error| CanonicalImageError::ModuleProducts(format!("link canonical semantic imports: {error}")))?;
+    Ok(Arc::new(linked))
+}
+
 fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseFormalImage>, CanonicalImageError> {
     if std::env::var_os("PHALCOM_DENY_SOURCE_BOOTSTRAP").is_some() {
         panic!("Canonical source bootstrap attempted while denied by PHALCOM_DENY_SOURCE_BOOTSTRAP");
@@ -1370,12 +1405,14 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
         &private
     };
     let modules = Arc::new(CanonicalModuleProducts::capture(provider, foundation.linked.clone()).map_err(CanonicalImageError::ModuleProducts)?);
+    let semantic_linked = canonical_semantic_linked_program(provider, &modules)?;
     let world = CanonicalSemanticWorldId::for_source_world(
         modules.source_fingerprint(),
         Arc::new(modules.sources().iter().map(|(module, unit)| (module.clone(), unit.text.clone())).collect()),
     );
     // Explicit foundation path: never ordinary image-backed session creation.
-    let mut session = SemanticWorkspaceSession::from_baseline(foundation, WorkspaceId::from_raw(1));
+    let mut session = SemanticWorkspaceSession::from_baseline(foundation, WorkspaceId::from_raw(1))
+        .with_product_request(crate::request::SemanticProductRequest::canonical_compiler_image());
     let interfaces = modules
         .interfaces()
         .iter()
@@ -1394,7 +1431,7 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
     ));
     let input = SemanticWorkspaceInput {
         linked: modules.linked().clone(),
-        semantic_linked: None,
+        semantic_linked: Some(semantic_linked),
         sources: modules.sources().clone(),
         interfaces: Arc::new(modules.interfaces().iter().map(|(m, i)| (m.clone(), i.clone())).collect()),
         import_products: Arc::new(BTreeMap::new()),
@@ -1618,9 +1655,10 @@ mod tests {
                 interface_digest: phalcom_compiler_artifact::ArtifactDigest::ZERO,
                 semantic_digest: phalcom_compiler_artifact::ArtifactDigest::ZERO,
                 semantic_model_version: 1,
-                stable_identity_schema: 1,
-                module_semantic_abi: 1,
-                semantic_artifact_abi: 1,
+                stable_identity_schema: phalcom_compiler_artifact::header::STABLE_IDENTITY_SCHEMA_V1,
+                module_semantic_abi: phalcom_compiler_artifact::header::MODULE_SEMANTIC_ABI_V2,
+                semantic_artifact_abi: phalcom_compiler_artifact::header::SEMANTIC_ARTIFACT_ABI_V3,
+                query_fingerprint_abi: phalcom_compiler_artifact::header::QUERY_FINGERPRINT_ABI_V2,
                 native_surface_schema_version: 1,
                 native_catalog_fingerprint: [0; 16],
                 type_metadata_schema_version: 1,
@@ -1629,7 +1667,7 @@ mod tests {
         let mut snapshot = (**source_image.snapshot()).clone();
         snapshot.sources = Arc::new(BTreeMap::new());
         snapshot.presentation_sources = Arc::new(BTreeMap::new());
-        Arc::make_mut(&mut snapshot.module_products).unlinked = crate::snapshot::ModuleQueryUnlinkedInterfaces::Source(Arc::new(BTreeMap::new()));
+        Arc::make_mut(&mut snapshot.module_products).unlinked = Arc::new(BTreeMap::new());
         let snapshot = Arc::new(snapshot);
 
         let mut setup_allocations = AllocationBudget::new(usize::MAX);
@@ -1733,22 +1771,8 @@ mod tests {
         assert!(image.snapshot().advisory.modules.is_empty());
         assert!(image.snapshot().advisory.callables.is_empty());
         assert!(image.reader().is_ok());
-        assert!(matches!(
-            &image.snapshot().module_products.unlinked,
-            crate::snapshot::ModuleQueryUnlinkedInterfaces::Canonical(owner) if Arc::ptr_eq(owner, image.modules())
-        ));
-        assert!(matches!(
-            &image.snapshot().module_products.linked,
-            crate::snapshot::ModuleQueryLinkedInterfaces::Canonical(owner) if Arc::ptr_eq(owner, image.modules())
-        ));
-        assert!(matches!(
-            &image.snapshot().module_products.resolved_imports,
-            crate::snapshot::ModuleQueryResolvedImports::Frozen(_)
-        ));
-        assert!(matches!(
-            &image.snapshot().module_products.reverse_imports,
-            crate::snapshot::ModuleQueryReverseImports::Frozen(_)
-        ));
+        assert!(!image.snapshot().module_products.unlinked.is_empty());
+        assert!(!image.snapshot().module_products.linked.is_empty());
         let required = discovery.requested();
         assert!(required > 0);
         let control_query_identity = image

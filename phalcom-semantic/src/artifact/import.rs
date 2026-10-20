@@ -7466,7 +7466,7 @@ mod tests {
                 declaration_range: SpanV1 { start: 0, end: 0 },
             },
         };
-        let mut record = CallableAnalysisRecordV1 {
+        let record = CallableAnalysisRecordV1 {
             explanations: Vec::new(),
             return_explanation: None,
             diagnostic_cause_count: 0,
@@ -7606,6 +7606,7 @@ mod tests {
                 ),
             ],
         };
+        let mut record = phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(record, Vec::new());
         let relocation = TypeRelocation {
             store_id: TypeStoreId(0),
             types: vec![TypeId(81)],
@@ -7682,9 +7683,9 @@ mod tests {
         use phalcom_compiler_artifact::semantic::aggregates::{TraitRefV1, TypeTermV1};
         use phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId;
         use phalcom_compiler_artifact::semantic::world::{
-            CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1,
-            CallableBindingContractOriginV1, CallableBindingContractV1, CallableBindingRowV1, CallableCausalInvalidityV1, CallableFlowGraphV1,
-            CallableQueryOwnerV1, SemanticDenotationV1, TypeKnowledgeV1,
+            CallableAnalysisRecordV1, CallableAnalysisRecordV2, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingAuthorityV1,
+            CallableBindingConsistencyV1, CallableBindingContractOriginV1, CallableBindingContractV1, CallableBindingRowV1, CallableCausalInvalidityV1,
+            CallableFlowGraphV1, CallableQueryOwnerV1, SemanticDenotationV1, TypeKnowledgeV1,
         };
 
         let declaration = owner();
@@ -7696,7 +7697,7 @@ mod tests {
         let stable_callable = crate::metadata::stable_identity::to_stable_callable(&callable);
         let stable_declaration = crate::metadata::stable_identity::to_stable_declaration(&declaration);
         let module = stable_declaration.module.clone();
-        let record = CallableAnalysisRecordV1 {
+        let record = CallableAnalysisRecordV2::from_v1_with_observed_import_phases(CallableAnalysisRecordV1 {
             explanations: Vec::new(),
             return_explanation: None,
             diagnostic_cause_count: 0,
@@ -7824,7 +7825,7 @@ mod tests {
                     declaration_range: SpanV1 { start: 5, end: 9 },
                 },
             }],
-        };
+        }, Vec::new());
         let relocation = TypeRelocation {
             store_id: TypeStoreId(0),
             types: vec![TypeId(81)],
@@ -7868,7 +7869,7 @@ mod tests {
                 },
             ),
             denotation: Some(SemanticDenotation::TypeForm(TypeId(81))),
-            consistency: BindingConsistency::Blocked(crate::types::outcome::BlockReason::UnavailableSemanticOwner(conformance)),
+            consistency: BindingConsistency::Blocked(crate::types::outcome::BlockReason::UnavailableSemanticOwner(Box::new(conformance))),
             causal_invalidity: CausalInvalidity::One(DiagnosticCauseId(7)),
             mutable: true,
             initialization: InitializationState::MaybeInitialized,
@@ -8630,7 +8631,7 @@ mod tests {
         );
     }
 
-    fn minimal_callable_analysis_record() -> phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1 {
+    fn minimal_callable_analysis_record() -> phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2 {
         let callable = StableCallableRef {
             owner: StableCallableOwnerRef::Declaration(StableDeclarationRef {
                 module: StableModuleRef {
@@ -8645,7 +8646,8 @@ mod tests {
             side: StableDispatchSide::Instance,
             selector: "method".into(),
         };
-        phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1 {
+        phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
+            phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1 {
             explanations: Vec::new(),
             return_explanation: None,
             diagnostic_cause_count: 0,
@@ -8684,8 +8686,10 @@ mod tests {
             normal_returns: Vec::new(),
             throws: Vec::new(),
             return_validation: phalcom_compiler_artifact::semantic::world::ReturnContractValidationV1::NotApplicable,
-            bindings: Vec::new(),
-        }
+                bindings: Vec::new(),
+            },
+            Vec::new(),
+        )
     }
 
     #[test]
@@ -8774,7 +8778,17 @@ mod tests {
             exact_expansions: vec![],
         });
         let mut budget = AllocationBudget::new(1 << 20);
-        let (table, ranges) = import_callable_analysis_records(std::slice::from_ref(&record), &relocation, &store, &[], &limits, &mut budget).unwrap();
+        let (table, ranges) = import_callable_analysis_records(
+            std::slice::from_ref(&record),
+            &relocation,
+            &store,
+            &[],
+            None,
+            &BTreeMap::new(),
+            &limits,
+            &mut budget,
+        )
+        .unwrap();
         let analysis = table.get(&callable).unwrap();
         assert_eq!(table.iter_module(callable.module()).count(), 1);
         assert!(analysis.expressions.is_frozen());
@@ -8797,7 +8811,9 @@ mod tests {
 
         record.expressions[0].binding_write = Some(1);
         let mut rejected = AllocationBudget::new(1 << 20);
-        assert!(import_callable_analysis_records(&[record], &relocation, &store, &[], &limits, &mut rejected).is_err());
+        assert!(
+            import_callable_analysis_records(&[record], &relocation, &store, &[], None, &BTreeMap::new(), &limits, &mut rejected).is_err()
+        );
         assert_eq!(rejected.requested(), 0);
         let _ = ArtifactTypeId(0);
     }

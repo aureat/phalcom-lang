@@ -6383,8 +6383,10 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
 
         let native_anchor_record = if !syntax.has_body()
             && syntax.implementation() == phalcom_common::modifier::ImplementationKind::Native
-            && ctx.declarations.intrinsic_runtime_owner(target_owner.declaration()).is_some()
         {
+            // ABI-erased source anchors are not limited to intrinsic runtime
+            // owners. Source-defined roots such as Option can own a native
+            // catalog row while retaining their ordinary semantic identity.
             let source_callable = callable_id_for_syntax(&target_owner, syntax, side);
             let candidates = phalcom_native_surface::NATIVE_SURFACES
                 .iter()

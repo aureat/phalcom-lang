@@ -255,7 +255,7 @@ The separate `ArtifactImportTransaction::stage_payload_with_digest` path still r
 |---|---|---|
 | R4.T0 | Re-pin, normalize lifecycle records, terminate no-test period | COMPLETE |
 | R4.T1 | Correct compatibility identity and port test/census infrastructure to current schemas | IN_PROGRESS |
-| R4.T2 | Recover complete V2/V4/V3 build/load lifecycle and close current semantic authority | PENDING |
+| R4.T2 | Recover complete V2/V4/V3 build/load lifecycle and close current semantic authority | IN_PROGRESS |
 | R4.T3 | Re-establish exact allocation, rollback, failpoint, and retry certification | PENDING |
 | R4.T4 | Finish dependency-bearing current query profile and fail-closed required-root completeness | PENDING |
 | R4.T5 | Certify ordinary imported SemanticWorkspaceSession with overlays/invalidation/rollback | PENDING |
@@ -263,5 +263,52 @@ The separate `ArtifactImportTransaction::stage_payload_with_digest` path still r
 | R4.T7 | Fresh-process source denial, compiler parity, diagnostics parity, real package/runtime functionality | PENDING |
 | R4.T8 | Broad regression, schema freeze, manifest closure, cleanup | PENDING |
 | R4.T9 | P2 acceptance, walkthrough, checkpoint closure, P3 handoff | PENDING |
+
+### P2.R4 compiler-image publication consultation — 2026-10-20
+
+- **Trigger:** The current-source `artifact-allocation` discriminator reached semantic publication, then failed because compiler-image validation found advisory products that had already been generated. The request was only supplied to post-publication validation; `SemanticWorkspaceSession::update` did not consume it.
+- **Finding:** `SemanticWorkspaceSession` owns optional semantic product generation. `build_advisory_workspace` and advisory query publication run unconditionally, while canonical image construction validates `SemanticProductRequest::canonical_compiler_image()` only after `update` returns. This is a publication-request propagation gap, not an artifact importer defect.
+- **Decision:** Preserve the default full tooling behavior for existing session callers. Add request-aware session configuration and apply it before optional product generation. Compiler-image publication must retain all compiler-required formal/source semantic products, omit presentation-only and advisory products at their owning generation paths, and keep transaction rollback atomic. Do not request full products, generate then strip them, or weaken validation.
+- **Plan impact:** Level 1 clarification. Amend R4.T2.1 to require request propagation into semantic publication before optional products are computed. Its focused gate compares compiler-image and default/full session publication, then runs canonical image publication. No wire-schema or ownership changes.
+- **Status:** Request propagation is implemented and the focused `semantic-product-request` target passes 4/4. The canonical artifact build now reaches export but is blocked by the module-binding explanation mismatch below; T1 remains in progress and T2 has started to clear its vertical discriminator.
+
+### P2.R4 canonical static-program publication consultation — 2026-10-20
+
+- **Trigger:** The current canonical artifact build rejected a source-backed static definition because its semantic product had a checked body but no canonical operational program. The repair crosses session publication, static-value rooting, and artifact export.
+- **Finding:** Source publication attaches `checked_body` but leaves `canonical_program` absent. V4 export requires the latter. Lowering during export would intern static values after the producer closes its static/type export graphs.
+- **Decision:** The explicit compiler-image session request owns lowering from each checked static body to its canonical operational program. Publish both products, and intern any generated static values before snapshot publication and graph-root registration. Leave default/full sessions on their current checked-body product path. Keep the existing evaluator semantics and fail publication if canonical lowering fails.
+- **Invariant:** For one semantic revision, the canonical program must be a deterministic semantics-preserving projection of its checked body, retaining owner, dependencies, applications, result, and failure behavior. Artifact import remains source-free and must not fabricate an AST or fall back to source.
+- **Plan impact:** Level 1 implementation clarification under R4.T2.1/T2.8; no numbered plan amendment. Record source-versus-imported execution comparison under the existing T2.8 gate.
+- **Status:** Source canonical-program publication is implemented. The exact artifact-allocation run advanced past this failure and is now blocked by the module-binding explanation mismatch below. Source-versus-imported execution parity remains pending.
+
+### P2.R4 focused verification update — 2026-10-20
+
+- `module_world_rejects_invalid_and_duplicate_module_import_identities` passes; all 13 `phalcom-modules` unit tests pass. `cargo test -p phalcom-modules` also reports two unresolved `builtin_catalog` integration failures: expected 22 expose declarations but found 23, and unresolved `universe.collections.iterator_laws` import.
+- `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic-product-request` passes 4/4, covering request-specific publication, canonical static-program publication, and `List<Dynamic>`/`List<Int>` specialization.
+- The exact `artifact-allocation` gate currently fails during `build_universe_telosc` export, before N/N-1/retry or allocator equality runs. For `universe.errors.unsupported::unsupported`, its module fact has `explanation: Some(ExplanationId(3))` while the `<main>` owner row has `None`; all other displayed binding-state fields match. The original referential-integrity check remains strict.
+- The `core` integration target does not compile because of 10 current fixture/API errors; the `modules::canonical_artifact` filter ran no tests. See the implementer handoff for the affected names and exact next steps.
+
+### P2.R4 implementer takeover note — 2026-10-20
+
+- This handoff captures the current blocker and test state; preserve the referential-integrity check until the owning semantic publication/projection is understood.
+- The core `modules::canonical_artifact` integration filter remains blocked at test-target compilation by 10 fixture/API errors. The full modules test keeps two unresolved `builtin_catalog` integration failures after 13/13 unit tests pass.
+- Detailed takeover instructions, exact commands, verification boundaries, and advanced review topics are in [`ARTF001.C1.P2.R4-implementer-handoff.md`](ARTF001.C1.P2.R4-implementer-handoff.md). R4.T1 remains in progress; this note does not promote T2 or T3 completion.
+
+### P2.R4 explanation fingerprint and test-harness recovery — 2026-10-20
+
+- **Root cause:** The session publishes a preliminary `ModuleStaticBindingIndex`, replaces the module `<main>` callable analysis during its second pass, and republishes the final index through the same semantic query key. `hash_module_static_binding_index` omitted `BindingState.explanation`, so the second query reused the preliminary index when the owner-local explanation was the only changed field. The final snapshot therefore combined a stale module fact with the current callable owner row.
+- **Correction:** `BindingState.explanation` now participates in both module-static-binding input and product fingerprints. The exporter referential-integrity check remains strict. The focused `module-static-binding-fingerprint` test proves that an explanation-only change alters the fingerprint, invalidates query reuse, and publishes the replacement row.
+- **Harness recovery:** Current V2 callable-analysis fixtures now wrap legacy payload construction in `CallableAnalysisRecordV2`, pass current module/import-phase inputs, and initialize current analysis fields. Core integration fixtures use current runtime type recipes, metadata export, opaque synthetic identity rules, and immutable executable-link construction. Both previously unresolved `builtin_catalog` fixtures are corrected; the focused target passes 9/9.
+- **Executed evidence:** `cargo test -p phalcom-semantic --test module-static-binding-fingerprint` passes 1/1; `cargo test -p phalcom-compiler-artifact` passes all 106 tests; `cargo test -p phalcom-semantic --lib --no-run`, `cargo test -p phalcom-core --test core --no-run`, and `cargo test -p phalcom-core --test artifact-allocation --no-run` compile successfully; `compiler_product_optimization::test_decision_engine_pure_cases` passes 1/1. The comparator filter selected eight tests but exceeded the bounded 60-second local execution window and remains incomplete.
+- **Next gate:** Run `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test artifact-allocation -- --nocapture --test-threads=1`. It must prove current artifact build/load, exact N, independent allocator equality, typed N-1 failure, child rollback, and clean retries before R4.T2 or R4.T3 status is promoted.
+
+### P2.R4 allocation-gate continuation — 2026-10-20
+
+- **Executed:** `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test artifact-allocation -- --nocapture --test-threads=1` fails after 98.41s during `build_universe_telosc` semantic-world export.
+- **Current blocker:** V4 module execution authority rejects a duplicate runtime dependency edge for importer `universe.callable.function`, dependency `universe.errors.error`, source range `831..836` (`Error` in `on(Error)`, `phalcom-core/core/universe/src/callable/function.ph`). The validator's uniqueness key is `(importer, dependency, range)`. No artifact load, allocation census, exact N, allocator equality, N−1, rollback, or retry assertion ran.
+- **Root-cause lead:** `phase_evidence.rs` has overlapping source-visible native-prelude and semantic `TypeForm` requirement projections that may both emit this edge. Confirm both serialized targets and provenance before correcting; same-span edges may carry distinct authority. Do not weaken duplicate validation or deduplicate by the validator key without establishing a lossless coalescing rule.
+- **Current status:** R4.T1 remains IN_PROGRESS; R4.T2 remains IN_PROGRESS; R4.T3 remains PENDING. The previous explanation-mismatch blocker is resolved by the explanation fingerprint fix recorded above. T2/T3 acceptance is not promoted.
+- **Next action:** Inspect the producer rows for this exact source site; correct the redundant projection at its owner, add same-target overlap and distinct-target preservation regressions, then rerun the exact allocation gate. Continue ordered T2/T3 and later T4–T9 only after the vertical artifact build/load gate advances.
+- **Takeover record:** Updated details and the remaining-gate sequence are in [`ARTF001.C1.P2.R4-implementer-handoff.md`](ARTF001.C1.P2.R4-implementer-handoff.md).
 
 The previous plans P2.R1, P2.R2, and P2.R3 remain preserved as implementation history. The current active plan is `ARTF001.C1.P2.R4`.

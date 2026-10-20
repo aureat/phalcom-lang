@@ -33,6 +33,7 @@ use crate::enum_requirements::{EnumRequirementTable, check_enum_requirements};
 use crate::enum_semantics::{EnumSemanticTable, VariantInfo};
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, WorkspaceId};
 use crate::presentation::FormalSemanticProjection;
+use crate::request::{AdvisoryLevel, PresentationLevel, SemanticProductRequest, SourceSemanticLevel};
 use crate::resolver::LinkedTypeResolver;
 use crate::semantic_shard::ModuleSemanticStructureShard;
 use crate::signature::{
@@ -689,6 +690,9 @@ pub struct SemanticWorkspaceSession {
     /// Optional deep-analysis frontier supplied by an interactive client.
     /// `None` preserves the normal whole-workspace semantic update behavior.
     requested_deep_modules: Option<BTreeSet<ModuleId>>,
+    /// Optional semantic products requested by this consumer. Existing
+    /// callers retain the full tooling publication contract by default.
+    product_request: SemanticProductRequest,
     #[cfg(test)]
     test_publication_failpoint: std::sync::Mutex<Option<SemanticPublicationFailpoint>>,
     #[cfg(test)]
@@ -835,6 +839,7 @@ impl SemanticWorkspaceSession {
             last_known_good: Some(snapshot),
             pending_semantic_delta: None,
             requested_deep_modules: None,
+            product_request: SemanticProductRequest::default(),
             #[cfg(test)]
             test_publication_failpoint: std::sync::Mutex::new(None),
             #[cfg(test)]
@@ -902,6 +907,7 @@ impl SemanticWorkspaceSession {
             last_known_good: None,
             pending_semantic_delta: None,
             requested_deep_modules: None,
+            product_request: SemanticProductRequest::default(),
             #[cfg(test)]
             test_publication_failpoint: std::sync::Mutex::new(None),
             #[cfg(test)]
@@ -911,6 +917,14 @@ impl SemanticWorkspaceSession {
 
     pub fn workspace(&self) -> WorkspaceId {
         self.workspace
+    }
+
+    /// Configures the products published by subsequent workspace updates.
+    /// Call this before the session's first update. Existing sessions default
+    /// to the full tooling product set.
+    pub fn with_product_request(mut self, request: SemanticProductRequest) -> Self {
+        self.product_request = request;
+        self
     }
 
     /// Returns persistent project/source/module ownership used by compiler updates.
@@ -7527,7 +7541,12 @@ impl SemanticWorkspaceSession {
             ctx.attach_conformance_semantics(&conformance_semantics);
 
             if let Some(semantic_module) = input.semantic_linked.as_ref().and_then(|sl| sl.modules.get(module_id)) {
-                ctx.seed_symbolic_module_import_values(semantic_module, &module_static_bindings);
+                let linked_module = input
+                    .linked
+                    .modules
+                    .get(module_id)
+                    .expect("semantic module import authority must include its executable linked layout");
+                ctx.seed_symbolic_module_import_values(semantic_module, linked_module, &module_static_bindings);
             } else if let Some(linked_module) = input.linked.modules.get(module_id) {
                 ctx.seed_linked_module_import_values(linked_module, &module_static_bindings);
             }
@@ -7745,13 +7764,21 @@ impl SemanticWorkspaceSession {
             let mut callables = BTreeSet::new();
             callables.extend(shard.callable_signature_fingerprints.keys().cloned());
             callables.extend(shard.callable_body_fingerprints.keys().cloned());
+            callables.insert(CallableId::new(
+                DeclarationId::new(module.clone(), "<main>".into()),
+                Selector::getter("<main>").unwrap(),
+                DispatchSide::Instance,
+            ));
             source_index_analysis_callables.insert(module.clone(), callables);
         }
         let (mut source_index, presentation_sources) = build_source_semantic_index(SourceSemanticIndexInputs {
             sources: &input.sources,
             universe_source_provider: &self.universe_source_provider,
-            include_canonical_presentation_sources: self.db.canonical_image().is_none(),
+            include_workspace_source_semantics: self.product_request.source_semantics != SourceSemanticLevel::None,
+            include_canonical_source_semantics: self.product_request.source_semantics == SourceSemanticLevel::Full && self.db.canonical_image().is_none(),
+            include_canonical_presentation_sources: self.product_request.presentation == PresentationLevel::Full && self.db.canonical_image().is_none(),
             callable_analyses: &callable_analyses,
+            callable_signatures: &callable_signatures,
             import_products: &input.import_products,
             require_canonical_import_products: input.require_canonical_import_products,
             linked: input.linked.as_ref(),
@@ -7788,69 +7815,82 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        let mut advisory = build_advisory_workspace(AdvisoryWorkspaceInputs {
-            sources: &retained_sources,
-            source_index: &source_index,
-            callable_analyses: &callable_analyses,
-            store: &self.store,
-            declarations: &declarations,
-            callable_signatures: &callable_signatures,
-            dispatch: &dispatch,
-            hierarchy: &hierarchy,
-            linked: input.linked.as_ref(),
-            previous: self.last_snapshot.as_deref().map(|snapshot| snapshot.advisory.as_ref()),
-            budget,
-            cancel,
-        });
-        // Revalidate retained advisory summaries as well as summaries rebuilt
-        // from the current formal analyses. Reused module shards still expose
-        // their prior callable evidence, so their exact advisory dependencies
-        // must be current before the shard can publish again.
-        let mut advisory_query_callables = advisory.callables.as_ref().clone();
-        if let Some(previous) = previous_snapshot.as_ref() {
-            for (callable, summary) in previous.advisory.callables.iter() {
-                if current_modules.contains(callable.module()) {
-                    advisory_query_callables.entry(callable.clone()).or_insert_with(|| summary.clone());
+        let advisory = if self.product_request.advisory == AdvisoryLevel::Full {
+            let mut advisory = build_advisory_workspace(AdvisoryWorkspaceInputs {
+                sources: &retained_sources,
+                source_index: &source_index,
+                callable_analyses: &callable_analyses,
+                store: &self.store,
+                declarations: &declarations,
+                callable_signatures: &callable_signatures,
+                dispatch: &dispatch,
+                hierarchy: &hierarchy,
+                linked: input.linked.as_ref(),
+                previous: self.last_snapshot.as_deref().map(|snapshot| snapshot.advisory.as_ref()),
+                budget,
+                cancel,
+            });
+            // Revalidate retained advisory summaries as well as summaries rebuilt
+            // from the current formal analyses. Reused module shards still expose
+            // their prior callable evidence, so their exact advisory dependencies
+            // must be current before the shard can publish again.
+            let mut advisory_query_callables = advisory.callables.as_ref().clone();
+            if let Some(previous) = previous_snapshot.as_ref() {
+                for (callable, summary) in previous.advisory.callables.iter() {
+                    if current_modules.contains(callable.module()) {
+                        advisory_query_callables.entry(callable.clone()).or_insert_with(|| summary.clone());
+                    }
                 }
             }
-        }
-        let mut advisory_query_failed = None;
-        for summary in advisory_query_callables.values() {
-            if let QueryOutcome::Failed(error) = bootstrap_advisory_callable(&mut self.db, summary.clone()) {
-                advisory_query_failed = Some(error);
-                break;
-            }
-        }
-        if advisory_query_failed.is_none() {
+            let mut advisory_query_failed = None;
             for summary in advisory_query_callables.values() {
-                self.db.discard_for_recompute(&QueryKey::AdvisoryCallable(summary.callable.clone()));
-                if let QueryOutcome::Failed(error) = query_advisory_callable(&mut self.db, summary.clone()) {
+                if let QueryOutcome::Failed(error) = bootstrap_advisory_callable(&mut self.db, summary.clone()) {
                     advisory_query_failed = Some(error);
                     break;
                 }
             }
-        }
-        if advisory_query_failed.is_none() {
-            for (module, module_product) in advisory.modules.iter() {
-                let callables = advisory
-                    .callables
-                    .keys()
-                    .filter(|callable| callable.module() == module)
-                    .cloned()
-                    .chain(advisory_query_callables.keys().filter(|callable| callable.module() == module).cloned())
-                    .collect::<BTreeSet<_>>();
-                let Some(source_structure) = source_index.module(module).cloned() else {
-                    continue;
-                };
-                if let QueryOutcome::Failed(error) = query_advisory_module(&mut self.db, module_product.clone(), Arc::new(source_structure), callables) {
-                    advisory_query_failed = Some(error);
-                    break;
+            if advisory_query_failed.is_none() {
+                for summary in advisory_query_callables.values() {
+                    self.db.discard_for_recompute(&QueryKey::AdvisoryCallable(summary.callable.clone()));
+                    if let QueryOutcome::Failed(error) = query_advisory_callable(&mut self.db, summary.clone()) {
+                        advisory_query_failed = Some(error);
+                        break;
+                    }
                 }
             }
-        }
-        if let Some(error) = advisory_query_failed {
-            advisory = advisory.with_status(AdvisoryProductStatus::InternalFailure(error.into_boxed_str()));
-        }
+            if advisory_query_failed.is_none() {
+                for (module, module_product) in advisory.modules.iter() {
+                    let callables = advisory
+                        .callables
+                        .keys()
+                        .filter(|callable| callable.module() == module)
+                        .cloned()
+                        .chain(advisory_query_callables.keys().filter(|callable| callable.module() == module).cloned())
+                        .collect::<BTreeSet<_>>();
+                    let Some(source_structure) = source_index.module(module).cloned() else {
+                        continue;
+                    };
+                    if let QueryOutcome::Failed(error) = query_advisory_module(&mut self.db, module_product.clone(), Arc::new(source_structure), callables) {
+                        advisory_query_failed = Some(error);
+                        break;
+                    }
+                }
+            }
+            if let Some(error) = advisory_query_failed {
+                advisory = advisory.with_status(AdvisoryProductStatus::InternalFailure(error.into_boxed_str()));
+            }
+            advisory
+        } else {
+            if let Some(previous) = previous_snapshot.as_ref() {
+                for module in previous.advisory.modules.keys() {
+                    self.db.discard_for_recompute(&QueryKey::AdvisoryModule(module.clone()));
+                }
+                for callable in previous.advisory.callables.keys() {
+                    self.db.discard_for_recompute(&QueryKey::AdvisoryCallable(callable.clone()));
+                }
+            }
+            AdvisoryWorkspace::default()
+        };
         for declaration in &blocked_declarations {
             declarations.remove(declaration);
         }
@@ -8099,7 +8139,32 @@ impl SemanticWorkspaceSession {
                 .entry(definition_id.module.clone())
                 .or_default()
                 .extend(checked_body.diagnostics.iter().cloned());
+            let canonical_program = if self.product_request.canonical_static_programs {
+                Some(
+                    definition_product
+                        .canonical_program
+                        .as_ref()
+                        .filter(|program| {
+                            program.input_fingerprint == checked_body.input_fingerprint
+                                && program.module_binding_fingerprint == checked_body.module_binding_fingerprint
+                        })
+                        .cloned()
+                        .map(Ok)
+                        .unwrap_or_else(|| {
+                            crate::static_definition::CanonicalStaticProgram::from_checked_body(
+                                &checked_body,
+                                Arc::make_mut(&mut self.static_values),
+                                &self.store,
+                            )
+                            .map(Arc::new)
+                            .map_err(|error| QueryOutcome::Failed(format!("failed to publish canonical static program for {definition_id:?}: {error:?}")))
+                        })?,
+                )
+            } else {
+                definition_product.canonical_program.clone()
+            };
             let mut composed = (*definition_product).clone();
+            composed.canonical_program = canonical_program;
             composed.checked_body = Some(checked_body);
             static_definitions_table.insert(Arc::new(composed));
         }
@@ -9036,7 +9101,11 @@ impl SemanticWorkspaceSession {
             diagnostics_changed,
             source_index_changed: changed_modules.clone(),
             formal_changed: changed_modules.clone(),
-            advisory_changed: changed_modules.clone(),
+            advisory_changed: if self.product_request.advisory == AdvisoryLevel::Full {
+                changed_modules.clone()
+            } else {
+                BTreeSet::new()
+            },
             declaration_index_changed,
             module_graph_changed,
         };
@@ -9047,7 +9116,11 @@ impl SemanticWorkspaceSession {
         // separately so callers can distinguish a body edit from a project
         // lifecycle event.
         stats.source_indexes_recomputed = changed_modules.len();
-        stats.advisory_sources_recomputed = changed_modules.len();
+        stats.advisory_sources_recomputed = if self.product_request.advisory == AdvisoryLevel::Full {
+            changed_modules.len()
+        } else {
+            0
+        };
         stats.modules_relinked = if module_graph_changed { changed_modules.len() } else { 0 };
         stats.project_graph_rebuilt = effects.module_graph_changed;
         if previous_snapshot.is_some() {
@@ -9065,7 +9138,11 @@ impl SemanticWorkspaceSession {
             .values()
             .filter(|disposition| **disposition == CallableRevisionDisposition::Reused)
             .count();
-        stats.advisory_callables_recomputed = stats.callables_recomputed;
+        stats.advisory_callables_recomputed = if self.product_request.advisory == AdvisoryLevel::Full {
+            stats.callables_recomputed
+        } else {
+            0
+        };
         let recomputed_keys = callable_dispositions
             .iter()
             .filter(|(_, disposition)| **disposition == CallableRevisionDisposition::Recomputed)
@@ -11143,8 +11220,11 @@ fn semantic_target_for_linked_symbol(symbol: &SymbolId, nominal_declarations: &H
 struct SourceSemanticIndexInputs<'a> {
     sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     universe_source_provider: &'a phalcom_modules::UniverseSourceProvider,
+    include_workspace_source_semantics: bool,
+    include_canonical_source_semantics: bool,
     include_canonical_presentation_sources: bool,
     callable_analyses: &'a HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
+    callable_signatures: &'a CallableSignatureTable,
     import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
     require_canonical_import_products: bool,
     linked: &'a LinkedProgram,
@@ -11163,8 +11243,11 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
     let SourceSemanticIndexInputs {
         sources,
         universe_source_provider,
+        include_workspace_source_semantics,
+        include_canonical_source_semantics,
         include_canonical_presentation_sources,
         callable_analyses,
+        callable_signatures,
         import_products,
         require_canonical_import_products,
         linked,
@@ -11186,7 +11269,7 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
     // the persistent source-index contract.
     let mut presentation_sources = BTreeMap::new();
     let provider = universe_source_provider;
-    let presentation_modules = if include_canonical_presentation_sources {
+    let canonical_modules = if include_canonical_source_semantics || include_canonical_presentation_sources {
         provider
             .nodes()
             .iter()
@@ -11204,22 +11287,28 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
         BTreeSet::new()
     };
     let mut index_sources = BTreeMap::new();
-    if previous.is_none() {
-        index_sources.extend(sources.iter().map(|(module, source)| (module.clone(), source.clone())));
-    } else {
-        for module in rebuild_modules {
-            if let Some(source) = sources.get(module) {
-                index_sources.insert(module.clone(), source.clone());
+    if include_workspace_source_semantics {
+        if previous.is_none() {
+            index_sources.extend(sources.iter().map(|(module, source)| (module.clone(), source.clone())));
+        } else {
+            for module in rebuild_modules {
+                if let Some(source) = sources.get(module) {
+                    index_sources.insert(module.clone(), source.clone());
+                }
             }
         }
     }
-    for module in &presentation_modules {
+    for module in &canonical_modules {
         if sources.contains_key(module) || (previous.is_some() && !rebuild_modules.contains(module)) {
             continue;
         }
         let parsed = provider.load_parsed(module).expect("canonical Universe presentation source must load");
-        presentation_sources.insert(module.clone(), parsed.text.clone());
-        index_sources.insert(module.clone(), parsed);
+        if include_canonical_presentation_sources {
+            presentation_sources.insert(module.clone(), parsed.text.clone());
+        }
+        if include_canonical_source_semantics {
+            index_sources.insert(module.clone(), parsed);
+        }
     }
 
     // Import products are keyed by the authored site. Retain only products
@@ -11415,9 +11504,23 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
                 })
             })
             .map(Arc::as_ref)
-            .filter(|analysis| !matches!(&analysis.callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "<main>"))
             .collect::<Vec<_>>();
         module_analyses.sort_by_key(|analysis| analysis.callable.clone());
+        for analysis in &module_analyses {
+            if matches!(&analysis.callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "<main>") {
+                context.body_source_owners.insert(
+                    analysis.callable.clone(),
+                    crate::identity::SourceOwner::Module(analysis.callable.module().clone()),
+                );
+                continue;
+            }
+            let source_callable = callable_signatures.id_for_body(&analysis.callable).unwrap_or_else(|| analysis.callable.clone());
+            if source_callable != analysis.callable {
+                context
+                    .body_source_owners
+                    .insert(analysis.callable.clone(), crate::identity::SourceOwner::Callable(source_callable));
+            }
+        }
         let (shard, incidents) = crate::source_index::ModuleSourceIndex::from_scope_index_with_formal(scope, source, Some(&context), &module_analyses);
         index.replace_module_incidents(module.clone(), incidents);
         index.replace_module_shard(module, Arc::new(shard));
@@ -13316,6 +13419,7 @@ mod tests {
             source_member_index: 0,
             signature,
             inherent_body_context: None,
+            body_provenance: crate::impls::CallableDefinitionBodyProvenance::SourceBody,
         };
         let (_, selected_range) = source_body_for_callable(&callable, Some(&definition), &unit).expect("body selected");
         let expected_range = match &unit.program.statements[1] {

@@ -220,7 +220,6 @@ pub(crate) fn validate_module(module: &StableModuleRef, limits: &ValidationLimit
         StableProjectRef::Session { .. } => return Err(invalid("session project identity is not persistent")),
     };
     if project_strings.iter().any(|value| value.is_empty() || value.len() > limits.max_string_bytes)
-        || module.path.is_empty()
         || module.path.len() > limits.max_semantic_entries_per_family
         || module.path.iter().any(|part| part.is_empty() || part.len() > limits.max_string_bytes)
     {

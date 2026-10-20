@@ -3101,6 +3101,7 @@ fn hash_module_static_binding_index(index: &crate::module_bindings::ModuleStatic
         state.mutable.hash(hasher);
         state.initialization.hash(hasher);
         state.version.hash(hasher);
+        state.explanation.hash(hasher);
     }
 }
 
@@ -3294,7 +3295,7 @@ mod tests {
 
         let make_summary = |validity: FieldContractValidity, causal: CausalInvalidity| {
             let mut summary = FlowStateSummary::default();
-            summary.fields.insert(
+            summary.fields.insert_source(
                 field.clone(),
                 FlowFieldSummary {
                     contract: contract.clone(),
@@ -3303,7 +3304,7 @@ mod tests {
                     validity,
                     causal_invalidity: causal,
                 },
-            );
+            ).unwrap();
             let mut hasher = DefaultHasher::new();
             hash_flow_summary(&summary, &mut hasher);
             hasher.finish()

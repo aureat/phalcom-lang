@@ -1364,14 +1364,16 @@ mod allocation_materialization_tests {
     }
 
     fn world(modules: Vec<ModuleV2>) -> ModuleWorldV2 {
-        ModuleWorldV2 {
+        let mut world = ModuleWorldV2 {
             entry: ArtifactModuleId(0),
             initialization_order: vec![],
             modules,
             semantic_rows: vec![],
             external_projects: vec![],
             topology_fingerprint: 0,
-        }
+        };
+        world.refresh_portable_topology_fingerprint().expect("test module world topology should fingerprint");
+        world
     }
 
     fn assert_referential_rejection(world: &ModuleWorldV2, expected: &str) {

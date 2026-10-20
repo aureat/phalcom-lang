@@ -6,7 +6,10 @@ use phalcom_compiler_artifact::container::{TeloscContainerBuilder, TeloscContain
 use phalcom_compiler_artifact::digest::{
     ArtifactDigest, ArtifactHasher, DOMAIN_METADATA, DOMAIN_MODULE_WORLD, DOMAIN_QUERY_IMAGE, DOMAIN_SEMANTIC_WORLD, DOMAIN_SOURCE,
 };
-use phalcom_compiler_artifact::header::{TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscHeaderV2};
+use phalcom_compiler_artifact::header::{
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V3, STABLE_IDENTITY_SCHEMA_V1, TELOSC_CONTAINER_SCHEMA_V2,
+    TELOSC_MIN_READER_SCHEMA_V2, TeloscHeaderV2,
+};
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{METADATA_SECTION_SCHEMA_V1, MetadataPreflightLimits, MetadataSectionError, MetadataSectionV1};
@@ -244,10 +247,10 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
         minimum_reader_schema: TELOSC_MIN_READER_SCHEMA_V2,
         package_identity,
         semantic_model_version: SEMANTIC_MODEL_VERSION,
-        stable_identity_schema: 1,
-        module_semantic_abi: 1,
-        semantic_artifact_abi: 1,
-        query_fingerprint_abi: 2,
+        stable_identity_schema: STABLE_IDENTITY_SCHEMA_V1,
+        module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
+        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V3,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
         native_surface_schema_version: NATIVE_SURFACE_SCHEMA_VERSION,
         native_catalog_fingerprint: view.compatibility.native_catalog_fingerprint,
         type_metadata_schema_version: TYPE_METADATA_SCHEMA_VERSION,
@@ -535,10 +538,10 @@ fn validate_reader_header(header: &TeloscHeaderV2) -> Result<(), TeloscArtifactE
     }
     for (kind, found, expected) in [
         ("semantic_model_version", header.semantic_model_version, SEMANTIC_MODEL_VERSION),
-        ("stable_identity_schema", header.stable_identity_schema, 1),
-        ("module_semantic_abi", header.module_semantic_abi, 1),
-        ("semantic_artifact_abi", header.semantic_artifact_abi, 1),
-        ("query_fingerprint_abi", header.query_fingerprint_abi, 2),
+        ("stable_identity_schema", header.stable_identity_schema, STABLE_IDENTITY_SCHEMA_V1),
+        ("module_semantic_abi", header.module_semantic_abi, MODULE_SEMANTIC_ABI_V2),
+        ("semantic_artifact_abi", header.semantic_artifact_abi, SEMANTIC_ARTIFACT_ABI_V3),
+        ("query_fingerprint_abi", header.query_fingerprint_abi, QUERY_FINGERPRINT_ABI_V2),
         (
             "native_surface_schema_version",
             header.native_surface_schema_version,
@@ -752,7 +755,7 @@ mod temporary_loaded_publication_allocation_census {
         let metadata_bytes = parsed.require_section(SectionKind::Metadata).expect("METADATA section");
 
         let (module_dto_result, observed, signed) = measure_stage("B MODULE_WORLD DTO decode", &mut allocations, |budget| {
-            phalcom_compiler_artifact::module_world::ModuleWorldV1::decode_with_allocation_budget(module_bytes, &limits, budget)
+            ModuleWorldV2::decode_with_allocation_budget(module_bytes, &limits, budget)
         });
         independent_total += observed;
         signed_stage_total += signed;
@@ -766,25 +769,38 @@ mod temporary_loaded_publication_allocation_census {
         let modules = module_result.expect("MODULE_WORLD materialization must succeed");
 
         let (semantic_dto_result, observed, signed) = measure_stage("D SEMANTIC_WORLD DTO decode", &mut allocations, |budget| {
-            SemanticWorldV3::decode_with_allocation_budget(semantic_bytes, &limits, budget)
+            SemanticWorldV4::decode_with_allocation_budget(semantic_bytes, &limits, budget)
         });
         independent_total += observed;
         signed_stage_total += signed;
         let semantic_dto = semantic_dto_result.expect("SEMANTIC_WORLD DTO decode must succeed");
 
-        let (semantic_result, observed, signed) = measure_stage("E semantic native import", &mut allocations, |budget| {
-            validate_and_import_semantic_world_with_allocation_budget(semantic_dto, &limits, budget)
-        });
-        independent_total += observed;
-        signed_stage_total += signed;
-        let parts = semantic_result.expect("SEMANTIC_WORLD import must succeed");
-
         let (query_dto_result, observed, signed) = measure_stage("F QUERY_IMAGE DTO decode", &mut allocations, |budget| {
-            QueryImageV1::decode_with_allocation_budget(query_bytes, &limits, budget)
+            QueryImageV3::decode_with_allocation_budget(query_bytes, &limits, budget)
         });
         independent_total += observed;
         signed_stage_total += signed;
         let query_dto = query_dto_result.expect("QUERY_IMAGE DTO decode must succeed");
+        query_dto.validate(&limits).expect("query_dto validate must succeed");
+        query_dto
+            .validate_product_references(&module_dto, &semantic_dto)
+            .expect("query_dto product references must succeed");
+        query_dto
+            .validate_portable_structural_fingerprints_v4(&semantic_dto)
+            .expect("query_dto portable fingerprints must succeed");
+
+        let (semantic_result, observed, signed) = measure_stage("E semantic native import", &mut allocations, |budget| {
+            validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget(
+                semantic_dto,
+                &module_dto,
+                modules.linked().universe.as_ref(),
+                &limits,
+                budget,
+            )
+        });
+        independent_total += observed;
+        signed_stage_total += signed;
+        let parts = semantic_result.expect("SEMANTIC_WORLD import must succeed");
 
         let (metadata_dto_result, observed, signed) = measure_stage("G METADATA DTO decode", &mut allocations, |budget| {
             MetadataSectionV1::decode_with_allocation_budget(metadata_bytes, &limits, budget)
@@ -810,6 +826,7 @@ mod temporary_loaded_publication_allocation_census {
                 stable_identity_schema: header.stable_identity_schema,
                 module_semantic_abi: header.module_semantic_abi,
                 semantic_artifact_abi: header.semantic_artifact_abi,
+                query_fingerprint_abi: header.query_fingerprint_abi,
                 native_surface_schema_version: header.native_surface_schema_version,
                 native_catalog_fingerprint: header.native_catalog_fingerprint,
                 type_metadata_schema_version: header.type_metadata_schema_version,
@@ -821,8 +838,7 @@ mod temporary_loaded_publication_allocation_census {
         let world = world_result.expect("artifact semantic world identity must be constructed");
         let query_ledger_before = allocations.requested();
         let (query_result, observed, signed) = measure_stage("H-K query reconstruction", &mut allocations, |budget| {
-            let reconstructed = reconstruct_query_image_with_allocation_budget(&query_dto, &parts.snapshot, &world, &modules, &limits, budget);
-            reconstructed
+            reconstruct_query_image_v3_with_allocation_budget(query_dto, &parts.snapshot, &world, &modules, &limits, budget)
         });
         independent_total += observed;
         signed_stage_total += signed;

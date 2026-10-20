@@ -3435,6 +3435,17 @@ fn validate_module_static_bindings(world: &SemanticWorldV3, limits: &ValidationL
                 ) if module == &body_owner.module
                     && declaration_range.start >= binding.declaration_source.start
                     && declaration_range.end <= binding.declaration_source.end => {}
+                (
+                    CallableBindingAuthorityV1::ModuleValue {
+                        module,
+                        name,
+                        import_binding: None,
+                    },
+                    ModuleStaticBindingPhaseV1::StaticConstant | ModuleStaticBindingPhaseV1::Runtime,
+                ) if module == &body_owner.module
+                    && name == binding.symbol.name.as_ref()
+                    && binding_row.range.start >= binding.declaration_source.start
+                    && binding_row.range.end <= binding.declaration_source.end => {}
                 _ => {
                     return Err(invalid(format!(
                         "module static-binding state is not owned by its module source binding: symbol={:?}, phase={:?}, declaration_source={:?}, authority={:?}",

@@ -4377,7 +4377,13 @@ pub fn export_semantic_world(
             {
                 binding_source_authorities.insert(*binding, CallableBindingSourceAuthority::GeneratedReceiver);
             } else {
-                return Err(referential("callable source binding lacks its canonical formal attachment"));
+                return Err(referential(format!(
+                    "callable source binding lacks its canonical formal attachment: callable={callable_id:?}, source_callable={source_callable:?}, binding={binding:?}, name={:?}, range={:?}, parameter={:?}, origin={:?}",
+                    state.name,
+                    state.range,
+                    state.parameter,
+                    analysis.binding_origins.get(binding),
+                )));
             }
         }
         callable_analyses.push(export_callable_analysis_record(
@@ -4508,7 +4514,21 @@ pub fn export_semantic_world(
                     let semantic = snapshot
                         .callable_signatures
                         .get(callable)
-                        .ok_or_else(|| referential(format!("declaration dispatch callable has no canonical semantic signature: {callable:?}")))?;
+                        .ok_or_else(|| {
+                            let candidates = snapshot
+                                .callable_signatures
+                                .iter_module(&decl_id.module)
+                                .filter(|(candidate, _)| {
+                                    candidate.owner == crate::identity::CallableOwnerId::Declaration(decl_id.clone())
+                                        && candidate.selector.kind == callable.selector.kind
+                                        && candidate.selector.base == callable.selector.base
+                                })
+                                .map(|(candidate, _)| candidate.clone())
+                                .collect::<Vec<_>>();
+                            referential(format!(
+                                "declaration dispatch callable has no canonical semantic signature: {callable:?}; same-owner selector candidates={candidates:?}"
+                            ))
+                        })?;
                     let projected = crate::checker::declaration_signature::project_semantic_signature(semantic);
                     let retained = member_surface
                         .callable_signatures
@@ -4900,12 +4920,17 @@ pub fn export_semantic_world_v4(
                 .get(&stable_module)
                 .and_then(|bindings| bindings.get(&ordinal))
                 .ok_or_else(|| referential("callable observed import phase has no module phase summary"))?;
-            if !summary.observed || summary.phase != export_dependency_phase(*phase) {
-                return Err(referential("callable observed import phase disagrees with its module summary"));
+            let callable_phase = export_dependency_phase(*phase);
+            if !module_phase_covers_callable_observation(summary, &callable_phase) {
+                return Err(referential(format!(
+                    "callable observed import phase disagrees with its module summary: callable={:?}, source_binding={binding:?}, ordinal={ordinal}, callable_phase={:?}, module_summary={summary:?}",
+                    callable,
+                    phase,
+                )));
             }
             observed_import_phases.push(wire::CallableObservedImportPhaseV1 {
                 binding: ordinal,
-                phase: export_dependency_phase(*phase),
+                phase: callable_phase,
             });
         }
         observed_import_phases.sort_unstable_by_key(|phase| phase.binding);
@@ -5143,6 +5168,18 @@ fn export_dependency_phase(phase: phalcom_modules::graph::DependencyPhase) -> ph
         phalcom_modules::graph::DependencyPhase::InterfaceOnly => WirePhase::InterfaceOnly,
         phalcom_modules::graph::DependencyPhase::Runtime => WirePhase::Runtime,
     }
+}
+
+fn module_phase_covers_callable_observation(
+    summary: &phalcom_compiler_artifact::semantic::world::ImportPhaseSummaryV1,
+    observed: &phalcom_compiler_artifact::semantic::world::DependencyPhaseV1,
+) -> bool {
+    use phalcom_compiler_artifact::semantic::world::DependencyPhaseV1 as Phase;
+    summary.observed
+        && matches!(
+            (&summary.phase, observed),
+            (Phase::Runtime, _) | (Phase::InterfaceOnly, Phase::InterfaceOnly)
+        )
 }
 
 fn export_module_execution_authority(
@@ -5695,6 +5732,30 @@ mod callable_analysis_status_tests {
     use super::*;
 
     #[test]
+    fn module_phase_summary_covers_callable_observations_without_losing_runtime_joins() {
+        use phalcom_compiler_artifact::semantic::world::{DependencyPhaseV1 as Phase, ImportPhaseSummaryV1};
+
+        let runtime = ImportPhaseSummaryV1 {
+            phase: Phase::Runtime,
+            observed: true,
+        };
+        let interface = ImportPhaseSummaryV1 {
+            phase: Phase::InterfaceOnly,
+            observed: true,
+        };
+        let unused_runtime = ImportPhaseSummaryV1 {
+            phase: Phase::Runtime,
+            observed: false,
+        };
+
+        assert!(module_phase_covers_callable_observation(&runtime, &Phase::Runtime));
+        assert!(module_phase_covers_callable_observation(&runtime, &Phase::InterfaceOnly));
+        assert!(module_phase_covers_callable_observation(&interface, &Phase::InterfaceOnly));
+        assert!(!module_phase_covers_callable_observation(&interface, &Phase::Runtime));
+        assert!(!module_phase_covers_callable_observation(&unused_runtime, &Phase::Runtime));
+    }
+
+    #[test]
     fn callable_analysis_status_requires_exact_portable_disposition() {
         use crate::checker::analysis::CallableAnalysisStatus as Status;
         use phalcom_compiler_artifact::semantic::world::CallableAnalysisStatusV1 as PortableStatus;
@@ -5761,6 +5822,7 @@ mod callable_analysis_status_tests {
             }),
             dependency_fingerprint: crate::db::ProductFingerprint::new(123),
             status: CallableAnalysisStatus::Blocked,
+            observed_import_phases: std::sync::Arc::new(Default::default()),
         };
         analysis.body_source_owner = Some(crate::identity::SourceOwner::Module(callable.module().clone()));
 
@@ -5852,7 +5914,7 @@ mod callable_analysis_status_tests {
             declaring_owner: owner.clone(),
             side: DispatchSide::Class,
         });
-        call_expression.status = crate::checker::analysis::AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnavailableSemanticOwner(
+        call_expression.status = crate::checker::analysis::AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnavailableSemanticOwner(Box::new(
             crate::db::QueryKey::GenericConformance(crate::generic_evidence::GenericConformanceKey::new(
                 crate::types::parameter::TypeTerm::Canonical(blocked_subject),
                 crate::traits::TraitRef::new(
@@ -5860,7 +5922,7 @@ mod callable_analysis_status_tests {
                     vec![blocked_argument].into_boxed_slice(),
                 ),
             )),
-        ));
+        )));
         call_expression.call_specialization = Some(crate::checker::analysis::CallSpecialization {
             callable: callable.clone(),
             bindings: Box::new([(parameter, crate::types::store::StaticArgument::DynamicType)]),
@@ -6148,6 +6210,7 @@ mod callable_analysis_status_tests {
             constructor_super_initializer: None,
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status: CallableAnalysisStatus::Complete,
+            observed_import_phases: Arc::new(Default::default()),
         }
     }
 
@@ -6220,15 +6283,28 @@ mod callable_analysis_status_tests {
         let mut types = TypeExportContext::new(&store);
         crate::artifact::roots::register_callable_analysis_roots(&mut types, &source, &store).unwrap();
         types.close_graph(&store, &limits).unwrap();
-        let record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &limits).unwrap();
-        assert_eq!(record.diagnostic_cause_count, 1);
-        assert_eq!(record.diagnostics[0].root_cause, Some(0));
+        let portable_record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &limits).unwrap();
+        assert_eq!(portable_record.diagnostic_cause_count, 1);
+        assert_eq!(portable_record.diagnostics[0].root_cause, Some(0));
+        let record = phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
+            portable_record.clone(),
+            Vec::new(),
+        );
         let graph = types.project_graph(&store, &limits).unwrap();
         let (imported_store, relocation) = crate::types::store::TypeStore::import_type_graph(&graph, &limits).unwrap();
         let mut budget = phalcom_type_meta::allocation::AllocationBudget::new(1 << 20);
         let (table, _) =
-            crate::artifact::import::import_callable_analysis_records(std::slice::from_ref(&record), &relocation, &imported_store, &[], &limits, &mut budget)
-                .unwrap();
+            crate::artifact::import::import_callable_analysis_records(
+                std::slice::from_ref(&record),
+                &relocation,
+                &imported_store,
+                &[],
+                None,
+                &BTreeMap::new(),
+                &limits,
+                &mut budget,
+            )
+            .unwrap();
         let imported = table.get(&callable).unwrap();
         assert!(imported.explanations.is_frozen());
         assert_eq!(imported.explanations.len(), 2);
@@ -6245,7 +6321,7 @@ mod callable_analysis_status_tests {
         imported_types.close_graph(&imported_store, &limits).unwrap();
         let reexported = export_callable_analysis_record(&callable, imported, &BTreeMap::new(), &imported_types, &limits).unwrap();
         assert_eq!(
-            record, reexported,
+            portable_record, reexported,
             "complete portable authority must survive fresh-store and local-ID relocation"
         );
     }
@@ -6378,8 +6454,11 @@ mod callable_analysis_status_tests {
         let mut types = crate::types::store::artifact::TypeExportContext::new(&store);
         crate::artifact::roots::register_callable_analysis_roots(&mut types, &source, &store).unwrap();
         types.close_graph(&store, &ValidationLimits::default()).unwrap();
-        let record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &ValidationLimits::default())
-            .expect("checked family applications must have portable owner rows");
+        let record = phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
+            export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &ValidationLimits::default())
+                .expect("checked family applications must have portable owner rows"),
+            Vec::new(),
+        );
         let graph = types.project_graph(&store, &ValidationLimits::default()).unwrap();
         let (_fresh_store, relocation) = crate::types::store::TypeStore::import_type_graph(&graph, &ValidationLimits::default()).unwrap();
         let mut budget = phalcom_type_meta::allocation::AllocationBudget::new(1 << 20);
@@ -6549,8 +6628,11 @@ mod callable_analysis_status_tests {
         let mut types = crate::types::store::artifact::TypeExportContext::new(&store);
         crate::artifact::roots::register_callable_analysis_roots(&mut types, &source, &store).unwrap();
         types.close_graph(&store, &ValidationLimits::default()).unwrap();
-        let mut record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &ValidationLimits::default())
-            .expect("both executable and known-invalid expansion authority must be transported");
+        let mut record = phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
+            export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &ValidationLimits::default())
+                .expect("both executable and known-invalid expansion authority must be transported"),
+            Vec::new(),
+        );
         let limits = ValidationLimits::default();
         let graph = types.project_graph(&store, &limits).unwrap();
         let (fresh_store, relocation) = crate::types::store::TypeStore::import_type_graph(&graph, &limits).unwrap();
@@ -6723,8 +6805,14 @@ mod callable_analysis_status_tests {
         let mut types = TypeExportContext::new(&store);
         crate::artifact::roots::register_callable_analysis_roots(&mut types, &enriched, &store).unwrap();
         types.close_graph(&store, &ValidationLimits::default()).unwrap();
-        let source_record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &ValidationLimits::default()).unwrap();
-        let enriched_record = export_callable_analysis_record(&callable, &enriched, &BTreeMap::new(), &types, &ValidationLimits::default()).unwrap();
+        let source_record = phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
+            export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &ValidationLimits::default()).unwrap(),
+            Vec::new(),
+        );
+        let enriched_record = phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
+            export_callable_analysis_record(&callable, &enriched, &BTreeMap::new(), &types, &ValidationLimits::default()).unwrap(),
+            Vec::new(),
+        );
 
         assert_ne!(
             source_record, enriched_record,
