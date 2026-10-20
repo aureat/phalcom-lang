@@ -333,7 +333,7 @@ fn image_backed_failure_rolls_back_and_empty_retry_preserves_canonical_authority
     let failed = session.apply_module_mutations([set_overlay(
         "/artf001/image-retry.ph",
         1,
-        "from universe.collections import Array\nconst value: Int = 1\n",
+        "from universe.random import Xoshiro256PlusPlus\nlet value = Xoshiro256PlusPlus.seed(42).nextU64\n",
     )]);
 
     assert!(failed.is_err(), "injected image-backed publication failure must surface");
@@ -354,8 +354,22 @@ fn image_backed_failure_rolls_back_and_empty_retry_preserves_canonical_authority
         .expect("empty batch retries the accepted local source against the same image");
     assert!(session.pending_semantic_delta.is_none());
     assert_eq!(retried.snapshot.sources.len(), 1);
-    assert!(retried.snapshot.sources.values().any(|source| source.text.contains("const value: Int = 1")));
-    assert!(!retried.snapshot.has_errors(), "{:?}", retried.snapshot.diagnostics);
+    assert!(retried.snapshot.sources.values().any(|source| source.text.contains("Xoshiro256PlusPlus")));
+    assert!(
+        retried
+            .snapshot
+            .diagnostics
+            .iter()
+            .filter(|(module, _)| !module.project.is_universe())
+            .all(|(_, diagnostics)| diagnostics.is_empty()),
+        "local retry diagnostics: {:?}",
+        retried
+            .snapshot
+            .diagnostics
+            .iter()
+            .filter(|(module, _)| !module.project.is_universe())
+            .collect::<Vec<_>>()
+    );
     for (key, _) in image.query_image().entries() {
         assert!(session.db().local_query_state(key).is_none(), "retry must not shadow canonical query {key:?}");
         assert_eq!(

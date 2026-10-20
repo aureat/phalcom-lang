@@ -6307,6 +6307,7 @@ impl SemanticWorkspaceSession {
             &dispatch,
             &declarations,
             &conformance_index,
+            &conformance_witness_rebuild_impls,
             &callable_signatures,
             &mut conformance_witness_plans,
             &conformance_witness_bodies,
@@ -7328,6 +7329,7 @@ impl SemanticWorkspaceSession {
             &dispatch,
             &declarations,
             &conformance_index,
+            &conformance_witness_rebuild_impls,
             &callable_signatures,
             &mut conformance_witness_plans,
             &conformance_witness_bodies,
@@ -13064,6 +13066,7 @@ fn publish_conformance_witness_plans(
     dispatch: &SurfaceDispatchResolver,
     declarations: &DeclarationTypeTable,
     conformance_index: &crate::impls::ConformanceIndex,
+    rebuild_impls: &BTreeSet<crate::identity::ImplId>,
     callable_signatures: &crate::signature::CallableSignatureTable,
     conformance_witness_plans: &mut crate::impls::ConformanceWitnessPlans,
     conformance_witness_bodies: &BTreeSet<CallableId>,
@@ -13079,6 +13082,9 @@ fn publish_conformance_witness_plans(
 ) -> Result<BTreeSet<crate::identity::ImplId>, QueryOutcome<()>> {
     let mut changed_plans = BTreeSet::new();
     for (impl_id, contribution) in conformance_index.iter() {
+        if !rebuild_impls.contains(impl_id) {
+            continue;
+        }
         if !contribution.is_lookup_eligible() {
             continue;
         }

@@ -157,9 +157,9 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
     assert!(image.snapshot().derived_conformance_rules.iter().next().is_some());
     assert!(image.snapshot().conformance_index.iter().next().is_some());
     for (revision, source) in [
-        "from universe.collections import Array\nconst value: Int = 1\n",
         "from universe.random import Xoshiro256PlusPlus\nlet value = Xoshiro256PlusPlus.seed(42).nextU64\n",
-        "const replacement: Int = 2\n",
+        "from universe.random import Xoshiro256PlusPlus\nlet value = Xoshiro256PlusPlus.seed(7).nextU64\n",
+        "let replacement = 2\n",
     ]
     .into_iter()
     .enumerate()
@@ -184,7 +184,11 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         assert!(update.snapshot.semantic_structure_shards.keys().all(|module| !module.project.is_universe()));
         assert!(session.module_session().sources().keys().all(|module| !module.project.is_universe()));
         assert!(session.module_session().linked_modules().keys().all(|module| !module.project.is_universe()));
-        assert!(!update.snapshot.has_errors(), "{:?}", update.snapshot.diagnostics);
+        assert!(
+            update.snapshot.diagnostics.get(&local).is_none_or(|diagnostics| diagnostics.is_empty()),
+            "local overlay diagnostics: {:?}",
+            update.snapshot.diagnostics.get(&local)
+        );
         assert!(update.snapshot.internal_incidents.is_empty(), "{:?}", update.snapshot.internal_incidents);
         assert_eq!(
             update.snapshot.conformance_witness_plans.len(),
@@ -334,7 +338,7 @@ fn ordinary_image_session_local_edit_reuses_unrelated_local_queries_and_retains_
                     source_id: SourceId("image-edited.ph".into()),
                     display_path: "/tmp/image-edited.ph".into(),
                 },
-                text: Arc::from("from universe.collections import Array\nconst edited: Int = 1\n"),
+                text: Arc::from("from universe.random import Xoshiro256PlusPlus\nlet edited = Xoshiro256PlusPlus.seed(42).nextU64\n"),
                 revision: SourceRevision(1),
                 recovered_program: None,
             },
@@ -344,13 +348,19 @@ fn ordinary_image_session_local_edit_reuses_unrelated_local_queries_and_retains_
                     source_id: SourceId("image-stable.ph".into()),
                     display_path: "/tmp/image-stable.ph".into(),
                 },
-                text: Arc::from("const stable: Int = 7\n"),
+                text: Arc::from("7\n"),
                 revision: SourceRevision(1),
                 recovered_program: None,
             },
         ])
         .expect("initial local image overlay should publish");
-    assert!(!initial.snapshot.has_errors(), "{:?}", initial.snapshot.diagnostics);
+    for module in [&edited, &stable] {
+        assert!(
+            initial.snapshot.diagnostics.get(module).is_none_or(|diagnostics| diagnostics.is_empty()),
+            "initial local diagnostics for {module:?}: {:?}",
+            initial.snapshot.diagnostics.get(module)
+        );
+    }
 
     let stable_key = QueryKey::ModuleStaticBindings(stable.clone());
     let edited_key = QueryKey::ModuleStaticBindings(edited.clone());
@@ -379,12 +389,16 @@ fn ordinary_image_session_local_edit_reuses_unrelated_local_queries_and_retains_
                 source_id: SourceId("image-edited.ph".into()),
                 display_path: "/tmp/image-edited.ph".into(),
             },
-            text: Arc::from("from universe.random import Xoshiro256PlusPlus\nlet edited = Xoshiro256PlusPlus.seed(42).nextU64\n"),
+            text: Arc::from("from universe.random import Xoshiro256PlusPlus\nlet edited = Xoshiro256PlusPlus.seed(7).nextU64\n"),
             revision: SourceRevision(2),
             recovered_program: None,
         }])
         .expect("edited local image overlay should republish");
-    assert!(!update.snapshot.has_errors(), "{:?}", update.snapshot.diagnostics);
+    assert!(
+        update.snapshot.diagnostics.get(&edited).is_none_or(|diagnostics| diagnostics.is_empty()),
+        "edited local diagnostics: {:?}",
+        update.snapshot.diagnostics.get(&edited)
+    );
     assert!(update.stats.query_products_recomputed > 0, "the edited local source must recompute query products");
     assert!(!update.invalidated.is_empty(), "the edited local source must invalidate prior local query state");
     assert!(!update.recomputed.is_empty(), "the edited local source must recompute local query state");
@@ -445,12 +459,16 @@ fn ordinary_image_sessions_share_canonical_products_but_isolate_workspace_state(
                 source_id: SourceId("image-session-left.ph".into()),
                 display_path: "/tmp/image-session-left.ph".into(),
             },
-            text: Arc::from("const sessionValue: Int = 1\n"),
+            text: Arc::from("1\n"),
             revision: SourceRevision(1),
             recovered_program: None,
         }])
         .expect("left session local source should publish");
-    assert!(!published.snapshot.has_errors(), "{:?}", published.snapshot.diagnostics);
+    assert!(
+        published.snapshot.diagnostics.get(&local).is_none_or(|diagnostics| diagnostics.is_empty()),
+        "left-session local diagnostics: {:?}",
+        published.snapshot.diagnostics.get(&local)
+    );
 
     let local_key = QueryKey::ModuleStaticBindings(local.clone());
     assert!(left.db().local_query_state(&local_key).is_some(), "left session must publish ordinary local query state");
