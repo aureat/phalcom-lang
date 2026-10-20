@@ -764,6 +764,28 @@ fn fresh_process_target_runner() {
         "source bootstrap build count after loading must be 0"
     );
 
+    // T5.2/T5.3: construct the ordinary imported semantic session directly
+    // while every canonical source-producing entry point is denied. Session
+    // construction may create an inert provider, but it must consume only the
+    // loaded image and retain the exact imported snapshot authority.
+    let session = phalcom_semantic::SemanticWorkspaceSession::from_image(
+        phalcom_semantic::identity::WorkspaceId::from_raw(739),
+        loaded.formal_image.clone(),
+    );
+    assert!(std::sync::Arc::ptr_eq(
+        session.last_snapshot().expect("artifact-backed initial snapshot"),
+        loaded.formal_image.snapshot()
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        session.last_known_good_snapshot().expect("artifact-backed initial last-known-good"),
+        loaded.formal_image.snapshot()
+    ));
+    assert_eq!(
+        phalcom_semantic::canonical_image::canonical_universe_formal_image_build_count(),
+        0,
+        "from_image must not trigger canonical source bootstrap under source denial"
+    );
+
     let compiled = loaded
         .compile_user_entry(EntrySelection::Package(std::path::PathBuf::from(pkg_path)))
         .expect("compile package in fresh process against loaded artifact must succeed");
