@@ -5442,6 +5442,79 @@ pub fn export_query_image(
     Ok(image)
 }
 
+fn query_root_dependency_closure_failure(
+    dependencies: &[crate::db::DependencyEdge],
+    dependency_fingerprints: &crate::canonical_image::CanonicalDependencyFingerprints,
+) -> Option<String> {
+    use crate::artifact::query_policy::{CanonicalQueryPersistence, canonical_query_persistence};
+
+    for edge in dependencies {
+        let dependency = &edge.dependency;
+        let Some(current_fingerprint) = dependency_fingerprints.get(dependency) else {
+            return Some(format!("dependency {dependency:?} has no current live fingerprint"));
+        };
+        if *current_fingerprint != edge.observed_fingerprint {
+            return Some(format!(
+                "dependency {dependency:?} observed fingerprint {:?} does not match current live fingerprint {:?}",
+                edge.observed_fingerprint, current_fingerprint
+            ));
+        }
+        if portable_query_owner_v4(dependency).is_err() {
+            return Some(format!("dependency {dependency:?} has no representable portable owner"));
+        }
+        if !matches!(canonical_query_persistence(dependency.kind()), CanonicalQueryPersistence::EligibleStructural)
+            && dependency.kind() != crate::db::QueryKind::HierarchyEdge
+        {
+            return Some(format!(
+                "dependency {dependency:?} is outside canonical structural dependency policy"
+            ));
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod query_export_required_root_tests {
+    use super::*;
+    use crate::canonical_image::CanonicalDependencyFingerprints;
+    use crate::db::{DependencyEdge, ProductFingerprint, QueryKey};
+    use phalcom_modules::ModuleId;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn required_root_dependency_closure_rejects_missing_and_stale_live_evidence() {
+        let module = ModuleId::universe_root();
+        let dependent = QueryKey::UnlinkedInterface(module.clone());
+        let dependency = QueryKey::ModuleStaticBindings(module);
+        let observed = ProductFingerprint::new(0x51);
+        let edge = DependencyEdge {
+            dependent,
+            dependency: dependency.clone(),
+            observed_fingerprint: observed,
+        };
+
+        let missing = CanonicalDependencyFingerprints::Source(BTreeMap::new());
+        assert!(
+            query_root_dependency_closure_failure(std::slice::from_ref(&edge), &missing)
+                .expect("missing dependency evidence must fail")
+                .contains("no current live fingerprint")
+        );
+
+        let stale = CanonicalDependencyFingerprints::Source(BTreeMap::from([(
+            dependency.clone(),
+            ProductFingerprint::new(0x52),
+        )]));
+        assert!(
+            query_root_dependency_closure_failure(std::slice::from_ref(&edge), &stale)
+                .expect("stale dependency evidence must fail")
+                .contains("does not match current live fingerprint")
+        );
+
+        let current = CanonicalDependencyFingerprints::Source(BTreeMap::from([(dependency, observed)]));
+        assert_eq!(query_root_dependency_closure_failure(std::slice::from_ref(&edge), &current), None);
+    }
+}
+
 /// Exports the canonical query closure using current project-qualified owners
 /// and typed references into the V2/V4/V4 artifact sections.
 pub fn export_query_image_v4(
@@ -5497,27 +5570,7 @@ pub fn export_query_image_v4(
             let Some((_, _, _, entry, requirement)) = candidates.iter().find(|(candidate, ..)| candidate == key) else {
                 return Err(referential("retained canonical query root was lost from the export candidate set"));
             };
-            let mut closure_failure = None;
-            for edge in entry.dependencies.iter() {
-                let dependency = &edge.dependency;
-                if dependency_fingerprints.get(dependency).is_none() {
-                    closure_failure = Some(format!("dependency {dependency:?} has no current live fingerprint"));
-                    break;
-                }
-                if portable_query_owner_v4(dependency).is_err() {
-                    closure_failure = Some(format!("dependency {dependency:?} has no representable portable owner"));
-                    break;
-                }
-                if !matches!(canonical_query_persistence(dependency.kind()), CanonicalQueryPersistence::EligibleStructural)
-                    && dependency.kind() != crate::db::QueryKind::HierarchyEdge
-                {
-                    closure_failure = Some(format!(
-                        "dependency {dependency:?} is outside canonical structural dependency policy"
-                    ));
-                    break;
-                }
-            }
-            if let Some(reason) = closure_failure {
+            if let Some(reason) = query_root_dependency_closure_failure(&entry.dependencies, dependency_fingerprints) {
                 match requirement {
                     CanonicalQueryRootRequirement::Required => {
                         return Err(referential(format!("required canonical query root {key:?} is not export-closed: {reason}")));
