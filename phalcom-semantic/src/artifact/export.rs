@@ -5537,7 +5537,7 @@ pub fn export_query_image_v4(
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::query::QueryImageV4, ArtifactError> {
     use crate::artifact::query_policy::{
-        CanonicalQueryRootRequirement, canonical_query_root_requirement, portable_query_kind, query_root_is_reusable,
+        CanonicalQueryRootRequirement, canonical_query_root_requirement, portable_query_kind, query_kind_from_portable, query_root_is_reusable,
     };
     use phalcom_compiler_artifact::query::{DependencyEvidenceEntryV4, PortableQueryKeyV1, QueryImageV4, QueryRootEntryV4};
     use std::collections::{BTreeMap, BTreeSet};
