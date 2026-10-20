@@ -103,7 +103,7 @@ fn signature_projection_resolver<'a>(
 fn require_current_projection_dependencies(db: &SemanticDb, projections: &crate::static_key::ProjectedRecordKeySet<'_>) -> QueryOutcome<()> {
     for dependency in projections.dependencies() {
         let key = semantic_dependency_query_key(&dependency);
-        if db.query_state(&key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+        if !db.is_dependency_current(&key) {
             return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
         }
     }
@@ -235,6 +235,22 @@ fn immutable_canonical_terminal_failure(db: &SemanticDb, key: &QueryKey, attempt
         db.canonical_query_input_fingerprint(key),
         db.canonical_query_product_fingerprint(key),
     )
+}
+
+fn canonical_query_reuse_failure<T>(
+    db: &SemanticDb,
+    key: &QueryKey,
+    input_fingerprint: InputFingerprint,
+    expected_product: &str,
+) -> Option<QueryOutcome<T>> {
+    if !db.is_canonical_query(key) {
+        return None;
+    }
+    Some(QueryOutcome::Failed(format!(
+        "immutable canonical query {key:?} could not satisfy {expected_product} reuse: requested input fingerprint {input_fingerprint:?}, canonical input fingerprint {:?}, canonical product fingerprint {:?}; canonical query roots cannot be recomputed locally",
+        db.canonical_query_input_fingerprint(key),
+        db.canonical_query_product_fingerprint(key),
+    )))
 }
 
 fn query_failure<T>(db: &mut SemanticDb, key: QueryKey, failure: impl Into<String>) -> QueryOutcome<T> {
@@ -951,6 +967,9 @@ pub fn query_bootstrap_hierarchy_edge(
             return QueryOutcome::Ready(product.clone());
         }
     }
+    if let Some(failure) = canonical_query_reuse_failure(db, &key, input_fingerprint, "HierarchyEdge") {
+        return failure;
+    }
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
@@ -980,6 +999,9 @@ pub fn query_declaration_shell(db: &mut SemanticDb, shell: Arc<TypeDeclarationSh
             db.metrics().record_hit();
             return QueryOutcome::Ready(product.clone());
         }
+    }
+    if let Some(failure) = canonical_query_reuse_failure(db, &key, input_fingerprint, "DeclarationShell") {
+        return failure;
     }
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
@@ -1034,6 +1056,9 @@ pub fn query_bootstrap_declaration_surface(
             return QueryOutcome::Ready(product.clone());
         }
     }
+    if let Some(failure) = canonical_query_reuse_failure(db, &key, input_fingerprint, "DeclarationSurface") {
+        return failure;
+    }
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
@@ -1087,7 +1112,7 @@ pub fn query_bootstrap_trait_header(db: &mut SemanticDb, header: Arc<crate::trai
 pub fn query_bootstrap_trait_surface(db: &mut SemanticDb, surface: Arc<crate::traits::TraitSurface>) -> QueryOutcome<Arc<crate::traits::TraitSurface>> {
     let key = QueryKey::TraitSurface(surface.declaration.clone());
     let header_key = QueryKey::TraitHeader(surface.declaration.clone());
-    if db.query_state(&header_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+    if !db.is_dependency_current(&header_key) || db.product(&header_key).and_then(|product| product.as_trait_header()).is_none() {
         return query_failure(db, key, format!("trait surface prerequisite {header_key:?} is not current"));
     }
     let input_fingerprint = crate::db::fingerprint::trait_surface_input_fingerprint(&surface);
@@ -1475,7 +1500,7 @@ pub fn query_static_constant(
                 if dependency_key == key {
                     continue;
                 }
-                if db.query_state(&dependency_key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+                if db.is_dependency_current(&dependency_key) {
                     let _ = db.record_dependency(&mut recorder, dependency_key);
                 }
             }
@@ -1553,7 +1578,7 @@ pub fn query_static_definition_with_record_key_projections(
         if dependency_key == key {
             return query_failure(db, key, "static definition projection captured a self-dependency");
         }
-        if db.query_state(&dependency_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+        if !db.is_dependency_current(&dependency_key) {
             return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
         }
     }
@@ -1570,7 +1595,7 @@ pub fn query_static_definition_with_record_key_projections(
             if conformance_semantics.is_none() {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             }
-        } else if db.query_state(&dependency_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+        } else if !db.is_dependency_current(&dependency_key) {
             return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
         }
     }
@@ -1800,7 +1825,7 @@ fn unavailable_computed_signature_owner(
         let Some((present_in_table, key)) = owner else {
             continue;
         };
-        let current_in_db = db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision());
+        let current_in_db = db.is_dependency_current(&key);
         if !present_in_table || !current_in_db {
             return Some(key);
         }
@@ -1832,7 +1857,7 @@ fn declaration_signature_owner_diagnostics(
         let Some(key) = owner else {
             continue;
         };
-        if db.query_state(&key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+        if !db.is_dependency_current(&key) {
             return Err(key);
         }
         let owner_diagnostics = db.product(&key).and_then(|product| match &key {
@@ -1863,7 +1888,7 @@ fn ensure_semantic_dependency_current(
     match dependency {
         crate::checker::analysis::SemanticDependency::DeclarationShell(declaration) => {
             let key = QueryKey::DeclarationShell(declaration.clone());
-            if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+            if db.is_dependency_current(&key) {
                 return QueryOutcome::Ready(());
             }
             let shell = declarations
@@ -1884,7 +1909,7 @@ fn ensure_semantic_dependency_current(
         }
         crate::checker::analysis::SemanticDependency::TraitHeader(declaration) => {
             let key = QueryKey::TraitHeader(declaration.clone());
-            if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision())
+            if db.is_dependency_current(&key)
                 && db.product(&key).and_then(|product| product.as_trait_header()).is_some()
             {
                 QueryOutcome::Ready(())
@@ -1894,7 +1919,7 @@ fn ensure_semantic_dependency_current(
         }
         crate::checker::analysis::SemanticDependency::LinkedInterface(module) => {
             let key = QueryKey::LinkedInterface(module.clone());
-            if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+            if db.is_dependency_current(&key) {
                 return QueryOutcome::Ready(());
             }
             let Some(linked) = linked else {
@@ -1910,7 +1935,7 @@ fn ensure_semantic_dependency_current(
         }
         crate::checker::analysis::SemanticDependency::LinkedName(mod_id, name) => {
             let key = QueryKey::LinkedName(mod_id.clone(), name.clone());
-            if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+            if db.is_dependency_current(&key) {
                 return QueryOutcome::Ready(());
             }
             let Some(linked) = linked else {
@@ -1927,7 +1952,7 @@ fn ensure_semantic_dependency_current(
         }
         crate::checker::analysis::SemanticDependency::PublicExport(mod_id, name) => {
             let key = QueryKey::PublicExport(mod_id.clone(), name.clone());
-            if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+            if db.is_dependency_current(&key) {
                 return QueryOutcome::Ready(());
             }
             let Some(linked) = linked else {
@@ -1943,7 +1968,7 @@ fn ensure_semantic_dependency_current(
         }
         crate::checker::analysis::SemanticDependency::ResolvedImport(site) => {
             let key = QueryKey::ResolvedImport(site.clone());
-            if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+            if db.is_dependency_current(&key) {
                 return QueryOutcome::Ready(());
             }
             let Some(import_products) = import_products else {
@@ -1976,7 +2001,7 @@ fn unit_outcome<T>(outcome: QueryOutcome<T>) -> QueryOutcome<()> {
 }
 
 fn ensure_dependency_state_current(db: &SemanticDb, key: &QueryKey) -> QueryOutcome<()> {
-    if db.query_state(key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+    if db.is_dependency_current(key) {
         QueryOutcome::Ready(())
     } else {
         QueryOutcome::Failed(format!(
@@ -1996,7 +2021,7 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
     store: &mut TypeStore,
 ) -> QueryOutcome<()> {
     let key = semantic_dependency_query_key(dependency);
-    if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+    if db.is_dependency_current(&key) {
         if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket_key) = dependency {
             let Some(view) = inputs.conformance_semantics else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
@@ -2736,6 +2761,9 @@ pub fn query_bootstrap_callable_signature(db: &mut SemanticDb, signature: Arc<Ca
             return QueryOutcome::Ready(product.clone());
         }
     }
+    if let Some(failure) = canonical_query_reuse_failure(db, &key, input_fingerprint, "CallableSignature") {
+        return failure;
+    }
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
@@ -2837,7 +2865,7 @@ pub fn query_callable_signature_with_inputs(
         .product(&QueryKey::CallableDefinition(callable.clone()))
         .and_then(|product| product.as_callable_definition())
         .cloned();
-    if db.query_state(&key).and_then(QueryState::validated_revision) != Some(db.revision())
+    if !db.is_dependency_current(&key)
         && record_key_projections.is_none()
         && callable_source_has_computed_record_key(&unit, &callable, effective_definition.as_deref())
     {
@@ -2886,7 +2914,7 @@ pub fn query_callable_signature_with_inputs(
             QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
         }
     }
-    if db.query_state(&linked_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+    if !db.is_dependency_current(&linked_key) {
         return query_failure(db, key, format!("CallableSignature prerequisite {linked_key:?} is not current"));
     }
 
@@ -3103,7 +3131,7 @@ pub fn query_field_signature_with_inputs(
             QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
         }
     }
-    if db.query_state(&linked_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+    if !db.is_dependency_current(&linked_key) {
         return query_failure(db, key, format!("FieldSignature prerequisite {linked_key:?} is not current"));
     }
 
@@ -3125,7 +3153,7 @@ pub fn query_field_signature_with_inputs(
     else {
         return query_failure(db, key, format!("missing source declaration for field {field:?}"));
     };
-    if db.query_state(&key).and_then(QueryState::validated_revision) != Some(db.revision())
+    if !db.is_dependency_current(&key)
         && record_key_projections.is_none()
         && let phalcom_ast::ast::ClassMember::Field(field_member) = member
         && field_member
@@ -3868,7 +3896,7 @@ fn query_callable_body_with_requirement(
             None => {
                 let current_signature = |db: &SemanticDb, signature_id: &CallableId| {
                     let signature_key = QueryKey::CallableSignature(signature_id.clone());
-                    (db.query_state(&signature_key).and_then(QueryState::validated_revision) == Some(db.revision()))
+                    (db.is_dependency_current(&signature_key))
                         .then(|| db.product(&signature_key).and_then(|product| product.as_callable_signature()).cloned())
                         .flatten()
                 };

@@ -220,6 +220,16 @@ impl SemanticDb {
         self.canonical.as_ref()?.dependency_fingerprint(key)
     }
 
+    /// Whether current-revision dependency evidence exists for this key.
+    ///
+    /// Unlike reusable query-root ownership, canonical dependency evidence may
+    /// come from an aggregate-only image product such as a structural
+    /// hierarchy edge. Such evidence is immutable and may be recorded as a
+    /// leaf without creating local query state.
+    pub(crate) fn is_dependency_current(&self, key: &QueryKey) -> bool {
+        self.dependency_fingerprint(key).is_some()
+    }
+
     fn dependency_matches(&self, edge: &DependencyEdge) -> bool {
         self.dependency_fingerprint(&edge.dependency) == Some(edge.observed_fingerprint)
     }

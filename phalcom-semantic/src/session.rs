@@ -3949,7 +3949,15 @@ impl SemanticWorkspaceSession {
         }
         // Canonical source declarations (for example Duration) participate in
         // tracked hierarchy dependencies just like native bootstrap classes.
+        // Imported images may retain HierarchyEdge as dependency evidence
+        // without admitting it as a reusable typed query root. In that case
+        // the immutable image fingerprint is the authority and no local query
+        // state may be synthesized for the canonical declaration.
         for (class_decl, _) in self.base_declarations.iter() {
+            let key = QueryKey::HierarchyEdge(class_decl.clone());
+            if self.db.is_dependency_current(&key) {
+                continue;
+            }
             match query_bootstrap_hierarchy_edge(&mut self.db, class_decl.clone(), self.base_hierarchy.superclasses.get(class_decl).cloned()) {
                 QueryOutcome::Ready(_) => {}
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
