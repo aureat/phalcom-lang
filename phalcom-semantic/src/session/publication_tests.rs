@@ -299,12 +299,12 @@ fn image_backed_canonical_trait_resolution_authority_is_seeded_without_source_sy
         .get(iterator)
         .and_then(|members| members.get("Item"))
         .expect("Iterator associated Item requirement");
-    assert_eq!(&iterator_item.trait_declaration, iterator);
+    assert_eq!(&iterator_item.owner, iterator);
     let iterable_item = associated_types
         .get(iterable)
         .and_then(|members| members.get("Item"))
         .expect("Iterable associated Item requirement");
-    assert_eq!(&iterable_item.trait_declaration, iterable);
+    assert_eq!(&iterable_item.owner, iterable);
 }
 
 #[test]
