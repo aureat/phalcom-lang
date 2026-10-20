@@ -1,6 +1,6 @@
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::header::{
-    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V2, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2,
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V3, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2,
     TeloscCapabilities, TeloscHeaderV2,
 };
 use phalcom_compiler_artifact::identity::{CanonicalCompatibilityIdentity, TeloscPackageIdentity};
@@ -243,7 +243,7 @@ fn sample_payload() -> CompilerArtifactPayload {
         semantic_model_version: 1,
         stable_identity_schema: 1,
         module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
-        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V2,
+        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V3,
         query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [5; 16],
@@ -261,7 +261,7 @@ fn sample_payload() -> CompilerArtifactPayload {
     CompilerArtifactPayload {
         header,
         module_world: sample_module_world(),
-        semantic_world: sample_semantic_world(),
+        semantic_world: sample_semantic_world().into(),
         query_image: sample_query_image(),
         metadata: sample_metadata_section(&pkg_id),
     }

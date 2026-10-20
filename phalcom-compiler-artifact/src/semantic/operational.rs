@@ -211,7 +211,7 @@ pub(crate) fn validate_op(
     Ok(())
 }
 
-fn validate_module(module: &StableModuleRef, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+pub(crate) fn validate_module(module: &StableModuleRef, limits: &ValidationLimits) -> Result<(), ArtifactError> {
     crate::identity::validate_persistent_project_ref(&module.project, limits)?;
     let project_strings: Vec<&str> = match &module.project {
         StableProjectRef::Builtin { namespace, version } => vec![namespace, version],

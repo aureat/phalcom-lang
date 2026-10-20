@@ -4,7 +4,7 @@ use crate::codec::{BinaryReader, BinaryWriter};
 use crate::error::{ArtifactError, ValidationError};
 use crate::limits::ValidationLimits;
 use crate::module_world::{Decode, ModuleWorldV1, ModuleWorldV2, Wire};
-use crate::semantic::world::SemanticWorldV3;
+use crate::semantic::world::{SemanticWorldV3, SemanticWorldV4};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{
     StableAssociatedStaticDomainDeclarationRef, StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableFieldRef,
@@ -1112,7 +1112,45 @@ impl QueryImageV3 {
     }
 
     /// Validates typed query product references against the artifact sections.
-    pub fn validate_product_references(&self, modules: &ModuleWorldV2, world: &SemanticWorldV3) -> Result<(), ArtifactError> {
+    pub fn validate_product_references(&self, modules: &ModuleWorldV2, world: &SemanticWorldV4) -> Result<(), ArtifactError> {
+        for root in &self.supported_roots {
+            let row_count = match root.product.kind.profile_support() {
+                QueryProfileSupport::RepresentedByModuleWorld => modules.modules.len(),
+                QueryProfileSupport::RepresentedBySemanticWorld => semantic_product_row_count_v4(root.product.kind, world)
+                    .ok_or_else(|| ValidationError::ReferentialIntegrity("query kind has no semantic product table".into()))?,
+                QueryProfileSupport::OmittedSourceDependent
+                | QueryProfileSupport::AggregateDependencyEvidenceOnly
+                | QueryProfileSupport::OmittedAdvisoryOnly => {
+                    return Err(ValidationError::ReferentialIntegrity("query product reference targets a non-root profile kind".into()).into());
+                }
+            };
+            if root.product.row_index as usize >= row_count {
+                return Err(ValidationError::ReferentialIntegrity(format!(
+                    "query product row {} is out of bounds for {:?} (row count {row_count})",
+                    root.product.row_index, root.product.kind
+                ))
+                .into());
+            }
+
+            // Verify owner agreement for module-world products
+            if root.product.kind.profile_support() == QueryProfileSupport::RepresentedByModuleWorld {
+                let module = &modules.modules[root.product.row_index as usize];
+                if root.key.owner.module_path() != module.identity.path.as_ref()
+                    || root.key.owner.project() != &module.identity.project
+                {
+                    return Err(ValidationError::ReferentialIntegrity(format!(
+                        "query root owner {:?} does not match referenced module {:?}",
+                        root.key.owner, module.identity
+                    ))
+                    .into());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Validates typed query product references against legacy V3 semantic sections.
+    pub fn validate_product_references_v3(&self, modules: &ModuleWorldV2, world: &SemanticWorldV3) -> Result<(), ArtifactError> {
         for root in &self.supported_roots {
             let row_count = match root.product.kind.profile_support() {
                 QueryProfileSupport::RepresentedByModuleWorld => modules.modules.len(),
@@ -1334,6 +1372,52 @@ impl QueryImageV2 {
         }
         Ok(())
     }
+}
+
+fn semantic_product_row_count_v4(kind: PortableQueryKindV1, world: &SemanticWorldV4) -> Option<usize> {
+    Some(match kind {
+        PortableQueryKindV1::DeclarationShell => world.structural_contracts.declaration_shells.len(),
+        PortableQueryKindV1::HierarchyEdge => world.structural_contracts.hierarchy_edges.len(),
+        PortableQueryKindV1::TraitHeader | PortableQueryKindV1::TraitSurface => world.trait_surfaces.len(),
+        PortableQueryKindV1::DeclarationSurface | PortableQueryKindV1::FieldSignature => world.dispatch_surfaces.len(),
+        PortableQueryKindV1::ConformanceDispatch => world.conformance_heads.len(),
+        PortableQueryKindV1::TraitDispatchBucket | PortableQueryKindV1::GenericConformance => world.witness_plans.len(),
+        PortableQueryKindV1::CallableDefinition => world.callable_definitions.len(),
+        PortableQueryKindV1::ConstructorInitialization => world.constructor_initializations.len(),
+        PortableQueryKindV1::CallableSignature => world.callable_signatures.len(),
+        PortableQueryKindV1::CallableEffects => world.callable_signatures.len(),
+        PortableQueryKindV1::CallableBody
+        | PortableQueryKindV1::CallableControl
+        | PortableQueryKindV1::CallableTermination
+        | PortableQueryKindV1::CallableContracts
+        | PortableQueryKindV1::AttributeArgument
+        | PortableQueryKindV1::VerificationConditions => world.callable_analyses.len(),
+        PortableQueryKindV1::DataDeclaration => world.structural_contracts.data_contracts.len(),
+        PortableQueryKindV1::EnumDeclaration => world.structural_contracts.enum_contracts.len(),
+        PortableQueryKindV1::EnumRequirements => world.enum_requirements.len(),
+        PortableQueryKindV1::TypeMemberDeclaration => world.type_member_declarations.len(),
+        PortableQueryKindV1::StaticDomainCaseCatalog => world.static_case_catalogs.len(),
+        PortableQueryKindV1::StaticCaseSignature => world.static_case_signatures.len(),
+        PortableQueryKindV1::AssociatedStaticDomainDeclaration => world.associated_static_domains.len(),
+        PortableQueryKindV1::AssociatedSurface => world.associated_surfaces.len(),
+        PortableQueryKindV1::StaticDefinition | PortableQueryKindV1::CheckedStaticBody => world.static_definitions.len(),
+        PortableQueryKindV1::StaticConstant => world.static_constants.len(),
+        PortableQueryKindV1::ModuleStaticBindingCatalog | PortableQueryKindV1::ModuleStaticBindings => world.module_static_bindings.len(),
+        PortableQueryKindV1::ParsedModule
+        | PortableQueryKindV1::UnlinkedInterface
+        | PortableQueryKindV1::ResolvedImports
+        | PortableQueryKindV1::LinkedInterface
+        | PortableQueryKindV1::SemanticComponent
+        | PortableQueryKindV1::ModuleDiagnostics
+        | PortableQueryKindV1::ModuleMetadata
+        | PortableQueryKindV1::SourceStructure
+        | PortableQueryKindV1::SourceFormalAttachment
+        | PortableQueryKindV1::AdvisoryCallable
+        | PortableQueryKindV1::AdvisoryModule
+        | PortableQueryKindV1::ResolvedImport
+        | PortableQueryKindV1::LinkedName
+        | PortableQueryKindV1::PublicExport => return None,
+    })
 }
 
 fn semantic_product_row_count(kind: PortableQueryKindV1, world: &SemanticWorldV3) -> Option<usize> {

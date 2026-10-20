@@ -11,7 +11,7 @@ use crate::metadata::{METADATA_SECTION_SCHEMA_V1, MetadataSectionV1};
 use crate::module_world::{MODULE_WORLD_SCHEMA_V2, ModuleWorldV2};
 use crate::query::{QUERY_IMAGE_SCHEMA_V3, QueryImageV3};
 use crate::section::{SectionFlags, SectionKind};
-use crate::semantic::world::{SEMANTIC_WORLD_SCHEMA_V3, SemanticWorldV3};
+use crate::semantic::world::{SEMANTIC_WORLD_SCHEMA_V4, SemanticWorldV4};
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
 
@@ -20,7 +20,7 @@ use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
 pub struct CompilerArtifactPayload {
     pub header: TeloscHeaderV2,
     pub module_world: ModuleWorldV2,
-    pub semantic_world: SemanticWorldV3,
+    pub semantic_world: SemanticWorldV4,
     pub query_image: QueryImageV3,
     pub metadata: MetadataSectionV1,
 }
@@ -41,7 +41,7 @@ impl CompilerArtifactPayload {
 
         let mut builder = TeloscContainerBuilder::new(header);
         builder.add_section(SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V2, SectionFlags::REQUIRED, module_bytes);
-        builder.add_section(SectionKind::SemanticWorld, SEMANTIC_WORLD_SCHEMA_V3, SectionFlags::REQUIRED, semantic_bytes);
+        builder.add_section(SectionKind::SemanticWorld, SEMANTIC_WORLD_SCHEMA_V4, SectionFlags::REQUIRED, semantic_bytes);
         builder.add_section(SectionKind::QueryImage, QUERY_IMAGE_SCHEMA_V3, SectionFlags::REQUIRED, query_bytes);
         builder.add_section(SectionKind::Metadata, METADATA_SECTION_SCHEMA_V1, SectionFlags::REQUIRED, metadata_bytes);
 
@@ -86,7 +86,7 @@ impl CompilerArtifactPayload {
 
         // Decodes under budget
         let module_world = ModuleWorldV2::decode_with_allocation_budget(module_data, limits, &mut load_budget)?;
-        let semantic_world = SemanticWorldV3::decode_with_allocation_budget(semantic_data, limits, &mut load_budget)?;
+        let semantic_world = SemanticWorldV4::decode_with_allocation_budget(semantic_data, limits, &mut load_budget)?;
         let query_image = QueryImageV3::decode_with_allocation_budget(query_data, limits, &mut load_budget)?;
         let metadata = MetadataSectionV1::decode_with_allocation_budget(metadata_data, limits, &mut load_budget)?;
 

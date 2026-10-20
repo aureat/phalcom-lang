@@ -1,7 +1,7 @@
 use phalcom_compiler_artifact::*;
 
 fn semantic_world_schema() -> u32 {
-    phalcom_compiler_artifact::semantic::world::SEMANTIC_WORLD_SCHEMA_V3
+    phalcom_compiler_artifact::semantic::world::SEMANTIC_WORLD_SCHEMA_V4
 }
 
 fn module_world_schema() -> u32 {
@@ -88,6 +88,30 @@ fn semantic_world_schema_v2_is_rejected_after_schema3_upgrade() {
         ArtifactError::Container(ContainerError::UnsupportedSectionSchema {
             section: SectionKind::SemanticWorld,
             schema: 2
+        })
+    ));
+}
+
+#[test]
+fn semantic_world_schema_v3_is_rejected_after_schema4_upgrade() {
+    let mut builder = TeloscContainerBuilder::new(create_sample_header());
+    builder.add_section(SectionKind::ModuleWorld, module_world_schema(), SectionFlags::REQUIRED, b"module".to_vec());
+    builder.add_section(SectionKind::SemanticWorld, 3, SectionFlags::REQUIRED, b"legacy-semantic-v3".to_vec());
+    builder.add_section(
+        SectionKind::QueryImage,
+        query_image_schema(),
+        SectionFlags::REQUIRED,
+        b"query".to_vec(),
+    );
+    builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, b"metadata".to_vec());
+
+    let bytes = builder.build().expect("build container carrying legacy semantic world");
+    let error = TeloscContainerView::parse(&bytes, &ValidationLimits::default()).expect_err("schema-3 semantic world must be rejected");
+    assert!(matches!(
+        error,
+        ArtifactError::Container(ContainerError::UnsupportedSectionSchema {
+            section: SectionKind::SemanticWorld,
+            schema: 3
         })
     ));
 }

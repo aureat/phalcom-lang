@@ -18,6 +18,7 @@ pub const MODULE_SEMANTIC_ABI_V2: u32 = 2;
 /// fingerprints are recomputed after relocation and typed reconstruction.
 pub const QUERY_FINGERPRINT_ABI_V2: u32 = 2;
 pub const SEMANTIC_ARTIFACT_ABI_V2: u32 = 2;
+pub const SEMANTIC_ARTIFACT_ABI_V3: u32 = 3;
 pub const STABLE_IDENTITY_SCHEMA_V1: u32 = 1;
 
 bitflags::bitflags! {

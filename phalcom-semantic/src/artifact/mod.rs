@@ -20,6 +20,7 @@ mod enum_requirement_import;
 mod identity;
 mod inherent_import;
 mod module_static_import;
+pub mod manifest;
 mod query_import;
 mod query_policy;
 mod query_product_import;
@@ -57,6 +58,13 @@ pub use enum_requirement_import::ImportedEnumRequirementAuthority;
 pub use identity::StableOwnerCatalog;
 pub use inherent_import::ImportedConditionalInherentAuthority;
 pub use module_static_import::ImportedModuleStaticBindingAuthority;
+pub use manifest::{
+    ArtifactAuthorityDisposition, CompilerAttachmentDispositionRow, CompilerAttachmentFamily, ImportedArtifactFamily,
+    ImportedArtifactFamilyDispositionRow, QueryArtifactDisposition, QueryKindDispositionRow, SessionBaseFamilyManifestRow,
+    SnapshotFieldManifestRow, COMPILER_ATTACHMENT_MANIFEST, IMPORTED_ARTIFACT_FAMILY_MANIFEST, QUERY_KIND_MANIFEST,
+    SESSION_BASE_FAMILY_MANIFEST, SNAPSHOT_FIELD_MANIFEST, compiler_attachment_disposition, imported_family_disposition,
+    query_kind_disposition, session_base_family_disposition, snapshot_field_disposition,
+};
 pub use query_policy::{
     CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_from_portable, query_kind_profile_support, query_root_is_reusable,
 };

@@ -8,7 +8,10 @@ pub use proof::*;
 
 use crate::module_world::SpanV1;
 use crate::module_world::{Decode, Wire, invalid, record, tagged};
-use crate::semantic::aggregates::{DeclaredTypeFactV1, GenericSignatureV1, StructuralPrimaryContractsV1, TraitRefV1, TypeTermV1, UnknownReasonV1};
+use crate::semantic::aggregates::{
+    DeclaredTypeFactV1, GenericSignatureV1, StructuralPrimaryContractsV1, StructuralPrimaryContractsV2, TraitRefV1, TypeTermV1,
+    UnknownReasonV1,
+};
 use crate::semantic::operational::OperationalOpV1;
 use crate::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1};
 use crate::semantic::type_store::{
@@ -1082,6 +1085,220 @@ record!(CallableAnalysisRecordV1 {
     dependencies: Vec<StableCallableRef>,
     semantic_dependencies: Vec<StaticSemanticDependencyV1>,
 });
+
+tagged!(DependencyPhaseV1 {
+    0 => Syntax,
+    1 => LoadTime,
+    2 => Runtime,
+});
+
+tagged!(PhaseEvidenceCoverageV1 {
+    0 => Full,
+    1 => Incomplete,
+});
+
+record!(ImportPhaseSummaryV1 {
+    phase: DependencyPhaseV1,
+    observed: bool,
+});
+
+record!(ModuleImportPhaseBindingV1 {
+    binding: u32,
+    summary: ImportPhaseSummaryV1,
+});
+
+record!(ModuleImportPhaseProductV1 {
+    module: StableModuleRef,
+    bindings: Vec<ModuleImportPhaseBindingV1>,
+    coverage: PhaseEvidenceCoverageV1,
+});
+
+tagged!(RuntimeDependencyReasonV1 {
+    0 => WholeModuleImport,
+    1 => SelectiveValueImport,
+    2 => ReExport,
+    3 => RuntimeDeclarationReference,
+});
+
+tagged!(LinkedReadSpecV1 {
+    0 => Module { module: StableModuleRef },
+    1 => Binding { symbol: StableDeclarationRef },
+});
+
+tagged!(RuntimeRequirementProductV1 {
+    0 => CanonicalIdentity,
+    1 => MetadataDescriptor,
+    2 => RuntimeObject,
+    3 => SourceInitializedValue,
+});
+
+tagged!(RuntimeRequirementTimingV1 {
+    0 => BeforeSourceExecution,
+    1 => DuringModuleInitializer,
+    2 => AfterBootstrap,
+});
+
+tagged!(RuntimeRequirementProducerV1 {
+    0 => DeclarationRead,
+    1 => ImportRead,
+    2 => CompilerGeneratedRead,
+    3 => CallableOwner,
+    4 => PatternOwner,
+    5 => ConformanceTypeOwner,
+    6 => ContextualReceiverRead,
+    7 => MetadataTypeOwner,
+    8 => StaticConstantRead,
+});
+
+tagged!(RuntimeRequirementTargetV1 {
+    0 => Module { module: StableModuleRef },
+    1 => Binding { module: StableModuleRef, name: Box<str> },
+});
+
+record!(RuntimeRequirementProvenanceV1 {
+    consumer: StableModuleRef,
+    producer: RuntimeRequirementProducerV1,
+    target: RuntimeRequirementTargetV1,
+    product: RuntimeRequirementProductV1,
+    timing: RuntimeRequirementTimingV1,
+});
+
+record!(RuntimeDependencyRequirementV1 {
+    importer: StableModuleRef,
+    dependency: StableModuleRef,
+    range: SpanV1,
+    reason: RuntimeDependencyReasonV1,
+    read_target: Option<LinkedReadSpecV1>,
+    provenance: RuntimeRequirementProvenanceV1,
+});
+
+record!(ModuleExecutionAuthorityV1 {
+    import_phase_products: Vec<ModuleImportPhaseProductV1>,
+    runtime_requirements: Vec<RuntimeDependencyRequirementV1>,
+});
+
+impl ModuleExecutionAuthorityV1 {
+    pub const fn empty() -> Self {
+        Self {
+            import_phase_products: Vec::new(),
+            runtime_requirements: Vec::new(),
+        }
+    }
+}
+
+record!(CallableObservedImportPhaseV1 {
+    binding: u32,
+    phase: DependencyPhaseV1,
+});
+
+record!(CallableAnalysisRecordV2 {
+    callable: StableCallableRef,
+    body_source_owner: Option<CallableAnalysisSourceOwnerV1>,
+    body_range: SpanV1,
+    status: CallableAnalysisStatusV1,
+    exits_unreachable: bool,
+    flow_graph: CallableFlowGraphV1,
+    constructor_super_initializer: Option<ConstructorSuperInitializerV1>,
+    expressions: Vec<CallableExpressionRowV1>,
+    conformance_evidence: Vec<CallableConformanceEvidenceNodeV1>,
+    bindings: Vec<CallableBindingRowV1>,
+    for_iteration_lanes: Vec<CallableForIterationLaneV1>,
+    positional_expansions: Vec<CallablePositionalExpansionV1>,
+    known_invalid_positional_expansions: Vec<CallableKnownInvalidPositionalExpansionV1>,
+    sequence_literals: Vec<CallableSequenceLiteralV1>,
+    associated_resolutions: Vec<CallableAssociatedResolutionV1>,
+    callable_reference_resolutions: Vec<CallableReferenceResolutionV1>,
+    family_applications: Vec<CallableFamilyApplicationV1>,
+    local_proof_graph: Option<CallableProofGraphV1>,
+    match_resolutions: Vec<CallableMatchResolutionV1>,
+    pattern_site_resolutions: Vec<CallablePatternSiteResolutionV1>,
+    entry_flow: CallableFlowStateSummaryV1,
+    normal_returns: Vec<CallableNormalReturnV1>,
+    throws: Vec<CallableFlowStateSummaryV1>,
+    return_validation: ReturnContractValidationV1,
+    explanations: Vec<CallableExplanationNodeV1>,
+    return_explanation: Option<u32>,
+    diagnostic_cause_count: u32,
+    diagnostics: Vec<CallableEvidenceDiagnosticV1>,
+    dependencies: Vec<StableCallableRef>,
+    semantic_dependencies: Vec<StaticSemanticDependencyV1>,
+    observed_import_phases: Vec<CallableObservedImportPhaseV1>,
+});
+
+impl From<CallableAnalysisRecordV1> for CallableAnalysisRecordV2 {
+    fn from(v1: CallableAnalysisRecordV1) -> Self {
+        Self {
+            callable: v1.callable,
+            body_source_owner: v1.body_source_owner,
+            body_range: v1.body_range,
+            status: v1.status,
+            exits_unreachable: v1.exits_unreachable,
+            flow_graph: v1.flow_graph,
+            constructor_super_initializer: v1.constructor_super_initializer,
+            expressions: v1.expressions,
+            conformance_evidence: v1.conformance_evidence,
+            bindings: v1.bindings,
+            for_iteration_lanes: v1.for_iteration_lanes,
+            positional_expansions: v1.positional_expansions,
+            known_invalid_positional_expansions: v1.known_invalid_positional_expansions,
+            sequence_literals: v1.sequence_literals,
+            associated_resolutions: v1.associated_resolutions,
+            callable_reference_resolutions: v1.callable_reference_resolutions,
+            family_applications: v1.family_applications,
+            local_proof_graph: v1.local_proof_graph,
+            match_resolutions: v1.match_resolutions,
+            pattern_site_resolutions: v1.pattern_site_resolutions,
+            entry_flow: v1.entry_flow,
+            normal_returns: v1.normal_returns,
+            throws: v1.throws,
+            return_validation: v1.return_validation,
+            explanations: v1.explanations,
+            return_explanation: v1.return_explanation,
+            diagnostic_cause_count: v1.diagnostic_cause_count,
+            diagnostics: v1.diagnostics,
+            dependencies: v1.dependencies,
+            semantic_dependencies: v1.semantic_dependencies,
+            observed_import_phases: Vec::new(),
+        }
+    }
+}
+
+impl CallableAnalysisRecordV2 {
+    pub fn to_v1(&self) -> CallableAnalysisRecordV1 {
+        CallableAnalysisRecordV1 {
+            callable: self.callable.clone(),
+            body_source_owner: self.body_source_owner.clone(),
+            body_range: self.body_range.clone(),
+            status: self.status.clone(),
+            exits_unreachable: self.exits_unreachable,
+            flow_graph: self.flow_graph.clone(),
+            constructor_super_initializer: self.constructor_super_initializer.clone(),
+            expressions: self.expressions.clone(),
+            conformance_evidence: self.conformance_evidence.clone(),
+            bindings: self.bindings.clone(),
+            for_iteration_lanes: self.for_iteration_lanes.clone(),
+            positional_expansions: self.positional_expansions.clone(),
+            known_invalid_positional_expansions: self.known_invalid_positional_expansions.clone(),
+            sequence_literals: self.sequence_literals.clone(),
+            associated_resolutions: self.associated_resolutions.clone(),
+            callable_reference_resolutions: self.callable_reference_resolutions.clone(),
+            family_applications: self.family_applications.clone(),
+            local_proof_graph: self.local_proof_graph.clone(),
+            match_resolutions: self.match_resolutions.clone(),
+            pattern_site_resolutions: self.pattern_site_resolutions.clone(),
+            entry_flow: self.entry_flow.clone(),
+            normal_returns: self.normal_returns.clone(),
+            throws: self.throws.clone(),
+            return_validation: self.return_validation.clone(),
+            explanations: self.explanations.clone(),
+            return_explanation: self.return_explanation,
+            diagnostic_cause_count: self.diagnostic_cause_count,
+            diagnostics: self.diagnostics.clone(),
+            dependencies: self.dependencies.clone(),
+            semantic_dependencies: self.semantic_dependencies.clone(),
+        }
+    }
+}
 
 record!(EnumRequirementSourceV1 {
     module: StableModuleRef,
@@ -2586,6 +2803,268 @@ impl SemanticWorldV3 {
             Err(invalid("conditional dispatch selection has no serialized implementation-member authority"))
         }
     }
+}
+
+pub const SEMANTIC_WORLD_SCHEMA_V4: u32 = 4;
+
+record!(SemanticWorldV4 {
+    type_graph: TypeGraphV1,
+    structural_contracts: StructuralPrimaryContractsV2,
+    enum_requirements: Vec<EnumRequirementOwnerV1>,
+    static_values: StaticValueGraphV1,
+    static_definitions: Vec<StaticDefinitionRecordV1>,
+    static_constants: Vec<StaticConstantRecordV1>,
+    module_static_bindings: Vec<ModuleStaticBindingIndexV1>,
+    witness_plans: Vec<WitnessPlanV1>,
+    derived_conformance_rules: Vec<DerivedConformanceRuleRecordV1>,
+    callable_signatures: Vec<CallableSignatureRecordV1>,
+    callable_definitions: Vec<CallableDefinitionRecordV1>,
+    callable_analyses: Vec<CallableAnalysisRecordV2>,
+    trait_surfaces: Vec<TraitSurfaceRecordV1>,
+    dispatch_surfaces: Vec<DeclarationSurfaceRecordV1>,
+    conditional_inherent_sets: Vec<ConditionalInherentSetV1>,
+    conformance_heads: Vec<ConformanceHeadRecordV1>,
+    constructor_initializations: Vec<ConstructorInitializationRecordV1>,
+    type_member_declarations: Vec<TypeMemberDeclarationRecordV1>,
+    associated_static_domains: Vec<AssociatedStaticDomainRecordV1>,
+    static_case_catalogs: Vec<StaticDomainCaseCatalogRecordV1>,
+    static_case_signatures: Vec<StaticCaseSignatureRecordV1>,
+    associated_surfaces: Vec<AssociatedSurfaceRecordV1>,
+    module_execution_authority: ModuleExecutionAuthorityV1,
+});
+
+impl SemanticWorldV4 {
+    pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
+        self.validate(&ValidationLimits::default())?;
+        let mut out = BinaryWriter::new();
+        out.write_u32(SEMANTIC_WORLD_SCHEMA_V4);
+        self.write(&mut out)?;
+        Ok(out.into_vec())
+    }
+
+    pub fn decode_with_allocation_budget(bytes: &[u8], limits: &ValidationLimits, transaction: &mut AllocationBudget) -> Result<Self, ArtifactError> {
+        let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut section = transaction.child(section_limit);
+        let world = {
+            let mut input = Decode {
+                reader: BinaryReader::new(bytes),
+                limits: *limits,
+                allocations: &mut section,
+                items_left: limits.max_semantic_entries_per_family,
+                depth: 0,
+            };
+            let schema = input.reader.read_u32()?;
+            if schema == SEMANTIC_WORLD_SCHEMA_V3 {
+                return Err(ArtifactError::Validation(crate::ValidationError::IncompatibleWorld(
+                    "unsupported semantic world schema: schema V3 is superseded by V4 for current-main authority".into(),
+                )));
+            }
+            if schema != SEMANTIC_WORLD_SCHEMA_V4 {
+                return Err(invalid("unsupported semantic world schema"));
+            }
+            let world = Self::read(&mut input)?;
+            if input.reader.has_remaining() {
+                return Err(invalid("trailing semantic world bytes"));
+            }
+            world
+        };
+        world.validate_with_allocation_budget(limits, &mut section)?;
+        transaction.commit_child(section).map_err(allocation_error)?;
+        Ok(world)
+    }
+
+    pub fn decode_with_budget(bytes: &[u8], limits: &ValidationLimits, remaining_budget: &mut u64) -> Result<Self, ArtifactError> {
+        let available = usize::try_from(*remaining_budget).map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut transaction = AllocationBudget::new(available);
+        let world = Self::decode_with_allocation_budget(bytes, limits, &mut transaction)?;
+        *remaining_budget = u64::try_from(transaction.remaining()).map_err(|_| allocation_error(AllocationError::Overflow))?;
+        Ok(world)
+    }
+
+    pub fn decode(bytes: &[u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {
+        let mut budget = limits.max_decoded_section_bytes;
+        Self::decode_with_budget(bytes, limits, &mut budget)
+    }
+
+    pub fn validate(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+        let limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut allocations = AllocationBudget::new(limit);
+        self.validate_with_allocation_budget(limits, &mut allocations)
+    }
+
+    pub fn validate_with_allocation_budget(&self, limits: &ValidationLimits, transaction: &mut AllocationBudget) -> Result<(), ArtifactError> {
+        self.structural_contracts.validate_with_allocation_budget(limits, transaction)?;
+        validate_module_execution_authority(&self.module_execution_authority, limits, transaction)?;
+        for analysis in &self.callable_analyses {
+            let mut seen_phases = transaction.vector::<u32>(analysis.observed_import_phases.len()).map_err(allocation_error)?;
+            for phase in &analysis.observed_import_phases {
+                seen_phases.push(phase.binding);
+            }
+            seen_phases.sort_unstable();
+            if seen_phases.windows(2).any(|pair| pair[0] == pair[1]) {
+                return Err(invalid("duplicate binding in callable observed import phases"));
+            }
+        }
+        let v3 = self.to_v3_for_validation();
+        v3.validate_with_allocation_budget(limits, transaction)
+    }
+
+    pub fn to_v3_for_validation(&self) -> SemanticWorldV3 {
+        let shells = self
+            .structural_contracts
+            .declaration_shells
+            .iter()
+            .map(|s| crate::semantic::aggregates::DeclarationShellV1 {
+                declaration: s.declaration.clone(),
+                self_type: s.self_type,
+                parameters: s.parameters.clone(),
+            })
+            .collect();
+        let hierarchy = self
+            .structural_contracts
+            .hierarchy_edges
+            .iter()
+            .map(|h| crate::semantic::aggregates::HierarchyAndAliasV1 {
+                declaration: h.declaration.clone(),
+                superclass: h.superclass.clone(),
+                aliased_type: None,
+            })
+            .collect();
+        let structural_contracts = StructuralPrimaryContractsV1 {
+            declaration_shells: shells,
+            hierarchy_and_aliases: hierarchy,
+            generic_signatures: self.structural_contracts.generic_signatures.clone(),
+            data_contracts: self.structural_contracts.data_contracts.clone(),
+            enum_contracts: self.structural_contracts.enum_contracts.clone(),
+            variant_contracts: self.structural_contracts.variant_contracts.clone(),
+        };
+        let callable_analyses = self.callable_analyses.iter().map(CallableAnalysisRecordV2::to_v1).collect();
+        SemanticWorldV3 {
+            type_graph: self.type_graph.clone(),
+            structural_contracts,
+            enum_requirements: self.enum_requirements.clone(),
+            static_values: self.static_values.clone(),
+            static_definitions: self.static_definitions.clone(),
+            static_constants: self.static_constants.clone(),
+            module_static_bindings: self.module_static_bindings.clone(),
+            witness_plans: self.witness_plans.clone(),
+            derived_conformance_rules: self.derived_conformance_rules.clone(),
+            callable_signatures: self.callable_signatures.clone(),
+            callable_definitions: self.callable_definitions.clone(),
+            callable_analyses,
+            trait_surfaces: self.trait_surfaces.clone(),
+            dispatch_surfaces: self.dispatch_surfaces.clone(),
+            conditional_inherent_sets: self.conditional_inherent_sets.clone(),
+            conformance_heads: self.conformance_heads.clone(),
+            constructor_initializations: self.constructor_initializations.clone(),
+            type_member_declarations: self.type_member_declarations.clone(),
+            associated_static_domains: self.associated_static_domains.clone(),
+            static_case_catalogs: self.static_case_catalogs.clone(),
+            static_case_signatures: self.static_case_signatures.clone(),
+            associated_surfaces: self.associated_surfaces.clone(),
+        }
+    }
+}
+
+impl From<SemanticWorldV3> for SemanticWorldV4 {
+    fn from(v3: SemanticWorldV3) -> Self {
+        Self {
+            type_graph: v3.type_graph,
+            structural_contracts: StructuralPrimaryContractsV2::from(v3.structural_contracts),
+            enum_requirements: v3.enum_requirements,
+            static_values: v3.static_values,
+            static_definitions: v3.static_definitions,
+            static_constants: v3.static_constants,
+            module_static_bindings: v3.module_static_bindings,
+            witness_plans: v3.witness_plans,
+            derived_conformance_rules: v3.derived_conformance_rules,
+            callable_signatures: v3.callable_signatures,
+            callable_definitions: v3.callable_definitions,
+            callable_analyses: v3.callable_analyses.into_iter().map(CallableAnalysisRecordV2::from).collect(),
+            trait_surfaces: v3.trait_surfaces,
+            dispatch_surfaces: v3.dispatch_surfaces,
+            conditional_inherent_sets: v3.conditional_inherent_sets,
+            conformance_heads: v3.conformance_heads,
+            constructor_initializations: v3.constructor_initializations,
+            type_member_declarations: v3.type_member_declarations,
+            associated_static_domains: v3.associated_static_domains,
+            static_case_catalogs: v3.static_case_catalogs,
+            static_case_signatures: v3.static_case_signatures,
+            associated_surfaces: v3.associated_surfaces,
+            module_execution_authority: ModuleExecutionAuthorityV1::empty(),
+        }
+    }
+}
+
+fn validate_module_execution_authority(
+    authority: &ModuleExecutionAuthorityV1,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<(), ArtifactError> {
+    if authority.import_phase_products.len() > limits.max_semantic_entries_per_family
+        || authority.runtime_requirements.len() > limits.max_semantic_entries_per_family
+    {
+        return Err(invalid("module execution authority family limit exceeded"));
+    }
+
+    let mut seen_phase_modules = allocations
+        .vector::<&StableModuleRef>(authority.import_phase_products.len())
+        .map_err(allocation_error)?;
+    for prod in &authority.import_phase_products {
+        crate::semantic::operational::validate_module(&prod.module, limits)?;
+        seen_phase_modules.push(&prod.module);
+        if prod.bindings.len() > limits.max_semantic_entries_per_family {
+            return Err(invalid("import phase bindings count exceeded"));
+        }
+        let mut seen_bindings = allocations.vector::<u32>(prod.bindings.len()).map_err(allocation_error)?;
+        for binding in &prod.bindings {
+            seen_bindings.push(binding.binding);
+        }
+        seen_bindings.sort_unstable();
+        if seen_bindings.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(invalid("duplicate binding in module import phase product"));
+        }
+    }
+    seen_phase_modules.sort_unstable();
+    if seen_phase_modules.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(invalid("duplicate module in import phase products"));
+    }
+
+    let mut seen_reqs = allocations
+        .vector::<(&StableModuleRef, &StableModuleRef, u64, u64)>(authority.runtime_requirements.len())
+        .map_err(allocation_error)?;
+    for req in &authority.runtime_requirements {
+        crate::semantic::operational::validate_module(&req.importer, limits)?;
+        crate::semantic::operational::validate_module(&req.dependency, limits)?;
+        if req.range.start > req.range.end {
+            return Err(invalid("inverted source range in runtime dependency requirement"));
+        }
+        if req.provenance.consumer != req.importer {
+            return Err(invalid("runtime requirement provenance consumer must match importer"));
+        }
+        if let Some(LinkedReadSpecV1::Module { module }) = &req.read_target {
+            if module != &req.dependency {
+                return Err(invalid("runtime requirement read target module mismatch"));
+            }
+        } else if let Some(LinkedReadSpecV1::Binding { symbol }) = &req.read_target {
+            if symbol.module != req.dependency {
+                return Err(invalid("runtime requirement read target symbol module mismatch"));
+            }
+        }
+        let target_module = match &req.provenance.target {
+            RuntimeRequirementTargetV1::Module { module } => module,
+            RuntimeRequirementTargetV1::Binding { module, .. } => module,
+        };
+        if target_module != &req.dependency {
+            return Err(invalid("runtime requirement provenance target module mismatch"));
+        }
+        seen_reqs.push((&req.importer, &req.dependency, req.range.start, req.range.end));
+    }
+    seen_reqs.sort_unstable();
+    if seen_reqs.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(invalid("duplicate runtime dependency requirement"));
+    }
+    Ok(())
 }
 
 fn compare_static_case_domain(left: &StaticCaseDomainV1, right: &StaticCaseDomainV1) -> std::cmp::Ordering {

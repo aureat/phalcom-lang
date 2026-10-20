@@ -8,7 +8,7 @@
 //! defaulted. Source spans are deliberately omitted (logical/capability-
 //! separated per the DTO design rule).
 
-use crate::module_world::{Decode, Wire, invalid, record, tagged};
+use crate::module_world::{Decode, SpanV1, Wire, invalid, record, tagged};
 use crate::semantic::type_store::{
     ArtifactKindId, ArtifactStaticConstructorId, ArtifactStaticDomainId, ArtifactTypeId, ArtifactTypeParameterId, ArtifactVariantTypeId, ParameterModeV1,
     ParameterOwnerV1, SelfTypeV1, VarianceV1,
@@ -29,6 +29,60 @@ record!(HierarchyAndAliasV1 {
     declaration: StableDeclarationRef,
     superclass: Option<StableDeclarationRef>,
     aliased_type: Option<ArtifactTypeId>,
+});
+
+tagged!(DeclarationSemanticFormV1 {
+    0 => Ordinary,
+    1 => IntrinsicTuple,
+    2 => IntrinsicRecord,
+    3 => IntrinsicPack,
+});
+
+tagged!(IntrinsicRuntimeOwnerV1 {
+    0 => Tuple,
+    1 => Record,
+    2 => Pack,
+});
+
+record!(DeclarationTypeBindingV1 {
+    semantic_form: DeclarationSemanticFormV1,
+    runtime_owner: Option<IntrinsicRuntimeOwnerV1>,
+});
+
+record!(GenericSupertypeTemplateV1 {
+    declaration: StableDeclarationRef,
+    supertype: ArtifactTypeId,
+    structural_form: Option<Box<str>>,
+});
+
+record!(DeclarationShellV2 {
+    declaration: StableDeclarationRef,
+    self_type: ArtifactTypeId,
+    class_object_type: ArtifactTypeId,
+    kind: ArtifactKindId,
+    binding: DeclarationTypeBindingV1,
+    parameters: Vec<ArtifactTypeParameterId>,
+    generic_signature: Option<GenericSignatureV1>,
+    supertype_template: Option<GenericSupertypeTemplateV1>,
+    intrinsic_static_domain: Option<ArtifactKindId>,
+    intrinsic_type_owner: Option<IntrinsicRuntimeOwnerV1>,
+});
+
+record!(HierarchyEdgeRecordV1 {
+    declaration: StableDeclarationRef,
+    superclass: Option<StableDeclarationRef>,
+    supertype_template: Option<GenericSupertypeTemplateV1>,
+});
+
+record!(TypeAliasRecordV1 {
+    declaration: StableDeclarationRef,
+    kind: ArtifactKindId,
+    kind_shape: Box<str>,
+    generic_signature: Option<GenericSignatureV1>,
+    form: ArtifactTypeId,
+    structural_form: Box<str>,
+    dependencies: Vec<StableDeclarationRef>,
+    source_span: SpanV1,
 });
 
 // Published type term. Inference-local variables are rejected by semantic
@@ -376,6 +430,251 @@ impl StructuralPrimaryContractsV1 {
             return Err(invalid("structural variant row belongs to no enum contract"));
         }
         Ok(())
+    }
+}
+
+pub const STRUCTURAL_PRIMARY_CONTRACTS_SCHEMA_V2: u32 = 2;
+
+record!(StructuralPrimaryContractsV2 {
+    declaration_shells: Vec<DeclarationShellV2>,
+    hierarchy_edges: Vec<HierarchyEdgeRecordV1>,
+    type_aliases: Vec<TypeAliasRecordV1>,
+    generic_signatures: Vec<GenericSignatureV1>,
+    data_contracts: Vec<DataInfoV1>,
+    enum_contracts: Vec<EnumInfoV1>,
+    variant_contracts: Vec<VariantInfoV1>,
+});
+
+impl StructuralPrimaryContractsV2 {
+    /// Encodes the structural contracts with an explicit schema marker.
+    pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
+        self.validate(&ValidationLimits::default())?;
+        let mut out = BinaryWriter::new();
+        out.write_u32(STRUCTURAL_PRIMARY_CONTRACTS_SCHEMA_V2);
+        self.write(&mut out)?;
+        Ok(out.into_vec())
+    }
+
+    /// Decodes and validates structural rows before a semantic store sees them.
+    pub fn decode(bytes: &[u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {
+        if bytes.len() as u64 > limits.max_decoded_section_bytes {
+            return Err(invalid("structural contract section exceeds decoded byte limit"));
+        }
+        let allocation_limit =
+            usize::try_from(limits.max_decoded_section_bytes).map_err(|_| invalid("structural contract allocation limit exceeds address space"))?;
+        let mut allocations = AllocationBudget::new(allocation_limit);
+        let mut input = Decode {
+            reader: BinaryReader::new(bytes),
+            limits: *limits,
+            allocations: &mut allocations,
+            items_left: limits.max_semantic_entries_per_family,
+            depth: 0,
+        };
+        if input.reader.read_u32()? != STRUCTURAL_PRIMARY_CONTRACTS_SCHEMA_V2 {
+            return Err(invalid("unsupported structural contract schema"));
+        }
+        let contracts = Self::read(&mut input)?;
+        if input.reader.has_remaining() {
+            return Err(invalid("trailing structural contract bytes"));
+        }
+        contracts.validate(limits)?;
+        Ok(contracts)
+    }
+
+    /// Validates row-local ordering, owner identity, declared-order preservation,
+    /// and bounded cross references. Graph references into the type/static
+    /// graphs are checked against those graphs by the semantic loader.
+    pub fn validate(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+        let allocation_limit =
+            usize::try_from(limits.max_decoded_section_bytes).map_err(|_| invalid("structural contract allocation limit exceeds address space"))?;
+        let mut allocations = AllocationBudget::new(allocation_limit);
+        self.validate_with_allocation_budget(limits, &mut allocations)
+    }
+
+    /// Validates structural rows while charging duplicate-detection scratch to
+    /// the caller's semantic import transaction.
+    pub fn validate_with_allocation_budget(&self, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+        let total = self
+            .declaration_shells
+            .len()
+            .checked_add(self.hierarchy_edges.len())
+            .and_then(|n| n.checked_add(self.type_aliases.len()))
+            .and_then(|n| n.checked_add(self.generic_signatures.len()))
+            .and_then(|n| n.checked_add(self.data_contracts.len()))
+            .and_then(|n| n.checked_add(self.enum_contracts.len()))
+            .and_then(|n| n.checked_add(self.variant_contracts.len()))
+            .ok_or_else(|| invalid("structural contract row count overflow"))?;
+        if total > limits.max_semantic_entries_per_family || total > u32::MAX as usize {
+            return Err(invalid("structural contract row budget exceeded"));
+        }
+        for shell in &self.declaration_shells {
+            validate_owner(&shell.declaration, limits)?;
+            validate_index_list(&shell.parameters, limits)?;
+            if let Some(signature) = &shell.generic_signature {
+                validate_signature(signature, limits)?;
+            }
+            if let Some(template) = &shell.supertype_template {
+                validate_owner(&template.declaration, limits)?;
+            }
+        }
+        for hierarchy in &self.hierarchy_edges {
+            validate_owner(&hierarchy.declaration, limits)?;
+            if let Some(superclass) = &hierarchy.superclass {
+                validate_owner(superclass, limits)?;
+            }
+            if let Some(template) = &hierarchy.supertype_template {
+                validate_owner(&template.declaration, limits)?;
+            }
+        }
+        for alias in &self.type_aliases {
+            validate_owner(&alias.declaration, limits)?;
+            if let Some(signature) = &alias.generic_signature {
+                validate_signature(signature, limits)?;
+            }
+            for dep in &alias.dependencies {
+                validate_owner(dep, limits)?;
+            }
+            if alias.source_span.start > alias.source_span.end {
+                return Err(invalid("inverted source span in type alias"));
+            }
+        }
+        for signature in &self.generic_signatures {
+            validate_signature(signature, limits)?;
+        }
+        for data in &self.data_contracts {
+            validate_owner(&data.owner, limits)?;
+            validate_components(&data.components, limits)?;
+            if data.constructor_parameters.len() != data.components.len() {
+                return Err(invalid("data constructor parameters do not zip with components"));
+            }
+            for parameter in &data.constructor_parameters {
+                validate_name(&parameter.local_name, limits)?;
+            }
+            validate_contributions(&data.shape_contributions, &data.components, limits)?;
+            if let Some(static_data) = &data.static_data {
+                validate_static_data(static_data, limits)?;
+            }
+            if let Some(signature) = &data.generic_signature {
+                validate_signature(signature, limits)?;
+            }
+        }
+        let mut variant_rows = allocations
+            .vector::<&StableVariantRef>(self.variant_contracts.len())
+            .map_err(structural_allocation_error)?;
+        for variant in &self.variant_contracts {
+            validate_owner(&variant.variant.owner, limits)?;
+            validate_name(&variant.variant.selector, limits)?;
+            if validate_index_list(&variant.fields, limits).is_err() {
+                return Err(invalid("structural variant field budget exceeded"));
+            }
+            for field in &variant.fields {
+                validate_name(&field.local_name, limits)?;
+            }
+            if let Some(constructor) = &variant.constructor {
+                if variant.shape == VariantShapeV1::Singleton {
+                    return Err(invalid("singleton variant carries a constructor"));
+                }
+                if constructor.parameters.len() != variant.fields.len() {
+                    return Err(invalid("variant constructor parameters do not zip with fields"));
+                }
+                if let Some(signature) = &constructor.generic_signature {
+                    validate_signature(signature, limits)?;
+                }
+            } else if variant.shape == VariantShapeV1::Constructor {
+                return Err(invalid("constructor variant has no constructor signature"));
+            }
+            let mut previous_parameter = None;
+            for binding in &variant.case_environment.bindings {
+                if previous_parameter.is_some_and(|previous| binding.parameter.0 <= previous) {
+                    return Err(invalid("case environment bindings are not sorted by parameter"));
+                }
+                previous_parameter = Some(binding.parameter.0);
+            }
+            validate_constraint_list(&variant.case_environment.equalities, limits)?;
+            variant_rows.push(&variant.variant);
+        }
+        variant_rows.sort_unstable();
+        if variant_rows.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(invalid("duplicate structural variant row"));
+        }
+        let membership_count = self
+            .enum_contracts
+            .iter()
+            .try_fold(0usize, |count, enum_info| count.checked_add(enum_info.variants.len()))
+            .ok_or_else(|| invalid("enum variant membership count overflow"))?;
+        let mut variant_memberships = allocations.vector::<&StableVariantRef>(membership_count).map_err(structural_allocation_error)?;
+        for enum_info in &self.enum_contracts {
+            validate_owner(&enum_info.owner, limits)?;
+            if let Some(signature) = &enum_info.generic_signature {
+                validate_signature(signature, limits)?;
+            }
+            if let Some(static_data) = &enum_info.static_data {
+                validate_static_data(static_data, limits)?;
+            }
+            for variant in &enum_info.variants {
+                if variant.owner != enum_info.owner {
+                    return Err(invalid("enum variant membership names a foreign owner"));
+                }
+                validate_name(&variant.selector, limits)?;
+                if variant_rows.binary_search(&variant).is_err() {
+                    return Err(invalid("enum variant has no structural variant row"));
+                }
+                variant_memberships.push(variant);
+            }
+        }
+        if self.enum_contracts.windows(2).any(|pair| pair[0].owner >= pair[1].owner) {
+            return Err(invalid("enum contracts must be unique and sorted by owner"));
+        }
+        variant_memberships.sort_unstable();
+        if variant_memberships.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(invalid("enum variant membership is duplicated"));
+        }
+        if variant_rows != variant_memberships {
+            return Err(invalid("structural variant row belongs to no enum contract"));
+        }
+        Ok(())
+    }
+}
+
+impl From<StructuralPrimaryContractsV1> for StructuralPrimaryContractsV2 {
+    fn from(v1: StructuralPrimaryContractsV1) -> Self {
+        let declaration_shells = v1
+            .declaration_shells
+            .into_iter()
+            .map(|s| DeclarationShellV2 {
+                declaration: s.declaration,
+                self_type: s.self_type,
+                class_object_type: s.self_type,
+                kind: ArtifactKindId(0),
+                binding: DeclarationTypeBindingV1 {
+                    semantic_form: DeclarationSemanticFormV1::Ordinary,
+                    runtime_owner: None,
+                },
+                parameters: s.parameters,
+                generic_signature: None,
+                supertype_template: None,
+                intrinsic_static_domain: None,
+                intrinsic_type_owner: None,
+            })
+            .collect();
+        let hierarchy_edges = v1
+            .hierarchy_and_aliases
+            .into_iter()
+            .map(|h| HierarchyEdgeRecordV1 {
+                declaration: h.declaration,
+                superclass: h.superclass,
+                supertype_template: None,
+            })
+            .collect();
+        Self {
+            declaration_shells,
+            hierarchy_edges,
+            type_aliases: Vec::new(),
+            generic_signatures: v1.generic_signatures,
+            data_contracts: v1.data_contracts,
+            enum_contracts: v1.enum_contracts,
+            variant_contracts: v1.variant_contracts,
+        }
     }
 }
 

@@ -2,7 +2,7 @@ use phalcom_compiler_artifact::container::{TeloscContainerBuilder, TeloscContain
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::error::{ArtifactError, ContainerError, ValidationError};
 use phalcom_compiler_artifact::header::{
-    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V2, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2,
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V3, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2,
     TeloscCapabilities, TeloscHeaderV2,
 };
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
@@ -20,7 +20,7 @@ use phalcom_compiler_artifact::section::{SectionFlags, SectionKind};
 use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
 use phalcom_compiler_artifact::semantic::static_value::StaticValueGraphV1;
 use phalcom_compiler_artifact::semantic::type_store::TypeGraphV1;
-use phalcom_compiler_artifact::semantic::world::{SEMANTIC_WORLD_SCHEMA_V3, SemanticWorldV3};
+use phalcom_compiler_artifact::semantic::world::{SEMANTIC_WORLD_SCHEMA_V4, SemanticWorldV3};
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
@@ -105,7 +105,7 @@ fn sample_payload() -> CompilerArtifactPayload {
         semantic_model_version: 1,
         stable_identity_schema: 1,
         module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
-        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V2,
+        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V3,
         query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [1; 16],
@@ -220,7 +220,7 @@ fn sample_payload() -> CompilerArtifactPayload {
     CompilerArtifactPayload {
         header,
         module_world,
-        semantic_world,
+        semantic_world: semantic_world.into(),
         query_image,
         metadata: sample_metadata(&pkg_id),
     }
@@ -579,7 +579,7 @@ fn legacy_module_schema_rejected() {
     );
     builder.add_section(
         SectionKind::SemanticWorld,
-        SEMANTIC_WORLD_SCHEMA_V3,
+        SEMANTIC_WORLD_SCHEMA_V4,
         SectionFlags::REQUIRED,
         vec![0u8; 16],
     );
@@ -639,7 +639,7 @@ fn legacy_query_schema_rejected() {
     );
     builder.add_section(
         SectionKind::SemanticWorld,
-        SEMANTIC_WORLD_SCHEMA_V3,
+        SEMANTIC_WORLD_SCHEMA_V4,
         SectionFlags::REQUIRED,
         sample_payload().semantic_world.encode().unwrap(),
     );

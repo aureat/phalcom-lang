@@ -18,7 +18,7 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 | Plan | Status | Completion | Verification | Objective |
 |---|---|---|---|---|
 | `ARTF001.C1.P1` | COMPLETE | IMPLEMENTED | BASELINED | Repository setup, current-main baseline, P7 and main persistence census, authority reconciliation matrix, and P2 handoff. |
-| `ARTF001.C1.P2` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Artifact transport, project-qualified identity, exact resolver-receipt package binding, type/static relocation, primary structural aggregates, and query-owner/persistence-policy slices are implemented and focused-tested. Full semantic product reconstruction, typed query publication, session construction, complete dependency validation, whole-load allocation accounting, and the hostile matrix remain open. |
+| `ARTF001.C1.P2.R3` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Complete P2 before P3: native declaration/alias/hierarchy reconstruction, native witness/derived-conformance, source-free static program execution, complete native `CallableAnalysis`, module execution authority, dependency-closed query import, immutable imported canonical generation, ordinary `SemanticWorkspaceSession` publication without source access, whole-load allocation N/N-1/retry, and hostile matrix certification. Supersedes P2.R2. |
 | `ARTF001.C1.P3` | PROPOSED | NOT_STARTED | UNVERIFIED | Do not start until P2 publishes reconstructed current-main semantic/query authority through the ordinary session. |
 | `ARTF001.C1.P4` | PROPOSED | NOT_STARTED | UNVERIFIED | Core canonical artifact compiler and source-free compilation path parity. |
 | `ARTF001.C1.P5` | PROPOSED | NOT_STARTED | UNVERIFIED | Universe source cutover from `phalcom-core/core/universe` to `packages/universe` retaining `ProjectIdentity::Universe`. |
@@ -26,10 +26,10 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 
 ## Current continuation state (2026-10-20)
 
-- Code revision: `37d2b0d810e78e8ca08b71cc8fcad123eedcceb6` on `feat/artifact-universe-consolidation`, matching `origin/feat/artifact-universe-consolidation`. The implementation files were clean and synchronized before this lifecycle-record update.
-- Current status: P2 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. The latest source slice routes reconstructed type, static-value, structural-aggregate, and typed query owners through one `StableOwnerCatalog` backed by the caller's `ProjectUniverse`.
-- Package authority: Exact `StableProjectRef::Package` bindings use the caller's trusted resolver receipt. The receipt binds the full package/version/fingerprint tuple, validated artifact digest, and an existing persistent project ID. Import allocates no project IDs.
-- Next action: Continue T3 by rebuilding supported query products from semantic rows, checking current input/product fingerprints and dependency evidence, and staging correctly typed products in the one current-main `SemanticDb`. Then assess T4 session publication as its own cross-layer gate.
+- Code revision: `37d2b0d810e78e8ca08b71cc8fcad123eedcceb6` on `feat/artifact-universe-consolidation` (HEAD at `eafa80737df5db1e285ff135afadbfbc434db981`).
+- Active plan: `ARTF001.C1.P2.R3` adopted, superseding `ARTF001.C1.P2.R2`.
+- Current status: P2.R3 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. The substrate routes reconstructed type, static-value, structural-aggregate, and typed query owners through `StableOwnerCatalog`. T0 completed: branch re-pinned, checkpoint normalized, and comprehensive artifact coverage manifest (`phalcom-semantic/src/artifact/manifest.rs`) implemented with exhaustive tests covering every `SemanticSnapshot` field, `SemanticWorkspaceSession` base family, `QueryKind`, compiler attachment family, and imported artifact family.
+- Next action: Execute T1 (close current-main wire/schema authority for declarations, aliases, module execution, and callable phase evidence).
 - Branch rule: Continue and commit directly on `feat/artifact-universe-consolidation`, pushing to `origin/feat/artifact-universe-consolidation`. Do not create a branch. P3 remains proposed until P2 meets its acceptance contract.
 - Record-update scope: This handoff refresh is documentation-only; it did not rerun implementation tests. Four untracked toolchain specification files (`README.md`, `package-model-and-manifest.md`, `registry.md`, and `local-registry.md`) were included in the delivery as requested and are outside P2 implementation scope.
 
@@ -167,17 +167,21 @@ The current pipeline is owned by `ArtifactImportTransaction::stage_payload_with_
 
 ## Active plan
 
-`ARTF001.C1.P2.R2` closure remediation — reconstruct artifact products into current semantic stores and the workspace session, complete query persistence and owner validation, and prove whole-load allocation behavior. The T2/T4 project mapping is owned by the supplied workspace graph. Exact Package bindings require receipts from the caller's trusted resolver. P3 remains proposed until P2 is accepted.
+`ARTF001.C1.P2.R3` — Complete P2 Before P3: Native Semantic Authority, Query Closure, Imported Session Publication, and Certification. Supersedes P2.R2. Tasks T0–T9 define the complete path to P2 closure before unblocking P3.
 
-### P2 task state at source revision `37d2b0d8`
+### P2.R3 task ledger
 
-| Task | Current state |
-|---|---|
-| T1 | Project-qualified module/query schemas and workspace-owned project bindings are implemented; focused identity, topology, and package-authority tests passed. Remaining end-to-end owner/product/dependency checks stay in P2 closure. |
-| T2 | Partial: type and static-value graphs plus data/enum/variant structural aggregates are reconstructed into current stores. Other declaration, hierarchy, callable, conformance, proof, and operational products remain open. |
-| T3 | Partial: exhaustive persistence policy, root-location gate, stable owner catalog, and typed `QueryKey` owner conversion are implemented. Product reconstruction, fingerprint recomputation, dependency closure/freshness, and `SemanticDb` publication remain open. |
-| T4 | Not started: no source-free `SemanticWorkspaceSession` constructor or atomic session/snapshot publication exists. |
-| T5 | Not started: current N/N−1/retry evidence covers tracked import reservations after decode, not allocator-requested bytes across decode through publication. |
-| T6 | Partial: focused malformed-input, identity, relocation, and policy tests exist; the required full hostile compatibility matrix remains incomplete. |
+| Task | Objective | Status |
+|---|---|---|
+| T0 | Re-pin, normalize records, and establish executable completeness contracts (`manifest.rs`) | COMPLETE |
+| T1 | Close current-main wire/schema authority (declarations, aliases, module execution, callable phase evidence) | PENDING |
+| T2 | Materialize declarations, aliases, hierarchy, and structural compiler authority | PENDING |
+| T3 | Complete native witness, evidence, derived-conformance, and static authority | PENDING |
+| T4 | Complete native `CallableAnalysis` | PENDING |
+| T5 | Complete module execution authority and derived snapshot products | PENDING |
+| T6 | Complete dependency-bearing query import | PENDING |
+| T7 | Build the imported canonical generation and ordinary session publication | PENDING |
+| T8 | Whole-load allocation, hostile input, rollback, and source-free certification | PENDING |
+| T9 | P2 closure, checkpoint update, and P3 handoff | PENDING |
 
 The original `ARTF001.C1.P2-handoff.md` and `ARTF001.C1.P2-walkthrough.md` are historical records for the first closure attempt. The current operational handoff is `ARTF001-C1-P2-R2-handoff.md`.
