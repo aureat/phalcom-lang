@@ -5182,66 +5182,16 @@ fn module_phase_covers_callable_observation(
         )
 }
 
-fn export_module_execution_authority(
-    snapshot: &SemanticSnapshot,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
-) -> Result<phalcom_compiler_artifact::semantic::world::ModuleExecutionAuthorityV1, ArtifactError> {
+pub(crate) fn export_runtime_dependency_requirements(
+    requirements: &[phalcom_modules::linker::RuntimeDependencyRequirement],
+) -> Result<Vec<phalcom_compiler_artifact::semantic::world::RuntimeDependencyRequirementV1>, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world as wire;
     use phalcom_modules::graph::{
         RuntimeDependencyReason, RuntimeRequirementProducer, RuntimeRequirementProduct, RuntimeRequirementTarget, RuntimeRequirementTiming,
     };
 
-    let mut import_phase_products = Vec::with_capacity(module_world.modules.len());
-    for module_row in &module_world.modules {
-        let Some((module, product)) = snapshot
-            .import_phase_products
-            .iter()
-            .find(|(module, _)| to_stable_module(module) == module_row.identity)
-        else {
-            return Err(referential("module world module has no current import phase product"));
-        };
-        if product.module != *module {
-            return Err(referential("module import phase product key disagrees with its owner"));
-        }
-        let mut bindings = Vec::with_capacity(product.bindings.len());
-        for (source_binding, summary) in &product.bindings {
-            if source_binding.site.importer != *module {
-                return Err(referential("module import phase binding belongs to a different importer"));
-            }
-            let ordinal = module_world
-                .source_import_binding_ordinal(&module_row.identity, source_binding.site.local.0, source_binding.local.0)?
-                .ok_or_else(|| referential("module import phase product references an absent source binding"))?;
-            bindings.push(wire::ModuleImportPhaseBindingV1 {
-                binding: ordinal,
-                summary: wire::ImportPhaseSummaryV1 {
-                    phase: export_dependency_phase(summary.phase),
-                    observed: summary.observed,
-                },
-            });
-        }
-        bindings.sort_unstable_by_key(|binding| binding.binding);
-        let expected_count = module_world
-            .source_import_binding_count(&module_row.identity)?
-            .ok_or_else(|| referential("module phase owner is absent from the module world"))?;
-        if bindings.len() != expected_count as usize || bindings.iter().enumerate().any(|(index, binding)| binding.binding != index as u32) {
-            return Err(referential("module import phase product does not cover the exact dense source-binding range"));
-        }
-        import_phase_products.push(wire::ModuleImportPhaseProductV1 {
-            module: module_row.identity.clone(),
-            bindings,
-            coverage: match product.coverage {
-                phalcom_modules::linker::PhaseEvidenceCoverage::Complete => wire::PhaseEvidenceCoverageV1::Full,
-                phalcom_modules::linker::PhaseEvidenceCoverage::Incomplete => wire::PhaseEvidenceCoverageV1::Incomplete,
-            },
-        });
-    }
-    import_phase_products.sort_unstable_by(|left, right| left.module.cmp(&right.module));
-    if import_phase_products.len() != snapshot.import_phase_products.len() {
-        return Err(referential("import phase products contain modules outside the serialized module world"));
-    }
-
-    let mut runtime_requirements = Vec::with_capacity(snapshot.generated_runtime_requirements.len());
-    for requirement in snapshot.generated_runtime_requirements.iter() {
+    let mut runtime_requirements = Vec::with_capacity(requirements.len());
+    for requirement in requirements {
         if requirement.provenance.consumer != requirement.importer || requirement.provenance.target.module() != &requirement.dependency {
             return Err(referential("runtime dependency requirement provenance disagrees with its edge"));
         }
@@ -5304,9 +5254,66 @@ fn export_module_execution_authority(
             },
         });
     }
-    runtime_requirements.sort_unstable_by(|left, right| {
-        (&left.importer, &left.dependency, left.range.start, left.range.end).cmp(&(&right.importer, &right.dependency, right.range.start, right.range.end))
-    });
+    runtime_requirements.sort_unstable_by(wire::RuntimeDependencyRequirementV1::canonical_cmp);
+    Ok(runtime_requirements)
+}
+
+fn export_module_execution_authority(
+    snapshot: &SemanticSnapshot,
+    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+) -> Result<phalcom_compiler_artifact::semantic::world::ModuleExecutionAuthorityV1, ArtifactError> {
+    use phalcom_compiler_artifact::semantic::world as wire;
+
+    let mut import_phase_products = Vec::with_capacity(module_world.modules.len());
+    for module_row in &module_world.modules {
+        let Some((module, product)) = snapshot
+            .import_phase_products
+            .iter()
+            .find(|(module, _)| to_stable_module(module) == module_row.identity)
+        else {
+            return Err(referential("module world module has no current import phase product"));
+        };
+        if product.module != *module {
+            return Err(referential("module import phase product key disagrees with its owner"));
+        }
+        let mut bindings = Vec::with_capacity(product.bindings.len());
+        for (source_binding, summary) in &product.bindings {
+            if source_binding.site.importer != *module {
+                return Err(referential("module import phase binding belongs to a different importer"));
+            }
+            let ordinal = module_world
+                .source_import_binding_ordinal(&module_row.identity, source_binding.site.local.0, source_binding.local.0)?
+                .ok_or_else(|| referential("module import phase product references an absent source binding"))?;
+            bindings.push(wire::ModuleImportPhaseBindingV1 {
+                binding: ordinal,
+                summary: wire::ImportPhaseSummaryV1 {
+                    phase: export_dependency_phase(summary.phase),
+                    observed: summary.observed,
+                },
+            });
+        }
+        bindings.sort_unstable_by_key(|binding| binding.binding);
+        let expected_count = module_world
+            .source_import_binding_count(&module_row.identity)?
+            .ok_or_else(|| referential("module phase owner is absent from the module world"))?;
+        if bindings.len() != expected_count as usize || bindings.iter().enumerate().any(|(index, binding)| binding.binding != index as u32) {
+            return Err(referential("module import phase product does not cover the exact dense source-binding range"));
+        }
+        import_phase_products.push(wire::ModuleImportPhaseProductV1 {
+            module: module_row.identity.clone(),
+            bindings,
+            coverage: match product.coverage {
+                phalcom_modules::linker::PhaseEvidenceCoverage::Complete => wire::PhaseEvidenceCoverageV1::Full,
+                phalcom_modules::linker::PhaseEvidenceCoverage::Incomplete => wire::PhaseEvidenceCoverageV1::Incomplete,
+            },
+        });
+    }
+    import_phase_products.sort_unstable_by(|left, right| left.module.cmp(&right.module));
+    if import_phase_products.len() != snapshot.import_phase_products.len() {
+        return Err(referential("import phase products contain modules outside the serialized module world"));
+    }
+
+    let runtime_requirements = export_runtime_dependency_requirements(&snapshot.generated_runtime_requirements)?;
 
     Ok(wire::ModuleExecutionAuthorityV1 {
         import_phase_products,

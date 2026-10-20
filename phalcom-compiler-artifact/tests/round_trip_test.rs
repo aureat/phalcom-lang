@@ -19,7 +19,7 @@ use phalcom_compiler_artifact::semantic::world::{
 };
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_type_meta::fingerprint::Fingerprint128;
-use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
+use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
 use phalcom_type_meta::{
     ArtifactIdentityScheme, KindNode, KindNodeEntry, KindNodeId, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity,
     SEMANTIC_MODEL_VERSION, SemanticMetadataBundle, SemanticMetadataHeader, TYPE_METADATA_SCHEMA_VERSION, TypeNode, TypeNodeEntry,
@@ -317,6 +317,334 @@ fn complete_compiler_artifact_round_trips_through_binary_container() {
     assert_eq!(restored.query_image.supported_roots.len(), payload.query_image.supported_roots.len());
     assert_eq!(restored.metadata.package_digest, payload.metadata.package_digest);
     assert!(budget.remaining() < 32 * 1024 * 1024);
+}
+
+fn runtime_requirement() -> phalcom_compiler_artifact::semantic::world::RuntimeDependencyRequirementV1 {
+    use phalcom_compiler_artifact::module_world::SpanV1;
+    use phalcom_compiler_artifact::semantic::world::*;
+    use phalcom_type_meta::identity::StableDeclarationRef;
+    let world = sample_module_world();
+    let importer = world.modules[0].identity.clone();
+    let dependency = world.modules[1].identity.clone();
+    RuntimeDependencyRequirementV1 {
+        importer: importer.clone(),
+        dependency: dependency.clone(),
+        range: SpanV1 { start: 12, end: 18 },
+        reason: RuntimeDependencyReasonV1::RuntimeDeclarationReference,
+        read_target: Some(LinkedReadSpecV1::Binding {
+            symbol: StableDeclarationRef {
+                module: dependency.clone(),
+                path: vec!["First".into()].into_boxed_slice(),
+            },
+        }),
+        provenance: RuntimeRequirementProvenanceV1 {
+            consumer: importer,
+            producer: RuntimeRequirementProducerV1::DeclarationRead,
+            target: RuntimeRequirementTargetV1::Binding {
+                module: dependency,
+                name: "First".into(),
+            },
+            product: RuntimeRequirementProductV1::RuntimeObject,
+            timing: RuntimeRequirementTimingV1::DuringModuleInitializer,
+        },
+    }
+}
+
+fn semantic_world_with_static_alias(structural_alias_name: Option<&str>, with_hierarchy: bool) -> (SemanticWorldV4, StableDeclarationRef) {
+    use phalcom_compiler_artifact::module_world::SpanV1;
+    use phalcom_compiler_artifact::semantic::aggregates::{HierarchyEdgeRecordV1, TypeAliasRecordV1};
+    use phalcom_compiler_artifact::semantic::operational::OperationalOpV1;
+    use phalcom_compiler_artifact::semantic::static_value::ArtifactStaticValueId;
+    use phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId;
+    use phalcom_compiler_artifact::semantic::world::{CanonicalStaticProgramV1, StaticDefinitionRecordV1, StaticDefinitionSignatureV1, StaticValueDomainV1};
+
+    let mut world = sample_semantic_world();
+    let module = world.module_execution_authority.import_phase_products[1].module.clone();
+    let alias_owner = StableDeclarationRef {
+        module: module.clone(),
+        path: vec!["Alias".into()].into_boxed_slice(),
+    };
+    if let Some(alias_name) = structural_alias_name {
+        let declaration = StableDeclarationRef {
+            module: module.clone(),
+            path: vec![alias_name.into()].into_boxed_slice(),
+        };
+        world.structural_contracts.type_aliases.push(TypeAliasRecordV1 {
+            declaration,
+            kind: ArtifactKindId(0),
+            kind_shape: "Type".into(),
+            generic_signature: None,
+            form: ArtifactTypeId(0),
+            structural_form: "Unit".into(),
+            dependencies: vec![],
+            source_span: SpanV1 { start: 0, end: 0 },
+        });
+    }
+    if with_hierarchy {
+        world.structural_contracts.hierarchy_edges.push(HierarchyEdgeRecordV1 {
+            declaration: alias_owner.clone(),
+            superclass: Some(StableDeclarationRef {
+                module,
+                path: vec!["Base".into()].into_boxed_slice(),
+            }),
+            supertype_template: None,
+        });
+    }
+
+    let result_domain = StaticValueDomainV1::Kind { kind: ArtifactKindId(0) };
+    world.static_definitions.push(StaticDefinitionRecordV1 {
+        id: alias_owner.clone(),
+        signature: StaticDefinitionSignatureV1 {
+            parameters: vec![],
+            result_domain: result_domain.clone(),
+            generic_signature: None,
+        },
+        source: SpanV1 { start: 0, end: 0 },
+        alias_info: Some(alias_owner.clone()),
+        canonical_program: CanonicalStaticProgramV1 {
+            owner: alias_owner.clone(),
+            parameter_count: 0,
+            local_count: 0,
+            root: OperationalOpV1::Constant {
+                value: ArtifactStaticValueId(0),
+            },
+            applications: vec![],
+            kinded_parameters: vec![],
+            static_constant_reads: vec![],
+            dependencies: vec![],
+            result: result_domain,
+            input_fingerprint: 0,
+            module_binding_fingerprint: None,
+        },
+        diagnostics: vec![],
+    });
+    (world, alias_owner)
+}
+
+#[test]
+fn runtime_obligation_duplicates_reject_exact_and_producer_only_repetitions() {
+    use phalcom_compiler_artifact::semantic::world::*;
+    let original = runtime_requirement();
+    let mut other_producer = original.clone();
+    other_producer.provenance.producer = RuntimeRequirementProducerV1::CompilerGeneratedRead;
+    for duplicate in [original.clone(), other_producer] {
+        let mut world = sample_semantic_world();
+        world.module_execution_authority.runtime_requirements = vec![original.clone(), duplicate];
+        let error = world.validate(&ValidationLimits::default()).unwrap_err();
+        assert!(error.to_string().contains("duplicate runtime dependency requirement"), "{error}");
+    }
+}
+
+#[test]
+fn runtime_obligations_at_one_span_preserve_each_distinct_capability() {
+    use phalcom_compiler_artifact::semantic::world::*;
+    let original = runtime_requirement();
+    let mut other_binding = original.clone();
+    if let Some(LinkedReadSpecV1::Binding { symbol }) = &mut other_binding.read_target {
+        symbol.path = vec!["Second".into()].into_boxed_slice();
+    }
+    if let RuntimeRequirementTargetV1::Binding { name, .. } = &mut other_binding.provenance.target {
+        *name = "Second".into();
+    }
+    let mut other_product = original.clone();
+    other_product.provenance.product = RuntimeRequirementProductV1::MetadataDescriptor;
+    let mut other_timing = original.clone();
+    other_timing.provenance.timing = RuntimeRequirementTimingV1::AfterBootstrap;
+    let mut other_reason = original.clone();
+    other_reason.reason = RuntimeDependencyReasonV1::SelectiveValueImport;
+    let mut graph_only = original.clone();
+    graph_only.read_target = None;
+    let variants = vec![original, other_binding, other_product, other_timing, other_reason, graph_only];
+    let mut world = sample_semantic_world();
+    world.module_execution_authority.runtime_requirements = variants.clone();
+    let bytes = world.encode().expect("distinct obligations at one span must encode");
+    let decoded = SemanticWorldV4::decode(&bytes, &ValidationLimits::default()).expect("distinct obligations must decode");
+    assert_eq!(decoded.module_execution_authority.runtime_requirements, variants);
+
+    world
+        .module_execution_authority
+        .runtime_requirements
+        .sort_unstable_by(RuntimeDependencyRequirementV1::canonical_cmp);
+    let expected = world.encode().unwrap();
+    world.module_execution_authority.runtime_requirements.reverse();
+    world
+        .module_execution_authority
+        .runtime_requirements
+        .sort_unstable_by(RuntimeDependencyRequirementV1::canonical_cmp);
+    assert_eq!(world.encode().unwrap(), expected, "full-record ordering must ignore input order");
+}
+
+#[test]
+fn runtime_obligations_reject_inconsistent_read_and_provenance_targets() {
+    use phalcom_compiler_artifact::semantic::world::*;
+    let original = runtime_requirement();
+    let mut wrong_read_module = original.clone();
+    if let Some(LinkedReadSpecV1::Binding { symbol }) = &mut wrong_read_module.read_target {
+        symbol.module = original.importer.clone();
+    }
+    let mut wrong_target_module = original.clone();
+    if let RuntimeRequirementTargetV1::Binding { module, .. } = &mut wrong_target_module.provenance.target {
+        *module = original.importer.clone();
+    }
+    let mut wrong_target_name = original.clone();
+    if let RuntimeRequirementTargetV1::Binding { name, .. } = &mut wrong_target_name.provenance.target {
+        *name = "Different".into();
+    }
+    let mut wrong_target_kind = original.clone();
+    wrong_target_kind.provenance.target = RuntimeRequirementTargetV1::Module {
+        module: original.dependency.clone(),
+    };
+    let mut wrong_consumer = original.clone();
+    wrong_consumer.provenance.consumer = original.dependency;
+    for (requirement, expected) in [
+        (wrong_read_module, "read target symbol module mismatch"),
+        (wrong_target_module, "provenance target module mismatch"),
+        (wrong_target_name, "read target disagrees with provenance target"),
+        (wrong_target_kind, "read target disagrees with provenance target"),
+        (wrong_consumer, "provenance consumer must match importer"),
+    ] {
+        let mut world = sample_semantic_world();
+        world.module_execution_authority.runtime_requirements = vec![requirement];
+        let error = world.validate(&ValidationLimits::default()).unwrap_err();
+        assert!(error.to_string().contains(expected), "expected {expected}: {error}");
+    }
+}
+
+#[test]
+fn v4_static_aliases_survive_validation_projection_with_or_without_hierarchy() {
+    use phalcom_compiler_artifact::module_world::SpanV1;
+    use phalcom_compiler_artifact::semantic::aggregates::HierarchyAndAliasV1;
+    use phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId;
+
+    let limits = ValidationLimits::default();
+    let (alias_only, alias_owner) = semantic_world_with_static_alias(Some("Alias"), false);
+    let bytes = alias_only.encode().expect("alias-only V4 world must validate and encode");
+    let decoded = SemanticWorldV4::decode(&bytes, &limits).expect("alias-only V4 world must decode");
+    assert_eq!(decoded, alias_only);
+    assert_eq!(
+        decoded.to_v3_for_validation().structural_contracts.hierarchy_and_aliases,
+        vec![HierarchyAndAliasV1 {
+            declaration: alias_owner.clone(),
+            superclass: None,
+            aliased_type: Some(ArtifactTypeId(0)),
+        }],
+        "an alias-only owner must be represented in the legacy validation projection"
+    );
+
+    let (combined, combined_owner) = semantic_world_with_static_alias(Some("Alias"), true);
+    let bytes = combined.encode().expect("hierarchy plus alias V4 world must encode");
+    let decoded = SemanticWorldV4::decode(&bytes, &limits).expect("hierarchy plus alias V4 world must decode");
+    assert_eq!(decoded, combined);
+    assert_eq!(
+        decoded.to_v3_for_validation().structural_contracts.hierarchy_and_aliases,
+        vec![HierarchyAndAliasV1 {
+            declaration: combined_owner,
+            superclass: Some(StableDeclarationRef {
+                module: decoded.module_execution_authority.import_phase_products[1].module.clone(),
+                path: vec!["Base".into()].into_boxed_slice(),
+            }),
+            aliased_type: Some(ArtifactTypeId(0)),
+        }],
+        "the alias form must merge into its existing hierarchy row without dropping the superclass"
+    );
+    assert_eq!(decoded.structural_contracts.type_aliases[0].source_span, SpanV1 { start: 0, end: 0 });
+}
+
+#[test]
+fn v4_static_definition_rejects_missing_or_foreign_alias_authority() {
+    let limits = ValidationLimits::default();
+    let (missing, _) = semantic_world_with_static_alias(None, false);
+    let error = missing.validate(&limits).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("static definition alias projection lacks structural alias authority"),
+        "{error}"
+    );
+
+    let (foreign, _) = semantic_world_with_static_alias(Some("OtherAlias"), false);
+    let error = foreign.validate(&limits).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("static definition alias projection lacks structural alias authority"),
+        "{error}"
+    );
+}
+
+#[test]
+fn v4_static_alias_projection_handles_out_of_order_and_duplicate_rows() {
+    use phalcom_compiler_artifact::module_world::SpanV1;
+    use phalcom_compiler_artifact::semantic::aggregates::{HierarchyAndAliasV1, HierarchyEdgeRecordV1, TypeAliasRecordV1};
+    use phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId;
+
+    let limits = ValidationLimits::default();
+    let (mut world, alias_owner) = semantic_world_with_static_alias(Some("Alias"), true);
+    let module = alias_owner.module.clone();
+    let earlier_owner = StableDeclarationRef {
+        module: module.clone(),
+        path: vec!["Aardvark".into()].into_boxed_slice(),
+    };
+    world.structural_contracts.hierarchy_edges.push(HierarchyEdgeRecordV1 {
+        declaration: earlier_owner.clone(),
+        superclass: Some(StableDeclarationRef {
+            module: module.clone(),
+            path: vec!["EarlierBase".into()].into_boxed_slice(),
+        }),
+        supertype_template: None,
+    });
+    let earlier_alias = TypeAliasRecordV1 {
+        declaration: earlier_owner.clone(),
+        kind: ArtifactKindId(0),
+        kind_shape: "Type".into(),
+        generic_signature: None,
+        form: ArtifactTypeId(0),
+        structural_form: "Unit".into(),
+        dependencies: vec![],
+        source_span: SpanV1 { start: 0, end: 0 },
+    };
+    world.structural_contracts.type_aliases.push(earlier_alias);
+    world.structural_contracts.type_aliases.push(TypeAliasRecordV1 {
+        declaration: alias_owner.clone(),
+        kind: ArtifactKindId(0),
+        kind_shape: "Type".into(),
+        generic_signature: None,
+        form: ArtifactTypeId(0),
+        structural_form: "Unit".into(),
+        dependencies: vec![],
+        source_span: SpanV1 { start: 0, end: 0 },
+    });
+
+    let bytes = world.encode().expect("unsorted aliases and hierarchy rows must validate");
+    let decoded = SemanticWorldV4::decode(&bytes, &limits).expect("unsorted alias rows must round trip");
+    let rows = decoded.to_v3_for_validation().structural_contracts.hierarchy_and_aliases;
+    assert_eq!(
+        rows,
+        vec![
+            HierarchyAndAliasV1 {
+                declaration: earlier_owner.clone(),
+                superclass: Some(StableDeclarationRef {
+                    module: module.clone(),
+                    path: vec!["EarlierBase".into()].into_boxed_slice(),
+                }),
+                aliased_type: Some(ArtifactTypeId(0)),
+            },
+            HierarchyAndAliasV1 {
+                declaration: alias_owner.clone(),
+                superclass: Some(StableDeclarationRef {
+                    module: module.clone(),
+                    path: vec!["Base".into()].into_boxed_slice(),
+                }),
+                aliased_type: Some(ArtifactTypeId(0)),
+            },
+            HierarchyAndAliasV1 {
+                declaration: alias_owner,
+                superclass: None,
+                aliased_type: Some(ArtifactTypeId(0)),
+            },
+        ],
+        "projection must sort by owner while retaining every hierarchy and alias row"
+    );
 }
 
 #[test]

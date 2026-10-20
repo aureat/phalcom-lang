@@ -1171,6 +1171,91 @@ record!(RuntimeDependencyRequirementV1 {
     provenance: RuntimeRequirementProvenanceV1,
 });
 
+/// Semantic obligation identity; the producer records an observation mechanism,
+/// while the consumer is independently required to equal the importer.
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
+enum RuntimeRequirementReadTargetKey<'a> {
+    Module(&'a StableModuleRef),
+    Binding(&'a StableDeclarationRef),
+}
+
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
+enum RuntimeRequirementTargetKey<'a> {
+    Module(&'a StableModuleRef),
+    Binding(&'a StableModuleRef, &'a str),
+}
+
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
+struct RuntimeRequirementObligationKey<'a> {
+    importer: &'a StableModuleRef,
+    dependency: &'a StableModuleRef,
+    start: u64,
+    end: u64,
+    reason: u8,
+    read_target: Option<RuntimeRequirementReadTargetKey<'a>>,
+    target: RuntimeRequirementTargetKey<'a>,
+    product: u8,
+    timing: u8,
+}
+
+impl RuntimeDependencyRequirementV1 {
+    fn obligation_key(&self) -> RuntimeRequirementObligationKey<'_> {
+        RuntimeRequirementObligationKey {
+            importer: &self.importer,
+            dependency: &self.dependency,
+            start: self.range.start,
+            end: self.range.end,
+            reason: match self.reason {
+                RuntimeDependencyReasonV1::WholeModuleImport => 0,
+                RuntimeDependencyReasonV1::SelectiveValueImport => 1,
+                RuntimeDependencyReasonV1::ReExport => 2,
+                RuntimeDependencyReasonV1::RuntimeDeclarationReference => 3,
+            },
+            read_target: self.read_target.as_ref().map(|read| match read {
+                LinkedReadSpecV1::Module { module } => RuntimeRequirementReadTargetKey::Module(module),
+                LinkedReadSpecV1::Binding { symbol } => RuntimeRequirementReadTargetKey::Binding(symbol),
+            }),
+            target: match &self.provenance.target {
+                RuntimeRequirementTargetV1::Module { module } => RuntimeRequirementTargetKey::Module(module),
+                RuntimeRequirementTargetV1::Binding { module, name } => RuntimeRequirementTargetKey::Binding(module, name),
+            },
+            product: match self.provenance.product {
+                RuntimeRequirementProductV1::CanonicalIdentity => 0,
+                RuntimeRequirementProductV1::MetadataDescriptor => 1,
+                RuntimeRequirementProductV1::RuntimeObject => 2,
+                RuntimeRequirementProductV1::SourceInitializedValue => 3,
+            },
+            timing: match self.provenance.timing {
+                RuntimeRequirementTimingV1::BeforeSourceExecution => 0,
+                RuntimeRequirementTimingV1::DuringModuleInitializer => 1,
+                RuntimeRequirementTimingV1::AfterBootstrap => 2,
+            },
+        }
+    }
+
+    /// Orders complete records deterministically, retaining producer provenance
+    /// as a tie-breaker without treating it as a separate runtime obligation.
+    pub fn canonical_cmp(&self, other: &Self) -> std::cmp::Ordering {
+        fn producer_tag(producer: &RuntimeRequirementProducerV1) -> u8 {
+            match producer {
+                RuntimeRequirementProducerV1::DeclarationRead => 0,
+                RuntimeRequirementProducerV1::ImportRead => 1,
+                RuntimeRequirementProducerV1::CompilerGeneratedRead => 2,
+                RuntimeRequirementProducerV1::CallableOwner => 3,
+                RuntimeRequirementProducerV1::PatternOwner => 4,
+                RuntimeRequirementProducerV1::ConformanceTypeOwner => 5,
+                RuntimeRequirementProducerV1::ContextualReceiverRead => 6,
+                RuntimeRequirementProducerV1::MetadataTypeOwner => 7,
+                RuntimeRequirementProducerV1::StaticConstantRead => 8,
+            }
+        }
+        self.obligation_key()
+            .cmp(&other.obligation_key())
+            .then_with(|| self.provenance.consumer.cmp(&other.provenance.consumer))
+            .then_with(|| producer_tag(&self.provenance.producer).cmp(&producer_tag(&other.provenance.producer)))
+    }
+}
+
 record!(ModuleExecutionAuthorityV1 {
     import_phase_products: Vec<ModuleImportPhaseProductV1>,
     runtime_requirements: Vec<RuntimeDependencyRequirementV1>,
@@ -2913,16 +2998,68 @@ impl SemanticWorldV4 {
                 parameters: s.parameters.clone(),
             })
             .collect();
-        let hierarchy = self
-            .structural_contracts
-            .hierarchy_edges
-            .iter()
-            .map(|h| crate::semantic::aggregates::HierarchyAndAliasV1 {
-                declaration: h.declaration.clone(),
-                superclass: h.superclass.clone(),
-                aliased_type: None,
-            })
-            .collect();
+        let mut ordered_hierarchy_edges = self.structural_contracts.hierarchy_edges.iter().collect::<Vec<_>>();
+        ordered_hierarchy_edges.sort_by(|left, right| left.declaration.cmp(&right.declaration));
+        let mut ordered_type_aliases = self.structural_contracts.type_aliases.iter().collect::<Vec<_>>();
+        ordered_type_aliases.sort_by(|left, right| left.declaration.cmp(&right.declaration));
+        let mut hierarchy_edges = ordered_hierarchy_edges.into_iter().peekable();
+        let mut type_aliases = ordered_type_aliases.into_iter().peekable();
+        let mut hierarchy = Vec::with_capacity(
+            self.structural_contracts
+                .hierarchy_edges
+                .len()
+                .saturating_add(self.structural_contracts.type_aliases.len()),
+        );
+        while hierarchy_edges.peek().is_some() || type_aliases.peek().is_some() {
+            use std::cmp::Ordering;
+
+            match (hierarchy_edges.peek(), type_aliases.peek()) {
+                (Some(edge), Some(alias)) => match edge.declaration.cmp(&alias.declaration) {
+                    Ordering::Less => {
+                        let edge = hierarchy_edges.next().expect("peeked hierarchy edge");
+                        hierarchy.push(crate::semantic::aggregates::HierarchyAndAliasV1 {
+                            declaration: edge.declaration.clone(),
+                            superclass: edge.superclass.clone(),
+                            aliased_type: None,
+                        });
+                    }
+                    Ordering::Equal => {
+                        let edge = hierarchy_edges.next().expect("peeked hierarchy edge");
+                        let alias = type_aliases.next().expect("peeked type alias");
+                        hierarchy.push(crate::semantic::aggregates::HierarchyAndAliasV1 {
+                            declaration: edge.declaration.clone(),
+                            superclass: edge.superclass.clone(),
+                            aliased_type: Some(alias.form),
+                        });
+                    }
+                    Ordering::Greater => {
+                        let alias = type_aliases.next().expect("peeked type alias");
+                        hierarchy.push(crate::semantic::aggregates::HierarchyAndAliasV1 {
+                            declaration: alias.declaration.clone(),
+                            superclass: None,
+                            aliased_type: Some(alias.form),
+                        });
+                    }
+                },
+                (Some(_), None) => {
+                    let edge = hierarchy_edges.next().expect("peeked hierarchy edge");
+                    hierarchy.push(crate::semantic::aggregates::HierarchyAndAliasV1 {
+                        declaration: edge.declaration.clone(),
+                        superclass: edge.superclass.clone(),
+                        aliased_type: None,
+                    });
+                }
+                (None, Some(_)) => {
+                    let alias = type_aliases.next().expect("peeked type alias");
+                    hierarchy.push(crate::semantic::aggregates::HierarchyAndAliasV1 {
+                        declaration: alias.declaration.clone(),
+                        superclass: None,
+                        aliased_type: Some(alias.form),
+                    });
+                }
+                (None, None) => break,
+            }
+        }
         let structural_contracts = StructuralPrimaryContractsV1 {
             declaration_shells: shells,
             hierarchy_and_aliases: hierarchy,
@@ -2994,7 +3131,7 @@ fn validate_module_execution_authority(
     }
 
     let mut seen_reqs = allocations
-        .vector::<(&StableModuleRef, &StableModuleRef, u64, u64)>(authority.runtime_requirements.len())
+        .vector::<&RuntimeDependencyRequirementV1>(authority.runtime_requirements.len())
         .map_err(allocation_error)?;
     for req in &authority.runtime_requirements {
         crate::semantic::operational::validate_module(&req.importer, limits)?;
@@ -3021,10 +3158,21 @@ fn validate_module_execution_authority(
         if target_module != &req.dependency {
             return Err(invalid("runtime requirement provenance target module mismatch"));
         }
-        seen_reqs.push((&req.importer, &req.dependency, req.range.start, req.range.end));
+        let read_matches_target = match (&req.read_target, &req.provenance.target) {
+            (None, _) => true,
+            (Some(LinkedReadSpecV1::Module { module: read }), RuntimeRequirementTargetV1::Module { module: target }) => read == target,
+            (Some(LinkedReadSpecV1::Binding { symbol }), RuntimeRequirementTargetV1::Binding { module, name }) => {
+                &symbol.module == module && symbol.path.len() == 1 && symbol.path[0].as_ref() == name.as_ref()
+            }
+            _ => false,
+        };
+        if !read_matches_target {
+            return Err(invalid("runtime requirement read target disagrees with provenance target"));
+        }
+        seen_reqs.push(req);
     }
-    seen_reqs.sort_unstable();
-    if seen_reqs.windows(2).any(|pair| pair[0] == pair[1]) {
+    seen_reqs.sort_unstable_by(|left, right| left.obligation_key().cmp(&right.obligation_key()));
+    if seen_reqs.windows(2).any(|pair| pair[0].obligation_key() == pair[1].obligation_key()) {
         return Err(invalid("duplicate runtime dependency requirement"));
     }
     Ok(())

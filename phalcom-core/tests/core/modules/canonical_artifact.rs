@@ -635,8 +635,104 @@ fn fresh_process_source_bootstrap_negative_control_runner() {
     if std::env::var("PHALCOM_TEST_NEGATIVE_CONTROL").is_err() {
         return;
     }
-    // Attempt canonical source bootstrap; must panic because PHALCOM_DENY_SOURCE_BOOTSTRAP=1 is set.
-    let _ = canonical_universe_formal_image();
+    let operation = std::env::var("PHALCOM_TEST_SOURCE_DENIAL_OPERATION").expect("source denial operation");
+    eprintln!("SOURCE_DENIAL_OPERATION={operation}");
+    match operation.as_str() {
+        "source_text_root" => {
+            let provider = phalcom_modules::builtin::UniverseSourceProvider::new();
+            let _ = provider.source_text(&phalcom_modules::ModuleId::universe_root());
+        }
+        "prelude_source_construction" => {
+            let _ = phalcom_semantic::prelude::PreludeTypeMap::build_source_canonical_universe();
+        }
+        "canonical_formal_image" => {
+            let _ = canonical_universe_formal_image();
+        }
+        "canonical_universe_program" => {
+            let _ = canonical_universe_program();
+        }
+        "provider_new" => {
+            let _ = phalcom_modules::builtin::UniverseSourceProvider::new();
+        }
+        other => panic!("unknown source denial operation: {other}"),
+    }
+}
+
+const SOURCE_DENIAL_OPERATIONS: [&str; 4] = [
+    "source_text_root",
+    "prelude_source_construction",
+    "canonical_formal_image",
+    "canonical_universe_program",
+];
+
+fn source_denial_marker(operation: &str) -> &'static str {
+    match operation {
+        "source_text_root" | "prelude_source_construction" => "UniverseSourceProvider::source_text",
+        "canonical_formal_image" => "Canonical source bootstrap",
+        "canonical_universe_program" => "Canonical universe program source bootstrap",
+        other => panic!("no denial marker is defined for operation {other}"),
+    }
+}
+
+fn run_source_denial_child(operation: &str) -> std::process::Output {
+    let current_exe = std::env::current_exe().expect("current test executable");
+    std::process::Command::new(current_exe)
+        .arg("--exact")
+        .arg("modules_canonical_artifact::fresh_process_source_bootstrap_negative_control_runner")
+        .arg("--nocapture")
+        .env("PHALCOM_DENY_SOURCE_BOOTSTRAP", "1")
+        .env("PHALCOM_TEST_NEGATIVE_CONTROL", "1")
+        .env("PHALCOM_TEST_SOURCE_DENIAL_OPERATION", operation)
+        .output()
+        .expect("spawn source denial runner")
+}
+
+fn assert_source_bootstrap_denied(operation: &str) {
+    let output = run_source_denial_child(operation);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "{operation} must fail under PHALCOM_DENY_SOURCE_BOOTSTRAP=1; stdout: {}; stderr: {stderr}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+    assert!(
+        stderr.contains(&format!("SOURCE_DENIAL_OPERATION={operation}")),
+        "child did not enter {operation}; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("PHALCOM_DENY_SOURCE_BOOTSTRAP"),
+        "{operation} failure must cite PHALCOM_DENY_SOURCE_BOOTSTRAP; stderr: {stderr}"
+    );
+    let marker = source_denial_marker(operation);
+    assert!(
+        stderr.contains(marker),
+        "{operation} must be stopped by its expected source-denial guard ({marker}); stderr: {stderr}"
+    );
+}
+
+fn assert_provider_new_remains_inert_under_source_denial() {
+    let output = run_source_denial_child("provider_new");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "UniverseSourceProvider::new() must remain inert under PHALCOM_DENY_SOURCE_BOOTSTRAP=1; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("SOURCE_DENIAL_OPERATION=provider_new"),
+        "child did not enter the provider_new control; stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("UniverseSourceProvider::source_text attempted"),
+        "provider construction must not attempt a source read; stderr: {stderr}"
+    );
+}
+
+#[test]
+fn source_denial_guards_are_effective_without_artifact() {
+    for operation in SOURCE_DENIAL_OPERATIONS {
+        assert_source_bootstrap_denied(operation);
+    }
+    assert_provider_new_remains_inert_under_source_denial();
 }
 
 #[test]
@@ -692,11 +788,12 @@ fn fresh_process_target_runner() {
 /// source bootstrap in a fresh process under `PHALCOM_DENY_SOURCE_BOOTSTRAP=1`.
 ///
 /// Denial instrumentation behavior:
-/// - `canonical_universe_program()` checks `PHALCOM_DENY_SOURCE_BOOTSTRAP` and panics.
-/// - `canonical_universe_formal_image()` checks `PHALCOM_DENY_SOURCE_BOOTSTRAP` and panics.
-/// - `UniverseSourceProvider::read_source()` checks `PHALCOM_DENY_SOURCE_BOOTSTRAP` and panics.
-/// - `PreludeTypeMap::canonical_universe()` accesses `UniverseSourceProvider::new()`,
-///   so invoking it while source bootstrap is denied will panic in `UniverseSourceProvider`.
+/// - Canonical source reads through `UniverseSourceProvider::source_text()` are denied.
+/// - `canonical_universe_formal_image()` and `canonical_universe_program()` also deny
+///   their source-bootstrap entry points directly.
+/// - `PreludeTypeMap::build_source_canonical_universe()` constructs an inert provider,
+///   then reaches the guarded `source_text()` path while building its source catalog.
+/// - `UniverseSourceProvider::new()` itself remains permitted; it does not read source.
 /// - `PreludeTypeMap::initialize_from_snapshot()` does NOT access `UniverseSourceProvider`
 ///   or parse sources; it initializes the prelude directly from the artifact snapshot.
 #[test]
@@ -736,29 +833,15 @@ fn fresh_process_source_denied_artifact_compilation() {
     let slotmap_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("packages/slotmap");
     assert!(slotmap_pkg.exists(), "packages/slotmap must exist at {:?}", slotmap_pkg);
 
-    let current_exe = std::env::current_exe().expect("current test executable");
-
-    // 1. Negative control: attempt canonical source bootstrap under PHALCOM_DENY_SOURCE_BOOTSTRAP=1 and assert it fails
-    let mut neg_cmd = std::process::Command::new(&current_exe);
-    neg_cmd
-        .arg("--exact")
-        .arg("modules_canonical_artifact::fresh_process_source_bootstrap_negative_control_runner")
-        .arg("--nocapture")
-        .env("PHALCOM_DENY_SOURCE_BOOTSTRAP", "1")
-        .env("PHALCOM_TEST_NEGATIVE_CONTROL", "1");
-    let neg_output = neg_cmd.output().expect("spawn negative control runner");
-    assert!(
-        !neg_output.status.success(),
-        "Canonical source bootstrap must fail under PHALCOM_DENY_SOURCE_BOOTSTRAP=1"
-    );
-    let neg_stderr = String::from_utf8_lossy(&neg_output.stderr);
-    assert!(
-        neg_stderr.contains("PHALCOM_DENY_SOURCE_BOOTSTRAP"),
-        "Negative control failure must cite PHALCOM_DENY_SOURCE_BOOTSTRAP, got stderr: {}",
-        neg_stderr
-    );
+    // Verify each source-producing entry point is actively denied, and the
+    // provider remains inert until source_text() is requested.
+    for operation in SOURCE_DENIAL_OPERATIONS {
+        assert_source_bootstrap_denied(operation);
+    }
+    assert_provider_new_remains_inert_under_source_denial();
 
     // 2. Positive proof: loaded artifact compiles packages under PHALCOM_DENY_SOURCE_BOOTSTRAP=1 with zero source reads
+    let current_exe = std::env::current_exe().expect("current test executable");
     let mut cmd = std::process::Command::new(current_exe);
     cmd.arg("--exact")
         .arg("modules_canonical_artifact::fresh_process_target_runner")

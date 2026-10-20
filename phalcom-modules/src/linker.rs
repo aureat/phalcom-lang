@@ -50,6 +50,35 @@ pub struct RuntimeDependencyRequirement {
 }
 
 impl RuntimeDependencyRequirement {
+    /// Orders the complete record, including read effect and observation
+    /// provenance, independently of producer traversal order.
+    pub fn canonical_cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (
+            &self.importer,
+            &self.dependency,
+            self.range,
+            self.reason,
+            &self.read_target,
+            &self.provenance.target,
+            self.provenance.product,
+            self.provenance.timing,
+            &self.provenance.consumer,
+            self.provenance.producer,
+        )
+            .cmp(&(
+                &other.importer,
+                &other.dependency,
+                other.range,
+                other.reason,
+                &other.read_target,
+                &other.provenance.target,
+                other.provenance.product,
+                other.provenance.timing,
+                &other.provenance.consumer,
+                other.provenance.producer,
+            ))
+    }
+
     pub fn edge(&self) -> RuntimeDependencyEdge {
         RuntimeDependencyEdge {
             importer: self.importer.clone(),
@@ -897,9 +926,7 @@ impl ModuleLinker {
 
         let known_modules = modules.keys().cloned().collect::<BTreeSet<_>>();
         let mut ordered_requirements = requirements.to_vec();
-        ordered_requirements.sort_by(|left, right| {
-            (&left.importer, &left.dependency, left.range, &left.provenance).cmp(&(&right.importer, &right.dependency, right.range, &right.provenance))
-        });
+        ordered_requirements.sort_by(RuntimeDependencyRequirement::canonical_cmp);
         for requirement in &ordered_requirements {
             if !known_modules.contains(&requirement.importer) {
                 return Err(LinkError::MissingModule {

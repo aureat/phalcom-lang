@@ -8943,4 +8943,264 @@ mod tests {
         );
         assert_eq!(imported.associated_surfaces, surfaces);
     }
+
+    fn runtime_requirement_module_world() -> (phalcom_compiler_artifact::module_world::ModuleWorldV2, ModuleId, ModuleId) {
+        use phalcom_compiler_artifact::module_world::{ArtifactModuleId, ModuleKindV1, ModuleV2, ModuleWorldV2};
+
+        let root = ModuleId::universe_root();
+        let dependency = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("core").unwrap()]));
+        let project = StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        };
+        let module = |identity: StableModuleRef,
+                      path: Vec<String>,
+                      kind: ModuleKindV1,
+                      topology_parent: Option<ArtifactModuleId>,
+                      topology_children: Vec<ArtifactModuleId>| ModuleV2 {
+            identity,
+            path,
+            kind,
+            declarations: vec![],
+            exports: vec![],
+            imports: vec![],
+            exposed_children: vec![],
+            metadata: vec![],
+            linked_exports: vec![],
+            globals: vec![],
+            import_bindings: vec![],
+            linked_reads: vec![],
+            runtime_dependencies: vec![],
+            references: vec![],
+            runtime_edges: vec![],
+            topology_parent,
+            topology_children,
+            interface_fingerprint: 0,
+            linked_interface_fingerprint: 0,
+            dependency_fingerprint: 0,
+        };
+        let mut world = ModuleWorldV2 {
+            entry: ArtifactModuleId(0),
+            initialization_order: vec![ArtifactModuleId(0), ArtifactModuleId(1)],
+            modules: vec![
+                module(
+                    StableModuleRef {
+                        project: project.clone(),
+                        path: Box::new([]),
+                    },
+                    vec![],
+                    ModuleKindV1::Package,
+                    None,
+                    vec![ArtifactModuleId(1)],
+                ),
+                module(
+                    StableModuleRef {
+                        project,
+                        path: Box::new(["core".into()]),
+                    },
+                    vec!["core".into()],
+                    ModuleKindV1::Module,
+                    Some(ArtifactModuleId(0)),
+                    vec![],
+                ),
+            ],
+            semantic_rows: vec![],
+            external_projects: vec![],
+            topology_fingerprint: 0,
+        };
+        world.refresh_portable_topology_fingerprint().unwrap();
+        (world, root, dependency)
+    }
+
+    fn empty_semantic_world_for_module_world(
+        module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    ) -> phalcom_compiler_artifact::semantic::world::SemanticWorldV4 {
+        use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV2;
+        use phalcom_compiler_artifact::semantic::static_value::{StaticValueGraphV1, StaticValueV1};
+        use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1, TypeEntryV1, TypeGraphV1, TypeV1};
+        use phalcom_compiler_artifact::semantic::world::{ModuleExecutionAuthorityV1, ModuleImportPhaseProductV1, PhaseEvidenceCoverageV1, SemanticWorldV4};
+
+        let mut import_phase_products = module_world
+            .modules
+            .iter()
+            .map(|module| ModuleImportPhaseProductV1 {
+                module: module.identity.clone(),
+                bindings: vec![],
+                coverage: PhaseEvidenceCoverageV1::Full,
+            })
+            .collect::<Vec<_>>();
+        import_phase_products.sort_unstable_by(|left, right| left.module.cmp(&right.module));
+        SemanticWorldV4 {
+            type_graph: TypeGraphV1 {
+                types: vec![TypeEntryV1 {
+                    kind: ArtifactKindId(0),
+                    form: TypeV1::Unit,
+                }],
+                kinds: vec![KindV1::Type],
+                parameters: vec![],
+                current_parameters: vec![],
+                rows: vec![],
+                families: vec![],
+                variants: vec![],
+                static_domains: vec![],
+                static_constructors: vec![],
+                scoped: vec![],
+                lambdas: vec![],
+                variance_overrides: vec![],
+            },
+            structural_contracts: StructuralPrimaryContractsV2 {
+                declaration_shells: vec![],
+                intrinsic_static_domains: vec![],
+                intrinsic_type_owners: vec![],
+                hierarchy_edges: vec![],
+                type_aliases: vec![],
+                generic_signatures: vec![],
+                data_contracts: vec![],
+                enum_contracts: vec![],
+                variant_contracts: vec![],
+            },
+            enum_requirements: vec![],
+            static_values: StaticValueGraphV1 {
+                values: vec![StaticValueV1::Unit],
+                strings: vec![],
+                symbols: vec![],
+                tuples: vec![],
+                sequences: vec![],
+                records: vec![],
+                data_values: vec![],
+                variant_values: vec![],
+                pack_backings: vec![],
+                packs: vec![],
+            },
+            static_definitions: vec![],
+            static_constants: vec![],
+            module_static_bindings: vec![],
+            witness_plans: vec![],
+            derived_conformance_rules: vec![],
+            callable_signatures: vec![],
+            callable_definitions: vec![],
+            callable_analyses: vec![],
+            trait_surfaces: vec![],
+            dispatch_surfaces: vec![],
+            conditional_inherent_sets: vec![],
+            conformance_heads: vec![],
+            constructor_initializations: vec![],
+            type_member_declarations: vec![],
+            associated_static_domains: vec![],
+            static_case_catalogs: vec![],
+            static_case_signatures: vec![],
+            associated_surfaces: vec![],
+            module_execution_authority: ModuleExecutionAuthorityV1 {
+                import_phase_products,
+                runtime_requirements: vec![],
+            },
+        }
+    }
+
+    #[test]
+    fn runtime_requirement_multiset_survives_native_export_v4_and_canonical_import() {
+        use phalcom_compiler_artifact::limits::ValidationLimits;
+        use phalcom_modules::graph::{
+            RuntimeDependencyReason, RuntimeRequirementProducer, RuntimeRequirementProduct, RuntimeRequirementProvenance, RuntimeRequirementTarget,
+            RuntimeRequirementTiming,
+        };
+        use phalcom_modules::linker::{LinkedReadSpec, RuntimeDependencyRequirement, SymbolId};
+
+        let (module_world, importer, dependency) = runtime_requirement_module_world();
+        fn make_requirement(
+            importer: &ModuleId,
+            dependency: &ModuleId,
+            name: &str,
+            reason: RuntimeDependencyReason,
+            product: RuntimeRequirementProduct,
+            timing: RuntimeRequirementTiming,
+            with_read_target: bool,
+        ) -> RuntimeDependencyRequirement {
+            RuntimeDependencyRequirement {
+                importer: importer.clone(),
+                dependency: dependency.clone(),
+                range: SourceRange { start: 12, end: 18 },
+                reason,
+                read_target: with_read_target.then(|| {
+                    LinkedReadSpec::Binding(SymbolId {
+                        module: dependency.clone(),
+                        name: name.into(),
+                    })
+                }),
+                provenance: RuntimeRequirementProvenance {
+                    consumer: importer.clone(),
+                    producer: RuntimeRequirementProducer::DeclarationRead,
+                    target: RuntimeRequirementTarget::Binding {
+                        module: dependency.clone(),
+                        name: name.into(),
+                    },
+                    product,
+                    timing,
+                },
+            }
+        }
+        let native_requirements = vec![
+            make_requirement(
+                &importer,
+                &dependency,
+                "First",
+                RuntimeDependencyReason::RuntimeDeclarationReference,
+                RuntimeRequirementProduct::RuntimeObject,
+                RuntimeRequirementTiming::DuringModuleInitializer,
+                true,
+            ),
+            make_requirement(
+                &importer,
+                &dependency,
+                "Second",
+                RuntimeDependencyReason::RuntimeDeclarationReference,
+                RuntimeRequirementProduct::RuntimeObject,
+                RuntimeRequirementTiming::DuringModuleInitializer,
+                true,
+            ),
+            make_requirement(
+                &importer,
+                &dependency,
+                "First",
+                RuntimeDependencyReason::RuntimeDeclarationReference,
+                RuntimeRequirementProduct::MetadataDescriptor,
+                RuntimeRequirementTiming::DuringModuleInitializer,
+                true,
+            ),
+            make_requirement(
+                &importer,
+                &dependency,
+                "First",
+                RuntimeDependencyReason::RuntimeDeclarationReference,
+                RuntimeRequirementProduct::RuntimeObject,
+                RuntimeRequirementTiming::AfterBootstrap,
+                true,
+            ),
+            make_requirement(
+                &importer,
+                &dependency,
+                "First",
+                RuntimeDependencyReason::SelectiveValueImport,
+                RuntimeRequirementProduct::RuntimeObject,
+                RuntimeRequirementTiming::DuringModuleInitializer,
+                false,
+            ),
+        ];
+
+        let mut world = empty_semantic_world_for_module_world(&module_world);
+        world.module_execution_authority.runtime_requirements =
+            crate::artifact::export::export_runtime_dependency_requirements(&native_requirements).expect("export native runtime requirements");
+        let encoded = world.encode().expect("encode validated SemanticWorldV4");
+        let decoded = phalcom_compiler_artifact::semantic::world::SemanticWorldV4::decode(&encoded, &ValidationLimits::default())
+            .expect("decode and validate SemanticWorldV4");
+        let (_, imported_requirements) =
+            import_module_execution_authority(&decoded.module_execution_authority, &module_world, &mut AllocationBudget::new(1 << 20))
+                .expect("import canonical runtime requirements");
+        let mut expected = native_requirements;
+        expected.sort_unstable_by(RuntimeDependencyRequirement::canonical_cmp);
+        assert_eq!(
+            imported_requirements, expected,
+            "the complete same-span obligation multiset must survive transport"
+        );
+    }
 }

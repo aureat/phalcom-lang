@@ -204,7 +204,7 @@ fn push_runtime_requirement(
         None => phalcom_modules::RuntimeRequirementTarget::Module(dependency.clone()),
     };
     let product = target.conservative_product();
-    requirements.push(RuntimeDependencyRequirement {
+    let requirement = RuntimeDependencyRequirement {
         importer: importer.clone(),
         dependency: dependency.clone(),
         range,
@@ -217,7 +217,13 @@ fn push_runtime_requirement(
             product,
             timing: phalcom_modules::RuntimeRequirementTiming::DuringModuleInitializer,
         },
-    });
+    };
+    // Several checked expression views can project the same declaration read.
+    // Only this producer owns that overlap; other mechanisms keep their own
+    // publication rules and distinct authority must remain visible.
+    if producer != RuntimeRequirementProducer::DeclarationRead || !requirements.contains(&requirement) {
+        requirements.push(requirement);
+    }
 }
 
 fn push_declaration_read_requirement(
@@ -397,7 +403,7 @@ fn push_callable_owner_requirement(
     if importer == dependency {
         return;
     }
-    requirements.push(RuntimeDependencyRequirement {
+    let requirement = RuntimeDependencyRequirement {
         importer: importer.clone(),
         dependency: dependency.clone(),
         range,
@@ -410,7 +416,12 @@ fn push_callable_owner_requirement(
             product: phalcom_modules::RuntimeRequirementProduct::CanonicalIdentity,
             timing: phalcom_modules::RuntimeRequirementTiming::BeforeSourceExecution,
         },
-    });
+    };
+    // A selected callable, its specialization, and its impl can share an owner.
+    // They require one identical module identity capability at this source site.
+    if !requirements.contains(&requirement) {
+        requirements.push(requirement);
+    }
 }
 
 fn push_invocation_target_owner_requirement(
@@ -521,7 +532,7 @@ fn push_binding_owner_requirement(
         module: declaration.module.clone(),
         name: declaration.name.clone(),
     };
-    requirements.push(RuntimeDependencyRequirement {
+    let requirement = RuntimeDependencyRequirement {
         importer: importer.clone(),
         dependency: declaration.module.clone(),
         range,
@@ -534,7 +545,11 @@ fn push_binding_owner_requirement(
             target,
             timing: phalcom_modules::RuntimeRequirementTiming::DuringModuleInitializer,
         },
-    });
+    };
+    // Pattern site and resolved pattern views can name the same owner binding.
+    if producer != RuntimeRequirementProducer::PatternOwner || !requirements.contains(&requirement) {
+        requirements.push(requirement);
+    }
 }
 
 fn add_conformance_type_owner_requirements(
@@ -2164,6 +2179,26 @@ mod native_prelude_tests {
             ["errors", "error"].map(|name| ModuleComponent::from_identifier(name).unwrap()),
         ));
         (module, index, DeclarationId::new(dependency, "Error".into()), (0..5).into())
+    }
+
+    #[test]
+    fn overlapping_owner_views_publish_each_exact_obligation_once() {
+        let (module, _, declaration, range) = fixture();
+        let mut requirements = Vec::new();
+        for _ in 0..3 {
+            push_declaration_read_requirement(&module, &declaration, range, &mut requirements);
+            push_callable_owner_requirement(&module, &declaration.module, range, &mut requirements);
+            push_binding_owner_requirement(&module, &declaration, range, RuntimeRequirementProducer::PatternOwner, &mut requirements);
+        }
+        assert_eq!(
+            requirements.len(),
+            3,
+            "distinct read, module capability, and pattern capability must survive repeated views"
+        );
+        let distinct = DeclarationId::new(declaration.module.clone(), "OtherError".into());
+        push_declaration_read_requirement(&module, &distinct, range, &mut requirements);
+        push_binding_owner_requirement(&module, &distinct, range, RuntimeRequirementProducer::PatternOwner, &mut requirements);
+        assert_eq!(requirements.len(), 5, "different exact bindings at one span are distinct obligations");
     }
 
     #[test]

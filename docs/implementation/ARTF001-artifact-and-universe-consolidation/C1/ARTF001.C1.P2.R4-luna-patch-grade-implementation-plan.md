@@ -1225,6 +1225,26 @@ read-target/dependency mismatch
 invalid runtime provenance
 ```
 
+## T2.6a Canonical runtime-requirement identity (advisory amendment, 2026-10-20)
+
+Runtime requirement uniqueness uses semantic obligation identity: importer,
+dependency, range, reason, read target, provenance target, required product,
+and required timing. The provenance consumer must equal the importer.
+Producer identifies the observation mechanism and does not create another
+obligation. Owning producers suppress redundant observations; transport rejects
+remaining duplicate obligations without dropping records.
+
+Distinct reads, targets, products, timing, and reasons at one source span must
+round-trip. Canonical ordering covers the complete record, including consumer
+and producer. The current wire carries every identity field, so this correction
+requires no schema or ABI bump before R4.T8 freezes the contract.
+
+Acceptance requires zero duplicate obligations and producer-only redundant
+observations, same-span distinct-obligation native round-trip, and deterministic
+runtime requirement ordering. Capture all remaining coarse-location collisions
+before another producer correction. Do not add global producer precedence or a
+final blanket deduplication pass.
+
 ## T2.7 Witness / derived / proof authority
 
 The merged P7 importer should be treated as the candidate complete implementation.

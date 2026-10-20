@@ -27,7 +27,7 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 
 ## Current continuation state (2026-10-20)
 
-- Code revision: `2d3cf9ce2ca66d5da45aae8b26b765179efbddc1` on `feat/artifact-universe-consolidation`; P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
+- Code revision at this continuation: `4c3ec8412` on `feat/artifact-universe-consolidation`; P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
 - Active plan: `ARTF001.C1.P2.R4`, superseding `ARTF001.C1.P2.R3`.
 - Current status: P2.R4 active (`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`). P2 remains open; P3 is blocked pending R4 acceptance. The merge-period test prohibition is ended: R4 requires executed test evidence for every behavioral acceptance gate. The task ledger and continuation findings below own current progress.
 - Pack consultation: closed. Pack remains runtime owner and semantic application form without an eighth type-member owner.
@@ -318,5 +318,148 @@ The separate `ArtifactImportTransaction::stage_payload_with_digest` path still r
 - Correction: native-prelude fallback runs after module semantic projections. It suppresses an observation only when a `DeclarationRead` matches every other requirement field. Different targets, products, or timing remain distinct. The artifact validator and its duplicate rejection are unchanged.
 - Focused evidence: `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib phase_evidence::native_prelude_tests -- --nocapture` passes 3/3 in 0.01s. The tests cover overlapping same-authority reads, distinct targets at one span, and distinct authority for one target.
 - Next gate: rerun the exact core allocation test with `PHALCOM_SAVE_UNIVERSE_TELOSC_FOR_TEST=/tmp/artf001-universe.telosc`. The prior dispatch has no preserved result, no active process, and no exported file in the current environment. No build/load, allocation, source-denial, or speedup acceptance is promoted from the focused producer tests.
+
+### P2.R4 runtime obligation identity ruling — 2026-10-20
+
+The user supplied an architectural ruling after the repeated duplicate rejection.
+The native-prelude suppression remains accepted. Independently, wire duplicate
+identity `(importer, dependency, range)` is too coarse for the native contract.
+R4.T2.6a now defines obligation identity as importer, dependency, range, reason,
+read target, provenance target, product, and timing. Consumer must equal importer;
+producer alone does not distinguish obligations. Transport must reject duplicate
+obligations and preserve distinct same-span obligations. Full-record ordering is
+required in native finalization and export. No schema/ABI bump is needed before
+the R4 freeze because the existing wire already carries the fields.
+
+The authorized correction includes precise wire validation, complete record
+ordering, hostile/round-trip tests, and native export/import parity. Capture all
+remaining coarse-location collision groups before any further producer change;
+ownership-specific suppression is permitted only for proven duplicate obligations.
+No global producer precedence or blanket deduplication is authorized.
+
+The complete diagnostic run finished in 115.81s before further producer edits.
+It found 521 groups sharing importer, dependency, and range: 374 groups contained
+only repeated identical obligations, accounting for 616 extra records
+(`CallableOwner`: 302; `DeclarationRead`: 72; `PatternOwner`: 242). The other 147
+groups contained distinct obligations, with no repeated obligation within those
+groups. No producer-only collision remained. The bounded correction therefore
+targets repeated observations in those three owning producer helpers and retains
+the distinct groups. Diagnostic instrumentation has been removed. The diagnostic
+run still failed during export; it provides no load or allocation certification.
+
+The bounded correction's focused gates pass: compiler-artifact suite 111/111;
+`phase_evidence::native_prelude_tests` 4/4; and
+`runtime_requirement_multiset_survives_native_export_v4_and_canonical_import`
+1/1. The bridge transports five same-span native requirements through the
+production exporter mapping, V4 encode/decode validation, and canonical import,
+then compares complete native records. The vertical build/load gate is next;
+T2 and T3 remain incomplete.
+
+The single vertical run after this correction reached a different export check:
+`static definition alias projection lacks structural alias authority`. It failed
+after 113.22s of test execution (145.91s including compilation), before saving an
+artifact or reporting any allocation stage. The runtime-requirement check no
+longer blocks that run. Whole-load and source-free acceptance remain pending.
+
+The new failure is a current-schema adapter defect under T2.4. V4 validates its
+current structural contracts, then `to_v3_for_validation` builds a temporary V3
+view containing hierarchy rows with `aliased_type: None` and omits every V2
+type-alias row. The reused V3 static-definition validator then requires the
+missing alias projection. The exporter has already checked the static product's
+alias against the native alias table, and the native importer consumes the V2
+alias rows. The bounded correction must preserve aliases in the validation view,
+merge same-owner hierarchy/alias rows without losing superclass authority, and
+retain rejection when structural alias authority is actually absent. This adapts
+the private validation projection; it changes no canonical authority or schema.
+
+The alias adapter correction is implemented and focused-tested: three alias
+regressions and all 114 compiler-artifact tests pass. It preserves superclass and
+alias form for shared owners, handles unordered rows, and retains duplicate rows
+for validation. Its vertical run passed the alias check and reached query export,
+then failed because a DeclarationShell query had no semantic product row.
+
+The subsequent diagnostic-only census examined all 2,564 reusable candidates:
+16 DeclarationShell mappings fail. Fifteen native Alias products have existing
+V4 alias rows but no nominal shells. Native `reflection.package_object::Package`
+is Nominal and absent from nominal, alias, static-domain, and intrinsic-owner rows.
+The latter is a separate final-aggregate/query consistency issue; its cause has
+not been established. The diagnostic run failed after 109.50s (129.15s including
+compilation), saved no artifact, and emitted no allocation-stage results.
+Instrumentation has been removed. No query representation or retention policy
+has been changed.
+
+**Consultation required:** DeclarationShell transport currently selects only the
+nominal table, although the native product is a nominal/alias sum type. Selecting
+a new table/index contract or discarding roots changes a cross-layer product
+contract. Implementation of that issue stops under the mandatory escalation
+rules. The incident, complete owner census, alternatives, and decisions requested
+are in [`ARTF001.C1.P2.R4-query-shell-consultation.md`](ARTF001.C1.P2.R4-query-shell-consultation.md).
+Current status remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED; T2/T3 acceptance,
+source-free loading, and speedup remain unproven.
+
+### P2.R4 source-denial controls and Package scope evidence — 2026-10-20
+
+Direct source denial is now implemented at `UniverseSourceProvider::source_text`.
+Provider construction remains inert. A focused parent test starts separate child
+processes for direct root-source access, source prelude construction, canonical
+formal-image construction, and canonical compiler-program construction; each
+must fail at its expected denial guard. A fifth child proves provider construction
+is allowed. These controls are shared with the later artifact-backed positive
+test.
+
+The canonical-artifact test file had no module registration, so earlier filters
+could not execute it. It is now registered as `modules_canonical_artifact` in the
+core test binary and compiles. The exact focused selector
+`modules_canonical_artifact::source_denial_guards_are_effective_without_artifact`
+passes 1/1 with 1028 tests filtered, in 0.02s, with artifact environment variables
+unset. This proves denial efficacy, not artifact-backed source-free operation.
+
+A temporary Package scope probe used its actual source interface and the
+production symbolic linker/resolver. Package has no imports; Module is not in the
+canonical prelude; unqualified Module resolves to None in Package's scope despite
+being known. Object resolves through the prelude, and Module resolves locally in
+its own module. Exactly one probe test passed in 0.07s. The probe is removed and
+`resolver.rs` has no diff. Evidence is saved at
+`/tmp/artf001-r4-package-scope-probe.log`.
+
+This establishes the unresolved superclass name in Package's source. Missing
+explicit import followed by blocked-declaration removal is the causal lead for
+the absent final row; the exact removal event was not executed by this probe.
+No Package source, query-freeze, or query-representation correction was made.
+The architectural consultation remains pending. The user requested a handoff;
+the current implementer handoff now replaces superseded restart instructions
+with the verified state and narrow resume path. No commit or push was made.
+
+### P2.R4 downstream proof preparation — 2026-10-20
+
+Read-only inspection while R4.T2.6a is implemented established these later checks:
+
+- **T3:** `artifact-allocation` already measures current V2/V4/V3 import stages,
+  exact budgets, and retries. Its export failure prevents those assertions from
+  running. Reuse the saved artifact only after the current exporter succeeds.
+  Also inspect V4 validation scratch: `to_v3_for_validation` and callable
+  `to_v1` currently deep-clone DTO collections without an allocation budget.
+  The accounting guard returns `Ok(())`. These calls are inside the production
+  decode/validation path and need explicit accounting or removal before exact
+  allocation can pass; their allocator delta has not yet been measured.
+- **T4:** `QueryKind::ALL` and `QUERY_KIND_MANIFEST` contain 46 kinds. The query
+  allocation census contains 45 and omits `AttributeArgument`; its recorder
+  silently returns for absent kinds. The census must be reconciled with the
+  exhaustive inventory. `export_query_image_v3` still prunes candidates without
+  an explicit required-root profile. Required-root completeness remains pending.
+- **T5/T7:** `discover_image_closure` constructs the ordinary session through
+  `SemanticWorkspaceSession::from_image` and supplies external canonical modules.
+  The fresh-process test denies the top-level bootstrap constructors, but its
+  comment claims a nonexistent `UniverseSourceProvider::read_source` denial hook.
+  The actual source-text entry point, `source_text`, has no denial check. Add and
+  exercise direct source-access denial before claiming zero canonical source
+  reads. Constructing an inert provider remains permitted by T5.2.
+- **Timing proof:** compare fresh child processes running the same user workload,
+  with source construction versus artifact load included in the respective total.
+  Record artifact construction separately and report load and workload durations.
+  No speedup has been measured.
+
+These are implementation follow-ups under the existing ordered tasks. They do
+not promote T2–T7 acceptance or authorize early consumer consolidation.
 
 The previous plans P2.R1, P2.R2, and P2.R3 remain preserved as implementation history. The current active plan is `ARTF001.C1.P2.R4`.

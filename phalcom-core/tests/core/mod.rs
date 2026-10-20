@@ -17,6 +17,8 @@ mod native_adt_runtime;
 
 #[path = "compiler/semantic_boundary.rs"]
 mod compiler_semantic_boundary;
+#[path = "modules/canonical_artifact.rs"]
+mod modules_canonical_artifact;
 #[path = "modules/compile.rs"]
 mod modules_compile;
 #[path = "modules/linking.rs"]
