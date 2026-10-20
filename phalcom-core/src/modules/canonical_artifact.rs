@@ -7,20 +7,20 @@ use phalcom_compiler_artifact::digest::{
     ArtifactDigest, ArtifactHasher, DOMAIN_METADATA, DOMAIN_MODULE_WORLD, DOMAIN_QUERY_IMAGE, DOMAIN_SEMANTIC_WORLD, DOMAIN_SOURCE,
 };
 use phalcom_compiler_artifact::header::{
-    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V3, STABLE_IDENTITY_SCHEMA_V1, TELOSC_CONTAINER_SCHEMA_V2,
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V3, SEMANTIC_ARTIFACT_ABI_V3, STABLE_IDENTITY_SCHEMA_V1, TELOSC_CONTAINER_SCHEMA_V2,
     TELOSC_MIN_READER_SCHEMA_V2, TeloscHeaderV2,
 };
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{METADATA_SECTION_SCHEMA_V1, MetadataPreflightLimits, MetadataSectionError, MetadataSectionV1};
 use phalcom_compiler_artifact::module_world::{MODULE_WORLD_SCHEMA_V2, ModuleWorldV2};
-use phalcom_compiler_artifact::query::{QUERY_IMAGE_SCHEMA_V3, QueryImageV3};
+use phalcom_compiler_artifact::query::{QUERY_IMAGE_SCHEMA_V4, QueryImageV4};
 use phalcom_compiler_artifact::section::{SectionFlags, SectionKind};
 use phalcom_compiler_artifact::semantic::world::{SEMANTIC_WORLD_SCHEMA_V4, SemanticWorldV4};
 use phalcom_native_meta::NATIVE_SURFACE_SCHEMA_VERSION;
-use phalcom_semantic::artifact::export::{export_query_image_v3, export_semantic_world_v4};
+use phalcom_semantic::artifact::export::{export_query_image_v4, export_semantic_world_v4};
 use phalcom_semantic::artifact::import::validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget;
-use phalcom_semantic::artifact::query::reconstruct_query_image_v3_with_allocation_budget;
+use phalcom_semantic::artifact::query::reconstruct_query_image_v4_with_allocation_budget;
 use phalcom_semantic::canonical_image::{CanonicalImageError, CanonicalSemanticWorldId, CanonicalUniverseFormalImage, CanonicalWorldProvenance};
 use phalcom_semantic::static_value::StaticExportContext;
 use phalcom_semantic::types::store::artifact::TypeExportContext;
@@ -212,7 +212,7 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
 
     // 3. QUERY_IMAGE
-    let query_image = export_query_image_v3(
+    let query_image = export_query_image_v4(
         view.formal.query_image(),
         view.formal.dependency_fingerprints(),
         &module_world,
@@ -250,7 +250,7 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
         stable_identity_schema: STABLE_IDENTITY_SCHEMA_V1,
         module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
         semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V3,
-        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V3,
         native_surface_schema_version: NATIVE_SURFACE_SCHEMA_VERSION,
         native_catalog_fingerprint: view.compatibility.native_catalog_fingerprint,
         type_metadata_schema_version: TYPE_METADATA_SCHEMA_VERSION,
@@ -280,7 +280,7 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
     );
     builder.add_section(
         SectionKind::QueryImage,
-        QUERY_IMAGE_SCHEMA_V3,
+        QUERY_IMAGE_SCHEMA_V4,
         SectionFlags::REQUIRED,
         query_image_bytes.clone(),
     );
@@ -424,10 +424,10 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     maybe_fail_after(LoaderTestBoundary::AfterModuleImport)?;
 
     let semantic_world_v4 = SemanticWorldV4::decode_with_allocation_budget(semantic_world_sec, limits, allocations)?;
-    let query_v3 = QueryImageV3::decode_with_allocation_budget(query_image_sec, limits, allocations)?;
-    query_v3.validate(limits)?;
-    query_v3.validate_product_references(&module_world_v2, &semantic_world_v4)?;
-    query_v3.validate_portable_structural_fingerprints_v4(&semantic_world_v4)?;
+    let query_v4 = QueryImageV4::decode_with_allocation_budget(query_image_sec, limits, allocations)?;
+    query_v4.validate(limits)?;
+    query_v4.validate_product_references(&module_world_v2, &semantic_world_v4)?;
+    query_v4.validate_portable_structural_fingerprints_v4(&semantic_world_v4)?;
 
     let parts = validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget(
         semantic_world_v4,
@@ -464,7 +464,7 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     };
     let world_id = CanonicalSemanticWorldId::for_artifact_world(1, container.header().source_digest, compatibility);
 
-    let (query_image, fingerprints) = reconstruct_query_image_v3_with_allocation_budget(query_v3, &parts.snapshot, &world_id, &modules, limits, allocations)?;
+    let (query_image, fingerprints) = reconstruct_query_image_v4_with_allocation_budget(query_v4, &parts.snapshot, &world_id, &modules, limits, allocations)?;
     #[cfg(test)]
     maybe_fail_after(LoaderTestBoundary::AfterQueryImport)?;
 
@@ -541,7 +541,7 @@ fn validate_reader_header(header: &TeloscHeaderV2) -> Result<(), TeloscArtifactE
         ("stable_identity_schema", header.stable_identity_schema, STABLE_IDENTITY_SCHEMA_V1),
         ("module_semantic_abi", header.module_semantic_abi, MODULE_SEMANTIC_ABI_V2),
         ("semantic_artifact_abi", header.semantic_artifact_abi, SEMANTIC_ARTIFACT_ABI_V3),
-        ("query_fingerprint_abi", header.query_fingerprint_abi, QUERY_FINGERPRINT_ABI_V2),
+        ("query_fingerprint_abi", header.query_fingerprint_abi, QUERY_FINGERPRINT_ABI_V3),
         (
             "native_surface_schema_version",
             header.native_surface_schema_version,
@@ -776,7 +776,7 @@ mod temporary_loaded_publication_allocation_census {
         let semantic_dto = semantic_dto_result.expect("SEMANTIC_WORLD DTO decode must succeed");
 
         let (query_dto_result, observed, signed) = measure_stage("F QUERY_IMAGE DTO decode", &mut allocations, |budget| {
-            QueryImageV3::decode_with_allocation_budget(query_bytes, &limits, budget)
+            QueryImageV4::decode_with_allocation_budget(query_bytes, &limits, budget)
         });
         independent_total += observed;
         signed_stage_total += signed;
@@ -838,7 +838,7 @@ mod temporary_loaded_publication_allocation_census {
         let world = world_result.expect("artifact semantic world identity must be constructed");
         let query_ledger_before = allocations.requested();
         let (query_result, observed, signed) = measure_stage("H-K query reconstruction", &mut allocations, |budget| {
-            reconstruct_query_image_v3_with_allocation_budget(query_dto, &parts.snapshot, &world, &modules, &limits, budget)
+            reconstruct_query_image_v4_with_allocation_budget(query_dto, &parts.snapshot, &world, &modules, &limits, budget)
         });
         independent_total += observed;
         signed_stage_total += signed;

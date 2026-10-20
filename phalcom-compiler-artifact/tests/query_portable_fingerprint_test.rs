@@ -1,5 +1,5 @@
 use phalcom_compiler_artifact::query::{
-    PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
+    PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, PortableQueryProductFamilyV1, QueryImageV4, QueryProductRefV3, QueryRootEntryV4,
 };
 use phalcom_compiler_artifact::semantic::aggregates::{DataInfoV1, DataShapeV1, StructuralPrimaryContractsV1, VisibilityV1};
 use phalcom_compiler_artifact::semantic::static_value::{StaticValueGraphV1, StaticValueV1};
@@ -92,14 +92,14 @@ fn structural_query_fingerprint_is_portable_stable_owner_evidence() {
         path: vec!["Payload".into()].into_boxed_slice(),
     };
     let mut world = world_with_data(owner.clone());
-    let mut image = QueryImageV3 {
-        supported_roots: vec![QueryRootEntryV3 {
+    let mut image = QueryImageV4 {
+        supported_roots: vec![QueryRootEntryV4 {
             key: PortableQueryKeyV1 {
                 kind: PortableQueryKindV1::DataDeclaration,
                 owner: PortableQueryOwnerKeyV1::Declaration(owner),
             },
-            product: QueryProductRefV2 {
-                kind: PortableQueryKindV1::DataDeclaration,
+            product: QueryProductRefV3 {
+                family: PortableQueryProductFamilyV1::DataDeclaration,
                 row_index: 0,
             },
             input_fingerprint: 0,
@@ -109,9 +109,7 @@ fn structural_query_fingerprint_is_portable_stable_owner_evidence() {
         dependency_evidence: vec![],
     };
 
-    image
-        .refresh_portable_structural_fingerprints(&world)
-        .expect("producer fingerprint refresh");
+    image.refresh_portable_structural_fingerprints(&world).expect("producer fingerprint refresh");
     let root = &image.supported_roots[0];
     assert_ne!(root.input_fingerprint, 0);
     assert_ne!(root.product_fingerprint, 0);

@@ -13,16 +13,16 @@ use phalcom_type_meta::identity::{
 };
 
 pub const QUERY_IMAGE_SCHEMA_V2: u32 = 2;
-pub const QUERY_IMAGE_SCHEMA_V3: u32 = 3;
+pub const QUERY_IMAGE_SCHEMA_V4: u32 = 4;
 
-/// QUERY_FINGERPRINT_ABI_V2 domains for portable structural query evidence.
+/// QUERY_FINGERPRINT_ABI_V3 domains for portable structural query evidence.
 ///
 /// These fingerprints belong to the artifact wire contract, not to
 /// `SemanticDb`. They are computed from stable-owner semantic rows and remain
 /// valid when the receiving workspace relocates a persistent project to a
 /// different graph-local `ResolvedProjectId`.
-const DOMAIN_STRUCTURAL_QUERY_INPUT_V2: &str = "telos.telosc.v2.query-input.structural";
-const DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2: &str = "telos.telosc.v2.query-product.structural";
+const DOMAIN_STRUCTURAL_QUERY_INPUT_V3: &str = "telos.telosc.v3.query-input.structural";
+const DOMAIN_STRUCTURAL_QUERY_PRODUCT_V3: &str = "telos.telosc.v3.query-product.structural";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(u16)]
@@ -194,9 +194,96 @@ pub struct LegacyPortableQueryKeyV1 {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct QueryProductRefV2 {
-    /// Product family is the current query kind; `row_index` addresses that
-    /// family's typed row in MODULE_WORLD or SEMANTIC_WORLD.
+    /// Legacy V2 query-kind locator retained only for decoding the V2 image.
     pub kind: PortableQueryKindV1,
+    pub row_index: u32,
+}
+
+/// Physical typed table referenced by a reusable query root.
+///
+/// Query kind identifies the logical computation. This enum identifies the
+/// durable artifact row that carries its product authority. Several logical
+/// query kinds may share one physical table, and declaration shells may be
+/// represented by either a nominal shell row or a type-alias row.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[repr(u16)]
+pub enum PortableQueryProductFamilyV1 {
+    Module = 1,
+    NominalDeclarationShell = 2,
+    TypeAlias = 3,
+    CallableDefinition = 4,
+    CallableSignature = 5,
+    DispatchSurface = 6,
+    TraitSurface = 7,
+    DataDeclaration = 8,
+    EnumDeclaration = 9,
+    AssociatedSurface = 10,
+    TypeMemberDeclaration = 11,
+    ModuleStaticBindings = 12,
+}
+
+impl PortableQueryProductFamilyV1 {
+    pub fn from_raw(raw: u16) -> Option<Self> {
+        Some(match raw {
+            1 => Self::Module,
+            2 => Self::NominalDeclarationShell,
+            3 => Self::TypeAlias,
+            4 => Self::CallableDefinition,
+            5 => Self::CallableSignature,
+            6 => Self::DispatchSurface,
+            7 => Self::TraitSurface,
+            8 => Self::DataDeclaration,
+            9 => Self::EnumDeclaration,
+            10 => Self::AssociatedSurface,
+            11 => Self::TypeMemberDeclaration,
+            12 => Self::ModuleStaticBindings,
+            _ => return None,
+        })
+    }
+
+    pub const fn profile_support(self) -> QueryProfileSupport {
+        match self {
+            Self::Module => QueryProfileSupport::RepresentedByModuleWorld,
+            Self::NominalDeclarationShell
+            | Self::TypeAlias
+            | Self::CallableDefinition
+            | Self::CallableSignature
+            | Self::DispatchSurface
+            | Self::TraitSurface
+            | Self::DataDeclaration
+            | Self::EnumDeclaration
+            | Self::AssociatedSurface
+            | Self::TypeMemberDeclaration
+            | Self::ModuleStaticBindings => QueryProfileSupport::RepresentedBySemanticWorld,
+        }
+    }
+}
+
+/// Explicit compatibility relation between logical query identity and the
+/// physical product families currently represented by the artifact profile.
+/// Unlisted pairs are rejected.
+pub const fn product_family_is_valid_for_query_kind(kind: PortableQueryKindV1, family: PortableQueryProductFamilyV1) -> bool {
+    use PortableQueryKindV1 as K;
+    use PortableQueryProductFamilyV1 as F;
+    match (kind, family) {
+        (K::UnlinkedInterface | K::ResolvedImports | K::LinkedInterface, F::Module) => true,
+        (K::DeclarationShell, F::NominalDeclarationShell | F::TypeAlias) => true,
+        (K::CallableDefinition, F::CallableDefinition)
+        | (K::CallableSignature, F::CallableSignature)
+        | (K::DeclarationSurface | K::FieldSignature, F::DispatchSurface)
+        | (K::TraitHeader | K::TraitSurface, F::TraitSurface)
+        | (K::DataDeclaration, F::DataDeclaration)
+        | (K::EnumDeclaration, F::EnumDeclaration)
+        | (K::AssociatedSurface, F::AssociatedSurface)
+        | (K::TypeMemberDeclaration, F::TypeMemberDeclaration)
+        | (K::ModuleStaticBindingCatalog | K::ModuleStaticBindings, F::ModuleStaticBindings) => true,
+        _ => false,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct QueryProductRefV3 {
+    pub family: PortableQueryProductFamilyV1,
     pub row_index: u32,
 }
 
@@ -503,25 +590,25 @@ impl Wire for PortableQueryKeyV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct QueryRootEntryV3 {
+pub struct QueryRootEntryV4 {
     pub key: PortableQueryKeyV1,
-    pub product: QueryProductRefV2,
+    pub product: QueryProductRefV3,
     pub input_fingerprint: u64,
     pub product_fingerprint: u64,
     pub dependency_indices: Vec<u32>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct DependencyEvidenceEntryV3 {
+pub struct DependencyEvidenceEntryV4 {
     pub key: PortableQueryKeyV1,
     pub stable_aggregate_owner: PortableQueryOwnerKeyV1,
     pub product_fingerprint: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
-pub struct QueryImageV3 {
-    pub supported_roots: Vec<QueryRootEntryV3>,
-    pub dependency_evidence: Vec<DependencyEvidenceEntryV3>,
+pub struct QueryImageV4 {
+    pub supported_roots: Vec<QueryRootEntryV4>,
+    pub dependency_evidence: Vec<DependencyEvidenceEntryV4>,
 }
 
 fn declaration_owner(owner: &PortableQueryOwnerKeyV1) -> Result<&StableDeclarationRef, ArtifactError> {
@@ -551,12 +638,14 @@ fn callable_definition_row_matches_owner(row: &CallableDefinitionRecordV1, owner
 
 fn portable_callable_definition_digest64(
     domain: &str,
+    family: PortableQueryProductFamilyV1,
     row_index: usize,
     owner: &StableCallableRef,
     rows: &[CallableDefinitionRecordV1],
 ) -> Result<u64, ArtifactError> {
     let mut out = BinaryWriter::digest(domain);
     out.write_u16(PortableQueryKindV1::CallableDefinition as u16);
+    out.write_u16(family as u16);
     let row = rows
         .get(row_index)
         .ok_or_else(|| ValidationError::ReferentialIntegrity("callable-definition query product row is out of bounds".into()))?;
@@ -580,12 +669,14 @@ fn type_member_row_matches_owner(row: &TypeMemberDeclarationRecordV1, owner: &St
 
 fn portable_type_member_digest64(
     domain: &str,
+    family: PortableQueryProductFamilyV1,
     row_index: usize,
     owner: &StableTypeMemberRef,
     rows: &[TypeMemberDeclarationRecordV1],
 ) -> Result<u64, ArtifactError> {
     let mut out = BinaryWriter::digest(domain);
     out.write_u16(PortableQueryKindV1::TypeMemberDeclaration as u16);
+    out.write_u16(family as u16);
     let row = rows
         .get(row_index)
         .ok_or_else(|| ValidationError::ReferentialIntegrity("type-member query product row is out of bounds".into()))?;
@@ -654,11 +745,13 @@ impl StructuralWorldRows for SemanticWorldV4 {
 fn write_structural_product(
     out: &mut BinaryWriter,
     kind: PortableQueryKindV1,
+    family: PortableQueryProductFamilyV1,
     row_index: usize,
     owner: &StableDeclarationRef,
     world: &impl StructuralWorldRows,
 ) -> Result<(), ArtifactError> {
     out.write_u16(kind as u16);
+    out.write_u16(family as u16);
     match kind {
         PortableQueryKindV1::DataDeclaration => {
             let row = world
@@ -711,32 +804,120 @@ fn write_structural_product(
 fn portable_structural_digest64(
     domain: &str,
     kind: PortableQueryKindV1,
+    family: PortableQueryProductFamilyV1,
     row_index: usize,
     owner: &StableDeclarationRef,
     world: &impl StructuralWorldRows,
 ) -> Result<u64, ArtifactError> {
     let mut out = BinaryWriter::digest(domain);
-    write_structural_product(&mut out, kind, row_index, owner, world)?;
+    write_structural_product(&mut out, kind, family, row_index, owner, world)?;
     let digest = out.into_digest();
     Ok(u64::from_le_bytes(digest.0[..8].try_into().expect("digest prefix is eight bytes")))
 }
 
-/// Computes QUERY_FINGERPRINT_ABI_V2 evidence for structural query roots.
+/// Computes QUERY_FINGERPRINT_ABI_V3 evidence for structural query roots.
 ///
 /// The returned values are portable artifact fingerprints. A receiving semantic
 /// database must compute its own current-main input/product fingerprints after
 /// typed reconstruction; graph-local DB fingerprints are never compared to
 /// these wire fingerprints.
-pub fn portable_structural_root_fingerprints(root: &QueryRootEntryV3, world: &SemanticWorldV3) -> Result<Option<(u64, u64)>, ArtifactError> {
+pub fn portable_structural_root_fingerprints(root: &QueryRootEntryV4, world: &SemanticWorldV3) -> Result<Option<(u64, u64)>, ArtifactError> {
     portable_structural_root_fingerprints_for_world(root, world)
 }
 
 /// V4 counterpart to [`portable_structural_root_fingerprints`].
-pub fn portable_structural_root_fingerprints_v4(root: &QueryRootEntryV3, world: &SemanticWorldV4) -> Result<Option<(u64, u64)>, ArtifactError> {
+pub fn portable_structural_root_fingerprints_v4(root: &QueryRootEntryV4, world: &SemanticWorldV4) -> Result<Option<(u64, u64)>, ArtifactError> {
+    if root.key.kind == PortableQueryKindV1::DeclarationShell {
+        let owner = declaration_owner(&root.key.owner)?;
+        if !product_family_is_valid_for_query_kind(root.key.kind, root.product.family) {
+            return Err(ValidationError::ReferentialIntegrity("declaration-shell query has an invalid physical product family".into()).into());
+        }
+        return Ok(Some((
+            portable_declaration_shell_digest_v4(
+                DOMAIN_STRUCTURAL_QUERY_INPUT_V3,
+                root.product.family,
+                root.product.row_index as usize,
+                owner,
+                world,
+            )?,
+            portable_declaration_shell_digest_v4(
+                DOMAIN_STRUCTURAL_QUERY_PRODUCT_V3,
+                root.product.family,
+                root.product.row_index as usize,
+                owner,
+                world,
+            )?,
+        )));
+    }
     portable_structural_root_fingerprints_for_world(root, world)
 }
 
-fn portable_structural_root_fingerprints_for_world(root: &QueryRootEntryV3, world: &impl StructuralWorldRows) -> Result<Option<(u64, u64)>, ArtifactError> {
+fn portable_declaration_shell_digest_v4(
+    domain: &str,
+    family: PortableQueryProductFamilyV1,
+    row_index: usize,
+    owner: &StableDeclarationRef,
+    world: &SemanticWorldV4,
+) -> Result<u64, ArtifactError> {
+    let mut out = BinaryWriter::digest(domain);
+    out.write_u16(PortableQueryKindV1::DeclarationShell as u16);
+    out.write_u16(family as u16);
+    match family {
+        PortableQueryProductFamilyV1::NominalDeclarationShell => {
+            let row = world
+                .structural_contracts
+                .declaration_shells
+                .get(row_index)
+                .ok_or_else(|| ValidationError::ReferentialIntegrity("nominal declaration-shell query row is out of bounds".into()))?;
+            if &row.declaration != owner {
+                return Err(ValidationError::ReferentialIntegrity("nominal declaration-shell row owner differs from query owner".into()).into());
+            }
+            row.write(&mut out)?;
+        }
+        PortableQueryProductFamilyV1::TypeAlias => {
+            let row = world
+                .structural_contracts
+                .type_aliases
+                .get(row_index)
+                .ok_or_else(|| ValidationError::ReferentialIntegrity("type-alias query row is out of bounds".into()))?;
+            if &row.declaration != owner {
+                return Err(ValidationError::ReferentialIntegrity("type-alias row owner differs from query owner".into()).into());
+            }
+            row.write(&mut out)?;
+        }
+        _ => return Err(ValidationError::ReferentialIntegrity("DeclarationShell query targets a non-shell product family".into()).into()),
+    }
+    let digest = out.into_digest();
+    Ok(u64::from_le_bytes(digest.0[..8].try_into().expect("digest prefix is eight bytes")))
+}
+
+fn portable_declaration_shell_dependency_fingerprint_v4(owner: &StableDeclarationRef, world: &SemanticWorldV4) -> Result<u64, ArtifactError> {
+    let mut nominal = world
+        .structural_contracts
+        .declaration_shells
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| &row.declaration == owner);
+    let mut aliases = world
+        .structural_contracts
+        .type_aliases
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| &row.declaration == owner);
+    let nominal_row = nominal.next();
+    let alias_row = aliases.next();
+    if nominal.next().is_some() || aliases.next().is_some() || (nominal_row.is_some() && alias_row.is_some()) {
+        return Err(ValidationError::ReferentialIntegrity("declaration-shell dependency owner has ambiguous physical authority".into()).into());
+    }
+    let (family, row_index) = match (nominal_row, alias_row) {
+        (Some((index, _)), None) => (PortableQueryProductFamilyV1::NominalDeclarationShell, index),
+        (None, Some((index, _))) => (PortableQueryProductFamilyV1::TypeAlias, index),
+        _ => return Err(ValidationError::ReferentialIntegrity("declaration-shell dependency has no semantic product row".into()).into()),
+    };
+    portable_declaration_shell_digest_v4(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V3, family, row_index, owner, world)
+}
+
+fn portable_structural_root_fingerprints_for_world(root: &QueryRootEntryV4, world: &impl StructuralWorldRows) -> Result<Option<(u64, u64)>, ArtifactError> {
     if !matches!(
         root.key.kind,
         PortableQueryKindV1::DataDeclaration
@@ -747,29 +928,76 @@ fn portable_structural_root_fingerprints_for_world(root: &QueryRootEntryV3, worl
     ) {
         return Ok(None);
     }
-    if root.product.kind != root.key.kind {
-        return Err(ValidationError::ReferentialIntegrity("query root product family differs from its key kind".into()).into());
+    if !product_family_is_valid_for_query_kind(root.key.kind, root.product.family) {
+        return Err(ValidationError::ReferentialIntegrity("query root product family is incompatible with its key kind".into()).into());
     }
     let row_index = root.product.row_index as usize;
     if root.key.kind == PortableQueryKindV1::TypeMemberDeclaration {
         let owner = type_member_owner(&root.key.owner)?;
+        if root.product.family != PortableQueryProductFamilyV1::TypeMemberDeclaration {
+            return Err(ValidationError::ReferentialIntegrity("type-member query has the wrong physical product family".into()).into());
+        }
         return Ok(Some((
-            portable_type_member_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, row_index, owner, world.type_member_declarations())?,
-            portable_type_member_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, row_index, owner, world.type_member_declarations())?,
+            portable_type_member_digest64(
+                DOMAIN_STRUCTURAL_QUERY_INPUT_V3,
+                PortableQueryProductFamilyV1::TypeMemberDeclaration,
+                row_index,
+                owner,
+                world.type_member_declarations(),
+            )?,
+            portable_type_member_digest64(
+                DOMAIN_STRUCTURAL_QUERY_PRODUCT_V3,
+                PortableQueryProductFamilyV1::TypeMemberDeclaration,
+                row_index,
+                owner,
+                world.type_member_declarations(),
+            )?,
         )));
     }
     if root.key.kind == PortableQueryKindV1::CallableDefinition {
         let owner = callable_owner(&root.key.owner)?;
+        if root.product.family != PortableQueryProductFamilyV1::CallableDefinition {
+            return Err(ValidationError::ReferentialIntegrity("callable-definition query has the wrong physical product family".into()).into());
+        }
         return Ok(Some((
-            portable_callable_definition_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, row_index, owner, world.callable_definitions())?,
-            portable_callable_definition_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, row_index, owner, world.callable_definitions())?,
+            portable_callable_definition_digest64(
+                DOMAIN_STRUCTURAL_QUERY_INPUT_V3,
+                PortableQueryProductFamilyV1::CallableDefinition,
+                row_index,
+                owner,
+                world.callable_definitions(),
+            )?,
+            portable_callable_definition_digest64(
+                DOMAIN_STRUCTURAL_QUERY_PRODUCT_V3,
+                PortableQueryProductFamilyV1::CallableDefinition,
+                row_index,
+                owner,
+                world.callable_definitions(),
+            )?,
         )));
     }
     let owner = declaration_owner(&root.key.owner)?;
+    let family = product_family_for_structural_query(root.key.kind)?;
+    if root.product.family != family {
+        return Err(ValidationError::ReferentialIntegrity("structural query has the wrong physical product family".into()).into());
+    }
     Ok(Some((
-        portable_structural_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, root.key.kind, row_index, owner, world)?,
-        portable_structural_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, root.key.kind, row_index, owner, world)?,
+        portable_structural_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V3, root.key.kind, root.product.family, row_index, owner, world)?,
+        portable_structural_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V3, root.key.kind, root.product.family, row_index, owner, world)?,
     )))
+}
+
+fn product_family_for_structural_query(kind: PortableQueryKindV1) -> Result<PortableQueryProductFamilyV1, ArtifactError> {
+    use PortableQueryKindV1 as K;
+    use PortableQueryProductFamilyV1 as F;
+    match kind {
+        K::DataDeclaration => Ok(F::DataDeclaration),
+        K::EnumDeclaration => Ok(F::EnumDeclaration),
+        K::AssociatedSurface => Ok(F::AssociatedSurface),
+        K::TypeMemberDeclaration => Ok(F::TypeMemberDeclaration),
+        K::CallableDefinition => Ok(F::CallableDefinition),
+        _ => Err(ValidationError::ReferentialIntegrity("query kind has no portable structural fingerprint family".into()).into()),
+    }
 }
 
 /// Computes portable structural product evidence for a dependency-only key.
@@ -782,6 +1010,10 @@ pub fn portable_structural_dependency_product_fingerprint(key: &PortableQueryKey
 
 /// V4 counterpart to [`portable_structural_dependency_product_fingerprint`].
 pub fn portable_structural_dependency_product_fingerprint_v4(key: &PortableQueryKeyV1, world: &SemanticWorldV4) -> Result<Option<u64>, ArtifactError> {
+    if key.kind == PortableQueryKindV1::DeclarationShell {
+        let owner = declaration_owner(&key.owner)?;
+        return portable_declaration_shell_dependency_fingerprint_v4(owner, world).map(Some);
+    }
     portable_structural_dependency_product_fingerprint_for_world(key, world)
 }
 
@@ -813,7 +1045,8 @@ fn portable_structural_dependency_product_fingerprint_for_world(
             return Err(ValidationError::ReferentialIntegrity("type-member dependency evidence semantic owner is ambiguous".into()).into());
         }
         return Ok(Some(portable_type_member_digest64(
-            DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2,
+            DOMAIN_STRUCTURAL_QUERY_PRODUCT_V3,
+            PortableQueryProductFamilyV1::TypeMemberDeclaration,
             row_index,
             owner,
             world.type_member_declarations(),
@@ -833,13 +1066,15 @@ fn portable_structural_dependency_product_fingerprint_for_world(
             return Err(ValidationError::ReferentialIntegrity("callable-definition dependency evidence semantic owner is ambiguous".into()).into());
         }
         return Ok(Some(portable_callable_definition_digest64(
-            DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2,
+            DOMAIN_STRUCTURAL_QUERY_PRODUCT_V3,
+            PortableQueryProductFamilyV1::CallableDefinition,
             row_index,
             owner,
             world.callable_definitions(),
         )?));
     }
     let owner = declaration_owner(&key.owner)?;
+    let family = product_family_for_structural_query(key.kind)?;
     let row_index = match key.kind {
         PortableQueryKindV1::DataDeclaration => {
             let mut matches = world.data_contracts().iter().enumerate().filter(|(_, row)| &row.owner == owner);
@@ -874,16 +1109,17 @@ fn portable_structural_dependency_product_fingerprint_for_world(
         _ => unreachable!("guarded structural kind"),
     };
     Ok(Some(portable_structural_digest64(
-        DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2,
+        DOMAIN_STRUCTURAL_QUERY_PRODUCT_V3,
         key.kind,
+        family,
         row_index,
         owner,
         world,
     )?))
 }
 
-impl QueryImageV3 {
-    /// Recomputes QUERY_FINGERPRINT_ABI_V2 evidence for the structural query
+impl QueryImageV4 {
+    /// Recomputes QUERY_FINGERPRINT_ABI_V3 evidence for the structural query
     /// families currently covered by the portable contract.
     ///
     /// Artifact production should call this after semantic rows and query keys
@@ -915,7 +1151,7 @@ impl QueryImageV3 {
         Ok(())
     }
 
-    /// Recomputes QUERY_FINGERPRINT_ABI_V2 evidence from current V4 semantic
+    /// Recomputes QUERY_FINGERPRINT_ABI_V3 evidence from current V4 semantic
     /// rows. V4-only authority remains outside this structural fingerprint
     /// contract.
     pub fn refresh_portable_structural_fingerprints_v4(&mut self, world: &SemanticWorldV4) -> Result<(), ArtifactError> {
@@ -928,7 +1164,8 @@ impl QueryImageV3 {
         for evidence in &mut self.dependency_evidence {
             if matches!(
                 evidence.key.kind,
-                PortableQueryKindV1::DataDeclaration
+                PortableQueryKindV1::DeclarationShell
+                    | PortableQueryKindV1::DataDeclaration
                     | PortableQueryKindV1::EnumDeclaration
                     | PortableQueryKindV1::AssociatedSurface
                     | PortableQueryKindV1::TypeMemberDeclaration
@@ -944,7 +1181,7 @@ impl QueryImageV3 {
         Ok(())
     }
 
-    /// Validates QUERY_FINGERPRINT_ABI_V2 structural evidence against the
+    /// Validates QUERY_FINGERPRINT_ABI_V3 structural evidence against the
     /// canonical semantic rows carried by the same artifact.
     ///
     /// This check is independent of any receiving workspace graph. It therefore
@@ -1022,7 +1259,8 @@ impl QueryImageV3 {
         for evidence in &self.dependency_evidence {
             if matches!(
                 evidence.key.kind,
-                PortableQueryKindV1::DataDeclaration
+                PortableQueryKindV1::DeclarationShell
+                    | PortableQueryKindV1::DataDeclaration
                     | PortableQueryKindV1::EnumDeclaration
                     | PortableQueryKindV1::AssociatedSurface
                     | PortableQueryKindV1::TypeMemberDeclaration
@@ -1047,11 +1285,11 @@ impl QueryImageV3 {
 
     pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
         let mut out = BinaryWriter::new();
-        out.write_u32(QUERY_IMAGE_SCHEMA_V3);
+        out.write_u32(QUERY_IMAGE_SCHEMA_V4);
         out.write_u32(self.supported_roots.len() as u32);
         for root in &self.supported_roots {
             root.key.write(&mut out)?;
-            out.write_u16(root.product.kind as u16);
+            out.write_u16(root.product.family as u16);
             out.write_u32(root.product.row_index);
             out.write_u64(root.input_fingerprint);
             out.write_u64(root.product_fingerprint);
@@ -1081,11 +1319,11 @@ impl QueryImageV3 {
                 depth: 0,
             };
             let schema = input.reader.read_u32()?;
-            if schema != QUERY_IMAGE_SCHEMA_V3 {
+            if schema != QUERY_IMAGE_SCHEMA_V4 {
                 return Err(ValidationError::IncompatibleAbi {
                     kind: "query_image_schema",
                     found: schema,
-                    expected: QUERY_IMAGE_SCHEMA_V3,
+                    expected: QUERY_IMAGE_SCHEMA_V4,
                 }
                 .into());
             }
@@ -1093,12 +1331,12 @@ impl QueryImageV3 {
             if root_count > limits.max_semantic_entries_per_family {
                 return Err(ArtifactError::LimitExceeded("too many query roots".into()));
             }
-            let mut supported_roots = reserve_vec::<QueryRootEntryV3>(input.allocations, root_count)?;
+            let mut supported_roots = reserve_vec::<QueryRootEntryV4>(input.allocations, root_count)?;
             for _ in 0..root_count {
                 let key = PortableQueryKeyV1::read(&mut input)?;
-                let product_kind_raw = input.reader.read_u16()?;
-                let product_kind = PortableQueryKindV1::from_raw(product_kind_raw)
-                    .ok_or_else(|| ValidationError::ReferentialIntegrity("unknown query product kind".into()))?;
+                let product_family_raw = input.reader.read_u16()?;
+                let product_family = PortableQueryProductFamilyV1::from_raw(product_family_raw)
+                    .ok_or_else(|| ValidationError::ReferentialIntegrity("unknown query product family".into()))?;
                 let row_index = input.reader.read_u32()?;
                 let input_fingerprint = input.reader.read_u64()?;
                 let product_fingerprint = input.reader.read_u64()?;
@@ -1110,9 +1348,12 @@ impl QueryImageV3 {
                 for _ in 0..dep_count {
                     dependency_indices.push(input.reader.read_u32()?);
                 }
-                supported_roots.push(QueryRootEntryV3 {
+                supported_roots.push(QueryRootEntryV4 {
                     key,
-                    product: QueryProductRefV2 { kind: product_kind, row_index },
+                    product: QueryProductRefV3 {
+                        family: product_family,
+                        row_index,
+                    },
                     input_fingerprint,
                     product_fingerprint,
                     dependency_indices,
@@ -1122,12 +1363,12 @@ impl QueryImageV3 {
             if ev_count > limits.max_semantic_entries_per_family {
                 return Err(ArtifactError::LimitExceeded("too many dependency evidence entries".into()));
             }
-            let mut dependency_evidence = reserve_vec::<DependencyEvidenceEntryV3>(input.allocations, ev_count)?;
+            let mut dependency_evidence = reserve_vec::<DependencyEvidenceEntryV4>(input.allocations, ev_count)?;
             for _ in 0..ev_count {
                 let key = PortableQueryKeyV1::read(&mut input)?;
                 let stable_aggregate_owner = PortableQueryOwnerKeyV1::read(&mut input)?;
                 let product_fingerprint = input.reader.read_u64()?;
-                dependency_evidence.push(DependencyEvidenceEntryV3 {
+                dependency_evidence.push(DependencyEvidenceEntryV4 {
                     key,
                     stable_aggregate_owner,
                     product_fingerprint,
@@ -1136,7 +1377,7 @@ impl QueryImageV3 {
             if input.reader.has_remaining() {
                 return Err(ValidationError::ReferentialIntegrity("trailing query image bytes".into()).into());
             }
-            QueryImageV3 {
+            QueryImageV4 {
                 supported_roots,
                 dependency_evidence,
             }
@@ -1175,14 +1416,20 @@ impl QueryImageV3 {
             }
         }
         for root in &self.supported_roots {
-            if root.product.kind != root.key.kind {
-                return Err(ValidationError::ReferentialIntegrity("query root product family differs from its key kind".into()).into());
+            if !product_family_is_valid_for_query_kind(root.key.kind, root.product.family) {
+                return Err(ValidationError::ReferentialIntegrity("query root product family is incompatible with its key kind".into()).into());
             }
             if !matches!(
-                root.product.kind.profile_support(),
+                root.key.kind.profile_support(),
                 QueryProfileSupport::RepresentedByModuleWorld | QueryProfileSupport::RepresentedBySemanticWorld
             ) {
                 return Err(ValidationError::ReferentialIntegrity("query kind is not reusable in the canonical artifact profile".into()).into());
+            }
+            if !matches!(
+                root.product.family.profile_support(),
+                QueryProfileSupport::RepresentedByModuleWorld | QueryProfileSupport::RepresentedBySemanticWorld
+            ) {
+                return Err(ValidationError::ReferentialIntegrity("query product family is not reusable in the canonical artifact profile".into()).into());
             }
             if matches!(root.key.owner.project(), StableProjectRef::Session { .. }) {
                 return Err(ValidationError::ReferentialIntegrity("session project query owner is forbidden".into()).into());
@@ -1222,10 +1469,13 @@ impl QueryImageV3 {
     /// Validates typed query product references against the artifact sections.
     pub fn validate_product_references(&self, modules: &ModuleWorldV2, world: &SemanticWorldV4) -> Result<(), ArtifactError> {
         for root in &self.supported_roots {
-            let row_count = match root.product.kind.profile_support() {
+            if !product_family_is_valid_for_query_kind(root.key.kind, root.product.family) {
+                return Err(ValidationError::ReferentialIntegrity("query root product family is incompatible with its key kind".into()).into());
+            }
+            let row_count = match root.product.family.profile_support() {
                 QueryProfileSupport::RepresentedByModuleWorld => modules.modules.len(),
-                QueryProfileSupport::RepresentedBySemanticWorld => semantic_product_row_count_v4(root.product.kind, world)
-                    .ok_or_else(|| ValidationError::ReferentialIntegrity("query kind has no semantic product table".into()))?,
+                QueryProfileSupport::RepresentedBySemanticWorld => semantic_product_row_count_v4(root.product.family, world)
+                    .ok_or_else(|| ValidationError::ReferentialIntegrity("query product family has no semantic table".into()))?,
                 QueryProfileSupport::OmittedSourceDependent
                 | QueryProfileSupport::AggregateDependencyEvidenceOnly
                 | QueryProfileSupport::OmittedAdvisoryOnly => {
@@ -1235,13 +1485,13 @@ impl QueryImageV3 {
             if root.product.row_index as usize >= row_count {
                 return Err(ValidationError::ReferentialIntegrity(format!(
                     "query product row {} is out of bounds for {:?} (row count {row_count})",
-                    root.product.row_index, root.product.kind
+                    root.product.row_index, root.product.family
                 ))
                 .into());
             }
 
             // Verify owner agreement for module-world products
-            if root.product.kind.profile_support() == QueryProfileSupport::RepresentedByModuleWorld {
+            if root.product.family == PortableQueryProductFamilyV1::Module {
                 let module = &modules.modules[root.product.row_index as usize];
                 if root.key.owner != PortableQueryOwnerKeyV1::Module(module.identity.clone()) {
                     return Err(ValidationError::ReferentialIntegrity(format!(
@@ -1260,10 +1510,13 @@ impl QueryImageV3 {
     /// Validates typed query product references against legacy V3 semantic sections.
     pub fn validate_product_references_v3(&self, modules: &ModuleWorldV2, world: &SemanticWorldV3) -> Result<(), ArtifactError> {
         for root in &self.supported_roots {
-            let row_count = match root.product.kind.profile_support() {
+            if !product_family_is_valid_for_query_kind(root.key.kind, root.product.family) {
+                return Err(ValidationError::ReferentialIntegrity("query root product family is incompatible with its key kind".into()).into());
+            }
+            let row_count = match root.product.family.profile_support() {
                 QueryProfileSupport::RepresentedByModuleWorld => modules.modules.len(),
-                QueryProfileSupport::RepresentedBySemanticWorld => semantic_product_row_count(root.product.kind, world)
-                    .ok_or_else(|| ValidationError::ReferentialIntegrity("query kind has no semantic product table".into()))?,
+                QueryProfileSupport::RepresentedBySemanticWorld => semantic_product_row_count_v3(root.product.family, world)
+                    .ok_or_else(|| ValidationError::ReferentialIntegrity("query product family has no legacy semantic table".into()))?,
                 QueryProfileSupport::OmittedSourceDependent
                 | QueryProfileSupport::AggregateDependencyEvidenceOnly
                 | QueryProfileSupport::OmittedAdvisoryOnly => {
@@ -1273,13 +1526,13 @@ impl QueryImageV3 {
             if root.product.row_index as usize >= row_count {
                 return Err(ValidationError::ReferentialIntegrity(format!(
                     "query product row {} is out of bounds for {:?} (row count {row_count})",
-                    root.product.row_index, root.product.kind
+                    root.product.row_index, root.product.family
                 ))
                 .into());
             }
 
             // Verify owner agreement for module-world products
-            if root.product.kind.profile_support() == QueryProfileSupport::RepresentedByModuleWorld {
+            if root.product.family == PortableQueryProductFamilyV1::Module {
                 let module = &modules.modules[root.product.row_index as usize];
                 if root.key.owner.module_path() != module.identity.path.as_ref() || root.key.owner.project() != &module.identity.project {
                     return Err(ValidationError::ReferentialIntegrity(format!(
@@ -1294,47 +1547,61 @@ impl QueryImageV3 {
     }
 }
 
-fn validate_v4_semantic_query_product_owner(root: &QueryRootEntryV3, world: &SemanticWorldV4) -> Result<(), ArtifactError> {
+fn validate_v4_semantic_query_product_owner(root: &QueryRootEntryV4, world: &SemanticWorldV4) -> Result<(), ArtifactError> {
     use PortableQueryKindV1 as K;
     use PortableQueryOwnerKeyV1 as O;
+    use PortableQueryProductFamilyV1 as F;
 
     let index = root.product.row_index as usize;
-    let matches = match (root.product.kind, &root.key.owner) {
-        (K::DeclarationShell, O::Declaration(owner)) => world
-            .structural_contracts
-            .declaration_shells
-            .get(index)
-            .is_some_and(|row| &row.declaration == owner),
-        (K::CallableDefinition, O::Callable(owner)) => world.callable_definitions.get(index).is_some_and(|row| &row.callable == owner),
-        (K::CallableSignature, O::Callable(owner)) => world.callable_signatures.get(index).is_some_and(|row| &row.callable == owner),
-        (K::DeclarationSurface, O::Declaration(owner)) => world.dispatch_surfaces.get(index).is_some_and(|row| &row.declaration == owner),
-        (K::FieldSignature, O::Field(owner)) => world.dispatch_surfaces.get(index).is_some_and(|row| {
+    let matches = match (root.key.kind, root.product.family, &root.key.owner) {
+        (K::DeclarationShell, F::NominalDeclarationShell, O::Declaration(owner)) => {
+            world
+                .structural_contracts
+                .declaration_shells
+                .get(index)
+                .is_some_and(|row| &row.declaration == owner)
+                && !world.structural_contracts.type_aliases.iter().any(|row| &row.declaration == owner)
+        }
+        (K::DeclarationShell, F::TypeAlias, O::Declaration(owner)) => {
+            world.structural_contracts.type_aliases.get(index).is_some_and(|row| &row.declaration == owner)
+                && !world.structural_contracts.declaration_shells.iter().any(|row| &row.declaration == owner)
+        }
+        (K::CallableDefinition, F::CallableDefinition, O::Callable(owner)) => world.callable_definitions.get(index).is_some_and(|row| &row.callable == owner),
+        (K::CallableSignature, F::CallableSignature, O::Callable(owner)) => world.callable_signatures.get(index).is_some_and(|row| &row.callable == owner),
+        (K::DeclarationSurface, F::DispatchSurface, O::Declaration(owner)) => world.dispatch_surfaces.get(index).is_some_and(|row| &row.declaration == owner),
+        (K::FieldSignature, F::DispatchSurface, O::Field(owner)) => world.dispatch_surfaces.get(index).is_some_and(|row| {
             row.declaration == owner.owner
                 && row
                     .fields
                     .iter()
                     .any(|field| field.name == owner.name && field.side == u8::from(owner.side == StableDispatchSide::Class))
         }),
-        (K::TraitHeader | K::TraitSurface, O::Declaration(owner)) => world.trait_surfaces.get(index).is_some_and(|row| &row.declaration == owner),
-        (K::DataDeclaration, O::Declaration(owner)) => world.structural_contracts.data_contracts.get(index).is_some_and(|row| &row.owner == owner),
-        (K::EnumDeclaration, O::Declaration(owner)) => world.structural_contracts.enum_contracts.get(index).is_some_and(|row| &row.owner == owner),
-        (K::AssociatedSurface, O::Declaration(owner)) => world.associated_surfaces.get(index).is_some_and(|row| &row.owner == owner),
-        (K::TypeMemberDeclaration, O::TypeMember(owner)) => world.type_member_declarations.get(index).is_some_and(|row| {
+        (K::TraitHeader | K::TraitSurface, F::TraitSurface, O::Declaration(owner)) => {
+            world.trait_surfaces.get(index).is_some_and(|row| &row.declaration == owner)
+        }
+        (K::DataDeclaration, F::DataDeclaration, O::Declaration(owner)) => {
+            world.structural_contracts.data_contracts.get(index).is_some_and(|row| &row.owner == owner)
+        }
+        (K::EnumDeclaration, F::EnumDeclaration, O::Declaration(owner)) => {
+            world.structural_contracts.enum_contracts.get(index).is_some_and(|row| &row.owner == owner)
+        }
+        (K::AssociatedSurface, F::AssociatedSurface, O::Declaration(owner)) => world.associated_surfaces.get(index).is_some_and(|row| &row.owner == owner),
+        (K::TypeMemberDeclaration, F::TypeMemberDeclaration, O::TypeMember(owner)) => world.type_member_declarations.get(index).is_some_and(|row| {
             row.owner == owner.owner
                 && match &row.selector {
                     crate::semantic::type_store::TypeMemberSelectorV1::Named { name } => name.as_str() == owner.selector.as_ref(),
                     crate::semantic::type_store::TypeMemberSelectorV1::Subscript => owner.selector.as_ref() == "[]",
                 }
         }),
-        (K::ModuleStaticBindingCatalog | K::ModuleStaticBindings, O::Module(owner)) => {
+        (K::ModuleStaticBindingCatalog | K::ModuleStaticBindings, F::ModuleStaticBindings, O::Module(owner)) => {
             world.module_static_bindings.get(index).is_some_and(|row| &row.module == owner)
         }
         _ => false,
     };
     if !matches {
         return Err(ValidationError::ReferentialIntegrity(format!(
-            "query root owner {:?} does not match its typed {:?} product row {}",
-            root.key.owner, root.product.kind, root.product.row_index
+            "query root {:?} owner {:?} does not match its typed {:?} product row {}",
+            root.key.kind, root.key.owner, root.product.family, root.product.row_index
         ))
         .into());
     }
@@ -1527,49 +1794,37 @@ impl QueryImageV2 {
     }
 }
 
-fn semantic_product_row_count_v4(kind: PortableQueryKindV1, world: &SemanticWorldV4) -> Option<usize> {
-    Some(match kind {
-        PortableQueryKindV1::DeclarationShell => world.structural_contracts.declaration_shells.len(),
-        PortableQueryKindV1::HierarchyEdge => world.structural_contracts.hierarchy_edges.len(),
-        PortableQueryKindV1::TraitHeader | PortableQueryKindV1::TraitSurface => world.trait_surfaces.len(),
-        PortableQueryKindV1::DeclarationSurface | PortableQueryKindV1::FieldSignature => world.dispatch_surfaces.len(),
-        PortableQueryKindV1::ConformanceDispatch => world.conformance_heads.len(),
-        PortableQueryKindV1::TraitDispatchBucket | PortableQueryKindV1::GenericConformance => world.witness_plans.len(),
-        PortableQueryKindV1::CallableDefinition => world.callable_definitions.len(),
-        PortableQueryKindV1::ConstructorInitialization => world.constructor_initializations.len(),
-        PortableQueryKindV1::CallableSignature => world.callable_signatures.len(),
-        PortableQueryKindV1::CallableEffects => world.callable_signatures.len(),
-        PortableQueryKindV1::CallableBody
-        | PortableQueryKindV1::CallableControl
-        | PortableQueryKindV1::CallableTermination
-        | PortableQueryKindV1::CallableContracts
-        | PortableQueryKindV1::AttributeArgument
-        | PortableQueryKindV1::VerificationConditions => world.callable_analyses.len(),
-        PortableQueryKindV1::DataDeclaration => world.structural_contracts.data_contracts.len(),
-        PortableQueryKindV1::EnumDeclaration => world.structural_contracts.enum_contracts.len(),
-        PortableQueryKindV1::EnumRequirements => world.enum_requirements.len(),
-        PortableQueryKindV1::TypeMemberDeclaration => world.type_member_declarations.len(),
-        PortableQueryKindV1::StaticDomainCaseCatalog => world.static_case_catalogs.len(),
-        PortableQueryKindV1::StaticCaseSignature => world.static_case_signatures.len(),
-        PortableQueryKindV1::AssociatedStaticDomainDeclaration => world.associated_static_domains.len(),
-        PortableQueryKindV1::AssociatedSurface => world.associated_surfaces.len(),
-        PortableQueryKindV1::StaticDefinition | PortableQueryKindV1::CheckedStaticBody => world.static_definitions.len(),
-        PortableQueryKindV1::StaticConstant => world.static_constants.len(),
-        PortableQueryKindV1::ModuleStaticBindingCatalog | PortableQueryKindV1::ModuleStaticBindings => world.module_static_bindings.len(),
-        PortableQueryKindV1::ParsedModule
-        | PortableQueryKindV1::UnlinkedInterface
-        | PortableQueryKindV1::ResolvedImports
-        | PortableQueryKindV1::LinkedInterface
-        | PortableQueryKindV1::SemanticComponent
-        | PortableQueryKindV1::ModuleDiagnostics
-        | PortableQueryKindV1::ModuleMetadata
-        | PortableQueryKindV1::SourceStructure
-        | PortableQueryKindV1::SourceFormalAttachment
-        | PortableQueryKindV1::AdvisoryCallable
-        | PortableQueryKindV1::AdvisoryModule
-        | PortableQueryKindV1::ResolvedImport
-        | PortableQueryKindV1::LinkedName
-        | PortableQueryKindV1::PublicExport => return None,
+fn semantic_product_row_count_v4(family: PortableQueryProductFamilyV1, world: &SemanticWorldV4) -> Option<usize> {
+    Some(match family {
+        PortableQueryProductFamilyV1::NominalDeclarationShell => world.structural_contracts.declaration_shells.len(),
+        PortableQueryProductFamilyV1::TypeAlias => world.structural_contracts.type_aliases.len(),
+        PortableQueryProductFamilyV1::CallableDefinition => world.callable_definitions.len(),
+        PortableQueryProductFamilyV1::CallableSignature => world.callable_signatures.len(),
+        PortableQueryProductFamilyV1::DispatchSurface => world.dispatch_surfaces.len(),
+        PortableQueryProductFamilyV1::TraitSurface => world.trait_surfaces.len(),
+        PortableQueryProductFamilyV1::DataDeclaration => world.structural_contracts.data_contracts.len(),
+        PortableQueryProductFamilyV1::EnumDeclaration => world.structural_contracts.enum_contracts.len(),
+        PortableQueryProductFamilyV1::AssociatedSurface => world.associated_surfaces.len(),
+        PortableQueryProductFamilyV1::TypeMemberDeclaration => world.type_member_declarations.len(),
+        PortableQueryProductFamilyV1::ModuleStaticBindings => world.module_static_bindings.len(),
+        PortableQueryProductFamilyV1::Module => return None,
+    })
+}
+
+fn semantic_product_row_count_v3(family: PortableQueryProductFamilyV1, world: &SemanticWorldV3) -> Option<usize> {
+    Some(match family {
+        PortableQueryProductFamilyV1::NominalDeclarationShell => world.structural_contracts.declaration_shells.len(),
+        PortableQueryProductFamilyV1::TypeAlias => return None,
+        PortableQueryProductFamilyV1::CallableDefinition => world.callable_definitions.len(),
+        PortableQueryProductFamilyV1::CallableSignature => world.callable_signatures.len(),
+        PortableQueryProductFamilyV1::DispatchSurface => world.dispatch_surfaces.len(),
+        PortableQueryProductFamilyV1::TraitSurface => world.trait_surfaces.len(),
+        PortableQueryProductFamilyV1::DataDeclaration => world.structural_contracts.data_contracts.len(),
+        PortableQueryProductFamilyV1::EnumDeclaration => world.structural_contracts.enum_contracts.len(),
+        PortableQueryProductFamilyV1::AssociatedSurface => world.associated_surfaces.len(),
+        PortableQueryProductFamilyV1::TypeMemberDeclaration => world.type_member_declarations.len(),
+        PortableQueryProductFamilyV1::ModuleStaticBindings => world.module_static_bindings.len(),
+        PortableQueryProductFamilyV1::Module => return None,
     })
 }
 

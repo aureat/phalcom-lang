@@ -77,47 +77,30 @@ pub(crate) fn reconstruct_callable_conformance_evidence(
     for (body_index, record) in records.iter().enumerate() {
         let callable = owners.callable(&record.callable)?;
         if callables.signature(&callable).is_none() {
-            return Err(invalid(
-                "callable analysis evidence owner has no imported canonical signature",
-            ));
+            return Err(invalid("callable analysis evidence owner has no imported canonical signature"));
         }
-        let body = BodyId(
-            u32::try_from(body_index)
-                .map_err(|_| invalid("callable body ordinal exceeds portable range"))?,
-        );
-        let graph =
-            super::conformance_evidence_import::reconstruct_conformance_evidence_graph(
-                &record.conformance_evidence,
-                conformances,
-                witnesses.plans(),
-                traits,
-                callables,
-                types,
-                owners,
-                limits,
-                allocations,
-            )?;
-        imported.push(ImportedCallableConformanceEvidence {
-            callable,
-            body,
-            graph,
-        });
+        let body = BodyId(u32::try_from(body_index).map_err(|_| invalid("callable body ordinal exceeds portable range"))?);
+        let graph = super::conformance_evidence_import::reconstruct_conformance_evidence_graph(
+            &record.conformance_evidence,
+            conformances,
+            witnesses.plans(),
+            traits,
+            callables,
+            types,
+            owners,
+            limits,
+            allocations,
+        )?;
+        imported.push(ImportedCallableConformanceEvidence { callable, body, graph });
     }
 
     imported.sort_by(|left, right| left.callable.cmp(&right.callable));
-    if imported
-        .windows(2)
-        .any(|pair| pair[0].callable == pair[1].callable)
-    {
-        return Err(invalid(
-            "duplicate callable conformance-evidence owner after stable-owner relocation",
-        ));
+    if imported.windows(2).any(|pair| pair[0].callable == pair[1].callable) {
+        return Err(invalid("duplicate callable conformance-evidence owner after stable-owner relocation"));
     }
 
     Ok(ImportedCallableConformanceEvidenceAuthority {
-        owners: allocations
-            .boxed_slice(imported)
-            .map_err(ArtifactError::Allocation)?,
+        owners: allocations.boxed_slice(imported).map_err(ArtifactError::Allocation)?,
     })
 }
 

@@ -705,6 +705,14 @@ impl Default for SemanticWorkspaceSession {
     }
 }
 
+fn retire_blocked_declaration_shell_queries(db: &mut SemanticDb, blocked_declarations: &BTreeSet<DeclarationId>, type_aliases: &TypeAliasTable) {
+    for declaration in blocked_declarations {
+        if !type_aliases.contains_key(declaration) {
+            db.retire_query(&QueryKey::DeclarationShell(declaration.clone()));
+        }
+    }
+}
+
 fn canonical_topology_for_input(input: &SemanticWorkspaceInput) -> Arc<phalcom_modules::topology::ModuleTopology> {
     if let Some(topology) = &input.topology {
         return topology.clone();
@@ -7894,6 +7902,7 @@ impl SemanticWorkspaceSession {
         for declaration in &blocked_declarations {
             declarations.remove(declaration);
         }
+        retire_blocked_declaration_shell_queries(&mut self.db, &blocked_declarations, &type_aliases);
         callable_analyses.retain(|callable, _| {
             callable
                 .try_declaration_owner()

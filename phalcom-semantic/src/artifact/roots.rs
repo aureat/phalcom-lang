@@ -1528,9 +1528,10 @@ pub fn register_semantic_world_roots(
     let mut static_constants = snapshot.static_constants.iter().collect::<Vec<_>>();
     static_constants.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
     for (id, product) in static_constants {
-        let authority = product.authority.as_ref().ok_or_else(|| {
-            ArtifactError::LimitExceeded("static constant has no source-independent authority".into())
-        })?;
+        let authority = product
+            .authority
+            .as_ref()
+            .ok_or_else(|| ArtifactError::LimitExceeded("static constant has no source-independent authority".into()))?;
         if id != &product.id {
             return Err(ArtifactError::LimitExceeded(
                 "static constant table key disagrees with its product owner".into(),

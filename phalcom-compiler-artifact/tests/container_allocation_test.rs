@@ -54,7 +54,7 @@ fn header() -> TeloscHeaderV2 {
         stable_identity_schema: header::STABLE_IDENTITY_SCHEMA_V1,
         module_semantic_abi: header::MODULE_SEMANTIC_ABI_V2,
         semantic_artifact_abi: header::SEMANTIC_ARTIFACT_ABI_V3,
-        query_fingerprint_abi: header::QUERY_FINGERPRINT_ABI_V2,
+        query_fingerprint_abi: header::QUERY_FINGERPRINT_ABI_V3,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [6; 16],
         type_metadata_schema_version: 1,
@@ -81,7 +81,7 @@ fn container_parse_ledger_matches_allocator_requests() {
         let schema = match kind {
             SectionKind::ModuleWorld => phalcom_compiler_artifact::module_world::MODULE_WORLD_SCHEMA_V2,
             SectionKind::SemanticWorld => phalcom_compiler_artifact::semantic::world::SEMANTIC_WORLD_SCHEMA_V4,
-            SectionKind::QueryImage => phalcom_compiler_artifact::query::QUERY_IMAGE_SCHEMA_V3,
+            SectionKind::QueryImage => phalcom_compiler_artifact::query::QUERY_IMAGE_SCHEMA_V4,
             _ => 1,
         };
         builder.add_section(kind, schema, SectionFlags::REQUIRED, data.to_vec());

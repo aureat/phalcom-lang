@@ -9,9 +9,7 @@ use super::identity::StableOwnerCatalog;
 use super::type_import::ReconstructedTypeGraph;
 use crate::associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedMemberId, AssociatedSurface};
 use crate::db::product::{AssociatedStaticDomainDeclarationProduct, TypeMemberDeclarationProduct};
-use crate::identity::{
-    AssociatedFamilyId, AssociatedStaticDomainDeclarationId, DataComponentId, DataConstructorId, DeclarationId,
-};
+use crate::identity::{AssociatedFamilyId, AssociatedStaticDomainDeclarationId, DataComponentId, DataConstructorId, DeclarationId};
 use crate::types::type_member::{
     IntrinsicTypeOperation, TypeMemberDeclarationId, TypeMemberDomain, TypeMemberParameter, TypeMemberSelector, TypeMemberSignature,
 };
@@ -62,10 +60,7 @@ impl ImportedAssociatedAuthority {
             .map(|index| &self.type_members[index].1)
     }
 
-    pub(crate) fn static_domain(
-        &self,
-        id: &AssociatedStaticDomainDeclarationId,
-    ) -> Option<&Arc<AssociatedStaticDomainDeclarationProduct>> {
+    pub(crate) fn static_domain(&self, id: &AssociatedStaticDomainDeclarationId) -> Option<&Arc<AssociatedStaticDomainDeclarationProduct>> {
         self.static_domains
             .binary_search_by(|(candidate, _)| candidate.cmp(id))
             .ok()
@@ -102,20 +97,14 @@ pub(crate) fn reconstruct_associated_authority(
     reject_duplicate_keys(&type_members, "duplicate type-member declaration after stable-owner relocation")?;
 
     let mut static_domains = allocations
-        .vector::<(
-            AssociatedStaticDomainDeclarationId,
-            Arc<AssociatedStaticDomainDeclarationProduct>,
-        )>(world.associated_static_domains.len())
+        .vector::<(AssociatedStaticDomainDeclarationId, Arc<AssociatedStaticDomainDeclarationProduct>)>(world.associated_static_domains.len())
         .map_err(ArtifactError::Allocation)?;
     for row in &world.associated_static_domains {
         let product = reconstruct_static_domain_product(row, owners, types, allocations)?;
         static_domains.push((product.id.clone(), product));
     }
     static_domains.sort_by(|left, right| left.0.cmp(&right.0));
-    reject_duplicate_keys(
-        &static_domains,
-        "duplicate associated static-domain declaration after stable-owner relocation",
-    )?;
+    reject_duplicate_keys(&static_domains, "duplicate associated static-domain declaration after stable-owner relocation")?;
 
     let mut surfaces = allocations
         .vector::<(DeclarationId, Arc<AssociatedSurface>)>(world.associated_surfaces.len())
@@ -164,9 +153,7 @@ fn reconstruct_type_member_product(
 
     let intrinsic = row.intrinsic.as_ref().map(import_intrinsic_type_operation);
     let implementation = import_type_member_implementation(&row.implementation);
-    let parameters = allocations
-        .boxed_slice(parameters)
-        .map_err(ArtifactError::Allocation)?;
+    let parameters = allocations.boxed_slice(parameters).map_err(ArtifactError::Allocation)?;
     allocations
         .arc(TypeMemberDeclarationProduct {
             id,
@@ -192,10 +179,7 @@ fn reconstruct_static_domain_product(
     allocations: &mut AllocationBudget,
 ) -> Result<Arc<AssociatedStaticDomainDeclarationProduct>, ArtifactError> {
     let owner = owners.declaration(&row.declaration.owner)?;
-    let id = AssociatedStaticDomainDeclarationId::new(
-        owner,
-        allocations.boxed_str(&row.declaration.name).map_err(ArtifactError::Allocation)?,
-    );
+    let id = AssociatedStaticDomainDeclarationId::new(owner, allocations.boxed_str(&row.declaration.name).map_err(ArtifactError::Allocation)?);
     let domain = *types
         .static_domains
         .get(row.domain.0 as usize)
@@ -211,9 +195,7 @@ fn reconstruct_static_domain_product(
                 .ok_or_else(|| invalid("associated static-domain row references an absent constructor"))?,
         );
     }
-    let constructors = allocations
-        .boxed_slice(constructors)
-        .map_err(ArtifactError::Allocation)?;
+    let constructors = allocations.boxed_slice(constructors).map_err(ArtifactError::Allocation)?;
     allocations
         .arc(AssociatedStaticDomainDeclarationProduct {
             id,
@@ -252,7 +234,10 @@ fn reconstruct_associated_surface(
     }
 
     allocations
-        .arc(AssociatedSurface { owner, families: families.into() })
+        .arc(AssociatedSurface {
+            owner,
+            families: families.into(),
+        })
         .map_err(ArtifactError::Allocation)
 }
 
@@ -264,21 +249,16 @@ fn associated_member(
 ) -> Result<AssociatedMemberId, ArtifactError> {
     let imported = match member {
         AssociatedMemberV1::Variant { variant } => AssociatedMemberId::Variant(owners.variant(variant)?),
-        AssociatedMemberV1::DataConstructor { owner } => {
-            AssociatedMemberId::DataConstructor(DataConstructorId::new(owners.declaration(owner)?))
-        }
-        AssociatedMemberV1::DataComponent { owner, index } => {
-            AssociatedMemberId::DataComponent(DataComponentId::new(owners.declaration(owner)?, *index))
-        }
-        AssociatedMemberV1::StaticDomain { declaration } => {
-            AssociatedMemberId::StaticDomain(AssociatedStaticDomainDeclarationId::new(
-                owners.declaration(&declaration.owner)?,
-                allocations.boxed_str(&declaration.name).map_err(ArtifactError::Allocation)?,
-            ))
-        }
-        AssociatedMemberV1::TypeMember { owner, selector } => AssociatedMemberId::TypeMember(
-            TypeMemberDeclarationId::new(owners.declaration(owner)?, type_member_selector(selector, allocations)?),
-        ),
+        AssociatedMemberV1::DataConstructor { owner } => AssociatedMemberId::DataConstructor(DataConstructorId::new(owners.declaration(owner)?)),
+        AssociatedMemberV1::DataComponent { owner, index } => AssociatedMemberId::DataComponent(DataComponentId::new(owners.declaration(owner)?, *index)),
+        AssociatedMemberV1::StaticDomain { declaration } => AssociatedMemberId::StaticDomain(AssociatedStaticDomainDeclarationId::new(
+            owners.declaration(&declaration.owner)?,
+            allocations.boxed_str(&declaration.name).map_err(ArtifactError::Allocation)?,
+        )),
+        AssociatedMemberV1::TypeMember { owner, selector } => AssociatedMemberId::TypeMember(TypeMemberDeclarationId::new(
+            owners.declaration(owner)?,
+            type_member_selector(selector, allocations)?,
+        )),
     };
 
     let actual_owner = match &imported {

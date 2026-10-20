@@ -10,15 +10,12 @@ use super::identity::{StableOwnerCatalog, canonical_selector};
 use super::type_import::ReconstructedTypeGraph;
 use crate::diagnostic::{SemanticDiagnostic, SemanticSourceSpan};
 use crate::identity::{CallableOwnerId, DeclarationId, DispatchSide};
-use crate::traits::{
-    AssociatedTypeRequirementId, TraitAssociatedTypeRequirement, TraitRequirementId, TraitSurfaceMember,
-};
+use crate::traits::{AssociatedTypeRequirementId, TraitAssociatedTypeRequirement, TraitRequirementId, TraitSurfaceMember};
 use crate::types::parameter::GenericSignature;
 use phalcom_common::modifier::Visibility;
 use phalcom_compiler_artifact::semantic::aggregates::VisibilityV1;
 use phalcom_compiler_artifact::semantic::world::{
-    CallableAssociatedTypeRequirementIdentityV1, CallableRequirementIdentityV1,
-    TraitAssociatedTypeRequirementV1, TraitSurfaceMemberV1, TraitSurfaceRecordV1,
+    CallableAssociatedTypeRequirementIdentityV1, CallableRequirementIdentityV1, TraitAssociatedTypeRequirementV1, TraitSurfaceMemberV1, TraitSurfaceRecordV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
@@ -57,17 +54,11 @@ impl ImportedTraitAuthority {
     }
 
     pub fn associated_type_len(&self) -> usize {
-        self.surfaces
-            .iter()
-            .map(|surface| surface.associated_types.len())
-            .sum()
+        self.surfaces.iter().map(|surface| surface.associated_types.len()).sum()
     }
 
     pub fn diagnostic_len(&self) -> usize {
-        self.surfaces
-            .iter()
-            .map(|surface| surface.diagnostics.len())
-            .sum()
+        self.surfaces.iter().map(|surface| surface.diagnostics.len()).sum()
     }
 
     pub(crate) fn surface(&self, declaration: &DeclarationId) -> Option<&ImportedTraitSurface> {
@@ -84,19 +75,14 @@ pub(crate) fn reconstruct_trait_authority(
     owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedTraitAuthority, ArtifactError> {
-    let mut surfaces = allocations
-        .vector::<ImportedTraitSurface>(records.len())
-        .map_err(ArtifactError::Allocation)?;
+    let mut surfaces = allocations.vector::<ImportedTraitSurface>(records.len()).map_err(ArtifactError::Allocation)?;
 
     for record in records {
         surfaces.push(reconstruct_surface(record, types, owners, allocations)?);
     }
 
     surfaces.sort_by(|left, right| left.declaration.cmp(&right.declaration));
-    if surfaces
-        .windows(2)
-        .any(|pair| pair[0].declaration == pair[1].declaration)
-    {
+    if surfaces.windows(2).any(|pair| pair[0].declaration == pair[1].declaration) {
         return Err(invalid("trait surface is duplicated after stable-owner relocation"));
     }
 
@@ -127,19 +113,10 @@ fn reconstruct_surface(
         .vector::<ImportedTraitMember>(record.members.len())
         .map_err(ArtifactError::Allocation)?;
     for row in &record.members {
-        members.push(reconstruct_member(
-            row,
-            &declaration,
-            types,
-            owners,
-            allocations,
-        )?);
+        members.push(reconstruct_member(row, &declaration, types, owners, allocations)?);
     }
     members.sort_by(|left, right| left.member.requirement.cmp(&right.member.requirement));
-    if members
-        .windows(2)
-        .any(|pair| pair[0].member.requirement == pair[1].member.requirement)
-    {
+    if members.windows(2).any(|pair| pair[0].member.requirement == pair[1].member.requirement) {
         return Err(invalid("trait requirement identity is duplicated"));
     }
 
@@ -147,19 +124,10 @@ fn reconstruct_surface(
         .vector::<TraitAssociatedTypeRequirement>(record.associated_types.len())
         .map_err(ArtifactError::Allocation)?;
     for row in &record.associated_types {
-        associated_types.push(reconstruct_associated_type(
-            row,
-            &declaration,
-            types,
-            owners,
-            allocations,
-        )?);
+        associated_types.push(reconstruct_associated_type(row, &declaration, types, owners, allocations)?);
     }
     associated_types.sort_by(|left, right| left.requirement.cmp(&right.requirement));
-    if associated_types
-        .windows(2)
-        .any(|pair| pair[0].requirement == pair[1].requirement)
-    {
+    if associated_types.windows(2).any(|pair| pair[0].requirement == pair[1].requirement) {
         return Err(invalid("trait associated-type requirement identity is duplicated"));
     }
 
@@ -167,12 +135,7 @@ fn reconstruct_surface(
         .vector::<SemanticDiagnostic>(record.diagnostics.len())
         .map_err(ArtifactError::Allocation)?;
     for diagnostic in &record.diagnostics {
-        diagnostics.push(reconstruct_semantic_diagnostic(
-            diagnostic,
-            types,
-            owners,
-            allocations,
-        )?);
+        diagnostics.push(reconstruct_semantic_diagnostic(diagnostic, types, owners, allocations)?);
     }
 
     Ok(ImportedTraitSurface {
@@ -180,12 +143,8 @@ fn reconstruct_surface(
         generic_signature,
         header_source,
         members: allocations.boxed_slice(members).map_err(ArtifactError::Allocation)?,
-        associated_types: allocations
-            .boxed_slice(associated_types)
-            .map_err(ArtifactError::Allocation)?,
-        diagnostics: allocations
-            .boxed_slice(diagnostics)
-            .map_err(ArtifactError::Allocation)?,
+        associated_types: allocations.boxed_slice(associated_types).map_err(ArtifactError::Allocation)?,
+        diagnostics: allocations.boxed_slice(diagnostics).map_err(ArtifactError::Allocation)?,
     })
 }
 
@@ -209,17 +168,8 @@ fn reconstruct_member(
         return Err(invalid("trait requirement callable disagrees with its requirement identity"));
     }
 
-    let signature = super::callable_import::reconstruct_callable_signature(
-        &row.signature,
-        types,
-        owners,
-        allocations,
-    )?;
-    if signature.callable != callable
-        || signature.owner != *declaration
-        || signature.side != requirement.side
-        || signature.selector != requirement.selector
-    {
+    let signature = super::callable_import::reconstruct_callable_signature(&row.signature, types, owners, allocations)?;
+    if signature.callable != callable || signature.owner != *declaration || signature.side != requirement.side || signature.selector != requirement.selector {
         return Err(invalid("trait requirement signature disagrees with its exact callable identity"));
     }
 
@@ -227,23 +177,15 @@ fn reconstruct_member(
     if source.module != declaration.module {
         return Err(invalid("trait requirement source belongs to another module"));
     }
-    let default_source = row
-        .default_source
-        .as_ref()
-        .map(|source| source_span(source, owners))
-        .transpose()?;
-    if default_source
-        .as_ref()
-        .is_some_and(|source| source.module != declaration.module)
-    {
+    let default_source = row.default_source.as_ref().map(|source| source_span(source, owners)).transpose()?;
+    if default_source.as_ref().is_some_and(|source| source.module != declaration.module) {
         return Err(invalid("trait default source belongs to another module"));
     }
     if !row.default_present && default_source.is_some() {
         return Err(invalid("trait requirement has default source without a default implementation"));
     }
 
-    let source_member_index = usize::try_from(row.source_member_index)
-        .map_err(|_| invalid("trait source member index exceeds address space"))?;
+    let source_member_index = usize::try_from(row.source_member_index).map_err(|_| invalid("trait source member index exceeds address space"))?;
     Ok(ImportedTraitMember {
         member: TraitSurfaceMember {
             requirement,
@@ -282,10 +224,7 @@ fn reconstruct_associated_type(
     })
 }
 
-fn requirement_identity(
-    identity: &CallableRequirementIdentityV1,
-    owners: &StableOwnerCatalog<'_>,
-) -> Result<TraitRequirementId, ArtifactError> {
+fn requirement_identity(identity: &CallableRequirementIdentityV1, owners: &StableOwnerCatalog<'_>) -> Result<TraitRequirementId, ArtifactError> {
     let owner = owners.declaration(&identity.owner)?;
     let selector = canonical_selector(&identity.selector)?;
     let side = match identity.side {
@@ -293,21 +232,14 @@ fn requirement_identity(
         1 => DispatchSide::Class,
         _ => return Err(invalid("trait requirement has an invalid dispatch side")),
     };
-    Ok(TraitRequirementId {
-        owner,
-        selector,
-        side,
-    })
+    Ok(TraitRequirementId { owner, selector, side })
 }
 
 fn associated_type_identity(
     identity: &CallableAssociatedTypeRequirementIdentityV1,
     owners: &StableOwnerCatalog<'_>,
 ) -> Result<AssociatedTypeRequirementId, ArtifactError> {
-    Ok(AssociatedTypeRequirementId::new(
-        owners.declaration(&identity.owner)?,
-        identity.index,
-    ))
+    Ok(AssociatedTypeRequirementId::new(owners.declaration(&identity.owner)?, identity.index))
 }
 
 fn visibility(value: &VisibilityV1) -> Visibility {

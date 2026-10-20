@@ -27,11 +27,11 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 
 ## Current continuation state (2026-10-20)
 
-- Code revision at this continuation: `4c3ec8412` on `feat/artifact-universe-consolidation`; P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
+- Code revision at this continuation: `3a72820e9` on `feat/artifact-universe-consolidation`; P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
 - Active plan: `ARTF001.C1.P2.R4`, superseding `ARTF001.C1.P2.R3`.
 - Current status: P2.R4 active (`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`). P2 remains open; P3 is blocked pending R4 acceptance. The merge-period test prohibition is ended: R4 requires executed test evidence for every behavioral acceptance gate. The task ledger and continuation findings below own current progress.
 - Pack consultation: closed. Pack remains runtime owner and semantic application form without an eighth type-member owner.
-- Next action: execute R4 tasks T0 through T9 in order to achieve final P2 closure and certification.
+- Next action: obtain the T3 semantic-import validation/allocation decision recorded in [`ARTF001.C1.P2.R4-semantic-import-allocation-consultation.md`](ARTF001.C1.P2.R4-semantic-import-allocation-consultation.md), then close the semantic stage before continuing the ordered R4 gates. Module materialization and type-graph import now match their ledgers; semantic import does not.
 - Branch rule: Continue on `feat/artifact-universe-consolidation`.
 
 ## Starting Baseline & Provenance
@@ -256,7 +256,7 @@ The separate `ArtifactImportTransaction::stage_payload_with_digest` path still r
 | R4.T0 | Re-pin, normalize lifecycle records, terminate no-test period | COMPLETE |
 | R4.T1 | Correct compatibility identity and port test/census infrastructure to current schemas | IN_PROGRESS |
 | R4.T2 | Recover complete V2/V4/V3 build/load lifecycle and close current semantic authority | IN_PROGRESS |
-| R4.T3 | Re-establish exact allocation, rollback, failpoint, and retry certification | PENDING |
+| R4.T3 | Re-establish exact allocation, rollback, failpoint, and retry certification | IN_PROGRESS |
 | R4.T4 | Finish dependency-bearing current query profile and fail-closed required-root completeness | PENDING |
 | R4.T5 | Certify ordinary imported SemanticWorkspaceSession with overlays/invalidation/rollback | PENDING |
 | R4.T6 | Consolidate duplicate consumer/import staging architecture and stabilize APIs | PENDING |
@@ -461,5 +461,141 @@ Read-only inspection while R4.T2.6a is implemented established these later check
 
 These are implementation follow-ups under the existing ordered tasks. They do
 not promote T2–T7 acceptance or authorize early consumer consolidation.
+
+### P2.R4 query-product family and final shell consistency ruling — 2026-10-20
+
+The user supplied an audit ruling after independent inspection confirmed that
+QueryImageV3 conflates logical query kind with physical product-table identity.
+The V4 semantic world already carries alias authority in
+`StructuralPrimaryContractsV2.type_aliases`; the gap is the query locator, not
+missing semantic data. The query correction is assigned `R4.T2.6b` because
+`R4.T2.7` is already the witness/derived/proof task in the active plan.
+
+The accepted contract introduces an exhaustive physical
+`PortableQueryProductFamilyV1`, versions QueryImage V3 to V4 and query
+fingerprints ABI V2 to V3, and validates logical query/family compatibility,
+family-specific row bounds, and exact stable owners. DeclarationShell roots
+may address exactly a nominal shell row or a type-alias row. The structural
+world rejects cross-family owner ambiguity. Portable fingerprints include the
+selected family and row; imported live fingerprints continue to be recomputed
+from native products.
+
+Static-definition aliases are authorized by their exact alias row and owner;
+they require no nominal shell. Package gains an explicit sibling Module import.
+Blocked nominal declarations retire stale shell queries, and final query
+publication rejects absent, duplicated, or variant-mismatched shell authority.
+Requiredness remains a property of logical QueryKind, so aliases cannot be
+reverse-pruned merely for using the TypeAlias product family.
+
+This is a query schema/ABI amendment only. No ModuleWorld, SemanticWorld,
+semantic artifact ABI, stable identity, or outer-container change is authorized
+without separate evidence. The focused hostile/round-trip matrix has passed.
+The vertical allocation gate reached module materialization and failed its exact
+allocation comparison; the T3 representation ruling and later load stages
+remain open. R4 stays IN_PROGRESS / PARTIAL / FOCUSED_TESTED and P3 remains
+blocked.
+
+### P2.R4 T2.6b implementation and T3 allocation result — 2026-10-20
+
+- **Implemented:** QueryImage V4 separates logical query kinds from physical
+  product families. DeclarationShell roots can reference exact nominal-shell
+  or type-alias rows; structural validation rejects cross-family owner
+  ambiguity; portable shell fingerprints include family and row content;
+  static-definition aliases require their exact alias row without a nominal
+  shell; Package explicitly imports sibling `Module`; blocked nominal shell
+  queries are retired; final shell publication requires one matching native
+  authority. Query requiredness remains a property of logical query kind.
+- **Focused evidence:** The full `phalcom-compiler-artifact` suite passed
+  earlier in this continuation. The V4 nominal/alias round-trip fingerprint
+  regression (1/1), query schema rejection test (1/1), final shell authority
+  regression (1/1), blocked-shell retirement regression (1/1), alias-only
+  static-definition authority regression (1/1), and typed query-owner
+  integration suite (4/4) pass. The core allocation target compiles against the
+  V4 importer.
+- **Vertical gate:**
+  `PHALCOM_SAVE_UNIVERSE_TELOSC_FOR_TEST=/tmp/artf001-universe.telosc RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test artifact-allocation -- --nocapture --test-threads=1`
+  produced a 20,667,377-byte artifact, then failed at module materialization
+  before semantic/query import. Independent allocator requests were
+  `2,131,498` bytes versus `1,094,188` ledger bytes (delta `+1,037,310`).
+- **Bounded correction:** `ModuleId::clone_with_allocation_budget` allocated a
+  budgeted component string, then copied it again through
+  `ModuleComponent::from_identifier`. It now transfers that string with
+  `from_owned_identifier`. Rechecking the saved artifact lowered observed
+  module-stage requests to `2,043,796` (delta `+949,608`), so other unaccounted
+  module materialization allocations remain.
+- **Current blocker:** `load_module_world_inner` builds retained BTreeMap and
+  BTreeSet indexes and graph products with ordinary `collect`/`from_entries`
+  constructors. Graph storage is fixed to BTreeMap, unlike the existing
+  source/frozen `ModuleAuthorityMap` and `ModuleAuthoritySet`.
+- **User representation ruling (2026-10-20):** Use a frozen, budgeted imported
+  module graph as the canonical base, with ordinary mutable overlays for local
+  edits. Source-backed graphs remain mutable. Never mutate or thaw the imported
+  canonical base in place; overlay lookup must preserve the base graph's
+  identity and authority while edits add, replace, or hide local graph entries.
+- **Plan amendment:** Adapt graph/index storage at artifact materialization to
+  use budgeted frozen containers. Keep current source graph APIs mutable and
+  route session edits through mutable overlays. Prove reads and edits across
+  base-plus-overlay state before promoting T3; this representation clarification
+  does not change artifact wire schemas.
+- **Current blocker:** The representation contract is now decided, but the
+  overlay boundary and graph API integration still need implementation and
+  focused validation. The saved artifact is at `/tmp/artf001-universe.telosc`;
+  later load stages, N/N-1, rollback, and retry assertions did not run.
+- **Status:** R4.T2 remains IN_PROGRESS / PARTIAL; R4.T3 is IN_PROGRESS but
+  uncertified. T2.6b focused behavior is implemented and tested; full canonical
+  load, exact allocation, P2 closure, and P3 takeover remain unproven.
+- **Incident packet:** [`ARTF001.C1.P2.R4-module-allocation-incident.md`](ARTF001.C1.P2.R4-module-allocation-incident.md) records the allocator evidence, code path, attempted correction, and representation decision requested.
+
+### P2.R4 T3 module graph representation ruling — 2026-10-20
+
+- **Incident:** [`ARTF001.C1.P2.R4-module-allocation-incident.md`](ARTF001.C1.P2.R4-module-allocation-incident.md)
+- **Trigger:** Exact module-stage allocation accounting is short by 949,608
+  observed bytes; retained BTreeMap/BTreeSet graph/index allocations are a
+  likely source, and changing graph storage affects the edit contract.
+- **User decision:** Use frozen base plus mutable overlays. Imported canonical
+  module graph storage is frozen and budget-aware. Source-backed graphs remain
+  mutable. Local workspace edits are represented in mutable overlays above the
+  frozen base; the base is not mutated or implicitly thawed.
+- **Architectural consequence:** Keep artifact allocation accounting at the
+  imported base construction boundary and define lookup/update behavior across
+  base and overlay without duplicating canonical project/module identity. The
+  wire schema is unchanged. T3 must verify overlay precedence, deletion/hiding,
+  and unchanged base reads through the owning module/session APIs.
+- **Plan amendment:** R4.T3 now owns the budgeted frozen graph constructor and
+  the smallest overlay integration required to preserve existing local edit
+  behavior. Continue with focused tests, then rerun the saved-artifact vertical
+  allocation discriminator before advancing to later load stages.
+- **Verification state:** Implemented and focused-tested at the module layer.
+  `cargo check -p phalcom-modules` passed, graph tests passed 7/7, and the saved
+  artifact reports exact module materialization (1,138,500/1,138,500) and type
+  graph import (1,393,544/1,393,544). The semantic stage now fails exact
+  accounting; see the consultation packet. N/N-1, rollback, and retry have not
+  run.
+
+### P2.R4 T3 semantic-import allocation consultation — 2026-10-20
+
+- **Packet:** [`ARTF001.C1.P2.R4-semantic-import-allocation-consultation.md`](ARTF001.C1.P2.R4-semantic-import-allocation-consultation.md)
+- **Observed:** On `/tmp/artf001-universe.telosc`, module and type-graph stages
+  pass exact accounting. Semantic import records 439,991,050 observed bytes
+  against 317,818,249 ledger bytes, a +122,172,801-byte delta. The test fails at
+  `phalcom-core/tests/artifact_allocation.rs:166`; later stages and N/N-1,
+  rollback, and retry remain unrun.
+- **Likely contributor:** `SemanticWorldV4::validate_with_allocation_budget`
+  converts to V3 using `to_v3_for_validation`, which clones the world and
+  callable-analysis collections without charging those allocations. The
+  individual contribution is unmeasured, and other semantic importer paths may
+  also allocate outside the ledger.
+- **Prior work:** `perf/universe-characterization` fixed module graph
+  materialization in `c09ee934f` and recorded exact V3 semantic import in
+  `dde0e8ba9`. That V3 path has no V4-to-V3 validation projection, so it does
+  not decide whether the new projection should be budgeted or removed.
+- **Decision requested:** Choose between budget-accounting a complete V4-to-V3
+  temporary projection and validating V4 in place through borrowed/shared
+  validation logic. Confirm that the semantic allocation guard remains
+  rejecting until the full importer is accounted. No semantic allocation fix
+  has been attempted pending this review.
+- **Status:** R4.T3 remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED. The module
+  representation work is implemented; exact semantic import, later stages,
+  N/N-1, rollback, retry, and P2 closure remain unproven.
 
 The previous plans P2.R1, P2.R2, and P2.R3 remain preserved as implementation history. The current active plan is `ARTF001.C1.P2.R4`.

@@ -6,7 +6,8 @@
 
 use crate::canonical_baseline::{CanonicalUniverseSemanticBaseline, canonical_universe_semantic_baseline};
 use crate::db::{DependencyEdge, InputFingerprint, ProductFingerprint, QueryKey, QueryKind, QueryState, SemanticDb, SemanticProduct};
-use crate::identity::WorkspaceId;
+use crate::declarations::TypeDeclarationShell;
+use crate::identity::{DeclarationId, WorkspaceId};
 use crate::session::{SemanticUpdateFailure, SemanticWorkspaceSession};
 use crate::snapshot::SemanticSnapshot;
 use crate::static_value::{StaticValueStore, StaticValueStoreId};
@@ -811,6 +812,7 @@ impl CanonicalSemanticQueryImage {
         if db.has_open_transaction() {
             return Err(CanonicalImageError::OpenTransaction);
         }
+        validate_final_declaration_shell_authority(db, snapshot)?;
         let mut census = CanonicalQueryCensus::default();
         let mut entries = BTreeMap::new();
         for key in db.query_keys() {
@@ -968,6 +970,56 @@ impl CanonicalSemanticQueryImage {
             store: snapshot.store.clone(),
             static_values: snapshot.static_values.clone(),
         })
+    }
+}
+
+fn validate_final_declaration_shell_authority(db: &SemanticDb, snapshot: &SemanticSnapshot) -> Result<(), CanonicalImageError> {
+    for key in db.query_keys() {
+        let QueryKey::DeclarationShell(owner) = key else {
+            continue;
+        };
+        if db.query_state(key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+            continue;
+        }
+        let nominal = snapshot.declarations.get(owner).is_some();
+        let alias = snapshot.type_aliases.get(owner).is_some();
+        let shell = match db.product(key).map(AsRef::as_ref) {
+            Some(SemanticProduct::DeclarationShell(shell)) => Some(shell.as_ref()),
+            _ => None,
+        };
+        validate_final_declaration_shell_owner(owner, nominal, alias, shell)?;
+    }
+    Ok(())
+}
+
+fn validate_final_declaration_shell_owner(
+    owner: &DeclarationId,
+    nominal: bool,
+    alias: bool,
+    shell: Option<&TypeDeclarationShell>,
+) -> Result<(), CanonicalImageError> {
+    if nominal == alias {
+        return Err(CanonicalImageError::IncompletePublication(format!(
+            "ready declaration-shell query owner {owner:?} has {} final authorities",
+            usize::from(nominal) + usize::from(alias)
+        )));
+    }
+    let Some(shell) = shell else {
+        return Err(CanonicalImageError::IncompletePublication(format!(
+            "ready declaration-shell query owner {owner:?} has no typed shell product"
+        )));
+    };
+    if shell.declaration() != owner {
+        return Err(CanonicalImageError::IncompletePublication(format!(
+            "ready declaration-shell query owner {owner:?} disagrees with its native product"
+        )));
+    }
+    match shell {
+        TypeDeclarationShell::Nominal(_) if nominal && !alias => Ok(()),
+        TypeDeclarationShell::Alias(_) if alias && !nominal => Ok(()),
+        _ => Err(CanonicalImageError::IncompletePublication(format!(
+            "ready declaration-shell query owner {owner:?} variant disagrees with final semantic authority"
+        ))),
     }
 }
 
@@ -1363,11 +1415,7 @@ fn canonical_semantic_linked_program(
     modules: &CanonicalModuleProducts,
 ) -> Result<Arc<phalcom_modules::linker::SemanticLinkedProgram>, CanonicalImageError> {
     let filesystem = phalcom_modules::FilesystemSourceProvider::new();
-    let mut resolver = phalcom_modules::ModuleResolver::with_universe_source_provider(
-        &modules.linked().universe,
-        &filesystem,
-        provider.clone(),
-    );
+    let mut resolver = phalcom_modules::ModuleResolver::with_universe_source_provider(&modules.linked().universe, &filesystem, provider.clone());
     let interfaces = modules
         .interfaces()
         .iter()
@@ -1658,7 +1706,7 @@ mod tests {
                 stable_identity_schema: phalcom_compiler_artifact::header::STABLE_IDENTITY_SCHEMA_V1,
                 module_semantic_abi: phalcom_compiler_artifact::header::MODULE_SEMANTIC_ABI_V2,
                 semantic_artifact_abi: phalcom_compiler_artifact::header::SEMANTIC_ARTIFACT_ABI_V3,
-                query_fingerprint_abi: phalcom_compiler_artifact::header::QUERY_FINGERPRINT_ABI_V2,
+                query_fingerprint_abi: phalcom_compiler_artifact::header::QUERY_FINGERPRINT_ABI_V3,
                 native_surface_schema_version: 1,
                 native_catalog_fingerprint: [0; 16],
                 type_metadata_schema_version: 1,
@@ -1985,6 +2033,54 @@ mod tests {
         assert_eq!(queries.census.rejections[&key], QueryFreezeRejection::FinalAggregateMismatch);
         assert_eq!(queries.census.rejections[&dependent], QueryFreezeRejection::MutableDependency);
         assert_eq!(image.dependency_fingerprint(&key), Some(fingerprint));
+    }
+
+    #[test]
+    fn declaration_shell_freeze_requires_exact_final_nominal_or_alias_authority() {
+        use crate::declarations::DeclarationTypeInfo;
+        use crate::diagnostic::SemanticSourceSpan;
+        use crate::identity::DeclarationId;
+        use crate::type_alias::TypeAliasInfo;
+        use crate::types::id::{KindId, TypeId};
+        use phalcom_common::range::SourceRange;
+
+        let module = ModuleId::universe_root();
+        let nominal_owner = DeclarationId::new(module.clone(), "Nominal".into());
+        let alias_owner = DeclarationId::new(module.clone(), "Alias".into());
+        let nominal = TypeDeclarationShell::Nominal(DeclarationTypeInfo {
+            declaration: nominal_owner.clone(),
+            form: TypeId::DUMMY,
+            class_object_type: TypeId::DUMMY,
+            kind: KindId::TYPE,
+            binding: Default::default(),
+            generic_binder_header: None,
+            generic_signature: None,
+            supertype_template: None,
+        });
+        let alias = TypeDeclarationShell::Alias(TypeAliasInfo {
+            declaration: alias_owner.clone(),
+            kind: KindId::TYPE,
+            kind_shape: "Type".into(),
+            generic_signature: None,
+            form: TypeId::DUMMY,
+            structural_form: "Type".into(),
+            dependencies: Box::new([]),
+            source: SemanticSourceSpan::new(module, SourceRange::default()),
+        });
+
+        validate_final_declaration_shell_owner(&nominal_owner, true, false, Some(&nominal)).expect("nominal query matches final authority");
+        validate_final_declaration_shell_owner(&alias_owner, false, true, Some(&alias)).expect("alias query matches final authority");
+
+        let missing = validate_final_declaration_shell_owner(&nominal_owner, false, false, Some(&nominal)).unwrap_err();
+        assert!(missing.to_string().contains("has 0 final authorities"));
+        let ambiguous = validate_final_declaration_shell_owner(&nominal_owner, true, true, Some(&nominal)).unwrap_err();
+        assert!(ambiguous.to_string().contains("has 2 final authorities"));
+        let missing_product = validate_final_declaration_shell_owner(&nominal_owner, true, false, None).unwrap_err();
+        assert!(missing_product.to_string().contains("has no typed shell product"));
+        let wrong_owner = validate_final_declaration_shell_owner(&nominal_owner, true, false, Some(&alias)).unwrap_err();
+        assert!(wrong_owner.to_string().contains("disagrees with its native product"));
+        let wrong_variant = validate_final_declaration_shell_owner(&alias_owner, true, false, Some(&alias)).unwrap_err();
+        assert!(wrong_variant.to_string().contains("variant disagrees with final semantic authority"));
     }
 
     #[test]

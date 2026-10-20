@@ -5,7 +5,9 @@ use crate::identity::{AssociatedStaticDomainDeclarationId, DispatchSide, FieldId
 use crate::static_constant::StaticConstantId;
 use crate::static_definition::StaticBodyId;
 use crate::types::type_member::{TypeMemberDeclarationId, TypeMemberSelector};
-use phalcom_compiler_artifact::query::{PortableQueryKindV1 as Kind, PortableQueryOwnerKeyV1 as Owner, QueryImageV3};
+use phalcom_compiler_artifact::query::{
+    PortableQueryKindV1 as Kind, PortableQueryOwnerKeyV1 as Owner, PortableQueryProductFamilyV1 as Family, QueryImageV4, product_family_is_valid_for_query_kind,
+};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_modules::identity::{ImportSiteId, ImportSiteLocalId};
 use phalcom_type_meta::identity::StableStaticDomainDeclarationRef;
@@ -172,26 +174,20 @@ impl QueryKey {
 /// correct family. This is a staging invariant; it does not establish reusable
 /// fingerprint or dependency freshness and must not publish a Ready product.
 pub(crate) fn validate_structural_root_row_ownership(
-    image: &QueryImageV3,
+    image: &QueryImageV4,
     world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
 ) -> Result<(), ArtifactError> {
     use phalcom_compiler_artifact::query::PortableQueryKindV1 as K;
     for root in &image.supported_roots {
-        if root.key.kind != root.product.kind {
-            return Err(invalid("query root kind does not match its product kind"));
+        if !product_family_is_valid_for_query_kind(root.key.kind, root.product.family) {
+            return Err(invalid("query root kind does not match its physical product family"));
         }
         let index = root.product.row_index as usize;
-        let owner = match root.key.kind {
-            K::DataDeclaration => world
-                .structural_contracts
-                .data_contracts
-                .get(index)
-                .map(|row| &row.owner),
-            K::EnumDeclaration => world
-                .structural_contracts
-                .enum_contracts
-                .get(index)
-                .map(|row| &row.owner),
+        let owner = match (root.key.kind, root.product.family) {
+            (K::DeclarationShell, Family::NominalDeclarationShell) => world.structural_contracts.declaration_shells.get(index).map(|row| &row.declaration),
+            (K::DeclarationShell, Family::TypeAlias) => world.structural_contracts.type_aliases.get(index).map(|row| &row.declaration),
+            (K::DataDeclaration, Family::DataDeclaration) => world.structural_contracts.data_contracts.get(index).map(|row| &row.owner),
+            (K::EnumDeclaration, Family::EnumDeclaration) => world.structural_contracts.enum_contracts.get(index).map(|row| &row.owner),
             _ => continue,
         }
         .ok_or_else(|| invalid("structural query product row is out of bounds"))?;
@@ -207,7 +203,7 @@ pub(crate) fn validate_structural_root_row_ownership(
 /// image. Only exact keys for families that can become reusable are converted
 /// into live `QueryKey`s; other products remain transport input for snapshot
 /// reconstruction and cannot be published as `Ready` by this path.
-pub(crate) fn validate_query_owner_authority(image: &QueryImageV3, owners: &super::identity::StableOwnerCatalog<'_>) -> Result<(), ArtifactError> {
+pub(crate) fn validate_query_owner_authority(image: &QueryImageV4, owners: &super::identity::StableOwnerCatalog<'_>) -> Result<(), ArtifactError> {
     for root in &image.supported_roots {
         validate_owner_authority(&root.key.owner, owners)?;
         let kind = super::query_policy::query_kind_from_portable(root.key.kind);

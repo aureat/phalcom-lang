@@ -1,7 +1,7 @@
 use phalcom_compiler_artifact::container::TeloscContainerView;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::module_world::ModuleWorldV2;
-use phalcom_compiler_artifact::query::QueryImageV3;
+use phalcom_compiler_artifact::query::QueryImageV4;
 use phalcom_compiler_artifact::section::SectionKind;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV4;
 use phalcom_core::modules::canonical_artifact::{
@@ -9,7 +9,7 @@ use phalcom_core::modules::canonical_artifact::{
 };
 use phalcom_core::modules::canonical_universe::canonical_universe_program;
 use phalcom_semantic::artifact::import::validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget;
-use phalcom_semantic::artifact::query::reconstruct_query_image_v3_with_allocation_budget;
+use phalcom_semantic::artifact::query::reconstruct_query_image_v4_with_allocation_budget;
 use phalcom_semantic::canonical_image::CanonicalSemanticWorldId;
 use phalcom_semantic::types::store::TypeStore;
 use phalcom_type_meta::allocation::AllocationBudget;
@@ -73,8 +73,8 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     // Isolate MODULE_WORLD materialization
     let module_bytes = container.require_section(SectionKind::ModuleWorld).expect("artifact must contain MODULE_WORLD");
     let mut decode_module_budget = AllocationBudget::new(usize::MAX);
-    let module_dto = ModuleWorldV2::decode_with_allocation_budget(module_bytes, &limits, &mut decode_module_budget)
-        .expect("decode canonical Universe module world");
+    let module_dto =
+        ModuleWorldV2::decode_with_allocation_budget(module_bytes, &limits, &mut decode_module_budget).expect("decode canonical Universe module world");
     let mut module_transaction = AllocationBudget::new(usize::MAX);
     REQUESTED_BYTES.store(0, Ordering::Relaxed);
     MEASURING.store(true, Ordering::Relaxed);
@@ -191,8 +191,8 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     let mut query_decode_budget = AllocationBudget::new(usize::MAX);
     let query_bytes = container.require_section(SectionKind::QueryImage).expect("artifact must contain QUERY_IMAGE");
     let query_world = decode_world();
-    let query_dto = QueryImageV3::decode_with_allocation_budget(query_bytes, &semantic_limits, &mut query_decode_budget)
-        .expect("decode canonical Universe query image");
+    let query_dto =
+        QueryImageV4::decode_with_allocation_budget(query_bytes, &semantic_limits, &mut query_decode_budget).expect("decode canonical Universe query image");
     query_dto.validate(&semantic_limits).expect("validate canonical Universe query image");
     query_dto
         .validate_product_references(&module_dto, &query_world)
@@ -217,16 +217,13 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     };
     let world_id = CanonicalSemanticWorldId::for_artifact_world(1, header.source_digest, compatibility);
     let mut query_transaction = AllocationBudget::new(usize::MAX);
-    let (query_image, _) = reconstruct_query_image_v3_with_allocation_budget(
-        query_dto,
-        &first_import.snapshot,
-        &world_id,
-        &modules,
-        &semantic_limits,
-        &mut query_transaction,
-    )
-    .expect("reconstruct canonical Universe query image");
-    assert!(query_image.entries().next().is_some(), "canonical Universe query image must retain its required roots");
+    let (query_image, _) =
+        reconstruct_query_image_v4_with_allocation_budget(query_dto, &first_import.snapshot, &world_id, &modules, &semantic_limits, &mut query_transaction)
+            .expect("reconstruct canonical Universe query image");
+    assert!(
+        query_image.entries().next().is_some(),
+        "canonical Universe query image must retain its required roots"
+    );
     drop((first_import, query_image, modules));
 
     // 2. Discover ledger requested bytes N with measurement disabled
@@ -297,15 +294,17 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     // Measure the exact preceding production stages to establish the expected
     // parent debit when the module materialization child transaction fails.
     let mut preceding_stage_budget = AllocationBudget::new(usize::MAX);
-    let preceding_container = TeloscContainerView::parse_with_allocation_budget(&artifact_bytes, &limits, &mut preceding_stage_budget)
-        .expect("preceding container stage must parse");
+    let preceding_container =
+        TeloscContainerView::parse_with_allocation_budget(&artifact_bytes, &limits, &mut preceding_stage_budget).expect("preceding container stage must parse");
     let preceding_module_bytes = preceding_container
         .require_section(SectionKind::ModuleWorld)
         .expect("preceding module section must exist");
-    ModuleWorldV2::decode_with_allocation_budget(preceding_module_bytes, &limits, &mut preceding_stage_budget)
-        .expect("preceding module DTO stage must decode");
+    ModuleWorldV2::decode_with_allocation_budget(preceding_module_bytes, &limits, &mut preceding_stage_budget).expect("preceding module DTO stage must decode");
     let expected_preceding_debit = preceding_stage_budget.requested();
-    assert_eq!(failed_local_requested, expected_preceding_debit, "failed child transaction must not commit its debit to parent");
+    assert_eq!(
+        failed_local_requested, expected_preceding_debit,
+        "failed child transaction must not commit its debit to parent"
+    );
 
     // Clean retry after local stage allocation failure
     let retry_local =

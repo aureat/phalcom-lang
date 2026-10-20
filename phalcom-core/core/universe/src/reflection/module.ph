@@ -24,3 +24,5 @@ native primitive class Module is Object {
   native __path__ -> String
   native toString -> String
 }
+
+export Module

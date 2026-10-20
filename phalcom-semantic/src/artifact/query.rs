@@ -11,7 +11,7 @@ use crate::snapshot::SemanticSnapshot;
 use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::error::QueryImageError;
 use phalcom_compiler_artifact::query::{
-    LegacyPortableQueryKeyV1, PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV2, QueryImageV3, QueryProfileSupport,
+    LegacyPortableQueryKeyV1, PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV2, QueryImageV4, QueryProfileSupport,
 };
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::budgeted::BudgetDecode;
@@ -963,8 +963,8 @@ pub fn reconstruct_query_image_with_allocation_budget(
 /// The caller must first validate its product references and portable
 /// structural fingerprints against the artifact's MODULE_WORLD and
 /// SEMANTIC_WORLD sections.
-pub fn reconstruct_query_image_v3_with_allocation_budget(
-    image: QueryImageV3,
+pub fn reconstruct_query_image_v4_with_allocation_budget(
+    image: QueryImageV4,
     snapshot: &Arc<SemanticSnapshot>,
     world: &CanonicalSemanticWorldId,
     modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,

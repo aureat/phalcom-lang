@@ -5,8 +5,8 @@
 //! an explicit `ArtifactAuthorityDisposition` with named compiler readers and
 //! concrete provenance.
 
+use crate::artifact::query_policy::{CanonicalQueryPersistence, canonical_query_persistence};
 use crate::db::key::QueryKind;
-use crate::artifact::query_policy::{canonical_query_persistence, CanonicalQueryPersistence};
 
 /// Canonical classification of an artifact or semantic family's authority source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -42,7 +42,10 @@ impl ArtifactAuthorityDisposition {
 
     /// Returns true if this disposition is excluded from source-free canonical images.
     pub const fn is_omitted_or_source_only(self) -> bool {
-        matches!(self, Self::SourceOnly | Self::PresentationOnly | Self::AdvisoryOnly | Self::IntentionallyOmitted)
+        matches!(
+            self,
+            Self::SourceOnly | Self::PresentationOnly | Self::AdvisoryOnly | Self::IntentionallyOmitted
+        )
     }
 }
 
@@ -653,10 +656,7 @@ pub const SESSION_BASE_FAMILY_MANIFEST: &[SessionBaseFamilyManifestRow] = &[
 pub const fn query_kind_disposition(kind: QueryKind) -> QueryKindDispositionRow {
     let in_memory_persistence = canonical_query_persistence(kind);
     let (artifact_disposition, authority_disposition) = match kind {
-        QueryKind::ParsedModule => (
-            QueryArtifactDisposition::OmittedSourceDependent,
-            ArtifactAuthorityDisposition::SourceOnly,
-        ),
+        QueryKind::ParsedModule => (QueryArtifactDisposition::OmittedSourceDependent, ArtifactAuthorityDisposition::SourceOnly),
         QueryKind::UnlinkedInterface
         | QueryKind::ResolvedImports
         | QueryKind::LinkedInterface
@@ -672,22 +672,13 @@ pub const fn query_kind_disposition(kind: QueryKind) -> QueryKindDispositionRow 
         | QueryKind::AssociatedSurface
         | QueryKind::TypeMemberDeclaration
         | QueryKind::ModuleStaticBindingCatalog
-        | QueryKind::ModuleStaticBindings => (
-            QueryArtifactDisposition::ReusableRoot,
-            ArtifactAuthorityDisposition::Wire,
-        ),
-        QueryKind::HierarchyEdge => (
-            QueryArtifactDisposition::AggregateDependencyEvidence,
-            ArtifactAuthorityDisposition::Wire,
-        ),
+        | QueryKind::ModuleStaticBindings => (QueryArtifactDisposition::ReusableRoot, ArtifactAuthorityDisposition::Wire),
+        QueryKind::HierarchyEdge => (QueryArtifactDisposition::AggregateDependencyEvidence, ArtifactAuthorityDisposition::Wire),
         QueryKind::GenericConformance
         | QueryKind::ConformanceDispatch
         | QueryKind::TraitDispatchBucket
         | QueryKind::CallableBody
-        | QueryKind::CheckedStaticBody => (
-            QueryArtifactDisposition::OmittedOpenWorld,
-            ArtifactAuthorityDisposition::IntentionallyOmitted,
-        ),
+        | QueryKind::CheckedStaticBody => (QueryArtifactDisposition::OmittedOpenWorld, ArtifactAuthorityDisposition::IntentionallyOmitted),
         QueryKind::SemanticComponent
         | QueryKind::ConstructorInitialization
         | QueryKind::CallableEffects
@@ -710,10 +701,7 @@ pub const fn query_kind_disposition(kind: QueryKind) -> QueryKindDispositionRow 
         | QueryKind::LinkedName
         | QueryKind::PublicExport
         | QueryKind::StaticDefinition
-        | QueryKind::StaticConstant => (
-            QueryArtifactDisposition::Unsupported,
-            ArtifactAuthorityDisposition::IntentionallyOmitted,
-        ),
+        | QueryKind::StaticConstant => (QueryArtifactDisposition::Unsupported, ArtifactAuthorityDisposition::IntentionallyOmitted),
     };
     QueryKindDispositionRow {
         kind,
@@ -983,12 +971,18 @@ pub fn session_base_family_disposition(name: &str) -> Option<&'static SessionBas
 
 /// Looks up the manifest disposition for a compiler attachment family.
 pub fn compiler_attachment_disposition(family: CompilerAttachmentFamily) -> &'static CompilerAttachmentDispositionRow {
-    COMPILER_ATTACHMENT_MANIFEST.iter().find(|row| row.family == family).expect("exhaustive attachment manifest")
+    COMPILER_ATTACHMENT_MANIFEST
+        .iter()
+        .find(|row| row.family == family)
+        .expect("exhaustive attachment manifest")
 }
 
 /// Looks up the manifest disposition for an imported artifact family.
 pub fn imported_family_disposition(family: ImportedArtifactFamily) -> &'static ImportedArtifactFamilyDispositionRow {
-    IMPORTED_ARTIFACT_FAMILY_MANIFEST.iter().find(|row| row.family == family).expect("exhaustive imported family manifest")
+    IMPORTED_ARTIFACT_FAMILY_MANIFEST
+        .iter()
+        .find(|row| row.family == family)
+        .expect("exhaustive imported family manifest")
 }
 
 #[cfg(test)]

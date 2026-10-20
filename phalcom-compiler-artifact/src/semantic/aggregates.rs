@@ -549,21 +549,13 @@ impl StructuralPrimaryContractsV2 {
         for record in &self.intrinsic_static_domains {
             validate_owner(&record.declaration, limits)?;
         }
-        if self
-            .intrinsic_static_domains
-            .windows(2)
-            .any(|pair| pair[0].declaration >= pair[1].declaration)
-        {
+        if self.intrinsic_static_domains.windows(2).any(|pair| pair[0].declaration >= pair[1].declaration) {
             return Err(invalid("intrinsic static domains must be unique and sorted by owner"));
         }
         for record in &self.intrinsic_type_owners {
             validate_owner(&record.declaration, limits)?;
         }
-        if self
-            .intrinsic_type_owners
-            .windows(2)
-            .any(|pair| pair[0].declaration >= pair[1].declaration)
-        {
+        if self.intrinsic_type_owners.windows(2).any(|pair| pair[0].declaration >= pair[1].declaration) {
             return Err(invalid("intrinsic type owners must be unique and sorted by owner"));
         }
         for hierarchy in &self.hierarchy_edges {
@@ -585,6 +577,15 @@ impl StructuralPrimaryContractsV2 {
             }
             if alias.source_span.start > alias.source_span.end {
                 return Err(invalid("inverted source span in type alias"));
+            }
+        }
+        for alias in &self.type_aliases {
+            if self
+                .declaration_shells
+                .binary_search_by(|shell| shell.declaration.cmp(&alias.declaration))
+                .is_ok()
+            {
+                return Err(invalid("declaration owner cannot be both a nominal shell and a type alias"));
             }
         }
         for signature in &self.generic_signatures {

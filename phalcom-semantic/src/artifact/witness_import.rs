@@ -19,30 +19,25 @@ use crate::diagnostic::SemanticDiagnostic;
 use crate::generic_evidence::GenericConformanceKey;
 use crate::identity::{CallableId, CallableOwnerId, DataComponentId, DispatchSide, ImplId};
 use crate::impls::{
-    AssociatedTypeBindingFailure, AssociatedTypeBindingFailureKind, AssociatedTypeBindingTemplate,
-    AssociatedTypeBindingValue, ConformanceCompleteness, ConformanceFailure, InherentImplDomain,
-    InherentImplTarget, RequirementFailure,
+    AssociatedTypeBindingFailure, AssociatedTypeBindingFailureKind, AssociatedTypeBindingTemplate, AssociatedTypeBindingValue, ConformanceCompleteness,
+    ConformanceFailure, InherentImplDomain, InherentImplTarget, RequirementFailure,
 };
+use crate::signature::CallableSemanticSignature;
 use crate::surface::MemberVisibility;
 use crate::traits::{AssociatedTypeRequirementId, InstantiatedTraitRequirement, TraitRef, TraitRequirementId};
-use crate::signature::CallableSemanticSignature;
 use crate::types::id::{RecordRowId, TypeId, TypeParameterId};
 use crate::types::outcome::DynamicBoundaryObligation;
 use crate::types::parameter::GenericSignature;
 use phalcom_compiler_artifact::semantic::aggregates::VisibilityV1;
+use phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1;
 use phalcom_compiler_artifact::semantic::world::{
-    CallableAssociatedTypeBindingFailureKindV1, CallableAssociatedTypeBindingFailureV1,
-    CallableAssociatedTypeBindingTemplateV1, CallableAssociatedTypeBindingValueV1,
-    CallableAssociatedTypeRequirementIdentityV1, CallableConformanceAssociatedTypePlanV1,
-    CallableConformanceCompletenessV1, CallableConformanceFailureV1,
-    CallableEffectiveInherentWitnessV1, CallableGenericCallConformanceBindingV1,
-    CallableGenericCallConformanceSourceV1, CallableInherentImplDomainV1,
-    CallableInherentImplSpecializationV1, CallableInherentImplTargetV1,
-    CallableRequirementIdentityV1, CallableRequirementSelectionEntryV1,
-    CallableRequirementSelectionV1, CallableRequirementViewV1, CallableTypeEnvironmentV1,
+    CallableAssociatedTypeBindingFailureKindV1, CallableAssociatedTypeBindingFailureV1, CallableAssociatedTypeBindingTemplateV1,
+    CallableAssociatedTypeBindingValueV1, CallableAssociatedTypeRequirementIdentityV1, CallableConformanceAssociatedTypePlanV1,
+    CallableConformanceCompletenessV1, CallableConformanceFailureV1, CallableEffectiveInherentWitnessV1, CallableGenericCallConformanceBindingV1,
+    CallableGenericCallConformanceSourceV1, CallableInherentImplDomainV1, CallableInherentImplSpecializationV1, CallableInherentImplTargetV1,
+    CallableRequirementIdentityV1, CallableRequirementSelectionEntryV1, CallableRequirementSelectionV1, CallableRequirementViewV1, CallableTypeEnvironmentV1,
     GenericConformanceKeyV1, WitnessPlanV1,
 };
-use phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_type_meta::identity::StableCallableRef;
@@ -180,17 +175,11 @@ impl ImportedWitnessPreflightAuthority {
     }
 
     pub fn associated_binding_len(&self) -> usize {
-        self.plans
-            .iter()
-            .map(|plan| plan.associated_type_plan.bindings.len())
-            .sum()
+        self.plans.iter().map(|plan| plan.associated_type_plan.bindings.len()).sum()
     }
 
     pub fn associated_failure_len(&self) -> usize {
-        self.plans
-            .iter()
-            .map(|plan| plan.associated_type_plan.failures.len())
-            .sum()
+        self.plans.iter().map(|plan| plan.associated_type_plan.failures.len()).sum()
     }
 
     pub fn evidence_node_len(&self) -> usize {
@@ -228,17 +217,7 @@ pub(crate) fn reconstruct_witness_preflight(
         .map_err(ArtifactError::Allocation)?;
 
     for record in records {
-        let plan = reconstruct_plan(
-            record,
-            conformances,
-            &plans,
-            traits,
-            callables,
-            types,
-            owners,
-            limits,
-            allocations,
-        )?;
+        let plan = reconstruct_plan(record, conformances, &plans, traits, callables, types, owners, limits, allocations)?;
         plans.push(plan);
     }
 
@@ -263,9 +242,7 @@ fn reconstruct_plan(
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedWitnessPlanPreflight, ArtifactError> {
-    if compute_witness_layout_fingerprint(&record.ordered_selected_callables)
-        != record.slot_layout_fingerprint
-    {
+    if compute_witness_layout_fingerprint(&record.ordered_selected_callables) != record.slot_layout_fingerprint {
         return Err(invalid("witness plan slot layout fingerprint mismatch"));
     }
 
@@ -311,10 +288,7 @@ fn reconstruct_plan(
     // This is a stronger current-main check than portable row validation:
     // the witness must describe the exact live conformance head it will later
     // complete, after project-qualified identity relocation.
-    if contribution.trait_ref != trait_ref_template
-        || contribution.target_head != target_template
-        || contribution.generic_signature != generic_signature
-    {
+    if contribution.trait_ref != trait_ref_template || contribution.target_head != target_template || contribution.generic_signature != generic_signature {
         return Err(invalid("witness plan header disagrees with its imported conformance head"));
     }
 
@@ -336,21 +310,8 @@ fn reconstruct_plan(
         return Err(invalid("witness requirement view is duplicated after relocation"));
     }
 
-    let associated_type_plan = reconstruct_associated_type_plan(
-        &record.associated_type_plan,
-        &impl_id,
-        &trait_declaration,
-        types,
-        owners,
-        allocations,
-    )?;
-    let completeness = reconstruct_completeness(
-        &record.completeness,
-        &trait_declaration,
-        types,
-        owners,
-        allocations,
-    )?;
+    let associated_type_plan = reconstruct_associated_type_plan(&record.associated_type_plan, &impl_id, &trait_declaration, types, owners, allocations)?;
+    let completeness = reconstruct_completeness(&record.completeness, &trait_declaration, types, owners, allocations)?;
 
     let mut requirement_selections = allocations
         .vector::<(TraitRequirementId, ImportedRequirementSelection)>(record.requirements.len())
@@ -378,18 +339,17 @@ fn reconstruct_plan(
         return Err(invalid("witness requirement selection is duplicated after relocation"));
     }
 
-    let conformance_evidence =
-        super::conformance_evidence_import::reconstruct_conformance_evidence_graph(
-            &record.conformance_evidence,
-            conformances,
-            prior_witnesses,
-            traits,
-            callables,
-            types,
-            owners,
-            limits,
-            allocations,
-        )?;
+    let conformance_evidence = super::conformance_evidence_import::reconstruct_conformance_evidence_graph(
+        &record.conformance_evidence,
+        conformances,
+        prior_witnesses,
+        traits,
+        callables,
+        types,
+        owners,
+        limits,
+        allocations,
+    )?;
 
     let mut selected_callables = allocations
         .vector::<CallableId>(record.ordered_selected_callables.len())
@@ -406,12 +366,7 @@ fn reconstruct_plan(
         .vector::<SemanticDiagnostic>(record.diagnostics.len())
         .map_err(ArtifactError::Allocation)?;
     for diagnostic in &record.diagnostics {
-        diagnostics.push(reconstruct_semantic_diagnostic(
-            diagnostic,
-            types,
-            owners,
-            allocations,
-        )?);
+        diagnostics.push(reconstruct_semantic_diagnostic(diagnostic, types, owners, allocations)?);
     }
 
     Ok(ImportedWitnessPlanPreflight {
@@ -423,12 +378,8 @@ fn reconstruct_plan(
         requirement_views: allocations.boxed_slice(views).map_err(ArtifactError::Allocation)?,
         associated_type_plan,
         completeness,
-        requirement_selections: allocations
-            .boxed_slice(requirement_selections)
-            .map_err(ArtifactError::Allocation)?,
-        selected_callables: allocations
-            .boxed_slice(selected_callables)
-            .map_err(ArtifactError::Allocation)?,
+        requirement_selections: allocations.boxed_slice(requirement_selections).map_err(ArtifactError::Allocation)?,
+        selected_callables: allocations.boxed_slice(selected_callables).map_err(ArtifactError::Allocation)?,
         invalid_explicit_members: record.invalid_explicit_members,
         diagnostics: allocations.boxed_slice(diagnostics).map_err(ArtifactError::Allocation)?,
         conformance_evidence,
@@ -469,15 +420,7 @@ pub(crate) fn reconstruct_requirement_selection(
                 .transpose()?;
             let applicability = applicability
                 .as_ref()
-                .map(|specialization| {
-                    reconstruct_inherent_specialization(
-                        specialization,
-                        types,
-                        owners,
-                        evidence_count,
-                        allocations,
-                    )
-                })
+                .map(|specialization| reconstruct_inherent_specialization(specialization, types, owners, evidence_count, allocations))
                 .transpose()?;
             if let (Some(expected), Some(actual)) = (&conditional_impl, &applicability) {
                 if expected != &actual.impl_id {
@@ -490,26 +433,9 @@ pub(crate) fn reconstruct_requirement_selection(
                 applicability,
             }
         }
-        CallableRequirementSelectionV1::ConditionalInherent {
-            candidate,
-            pending,
-            fallback,
-        } => {
-            let candidate = reconstruct_effective_inherent_witness(
-                candidate,
-                callables,
-                types,
-                owners,
-                evidence_count,
-                allocations,
-            )?;
-            let pending = reconstruct_completeness(
-                pending,
-                expected_trait,
-                types,
-                owners,
-                allocations,
-            )?;
+        CallableRequirementSelectionV1::ConditionalInherent { candidate, pending, fallback } => {
+            let candidate = reconstruct_effective_inherent_witness(candidate, callables, types, owners, evidence_count, allocations)?;
+            let pending = reconstruct_completeness(pending, expected_trait, types, owners, allocations)?;
             let fallback = fallback
                 .as_deref()
                 .map(|selection| {
@@ -527,11 +453,7 @@ pub(crate) fn reconstruct_requirement_selection(
                     allocations.boxed(selection).map_err(ArtifactError::Allocation)
                 })
                 .transpose()?;
-            ImportedRequirementSelection::ConditionalInherent {
-                candidate,
-                pending,
-                fallback,
-            }
+            ImportedRequirementSelection::ConditionalInherent { candidate, pending, fallback }
         }
         CallableRequirementSelectionV1::DataComponent {
             owner,
@@ -558,12 +480,7 @@ fn reconstruct_effective_inherent_witness(
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedEffectiveInherentWitness, ArtifactError> {
     let callable = owners.callable(&witness.callable)?;
-    let signature = super::callable_import::reconstruct_callable_signature(
-        &witness.signature,
-        types,
-        owners,
-        allocations,
-    )?;
+    let signature = super::callable_import::reconstruct_callable_signature(&witness.signature, types, owners, allocations)?;
     if signature.callable != callable {
         return Err(invalid("effective inherent witness signature disagrees with its callable"));
     }
@@ -585,15 +502,7 @@ fn reconstruct_effective_inherent_witness(
     let applicability = witness
         .applicability
         .as_ref()
-        .map(|specialization| {
-            reconstruct_inherent_specialization(
-                specialization,
-                types,
-                owners,
-                evidence_count,
-                allocations,
-            )
-        })
+        .map(|specialization| reconstruct_inherent_specialization(specialization, types, owners, evidence_count, allocations))
         .transpose()?;
     if let (Some(expected), Some(actual)) = (&conditional_impl, &applicability) {
         if expected != &actual.impl_id {
@@ -631,32 +540,19 @@ fn reconstruct_inherent_domain(
 ) -> Result<std::sync::Arc<InherentImplDomain>, ArtifactError> {
     let impl_id = owners.implementation(&domain.impl_id)?;
     let target = match &domain.target {
-        CallableInherentImplTargetV1::Declaration { declaration } => {
-            InherentImplTarget::Declaration(owners.declaration(declaration)?)
-        }
-        CallableInherentImplTargetV1::ExactEnumCase { variant } => {
-            InherentImplTarget::ExactEnumCase(owners.variant(variant)?)
-        }
+        CallableInherentImplTargetV1::Declaration { declaration } => InherentImplTarget::Declaration(owners.declaration(declaration)?),
+        CallableInherentImplTargetV1::ExactEnumCase { variant } => InherentImplTarget::ExactEnumCase(owners.variant(variant)?),
     };
     let generic_signature = domain
         .generic_signature
         .as_ref()
         .map(|signature| super::semantic_import::reconstruct_signature(signature, types, owners, allocations))
         .transpose()?;
-    let mut constraints = allocations
-        .vector(domain.constraints.len())
-        .map_err(ArtifactError::Allocation)?;
+    let mut constraints = allocations.vector(domain.constraints.len()).map_err(ArtifactError::Allocation)?;
     for constraint in &domain.constraints {
-        constraints.push(super::semantic_import::reconstruct_constraint(
-            constraint,
-            types,
-            owners,
-            allocations,
-        )?);
+        constraints.push(super::semantic_import::reconstruct_constraint(constraint, types, owners, allocations)?);
     }
-    let constraints = allocations
-        .boxed_slice(constraints)
-        .map_err(ArtifactError::Allocation)?;
+    let constraints = allocations.boxed_slice(constraints).map_err(ArtifactError::Allocation)?;
     allocations
         .arc(InherentImplDomain {
             impl_id,
@@ -688,11 +584,7 @@ pub(crate) fn reconstruct_inherent_specialization(
     bindings.sort_by_key(|(parameter, _)| *parameter);
     reject_duplicate_parameter_pairs(&bindings, "inherent specialization binds one parameter more than once")?;
 
-    let environment = reconstruct_type_environment(
-        &specialization.environment,
-        types,
-        allocations,
-    )?;
+    let environment = reconstruct_type_environment(&specialization.environment, types, allocations)?;
     let conformance_provenance = specialization
         .conformance_provenance
         .as_ref()
@@ -701,13 +593,7 @@ pub(crate) fn reconstruct_inherent_specialization(
                 .vector::<ImportedGenericCallConformanceBinding>(bindings.len())
                 .map_err(ArtifactError::Allocation)?;
             for binding in bindings {
-                imported.push(reconstruct_conformance_binding(
-                    binding,
-                    types,
-                    owners,
-                    evidence_count,
-                    allocations,
-                )?);
+                imported.push(reconstruct_conformance_binding(binding, types, owners, evidence_count, allocations)?);
             }
             allocations.boxed_slice(imported).map_err(ArtifactError::Allocation)
         })
@@ -780,27 +666,15 @@ pub(crate) fn reconstruct_conformance_binding(
     evidence_count: usize,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedGenericCallConformanceBinding, ArtifactError> {
-    let callee_conformance = reconstruct_generic_conformance_key(
-        &binding.callee_conformance,
-        types,
-        owners,
-        allocations,
-    )?;
+    let callee_conformance = reconstruct_generic_conformance_key(&binding.callee_conformance, types, owners, allocations)?;
     let source = match &binding.source {
         CallableGenericCallConformanceSourceV1::Exact { evidence } => {
             check_evidence_index(*evidence, evidence_count)?;
             ImportedConformanceBindingSource::Exact { evidence: *evidence }
         }
-        CallableGenericCallConformanceSourceV1::Forwarded { caller_conformance } => {
-            ImportedConformanceBindingSource::Forwarded {
-                caller_conformance: reconstruct_generic_conformance_key(
-                    caller_conformance,
-                    types,
-                    owners,
-                    allocations,
-                )?,
-            }
-        }
+        CallableGenericCallConformanceSourceV1::Forwarded { caller_conformance } => ImportedConformanceBindingSource::Forwarded {
+            caller_conformance: reconstruct_generic_conformance_key(caller_conformance, types, owners, allocations)?,
+        },
         CallableGenericCallConformanceSourceV1::Derived { evidence } => {
             check_evidence_index(*evidence, evidence_count)?;
             ImportedConformanceBindingSource::Derived { evidence: *evidence }
@@ -810,10 +684,7 @@ pub(crate) fn reconstruct_conformance_binding(
             ImportedConformanceBindingSource::CompilerDerived { evidence: *evidence }
         }
     };
-    Ok(ImportedGenericCallConformanceBinding {
-        callee_conformance,
-        source,
-    })
+    Ok(ImportedGenericCallConformanceBinding { callee_conformance, source })
 }
 
 pub(crate) fn reconstruct_generic_conformance_key(
@@ -822,9 +693,7 @@ pub(crate) fn reconstruct_generic_conformance_key(
     owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<GenericConformanceKey, ArtifactError> {
-    let mut arguments = allocations
-        .vector::<TypeId>(key.trait_ref.arguments.len())
-        .map_err(ArtifactError::Allocation)?;
+    let mut arguments = allocations.vector::<TypeId>(key.trait_ref.arguments.len()).map_err(ArtifactError::Allocation)?;
     for argument in &key.trait_ref.arguments {
         arguments.push(mapped_type(*argument, types, "generic conformance trait argument")?);
     }
@@ -837,10 +706,7 @@ pub(crate) fn reconstruct_generic_conformance_key(
     ))
 }
 
-fn require_canonical_callable(
-    callable: &CallableId,
-    callables: &ImportedCallableAuthority,
-) -> Result<(), ArtifactError> {
+fn require_canonical_callable(callable: &CallableId, callables: &ImportedCallableAuthority) -> Result<(), ArtifactError> {
     if callables.signature(callable).is_none() {
         return Err(invalid("witness selection callable has no imported canonical signature"));
     }
@@ -891,10 +757,7 @@ fn mapped_row(
         .ok_or_else(|| invalid(format!("{family} references an absent record-row")))
 }
 
-fn reject_duplicate_parameter_pairs(
-    pairs: &[(TypeParameterId, TypeId)],
-    message: &'static str,
-) -> Result<(), ArtifactError> {
+fn reject_duplicate_parameter_pairs(pairs: &[(TypeParameterId, TypeId)], message: &'static str) -> Result<(), ArtifactError> {
     if pairs.windows(2).any(|pair| pair[0].0 == pair[1].0) {
         Err(invalid(message))
     } else {
@@ -912,9 +775,7 @@ fn reconstruct_completeness(
     Ok(match completeness {
         CallableConformanceCompletenessV1::Complete => ConformanceCompleteness::Complete,
         CallableConformanceCompletenessV1::Incomplete { failures } => {
-            let mut imported = allocations
-                .vector::<ConformanceFailure>(failures.len())
-                .map_err(ArtifactError::Allocation)?;
+            let mut imported = allocations.vector::<ConformanceFailure>(failures.len()).map_err(ArtifactError::Allocation)?;
             for failure in failures {
                 imported.push(match failure {
                     CallableConformanceFailureV1::Behavioral { requirement, reason } => {
@@ -929,11 +790,7 @@ fn reconstruct_completeness(
                     }
                     CallableConformanceFailureV1::AssociatedType { failure } => {
                         let failure = reconstruct_associated_type_failure(failure, owners, allocations)?;
-                        if failure
-                            .requirement
-                            .as_ref()
-                            .is_some_and(|requirement| &requirement.owner != expected_trait)
-                        {
+                        if failure.requirement.as_ref().is_some_and(|requirement| &requirement.owner != expected_trait) {
                             return Err(invalid("witness completeness associated-type failure belongs to another trait"));
                         }
                         ConformanceFailure::AssociatedType(failure)
@@ -948,26 +805,17 @@ fn reconstruct_completeness(
             ConformanceCompleteness::Unknown(super::callable_import::import_unknown_reason(reason, allocations)?)
         }
         CallableConformanceCompletenessV1::Blocked { reason } => {
-            ConformanceCompleteness::Blocked(super::callable_binding_import::block_reason(
-                reason,
-                types,
-                owners,
-                allocations,
-            )?)
+            ConformanceCompleteness::Blocked(super::callable_binding_import::block_reason(reason, types, owners, allocations)?)
         }
-        CallableConformanceCompletenessV1::Dynamic { reason } => {
-            ConformanceCompleteness::Dynamic(DynamicBoundaryObligation {
-                reason: allocations.string(reason).map_err(ArtifactError::Allocation)?,
-            })
-        }
+        CallableConformanceCompletenessV1::Dynamic { reason } => ConformanceCompleteness::Dynamic(DynamicBoundaryObligation {
+            reason: allocations.string(reason).map_err(ArtifactError::Allocation)?,
+        }),
         CallableConformanceCompletenessV1::Cancelled => ConformanceCompleteness::Cancelled,
         CallableConformanceCompletenessV1::BudgetExceeded { report } => {
             ConformanceCompleteness::BudgetExceeded(super::callable_binding_import::budget_report(report))
         }
         CallableConformanceCompletenessV1::InternalFailure { message } => {
-            ConformanceCompleteness::InternalFailure(
-                allocations.boxed_str(message).map_err(ArtifactError::Allocation)?,
-            )
+            ConformanceCompleteness::InternalFailure(allocations.boxed_str(message).map_err(ArtifactError::Allocation)?)
         }
     })
 }
@@ -1020,11 +868,7 @@ pub(crate) fn reconstruct_associated_type_plan(
         .map_err(ArtifactError::Allocation)?;
     for failure in &plan.failures {
         let imported = reconstruct_associated_type_failure(failure, owners, allocations)?;
-        if imported
-            .requirement
-            .as_ref()
-            .is_some_and(|requirement| &requirement.owner != expected_trait)
-        {
+        if imported.requirement.as_ref().is_some_and(|requirement| &requirement.owner != expected_trait) {
             return Err(invalid("associated-type witness failure belongs to another trait"));
         }
         failures.push(imported);
@@ -1034,12 +878,7 @@ pub(crate) fn reconstruct_associated_type_plan(
         .vector::<SemanticDiagnostic>(plan.diagnostics.len())
         .map_err(ArtifactError::Allocation)?;
     for diagnostic in &plan.diagnostics {
-        diagnostics.push(reconstruct_semantic_diagnostic(
-            diagnostic,
-            types,
-            owners,
-            allocations,
-        )?);
+        diagnostics.push(reconstruct_semantic_diagnostic(diagnostic, types, owners, allocations)?);
     }
 
     Ok(ImportedAssociatedTypePlan {
@@ -1077,10 +916,7 @@ pub(crate) fn associated_type_requirement_identity(
     identity: &CallableAssociatedTypeRequirementIdentityV1,
     owners: &StableOwnerCatalog<'_>,
 ) -> Result<AssociatedTypeRequirementId, ArtifactError> {
-    Ok(AssociatedTypeRequirementId::new(
-        owners.declaration(&identity.owner)?,
-        identity.index,
-    ))
+    Ok(AssociatedTypeRequirementId::new(owners.declaration(&identity.owner)?, identity.index))
 }
 
 pub(crate) fn reconstruct_requirement_view(
@@ -1112,12 +948,7 @@ pub(crate) fn reconstruct_requirement_view(
         return Err(invalid("witness requirement view callable disagrees with its trait contract"));
     }
 
-    let signature = super::callable_import::reconstruct_callable_signature(
-        &view.signature,
-        types,
-        owners,
-        allocations,
-    )?;
+    let signature = super::callable_import::reconstruct_callable_signature(&view.signature, types, owners, allocations)?;
     if signature.callable != callable
         || signature.owner != *trait_declaration
         || signature.side != requirement.side
@@ -1126,14 +957,8 @@ pub(crate) fn reconstruct_requirement_view(
         return Err(invalid("witness requirement view signature disagrees with its identity"));
     }
 
-    let default_callable = view
-        .default_callable
-        .as_ref()
-        .map(|callable| owners.callable(callable))
-        .transpose()?;
-    if source_member.member.default_present != default_callable.is_some()
-        || default_callable.as_ref().is_some_and(|default| default != &callable)
-    {
+    let default_callable = view.default_callable.as_ref().map(|callable| owners.callable(callable)).transpose()?;
+    if source_member.member.default_present != default_callable.is_some() || default_callable.as_ref().is_some_and(|default| default != &callable) {
         return Err(invalid("witness requirement default callable disagrees with its trait surface"));
     }
 
@@ -1147,10 +972,7 @@ pub(crate) fn reconstruct_requirement_view(
     Ok((requirement, imported))
 }
 
-pub(crate) fn requirement_identity(
-    identity: &CallableRequirementIdentityV1,
-    owners: &StableOwnerCatalog<'_>,
-) -> Result<TraitRequirementId, ArtifactError> {
+pub(crate) fn requirement_identity(identity: &CallableRequirementIdentityV1, owners: &StableOwnerCatalog<'_>) -> Result<TraitRequirementId, ArtifactError> {
     Ok(TraitRequirementId {
         owner: owners.declaration(&identity.owner)?,
         selector: canonical_selector(&identity.selector)?,

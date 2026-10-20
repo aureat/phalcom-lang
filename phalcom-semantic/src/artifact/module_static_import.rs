@@ -6,16 +6,12 @@
 //! relationship from stable module symbols to those canonical binding rows.
 //! T4 owns the single live owning materialization.
 
-use super::callable_binding_import::{
-    ImportedCallableBindingAuthority, ImportedCallableBindingSourceAuthority,
-};
+use super::callable_binding_import::{ImportedCallableBindingAuthority, ImportedCallableBindingSourceAuthority};
 use super::identity::StableOwnerCatalog;
 use crate::identity::{BindingId, CallableId, ModuleId};
 use crate::module_bindings::ModuleBindingPhase;
 use phalcom_common::range::SourceRange;
-use phalcom_compiler_artifact::semantic::world::{
-    ModuleStaticBindingIndexV1, ModuleStaticBindingPhaseV1, StaticConstantSymbolV1,
-};
+use phalcom_compiler_artifact::semantic::world::{ModuleStaticBindingIndexV1, ModuleStaticBindingPhaseV1, StaticConstantSymbolV1};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_modules::linker::SymbolId;
 use phalcom_type_meta::allocation::AllocationBudget;
@@ -98,18 +94,12 @@ pub(crate) fn reconstruct_module_static_bindings(
                 .ok_or_else(|| invalid("module static binding references an absent callable binding row"))?;
             if !matches!(
                 source_row.source_authority,
-                ImportedCallableBindingSourceAuthority::BodyLocalSource(_)
-                    | ImportedCallableBindingSourceAuthority::BodyLocalGenerated(_)
+                ImportedCallableBindingSourceAuthority::BodyLocalSource(_) | ImportedCallableBindingSourceAuthority::BodyLocalGenerated(_)
             ) {
-                return Err(invalid(
-                    "module static binding does not resolve to a body-local binding authority",
-                ));
+                return Err(invalid("module static binding does not resolve to a body-local binding authority"));
             }
 
-            let declaration_range = source_range(
-                &binding.declaration_source,
-                "module static-binding declaration",
-            )?;
+            let declaration_range = source_range(&binding.declaration_source, "module static-binding declaration")?;
             let initializer_range = binding
                 .initializer_source
                 .as_ref()
@@ -131,86 +121,56 @@ pub(crate) fn reconstruct_module_static_bindings(
 
         bindings.sort_by(|left, right| left.symbol.cmp(&right.symbol));
         if bindings.windows(2).any(|pair| pair[0].symbol == pair[1].symbol) {
-            return Err(invalid(
-                "module static-binding symbol is duplicated after stable-owner relocation",
-            ));
+            return Err(invalid("module static-binding symbol is duplicated after stable-owner relocation"));
         }
 
         let mut visible_names = allocations
             .vector::<(Box<str>, SymbolId)>(record.visible_names.len())
             .map_err(ArtifactError::Allocation)?;
         for visible in &record.visible_names {
-            let name = allocations
-                .boxed_str(&visible.name)
-                .map_err(ArtifactError::Allocation)?;
+            let name = allocations.boxed_str(&visible.name).map_err(ArtifactError::Allocation)?;
             let symbol = static_symbol(&visible.symbol, owners, allocations)?;
-            if bindings
-                .binary_search_by(|binding| binding.symbol.cmp(&symbol))
-                .is_err()
-            {
-                return Err(invalid(
-                    "module visible static-binding name references an absent binding fact",
-                ));
+            if bindings.binary_search_by(|binding| binding.symbol.cmp(&symbol)).is_err() {
+                return Err(invalid("module visible static-binding name references an absent binding fact"));
             }
             visible_names.push((name, symbol));
         }
         visible_names.sort_by(|left, right| left.0.cmp(&right.0));
         if visible_names.windows(2).any(|pair| pair[0].0 == pair[1].0) {
-            return Err(invalid(
-                "module visible static-binding name is duplicated after relocation",
-            ));
+            return Err(invalid("module visible static-binding name is duplicated after relocation"));
         }
 
         modules.push(ImportedModuleStaticBindingIndex {
             module,
-            bindings: allocations
-                .boxed_slice(bindings)
-                .map_err(ArtifactError::Allocation)?,
-            visible_names: allocations
-                .boxed_slice(visible_names)
-                .map_err(ArtifactError::Allocation)?,
+            bindings: allocations.boxed_slice(bindings).map_err(ArtifactError::Allocation)?,
+            visible_names: allocations.boxed_slice(visible_names).map_err(ArtifactError::Allocation)?,
         });
     }
 
     modules.sort_by(|left, right| left.module.cmp(&right.module));
     if modules.windows(2).any(|pair| pair[0].module == pair[1].module) {
-        return Err(invalid(
-            "module static-binding index owner is duplicated after stable-owner relocation",
-        ));
+        return Err(invalid("module static-binding index owner is duplicated after stable-owner relocation"));
     }
 
     Ok(ImportedModuleStaticBindingAuthority {
-        modules: allocations
-            .boxed_slice(modules)
-            .map_err(ArtifactError::Allocation)?,
+        modules: allocations.boxed_slice(modules).map_err(ArtifactError::Allocation)?,
     })
 }
 
-fn static_symbol(
-    symbol: &StaticConstantSymbolV1,
-    owners: &StableOwnerCatalog<'_>,
-    allocations: &mut AllocationBudget,
-) -> Result<SymbolId, ArtifactError> {
+fn static_symbol(symbol: &StaticConstantSymbolV1, owners: &StableOwnerCatalog<'_>, allocations: &mut AllocationBudget) -> Result<SymbolId, ArtifactError> {
     Ok(SymbolId {
         module: owners.module(&symbol.module)?,
-        name: allocations
-            .boxed_str(&symbol.name)
-            .map_err(ArtifactError::Allocation)?,
+        name: allocations.boxed_str(&symbol.name).map_err(ArtifactError::Allocation)?,
     })
 }
 
-fn source_range(
-    range: &phalcom_compiler_artifact::module_world::SpanV1,
-    family: &'static str,
-) -> Result<SourceRange, ArtifactError> {
+fn source_range(range: &phalcom_compiler_artifact::module_world::SpanV1, family: &'static str) -> Result<SourceRange, ArtifactError> {
     if range.start > range.end {
         return Err(invalid(format!("{family} range is inverted")));
     }
     Ok(SourceRange {
-        start: usize::try_from(range.start)
-            .map_err(|_| invalid(format!("{family} start exceeds address space")))?,
-        end: usize::try_from(range.end)
-            .map_err(|_| invalid(format!("{family} end exceeds address space")))?,
+        start: usize::try_from(range.start).map_err(|_| invalid(format!("{family} start exceeds address space")))?,
+        end: usize::try_from(range.end).map_err(|_| invalid(format!("{family} end exceeds address space")))?,
     })
 }
 

@@ -1,4 +1,6 @@
 @!documentation("Package reflection and exposure namespace object.")
+from .module import Module
+
 native primitive class Package is Module {
   native package -> Package
   native parentPackage -> Package

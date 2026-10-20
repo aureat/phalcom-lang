@@ -4,6 +4,7 @@ mod diagnostic;
 mod explanation;
 pub(super) mod proof;
 
+use crate::artifact::identity::StableOwnerCatalog;
 use crate::data_semantics::{
     DataComponentSemantic, DataConstructorParameter, DataConstructorParameterContribution, DataConstructorSignature, DataConstructorTemplate, DataInfo,
     DataProductContribution, DataProductExpansionSemantic, DataProductShapeTemplate, DataSemanticTable, DataShape,
@@ -23,7 +24,6 @@ use crate::identity::{
 use crate::metadata::stable_identity::{
     from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_impl, from_stable_module, from_stable_project, from_stable_variant,
 };
-use crate::artifact::identity::StableOwnerCatalog;
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::case_environment::CaseTypeEnvironment;
 use crate::types::evidence::{DynamicReason, UnknownReason};
@@ -1227,17 +1227,17 @@ fn import_structural_primary_contracts_with_owner_catalog(
             ));
         }
     }
-    let hierarchy = MapTypeHierarchy::from_frozen_entries_with_allocation_budget(
-        superclass_entries,
-        template_entries,
-        contracts.hierarchy_edges.len(),
-        allocations,
-    )
-    .map_err(|error| match error {
-        crate::types::relation::FrozenTypeHierarchyError::Allocation(error) => allocation_error(error),
-        crate::types::relation::FrozenTypeHierarchyError::DuplicateSuperclass => referential("hierarchy declaration is duplicated after identity relocation"),
-        crate::types::relation::FrozenTypeHierarchyError::DuplicateTemplate => referential("supertype template owner is duplicated after identity relocation"),
-    })?;
+    let hierarchy =
+        MapTypeHierarchy::from_frozen_entries_with_allocation_budget(superclass_entries, template_entries, contracts.hierarchy_edges.len(), allocations)
+            .map_err(|error| match error {
+                crate::types::relation::FrozenTypeHierarchyError::Allocation(error) => allocation_error(error),
+                crate::types::relation::FrozenTypeHierarchyError::DuplicateSuperclass => {
+                    referential("hierarchy declaration is duplicated after identity relocation")
+                }
+                crate::types::relation::FrozenTypeHierarchyError::DuplicateTemplate => {
+                    referential("supertype template owner is duplicated after identity relocation")
+                }
+            })?;
 
     let mut declaration_entries = allocations
         .vector::<(crate::identity::DeclarationId, DeclarationTypeInfo)>(contracts.declaration_shells.len())
@@ -1294,15 +1294,15 @@ fn import_structural_primary_contracts_with_owner_catalog(
         }
         let semantic_form = match shell.binding.semantic_form {
             DeclarationSemanticFormV1::Ordinary => crate::declarations::DeclarationSemanticForm::Ordinary,
-            DeclarationSemanticFormV1::IntrinsicTuple => crate::declarations::DeclarationSemanticForm::Intrinsic(
-                crate::declarations::IntrinsicTypeApplication::Tuple,
-            ),
-            DeclarationSemanticFormV1::IntrinsicRecord => crate::declarations::DeclarationSemanticForm::Intrinsic(
-                crate::declarations::IntrinsicTypeApplication::Record,
-            ),
-            DeclarationSemanticFormV1::IntrinsicPack => crate::declarations::DeclarationSemanticForm::Intrinsic(
-                crate::declarations::IntrinsicTypeApplication::Pack,
-            ),
+            DeclarationSemanticFormV1::IntrinsicTuple => {
+                crate::declarations::DeclarationSemanticForm::Intrinsic(crate::declarations::IntrinsicTypeApplication::Tuple)
+            }
+            DeclarationSemanticFormV1::IntrinsicRecord => {
+                crate::declarations::DeclarationSemanticForm::Intrinsic(crate::declarations::IntrinsicTypeApplication::Record)
+            }
+            DeclarationSemanticFormV1::IntrinsicPack => {
+                crate::declarations::DeclarationSemanticForm::Intrinsic(crate::declarations::IntrinsicTypeApplication::Pack)
+            }
         };
         let runtime_owner = shell.binding.runtime_owner.as_ref().map(|owner| match owner {
             IntrinsicRuntimeOwnerV1::Tuple => crate::declarations::IntrinsicRuntimeOwner::Tuple,
@@ -4454,7 +4454,9 @@ fn import_callable_block_reason(
         Portable::InferenceDidNotConverge => BlockReason::InferenceDidNotConverge,
         Portable::OpaqueNative { message } => BlockReason::OpaqueNative(allocations.boxed_str(message).map_err(allocation_error)?),
         Portable::ReflectionBoundary => BlockReason::ReflectionBoundary,
-        Portable::UnavailableSemanticOwner { owner } => BlockReason::UnavailableSemanticOwner(Box::new(import_callable_query_owner(owner, relocation, allocations)?)),
+        Portable::UnavailableSemanticOwner { owner } => {
+            BlockReason::UnavailableSemanticOwner(Box::new(import_callable_query_owner(owner, relocation, allocations)?))
+        }
         Portable::BudgetExceeded { report } => BlockReason::BudgetExceeded(import_callable_binding_budget(report)),
         Portable::SuppressedDependency => BlockReason::SuppressedDependency,
     })
@@ -5303,7 +5305,15 @@ fn import_callable_observed_import_phases(
         let Some(summary) = product.bindings.get(&binding) else {
             return Err(referential("callable observed phase has no matching module phase summary"));
         };
-        if !summary.observed || summary.phase != phase {
+        // The module phase is the join of observations from all semantic
+        // owners. A Runtime summary can therefore cover an individual
+        // InterfaceOnly callable observation; the reverse is invalid.
+        let phase_is_covered = summary.observed
+            && matches!(
+                (summary.phase, phase),
+                (DependencyPhase::Runtime, _) | (DependencyPhase::InterfaceOnly, DependencyPhase::InterfaceOnly)
+            );
+        if !phase_is_covered {
             return Err(referential("callable observed phase disagrees with module phase summary"));
         }
         if phases.insert(binding, phase).is_some() {
@@ -5335,13 +5345,13 @@ fn import_module_execution_authority(
 > {
     use phalcom_compiler_artifact::semantic::world as wire;
     use phalcom_modules::graph::{
-        DependencyPhase, RuntimeDependencyReason, RuntimeRequirementProduct, RuntimeRequirementProducer, RuntimeRequirementProvenance,
+        DependencyPhase, RuntimeDependencyReason, RuntimeRequirementProducer, RuntimeRequirementProduct, RuntimeRequirementProvenance,
         RuntimeRequirementTarget, RuntimeRequirementTiming,
     };
+    use phalcom_modules::identity::{ImportBindingLocalId, ImportSiteId, ImportSiteLocalId, SourceImportBindingId};
     use phalcom_modules::linker::{
         ImportPhaseSummary, LinkedReadSpec, ModuleImportPhaseProduct, PhaseEvidenceCoverage, RuntimeDependencyRequirement, SymbolId,
     };
-    use phalcom_modules::identity::{ImportBindingLocalId, ImportSiteId, ImportSiteLocalId, SourceImportBindingId};
 
     if authority.import_phase_products.len() != module_world.modules.len() {
         return Err(referential("module import phase authority must contain one product for every module-world row"));
@@ -5368,7 +5378,10 @@ fn import_module_execution_authority(
                 .source_import_binding_at(&product.module, row.binding)?
                 .ok_or_else(|| referential("module import phase product references an absent source binding"))?;
             let source_binding = SourceImportBindingId {
-                site: ImportSiteId::new(module.clone_with_allocation_budget(allocations).map_err(allocation_error)?, ImportSiteLocalId::new(site)),
+                site: ImportSiteId::new(
+                    module.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                    ImportSiteLocalId::new(site),
+                ),
                 local: ImportBindingLocalId(local),
             };
             let summary = ImportPhaseSummary {
@@ -5448,9 +5461,9 @@ fn import_module_execution_authority(
             })
             .transpose()?;
         let target = match &requirement.provenance.target {
-            wire::RuntimeRequirementTargetV1::Module { module } => RuntimeRequirementTarget::Module(
-                import_stable_module_with_allocation_budget(module, allocations)?,
-            ),
+            wire::RuntimeRequirementTargetV1::Module { module } => {
+                RuntimeRequirementTarget::Module(import_stable_module_with_allocation_budget(module, allocations)?)
+            }
             wire::RuntimeRequirementTargetV1::Binding { module, name } => RuntimeRequirementTarget::Binding {
                 module: import_stable_module_with_allocation_budget(module, allocations)?,
                 name: allocations.boxed_str(name).map_err(allocation_error)?,
@@ -5524,13 +5537,7 @@ pub(super) fn import_callable_analysis_records(
     for (body_index, record) in records.iter().enumerate() {
         let callable = import_stable_callable_with_allocation_budget(&record.callable, &mut child)?;
         let observed_import_phases = match module_world {
-            Some(module_world) => import_callable_observed_import_phases(
-                record,
-                &callable,
-                module_world,
-                import_phase_products,
-                &mut child,
-            )?,
+            Some(module_world) => import_callable_observed_import_phases(record, &callable, module_world, import_phase_products, &mut child)?,
             None if record.observed_import_phases.is_empty() => BTreeMap::new(),
             None => return Err(referential("module world is required to resolve callable source-import phase authority")),
         };
@@ -6218,13 +6225,7 @@ pub fn validate_and_import_semantic_world_with_module_world_and_allocation_budge
     transaction: &mut AllocationBudget,
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
     let projects = phalcom_modules::ProjectUniverse::new();
-    validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget(
-        world,
-        module_world,
-        &projects,
-        limits,
-        transaction,
-    )
+    validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget(world, module_world, &projects, limits, transaction)
 }
 
 /// Imports semantic authority while resolving every project-qualified owner
@@ -7697,135 +7698,138 @@ mod tests {
         let stable_callable = crate::metadata::stable_identity::to_stable_callable(&callable);
         let stable_declaration = crate::metadata::stable_identity::to_stable_declaration(&declaration);
         let module = stable_declaration.module.clone();
-        let record = CallableAnalysisRecordV2::from_v1_with_observed_import_phases(CallableAnalysisRecordV1 {
-            explanations: Vec::new(),
-            return_explanation: None,
-            diagnostic_cause_count: 0,
-            diagnostics: Vec::new(),
-            dependencies: Vec::new(),
-            semantic_dependencies: Vec::new(),
-            callable: stable_callable.clone(),
-            body_source_owner: None,
-            body_range: SpanV1 { start: 0, end: 12 },
-            status: CallableAnalysisStatusV1::Complete,
-            exits_unreachable: false,
-            flow_graph: CallableFlowGraphV1 {
-                nodes: Vec::new(),
-                edges: Vec::new(),
-                entry: None,
-                exits: Vec::new(),
-            },
-            constructor_super_initializer: None,
-            expressions: vec![phalcom_compiler_artifact::semantic::world::CallableExpressionRowV1 {
-                ordinal: 0,
-                range: SpanV1 { start: 1, end: 4 },
-                knowledge: TypeKnowledgeV1::Known {
-                    ty: ArtifactTypeId(0),
-                    status: phalcom_compiler_artifact::semantic::world::EvidenceStatusV1::Assumed,
-                    origin: phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::Flow,
-                    provenance: phalcom_compiler_artifact::semantic::world::EvidenceSetV1 {
-                        ranges: vec![SpanV1 { start: 2, end: 3 }],
-                        descriptions: vec!["flow fact".into()],
-                    },
+        let record = CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
+            CallableAnalysisRecordV1 {
+                explanations: Vec::new(),
+                return_explanation: None,
+                diagnostic_cause_count: 0,
+                diagnostics: Vec::new(),
+                dependencies: Vec::new(),
+                semantic_dependencies: Vec::new(),
+                callable: stable_callable.clone(),
+                body_source_owner: None,
+                body_range: SpanV1 { start: 0, end: 12 },
+                status: CallableAnalysisStatusV1::Complete,
+                exits_unreachable: false,
+                flow_graph: CallableFlowGraphV1 {
+                    nodes: Vec::new(),
+                    edges: Vec::new(),
+                    entry: None,
+                    exits: Vec::new(),
                 },
-                callable: Some(stable_callable.clone()),
-                conditional_dispatch: Some(phalcom_compiler_artifact::semantic::world::ConditionalDispatchSelectionV1 {
-                    impl_id: crate::metadata::stable_identity::to_stable_impl(&crate::identity::ImplId::new(
-                        declaration.module.clone(),
-                        crate::identity::ImplLocalId(4),
-                    )),
-                    callable: stable_callable.clone(),
-                    declaring_owner: stable_declaration.clone(),
-                    side: 0,
-                }),
-                conditional_capability: None,
-                trait_dispatch: None,
-                trait_dispatch_candidates: None,
-                contextual_realization: None,
-                causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::One { cause: 7 },
-                explanation: None,
-                binding_read_safety: Some(phalcom_compiler_artifact::semantic::world::CallableBindingReadSafetyV1::RuntimeCheckRequired),
-                binding_read: Some(0),
-                binding_write: Some(0),
-                status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Blocked {
-                    reason: phalcom_compiler_artifact::semantic::world::CallableBlockReasonV1::UnavailableSemanticOwner {
-                        owner: CallableQueryOwnerV1::GenericConformance {
-                            subject: TypeTermV1::Canonical { ty: ArtifactTypeId(0) },
-                            trait_ref: TraitRefV1 {
-                                declaration: stable_declaration.clone(),
-                                arguments: vec![ArtifactTypeId(0)],
+                constructor_super_initializer: None,
+                expressions: vec![phalcom_compiler_artifact::semantic::world::CallableExpressionRowV1 {
+                    ordinal: 0,
+                    range: SpanV1 { start: 1, end: 4 },
+                    knowledge: TypeKnowledgeV1::Known {
+                        ty: ArtifactTypeId(0),
+                        status: phalcom_compiler_artifact::semantic::world::EvidenceStatusV1::Assumed,
+                        origin: phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::Flow,
+                        provenance: phalcom_compiler_artifact::semantic::world::EvidenceSetV1 {
+                            ranges: vec![SpanV1 { start: 2, end: 3 }],
+                            descriptions: vec!["flow fact".into()],
+                        },
+                    },
+                    callable: Some(stable_callable.clone()),
+                    conditional_dispatch: Some(phalcom_compiler_artifact::semantic::world::ConditionalDispatchSelectionV1 {
+                        impl_id: crate::metadata::stable_identity::to_stable_impl(&crate::identity::ImplId::new(
+                            declaration.module.clone(),
+                            crate::identity::ImplLocalId(4),
+                        )),
+                        callable: stable_callable.clone(),
+                        declaring_owner: stable_declaration.clone(),
+                        side: 0,
+                    }),
+                    conditional_capability: None,
+                    trait_dispatch: None,
+                    trait_dispatch_candidates: None,
+                    contextual_realization: None,
+                    causal_invalidity: phalcom_compiler_artifact::semantic::world::CallableCausalInvalidityV1::One { cause: 7 },
+                    explanation: None,
+                    binding_read_safety: Some(phalcom_compiler_artifact::semantic::world::CallableBindingReadSafetyV1::RuntimeCheckRequired),
+                    binding_read: Some(0),
+                    binding_write: Some(0),
+                    status: phalcom_compiler_artifact::semantic::world::CallableExpressionStatusV1::Blocked {
+                        reason: phalcom_compiler_artifact::semantic::world::CallableBlockReasonV1::UnavailableSemanticOwner {
+                            owner: CallableQueryOwnerV1::GenericConformance {
+                                subject: TypeTermV1::Canonical { ty: ArtifactTypeId(0) },
+                                trait_ref: TraitRefV1 {
+                                    declaration: stable_declaration.clone(),
+                                    arguments: vec![ArtifactTypeId(0)],
+                                },
                             },
                         },
                     },
+                    denotation: None,
+                    call_specialization: None,
+                }],
+                conformance_evidence: vec![],
+                for_iteration_lanes: vec![],
+                positional_expansions: vec![],
+                known_invalid_positional_expansions: vec![],
+                sequence_literals: vec![],
+                associated_resolutions: vec![],
+                callable_reference_resolutions: vec![],
+                family_applications: vec![],
+                local_proof_graph: None,
+                match_resolutions: vec![],
+                pattern_site_resolutions: vec![],
+                entry_flow: phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1 {
+                    bindings: vec![],
+                    fields: vec![],
+                    fact_count: 0,
                 },
-                denotation: None,
-                call_specialization: None,
-            }],
-            conformance_evidence: vec![],
-            for_iteration_lanes: vec![],
-            positional_expansions: vec![],
-            known_invalid_positional_expansions: vec![],
-            sequence_literals: vec![],
-            associated_resolutions: vec![],
-            callable_reference_resolutions: vec![],
-            family_applications: vec![],
-            local_proof_graph: None,
-            match_resolutions: vec![],
-            pattern_site_resolutions: vec![],
-            entry_flow: phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1 {
-                bindings: vec![],
-                fields: vec![],
-                fact_count: 0,
-            },
-            normal_returns: vec![],
-            throws: vec![],
-            return_validation: phalcom_compiler_artifact::semantic::world::ReturnContractValidationV1::NotApplicable,
-            bindings: vec![CallableBindingRowV1 {
-                ordinal: 0,
-                name: "text".into(),
-                parameter: Some(phalcom_compiler_artifact::semantic::world::CallableParameterIdentityV1 {
-                    callable: stable_callable.clone(),
-                    index: 3,
-                }),
-                range: SpanV1 { start: 5, end: 9 },
-                contract: Some(CallableBindingContractV1 {
-                    ty: ArtifactTypeId(0),
-                    origin: CallableBindingContractOriginV1::SourceAnnotation,
-                    source: Some(SpanV1 { start: 5, end: 9 }),
-                }),
-                current: TypeKnowledgeV1::Known {
-                    ty: ArtifactTypeId(0),
-                    status: phalcom_compiler_artifact::semantic::world::EvidenceStatusV1::Assumed,
-                    origin: phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::DeveloperAnnotation,
-                    provenance: phalcom_compiler_artifact::semantic::world::EvidenceSetV1 {
-                        ranges: vec![SpanV1 { start: 1, end: 2 }],
-                        descriptions: vec!["annotation".into()],
+                normal_returns: vec![],
+                throws: vec![],
+                return_validation: phalcom_compiler_artifact::semantic::world::ReturnContractValidationV1::NotApplicable,
+                bindings: vec![CallableBindingRowV1 {
+                    ordinal: 0,
+                    name: "text".into(),
+                    parameter: Some(phalcom_compiler_artifact::semantic::world::CallableParameterIdentityV1 {
+                        callable: stable_callable.clone(),
+                        index: 3,
+                    }),
+                    range: SpanV1 { start: 5, end: 9 },
+                    contract: Some(CallableBindingContractV1 {
+                        ty: ArtifactTypeId(0),
+                        origin: CallableBindingContractOriginV1::SourceAnnotation,
+                        source: Some(SpanV1 { start: 5, end: 9 }),
+                    }),
+                    current: TypeKnowledgeV1::Known {
+                        ty: ArtifactTypeId(0),
+                        status: phalcom_compiler_artifact::semantic::world::EvidenceStatusV1::Assumed,
+                        origin: phalcom_compiler_artifact::semantic::world::EvidenceOriginV1::DeveloperAnnotation,
+                        provenance: phalcom_compiler_artifact::semantic::world::EvidenceSetV1 {
+                            ranges: vec![SpanV1 { start: 1, end: 2 }],
+                            descriptions: vec!["annotation".into()],
+                        },
                     },
-                },
-                denotation: Some(SemanticDenotationV1::TypeForm { ty: ArtifactTypeId(0) }),
-                consistency: CallableBindingConsistencyV1::Blocked {
-                    reason: phalcom_compiler_artifact::semantic::world::CallableBlockReasonV1::UnavailableSemanticOwner {
-                        owner: CallableQueryOwnerV1::GenericConformance {
-                            subject: TypeTermV1::Canonical { ty: ArtifactTypeId(0) },
-                            trait_ref: TraitRefV1 {
-                                declaration: stable_declaration.clone(),
-                                arguments: vec![ArtifactTypeId(0)],
+                    denotation: Some(SemanticDenotationV1::TypeForm { ty: ArtifactTypeId(0) }),
+                    consistency: CallableBindingConsistencyV1::Blocked {
+                        reason: phalcom_compiler_artifact::semantic::world::CallableBlockReasonV1::UnavailableSemanticOwner {
+                            owner: CallableQueryOwnerV1::GenericConformance {
+                                subject: TypeTermV1::Canonical { ty: ArtifactTypeId(0) },
+                                trait_ref: TraitRefV1 {
+                                    declaration: stable_declaration.clone(),
+                                    arguments: vec![ArtifactTypeId(0)],
+                                },
                             },
                         },
                     },
-                },
-                causal_invalidity: CallableCausalInvalidityV1::One { cause: 7 },
-                mutable: true,
-                initialization: phalcom_compiler_artifact::semantic::world::CallableInitializationStateV1::MaybeInitialized,
-                version: 4,
-                explanation: Some(9),
-                authority: CallableBindingAuthorityV1::BodyLocalSource {
-                    site_owner: CallableAnalysisSourceOwnerV1::Module { module: module.clone() },
-                    site_local: 12,
-                    declaration_range: SpanV1 { start: 5, end: 9 },
-                },
-            }],
-        }, Vec::new());
+                    causal_invalidity: CallableCausalInvalidityV1::One { cause: 7 },
+                    mutable: true,
+                    initialization: phalcom_compiler_artifact::semantic::world::CallableInitializationStateV1::MaybeInitialized,
+                    version: 4,
+                    explanation: Some(9),
+                    authority: CallableBindingAuthorityV1::BodyLocalSource {
+                        site_owner: CallableAnalysisSourceOwnerV1::Module { module: module.clone() },
+                        site_local: 12,
+                        declaration_range: SpanV1 { start: 5, end: 9 },
+                    },
+                }],
+            },
+            Vec::new(),
+        );
         let relocation = TypeRelocation {
             store_id: TypeStoreId(0),
             types: vec![TypeId(81)],
@@ -8648,48 +8652,149 @@ mod tests {
         };
         phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
             phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1 {
-            explanations: Vec::new(),
-            return_explanation: None,
-            diagnostic_cause_count: 0,
-            diagnostics: Vec::new(),
-            dependencies: Vec::new(),
-            semantic_dependencies: Vec::new(),
-            callable,
-            body_source_owner: None,
-            body_range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 8 },
-            status: phalcom_compiler_artifact::semantic::world::CallableAnalysisStatusV1::Complete,
-            exits_unreachable: false,
-            flow_graph: phalcom_compiler_artifact::semantic::world::CallableFlowGraphV1 {
-                nodes: Vec::new(),
-                edges: Vec::new(),
-                entry: None,
-                exits: Vec::new(),
-            },
-            constructor_super_initializer: None,
-            expressions: Vec::new(),
-            conformance_evidence: Vec::new(),
-            for_iteration_lanes: Vec::new(),
-            positional_expansions: Vec::new(),
-            known_invalid_positional_expansions: Vec::new(),
-            sequence_literals: Vec::new(),
-            associated_resolutions: Vec::new(),
-            callable_reference_resolutions: Vec::new(),
-            family_applications: Vec::new(),
-            local_proof_graph: None,
-            match_resolutions: Vec::new(),
-            pattern_site_resolutions: Vec::new(),
-            entry_flow: phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1 {
-                bindings: Vec::new(),
-                fields: Vec::new(),
-                fact_count: 0,
-            },
-            normal_returns: Vec::new(),
-            throws: Vec::new(),
-            return_validation: phalcom_compiler_artifact::semantic::world::ReturnContractValidationV1::NotApplicable,
+                explanations: Vec::new(),
+                return_explanation: None,
+                diagnostic_cause_count: 0,
+                diagnostics: Vec::new(),
+                dependencies: Vec::new(),
+                semantic_dependencies: Vec::new(),
+                callable,
+                body_source_owner: None,
+                body_range: phalcom_compiler_artifact::module_world::SpanV1 { start: 0, end: 8 },
+                status: phalcom_compiler_artifact::semantic::world::CallableAnalysisStatusV1::Complete,
+                exits_unreachable: false,
+                flow_graph: phalcom_compiler_artifact::semantic::world::CallableFlowGraphV1 {
+                    nodes: Vec::new(),
+                    edges: Vec::new(),
+                    entry: None,
+                    exits: Vec::new(),
+                },
+                constructor_super_initializer: None,
+                expressions: Vec::new(),
+                conformance_evidence: Vec::new(),
+                for_iteration_lanes: Vec::new(),
+                positional_expansions: Vec::new(),
+                known_invalid_positional_expansions: Vec::new(),
+                sequence_literals: Vec::new(),
+                associated_resolutions: Vec::new(),
+                callable_reference_resolutions: Vec::new(),
+                family_applications: Vec::new(),
+                local_proof_graph: None,
+                match_resolutions: Vec::new(),
+                pattern_site_resolutions: Vec::new(),
+                entry_flow: phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1 {
+                    bindings: Vec::new(),
+                    fields: Vec::new(),
+                    fact_count: 0,
+                },
+                normal_returns: Vec::new(),
+                throws: Vec::new(),
+                return_validation: phalcom_compiler_artifact::semantic::world::ReturnContractValidationV1::NotApplicable,
                 bindings: Vec::new(),
             },
             Vec::new(),
         )
+    }
+
+    #[test]
+    fn callable_interface_observation_is_covered_by_runtime_module_summary() {
+        use phalcom_compiler_artifact::module_world::{
+            AliasV1, ArtifactModuleId, ImportPathV1, ImportRootV1, ImportV1, ModuleKindV1, ModuleV2, ModuleWorldV2, SpanV1,
+        };
+        use phalcom_compiler_artifact::semantic::world::{CallableObservedImportPhaseV1, DependencyPhaseV1};
+        use phalcom_modules::graph::DependencyPhase;
+        use phalcom_modules::identity::{ImportBindingLocalId, ImportSiteId, ImportSiteLocalId, SourceImportBindingId};
+        use phalcom_modules::linker::{ImportPhaseSummary, ModuleImportPhaseProduct, PhaseEvidenceCoverage};
+
+        let mut record = minimal_callable_analysis_record();
+        record.observed_import_phases.push(CallableObservedImportPhaseV1 {
+            binding: 0,
+            phase: DependencyPhaseV1::InterfaceOnly,
+        });
+        let stable_module = stable_callable_module(&record.callable).clone();
+        let span = SpanV1 { start: 0, end: 0 };
+        let module_world = ModuleWorldV2 {
+            entry: ArtifactModuleId(0),
+            initialization_order: Vec::new(),
+            modules: vec![ModuleV2 {
+                identity: stable_module.clone(),
+                path: vec!["test".into()],
+                kind: ModuleKindV1::Module,
+                declarations: Vec::new(),
+                exports: Vec::new(),
+                imports: vec![ImportV1::Module {
+                    path: ImportPathV1 {
+                        root: ImportRootV1::Relative { dots: 1, span: span.clone() },
+                        segments: Vec::new(),
+                        span: span.clone(),
+                    },
+                    alias: Some(AliasV1 { name: "dependency".into(), span: span.clone() }),
+                    span,
+                }],
+                exposed_children: Vec::new(),
+                metadata: Vec::new(),
+                linked_exports: Vec::new(),
+                globals: Vec::new(),
+                import_bindings: Vec::new(),
+                linked_reads: Vec::new(),
+                runtime_dependencies: Vec::new(),
+                references: Vec::new(),
+                runtime_edges: Vec::new(),
+                topology_parent: None,
+                topology_children: Vec::new(),
+                interface_fingerprint: 0,
+                linked_interface_fingerprint: 0,
+                dependency_fingerprint: 0,
+            }],
+            semantic_rows: Vec::new(),
+            external_projects: Vec::new(),
+            topology_fingerprint: 0,
+        };
+        let module = import_stable_module_with_allocation_budget(&stable_module, &mut AllocationBudget::new(4096)).unwrap();
+        let binding = SourceImportBindingId {
+            site: ImportSiteId::new(module.clone(), ImportSiteLocalId::new(0)),
+            local: ImportBindingLocalId(0),
+        };
+        let product = ModuleImportPhaseProduct {
+            module: module.clone(),
+            bindings: std::collections::BTreeMap::from([(
+                binding.clone(),
+                ImportPhaseSummary {
+                    phase: DependencyPhase::Runtime,
+                    observed: true,
+                },
+            )]),
+            coverage: PhaseEvidenceCoverage::Complete,
+        };
+        let products = std::collections::BTreeMap::from([(module.clone(), product)]);
+        let mut allocations = AllocationBudget::new(4096);
+        let callable = import_stable_callable_with_allocation_budget(&record.callable, &mut allocations).unwrap();
+        let phases = import_callable_observed_import_phases(&record, &callable, &module_world, &products, &mut allocations)
+            .expect("a runtime aggregate summary covers an interface-only callable observation");
+        assert_eq!(phases.get(&binding), Some(&DependencyPhase::InterfaceOnly));
+
+        let stricter_product = ModuleImportPhaseProduct {
+            module: module.clone(),
+            bindings: std::collections::BTreeMap::from([(
+                binding,
+                ImportPhaseSummary {
+                    phase: DependencyPhase::InterfaceOnly,
+                    observed: true,
+                },
+            )]),
+            coverage: PhaseEvidenceCoverage::Complete,
+        };
+        let stricter_products = std::collections::BTreeMap::from([(module, stricter_product)]);
+        let mut uncovered_record = record.clone();
+        uncovered_record.observed_import_phases[0].phase = DependencyPhaseV1::Runtime;
+        assert!(import_callable_observed_import_phases(
+            &uncovered_record,
+            &callable,
+            &module_world,
+            &stricter_products,
+            &mut AllocationBudget::new(4096),
+        )
+        .is_err());
     }
 
     #[test]
@@ -8811,9 +8916,7 @@ mod tests {
 
         record.expressions[0].binding_write = Some(1);
         let mut rejected = AllocationBudget::new(1 << 20);
-        assert!(
-            import_callable_analysis_records(&[record], &relocation, &store, &[], None, &BTreeMap::new(), &limits, &mut rejected).is_err()
-        );
+        assert!(import_callable_analysis_records(&[record], &relocation, &store, &[], None, &BTreeMap::new(), &limits, &mut rejected).is_err());
         assert_eq!(rejected.requested(), 0);
         let _ = ArtifactTypeId(0);
     }

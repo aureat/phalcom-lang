@@ -2,8 +2,8 @@ use phalcom_compiler_artifact::container::{TeloscContainerBuilder, TeloscContain
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::error::{ArtifactError, ContainerError, ValidationError};
 use phalcom_compiler_artifact::header::{
-    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V3, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2,
-    TeloscCapabilities, TeloscHeaderV2,
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V3, SEMANTIC_ARTIFACT_ABI_V3, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities,
+    TeloscHeaderV2,
 };
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
@@ -13,8 +13,8 @@ use phalcom_compiler_artifact::module_world::{
 };
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
 use phalcom_compiler_artifact::query::{
-    PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QUERY_IMAGE_SCHEMA_V2, QUERY_IMAGE_SCHEMA_V3,
-    QueryImageV2, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
+    PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, PortableQueryProductFamilyV1, QUERY_IMAGE_SCHEMA_V2, QUERY_IMAGE_SCHEMA_V4, QueryImageV2,
+    QueryImageV4, QueryProductRefV3, QueryRootEntryV4,
 };
 use phalcom_compiler_artifact::section::{SectionFlags, SectionKind};
 use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV2;
@@ -108,7 +108,7 @@ fn sample_payload() -> CompilerArtifactPayload {
         stable_identity_schema: 1,
         module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
         semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V3,
-        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V3,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [1; 16],
         type_metadata_schema_version: 13,
@@ -216,21 +216,19 @@ fn sample_payload() -> CompilerArtifactPayload {
         static_case_signatures: vec![],
         associated_surfaces: vec![],
         module_execution_authority: ModuleExecutionAuthorityV1 {
-            import_phase_products: vec![
-                ModuleImportPhaseProductV1 {
-                    module: StableModuleRef {
-                        project: universe_project(),
-                        path: Box::new([]),
-                    },
-                    bindings: vec![],
-                    coverage: PhaseEvidenceCoverageV1::Full,
+            import_phase_products: vec![ModuleImportPhaseProductV1 {
+                module: StableModuleRef {
+                    project: universe_project(),
+                    path: Box::new([]),
                 },
-            ],
+                bindings: vec![],
+                coverage: PhaseEvidenceCoverageV1::Full,
+            }],
             runtime_requirements: vec![],
         },
     };
 
-    let query_image = QueryImageV3 {
+    let query_image = QueryImageV4 {
         supported_roots: vec![],
         dependency_evidence: vec![],
     };
@@ -382,7 +380,7 @@ fn duplicate_full_module_identity_rejected() {
 fn missing_internal_module_owner_rejected() {
     let mut payload = sample_payload();
     // A query root references an internal module that does not exist in module_world
-    payload.query_image.supported_roots.push(QueryRootEntryV3 {
+    payload.query_image.supported_roots.push(QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::LinkedInterface,
             owner: PortableQueryOwnerKeyV1::Module(StableModuleRef {
@@ -390,8 +388,8 @@ fn missing_internal_module_owner_rejected() {
                 path: Box::new(["nonexistent".into()]),
             }),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::LinkedInterface,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::Module,
             row_index: 0,
         },
         input_fingerprint: 0,
@@ -407,7 +405,7 @@ fn missing_internal_module_owner_rejected() {
 fn unlisted_external_project_rejected() {
     let mut payload = sample_payload();
     // Query root references an external project that is NOT in external_projects
-    payload.query_image.supported_roots.push(QueryRootEntryV3 {
+    payload.query_image.supported_roots.push(QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::LinkedInterface,
             owner: PortableQueryOwnerKeyV1::Module(StableModuleRef {
@@ -415,8 +413,8 @@ fn unlisted_external_project_rejected() {
                 path: Box::new(["math".into()]),
             }),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::LinkedInterface,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::Module,
             row_index: 0,
         },
         input_fingerprint: 0,
@@ -432,7 +430,7 @@ fn unlisted_external_project_rejected() {
 fn exact_allowlisted_external_project_accepted() {
     let mut payload = sample_payload();
     payload.module_world.external_projects = vec![external_project_a()];
-    payload.query_image.supported_roots.push(QueryRootEntryV3 {
+    payload.query_image.supported_roots.push(QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::DeclarationSurface,
             owner: PortableQueryOwnerKeyV1::Declaration(StableDeclarationRef {
@@ -443,8 +441,8 @@ fn exact_allowlisted_external_project_accepted() {
                 path: Box::new(["Matrix".into()]),
             }),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::DeclarationSurface,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::DispatchSurface,
             row_index: 0,
         },
         input_fingerprint: 0,
@@ -453,18 +451,21 @@ fn exact_allowlisted_external_project_accepted() {
     });
 
     // Provide a semantic row for DeclarationSurface
-    payload.semantic_world.dispatch_surfaces.push(phalcom_compiler_artifact::semantic::world::DeclarationSurfaceRecordV1 {
-        declaration: StableDeclarationRef {
-            module: StableModuleRef {
-                project: external_project_a(),
-                path: Box::new(["math".into()]),
+    payload
+        .semantic_world
+        .dispatch_surfaces
+        .push(phalcom_compiler_artifact::semantic::world::DeclarationSurfaceRecordV1 {
+            declaration: StableDeclarationRef {
+                module: StableModuleRef {
+                    project: external_project_a(),
+                    path: Box::new(["math".into()]),
+                },
+                path: Box::new(["Matrix".into()]),
             },
-            path: Box::new(["Matrix".into()]),
-        },
-        instance_callables: vec![],
-        class_callables: vec![],
-        fields: vec![],
-    });
+            instance_callables: vec![],
+            class_callables: vec![],
+            fields: vec![],
+        });
 
     assert!(payload.validate_cross_section(&ValidationLimits::default()).is_ok());
 }
@@ -482,7 +483,7 @@ fn external_project_fingerprint_mismatch_rejected() {
         artifact_fingerprint: Fingerprint128::from_u128(0x1111_2222),
     };
 
-    payload.query_image.supported_roots.push(QueryRootEntryV3 {
+    payload.query_image.supported_roots.push(QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::DeclarationSurface,
             owner: PortableQueryOwnerKeyV1::Declaration(StableDeclarationRef {
@@ -493,8 +494,8 @@ fn external_project_fingerprint_mismatch_rejected() {
                 path: Box::new(["Matrix".into()]),
             }),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::DeclarationSurface,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::DispatchSurface,
             row_index: 0,
         },
         input_fingerprint: 0,
@@ -532,8 +533,8 @@ fn session_project_owner_rejected() {
     assert!(err.to_string().contains("session project identity"));
 
     // 2. In query image
-    let query_image = QueryImageV3 {
-        supported_roots: vec![QueryRootEntryV3 {
+    let query_image = QueryImageV4 {
+        supported_roots: vec![QueryRootEntryV4 {
             key: PortableQueryKeyV1 {
                 kind: PortableQueryKindV1::LinkedInterface,
                 owner: PortableQueryOwnerKeyV1::Module(StableModuleRef {
@@ -541,8 +542,8 @@ fn session_project_owner_rejected() {
                     path: Box::new(["test".into()]),
                 }),
             },
-            product: QueryProductRefV2 {
-                kind: PortableQueryKindV1::LinkedInterface,
+            product: QueryProductRefV3 {
+                family: PortableQueryProductFamilyV1::Module,
                 row_index: 0,
             },
             input_fingerprint: 0,
@@ -563,7 +564,7 @@ fn query_owner_project_mismatch_rejected() {
 
     // A query root for LinkedInterface claims to describe module row 0 (which is in universe_project),
     // but the query root's owner specifies external_project_a!
-    payload.query_image.supported_roots.push(QueryRootEntryV3 {
+    payload.query_image.supported_roots.push(QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::LinkedInterface,
             owner: PortableQueryOwnerKeyV1::Module(StableModuleRef {
@@ -571,8 +572,8 @@ fn query_owner_project_mismatch_rejected() {
                 path: Box::new([]),
             }),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::LinkedInterface,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::Module,
             row_index: 0,
         },
         input_fingerprint: 0,
@@ -589,30 +590,10 @@ fn query_owner_project_mismatch_rejected() {
 fn legacy_module_schema_rejected() {
     let mut builder = TeloscContainerBuilder::new(sample_payload().header);
     // Add legacy module world schema V1
-    builder.add_section(
-        SectionKind::ModuleWorld,
-        MODULE_WORLD_SCHEMA_V1,
-        SectionFlags::REQUIRED,
-        vec![0u8; 16],
-    );
-    builder.add_section(
-        SectionKind::SemanticWorld,
-        SEMANTIC_WORLD_SCHEMA_V4,
-        SectionFlags::REQUIRED,
-        vec![0u8; 16],
-    );
-    builder.add_section(
-        SectionKind::QueryImage,
-        QUERY_IMAGE_SCHEMA_V3,
-        SectionFlags::REQUIRED,
-        vec![0u8; 16],
-    );
-    builder.add_section(
-        SectionKind::Metadata,
-        1,
-        SectionFlags::REQUIRED,
-        vec![0u8; 16],
-    );
+    builder.add_section(SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V1, SectionFlags::REQUIRED, vec![0u8; 16]);
+    builder.add_section(SectionKind::SemanticWorld, SEMANTIC_WORLD_SCHEMA_V4, SectionFlags::REQUIRED, vec![0u8; 16]);
+    builder.add_section(SectionKind::QueryImage, QUERY_IMAGE_SCHEMA_V4, SectionFlags::REQUIRED, vec![0u8; 16]);
+    builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, vec![0u8; 16]);
     let bytes = builder.build().unwrap();
 
     let limits = ValidationLimits::default();
@@ -662,18 +643,8 @@ fn legacy_query_schema_rejected() {
         sample_payload().semantic_world.encode().unwrap(),
     );
     // Add legacy query image schema V2
-    builder.add_section(
-        SectionKind::QueryImage,
-        QUERY_IMAGE_SCHEMA_V2,
-        SectionFlags::REQUIRED,
-        vec![0u8; 16],
-    );
-    builder.add_section(
-        SectionKind::Metadata,
-        1,
-        SectionFlags::REQUIRED,
-        vec![0u8; 16],
-    );
+    builder.add_section(SectionKind::QueryImage, QUERY_IMAGE_SCHEMA_V2, SectionFlags::REQUIRED, vec![0u8; 16]);
+    builder.add_section(SectionKind::Metadata, 1, SectionFlags::REQUIRED, vec![0u8; 16]);
     let bytes = builder.build().unwrap();
 
     let limits = ValidationLimits::default();
@@ -693,13 +664,13 @@ fn legacy_query_schema_rejected() {
     };
     let v2_bytes = v2_query.encode().unwrap();
     let mut budget = AllocationBudget::new(1024 * 1024);
-    let err = QueryImageV3::decode_with_allocation_budget(&v2_bytes, &limits, &mut budget).unwrap_err();
+    let err = QueryImageV4::decode_with_allocation_budget(&v2_bytes, &limits, &mut budget).unwrap_err();
     assert!(matches!(
         err,
         ArtifactError::Validation(ValidationError::IncompatibleAbi {
             kind: "query_image_schema",
             found: 2,
-            expected: QUERY_IMAGE_SCHEMA_V3,
+            expected: QUERY_IMAGE_SCHEMA_V4,
         })
     ));
 }

@@ -17,9 +17,7 @@ use crate::types::evidence::TypeKnowledge;
 use phalcom_common::modifier::Visibility;
 use phalcom_common::range::SourceRange;
 use phalcom_compiler_artifact::semantic::aggregates::VisibilityV1;
-use phalcom_compiler_artifact::semantic::world::{
-    DeclarationSurfaceRecordV1, DispatchCallableFactV1, FieldSignatureV1,
-};
+use phalcom_compiler_artifact::semantic::world::{DeclarationSurfaceRecordV1, DispatchCallableFactV1, FieldSignatureV1};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
 use std::sync::Arc;
@@ -120,22 +118,11 @@ pub(crate) fn reconstruct_dispatch_authority(
             (DispatchSide::Class, record.class_callables.as_slice()),
         ] {
             for row in rows {
-                imported_callables.push(reconstruct_callable_fact(
-                    row,
-                    side,
-                    &declaration,
-                    callables,
-                    types,
-                    owners,
-                    allocations,
-                )?);
+                imported_callables.push(reconstruct_callable_fact(row, side, &declaration, callables, types, owners, allocations)?);
             }
         }
         imported_callables.sort_by(|left, right| left.callable.cmp(&right.callable));
-        if imported_callables
-            .windows(2)
-            .any(|pair| pair[0].callable == pair[1].callable)
-        {
+        if imported_callables.windows(2).any(|pair| pair[0].callable == pair[1].callable) {
             return Err(invalid("duplicate declaration dispatch callable after stable-owner relocation"));
         }
 
@@ -143,13 +130,7 @@ pub(crate) fn reconstruct_dispatch_authority(
             .vector::<ImportedDispatchField>(record.fields.len())
             .map_err(ArtifactError::Allocation)?;
         for row in &record.fields {
-            imported_fields.push(reconstruct_field_fact(
-                row,
-                &declaration,
-                types,
-                owners,
-                allocations,
-            )?);
+            imported_fields.push(reconstruct_field_fact(row, &declaration, types, owners, allocations)?);
         }
         imported_fields.sort_by(|left, right| left.field.cmp(&right.field));
         if imported_fields.windows(2).any(|pair| pair[0].field == pair[1].field) {
@@ -158,20 +139,13 @@ pub(crate) fn reconstruct_dispatch_authority(
 
         surfaces.push(ImportedDeclarationDispatchSurface {
             declaration,
-            callables: allocations
-                .boxed_slice(imported_callables)
-                .map_err(ArtifactError::Allocation)?,
-            fields: allocations
-                .boxed_slice(imported_fields)
-                .map_err(ArtifactError::Allocation)?,
+            callables: allocations.boxed_slice(imported_callables).map_err(ArtifactError::Allocation)?,
+            fields: allocations.boxed_slice(imported_fields).map_err(ArtifactError::Allocation)?,
         });
     }
 
     surfaces.sort_by(|left, right| left.declaration.cmp(&right.declaration));
-    if surfaces
-        .windows(2)
-        .any(|pair| pair[0].declaration == pair[1].declaration)
-    {
+    if surfaces.windows(2).any(|pair| pair[0].declaration == pair[1].declaration) {
         return Err(invalid("duplicate declaration dispatch surface after stable-owner relocation"));
     }
 
@@ -240,8 +214,7 @@ fn reconstruct_field_fact(
 
     let signature = match (&row.declared_type, row.mutable) {
         (Some(declared_type), Some(mutable)) => {
-            let declared_type: DeclaredTypeFact =
-                super::semantic_import::reconstruct_declared_type(declared_type, types, owners, allocations)?;
+            let declared_type: DeclaredTypeFact = super::semantic_import::reconstruct_declared_type(declared_type, types, owners, allocations)?;
             let source = row
                 .source
                 .as_ref()
@@ -252,10 +225,8 @@ fn reconstruct_field_fact(
                     Ok(SemanticSourceSpan::new(
                         owner.module.clone(),
                         SourceRange {
-                            start: usize::try_from(range.start)
-                                .map_err(|_| invalid("field source start exceeds address space"))?,
-                            end: usize::try_from(range.end)
-                                .map_err(|_| invalid("field source end exceeds address space"))?,
+                            start: usize::try_from(range.start).map_err(|_| invalid("field source start exceeds address space"))?,
+                            end: usize::try_from(range.end).map_err(|_| invalid("field source end exceeds address space"))?,
                         },
                     ))
                 })

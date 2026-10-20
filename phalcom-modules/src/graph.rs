@@ -4,8 +4,10 @@
 //! separate structures. A declaration/interface cycle is valid input to a
 //! semantic fixed point; a runtime initialization cycle is not.
 
+use crate::authority::{ModuleAuthorityBuildError, ModuleAuthorityMap};
 use crate::identity::ModuleId;
 use phalcom_common::range::SourceRange;
+use phalcom_type_meta::allocation::AllocationBudget;
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::Hash;
 
@@ -248,32 +250,147 @@ pub struct RuntimeDependencyEdge {
     pub provenance: Option<RuntimeRequirementProvenance>,
 }
 
+/// Mutable edits layered over the canonical graph base.
+///
+/// Source graphs keep a mutable `ModuleAuthorityMap::Source` base. Artifact
+/// graphs retain a budgeted frozen base and put local edits in this overlay.
+/// A `None` value hides a base row; `Some(edges)` replaces it. Cloning a graph
+/// therefore shares frozen canonical storage without sharing edit mutations.
+#[derive(Clone, Debug)]
+struct GraphOverlay<K: Ord, V> {
+    base: ModuleAuthorityMap<K, Vec<V>>,
+    edits: BTreeMap<K, Option<Vec<V>>>,
+}
+
+impl<K: Ord, V> Default for GraphOverlay<K, V> {
+    fn default() -> Self {
+        Self {
+            base: ModuleAuthorityMap::new(),
+            edits: BTreeMap::new(),
+        }
+    }
+}
+
+impl<K: Ord + Clone, V: Clone> GraphOverlay<K, V> {
+    fn from_source_entries(entries: Vec<(K, Vec<V>)>) -> Self {
+        Self {
+            base: ModuleAuthorityMap::from_source(entries.into_iter().collect()),
+            edits: BTreeMap::new(),
+        }
+    }
+
+    fn from_budgeted_sorted_entries(entries: Vec<(K, Vec<V>)>, allocations: &mut AllocationBudget) -> Result<Self, ModuleAuthorityBuildError> {
+        Ok(Self {
+            base: ModuleAuthorityMap::from_budgeted_sorted_entries(entries, allocations)?,
+            edits: BTreeMap::new(),
+        })
+    }
+
+    fn from_budgeted_entries(mut entries: Vec<(K, Vec<V>)>, allocations: &mut AllocationBudget) -> Result<Self, ModuleAuthorityBuildError> {
+        entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        Self::from_budgeted_sorted_entries(entries, allocations)
+    }
+
+    fn get(&self, key: &K) -> Option<&Vec<V>> {
+        match self.edits.get(key) {
+            Some(value) => value.as_ref(),
+            None => self.base.get(key),
+        }
+    }
+
+    fn get_mut_or_default(&mut self, key: K) -> &mut Vec<V> {
+        if self.base.is_frozen() {
+            let base_value = self.base.get(&key).cloned();
+            self.edits.entry(key).or_insert(base_value).get_or_insert_with(Vec::new)
+        } else {
+            self.base.entry(key).or_default()
+        }
+    }
+
+    fn insert(&mut self, key: K, value: Vec<V>) {
+        if self.base.is_frozen() {
+            self.edits.insert(key, Some(value));
+        } else {
+            self.base.insert(key, value);
+        }
+    }
+
+    fn remove(&mut self, key: &K) -> bool {
+        if self.base.is_frozen() {
+            if self.get(key).is_some() {
+                self.edits.insert(key.clone(), None);
+                true
+            } else {
+                false
+            }
+        } else {
+            self.base.remove(key).is_some()
+        }
+    }
+
+    fn keys(&self) -> Vec<K> {
+        let mut keys = self.base.keys().cloned().collect::<BTreeSet<_>>();
+        for (key, value) in &self.edits {
+            if value.is_some() {
+                keys.insert(key.clone());
+            } else {
+                keys.remove(key);
+            }
+        }
+        keys.into_iter().collect()
+    }
+}
+
+impl<K: Ord + Clone, V: Clone + PartialEq> PartialEq for GraphOverlay<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        let self_keys = self.keys();
+        let other_keys = other.keys();
+        self_keys == other_keys && self_keys.iter().all(|key| self.get(key) == other.get(key))
+    }
+}
+
+impl<K: Ord + Clone, V: Clone + Eq> Eq for GraphOverlay<K, V> {}
+
 /// Graph of statically resolved source references.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ReferenceGraph {
-    forward: BTreeMap<ModuleId, Vec<ReferenceEdge>>,
+    forward: GraphOverlay<ModuleId, ReferenceEdge>,
 }
 
 impl ReferenceGraph {
     pub fn from_entries(entries: Vec<(ModuleId, Vec<ReferenceEdge>)>) -> Self {
         Self {
-            forward: entries.into_iter().collect(),
+            forward: GraphOverlay::from_source_entries(entries),
         }
+    }
+
+    pub fn from_budgeted_sorted_entries(
+        entries: Vec<(ModuleId, Vec<ReferenceEdge>)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, ModuleAuthorityBuildError> {
+        Ok(Self {
+            forward: GraphOverlay::from_budgeted_sorted_entries(entries, allocations)?,
+        })
     }
 
     /// Registers a module as a node in the graph even if it has no outgoing edges.
     pub fn add_node(&mut self, module: ModuleId) {
-        self.forward.entry(module).or_default();
+        self.forward.get_mut_or_default(module);
     }
 
     /// Adds one reference edge.
     pub fn add(&mut self, edge: ReferenceEdge) {
-        self.forward.entry(edge.from.clone()).or_default().push(edge);
+        self.forward.get_mut_or_default(edge.from.clone()).push(edge);
     }
 
     /// Replaces all references contributed by one module.
     pub fn replace(&mut self, module: ModuleId, edges: Vec<ReferenceEdge>) {
         self.forward.insert(module, edges);
+    }
+
+    /// Hides a source row while preserving the immutable imported graph base.
+    pub fn remove_node(&mut self, module: &ModuleId) -> bool {
+        self.forward.remove(module)
     }
 
     /// Returns all edges from `module`.
@@ -284,9 +401,9 @@ impl ReferenceGraph {
     /// Returns all modules present in this graph.
     pub fn nodes(&self) -> Vec<ModuleId> {
         let mut nodes = BTreeSet::new();
-        for (from, edges) in &self.forward {
+        for from in self.forward.keys() {
             nodes.insert(from.clone());
-            nodes.extend(edges.iter().map(|edge| edge.to.clone()));
+            nodes.extend(self.edges_from(&from).iter().map(|edge| edge.to.clone()));
         }
         nodes.into_iter().collect()
     }
@@ -295,24 +412,47 @@ impl ReferenceGraph {
 /// Graph of semantic/interface dependencies.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SemanticGraph {
-    forward: BTreeMap<SemanticNodeId, Vec<SemanticEdge>>,
+    forward: GraphOverlay<SemanticNodeId, SemanticEdge>,
 }
 
 impl SemanticGraph {
     pub fn from_entries(entries: Vec<(SemanticNodeId, Vec<SemanticEdge>)>) -> Self {
         Self {
-            forward: entries.into_iter().collect(),
+            forward: GraphOverlay::from_source_entries(entries),
         }
+    }
+
+    pub fn from_budgeted_sorted_entries(
+        entries: Vec<(SemanticNodeId, Vec<SemanticEdge>)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, ModuleAuthorityBuildError> {
+        Ok(Self {
+            forward: GraphOverlay::from_budgeted_sorted_entries(entries, allocations)?,
+        })
+    }
+
+    pub fn from_budgeted_entries(
+        entries: Vec<(SemanticNodeId, Vec<SemanticEdge>)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, ModuleAuthorityBuildError> {
+        Ok(Self {
+            forward: GraphOverlay::from_budgeted_entries(entries, allocations)?,
+        })
     }
 
     /// Adds one semantic edge.
     pub fn add(&mut self, edge: SemanticEdge) {
-        self.forward.entry(edge.from.clone()).or_default().push(edge);
+        self.forward.get_mut_or_default(edge.from.clone()).push(edge);
     }
 
     /// Replaces edges from one node.
     pub fn replace(&mut self, node: SemanticNodeId, edges: Vec<SemanticEdge>) {
         self.forward.insert(node, edges);
+    }
+
+    /// Hides a source row while preserving the immutable imported graph base.
+    pub fn remove_node(&mut self, node: &SemanticNodeId) -> bool {
+        self.forward.remove(node)
     }
 
     /// Returns edges from one semantic node.
@@ -327,9 +467,9 @@ impl SemanticGraph {
     /// without confusing it with retained compiler-enrichment edges.
     pub fn module_projection(&self) -> Self {
         let mut projection = Self::default();
-        for (node, edges) in &self.forward {
+        for node in self.forward.keys() {
             if matches!(node, SemanticNodeId::Module(_)) {
-                projection.forward.insert(node.clone(), edges.clone());
+                projection.replace(node.clone(), self.edges_from(&node).to_vec());
             }
         }
         projection
@@ -341,18 +481,19 @@ impl SemanticGraph {
     /// replaces them per source module across incremental revisions.
     pub fn declaration_edges_from_module(&self, module: &ModuleId) -> Vec<SemanticEdge> {
         self.forward
-            .iter()
-            .filter(|(node, _)| matches!(node, SemanticNodeId::Declaration { module: owner, .. } if owner == module))
-            .flat_map(|(_, edges)| edges.iter().cloned())
+            .keys()
+            .into_iter()
+            .filter(|node| matches!(node, SemanticNodeId::Declaration { module: owner, .. } if owner == module))
+            .flat_map(|node| self.edges_from(&node).iter().cloned())
             .collect()
     }
 
     /// Returns all nodes in this graph.
     pub fn nodes(&self) -> Vec<SemanticNodeId> {
         let mut nodes = BTreeSet::new();
-        for (from, edges) in &self.forward {
+        for from in self.forward.keys() {
             nodes.insert(from.clone());
-            nodes.extend(edges.iter().map(|edge| edge.to.clone()));
+            nodes.extend(self.edges_from(&from).iter().map(|edge| edge.to.clone()));
         }
         nodes.into_iter().collect()
     }
@@ -372,29 +513,43 @@ impl SemanticGraph {
 /// Graph of eager runtime module initialization dependencies.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RuntimeDependencyGraph {
-    forward: BTreeMap<ModuleId, Vec<RuntimeDependencyEdge>>,
+    forward: GraphOverlay<ModuleId, RuntimeDependencyEdge>,
 }
 
 impl RuntimeDependencyGraph {
     pub fn from_entries(entries: Vec<(ModuleId, Vec<RuntimeDependencyEdge>)>) -> Self {
         Self {
-            forward: entries.into_iter().collect(),
+            forward: GraphOverlay::from_source_entries(entries),
         }
+    }
+
+    pub fn from_budgeted_sorted_entries(
+        entries: Vec<(ModuleId, Vec<RuntimeDependencyEdge>)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, ModuleAuthorityBuildError> {
+        Ok(Self {
+            forward: GraphOverlay::from_budgeted_sorted_entries(entries, allocations)?,
+        })
     }
 
     /// Registers a module as a node in the graph even if it has no outgoing edges.
     pub fn add_node(&mut self, module: ModuleId) {
-        self.forward.entry(module).or_default();
+        self.forward.get_mut_or_default(module);
     }
 
     /// Adds a runtime dependency edge.
     pub fn add(&mut self, edge: RuntimeDependencyEdge) {
-        self.forward.entry(edge.importer.clone()).or_default().push(edge);
+        self.forward.get_mut_or_default(edge.importer.clone()).push(edge);
     }
 
     /// Replaces runtime edges contributed by one importer.
     pub fn replace(&mut self, importer: ModuleId, edges: Vec<RuntimeDependencyEdge>) {
         self.forward.insert(importer, edges);
+    }
+
+    /// Hides a source row while preserving the immutable imported graph base.
+    pub fn remove_node(&mut self, importer: &ModuleId) -> bool {
+        self.forward.remove(importer)
     }
 
     /// Returns runtime edges from an importer.
@@ -413,9 +568,9 @@ impl RuntimeDependencyGraph {
     /// Returns every node, including dependency-only targets.
     pub fn nodes(&self) -> Vec<ModuleId> {
         let mut nodes = BTreeSet::new();
-        for (from, edges) in &self.forward {
+        for from in self.forward.keys() {
             nodes.insert(from.clone());
-            nodes.extend(edges.iter().map(|edge| edge.dependency.clone()));
+            nodes.extend(self.edges_from(&from).iter().map(|edge| edge.dependency.clone()));
         }
         nodes.into_iter().collect()
     }
@@ -538,18 +693,23 @@ impl RuntimeDependencyGraph {
 
     /// Returns a filtered subgraph containing only the specified nodes and edges between them.
     pub fn filtered_subgraph(&self, allowed: &BTreeSet<ModuleId>) -> Self {
-        let mut forward = BTreeMap::new();
-        for (importer, edges) in &self.forward {
-            if !allowed.contains(importer) {
+        let mut graph = Self::default();
+        for importer in self.forward.keys() {
+            if !allowed.contains(&importer) {
                 continue;
             }
-            let filtered_edges: Vec<_> = edges.iter().filter(|edge| allowed.contains(&edge.dependency)).cloned().collect();
-            forward.insert(importer.clone(), filtered_edges);
+            let filtered_edges = self
+                .edges_from(&importer)
+                .iter()
+                .filter(|edge| allowed.contains(&edge.dependency))
+                .cloned()
+                .collect();
+            graph.replace(importer, filtered_edges);
         }
         for node in allowed {
-            forward.entry(node.clone()).or_default();
+            graph.add_node(node.clone());
         }
-        Self { forward }
+        graph
     }
 }
 

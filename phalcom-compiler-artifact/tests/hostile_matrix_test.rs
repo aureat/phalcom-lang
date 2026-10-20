@@ -2,8 +2,8 @@ use phalcom_compiler_artifact::container::{TeloscContainerBuilder, TeloscContain
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::error::{ArtifactError, CodecError, ContainerError, ValidationError};
 use phalcom_compiler_artifact::header::{
-    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V3, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2,
-    TeloscCapabilities, TeloscHeaderV2,
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V3, SEMANTIC_ARTIFACT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V3, TELOSC_CONTAINER_SCHEMA_V2,
+    TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities, TeloscHeaderV2,
 };
 use phalcom_compiler_artifact::identity::{CanonicalCompatibilityIdentity, TeloscPackageIdentity};
 use phalcom_compiler_artifact::limits::ValidationLimits;
@@ -11,7 +11,7 @@ use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSecti
 use phalcom_compiler_artifact::module_world::{ArtifactModuleId, MODULE_WORLD_SCHEMA_V2, ModuleKindV1, ModuleV2, ModuleWorldV2};
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
 use phalcom_compiler_artifact::query::{
-    PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
+    PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, PortableQueryProductFamilyV1, QueryImageV4, QueryProductRefV3, QueryRootEntryV4,
 };
 use phalcom_compiler_artifact::section::{SectionFlags, SectionKind};
 use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV2;
@@ -90,7 +90,7 @@ fn sample_payload() -> CompilerArtifactPayload {
         stable_identity_schema: 1,
         module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
         semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V3,
-        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V3,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [1; 16],
         type_metadata_schema_version: 13,
@@ -206,21 +206,19 @@ fn sample_payload() -> CompilerArtifactPayload {
         static_case_signatures: vec![],
         associated_surfaces: vec![],
         module_execution_authority: ModuleExecutionAuthorityV1 {
-            import_phase_products: vec![
-                ModuleImportPhaseProductV1 {
-                    module: StableModuleRef {
-                        project: universe_project,
-                        path: Box::new([]),
-                    },
-                    bindings: vec![],
-                    coverage: PhaseEvidenceCoverageV1::Full,
+            import_phase_products: vec![ModuleImportPhaseProductV1 {
+                module: StableModuleRef {
+                    project: universe_project,
+                    path: Box::new([]),
                 },
-            ],
+                bindings: vec![],
+                coverage: PhaseEvidenceCoverageV1::Full,
+            }],
             runtime_requirements: vec![],
         },
     };
 
-    let query_image = QueryImageV3 {
+    let query_image = QueryImageV4 {
         supported_roots: vec![],
         dependency_evidence: vec![],
     };
@@ -352,7 +350,7 @@ fn wrong_project_provenance_rejected() {
         stable_identity_schema: 1,
         module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
         semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V2,
-        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V3,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [1; 16],
         type_metadata_schema_version: 13,
@@ -377,28 +375,28 @@ fn duplicate_query_root_key_rejected() {
         },
         path: Box::new(["core".into()]),
     });
-    let query_image = QueryImageV3 {
+    let query_image = QueryImageV4 {
         supported_roots: vec![
-            QueryRootEntryV3 {
+            QueryRootEntryV4 {
                 key: PortableQueryKeyV1 {
                     kind: PortableQueryKindV1::LinkedInterface,
                     owner: owner.clone(),
                 },
-                product: QueryProductRefV2 {
-                    kind: PortableQueryKindV1::LinkedInterface,
+                product: QueryProductRefV3 {
+                    family: PortableQueryProductFamilyV1::Module,
                     row_index: 0,
                 },
                 input_fingerprint: 0,
                 product_fingerprint: 0,
                 dependency_indices: vec![],
             },
-            QueryRootEntryV3 {
+            QueryRootEntryV4 {
                 key: PortableQueryKeyV1 {
                     kind: PortableQueryKindV1::LinkedInterface,
                     owner,
                 },
-                product: QueryProductRefV2 {
-                    kind: PortableQueryKindV1::LinkedInterface,
+                product: QueryProductRefV3 {
+                    family: PortableQueryProductFamilyV1::Module,
                     row_index: 0,
                 },
                 input_fingerprint: 0,
@@ -416,8 +414,8 @@ fn duplicate_query_root_key_rejected() {
 
 #[test]
 fn out_of_bounds_query_dependency_rejected() {
-    let query_image = QueryImageV3 {
-        supported_roots: vec![QueryRootEntryV3 {
+    let query_image = QueryImageV4 {
+        supported_roots: vec![QueryRootEntryV4 {
             key: PortableQueryKeyV1 {
                 kind: PortableQueryKindV1::LinkedInterface,
                 owner: PortableQueryOwnerKeyV1::Module(StableModuleRef {
@@ -428,8 +426,8 @@ fn out_of_bounds_query_dependency_rejected() {
                     path: Box::new(["core".into()]),
                 }),
             },
-            product: QueryProductRefV2 {
-                kind: PortableQueryKindV1::LinkedInterface,
+            product: QueryProductRefV3 {
+                family: PortableQueryProductFamilyV1::Module,
                 row_index: 0,
             },
             input_fingerprint: 0,
@@ -447,13 +445,13 @@ fn out_of_bounds_query_dependency_rejected() {
 #[test]
 fn query_product_reference_must_target_an_existing_module_row() {
     let mut payload = sample_payload();
-    payload.query_image.supported_roots = vec![QueryRootEntryV3 {
+    payload.query_image.supported_roots = vec![QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::LinkedInterface,
             owner: PortableQueryOwnerKeyV1::Module(payload.module_world.modules[0].identity.clone()),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::LinkedInterface,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::Module,
             row_index: 1,
         },
         input_fingerprint: 1,
@@ -466,9 +464,9 @@ fn query_product_reference_must_target_an_existing_module_row() {
 }
 
 #[test]
-fn static_query_product_reference_must_target_its_semantic_world_table() {
+fn query_product_reference_rejects_an_incompatible_physical_family() {
     let mut payload = sample_payload();
-    payload.query_image.supported_roots = vec![QueryRootEntryV3 {
+    payload.query_image.supported_roots = vec![QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::StaticDefinition,
             owner: PortableQueryOwnerKeyV1::Declaration(StableDeclarationRef {
@@ -476,8 +474,8 @@ fn static_query_product_reference_must_target_its_semantic_world_table() {
                 path: Box::new(["Static".into()]),
             }),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::StaticDefinition,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::Module,
             row_index: 0,
         },
         input_fingerprint: 1,
@@ -486,7 +484,7 @@ fn static_query_product_reference_must_target_its_semantic_world_table() {
     }];
 
     let err = payload.validate_cross_section(&ValidationLimits::default()).unwrap_err();
-    assert!(err.to_string().contains("query product row 0 is out of bounds"));
+    assert!(err.to_string().contains("incompatible with its key kind"));
 }
 
 #[test]

@@ -4511,24 +4511,21 @@ pub fn export_semantic_world(
                     if callable.owner != crate::identity::CallableOwnerId::Declaration(decl_id.clone()) || callable.side != side {
                         return Err(referential("declaration dispatch callable owner or side disagrees with its surface"));
                     }
-                    let semantic = snapshot
-                        .callable_signatures
-                        .get(callable)
-                        .ok_or_else(|| {
-                            let candidates = snapshot
-                                .callable_signatures
-                                .iter_module(&decl_id.module)
-                                .filter(|(candidate, _)| {
-                                    candidate.owner == crate::identity::CallableOwnerId::Declaration(decl_id.clone())
-                                        && candidate.selector.kind == callable.selector.kind
-                                        && candidate.selector.base == callable.selector.base
-                                })
-                                .map(|(candidate, _)| candidate.clone())
-                                .collect::<Vec<_>>();
-                            referential(format!(
-                                "declaration dispatch callable has no canonical semantic signature: {callable:?}; same-owner selector candidates={candidates:?}"
-                            ))
-                        })?;
+                    let semantic = snapshot.callable_signatures.get(callable).ok_or_else(|| {
+                        let candidates = snapshot
+                            .callable_signatures
+                            .iter_module(&decl_id.module)
+                            .filter(|(candidate, _)| {
+                                candidate.owner == crate::identity::CallableOwnerId::Declaration(decl_id.clone())
+                                    && candidate.selector.kind == callable.selector.kind
+                                    && candidate.selector.base == callable.selector.base
+                            })
+                            .map(|(candidate, _)| candidate.clone())
+                            .collect::<Vec<_>>();
+                        referential(format!(
+                            "declaration dispatch callable has no canonical semantic signature: {callable:?}; same-owner selector candidates={candidates:?}"
+                        ))
+                    })?;
                     let projected = crate::checker::declaration_signature::project_semantic_signature(semantic);
                     let retained = member_surface
                         .callable_signatures
@@ -4924,8 +4921,7 @@ pub fn export_semantic_world_v4(
             if !module_phase_covers_callable_observation(summary, &callable_phase) {
                 return Err(referential(format!(
                     "callable observed import phase disagrees with its module summary: callable={:?}, source_binding={binding:?}, ordinal={ordinal}, callable_phase={:?}, module_summary={summary:?}",
-                    callable,
-                    phase,
+                    callable, phase,
                 )));
             }
             observed_import_phases.push(wire::CallableObservedImportPhaseV1 {
@@ -5175,11 +5171,7 @@ fn module_phase_covers_callable_observation(
     observed: &phalcom_compiler_artifact::semantic::world::DependencyPhaseV1,
 ) -> bool {
     use phalcom_compiler_artifact::semantic::world::DependencyPhaseV1 as Phase;
-    summary.observed
-        && matches!(
-            (&summary.phase, observed),
-            (Phase::Runtime, _) | (Phase::InterfaceOnly, Phase::InterfaceOnly)
-        )
+    summary.observed && matches!((&summary.phase, observed), (Phase::Runtime, _) | (Phase::InterfaceOnly, Phase::InterfaceOnly))
 }
 
 pub(crate) fn export_runtime_dependency_requirements(
@@ -5451,16 +5443,16 @@ pub fn export_query_image(
 }
 
 /// Exports the canonical query closure using current project-qualified owners
-/// and typed references into the V2/V4 artifact sections.
-pub fn export_query_image_v3(
+/// and typed references into the V2/V4/V4 artifact sections.
+pub fn export_query_image_v4(
     queries: &crate::canonical_image::CanonicalSemanticQueryImage,
     dependency_fingerprints: &crate::canonical_image::CanonicalDependencyFingerprints,
     modules: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
     world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
     limits: &ValidationLimits,
-) -> Result<phalcom_compiler_artifact::query::QueryImageV3, ArtifactError> {
+) -> Result<phalcom_compiler_artifact::query::QueryImageV4, ArtifactError> {
     use crate::artifact::query_policy::{CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_root_is_reusable};
-    use phalcom_compiler_artifact::query::{DependencyEvidenceEntryV3, PortableQueryKeyV1, QueryImageV3, QueryRootEntryV3};
+    use phalcom_compiler_artifact::query::{DependencyEvidenceEntryV4, PortableQueryKeyV1, QueryImageV4, QueryRootEntryV4};
     use std::collections::{BTreeMap, BTreeSet};
 
     let mut candidates = Vec::new();
@@ -5470,9 +5462,9 @@ pub fn export_query_image_v3(
         }
         let portable_key = PortableQueryKeyV1 {
             kind: portable_query_kind(key.kind()),
-            owner: portable_query_owner_v3(key)?,
+            owner: portable_query_owner_v4(key)?,
         };
-        let product = portable_query_product_ref(&portable_key, modules, world)?;
+        let product = portable_query_product_ref(&portable_key, entry.product.as_ref(), modules, world)?;
         candidates.push((key.clone(), portable_key, product, entry));
     }
 
@@ -5491,7 +5483,7 @@ pub fn export_query_image_v3(
             for edge in entry.dependencies.iter() {
                 let dependency = &edge.dependency;
                 if dependency_fingerprints.get(dependency).is_none()
-                    || portable_query_owner_v3(dependency).is_err()
+                    || portable_query_owner_v4(dependency).is_err()
                     || !matches!(canonical_query_persistence(dependency.kind()), CanonicalQueryPersistence::EligibleStructural)
                         && dependency.kind() != crate::db::QueryKind::HierarchyEdge
                 {
@@ -5511,7 +5503,7 @@ pub fn export_query_image_v3(
         }
     }
 
-    let mut evidence_by_key = BTreeMap::<PortableQueryKeyV1, DependencyEvidenceEntryV3>::new();
+    let mut evidence_by_key = BTreeMap::<PortableQueryKeyV1, DependencyEvidenceEntryV4>::new();
     for (key, _, _, entry) in &candidates {
         if !retained.contains(key) {
             continue;
@@ -5523,9 +5515,9 @@ pub fn export_query_image_v3(
             };
             let portable = PortableQueryKeyV1 {
                 kind: portable_query_kind(dependency.kind()),
-                owner: portable_query_owner_v3(dependency)?,
+                owner: portable_query_owner_v4(dependency)?,
             };
-            let evidence = DependencyEvidenceEntryV3 {
+            let evidence = DependencyEvidenceEntryV4 {
                 key: portable.clone(),
                 stable_aggregate_owner: portable.owner.clone(),
                 product_fingerprint: fingerprint.raw(),
@@ -5559,7 +5551,7 @@ pub fn export_query_image_v3(
         for edge in entry.dependencies.iter() {
             let portable_dependency = PortableQueryKeyV1 {
                 kind: portable_query_kind(edge.dependency.kind()),
-                owner: portable_query_owner_v3(&edge.dependency)?,
+                owner: portable_query_owner_v4(&edge.dependency)?,
             };
             dependency_indices.push(
                 *evidence_indices
@@ -5569,7 +5561,7 @@ pub fn export_query_image_v3(
         }
         dependency_indices.sort_unstable();
         dependency_indices.dedup();
-        supported_roots.push(QueryRootEntryV3 {
+        supported_roots.push(QueryRootEntryV4 {
             key: portable_key,
             product,
             input_fingerprint: entry.input_fingerprint.raw(),
@@ -5579,7 +5571,7 @@ pub fn export_query_image_v3(
     }
     supported_roots.sort_unstable_by(|left, right| left.key.cmp(&right.key));
 
-    let mut image = QueryImageV3 {
+    let mut image = QueryImageV4 {
         supported_roots,
         dependency_evidence,
     };
@@ -5590,7 +5582,7 @@ pub fn export_query_image_v3(
     Ok(image)
 }
 
-fn portable_query_owner_v3(key: &crate::db::QueryKey) -> Result<phalcom_compiler_artifact::query::PortableQueryOwnerKeyV1, ArtifactError> {
+fn portable_query_owner_v4(key: &crate::db::QueryKey) -> Result<phalcom_compiler_artifact::query::PortableQueryOwnerKeyV1, ArtifactError> {
     use crate::db::QueryKey as Q;
     use phalcom_compiler_artifact::query::PortableQueryOwnerKeyV1 as Owner;
 
@@ -5642,10 +5634,13 @@ fn portable_query_owner_v3(key: &crate::db::QueryKey) -> Result<phalcom_compiler
 
 fn portable_query_product_ref(
     key: &phalcom_compiler_artifact::query::PortableQueryKeyV1,
+    native_product: &crate::db::SemanticProduct,
     modules: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
     world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
-) -> Result<phalcom_compiler_artifact::query::QueryProductRefV2, ArtifactError> {
-    use phalcom_compiler_artifact::query::{PortableQueryKindV1 as K, PortableQueryOwnerKeyV1 as O, QueryProductRefV2};
+) -> Result<phalcom_compiler_artifact::query::QueryProductRefV3, ArtifactError> {
+    use phalcom_compiler_artifact::query::{
+        PortableQueryKindV1 as K, PortableQueryOwnerKeyV1 as O, PortableQueryProductFamilyV1 as F, QueryProductRefV3, product_family_is_valid_for_query_kind,
+    };
 
     fn unique_row<T>(rows: &[T], mut matches: impl FnMut(&T) -> bool, missing: &'static str) -> Result<u32, ArtifactError> {
         let mut found = None;
@@ -5660,78 +5655,131 @@ fn portable_query_product_ref(
         u32::try_from(found.ok_or_else(|| referential(missing))?).map_err(|_| referential("query product row index exceeds u32"))
     }
 
-    let row_index = match (key.kind, &key.owner) {
-        (K::UnlinkedInterface | K::ResolvedImports | K::LinkedInterface, O::Module(owner)) => {
-            unique_row(&modules.modules, |row| &row.identity == owner, "module query owner has no MODULE_WORLD row")?
+    let (family, row_index) = match (key.kind, &key.owner) {
+        (K::UnlinkedInterface | K::ResolvedImports | K::LinkedInterface, O::Module(owner)) => (
+            F::Module,
+            unique_row(&modules.modules, |row| &row.identity == owner, "module query owner has no MODULE_WORLD row")?,
+        ),
+        (K::DeclarationShell, O::Declaration(owner)) => {
+            let shell = native_product
+                .as_declaration_shell()
+                .ok_or_else(|| referential("DeclarationShell query does not carry a native declaration-shell product"))?;
+            let shell = shell.as_ref();
+            if to_stable_declaration(shell.declaration()) != *owner {
+                return Err(referential("native declaration-shell product owner differs from query owner"));
+            }
+            match shell {
+                crate::declarations::TypeDeclarationShell::Nominal(_) => (
+                    F::NominalDeclarationShell,
+                    unique_row(
+                        &world.structural_contracts.declaration_shells,
+                        |row| &row.declaration == owner,
+                        "nominal declaration-shell query owner has no semantic row",
+                    )?,
+                ),
+                crate::declarations::TypeDeclarationShell::Alias(_) => (
+                    F::TypeAlias,
+                    unique_row(
+                        &world.structural_contracts.type_aliases,
+                        |row| &row.declaration == owner,
+                        "type-alias declaration-shell query owner has no semantic row",
+                    )?,
+                ),
+            }
         }
-        (K::DeclarationShell, O::Declaration(owner)) => unique_row(
-            &world.structural_contracts.declaration_shells,
-            |row| &row.declaration == owner,
-            "declaration-shell query owner has no semantic row",
-        )?,
-        (K::CallableDefinition, O::Callable(owner)) => unique_row(
-            &world.callable_definitions,
-            |row| &row.callable == owner,
-            "callable-definition query owner has no semantic row",
-        )?,
-        (K::CallableSignature, O::Callable(owner)) => unique_row(
-            &world.callable_signatures,
-            |row| &row.callable == owner,
-            "callable-signature query owner has no semantic row",
-        )?,
-        (K::DeclarationSurface, O::Declaration(owner)) => unique_row(
-            &world.dispatch_surfaces,
-            |row| &row.declaration == owner,
-            "declaration-surface query owner has no semantic row",
-        )?,
-        (K::FieldSignature, O::Field(owner)) => unique_row(
-            &world.dispatch_surfaces,
-            |row| {
-                &row.declaration == &owner.owner
-                    && row
-                        .fields
-                        .iter()
-                        .any(|field| field.name == owner.name && field.side == u8::from(owner.side == phalcom_type_meta::identity::StableDispatchSide::Class))
-            },
-            "field-signature query owner has no semantic row",
-        )?,
-        (K::TraitHeader | K::TraitSurface, O::Declaration(owner)) => {
-            unique_row(&world.trait_surfaces, |row| &row.declaration == owner, "trait query owner has no semantic row")?
-        }
-        (K::DataDeclaration, O::Declaration(owner)) => unique_row(
-            &world.structural_contracts.data_contracts,
-            |row| &row.owner == owner,
-            "data query owner has no semantic row",
-        )?,
-        (K::EnumDeclaration, O::Declaration(owner)) => unique_row(
-            &world.structural_contracts.enum_contracts,
-            |row| &row.owner == owner,
-            "enum query owner has no semantic row",
-        )?,
-        (K::AssociatedSurface, O::Declaration(owner)) => unique_row(
-            &world.associated_surfaces,
-            |row| &row.owner == owner,
-            "associated-surface query owner has no semantic row",
-        )?,
-        (K::TypeMemberDeclaration, O::TypeMember(owner)) => unique_row(
-            &world.type_member_declarations,
-            |row| {
-                &row.owner == &owner.owner
-                    && match &row.selector {
-                        phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1::Named { name } => name.as_str() == owner.selector.as_ref(),
-                        phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1::Subscript => owner.selector.as_ref() == "[]",
-                    }
-            },
-            "type-member query owner has no semantic row",
-        )?,
-        (K::ModuleStaticBindingCatalog | K::ModuleStaticBindings, O::Module(owner)) => unique_row(
-            &world.module_static_bindings,
-            |row| &row.module == owner,
-            "module static-binding query owner has no semantic row",
-        )?,
+        (K::CallableDefinition, O::Callable(owner)) => (
+            F::CallableDefinition,
+            unique_row(
+                &world.callable_definitions,
+                |row| &row.callable == owner,
+                "callable-definition query owner has no semantic row",
+            )?,
+        ),
+        (K::CallableSignature, O::Callable(owner)) => (
+            F::CallableSignature,
+            unique_row(
+                &world.callable_signatures,
+                |row| &row.callable == owner,
+                "callable-signature query owner has no semantic row",
+            )?,
+        ),
+        (K::DeclarationSurface, O::Declaration(owner)) => (
+            F::DispatchSurface,
+            unique_row(
+                &world.dispatch_surfaces,
+                |row| &row.declaration == owner,
+                "declaration-surface query owner has no semantic row",
+            )?,
+        ),
+        (K::FieldSignature, O::Field(owner)) => (
+            F::DispatchSurface,
+            unique_row(
+                &world.dispatch_surfaces,
+                |row| {
+                    &row.declaration == &owner.owner
+                        && row.fields.iter().any(|field| {
+                            field.name == owner.name && field.side == u8::from(owner.side == phalcom_type_meta::identity::StableDispatchSide::Class)
+                        })
+                },
+                "field-signature query owner has no semantic row",
+            )?,
+        ),
+        (K::TraitHeader | K::TraitSurface, O::Declaration(owner)) => (
+            F::TraitSurface,
+            unique_row(&world.trait_surfaces, |row| &row.declaration == owner, "trait query owner has no semantic row")?,
+        ),
+        (K::DataDeclaration, O::Declaration(owner)) => (
+            F::DataDeclaration,
+            unique_row(
+                &world.structural_contracts.data_contracts,
+                |row| &row.owner == owner,
+                "data query owner has no semantic row",
+            )?,
+        ),
+        (K::EnumDeclaration, O::Declaration(owner)) => (
+            F::EnumDeclaration,
+            unique_row(
+                &world.structural_contracts.enum_contracts,
+                |row| &row.owner == owner,
+                "enum query owner has no semantic row",
+            )?,
+        ),
+        (K::AssociatedSurface, O::Declaration(owner)) => (
+            F::AssociatedSurface,
+            unique_row(
+                &world.associated_surfaces,
+                |row| &row.owner == owner,
+                "associated-surface query owner has no semantic row",
+            )?,
+        ),
+        (K::TypeMemberDeclaration, O::TypeMember(owner)) => (
+            F::TypeMemberDeclaration,
+            unique_row(
+                &world.type_member_declarations,
+                |row| {
+                    &row.owner == &owner.owner
+                        && match &row.selector {
+                            phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1::Named { name } => name.as_str() == owner.selector.as_ref(),
+                            phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1::Subscript => owner.selector.as_ref() == "[]",
+                        }
+                },
+                "type-member query owner has no semantic row",
+            )?,
+        ),
+        (K::ModuleStaticBindingCatalog | K::ModuleStaticBindings, O::Module(owner)) => (
+            F::ModuleStaticBindings,
+            unique_row(
+                &world.module_static_bindings,
+                |row| &row.module == owner,
+                "module static-binding query owner has no semantic row",
+            )?,
+        ),
         _ => return Err(referential("query root has no exact typed semantic product reference")),
     };
-    Ok(QueryProductRefV2 { kind: key.kind, row_index })
+    if !product_family_is_valid_for_query_kind(key.kind, family) {
+        return Err(referential("query root has no compatible physical product family"));
+    }
+    Ok(QueryProductRefV3 { family, row_index })
 }
 
 #[cfg(test)]
@@ -6293,25 +6341,22 @@ mod callable_analysis_status_tests {
         let portable_record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &limits).unwrap();
         assert_eq!(portable_record.diagnostic_cause_count, 1);
         assert_eq!(portable_record.diagnostics[0].root_cause, Some(0));
-        let record = phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
-            portable_record.clone(),
-            Vec::new(),
-        );
+        let record =
+            phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(portable_record.clone(), Vec::new());
         let graph = types.project_graph(&store, &limits).unwrap();
         let (imported_store, relocation) = crate::types::store::TypeStore::import_type_graph(&graph, &limits).unwrap();
         let mut budget = phalcom_type_meta::allocation::AllocationBudget::new(1 << 20);
-        let (table, _) =
-            crate::artifact::import::import_callable_analysis_records(
-                std::slice::from_ref(&record),
-                &relocation,
-                &imported_store,
-                &[],
-                None,
-                &BTreeMap::new(),
-                &limits,
-                &mut budget,
-            )
-            .unwrap();
+        let (table, _) = crate::artifact::import::import_callable_analysis_records(
+            std::slice::from_ref(&record),
+            &relocation,
+            &imported_store,
+            &[],
+            None,
+            &BTreeMap::new(),
+            &limits,
+            &mut budget,
+        )
+        .unwrap();
         let imported = table.get(&callable).unwrap();
         assert!(imported.explanations.is_frozen());
         assert_eq!(imported.explanations.len(), 2);

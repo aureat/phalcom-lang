@@ -341,7 +341,7 @@ impl ModuleId {
         let mut components = allocations.vector::<ModuleComponent>(comps.len())?;
         for comp in comps {
             let boxed_spelling = allocations.boxed_str(comp.as_str())?;
-            let comp = ModuleComponent::from_identifier(&boxed_spelling).map_err(|_| phalcom_type_meta::allocation::AllocationError::Failed)?;
+            let comp = ModuleComponent::from_owned_identifier(boxed_spelling).map_err(|_| phalcom_type_meta::allocation::AllocationError::Failed)?;
             components.push(comp);
         }
         let components = allocations.boxed_slice(components)?;

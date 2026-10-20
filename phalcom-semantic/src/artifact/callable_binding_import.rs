@@ -13,21 +13,16 @@ use crate::checker::causal::CausalInvalidity;
 use crate::checker::flow::InitializationState;
 use crate::db::QueryKey;
 use crate::generic_evidence::GenericConformanceKey;
-use crate::identity::{
-    BindingId, CallableId, CallableParameterId, DiagnosticCauseId, ExplanationId, FieldId,
-    SourceOwner, SourceSiteId, SourceSiteLocalId,
-};
+use crate::identity::{BindingId, CallableId, CallableParameterId, DiagnosticCauseId, ExplanationId, FieldId, SourceOwner, SourceSiteId, SourceSiteLocalId};
 use crate::trait_dispatch::{TraitDispatchBucketKey, TraitDispatchTargetFamily};
 use crate::types::evidence::{EvidenceOrigin, UnknownReason};
 use crate::types::outcome::{BlockReason, BudgetKind, BudgetReport, DynamicBoundaryObligation};
 use crate::types::relation::RefutationReason;
 use phalcom_common::range::SourceRange;
 use phalcom_compiler_artifact::semantic::world::{
-    CallableAnalysisRecordV2, CallableAnalysisSourceOwnerV1, CallableBindingAssumptionBasisV1,
-    CallableBindingAuthorityV1, CallableBindingConsistencyV1, CallableBindingContractOriginV1,
-    CallableBindingRowV1, CallableBlockReasonV1, CallableBudgetKindV1, CallableBudgetReportV1,
-    CallableCausalInvalidityV1, CallableGeneratedBindingReasonV1, CallableInitializationStateV1,
-    CallableQueryOwnerV1, CallableRefutationReasonV1, ConformanceTargetV1, EvidenceOriginV1,
+    CallableAnalysisRecordV2, CallableAnalysisSourceOwnerV1, CallableBindingAssumptionBasisV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1,
+    CallableBindingContractOriginV1, CallableBindingRowV1, CallableBlockReasonV1, CallableBudgetKindV1, CallableBudgetReportV1, CallableCausalInvalidityV1,
+    CallableGeneratedBindingReasonV1, CallableInitializationStateV1, CallableQueryOwnerV1, CallableRefutationReasonV1, ConformanceTargetV1, EvidenceOriginV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
@@ -110,13 +105,7 @@ pub(crate) fn reconstruct_callable_bindings(
             if usize::try_from(row.ordinal).ok() != Some(index) {
                 return Err(invalid("callable binding rows are not dense and ordinal-sorted"));
             }
-            rows.push(reconstruct_binding_row(
-                row,
-                types,
-                static_definitions,
-                owners,
-                allocations,
-            )?);
+            rows.push(reconstruct_binding_row(row, types, static_definitions, owners, allocations)?);
         }
         imported.push(ImportedCallableBindings {
             callable,
@@ -145,12 +134,7 @@ fn reconstruct_binding_row(
     let parameter = row
         .parameter
         .as_ref()
-        .map(|parameter| {
-            Ok::<_, ArtifactError>(CallableParameterId::new(
-                owners.callable(&parameter.callable)?,
-                parameter.index,
-            ))
-        })
+        .map(|parameter| Ok::<_, ArtifactError>(CallableParameterId::new(owners.callable(&parameter.callable)?, parameter.index)))
         .transpose()?;
 
     let contract = row
@@ -181,15 +165,7 @@ fn reconstruct_binding_row(
     let denotation = row
         .denotation
         .as_ref()
-        .map(|denotation| {
-            super::denotation_import::reconstruct_semantic_denotation(
-                denotation,
-                types,
-                static_definitions,
-                owners,
-                allocations,
-            )
-        })
+        .map(|denotation| super::denotation_import::reconstruct_semantic_denotation(denotation, types, static_definitions, owners, allocations))
         .transpose()?;
     let consistency = binding_consistency(&row.consistency, types, owners, allocations)?;
     let causal_invalidity = match row.causal_invalidity {
@@ -253,11 +229,7 @@ fn binding_source_authority(
             }),
             None,
         ),
-        CallableBindingAuthorityV1::ModuleValue {
-            module,
-            name,
-            import_binding,
-        } => (
+        CallableBindingAuthorityV1::ModuleValue { module, name, import_binding } => (
             ImportedCallableBindingSourceAuthority::ModuleValue {
                 symbol: phalcom_modules::linker::SymbolId {
                     module: owners.module(module)?,
@@ -282,11 +254,7 @@ fn binding_consistency(
         CallableBindingConsistencyV1::Assumed { basis } => BindingConsistency::Assumed {
             basis: assumption_basis(basis, allocations)?,
         },
-        CallableBindingConsistencyV1::Refuted {
-            actual,
-            expected,
-            reason,
-        } => BindingConsistency::Refuted {
+        CallableBindingConsistencyV1::Refuted { actual, expected, reason } => BindingConsistency::Refuted {
             actual: mapped_type(actual.0, types, "binding refutation actual type")?,
             expected: mapped_type(expected.0, types, "binding refutation expected type")?,
             reason: match reason {
@@ -300,32 +268,23 @@ fn binding_consistency(
                 reason: allocations.string(reason).map_err(ArtifactError::Allocation)?,
             },
         },
-        CallableBindingConsistencyV1::Blocked { reason } => {
-            BindingConsistency::Blocked(block_reason(reason, types, owners, allocations)?)
-        }
+        CallableBindingConsistencyV1::Blocked { reason } => BindingConsistency::Blocked(block_reason(reason, types, owners, allocations)?),
         CallableBindingConsistencyV1::Cancelled => BindingConsistency::Cancelled,
-        CallableBindingConsistencyV1::BudgetExceeded { report } => {
-            BindingConsistency::BudgetExceeded(budget_report(report))
+        CallableBindingConsistencyV1::BudgetExceeded { report } => BindingConsistency::BudgetExceeded(budget_report(report)),
+        CallableBindingConsistencyV1::InternalFailure { message } => {
+            BindingConsistency::InternalFailure(allocations.boxed_str(message).map_err(ArtifactError::Allocation)?)
         }
-        CallableBindingConsistencyV1::InternalFailure { message } => BindingConsistency::InternalFailure(
-            allocations.boxed_str(message).map_err(ArtifactError::Allocation)?,
-        ),
     })
 }
 
-fn assumption_basis(
-    basis: &CallableBindingAssumptionBasisV1,
-    allocations: &mut AllocationBudget,
-) -> Result<AssumptionBasis, ArtifactError> {
+fn assumption_basis(basis: &CallableBindingAssumptionBasisV1, allocations: &mut AllocationBudget) -> Result<AssumptionBasis, ArtifactError> {
     Ok(match basis {
         CallableBindingAssumptionBasisV1::MissingValueEvidence { reason } => {
             AssumptionBasis::MissingValueEvidence(super::callable_import::import_unknown_reason(reason, allocations)?)
         }
         CallableBindingAssumptionBasisV1::CallableParameterContract => AssumptionBasis::CallableParameterContract,
         CallableBindingAssumptionBasisV1::ContextualParameterContract => AssumptionBasis::ContextualParameterContract,
-        CallableBindingAssumptionBasisV1::DerivedEvidence { origin } => {
-            AssumptionBasis::DerivedEvidence(evidence_origin(origin))
-        }
+        CallableBindingAssumptionBasisV1::DerivedEvidence { origin } => AssumptionBasis::DerivedEvidence(evidence_origin(origin)),
     })
 }
 
@@ -336,9 +295,7 @@ pub(crate) fn block_reason(
     allocations: &mut AllocationBudget,
 ) -> Result<BlockReason, ArtifactError> {
     Ok(match reason {
-        CallableBlockReasonV1::UnknownType { reason } => {
-            BlockReason::UnknownType(super::callable_import::import_unknown_reason(reason, allocations)?)
-        }
+        CallableBlockReasonV1::UnknownType { reason } => BlockReason::UnknownType(super::callable_import::import_unknown_reason(reason, allocations)?),
         CallableBlockReasonV1::UnresolvedDependency { .. } => {
             // Current StableProjectKey owns a PathBuf. The allocation ledger
             // has no fallible/budgeted PathBuf constructor, so recreating P7's
@@ -351,9 +308,7 @@ pub(crate) fn block_reason(
         ),
         CallableBlockReasonV1::RecursiveFixpoint => BlockReason::RecursiveFixpoint,
         CallableBlockReasonV1::InferenceDidNotConverge => BlockReason::InferenceDidNotConverge,
-        CallableBlockReasonV1::OpaqueNative { message } => {
-            BlockReason::OpaqueNative(allocations.boxed_str(message).map_err(ArtifactError::Allocation)?)
-        }
+        CallableBlockReasonV1::OpaqueNative { message } => BlockReason::OpaqueNative(allocations.boxed_str(message).map_err(ArtifactError::Allocation)?),
         CallableBlockReasonV1::ReflectionBoundary => BlockReason::ReflectionBoundary,
         CallableBlockReasonV1::UnavailableSemanticOwner { owner } => {
             let key = callable_query_owner(owner, types, owners, allocations)?;
@@ -371,9 +326,7 @@ pub(crate) fn callable_query_owner(
     allocations: &mut AllocationBudget,
 ) -> Result<QueryKey, ArtifactError> {
     Ok(match owner {
-        CallableQueryOwnerV1::CallableSignature { callable } => {
-            QueryKey::CallableSignature(owners.callable(callable)?)
-        }
+        CallableQueryOwnerV1::CallableSignature { callable } => QueryKey::CallableSignature(owners.callable(callable)?),
         CallableQueryOwnerV1::FieldSignature { field } => QueryKey::FieldSignature(FieldId::new(
             owners.declaration(&field.owner)?,
             allocations.boxed_str(&field.name).map_err(ArtifactError::Allocation)?,
@@ -394,18 +347,10 @@ pub(crate) fn callable_query_owner(
                 ),
             ))
         }
-        CallableQueryOwnerV1::TraitDispatchBucket {
-            target_family,
-            selector,
-            side,
-        } => {
+        CallableQueryOwnerV1::TraitDispatchBucket { target_family, selector, side } => {
             let target_family = match target_family {
-                ConformanceTargetV1::Declaration { declaration } => {
-                    TraitDispatchTargetFamily::Declaration(owners.declaration(declaration)?)
-                }
-                ConformanceTargetV1::ExactEnumCase { variant } => {
-                    TraitDispatchTargetFamily::ExactEnumCase(owners.variant(variant)?)
-                }
+                ConformanceTargetV1::Declaration { declaration } => TraitDispatchTargetFamily::Declaration(owners.declaration(declaration)?),
+                ConformanceTargetV1::ExactEnumCase { variant } => TraitDispatchTargetFamily::ExactEnumCase(owners.variant(variant)?),
             };
             QueryKey::TraitDispatchBucket(TraitDispatchBucketKey {
                 target_family,
@@ -447,26 +392,17 @@ pub(crate) fn budget_report(report: &CallableBudgetReportV1) -> BudgetReport {
     )
 }
 
-fn source_range(
-    range: &phalcom_compiler_artifact::module_world::SpanV1,
-    family: &'static str,
-) -> Result<SourceRange, ArtifactError> {
+fn source_range(range: &phalcom_compiler_artifact::module_world::SpanV1, family: &'static str) -> Result<SourceRange, ArtifactError> {
     if range.start > range.end {
         return Err(invalid(format!("{family} range is inverted")));
     }
     Ok(SourceRange {
-        start: usize::try_from(range.start)
-            .map_err(|_| invalid(format!("{family} start exceeds address space")))?,
-        end: usize::try_from(range.end)
-            .map_err(|_| invalid(format!("{family} end exceeds address space")))?,
+        start: usize::try_from(range.start).map_err(|_| invalid(format!("{family} start exceeds address space")))?,
+        end: usize::try_from(range.end).map_err(|_| invalid(format!("{family} end exceeds address space")))?,
     })
 }
 
-fn mapped_type(
-    raw: u32,
-    types: &ReconstructedTypeGraph,
-    family: &'static str,
-) -> Result<crate::types::id::TypeId, ArtifactError> {
+fn mapped_type(raw: u32, types: &ReconstructedTypeGraph, family: &'static str) -> Result<crate::types::id::TypeId, ArtifactError> {
     types
         .types
         .get(raw as usize)

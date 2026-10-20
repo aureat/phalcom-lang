@@ -8,9 +8,7 @@ use super::callable_import::ImportedCallableAuthority;
 use super::identity::StableOwnerCatalog;
 use crate::db::ProductFingerprint;
 use crate::identity::{CallableId, CallableOwnerId, CallableParameterId, DispatchSide, FieldId};
-use crate::signature::{
-    ConstructorInitializationProduct, ConstructorOrigin, ConstructorParameterField,
-};
+use crate::signature::{ConstructorInitializationProduct, ConstructorOrigin, ConstructorParameterField};
 use phalcom_compiler_artifact::semantic::world::ConstructorInitializationRecordV1;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
@@ -58,9 +56,7 @@ pub(crate) fn reconstruct_constructor_initializations(
         let factory = owners.callable(&record.factory)?;
         let initializer = owners.callable(&record.initializer)?;
 
-        let (CallableOwnerId::Declaration(factory_owner), CallableOwnerId::Declaration(initializer_owner)) =
-            (&factory.owner, &initializer.owner)
-        else {
+        let (CallableOwnerId::Declaration(factory_owner), CallableOwnerId::Declaration(initializer_owner)) = (&factory.owner, &initializer.owner) else {
             return Err(invalid("constructor initialization factory and initializer must be declaration-owned"));
         };
         if factory_owner != initializer_owner {
@@ -85,9 +81,7 @@ pub(crate) fn reconstruct_constructor_initializations(
             _ => return Err(invalid("constructor initialization origin tag is invalid")),
         };
 
-        let mut default_fields = allocations
-            .vector::<FieldId>(record.default_fields.len())
-            .map_err(ArtifactError::Allocation)?;
+        let mut default_fields = allocations.vector::<FieldId>(record.default_fields.len()).map_err(ArtifactError::Allocation)?;
         for name in &record.default_fields {
             default_fields.push(FieldId::new(
                 initializer_owner.clone(),

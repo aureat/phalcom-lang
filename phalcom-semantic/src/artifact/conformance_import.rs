@@ -11,9 +11,7 @@ use crate::identity::ImplId;
 use crate::impls::{ConformanceContribution, ConformanceTarget, conformance_is_authorized};
 use crate::traits::TraitRef;
 use phalcom_common::range::SourceRange;
-use phalcom_compiler_artifact::semantic::world::{
-    ConformanceHeadRecordV1, ConformanceTargetV1,
-};
+use phalcom_compiler_artifact::semantic::world::{ConformanceHeadRecordV1, ConformanceTargetV1};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
 
@@ -64,12 +62,8 @@ pub(crate) fn reconstruct_conformance_authority(
         }
 
         let target = match &record.target {
-            ConformanceTargetV1::Declaration { declaration } => {
-                ConformanceTarget::Declaration(owners.declaration(declaration)?)
-            }
-            ConformanceTargetV1::ExactEnumCase { variant } => {
-                ConformanceTarget::ExactEnumCase(owners.variant(variant)?)
-            }
+            ConformanceTargetV1::Declaration { declaration } => ConformanceTarget::Declaration(owners.declaration(declaration)?),
+            ConformanceTargetV1::ExactEnumCase { variant } => ConformanceTarget::ExactEnumCase(owners.variant(variant)?),
         };
         let target_head = *types
             .types
@@ -77,9 +71,7 @@ pub(crate) fn reconstruct_conformance_authority(
             .ok_or_else(|| invalid("conformance head references an absent target type"))?;
 
         let trait_declaration = owners.declaration(&record.trait_ref.declaration)?;
-        let mut arguments = allocations
-            .vector(record.trait_ref.arguments.len())
-            .map_err(ArtifactError::Allocation)?;
+        let mut arguments = allocations.vector(record.trait_ref.arguments.len()).map_err(ArtifactError::Allocation)?;
         for argument in &record.trait_ref.arguments {
             arguments.push(
                 *types
@@ -88,10 +80,7 @@ pub(crate) fn reconstruct_conformance_authority(
                     .ok_or_else(|| invalid("conformance trait reference contains an absent type argument"))?,
             );
         }
-        let trait_ref = TraitRef::new(
-            trait_declaration,
-            allocations.boxed_slice(arguments).map_err(ArtifactError::Allocation)?,
-        );
+        let trait_ref = TraitRef::new(trait_declaration, allocations.boxed_slice(arguments).map_err(ArtifactError::Allocation)?);
 
         let generic_signature = record
             .generic_signature
@@ -101,9 +90,7 @@ pub(crate) fn reconstruct_conformance_authority(
 
         let current_authorized = conformance_is_authorized(&source_module, &trait_ref, &target);
         if current_authorized != record.authorized {
-            return Err(invalid(
-                "portable conformance authorization disagrees with current project-qualified ownership",
-            ));
+            return Err(invalid("portable conformance authorization disagrees with current project-qualified ownership"));
         }
         if record.eligible && !record.authorized {
             return Err(invalid("ineligible conformance authorization cannot be published as eligible"));

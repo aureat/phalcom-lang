@@ -8,14 +8,10 @@ use super::identity::StableOwnerCatalog;
 use super::semantic_import::ImportedSemanticAggregates;
 use super::type_import::ReconstructedTypeGraph;
 use crate::diagnostic::SemanticSourceSpan;
-use crate::enum_requirements::{
-    CaseRequirementResult, CaseRequirementStatus, EnumRequirement, EnumRequirementId,
-};
+use crate::enum_requirements::{CaseRequirementResult, CaseRequirementStatus, EnumRequirement, EnumRequirementId};
 use crate::identity::{CallableOwnerId, DeclarationId, DispatchSide};
 use phalcom_common::range::SourceRange;
-use phalcom_compiler_artifact::semantic::world::{
-    CaseRequirementStatusV1, EnumRequirementOwnerV1,
-};
+use phalcom_compiler_artifact::semantic::world::{CaseRequirementStatusV1, EnumRequirementOwnerV1};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
 use std::sync::Arc;
@@ -94,8 +90,7 @@ pub(crate) fn reconstruct_enum_requirement_authority(
         ordered_requirements.resize_with(owner_record.requirements.len(), || None);
 
         for record in &owner_record.requirements {
-            let source_order = usize::try_from(record.source_order)
-                .map_err(|_| invalid("enum requirement source order exceeds address space"))?;
+            let source_order = usize::try_from(record.source_order).map_err(|_| invalid("enum requirement source order exceeds address space"))?;
             let slot = ordered_requirements
                 .get_mut(source_order)
                 .ok_or_else(|| invalid("enum requirement source order is outside its owner table"))?;
@@ -111,16 +106,8 @@ pub(crate) fn reconstruct_enum_requirement_authority(
                 return Err(invalid("enum root requirement callable identity disagrees with its enum owner"));
             }
 
-            let signature = super::callable_import::reconstruct_callable_signature(
-                &record.signature,
-                types,
-                owners,
-                allocations,
-            )?;
-            if signature.callable != callable
-                || signature.owner != owner
-                || signature.side != DispatchSide::Instance
-                || signature.selector != callable.selector
+            let signature = super::callable_import::reconstruct_callable_signature(&record.signature, types, owners, allocations)?;
+            if signature.callable != callable || signature.owner != owner || signature.side != DispatchSide::Instance || signature.selector != callable.selector
             {
                 return Err(invalid("inline enum requirement signature disagrees with its exact owner"));
             }
@@ -136,10 +123,8 @@ pub(crate) fn reconstruct_enum_requirement_authority(
                     Ok(SemanticSourceSpan::new(
                         module,
                         SourceRange {
-                            start: usize::try_from(source.range.start)
-                                .map_err(|_| invalid("enum requirement source start exceeds address space"))?,
-                            end: usize::try_from(source.range.end)
-                                .map_err(|_| invalid("enum requirement source end exceeds address space"))?,
+                            start: usize::try_from(source.range.start).map_err(|_| invalid("enum requirement source start exceeds address space"))?,
+                            end: usize::try_from(source.range.end).map_err(|_| invalid("enum requirement source end exceeds address space"))?,
                         },
                     ))
                 })

@@ -6,8 +6,7 @@
 
 use super::callable_import::ImportedCallableAuthority;
 use super::conformance_evidence_import::{
-    ImportedConformanceEvidenceGraph, ImportedDerivedConformanceRule,
-    reconstruct_conformance_evidence_graph, reconstruct_derived_rule,
+    ImportedConformanceEvidenceGraph, ImportedDerivedConformanceRule, reconstruct_conformance_evidence_graph, reconstruct_derived_rule,
 };
 use super::conformance_import::ImportedConformanceAuthority;
 use super::identity::StableOwnerCatalog;
@@ -41,10 +40,7 @@ impl ImportedDerivedConformanceAuthority {
     }
 
     pub fn evidence_node_len(&self) -> usize {
-        self.records
-            .iter()
-            .map(|record| record.conformance_evidence.len())
-            .sum()
+        self.records.iter().map(|record| record.conformance_evidence.len()).sum()
     }
 
     pub(crate) fn get(&self, implementation: &ImplId) -> Option<&ImportedDerivedConformanceRuleRecord> {
@@ -96,20 +92,12 @@ pub(crate) fn reconstruct_derived_conformance_authority(
             limits,
             allocations,
         )?;
-        imported.push(ImportedDerivedConformanceRuleRecord {
-            rule,
-            conformance_evidence,
-        });
+        imported.push(ImportedDerivedConformanceRuleRecord { rule, conformance_evidence });
     }
 
     imported.sort_by(|left, right| left.rule.impl_id.cmp(&right.rule.impl_id));
-    if imported
-        .windows(2)
-        .any(|pair| pair[0].rule.impl_id == pair[1].rule.impl_id)
-    {
-        return Err(invalid(
-            "derived conformance rule is duplicated after stable-owner relocation",
-        ));
+    if imported.windows(2).any(|pair| pair[0].rule.impl_id == pair[1].rule.impl_id) {
+        return Err(invalid("derived conformance rule is duplicated after stable-owner relocation"));
     }
 
     Ok(ImportedDerivedConformanceAuthority {

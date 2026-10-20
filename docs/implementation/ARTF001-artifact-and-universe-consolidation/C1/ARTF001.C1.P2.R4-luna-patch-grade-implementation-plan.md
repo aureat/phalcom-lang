@@ -1245,6 +1245,64 @@ runtime requirement ordering. Capture all remaining coarse-location collisions
 before another producer correction. Do not add global producer precedence or a
 final blanket deduplication pass.
 
+## T2.6b Query-product family and final declaration-shell consistency (advisory amendment, 2026-10-20)
+
+The audit ruling resolves the alias query blocker by separating logical query
+identity from physical artifact row identity. This task ID is used because the
+plan already assigns T2.7 to witness/derived/proof authority.
+
+Introduce an exhaustive `PortableQueryProductFamilyV1` for every physical
+product table currently addressable by a reusable query root. `QueryProductRef`
+stores that family plus its row index. QueryImage advances from V3 to V4 and
+`QUERY_FINGERPRINT_ABI` advances from V2 to V3 before the R4 freeze. Do not
+change ModuleWorldV2, SemanticWorldV4, semantic artifact ABI V3, stable identity,
+or the outer container schema absent a separate demonstrated dependency.
+
+Use an explicit fail-closed logical-query/family compatibility function. The
+current product mapping includes Module; NominalDeclarationShell; TypeAlias;
+CallableDefinition; CallableSignature; DispatchSurface; TraitSurface;
+DataDeclaration; EnumDeclaration; AssociatedSurface; TypeMemberDeclaration;
+and ModuleStaticBindings. `DeclarationShell` permits exactly
+NominalDeclarationShell or TypeAlias. Other mappings are one-to-one or share
+their existing physical table as listed by the exhaustive compatibility match.
+For declaration-shell roots validate family-specific bounds and exact stable
+owner equality. `StructuralPrimaryContractsV2` rejects an owner represented by
+both nominal shell and alias authority, whether or not a query root references
+it.
+
+Portable declaration-shell input/product fingerprints cover the selected
+physical family and full selected row content. Dependency evidence uses the
+same family-aware product fingerprint. A family change must change the digest.
+After reconstruction, continue recomputing live SemanticDb fingerprints from
+the native `TypeDeclarationShell`; never install portable digests as live DB
+fingerprints.
+
+Static-definition alias links require their exact `TypeAliasRecordV1` row,
+matching record ID, and validated `StableOwnerCatalog` owner; they do not require
+or synthesize a nominal shell. A conflicting nominal shell is rejected by the
+semantic-world exclusivity invariant.
+
+Package remains a source semantic repair: `reflection/package-object.ph`
+explicitly imports sibling `Module`; do not widen the canonical prelude. When a
+successful generation omits a blocked nominal declaration, permanently retire
+its `DeclarationShell` query with dependent state. Immediately before query
+freeze/publication, require every reusable declaration-shell query to have
+exactly one matching final nominal or alias authority and a matching native
+product variant. Reject neither/both/mismatched cases.
+
+The required-root profile depends on logical `QueryKind`, not physical product
+family. A retained reusable alias `DeclarationShell` root must not be reverse-
+pruned solely because its product family is TypeAlias.
+
+Focused acceptance covers nominal and alias round trips; both wrong-family
+pairs; wrong row/index/owner and missing authority; nominal/alias owner
+ambiguity; mutations to nominal and alias input/product fingerprints and alias
+dependency evidence; alias-only static-definition authority; blocked-query
+retirement; Package final nominal authority; and exact equality between every
+final shell query variant and snapshot authority. Run the compiler-artifact
+suite and narrow semantic query/static-import/session regressions before the
+single expensive allocation gate.
+
 ## T2.7 Witness / derived / proof authority
 
 The merged P7 importer should be treated as the candidate complete implementation.
@@ -1409,6 +1467,22 @@ Recover the P7 exact transaction guarantee against the final current semantic pa
 ## T3.1 Whole-load stage census
 
 Preserve and update the P7 stage model.
+
+### T3.1a Imported module graph representation amendment
+
+The user selected **frozen base with mutable overlays** after the module
+materialization stage showed an unaccounted allocation delta. Implement imported
+module indexes and graph storage with budget-aware frozen containers. Preserve
+mutable source-backed graph behavior. Workspace edits must be represented as
+mutable overlays over the imported base; do not mutate or implicitly thaw the
+canonical imported graph.
+
+This is a representation clarification for R4.T3, not an artifact wire-schema
+change. Keep project/module identity canonical and singular across base and
+overlay. Verify the owning lookup/update path for base-only reads, overlay
+replacement, and overlay hiding/deletion. Then rerun the saved-artifact module
+materialization discriminator. Continue to the later stage, N/N-1, rollback,
+and retry gates only if the measured discrepancy is resolved.
 
 At minimum measure:
 

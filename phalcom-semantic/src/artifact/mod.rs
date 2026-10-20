@@ -21,16 +21,16 @@ mod callable_import;
 mod callable_specialization_import;
 mod conformance_evidence_import;
 mod conformance_import;
-mod denotation_import;
 mod constructor_import;
-mod diagnostic_import;
+mod denotation_import;
 mod derived_import;
+mod diagnostic_import;
 mod dispatch_import;
 mod enum_requirement_import;
 mod identity;
 mod inherent_import;
-mod module_static_import;
 pub mod manifest;
+mod module_static_import;
 mod query_import;
 mod query_policy;
 mod query_product_import;
@@ -46,20 +46,11 @@ mod type_import;
 mod witness_import;
 pub use associated_import::ImportedAssociatedAuthority;
 pub use callable_binding_import::ImportedCallableBindingAuthority;
-pub use callable_dispatch_import::{
-    ImportedCallableConditionalDispatchAuthority, ImportedConditionalCallCapability,
-};
-pub use callable_evidence_import::{
-    ImportedCallableConformanceEvidence, ImportedCallableConformanceEvidenceAuthority,
-};
-pub use callable_expression_import::{
-    ImportedCallableExpressionAuthority, ImportedCallableExpressionBase,
-    ImportedExpressionDeferredAuthority,
-};
+pub use callable_dispatch_import::{ImportedCallableConditionalDispatchAuthority, ImportedConditionalCallCapability};
+pub use callable_evidence_import::{ImportedCallableConformanceEvidence, ImportedCallableConformanceEvidenceAuthority};
+pub use callable_expression_import::{ImportedCallableExpressionAuthority, ImportedCallableExpressionBase, ImportedExpressionDeferredAuthority};
 pub use callable_import::ImportedCallableAuthority;
-pub use callable_specialization_import::{
-    ImportedCallSpecialization, ImportedCallableSpecializationAuthority,
-};
+pub use callable_specialization_import::{ImportedCallSpecialization, ImportedCallableSpecializationAuthority};
 pub use conformance_import::ImportedConformanceAuthority;
 pub use constructor_import::ImportedConstructorInitializationAuthority;
 pub use derived_import::ImportedDerivedConformanceAuthority;
@@ -67,14 +58,13 @@ pub use dispatch_import::ImportedDispatchAuthority;
 pub use enum_requirement_import::ImportedEnumRequirementAuthority;
 pub use identity::StableOwnerCatalog;
 pub use inherent_import::ImportedConditionalInherentAuthority;
-pub use module_static_import::ImportedModuleStaticBindingAuthority;
 pub use manifest::{
-    ArtifactAuthorityDisposition, CompilerAttachmentDispositionRow, CompilerAttachmentFamily, ImportedArtifactFamily,
-    ImportedArtifactFamilyDispositionRow, QueryArtifactDisposition, QueryKindDispositionRow, SessionBaseFamilyManifestRow,
-    SnapshotFieldManifestRow, COMPILER_ATTACHMENT_MANIFEST, IMPORTED_ARTIFACT_FAMILY_MANIFEST, QUERY_KIND_MANIFEST,
-    SESSION_BASE_FAMILY_MANIFEST, SNAPSHOT_FIELD_MANIFEST, compiler_attachment_disposition, imported_family_disposition,
-    query_kind_disposition, session_base_family_disposition, snapshot_field_disposition,
+    ArtifactAuthorityDisposition, COMPILER_ATTACHMENT_MANIFEST, CompilerAttachmentDispositionRow, CompilerAttachmentFamily, IMPORTED_ARTIFACT_FAMILY_MANIFEST,
+    ImportedArtifactFamily, ImportedArtifactFamilyDispositionRow, QUERY_KIND_MANIFEST, QueryArtifactDisposition, QueryKindDispositionRow,
+    SESSION_BASE_FAMILY_MANIFEST, SNAPSHOT_FIELD_MANIFEST, SessionBaseFamilyManifestRow, SnapshotFieldManifestRow, compiler_attachment_disposition,
+    imported_family_disposition, query_kind_disposition, session_base_family_disposition, snapshot_field_disposition,
 };
+pub use module_static_import::ImportedModuleStaticBindingAuthority;
 pub use query_policy::{
     CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_from_portable, query_kind_profile_support, query_root_is_reusable,
 };
@@ -85,9 +75,8 @@ pub use static_constant_import::ImportedStaticConstantAuthority;
 pub use static_definition_import::ImportedStaticDefinitionAuthority;
 pub use static_import::ImportedStaticValueGraph;
 pub use static_program_import::{
-    ImportedCanonicalCheckedStaticApplication, ImportedCanonicalStaticApplicationArgument,
-    ImportedCanonicalStaticProgram, ImportedOperationalNode, ImportedOperationalTarget,
-    ImportedStaticBinaryOp, ImportedStaticUnaryOp,
+    ImportedCanonicalCheckedStaticApplication, ImportedCanonicalStaticApplicationArgument, ImportedCanonicalStaticProgram, ImportedOperationalNode,
+    ImportedOperationalTarget, ImportedStaticBinaryOp, ImportedStaticUnaryOp,
 };
 pub use trait_import::ImportedTraitAuthority;
 pub use type_import::ImportedTypeGraph;
@@ -100,7 +89,7 @@ use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
 use phalcom_compiler_artifact::module_world::ModuleWorldV2;
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
-use phalcom_compiler_artifact::query::QueryImageV3;
+use phalcom_compiler_artifact::query::QueryImageV4;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV4;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_modules::canonical_products::CanonicalExternalModuleWorld;
@@ -116,7 +105,7 @@ pub struct CompilerArtifactImage {
     pub header: TeloscHeaderV2,
     pub module_world: ModuleWorldV2,
     pub semantic_world: SemanticWorldV4,
-    pub query_image: QueryImageV3,
+    pub query_image: QueryImageV4,
     pub metadata: MetadataSectionV1,
 }
 
@@ -218,7 +207,7 @@ pub struct ImportedCompilerImage {
     /// T4 installs these into the imported generation's one SemanticDb.
     pub query_products: Arc<ImportedQueryProducts>,
     pub semantic_world: SemanticWorldV4,
-    pub query_image: QueryImageV3,
+    pub query_image: QueryImageV4,
 }
 
 impl ImportedCompilerImage {
@@ -268,7 +257,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_enum_requirement_authority: Option<Arc<ImportedEnumRequirementAuthority>>,
     pub staged_query_products: Option<Arc<ImportedQueryProducts>>,
     pub staged_semantic_world: Option<SemanticWorldV4>,
-    pub staged_query_image: Option<QueryImageV3>,
+    pub staged_query_image: Option<QueryImageV4>,
     project_catalog: Option<Arc<ProjectUniverse>>,
     trusted_package_resolver: Option<&'a dyn TrustedPackageResolver>,
     committed: bool,
@@ -418,13 +407,8 @@ impl<'a> ArtifactImportTransaction<'a> {
         query_import::validate_structural_root_row_ownership(&payload.query_image, &payload.semantic_world)?;
         let reconstructed = type_import::reconstruct_type_graph(&payload.semantic_world.type_graph, &self.limits, &owners, child)?;
         let static_values = static_import::reconstruct_static_values(&payload.semantic_world.static_values, &reconstructed, &owners, &self.limits, child)?;
-        let static_constant_authority = static_constant_import::reconstruct_static_constants(
-            &payload.semantic_world.static_constants,
-            &static_values,
-            &reconstructed,
-            &owners,
-            child,
-        )?;
+        let static_constant_authority =
+            static_constant_import::reconstruct_static_constants(&payload.semantic_world.static_constants, &static_values, &reconstructed, &owners, child)?;
         let static_definition_authority = static_definition_import::reconstruct_static_definitions(
             &payload.semantic_world.static_definitions,
             &payload.semantic_world.structural_contracts,
@@ -435,14 +419,12 @@ impl<'a> ArtifactImportTransaction<'a> {
             child,
         )?;
         self.staged_static_values = Some(child.arc(static_values).map_err(ArtifactError::Allocation)?);
-        self.staged_static_constant_authority =
-            Some(child.arc(static_constant_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_static_constant_authority = Some(child.arc(static_constant_authority).map_err(ArtifactError::Allocation)?);
         let static_definition_authority = child.arc(static_definition_authority).map_err(ArtifactError::Allocation)?;
         self.staged_static_definition_authority = Some(static_definition_authority.clone());
         let semantic_aggregates =
             semantic_import::reconstruct_structural_aggregates(&payload.semantic_world.structural_contracts, &reconstructed, &owners, &self.limits, child)?;
-        let associated_authority =
-            associated_import::reconstruct_associated_authority(&payload.semantic_world, &reconstructed, &owners, child)?;
+        let associated_authority = associated_import::reconstruct_associated_authority(&payload.semantic_world, &reconstructed, &owners, child)?;
         let static_case_authority = static_case_import::reconstruct_static_case_authority(
             &payload.semantic_world.static_case_catalogs,
             &payload.semantic_world.static_case_signatures,
@@ -472,22 +454,20 @@ impl<'a> ArtifactImportTransaction<'a> {
             &owners,
             child,
         )?;
-        let callable_conditional_dispatch_authority =
-            callable_dispatch_import::reconstruct_callable_conditional_dispatch(
-                &payload.semantic_world.callable_analyses,
-                &callable_authority,
-                &reconstructed,
-                &owners,
-                child,
-            )?;
-        let callable_specialization_authority =
-            callable_specialization_import::reconstruct_callable_specializations(
-                &payload.semantic_world.callable_analyses,
-                &callable_authority,
-                &reconstructed,
-                &owners,
-                child,
-            )?;
+        let callable_conditional_dispatch_authority = callable_dispatch_import::reconstruct_callable_conditional_dispatch(
+            &payload.semantic_world.callable_analyses,
+            &callable_authority,
+            &reconstructed,
+            &owners,
+            child,
+        )?;
+        let callable_specialization_authority = callable_specialization_import::reconstruct_callable_specializations(
+            &payload.semantic_world.callable_analyses,
+            &callable_authority,
+            &reconstructed,
+            &owners,
+            child,
+        )?;
         let module_static_binding_authority = module_static_import::reconstruct_module_static_bindings(
             &payload.semantic_world.module_static_bindings,
             &callable_binding_authority,
@@ -500,31 +480,13 @@ impl<'a> ArtifactImportTransaction<'a> {
             &owners,
             child,
         )?;
-        let dispatch_authority = dispatch_import::reconstruct_dispatch_authority(
-            &payload.semantic_world.dispatch_surfaces,
-            &callable_authority,
-            &reconstructed,
-            &owners,
-            child,
-        )?;
-        let conditional_inherent_authority = inherent_import::reconstruct_conditional_inherent_authority(
-            &payload.semantic_world.conditional_inherent_sets,
-            &reconstructed,
-            &owners,
-            child,
-        )?;
-        let conformance_authority = conformance_import::reconstruct_conformance_authority(
-            &payload.semantic_world.conformance_heads,
-            &reconstructed,
-            &owners,
-            child,
-        )?;
-        let trait_authority = trait_import::reconstruct_trait_authority(
-            &payload.semantic_world.trait_surfaces,
-            &reconstructed,
-            &owners,
-            child,
-        )?;
+        let dispatch_authority =
+            dispatch_import::reconstruct_dispatch_authority(&payload.semantic_world.dispatch_surfaces, &callable_authority, &reconstructed, &owners, child)?;
+        let conditional_inherent_authority =
+            inherent_import::reconstruct_conditional_inherent_authority(&payload.semantic_world.conditional_inherent_sets, &reconstructed, &owners, child)?;
+        let conformance_authority =
+            conformance_import::reconstruct_conformance_authority(&payload.semantic_world.conformance_heads, &reconstructed, &owners, child)?;
+        let trait_authority = trait_import::reconstruct_trait_authority(&payload.semantic_world.trait_surfaces, &reconstructed, &owners, child)?;
         let witness_preflight_authority = witness_import::reconstruct_witness_preflight(
             &payload.semantic_world.witness_plans,
             &conformance_authority,
@@ -535,18 +497,17 @@ impl<'a> ArtifactImportTransaction<'a> {
             &self.limits,
             child,
         )?;
-        let callable_conformance_evidence_authority =
-            callable_evidence_import::reconstruct_callable_conformance_evidence(
-                &payload.semantic_world.callable_analyses,
-                &conformance_authority,
-                &witness_preflight_authority,
-                &trait_authority,
-                &callable_authority,
-                &reconstructed,
-                &owners,
-                &self.limits,
-                child,
-            )?;
+        let callable_conformance_evidence_authority = callable_evidence_import::reconstruct_callable_conformance_evidence(
+            &payload.semantic_world.callable_analyses,
+            &conformance_authority,
+            &witness_preflight_authority,
+            &trait_authority,
+            &callable_authority,
+            &reconstructed,
+            &owners,
+            &self.limits,
+            child,
+        )?;
         let derived_conformance_authority = derived_import::reconstruct_derived_conformance_authority(
             &payload.semantic_world.derived_conformance_rules,
             witness_preflight_authority.plans(),
@@ -578,31 +539,20 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.staged_associated_authority = Some(child.arc(associated_authority).map_err(ArtifactError::Allocation)?);
         self.staged_static_case_authority = Some(child.arc(static_case_authority).map_err(ArtifactError::Allocation)?);
         self.staged_callable_authority = Some(child.arc(callable_authority).map_err(ArtifactError::Allocation)?);
-        self.staged_callable_binding_authority =
-            Some(child.arc(callable_binding_authority).map_err(ArtifactError::Allocation)?);
-        self.staged_callable_expression_authority =
-            Some(child.arc(callable_expression_authority).map_err(ArtifactError::Allocation)?);
-        self.staged_callable_conditional_dispatch_authority =
-            Some(child.arc(callable_conditional_dispatch_authority).map_err(ArtifactError::Allocation)?);
-        self.staged_callable_specialization_authority =
-            Some(child.arc(callable_specialization_authority).map_err(ArtifactError::Allocation)?);
-        self.staged_module_static_binding_authority =
-            Some(child.arc(module_static_binding_authority).map_err(ArtifactError::Allocation)?);
-        self.staged_constructor_initialization_authority =
-            Some(child.arc(constructor_initialization_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_callable_binding_authority = Some(child.arc(callable_binding_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_callable_expression_authority = Some(child.arc(callable_expression_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_callable_conditional_dispatch_authority = Some(child.arc(callable_conditional_dispatch_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_callable_specialization_authority = Some(child.arc(callable_specialization_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_module_static_binding_authority = Some(child.arc(module_static_binding_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_constructor_initialization_authority = Some(child.arc(constructor_initialization_authority).map_err(ArtifactError::Allocation)?);
         self.staged_dispatch_authority = Some(child.arc(dispatch_authority).map_err(ArtifactError::Allocation)?);
-        self.staged_conditional_inherent_authority =
-            Some(child.arc(conditional_inherent_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_conditional_inherent_authority = Some(child.arc(conditional_inherent_authority).map_err(ArtifactError::Allocation)?);
         self.staged_conformance_authority = Some(child.arc(conformance_authority).map_err(ArtifactError::Allocation)?);
         self.staged_trait_authority = Some(child.arc(trait_authority).map_err(ArtifactError::Allocation)?);
-        self.staged_witness_preflight_authority =
-            Some(child.arc(witness_preflight_authority).map_err(ArtifactError::Allocation)?);
-        self.staged_callable_conformance_evidence_authority =
-            Some(child.arc(callable_conformance_evidence_authority).map_err(ArtifactError::Allocation)?);
-        self.staged_derived_conformance_authority =
-            Some(child.arc(derived_conformance_authority).map_err(ArtifactError::Allocation)?);
-        self.staged_enum_requirement_authority =
-            Some(child.arc(enum_requirement_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_witness_preflight_authority = Some(child.arc(witness_preflight_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_callable_conformance_evidence_authority = Some(child.arc(callable_conformance_evidence_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_derived_conformance_authority = Some(child.arc(derived_conformance_authority).map_err(ArtifactError::Allocation)?);
+        self.staged_enum_requirement_authority = Some(child.arc(enum_requirement_authority).map_err(ArtifactError::Allocation)?);
         self.staged_query_products = Some(child.arc(query_products).map_err(ArtifactError::Allocation)?);
         self.staged_type_graph = Some(child.arc(ImportedTypeGraph { inner: reconstructed }).map_err(ArtifactError::Allocation)?);
 
@@ -678,10 +628,11 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_callable_expression_authority
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged callable expression authority".into())))?;
-        let callable_conditional_dispatch_authority = self
-            .staged_callable_conditional_dispatch_authority
-            .take()
-            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged callable conditional-dispatch authority".into())))?;
+        let callable_conditional_dispatch_authority = self.staged_callable_conditional_dispatch_authority.take().ok_or_else(|| {
+            ArtifactError::Validation(ValidationError::ReferentialIntegrity(
+                "no staged callable conditional-dispatch authority".into(),
+            ))
+        })?;
         let callable_specialization_authority = self
             .staged_callable_specialization_authority
             .take()
@@ -714,10 +665,11 @@ impl<'a> ArtifactImportTransaction<'a> {
             .staged_witness_preflight_authority
             .take()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged witness-plan preflight authority".into())))?;
-        let callable_conformance_evidence_authority = self
-            .staged_callable_conformance_evidence_authority
-            .take()
-            .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged callable conformance-evidence authority".into())))?;
+        let callable_conformance_evidence_authority = self.staged_callable_conformance_evidence_authority.take().ok_or_else(|| {
+            ArtifactError::Validation(ValidationError::ReferentialIntegrity(
+                "no staged callable conformance-evidence authority".into(),
+            ))
+        })?;
         let derived_conformance_authority = self
             .staged_derived_conformance_authority
             .take()

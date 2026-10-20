@@ -1,7 +1,7 @@
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::header::{
-    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V3, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2,
-    TeloscCapabilities, TeloscHeaderV2,
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V3, SEMANTIC_ARTIFACT_ABI_V3, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities,
+    TeloscHeaderV2,
 };
 use phalcom_compiler_artifact::identity::{CanonicalCompatibilityIdentity, TeloscPackageIdentity};
 use phalcom_compiler_artifact::limits::ValidationLimits;
@@ -9,14 +9,13 @@ use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSecti
 use phalcom_compiler_artifact::module_world::{ArtifactModuleId, ModuleKindV1, ModuleV2, ModuleWorldV2};
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
 use phalcom_compiler_artifact::query::{
-    PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
+    DependencyEvidenceEntryV4, PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, PortableQueryProductFamilyV1, QueryImageV4, QueryProductRefV3,
+    QueryRootEntryV4,
 };
-use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV2;
+use phalcom_compiler_artifact::semantic::aggregates::{DeclarationSemanticFormV1, DeclarationShellV2, DeclarationTypeBindingV1, StructuralPrimaryContractsV2};
 use phalcom_compiler_artifact::semantic::static_value::{StaticValueGraphV1, StaticValueV1};
-use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1, TypeEntryV1, TypeGraphV1, TypeV1};
-use phalcom_compiler_artifact::semantic::world::{
-    ModuleExecutionAuthorityV1, ModuleImportPhaseProductV1, PhaseEvidenceCoverageV1, SemanticWorldV4,
-};
+use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId, KindV1, TypeEntryV1, TypeGraphV1, TypeV1};
+use phalcom_compiler_artifact::semantic::world::{ModuleExecutionAuthorityV1, ModuleImportPhaseProductV1, PhaseEvidenceCoverageV1, SemanticWorldV4};
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
@@ -240,9 +239,9 @@ fn sample_semantic_world() -> SemanticWorldV4 {
     }
 }
 
-fn sample_query_image() -> QueryImageV3 {
-    QueryImageV3 {
-        supported_roots: vec![QueryRootEntryV3 {
+fn sample_query_image() -> QueryImageV4 {
+    QueryImageV4 {
+        supported_roots: vec![QueryRootEntryV4 {
             key: PortableQueryKeyV1 {
                 kind: PortableQueryKindV1::LinkedInterface,
                 owner: PortableQueryOwnerKeyV1::Module(StableModuleRef {
@@ -253,8 +252,8 @@ fn sample_query_image() -> QueryImageV3 {
                     path: Box::new([]),
                 }),
             },
-            product: QueryProductRefV2 {
-                kind: PortableQueryKindV1::LinkedInterface,
+            product: QueryProductRefV3 {
+                family: PortableQueryProductFamilyV1::Module,
                 row_index: 0,
             },
             input_fingerprint: 1,
@@ -263,6 +262,155 @@ fn sample_query_image() -> QueryImageV3 {
         }],
         dependency_evidence: vec![],
     }
+}
+
+fn nominal_shell(owner: StableDeclarationRef) -> DeclarationShellV2 {
+    DeclarationShellV2 {
+        declaration: owner,
+        self_type: ArtifactTypeId(0),
+        class_object_type: ArtifactTypeId(0),
+        kind: ArtifactKindId(0),
+        binding: DeclarationTypeBindingV1 {
+            semantic_form: DeclarationSemanticFormV1::Ordinary,
+            runtime_owner: None,
+        },
+        parameters: vec![],
+        generic_signature: None,
+        supertype_template: None,
+        intrinsic_type_owner: None,
+    }
+}
+
+fn declaration_shell_image(owner: StableDeclarationRef, family: PortableQueryProductFamilyV1) -> QueryImageV4 {
+    QueryImageV4 {
+        supported_roots: vec![QueryRootEntryV4 {
+            key: PortableQueryKeyV1 {
+                kind: PortableQueryKindV1::DeclarationShell,
+                owner: PortableQueryOwnerKeyV1::Declaration(owner),
+            },
+            product: QueryProductRefV3 { family, row_index: 0 },
+            input_fingerprint: 0,
+            product_fingerprint: 0,
+            dependency_indices: vec![],
+        }],
+        dependency_evidence: vec![],
+    }
+}
+
+#[test]
+fn declaration_shell_query_round_trips_nominal_and_alias_product_families() {
+    let module = StableModuleRef {
+        project: StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        },
+        path: vec!["core".into()].into_boxed_slice(),
+    };
+    let nominal_owner = StableDeclarationRef {
+        module: module.clone(),
+        path: vec!["Nominal".into()].into_boxed_slice(),
+    };
+    let mut nominal_world = sample_semantic_world();
+    nominal_world.structural_contracts.declaration_shells.push(nominal_shell(nominal_owner.clone()));
+    let mut nominal_image = declaration_shell_image(nominal_owner, PortableQueryProductFamilyV1::NominalDeclarationShell);
+    nominal_image
+        .refresh_portable_structural_fingerprints_v4(&nominal_world)
+        .expect("nominal shell portable fingerprints");
+    nominal_image
+        .validate_product_references(&sample_module_world(), &nominal_world)
+        .expect("nominal shell row owner");
+    nominal_image
+        .validate_portable_structural_fingerprints_v4(&nominal_world)
+        .expect("nominal shell portable fingerprint validation");
+    let nominal_encoded = nominal_image.encode().expect("encode V4 nominal query image");
+    assert_eq!(
+        QueryImageV4::decode(&nominal_encoded, &ValidationLimits::default()).expect("decode V4 nominal query image"),
+        nominal_image
+    );
+    let mut nominal_wrong_family = nominal_image.clone();
+    nominal_wrong_family.supported_roots[0].product.family = PortableQueryProductFamilyV1::TypeAlias;
+    assert!(
+        nominal_wrong_family
+            .validate_product_references(&sample_module_world(), &nominal_world)
+            .is_err()
+    );
+
+    let (alias_world, alias_owner) = semantic_world_with_static_alias(Some("Alias"), false);
+    let alias_index = alias_world
+        .structural_contracts
+        .type_aliases
+        .iter()
+        .position(|row| row.declaration == alias_owner)
+        .expect("alias row");
+    let mut alias_image = declaration_shell_image(alias_owner.clone(), PortableQueryProductFamilyV1::TypeAlias);
+    alias_image.supported_roots[0].product.row_index = alias_index as u32;
+    alias_image.dependency_evidence.push(DependencyEvidenceEntryV4 {
+        key: PortableQueryKeyV1 {
+            kind: PortableQueryKindV1::DeclarationShell,
+            owner: PortableQueryOwnerKeyV1::Declaration(alias_owner.clone()),
+        },
+        stable_aggregate_owner: PortableQueryOwnerKeyV1::Declaration(alias_owner),
+        product_fingerprint: 0,
+    });
+    alias_image
+        .refresh_portable_structural_fingerprints_v4(&alias_world)
+        .expect("alias shell and dependency portable fingerprints");
+    alias_image
+        .validate_product_references(&sample_module_world(), &alias_world)
+        .expect("alias shell row owner");
+    alias_image
+        .validate_portable_structural_fingerprints_v4(&alias_world)
+        .expect("alias shell portable fingerprint validation");
+
+    let limits = ValidationLimits::default();
+    let encoded = alias_image.encode().expect("encode V4 alias query image");
+    let decoded = QueryImageV4::decode(&encoded, &limits).expect("decode V4 alias query image");
+    assert_eq!(decoded, alias_image);
+    decoded
+        .validate_portable_structural_fingerprints_v4(&alias_world)
+        .expect("decoded alias evidence remains valid");
+
+    let mut mutated_alias = alias_world.clone();
+    mutated_alias.structural_contracts.type_aliases[alias_index].structural_form = "Int".into();
+    assert!(alias_image.validate_portable_structural_fingerprints_v4(&mutated_alias).is_err());
+
+    let mut bad_input = alias_image.clone();
+    bad_input.supported_roots[0].input_fingerprint ^= 1;
+    assert!(bad_input.validate_portable_structural_fingerprints_v4(&alias_world).is_err());
+    let mut bad_product = alias_image.clone();
+    bad_product.supported_roots[0].product_fingerprint ^= 1;
+    assert!(bad_product.validate_portable_structural_fingerprints_v4(&alias_world).is_err());
+    let mut bad_dependency = alias_image.clone();
+    bad_dependency.dependency_evidence[0].product_fingerprint ^= 1;
+    assert!(bad_dependency.validate_portable_structural_fingerprints_v4(&alias_world).is_err());
+
+    let mut wrong_index = alias_image.clone();
+    wrong_index.supported_roots[0].product.row_index = u32::MAX;
+    assert!(wrong_index.validate_product_references(&sample_module_world(), &alias_world).is_err());
+    let mut wrong_owner = alias_image;
+    wrong_owner.supported_roots[0].key.owner = PortableQueryOwnerKeyV1::Declaration(StableDeclarationRef {
+        module: alias_world.structural_contracts.type_aliases[alias_index].declaration.module.clone(),
+        path: vec!["Different".into()].into_boxed_slice(),
+    });
+    assert!(wrong_owner.validate_product_references(&sample_module_world(), &alias_world).is_err());
+
+    // A valid logical query may not select the nominal table when only an
+    // alias row exists for its owner.
+    let wrong_family = declaration_shell_image(
+        alias_world.structural_contracts.type_aliases[alias_index].declaration.clone(),
+        PortableQueryProductFamilyV1::NominalDeclarationShell,
+    );
+    assert!(wrong_family.validate_product_references(&sample_module_world(), &alias_world).is_err());
+
+    let mut ambiguous_world = alias_world;
+    let ambiguous_owner = ambiguous_world.structural_contracts.type_aliases[alias_index].declaration.clone();
+    ambiguous_world.structural_contracts.declaration_shells.push(nominal_shell(ambiguous_owner));
+    assert!(ambiguous_world.validate(&limits).is_err(), "one owner cannot have nominal and alias authority");
+    let ambiguous_query = declaration_shell_image(
+        ambiguous_world.structural_contracts.type_aliases[alias_index].declaration.clone(),
+        PortableQueryProductFamilyV1::TypeAlias,
+    );
+    assert!(ambiguous_query.validate_product_references(&sample_module_world(), &ambiguous_world).is_err());
 }
 
 fn sample_payload() -> CompilerArtifactPayload {
@@ -275,7 +423,7 @@ fn sample_payload() -> CompilerArtifactPayload {
         stable_identity_schema: 1,
         module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
         semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V3,
-        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V3,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [5; 16],
         type_metadata_schema_version: 13,

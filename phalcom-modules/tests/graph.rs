@@ -111,3 +111,68 @@ fn reference_graph_preserves_kind_and_phase_separately() {
     assert_eq!(references.edges_from(&a)[0].kind, ReferenceKind::InterfaceOnly);
     assert_eq!(DependencyPhase::InterfaceOnly.join(DependencyPhase::Runtime), DependencyPhase::Runtime);
 }
+
+#[test]
+fn frozen_reference_graph_keeps_canonical_base_while_overlay_replaces_and_hides_rows() {
+    let a = module("a");
+    let b = module("b");
+    let c = module("c");
+    let original = ReferenceEdge {
+        from: a.clone(),
+        to: b.clone(),
+        kind: ReferenceKind::WholeModuleImport,
+        range: SourceRange::default(),
+    };
+    let replacement = ReferenceEdge {
+        from: a.clone(),
+        to: c.clone(),
+        kind: ReferenceKind::SelectiveImport,
+        range: SourceRange::default(),
+    };
+
+    let mut allocations = phalcom_type_meta::allocation::AllocationBudget::new(4096);
+    let base = ReferenceGraph::from_budgeted_sorted_entries(vec![(a.clone(), vec![original.clone()])], &mut allocations)
+        .expect("sorted imported graph rows should freeze");
+    assert!(allocations.requested() > 0);
+
+    let mut edited = base.clone();
+    edited.replace(a.clone(), vec![replacement.clone()]);
+    assert_eq!(base.edges_from(&a), &[original]);
+    assert_eq!(edited.edges_from(&a), &[replacement]);
+
+    assert!(edited.remove_node(&a));
+    assert!(edited.edges_from(&a).is_empty());
+    assert!(edited.nodes().is_empty());
+    assert_eq!(base.edges_from(&a).len(), 1);
+
+    edited.add(ReferenceEdge {
+        from: a.clone(),
+        to: c.clone(),
+        kind: ReferenceKind::ReExport,
+        range: SourceRange::default(),
+    });
+    assert_eq!(edited.edges_from(&a).len(), 1);
+    assert_eq!(edited.edges_from(&a)[0].to, c);
+    assert_eq!(base.edges_from(&a)[0].to, b);
+}
+
+#[test]
+fn frozen_semantic_graph_accepts_local_incremental_edges_without_mutating_base() {
+    let a = module("a");
+    let b = module("b");
+    let from = SemanticNodeId::Module(a.clone());
+    let edge = SemanticEdge {
+        from: from.clone(),
+        to: SemanticNodeId::Module(b),
+        kind: SemanticEdgeKind::TypeReference,
+        range: SourceRange::default(),
+    };
+    let mut allocations = phalcom_type_meta::allocation::AllocationBudget::new(4096);
+    let base =
+        SemanticGraph::from_budgeted_sorted_entries(vec![(from.clone(), vec![])], &mut allocations).expect("sorted imported semantic rows should freeze");
+    let mut overlay = base.clone();
+    overlay.add(edge.clone());
+
+    assert!(base.edges_from(&from).is_empty());
+    assert_eq!(overlay.edges_from(&from), &[edge]);
+}

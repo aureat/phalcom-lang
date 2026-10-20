@@ -1,5 +1,6 @@
 //! Projection and materialization of completed Universe module authority.
 //! No source provider, interface builder, or linker is used by import.
+use crate::authority::{ModuleAuthorityBuildError, ModuleAuthorityMap, ModuleAuthoritySet};
 use crate::canonical_products::CanonicalExternalModuleWorld;
 use crate::graph::*;
 use crate::interface::*;
@@ -37,9 +38,9 @@ pub fn stage_artifact_project_authorities(
 
     let artifact_package = match package_identity {
         TeloscPackageIdentity::Package { package, version } => {
-            let mut matching = stable_projects.iter().filter(|project| {
-                matches!(project, StableProjectRef::Package { package: name, version: candidate, .. } if name == package && candidate == version)
-            });
+            let mut matching = stable_projects.iter().filter(
+                |project| matches!(project, StableProjectRef::Package { package: name, version: candidate, .. } if name == package && candidate == version),
+            );
             let stable_project = matching
                 .next()
                 .cloned()
@@ -487,7 +488,13 @@ pub fn project_module_world(world: &CanonicalExternalModuleWorld, limits: &Valid
                         return Err(invalid("synthetic project cannot be projected into stable artifact"));
                     }
                 },
-                path: id.path.components().iter().map(|part| part.as_str().into()).collect::<Vec<Box<str>>>().into_boxed_slice(),
+                path: id
+                    .path
+                    .components()
+                    .iter()
+                    .map(|part| part.as_str().into())
+                    .collect::<Vec<Box<str>>>()
+                    .into_boxed_slice(),
             };
             Ok(ModuleV2 {
                 identity,
@@ -681,7 +688,12 @@ pub fn load_module_world_with_allocation_budget(
         return Err(invalid("portable module topology fingerprint mismatch"));
     }
 
-    load_module_world_with_project_catalog_and_allocation_budget(wire, limits, transaction, Arc::new(ProjectUniverse::new()))
+    let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+    let mut allocations = transaction.child(section_limit);
+    let projects = allocations.arc(ProjectUniverse::new()).map_err(allocation_error)?;
+    let world = load_module_world_inner(wire, limits, &mut allocations, projects)?;
+    transaction.commit_child(allocations).map_err(allocation_error)?;
+    Ok(world)
 }
 
 /// Loads module authority while retaining the validated caller-owned project catalog.
@@ -700,6 +712,13 @@ pub fn load_module_world_with_project_catalog_and_allocation_budget(
 
 fn allocation_error(error: AllocationError) -> ArtifactError {
     ArtifactError::Allocation(error)
+}
+
+fn authority_error(error: ModuleAuthorityBuildError) -> ArtifactError {
+    match error {
+        ModuleAuthorityBuildError::Allocation(error) => allocation_error(error),
+        ModuleAuthorityBuildError::Entries(_) | ModuleAuthorityBuildError::SetEntries(_) => invalid("invalid module authority entries"),
+    }
 }
 
 fn load_module_world_inner(
@@ -737,9 +756,7 @@ fn load_module_world_inner(
         if module.path.len() > limits.max_recursion_depth {
             return Err(invalid("module path exceeds depth limit"));
         }
-        if module.path.len() != module.identity.path.len()
-            || !module.path.iter().zip(module.identity.path.iter()).all(|(a, b)| a.as_str() == b.as_ref())
-        {
+        if module.path.len() != module.identity.path.len() || !module.path.iter().zip(module.identity.path.iter()).all(|(a, b)| a.as_str() == b.as_ref()) {
             return Err(invalid(format!(
                 "module path does not match stable module identity: {:?} vs {:?}",
                 module.path, module.identity.path
@@ -776,10 +793,10 @@ fn load_module_world_inner(
         .map_err(allocation_error)?;
     let mut nodes_entries = allocations.vector::<(ModuleId, TopologyNode)>(wire.modules.len()).map_err(allocation_error)?;
     let mut children_entries = allocations
-        .vector::<(ModuleId, BTreeSet<ModuleId>)>(wire.modules.len())
+        .vector::<(ModuleId, ModuleAuthoritySet<ModuleId>)>(wire.modules.len())
         .map_err(allocation_error)?;
     let mut exposed_entries = allocations
-        .vector::<(ModuleId, BTreeSet<ModuleComponent>)>(wire.modules.len())
+        .vector::<(ModuleId, ModuleAuthoritySet<ModuleComponent>)>(wire.modules.len())
         .map_err(allocation_error)?;
 
     for (index, payload) in wire.modules.iter().enumerate() {
@@ -814,7 +831,7 @@ fn load_module_world_inner(
                 },
             ));
         }
-        let declarations: BTreeMap<String, DeclarationSurface> = decl_entries.into_iter().collect();
+        let declarations = ModuleAuthorityMap::from_budgeted_sorted_entries(decl_entries, allocations).map_err(authority_error)?;
 
         let mut export_entries = allocations.vector::<(String, ExportSurface)>(payload.exports.len()).map_err(allocation_error)?;
         for value in &payload.exports {
@@ -842,7 +859,7 @@ fn load_module_world_inner(
                 },
             ));
         }
-        let exports: BTreeMap<String, ExportSurface> = export_entries.into_iter().collect();
+        let exports = ModuleAuthorityMap::from_budgeted_sorted_entries(export_entries, allocations).map_err(authority_error)?;
 
         let mut imports = allocations.vector::<ImportSurface>(payload.imports.len()).map_err(allocation_error)?;
         for import in &payload.imports {
@@ -858,7 +875,7 @@ fn load_module_world_inner(
             let comp = ModuleComponent::from_owned_identifier(boxed).map_err(|_| invalid("invalid identifier"))?;
             exposed_vec.push(comp);
         }
-        let exposed_children: BTreeSet<ModuleComponent> = exposed_vec.into_iter().collect();
+        let exposed_children = ModuleAuthoritySet::from_budgeted_sorted_entries(exposed_vec, allocations).map_err(authority_error)?;
         if kind != ModuleKind::Package && !exposed_children.is_empty() {
             return Err(invalid("ordinary module cannot expose children"));
         }
@@ -908,7 +925,7 @@ fn load_module_world_inner(
                 },
             ));
         }
-        let linked_exports: BTreeMap<Box<str>, LinkedExport> = linked_export_entries.into_iter().collect();
+        let linked_exports = ModuleAuthorityMap::from_budgeted_sorted_entries(linked_export_entries, allocations).map_err(authority_error)?;
         if interface
             .exports
             .keys()
@@ -934,7 +951,7 @@ fn load_module_world_inner(
             let name = allocations.boxed_str(&value.name).map_err(allocation_error)?;
             globals_entries.push((name, GlobalBindingId(value.index)));
         }
-        let globals: BTreeMap<Box<str>, GlobalBindingId> = globals_entries.into_iter().collect();
+        let globals = ModuleAuthorityMap::from_budgeted_sorted_entries(globals_entries, allocations).map_err(authority_error)?;
 
         let mut import_binding_entries = allocations
             .vector::<(Box<str>, ImportBindingId)>(payload.import_bindings.len())
@@ -943,7 +960,7 @@ fn load_module_world_inner(
             let name = allocations.boxed_str(&value.name).map_err(allocation_error)?;
             import_binding_entries.push((name, ImportBindingId(value.index)));
         }
-        let import_bindings: BTreeMap<Box<str>, ImportBindingId> = import_binding_entries.into_iter().collect();
+        let import_bindings = ModuleAuthorityMap::from_budgeted_sorted_entries(import_binding_entries, allocations).map_err(authority_error)?;
 
         let mut linked_reads = allocations.vector::<LinkedReadSpec>(payload.linked_reads.len()).map_err(allocation_error)?;
         for target in &payload.linked_reads {
@@ -1048,7 +1065,7 @@ fn load_module_world_inner(
             for index in child_indices {
                 child_vec.push(module_id(&ids, ArtifactModuleId(index), allocations)?);
             }
-            let child_set: BTreeSet<ModuleId> = child_vec.into_iter().collect();
+            let child_set = ModuleAuthoritySet::from_budgeted_sorted_entries(child_vec, allocations).map_err(authority_error)?;
             children_entries.push((id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, child_set));
         }
 
@@ -1061,13 +1078,13 @@ fn load_module_world_inner(
         modules_entries.push((id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, linked_module));
     }
 
-    let nodes: BTreeMap<ModuleId, TopologyNode> = nodes_entries.into_iter().collect();
-    let children: BTreeMap<ModuleId, BTreeSet<ModuleId>> = children_entries.into_iter().collect();
-    let exposed: BTreeMap<ModuleId, BTreeSet<ModuleComponent>> = exposed_entries.into_iter().collect();
-    let interfaces: BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>> = interfaces_entries.into_iter().collect();
-    let modules: BTreeMap<ModuleId, LinkedModule> = modules_entries.into_iter().collect();
-    let references = ReferenceGraph::from_entries(ref_graph_entries);
-    let runtime = RuntimeDependencyGraph::from_entries(runtime_graph_entries);
+    let nodes = ModuleAuthorityMap::from_budgeted_sorted_entries(nodes_entries, allocations).map_err(authority_error)?;
+    let children = ModuleAuthorityMap::from_budgeted_sorted_entries(children_entries, allocations).map_err(authority_error)?;
+    let exposed = ModuleAuthorityMap::from_budgeted_sorted_entries(exposed_entries, allocations).map_err(authority_error)?;
+    let interfaces = ModuleAuthorityMap::from_budgeted_sorted_entries(interfaces_entries, allocations).map_err(authority_error)?;
+    let modules = ModuleAuthorityMap::from_budgeted_sorted_entries(modules_entries, allocations).map_err(authority_error)?;
+    let references = ReferenceGraph::from_budgeted_sorted_entries(ref_graph_entries, allocations).map_err(authority_error)?;
+    let runtime = RuntimeDependencyGraph::from_budgeted_sorted_entries(runtime_graph_entries, allocations).map_err(authority_error)?;
 
     for (id, node) in &nodes {
         if let Some(parent) = &node.parent {
@@ -1130,7 +1147,7 @@ fn load_module_world_inner(
         }
         semantic_entries.push((node, edges));
     }
-    let semantics = SemanticGraph::from_entries(semantic_entries);
+    let semantics = SemanticGraph::from_budgeted_entries(semantic_entries, allocations).map_err(authority_error)?;
     let graphs = ModuleGraphs {
         references,
         semantics,
@@ -1186,22 +1203,13 @@ fn load_module_world_inner(
 
     // Ordering evidence above proves the eager subgraph; validate all modules too.
     validate_runtime_dag(&graphs.runtime, &ids, allocations)?;
-    let nodes = nodes.into();
-    let children = children
-        .into_iter()
-        .map(|(module, children)| (module, crate::authority::ModuleAuthoritySet::from(children)))
-        .collect::<BTreeMap<_, _>>()
-        .into();
-    let exposed = exposed
-        .into_iter()
-        .map(|(module, children)| (module, crate::authority::ModuleAuthoritySet::from(children)))
-        .collect::<BTreeMap<_, _>>()
-        .into();
+    let source_modules =
+        ModuleAuthorityMap::from_budgeted_sorted_entries(allocations.vector(0).map_err(allocation_error)?, allocations).map_err(authority_error)?;
     let topology = ModuleTopology {
         generation: ResolverGeneration(0),
         fingerprint: ModuleTopology::fingerprint_for_parts(&universe, &nodes, &exposed),
         nodes,
-        source_modules: BTreeMap::new().into(),
+        source_modules,
         children,
         exposed_children: exposed,
     };
@@ -1271,13 +1279,15 @@ fn has_expected_topology_parent(id: &ModuleId, parent: Option<&ModuleId>) -> boo
     let components = id.path.components();
     match components.split_last() {
         None => parent.is_none(),
-        Some((_, expected_components)) => {
-            parent.is_some_and(|parent| parent.project == id.project && parent.path.components() == expected_components)
-        }
+        Some((_, expected_components)) => parent.is_some_and(|parent| parent.project == id.project && parent.path.components() == expected_components),
     }
 }
 
-fn validate_binding_target(module: &ModuleId, name: &str, interfaces: &BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>>) -> Result<(), ArtifactError> {
+fn validate_binding_target(
+    module: &ModuleId,
+    name: &str,
+    interfaces: &ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>>,
+) -> Result<(), ArtifactError> {
     if !interfaces
         .get(module)
         .is_some_and(|interface| interface.declarations.contains_key(name) || interface.exports.contains_key(name))
@@ -1287,7 +1297,7 @@ fn validate_binding_target(module: &ModuleId, name: &str, interfaces: &BTreeMap<
     Ok(())
 }
 
-fn validate_target(target: &LinkedReadSpec, interfaces: &BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>>) -> Result<(), ArtifactError> {
+fn validate_target(target: &LinkedReadSpec, interfaces: &ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>>) -> Result<(), ArtifactError> {
     if let LinkedReadSpec::Binding(symbol) = target {
         validate_binding_target(&symbol.module, &symbol.name, interfaces)?;
     }
@@ -1372,7 +1382,9 @@ mod allocation_materialization_tests {
             external_projects: vec![],
             topology_fingerprint: 0,
         };
-        world.refresh_portable_topology_fingerprint().expect("test module world topology should fingerprint");
+        world
+            .refresh_portable_topology_fingerprint()
+            .expect("test module world topology should fingerprint");
         world
     }
 

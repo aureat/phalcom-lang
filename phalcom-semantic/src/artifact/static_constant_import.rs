@@ -15,9 +15,7 @@ use crate::static_constant::StaticConstantId;
 use crate::static_value::StaticValueRef;
 use crate::types::id::TypeId;
 use phalcom_common::range::SourceRange;
-use phalcom_compiler_artifact::semantic::world::{
-    StaticConstantOutcomeV1, StaticConstantRecordV1, StaticConstantSymbolV1,
-};
+use phalcom_compiler_artifact::semantic::world::{StaticConstantOutcomeV1, StaticConstantRecordV1, StaticConstantSymbolV1};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_modules::linker::SymbolId;
 use phalcom_type_meta::allocation::AllocationBudget;
@@ -71,9 +69,7 @@ pub(crate) fn reconstruct_static_constants(
     owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedStaticConstantAuthority, ArtifactError> {
-    let mut constants = allocations
-        .vector::<ImportedStaticConstant>(records.len())
-        .map_err(ArtifactError::Allocation)?;
+    let mut constants = allocations.vector::<ImportedStaticConstant>(records.len()).map_err(ArtifactError::Allocation)?;
 
     for record in records {
         let id = StaticConstantId(static_symbol(&record.symbol, owners, allocations)?);
@@ -142,22 +138,12 @@ pub(crate) fn reconstruct_static_constants(
 
         constants.push(ImportedStaticConstant {
             id,
-            declaration_range: super::diagnostic_import::range(
-                &record.declaration_source,
-                "static constant declaration",
-            )?,
-            initializer_range: super::diagnostic_import::range(
-                &record.initializer_source,
-                "static constant initializer",
-            )?,
+            declaration_range: super::diagnostic_import::range(&record.declaration_source, "static constant declaration")?,
+            initializer_range: super::diagnostic_import::range(&record.initializer_source, "static constant initializer")?,
             input_fingerprint: InputFingerprint::new(record.input_fingerprint),
             dependencies: allocations.arc_slice(dependencies).map_err(ArtifactError::Allocation)?,
-            static_constant_reads: allocations
-                .arc_slice(static_constant_reads)
-                .map_err(ArtifactError::Allocation)?,
-            record_key_static_constant_reads: allocations
-                .arc_slice(record_key_reads)
-                .map_err(ArtifactError::Allocation)?,
+            static_constant_reads: allocations.arc_slice(static_constant_reads).map_err(ArtifactError::Allocation)?,
+            record_key_static_constant_reads: allocations.arc_slice(record_key_reads).map_err(ArtifactError::Allocation)?,
             result_type,
             value,
             lkg_value,
@@ -167,28 +153,18 @@ pub(crate) fn reconstruct_static_constants(
 
     constants.sort_by(|left, right| left.id.cmp(&right.id));
     if constants.windows(2).any(|pair| pair[0].id == pair[1].id) {
-        return Err(invalid(
-            "static constant owner is duplicated after stable-owner relocation",
-        ));
+        return Err(invalid("static constant owner is duplicated after stable-owner relocation"));
     }
 
     Ok(ImportedStaticConstantAuthority {
-        constants: allocations
-            .boxed_slice(constants)
-            .map_err(ArtifactError::Allocation)?,
+        constants: allocations.boxed_slice(constants).map_err(ArtifactError::Allocation)?,
     })
 }
 
-fn static_symbol(
-    symbol: &StaticConstantSymbolV1,
-    owners: &StableOwnerCatalog<'_>,
-    allocations: &mut AllocationBudget,
-) -> Result<SymbolId, ArtifactError> {
+fn static_symbol(symbol: &StaticConstantSymbolV1, owners: &StableOwnerCatalog<'_>, allocations: &mut AllocationBudget) -> Result<SymbolId, ArtifactError> {
     Ok(SymbolId {
         module: owners.module(&symbol.module)?,
-        name: allocations
-            .boxed_str(&symbol.name)
-            .map_err(ArtifactError::Allocation)?,
+        name: allocations.boxed_str(&symbol.name).map_err(ArtifactError::Allocation)?,
     })
 }
 

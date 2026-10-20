@@ -66,15 +66,10 @@ impl<'a> StableOwnerCatalog<'a> {
         allocations: &mut AllocationBudget,
     ) -> Result<ModuleId, ArtifactError> {
         let project = self.project_for_module_parts(project_ref, path)?;
-        let mut components = allocations
-            .vector::<ModuleComponent>(path.len())
-            .map_err(allocation_error)?;
+        let mut components = allocations.vector::<ModuleComponent>(path.len()).map_err(allocation_error)?;
         for segment in path {
             let segment = allocations.boxed_str(segment).map_err(allocation_error)?;
-            components.push(
-                ModuleComponent::from_owned_identifier(segment)
-                    .map_err(|_| referential("invalid stable module path component"))?,
-            );
+            components.push(ModuleComponent::from_owned_identifier(segment).map_err(|_| referential("invalid stable module path component"))?);
         }
         Ok(ModuleId {
             project,
@@ -82,11 +77,7 @@ impl<'a> StableOwnerCatalog<'a> {
         })
     }
 
-    fn project_for_module_parts(
-        &self,
-        project_ref: &StableProjectRef,
-        path: &[Box<str>],
-    ) -> Result<crate::identity::ProjectIdentity, ArtifactError> {
+    fn project_for_module_parts(&self, project_ref: &StableProjectRef, path: &[Box<str>]) -> Result<crate::identity::ProjectIdentity, ArtifactError> {
         if matches!(project_ref, StableProjectRef::Session { .. }) {
             return Err(referential("session project owner is forbidden"));
         }

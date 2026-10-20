@@ -10,21 +10,18 @@ use super::callable_binding_import::ImportedCallableBindingAuthority;
 use super::identity::StableOwnerCatalog;
 use super::static_definition_import::ImportedStaticDefinitionAuthority;
 use super::type_import::ReconstructedTypeGraph;
-use crate::checker::analysis::{AnalysisStatus};
+use crate::checker::analysis::AnalysisStatus;
 use crate::checker::causal::{CausalInvalidity, SuppressionCause};
 use crate::checker::flow::BindingReadSafety;
 use crate::dispatch::ConditionalDispatchSelection;
-use crate::identity::{
-    BindingId, BodyId, CallableId, DiagnosticCauseId, ExplanationId, ExpressionId,
-    LocalExpressionId,
-};
+use crate::identity::{BindingId, BodyId, CallableId, DiagnosticCauseId, ExplanationId, ExpressionId, LocalExpressionId};
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::{DynamicReason, TypeKnowledge};
 use phalcom_common::range::SourceRange;
 use phalcom_compiler_artifact::semantic::aggregates::DynamicReasonV1;
 use phalcom_compiler_artifact::semantic::world::{
-    CallableAnalysisRecordV2, CallableBindingReadSafetyV1, CallableCausalInvalidityV1,
-    CallableExpressionRowV1, CallableExpressionStatusV1, CallableSuppressionCauseV1,
+    CallableAnalysisRecordV2, CallableBindingReadSafetyV1, CallableCausalInvalidityV1, CallableExpressionRowV1, CallableExpressionStatusV1,
+    CallableSuppressionCauseV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
@@ -100,11 +97,7 @@ impl ImportedCallableExpressionAuthority {
             .count()
     }
 
-    pub fn expression(
-        &self,
-        callable: &CallableId,
-        ordinal: u32,
-    ) -> Option<&ImportedCallableExpressionBase> {
+    pub fn expression(&self, callable: &CallableId, ordinal: u32) -> Option<&ImportedCallableExpressionBase> {
         let owner = self
             .owners
             .binary_search_by(|owner| owner.callable.cmp(callable))
@@ -131,10 +124,7 @@ pub(crate) fn reconstruct_callable_expression_bases(
 
     for (body_index, record) in records.iter().enumerate() {
         let callable = owners.callable(&record.callable)?;
-        let body = BodyId(
-            u32::try_from(body_index)
-                .map_err(|_| invalid("callable body ordinal exceeds portable range"))?,
-        );
+        let body = BodyId(u32::try_from(body_index).map_err(|_| invalid("callable body ordinal exceeds portable range"))?);
         let expected_bindings = bindings
             .rows(&callable)
             .ok_or_else(|| invalid("callable expression owner has no imported binding authority"))?;
@@ -149,9 +139,7 @@ pub(crate) fn reconstruct_callable_expression_bases(
             .map_err(ArtifactError::Allocation)?;
         for (index, expression) in record.expressions.iter().enumerate() {
             if usize::try_from(expression.ordinal).ok() != Some(index) {
-                return Err(invalid(
-                    "callable expression rows are not dense and ordinal-sorted",
-                ));
+                return Err(invalid("callable expression rows are not dense and ordinal-sorted"));
             }
             expressions.push(reconstruct_expression(
                 expression,
@@ -166,26 +154,17 @@ pub(crate) fn reconstruct_callable_expression_bases(
         imported.push(ImportedCallableExpressionOwner {
             callable,
             body,
-            expressions: allocations
-                .arc_slice(expressions)
-                .map_err(ArtifactError::Allocation)?,
+            expressions: allocations.arc_slice(expressions).map_err(ArtifactError::Allocation)?,
         });
     }
 
     imported.sort_by(|left, right| left.callable.cmp(&right.callable));
-    if imported
-        .windows(2)
-        .any(|pair| pair[0].callable == pair[1].callable)
-    {
-        return Err(invalid(
-            "duplicate callable expression authority after stable-owner relocation",
-        ));
+    if imported.windows(2).any(|pair| pair[0].callable == pair[1].callable) {
+        return Err(invalid("duplicate callable expression authority after stable-owner relocation"));
     }
 
     Ok(ImportedCallableExpressionAuthority {
-        owners: allocations
-            .boxed_slice(imported)
-            .map_err(ArtifactError::Allocation)?,
+        owners: allocations.boxed_slice(imported).map_err(ArtifactError::Allocation)?,
     })
 }
 
@@ -199,13 +178,8 @@ fn reconstruct_expression(
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedCallableExpressionBase, ArtifactError> {
     let range = source_range(&expression.range, "callable expression")?;
-    let knowledge =
-        super::callable_import::import_type_knowledge(&expression.knowledge, types, allocations)?;
-    let callable = expression
-        .callable
-        .as_ref()
-        .map(|callable| owners.callable(callable))
-        .transpose()?;
+    let knowledge = super::callable_import::import_type_knowledge(&expression.knowledge, types, allocations)?;
+    let callable = expression.callable.as_ref().map(|callable| owners.callable(callable)).transpose()?;
     let conditional_dispatch = expression
         .conditional_dispatch
         .as_ref()
@@ -214,15 +188,7 @@ fn reconstruct_expression(
     let denotation = expression
         .denotation
         .as_ref()
-        .map(|denotation| {
-            super::denotation_import::reconstruct_semantic_denotation(
-                denotation,
-                types,
-                static_definitions,
-                owners,
-                allocations,
-            )
-        })
+        .map(|denotation| super::denotation_import::reconstruct_semantic_denotation(denotation, types, static_definitions, owners, allocations))
         .transpose()?;
 
     let binding_read = binding_id(expression.binding_read, binding_count, "binding read")?;
@@ -231,13 +197,8 @@ fn reconstruct_expression(
     let deferred = ImportedExpressionDeferredAuthority {
         conditional_capability: expression.conditional_capability.is_some(),
         trait_dispatch: expression.trait_dispatch.is_some(),
-        trait_dispatch_candidate_count: u32::try_from(
-            expression
-                .trait_dispatch_candidates
-                .as_ref()
-                .map_or(0, Vec::len),
-        )
-        .map_err(|_| invalid("trait dispatch candidate count exceeds u32"))?,
+        trait_dispatch_candidate_count: u32::try_from(expression.trait_dispatch_candidates.as_ref().map_or(0, Vec::len))
+            .map_err(|_| invalid("trait dispatch candidate count exceeds u32"))?,
         contextual_realization: expression.contextual_realization.is_some(),
         call_specialization: expression.call_specialization.is_some(),
     };
@@ -267,40 +228,28 @@ fn expression_status(
 ) -> Result<AnalysisStatus, ArtifactError> {
     Ok(match status {
         CallableExpressionStatusV1::Ready => AnalysisStatus::Ready,
-        CallableExpressionStatusV1::Invalid { cause } => {
-            AnalysisStatus::Invalid(DiagnosticCauseId(*cause))
+        CallableExpressionStatusV1::Invalid { cause } => AnalysisStatus::Invalid(DiagnosticCauseId(*cause)),
+        CallableExpressionStatusV1::Suppressed { cause } => AnalysisStatus::Suppressed(match cause {
+            CallableSuppressionCauseV1::One { cause } => SuppressionCause::One(DiagnosticCauseId(*cause)),
+            CallableSuppressionCauseV1::Multiple => SuppressionCause::Multiple,
+        }),
+        CallableExpressionStatusV1::Blocked { reason } => {
+            AnalysisStatus::Blocked(super::callable_binding_import::block_reason(reason, types, owners, allocations)?)
         }
-        CallableExpressionStatusV1::Suppressed { cause } => {
-            AnalysisStatus::Suppressed(match cause {
-                CallableSuppressionCauseV1::One { cause } => {
-                    SuppressionCause::One(DiagnosticCauseId(*cause))
-                }
-                CallableSuppressionCauseV1::Multiple => SuppressionCause::Multiple,
-            })
-        }
-        CallableExpressionStatusV1::Blocked { reason } => AnalysisStatus::Blocked(
-            super::callable_binding_import::block_reason(reason, types, owners, allocations)?,
-        ),
-        CallableExpressionStatusV1::DynamicBoundary { reason } => {
-            AnalysisStatus::DynamicBoundary(match reason {
-                DynamicReasonV1::ExplicitEscape => DynamicReason::ExplicitEscape,
-                DynamicReasonV1::DynamicRestPack => DynamicReason::DynamicRestPack,
-                DynamicReasonV1::RuntimeReflection => DynamicReason::RuntimeReflection,
-            })
-        }
+        CallableExpressionStatusV1::DynamicBoundary { reason } => AnalysisStatus::DynamicBoundary(match reason {
+            DynamicReasonV1::ExplicitEscape => DynamicReason::ExplicitEscape,
+            DynamicReasonV1::DynamicRestPack => DynamicReason::DynamicRestPack,
+            DynamicReasonV1::RuntimeReflection => DynamicReason::RuntimeReflection,
+        }),
         CallableExpressionStatusV1::Cancelled => AnalysisStatus::Cancelled,
-        CallableExpressionStatusV1::BudgetExceeded { report } => AnalysisStatus::BudgetExceeded(
-            super::callable_binding_import::budget_report(report),
-        ),
+        CallableExpressionStatusV1::BudgetExceeded { report } => AnalysisStatus::BudgetExceeded(super::callable_binding_import::budget_report(report)),
     })
 }
 
 fn causal_invalidity(value: &CallableCausalInvalidityV1) -> CausalInvalidity {
     match value {
         CallableCausalInvalidityV1::Clean => CausalInvalidity::Clean,
-        CallableCausalInvalidityV1::One { cause } => {
-            CausalInvalidity::One(DiagnosticCauseId(*cause))
-        }
+        CallableCausalInvalidityV1::One { cause } => CausalInvalidity::One(DiagnosticCauseId(*cause)),
         CallableCausalInvalidityV1::Multiple => CausalInvalidity::Multiple,
     }
 }
@@ -308,44 +257,29 @@ fn causal_invalidity(value: &CallableCausalInvalidityV1) -> CausalInvalidity {
 fn read_safety(value: &CallableBindingReadSafetyV1) -> BindingReadSafety {
     match value {
         CallableBindingReadSafetyV1::ProvenInitialized => BindingReadSafety::ProvenInitialized,
-        CallableBindingReadSafetyV1::DefinitelyUninitialized => {
-            BindingReadSafety::DefinitelyUninitialized
-        }
-        CallableBindingReadSafetyV1::RuntimeCheckRequired => {
-            BindingReadSafety::RuntimeCheckRequired
-        }
+        CallableBindingReadSafetyV1::DefinitelyUninitialized => BindingReadSafety::DefinitelyUninitialized,
+        CallableBindingReadSafetyV1::RuntimeCheckRequired => BindingReadSafety::RuntimeCheckRequired,
     }
 }
 
-fn binding_id(
-    ordinal: Option<u32>,
-    binding_count: usize,
-    family: &'static str,
-) -> Result<Option<BindingId>, ArtifactError> {
+fn binding_id(ordinal: Option<u32>, binding_count: usize, family: &'static str) -> Result<Option<BindingId>, ArtifactError> {
     ordinal
         .map(|ordinal| {
             if ordinal as usize >= binding_count {
-                return Err(invalid(format!(
-                    "callable expression {family} references an absent binding",
-                )));
+                return Err(invalid(format!("callable expression {family} references an absent binding",)));
             }
             Ok(BindingId(ordinal))
         })
         .transpose()
 }
 
-fn source_range(
-    range: &phalcom_compiler_artifact::module_world::SpanV1,
-    family: &'static str,
-) -> Result<SourceRange, ArtifactError> {
+fn source_range(range: &phalcom_compiler_artifact::module_world::SpanV1, family: &'static str) -> Result<SourceRange, ArtifactError> {
     if range.start > range.end {
         return Err(invalid(format!("{family} range is inverted")));
     }
     Ok(SourceRange {
-        start: usize::try_from(range.start)
-            .map_err(|_| invalid(format!("{family} start exceeds address space")))?,
-        end: usize::try_from(range.end)
-            .map_err(|_| invalid(format!("{family} end exceeds address space")))?,
+        start: usize::try_from(range.start).map_err(|_| invalid(format!("{family} start exceeds address space")))?,
+        end: usize::try_from(range.end).map_err(|_| invalid(format!("{family} end exceeds address space")))?,
     })
 }
 

@@ -45,11 +45,7 @@ impl ImportedCallableConditionalDispatchAuthority {
         self.owners.iter().map(|owner| owner.capabilities.len()).sum()
     }
 
-    pub fn capability(
-        &self,
-        callable: &CallableId,
-        expression_ordinal: u32,
-    ) -> Option<&ImportedConditionalCallCapability> {
+    pub fn capability(&self, callable: &CallableId, expression_ordinal: u32) -> Option<&ImportedConditionalCallCapability> {
         let owner = self
             .owners
             .binary_search_by(|owner| owner.callable.cmp(callable))
@@ -57,9 +53,7 @@ impl ImportedCallableConditionalDispatchAuthority {
             .and_then(|index| self.owners.get(index))?;
         owner
             .capabilities
-            .binary_search_by_key(&LocalExpressionId(expression_ordinal), |capability| {
-                capability.expression.local
-            })
+            .binary_search_by_key(&LocalExpressionId(expression_ordinal), |capability| capability.expression.local)
             .ok()
             .and_then(|index| owner.capabilities.get(index))
     }
@@ -78,10 +72,7 @@ pub(crate) fn reconstruct_callable_conditional_dispatch(
 
     for (body_index, analysis) in records.iter().enumerate() {
         let owner = owners.callable(&analysis.callable)?;
-        let body = BodyId(
-            u32::try_from(body_index)
-                .map_err(|_| invalid("callable body ordinal exceeds portable range"))?,
-        );
+        let body = BodyId(u32::try_from(body_index).map_err(|_| invalid("callable body ordinal exceeds portable range"))?);
         let mut capabilities = allocations
             .vector::<ImportedConditionalCallCapability>(
                 analysis
@@ -94,30 +85,21 @@ pub(crate) fn reconstruct_callable_conditional_dispatch(
 
         for (index, expression) in analysis.expressions.iter().enumerate() {
             if usize::try_from(expression.ordinal).ok() != Some(index) {
-                return Err(invalid(
-                    "conditional-dispatch owner expressions are not dense and ordinal-sorted",
-                ));
+                return Err(invalid("conditional-dispatch owner expressions are not dense and ordinal-sorted"));
             }
             let Some(capability) = expression.conditional_capability.as_ref() else {
                 continue;
             };
             if expression.conditional_dispatch.as_ref() != Some(&capability.selection) {
-                return Err(invalid(
-                    "conditional call capability disagrees with its expression selection",
-                ));
+                return Err(invalid("conditional call capability disagrees with its expression selection"));
             }
             if capability.selection.impl_id != capability.applicability.impl_id {
-                return Err(invalid(
-                    "conditional call capability selection and applicability use different implementations",
-                ));
+                return Err(invalid("conditional call capability selection and applicability use different implementations"));
             }
 
-            let selection =
-                super::denotation_import::conditional_selection(&capability.selection, owners)?;
+            let selection = super::denotation_import::conditional_selection(&capability.selection, owners)?;
             if callables.signature(&selection.callable).is_none() {
-                return Err(invalid(
-                    "conditional call capability selected callable has no imported canonical signature",
-                ));
+                return Err(invalid("conditional call capability selected callable has no imported canonical signature"));
             }
             let applicability = super::witness_import::reconstruct_inherent_specialization(
                 &capability.applicability,
@@ -127,9 +109,7 @@ pub(crate) fn reconstruct_callable_conditional_dispatch(
                 allocations,
             )?;
             if selection.impl_id != applicability.impl_id {
-                return Err(invalid(
-                    "relocated conditional selection disagrees with its inherent specialization",
-                ));
+                return Err(invalid("relocated conditional selection disagrees with its inherent specialization"));
             }
 
             capabilities.push(ImportedConditionalCallCapability {
@@ -142,26 +122,17 @@ pub(crate) fn reconstruct_callable_conditional_dispatch(
         imported.push(ImportedCallableConditionalDispatchOwner {
             callable: owner,
             body,
-            capabilities: allocations
-                .boxed_slice(capabilities)
-                .map_err(ArtifactError::Allocation)?,
+            capabilities: allocations.boxed_slice(capabilities).map_err(ArtifactError::Allocation)?,
         });
     }
 
     imported.sort_by(|left, right| left.callable.cmp(&right.callable));
-    if imported
-        .windows(2)
-        .any(|pair| pair[0].callable == pair[1].callable)
-    {
-        return Err(invalid(
-            "duplicate conditional-dispatch owner after stable-owner relocation",
-        ));
+    if imported.windows(2).any(|pair| pair[0].callable == pair[1].callable) {
+        return Err(invalid("duplicate conditional-dispatch owner after stable-owner relocation"));
     }
 
     Ok(ImportedCallableConditionalDispatchAuthority {
-        owners: allocations
-            .boxed_slice(imported)
-            .map_err(ArtifactError::Allocation)?,
+        owners: allocations.boxed_slice(imported).map_err(ArtifactError::Allocation)?,
     })
 }
 

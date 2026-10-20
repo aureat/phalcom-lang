@@ -17,13 +17,10 @@ use crate::static_value::StaticValueRef;
 use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::parameter::GenericParameterMode;
 use phalcom_common::range::SourceRange;
-use phalcom_compiler_artifact::semantic::operational::{
-    OperationalOpV1, OperationalTargetV1, StaticBinaryOpV1, StaticUnaryOpV1,
-};
+use phalcom_compiler_artifact::semantic::operational::{OperationalOpV1, OperationalTargetV1, StaticBinaryOpV1, StaticUnaryOpV1};
 use phalcom_compiler_artifact::semantic::type_store::ParameterModeV1;
 use phalcom_compiler_artifact::semantic::world::{
-    CanonicalCheckedStaticApplicationV1, CanonicalStaticApplicationArgumentV1,
-    CanonicalStaticProgramV1, StaticConstantSymbolV1, StaticDefinitionSignatureV1,
+    CanonicalCheckedStaticApplicationV1, CanonicalStaticApplicationArgumentV1, CanonicalStaticProgramV1, StaticConstantSymbolV1, StaticDefinitionSignatureV1,
     StaticValueDomainV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
@@ -121,17 +118,9 @@ pub enum ImportedOperationalNode {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ImportedCanonicalStaticApplicationArgument {
-    KindedTerm {
-        parameter_index: u32,
-        term: TypeId,
-    },
-    KindedExpression {
-        parameter_index: u32,
-        application_ordinal: u32,
-    },
-    Value {
-        parameter_index: u32,
-    },
+    KindedTerm { parameter_index: u32, term: TypeId },
+    KindedExpression { parameter_index: u32, application_ordinal: u32 },
+    Value { parameter_index: u32 },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -169,9 +158,7 @@ pub(crate) fn reconstruct_static_definition_signature(
         .map_err(ArtifactError::Allocation)?;
     for parameter in &signature.parameters {
         parameters.push(StaticParameter {
-            name: allocations
-                .string(&parameter.name)
-                .map_err(ArtifactError::Allocation)?,
+            name: allocations.string(&parameter.name).map_err(ArtifactError::Allocation)?,
             domain: static_value_domain(&parameter.domain, types)?,
             mode: parameter_mode(&parameter.mode),
             index: parameter.index,
@@ -190,21 +177,12 @@ pub(crate) fn reconstruct_static_definition_signature(
     }
 
     Ok(StaticDefinitionSignature {
-        parameters: allocations
-            .boxed_slice(parameters)
-            .map_err(ArtifactError::Allocation)?,
+        parameters: allocations.boxed_slice(parameters).map_err(ArtifactError::Allocation)?,
         result_domain: static_value_domain(&signature.result_domain, types)?,
         generic_signature: signature
             .generic_signature
             .as_ref()
-            .map(|signature| {
-                super::semantic_import::reconstruct_signature(
-                    signature,
-                    types,
-                    owners,
-                    allocations,
-                )
-            })
+            .map(|signature| super::semantic_import::reconstruct_signature(signature, types, owners, allocations))
             .transpose()?,
         // P7 transport carries the canonical generic signature/constraints, not
         // source syntax. Reconstructing a WhereClauseSyntax would invent source.
@@ -226,31 +204,18 @@ pub(crate) fn reconstruct_canonical_static_program(
         .vector::<ImportedCanonicalCheckedStaticApplication>(program.applications.len())
         .map_err(ArtifactError::Allocation)?;
     for (index, application) in program.applications.iter().enumerate() {
-        let ordinal = u32::try_from(index)
-            .map_err(|_| invalid("static application ordinal exceeds u32"))?;
+        let ordinal = u32::try_from(index).map_err(|_| invalid("static application ordinal exceeds u32"))?;
         if application.ordinal != ordinal {
             return Err(invalid("static application rows are not dense and ordinal-sorted"));
         }
-        applications.push(reconstruct_application(
-            application,
-            &owner,
-            types,
-            owners,
-            allocations,
-        )?);
+        applications.push(reconstruct_application(application, &owner, types, owners, allocations)?);
     }
 
-    let mut kinded_parameters = allocations
-        .vector::<u32>(program.kinded_parameters.len())
-        .map_err(ArtifactError::Allocation)?;
+    let mut kinded_parameters = allocations.vector::<u32>(program.kinded_parameters.len()).map_err(ArtifactError::Allocation)?;
     let mut previous = None;
     for &parameter in &program.kinded_parameters {
-        if parameter >= program.parameter_count
-            || previous.is_some_and(|previous| parameter <= previous)
-        {
-            return Err(invalid(
-                "canonical static-program kinded parameters are not strictly ordered in range",
-            ));
+        if parameter >= program.parameter_count || previous.is_some_and(|previous| parameter <= previous) {
+            return Err(invalid("canonical static-program kinded parameters are not strictly ordered in range"));
         }
         previous = Some(parameter);
         kinded_parameters.push(parameter);
@@ -275,39 +240,20 @@ pub(crate) fn reconstruct_canonical_static_program(
         )?);
     }
 
-    let root = reconstruct_op(
-        &program.root,
-        static_values,
-        types,
-        owners,
-        program,
-        0,
-        limits,
-        allocations,
-    )?;
+    let root = reconstruct_op(&program.root, static_values, types, owners, program, 0, limits, allocations)?;
 
     Ok(ImportedCanonicalStaticProgram {
         owner,
         parameter_count: program.parameter_count,
         local_count: program.local_count,
         root,
-        applications: allocations
-            .boxed_slice(applications)
-            .map_err(ArtifactError::Allocation)?,
-        kinded_parameters: allocations
-            .boxed_slice(kinded_parameters)
-            .map_err(ArtifactError::Allocation)?,
-        static_constant_reads: allocations
-            .boxed_slice(static_constant_reads)
-            .map_err(ArtifactError::Allocation)?,
-        dependencies: allocations
-            .boxed_slice(dependencies)
-            .map_err(ArtifactError::Allocation)?,
+        applications: allocations.boxed_slice(applications).map_err(ArtifactError::Allocation)?,
+        kinded_parameters: allocations.boxed_slice(kinded_parameters).map_err(ArtifactError::Allocation)?,
+        static_constant_reads: allocations.boxed_slice(static_constant_reads).map_err(ArtifactError::Allocation)?,
+        dependencies: allocations.boxed_slice(dependencies).map_err(ArtifactError::Allocation)?,
         result: static_value_domain(&program.result, types)?,
         input_fingerprint: InputFingerprint::new(program.input_fingerprint),
-        module_binding_fingerprint: program
-            .module_binding_fingerprint
-            .map(ProductFingerprint::new),
+        module_binding_fingerprint: program.module_binding_fingerprint.map(ProductFingerprint::new),
     })
 }
 
@@ -322,13 +268,9 @@ fn reconstruct_application(
         .vector::<ImportedCanonicalStaticApplicationArgument>(application.arguments.len())
         .map_err(ArtifactError::Allocation)?;
     for (index, argument) in application.arguments.iter().enumerate() {
-        let expected_index = u32::try_from(index)
-            .map_err(|_| invalid("static application parameter index exceeds u32"))?;
+        let expected_index = u32::try_from(index).map_err(|_| invalid("static application parameter index exceeds u32"))?;
         let imported = match argument {
-            CanonicalStaticApplicationArgumentV1::KindedTerm {
-                parameter_index,
-                term,
-            } => {
+            CanonicalStaticApplicationArgumentV1::KindedTerm { parameter_index, term } => {
                 if *parameter_index != expected_index {
                     return Err(invalid("static application argument order disagrees with parameter order"));
                 }
@@ -361,16 +303,9 @@ fn reconstruct_application(
         arguments.push(imported);
     }
 
-    let signature = reconstruct_static_definition_signature(
-        &application.signature,
-        types,
-        owners,
-        allocations,
-    )?;
+    let signature = reconstruct_static_definition_signature(&application.signature, types, owners, allocations)?;
     if signature.parameters.len() != arguments.len() {
-        return Err(invalid(
-            "static application argument count disagrees with target signature",
-        ));
+        return Err(invalid("static application argument count disagrees with target signature"));
     }
 
     Ok(ImportedCanonicalCheckedStaticApplication {
@@ -378,15 +313,10 @@ fn reconstruct_application(
             body: owner.clone(),
             ordinal: application.ordinal,
         },
-        source_range: super::diagnostic_import::range(
-            &application.source,
-            "static application source",
-        )?,
+        source_range: super::diagnostic_import::range(&application.source, "static application source")?,
         target: owners.declaration(&application.target)?,
         signature,
-        arguments: allocations
-            .boxed_slice(arguments)
-            .map_err(ArtifactError::Allocation)?,
+        arguments: allocations.boxed_slice(arguments).map_err(ArtifactError::Allocation)?,
     })
 }
 
@@ -409,12 +339,10 @@ fn reconstruct_op(
                 .value(*value)
                 .ok_or_else(|| invalid("operational constant references an absent static value"))?,
         ),
-        OperationalOpV1::ReadStaticConstant { module, name } => {
-            ImportedOperationalNode::ReadStaticConstant(SymbolId {
-                module: owners.module(module)?,
-                name: allocations.boxed_str(name).map_err(ArtifactError::Allocation)?,
-            })
-        }
+        OperationalOpV1::ReadStaticConstant { module, name } => ImportedOperationalNode::ReadStaticConstant(SymbolId {
+            module: owners.module(module)?,
+            name: allocations.boxed_str(name).map_err(ArtifactError::Allocation)?,
+        }),
         OperationalOpV1::ReadParameter { index } => {
             if *index >= program.parameter_count {
                 return Err(invalid("operational parameter read is out of range"));
@@ -433,56 +361,18 @@ fn reconstruct_op(
             }
             ImportedOperationalNode::WriteLocal {
                 slot: *slot,
-                value: boxed_op(
-                    value,
-                    static_values,
-                    types,
-                    owners,
-                    program,
-                    depth + 1,
-                    limits,
-                    allocations,
-                )?,
+                value: boxed_op(value, static_values, types, owners, program, depth + 1, limits, allocations)?,
             }
         }
-        OperationalOpV1::TypeForm { ty } => {
-            ImportedOperationalNode::TypeForm(mapped_type(*ty, types, "operational type form")?)
-        }
+        OperationalOpV1::TypeForm { ty } => ImportedOperationalNode::TypeForm(mapped_type(*ty, types, "operational type form")?),
         OperationalOpV1::Binary { op, left, right } => ImportedOperationalNode::Binary {
             op: binary_op(op),
-            left: boxed_op(
-                left,
-                static_values,
-                types,
-                owners,
-                program,
-                depth + 1,
-                limits,
-                allocations,
-            )?,
-            right: boxed_op(
-                right,
-                static_values,
-                types,
-                owners,
-                program,
-                depth + 1,
-                limits,
-                allocations,
-            )?,
+            left: boxed_op(left, static_values, types, owners, program, depth + 1, limits, allocations)?,
+            right: boxed_op(right, static_values, types, owners, program, depth + 1, limits, allocations)?,
         },
         OperationalOpV1::Unary { op, operand } => ImportedOperationalNode::Unary {
             op: unary_op(op),
-            operand: boxed_op(
-                operand,
-                static_values,
-                types,
-                owners,
-                program,
-                depth + 1,
-                limits,
-                allocations,
-            )?,
+            operand: boxed_op(operand, static_values, types, owners, program, depth + 1, limits, allocations)?,
         },
         OperationalOpV1::StaticApplication {
             application_ordinal,
@@ -494,22 +384,11 @@ fn reconstruct_op(
                 .filter(|row| row.ordinal == *application_ordinal)
                 .ok_or_else(|| invalid("operational static application references an absent row"))?;
             if application.arguments.len() != arguments.len() {
-                return Err(invalid(
-                    "operational static application disagrees with its checked row",
-                ));
+                return Err(invalid("operational static application disagrees with its checked row"));
             }
             ImportedOperationalNode::StaticApplication {
                 application_ordinal: *application_ordinal,
-                arguments: op_slice(
-                    arguments,
-                    static_values,
-                    types,
-                    owners,
-                    program,
-                    depth + 1,
-                    limits,
-                    allocations,
-                )?,
+                arguments: op_slice(arguments, static_values, types, owners, program, depth + 1, limits, allocations)?,
             }
         }
         OperationalOpV1::StaticConstruction {
@@ -519,100 +398,30 @@ fn reconstruct_op(
         } => ImportedOperationalNode::StaticConstruction {
             target: operational_target(target, owners)?,
             result_type: mapped_type(*result_type, types, "static construction result type")?,
-            arguments: op_slice(
-                arguments,
-                static_values,
-                types,
-                owners,
-                program,
-                depth + 1,
-                limits,
-                allocations,
-            )?,
+            arguments: op_slice(arguments, static_values, types, owners, program, depth + 1, limits, allocations)?,
         },
-        OperationalOpV1::MemberProjection { target, member } => {
-            ImportedOperationalNode::MemberProjection {
-                target: boxed_op(
-                    target,
-                    static_values,
-                    types,
-                    owners,
-                    program,
-                    depth + 1,
-                    limits,
-                    allocations,
-                )?,
-                member: allocations.boxed_str(member).map_err(ArtifactError::Allocation)?,
-            }
-        }
+        OperationalOpV1::MemberProjection { target, member } => ImportedOperationalNode::MemberProjection {
+            target: boxed_op(target, static_values, types, owners, program, depth + 1, limits, allocations)?,
+            member: allocations.boxed_str(member).map_err(ArtifactError::Allocation)?,
+        },
         OperationalOpV1::If {
             condition,
             then_branch,
             else_branch,
         } => ImportedOperationalNode::If {
-            condition: boxed_op(
-                condition,
-                static_values,
-                types,
-                owners,
-                program,
-                depth + 1,
-                limits,
-                allocations,
-            )?,
-            then_branch: boxed_op(
-                then_branch,
-                static_values,
-                types,
-                owners,
-                program,
-                depth + 1,
-                limits,
-                allocations,
-            )?,
+            condition: boxed_op(condition, static_values, types, owners, program, depth + 1, limits, allocations)?,
+            then_branch: boxed_op(then_branch, static_values, types, owners, program, depth + 1, limits, allocations)?,
             else_branch: else_branch
                 .as_ref()
-                .map(|branch| {
-                    boxed_op(
-                        branch,
-                        static_values,
-                        types,
-                        owners,
-                        program,
-                        depth + 1,
-                        limits,
-                        allocations,
-                    )
-                })
+                .map(|branch| boxed_op(branch, static_values, types, owners, program, depth + 1, limits, allocations))
                 .transpose()?,
         },
-        OperationalOpV1::Sequence {
-            result_type,
-            elements,
-        } => ImportedOperationalNode::Sequence {
+        OperationalOpV1::Sequence { result_type, elements } => ImportedOperationalNode::Sequence {
             result_type: mapped_type(*result_type, types, "operational sequence result type")?,
-            elements: op_slice(
-                elements,
-                static_values,
-                types,
-                owners,
-                program,
-                depth + 1,
-                limits,
-                allocations,
-            )?,
+            elements: op_slice(elements, static_values, types, owners, program, depth + 1, limits, allocations)?,
         },
         OperationalOpV1::Tuple { elements } => ImportedOperationalNode::Tuple {
-            elements: op_slice(
-                elements,
-                static_values,
-                types,
-                owners,
-                program,
-                depth + 1,
-                limits,
-                allocations,
-            )?,
+            elements: op_slice(elements, static_values, types, owners, program, depth + 1, limits, allocations)?,
         },
         OperationalOpV1::Block {
             local_count,
@@ -620,47 +429,16 @@ fn reconstruct_op(
             result,
         } => ImportedOperationalNode::Block {
             local_count: *local_count,
-            statements: op_slice(
-                statements,
-                static_values,
-                types,
-                owners,
-                program,
-                depth + 1,
-                limits,
-                allocations,
-            )?,
+            statements: op_slice(statements, static_values, types, owners, program, depth + 1, limits, allocations)?,
             result: result
                 .as_ref()
-                .map(|result| {
-                    boxed_op(
-                        result,
-                        static_values,
-                        types,
-                        owners,
-                        program,
-                        depth + 1,
-                        limits,
-                        allocations,
-                    )
-                })
+                .map(|result| boxed_op(result, static_values, types, owners, program, depth + 1, limits, allocations))
                 .transpose()?,
         },
         OperationalOpV1::Return { value } => ImportedOperationalNode::Return(
             value
                 .as_ref()
-                .map(|value| {
-                    boxed_op(
-                        value,
-                        static_values,
-                        types,
-                        owners,
-                        program,
-                        depth + 1,
-                        limits,
-                        allocations,
-                    )
-                })
+                .map(|value| boxed_op(value, static_values, types, owners, program, depth + 1, limits, allocations))
                 .transpose()?,
         ),
     })
@@ -676,16 +454,7 @@ fn boxed_op(
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<Box<ImportedOperationalNode>, ArtifactError> {
-    let node = reconstruct_op(
-        op,
-        static_values,
-        types,
-        owners,
-        program,
-        depth,
-        limits,
-        allocations,
-    )?;
+    let node = reconstruct_op(op, static_values, types, owners, program, depth, limits, allocations)?;
     allocations.boxed(node).map_err(ArtifactError::Allocation)
 }
 
@@ -699,52 +468,24 @@ fn op_slice(
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<Box<[ImportedOperationalNode]>, ArtifactError> {
-    let mut imported = allocations
-        .vector::<ImportedOperationalNode>(ops.len())
-        .map_err(ArtifactError::Allocation)?;
+    let mut imported = allocations.vector::<ImportedOperationalNode>(ops.len()).map_err(ArtifactError::Allocation)?;
     for op in ops {
-        imported.push(reconstruct_op(
-            op,
-            static_values,
-            types,
-            owners,
-            program,
-            depth,
-            limits,
-            allocations,
-        )?);
+        imported.push(reconstruct_op(op, static_values, types, owners, program, depth, limits, allocations)?);
     }
-    allocations
-        .boxed_slice(imported)
-        .map_err(ArtifactError::Allocation)
+    allocations.boxed_slice(imported).map_err(ArtifactError::Allocation)
 }
 
-fn operational_target(
-    target: &OperationalTargetV1,
-    owners: &StableOwnerCatalog<'_>,
-) -> Result<ImportedOperationalTarget, ArtifactError> {
+fn operational_target(target: &OperationalTargetV1, owners: &StableOwnerCatalog<'_>) -> Result<ImportedOperationalTarget, ArtifactError> {
     Ok(match target {
-        OperationalTargetV1::Declaration { target } => {
-            ImportedOperationalTarget::Declaration(owners.declaration(target)?)
-        }
-        OperationalTargetV1::DataConstructor { owner } => {
-            ImportedOperationalTarget::DataConstructor(DataConstructorId::new(
-                owners.declaration(owner)?,
-            ))
-        }
+        OperationalTargetV1::Declaration { target } => ImportedOperationalTarget::Declaration(owners.declaration(target)?),
+        OperationalTargetV1::DataConstructor { owner } => ImportedOperationalTarget::DataConstructor(DataConstructorId::new(owners.declaration(owner)?)),
         OperationalTargetV1::VariantConstructor { owner, selector } => {
-            ImportedOperationalTarget::VariantConstructor(VariantId::new(
-                owners.declaration(owner)?,
-                super::identity::canonical_selector(selector)?,
-            ))
+            ImportedOperationalTarget::VariantConstructor(VariantId::new(owners.declaration(owner)?, super::identity::canonical_selector(selector)?))
         }
     })
 }
 
-fn static_value_domain(
-    domain: &StaticValueDomainV1,
-    types: &ReconstructedTypeGraph,
-) -> Result<StaticValueDomain, ArtifactError> {
+fn static_value_domain(domain: &StaticValueDomainV1, types: &ReconstructedTypeGraph) -> Result<StaticValueDomain, ArtifactError> {
     Ok(match domain {
         StaticValueDomainV1::Kind { kind } => StaticValueDomain::Kind(
             *types
@@ -752,9 +493,7 @@ fn static_value_domain(
                 .get(kind.0 as usize)
                 .ok_or_else(|| invalid("static value domain references an absent kind"))?,
         ),
-        StaticValueDomainV1::ValueType { ty } => {
-            StaticValueDomain::ValueType(mapped_type(*ty, types, "static value domain type")?)
-        }
+        StaticValueDomainV1::ValueType { ty } => StaticValueDomain::ValueType(mapped_type(*ty, types, "static value domain type")?),
     })
 }
 
@@ -767,16 +506,10 @@ fn parameter_mode(mode: &ParameterModeV1) -> GenericParameterMode {
     }
 }
 
-fn static_symbol(
-    symbol: &StaticConstantSymbolV1,
-    owners: &StableOwnerCatalog<'_>,
-    allocations: &mut AllocationBudget,
-) -> Result<SymbolId, ArtifactError> {
+fn static_symbol(symbol: &StaticConstantSymbolV1, owners: &StableOwnerCatalog<'_>, allocations: &mut AllocationBudget) -> Result<SymbolId, ArtifactError> {
     Ok(SymbolId {
         module: owners.module(&symbol.module)?,
-        name: allocations
-            .boxed_str(&symbol.name)
-            .map_err(ArtifactError::Allocation)?,
+        name: allocations.boxed_str(&symbol.name).map_err(ArtifactError::Allocation)?,
     })
 }
 

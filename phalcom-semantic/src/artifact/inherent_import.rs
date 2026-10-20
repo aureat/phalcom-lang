@@ -7,14 +7,12 @@
 
 use super::identity::StableOwnerCatalog;
 use super::type_import::ReconstructedTypeGraph;
-use crate::identity::{ImplId, CallableOwnerId};
+use crate::identity::{CallableOwnerId, ImplId};
 use crate::impls::{ConditionalInherentMember, InherentImplDomain, InherentImplTarget};
 use crate::types::id::TypeId;
 use phalcom_common::modifier::Visibility;
 use phalcom_compiler_artifact::semantic::aggregates::VisibilityV1;
-use phalcom_compiler_artifact::semantic::world::{
-    ConditionalInherentMemberV1, ConditionalInherentSetV1, InherentImplDomainV1, InherentImplTargetV1,
-};
+use phalcom_compiler_artifact::semantic::world::{ConditionalInherentMemberV1, ConditionalInherentSetV1, InherentImplDomainV1, InherentImplTargetV1};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
 use std::sync::Arc;
@@ -46,10 +44,7 @@ impl ImportedConditionalInherentAuthority {
     }
 
     pub(crate) fn set(&self, target: &InherentImplTarget) -> Option<&ImportedConditionalInherentSet> {
-        self.sets
-            .binary_search_by(|set| set.target.cmp(target))
-            .ok()
-            .map(|index| &self.sets[index])
+        self.sets.binary_search_by(|set| set.target.cmp(target)).ok().map(|index| &self.sets[index])
     }
 }
 
@@ -83,22 +78,14 @@ pub(crate) fn reconstruct_conditional_inherent_authority(
             .map_err(ArtifactError::Allocation)?;
         ordered_members.resize_with(record.members.len(), || None);
         for member in &record.members {
-            let order = usize::try_from(member.member_order)
-                .map_err(|_| invalid("conditional inherent member order exceeds address space"))?;
+            let order = usize::try_from(member.member_order).map_err(|_| invalid("conditional inherent member order exceeds address space"))?;
             let slot = ordered_members
                 .get_mut(order)
                 .ok_or_else(|| invalid("conditional inherent member order is outside its set"))?;
             if slot.is_some() {
                 return Err(invalid("conditional inherent member order is duplicated"));
             }
-            *slot = Some(reconstruct_member(
-                member,
-                &target,
-                &domains,
-                types,
-                owners,
-                allocations,
-            )?);
+            *slot = Some(reconstruct_member(member, &target, &domains, types, owners, allocations)?);
         }
 
         let mut members = allocations
@@ -146,16 +133,9 @@ fn reconstruct_domain(
         .as_ref()
         .map(|signature| super::semantic_import::reconstruct_signature(signature, types, owners, allocations))
         .transpose()?;
-    let mut constraints = allocations
-        .vector(row.constraints.len())
-        .map_err(ArtifactError::Allocation)?;
+    let mut constraints = allocations.vector(row.constraints.len()).map_err(ArtifactError::Allocation)?;
     for constraint in &row.constraints {
-        constraints.push(super::semantic_import::reconstruct_constraint(
-            constraint,
-            types,
-            owners,
-            allocations,
-        )?);
+        constraints.push(super::semantic_import::reconstruct_constraint(constraint, types, owners, allocations)?);
     }
     Ok(InherentImplDomain {
         impl_id,
@@ -187,12 +167,7 @@ fn reconstruct_member(
     if callable.owner != expected_owner {
         return Err(invalid("conditional inherent callable owner disagrees with its target"));
     }
-    let signature_template = super::callable_import::reconstruct_callable_signature(
-        &row.signature,
-        types,
-        owners,
-        allocations,
-    )?;
+    let signature_template = super::callable_import::reconstruct_callable_signature(&row.signature, types, owners, allocations)?;
     if signature_template.callable != callable
         || signature_template.owner != *target.declaration()
         || signature_template.side != callable.side
@@ -208,23 +183,15 @@ fn reconstruct_member(
         callable,
         signature_template,
         visibility: visibility(&row.visibility),
-        source_member: usize::try_from(row.source_member_index)
-            .map_err(|_| invalid("conditional inherent source member index exceeds address space"))?,
+        source_member: usize::try_from(row.source_member_index).map_err(|_| invalid("conditional inherent source member index exceeds address space"))?,
         is_requirement: row.is_requirement,
     })
 }
 
-fn reconstruct_target(
-    target: &InherentImplTargetV1,
-    owners: &StableOwnerCatalog<'_>,
-) -> Result<InherentImplTarget, ArtifactError> {
+fn reconstruct_target(target: &InherentImplTargetV1, owners: &StableOwnerCatalog<'_>) -> Result<InherentImplTarget, ArtifactError> {
     Ok(match target {
-        InherentImplTargetV1::Declaration { declaration } => {
-            InherentImplTarget::Declaration(owners.declaration(declaration)?)
-        }
-        InherentImplTargetV1::ExactEnumCase { variant } => {
-            InherentImplTarget::ExactEnumCase(owners.variant(variant)?)
-        }
+        InherentImplTargetV1::Declaration { declaration } => InherentImplTarget::Declaration(owners.declaration(declaration)?),
+        InherentImplTargetV1::ExactEnumCase { variant } => InherentImplTarget::ExactEnumCase(owners.variant(variant)?),
     })
 }
 

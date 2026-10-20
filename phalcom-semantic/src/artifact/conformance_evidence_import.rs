@@ -13,31 +13,23 @@ use super::identity::StableOwnerCatalog;
 use super::trait_import::ImportedTraitAuthority;
 use super::type_import::ReconstructedTypeGraph;
 use super::witness_import::{
-    ImportedAssociatedTypePlan, ImportedRequirementSelection, ImportedTypeEnvironment,
-    associated_type_requirement_identity, check_evidence_index, mapped_parameter, mapped_type,
-    reconstruct_associated_type_plan, reconstruct_generic_conformance_key,
-    reconstruct_requirement_selection, reconstruct_requirement_view, reconstruct_type_environment,
+    ImportedAssociatedTypePlan, ImportedRequirementSelection, ImportedTypeEnvironment, associated_type_requirement_identity, check_evidence_index,
+    mapped_parameter, mapped_type, reconstruct_associated_type_plan, reconstruct_generic_conformance_key, reconstruct_requirement_selection,
+    reconstruct_requirement_view, reconstruct_type_environment,
 };
 use crate::generic_evidence::{CompilerDerivedConformanceKind, GenericConformanceKey};
 use crate::identity::{DeclarationId, ImplId, ModuleId};
 use crate::impls::{AssociatedTypeBindingValue, ExactAssociatedTypeBinding};
-use crate::structural::{
-    OrderedProductForm, StructuralClassification, UnorderedProductForm,
-};
-use crate::traits::{
-    AssociatedTypeRequirementId, InstantiatedTraitRequirement, TraitRef, TraitRequirementId,
-};
+use crate::structural::{OrderedProductForm, StructuralClassification, UnorderedProductForm};
+use crate::traits::{AssociatedTypeRequirementId, InstantiatedTraitRequirement, TraitRef, TraitRequirementId};
 use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::parameter::{GenericConstraint, GenericSignature, TypeParameterOwner};
-use phalcom_compiler_artifact::semantic::type_store::ParameterOwnerV1;
 use phalcom_compiler_artifact::semantic::aggregates::TraitRefV1;
+use phalcom_compiler_artifact::semantic::type_store::ParameterOwnerV1;
 use phalcom_compiler_artifact::semantic::world::{
-    CallableCompilerDerivedConformanceEvidenceV1, CallableCompilerDerivedConformanceKindV1,
-    CallableConformanceEvidenceNodeV1, CallableDerivedConformanceEvidenceV1,
-    CallableDerivedConformanceOriginV1, CallableDerivedConformanceRuleV1,
-    CallableExactConformanceEvidenceV1,
-    CallableNestedGenericEvidenceV1, CallableOrderedProductFormV1,
-    CallableStructuralClassificationV1, CallableUnorderedProductFormV1,
+    CallableCompilerDerivedConformanceEvidenceV1, CallableCompilerDerivedConformanceKindV1, CallableConformanceEvidenceNodeV1,
+    CallableDerivedConformanceEvidenceV1, CallableDerivedConformanceOriginV1, CallableDerivedConformanceRuleV1, CallableExactConformanceEvidenceV1,
+    CallableNestedGenericEvidenceV1, CallableOrderedProductFormV1, CallableStructuralClassificationV1, CallableUnorderedProductFormV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_type_meta::allocation::AllocationBudget;
@@ -73,7 +65,9 @@ pub struct ImportedDerivedConformanceRule {
 
 #[derive(Clone, Debug)]
 pub enum ImportedDerivedConformanceOrigin {
-    ConditionalSource { exact_source: u32 },
+    ConditionalSource {
+        exact_source: u32,
+    },
     GuardedRule {
         rule: Box<ImportedDerivedConformanceRule>,
         exact_subject: TypeId,
@@ -105,10 +99,7 @@ pub struct ImportedCompilerDerivedConformanceEvidence {
 #[derive(Clone, Debug)]
 pub enum ImportedConformanceEvidenceNode {
     Exact(ImportedExactConformanceEvidence),
-    Assumed {
-        key: GenericConformanceKey,
-        owner: TypeParameterOwner,
-    },
+    Assumed { key: GenericConformanceKey, owner: TypeParameterOwner },
     Derived(ImportedDerivedConformanceEvidence),
     CompilerDerived(ImportedCompilerDerivedConformanceEvidence),
 }
@@ -157,45 +148,27 @@ pub(crate) fn reconstruct_conformance_evidence_graph(
 
     for record in records {
         nodes.push(match record {
-            CallableConformanceEvidenceNodeV1::Exact { evidence } => {
-                ImportedConformanceEvidenceNode::Exact(reconstruct_exact(
-                    evidence,
-                    records,
-                    conformances,
-                    prior_witnesses,
-                    traits,
-                    callables,
-                    types,
-                    owners,
-                    limits,
-                    allocations,
-                )?)
-            }
-            CallableConformanceEvidenceNodeV1::Assumed { key, owner } => {
-                ImportedConformanceEvidenceNode::Assumed {
-                    key: reconstruct_generic_conformance_key(key, types, owners, allocations)?,
-                    owner: parameter_owner(owner, owners)?,
-                }
-            }
+            CallableConformanceEvidenceNodeV1::Exact { evidence } => ImportedConformanceEvidenceNode::Exact(reconstruct_exact(
+                evidence,
+                records,
+                conformances,
+                prior_witnesses,
+                traits,
+                callables,
+                types,
+                owners,
+                limits,
+                allocations,
+            )?),
+            CallableConformanceEvidenceNodeV1::Assumed { key, owner } => ImportedConformanceEvidenceNode::Assumed {
+                key: reconstruct_generic_conformance_key(key, types, owners, allocations)?,
+                owner: parameter_owner(owner, owners)?,
+            },
             CallableConformanceEvidenceNodeV1::Derived { evidence } => {
-                ImportedConformanceEvidenceNode::Derived(reconstruct_derived(
-                    evidence,
-                    records,
-                    traits,
-                    callables,
-                    types,
-                    owners,
-                    limits,
-                    allocations,
-                )?)
+                ImportedConformanceEvidenceNode::Derived(reconstruct_derived(evidence, records, traits, callables, types, owners, limits, allocations)?)
             }
             CallableConformanceEvidenceNodeV1::CompilerDerived { evidence } => {
-                ImportedConformanceEvidenceNode::CompilerDerived(reconstruct_compiler_derived(
-                    evidence,
-                    types,
-                    owners,
-                    allocations,
-                )?)
+                ImportedConformanceEvidenceNode::CompilerDerived(reconstruct_compiler_derived(evidence, types, owners, allocations)?)
             }
         });
     }
@@ -223,14 +196,10 @@ fn reconstruct_exact(
     // native source-plan fingerprint is intentionally unavailable until T4,
     // but the ordering/identity dependency must already be proven here.
     if !prior_witnesses.iter().any(|plan| plan.impl_id == source_impl) {
-        return Err(invalid(
-            "exact conformance evidence has no previously staged source witness plan",
-        ));
+        return Err(invalid("exact conformance evidence has no previously staged source witness plan"));
     }
     if conformances.get(&source_impl).is_none() {
-        return Err(invalid(
-            "exact conformance evidence source witness has no imported conformance head",
-        ));
+        return Err(invalid("exact conformance evidence source witness has no imported conformance head"));
     }
     let exact_target = mapped_type(record.exact_target, types, "exact conformance target")?;
     let exact_trait_ref = trait_ref(&record.exact_trait_ref, types, owners, allocations)?;
@@ -253,10 +222,7 @@ fn reconstruct_exact(
         )?);
     }
     requirement_views.sort_by(|left, right| left.0.cmp(&right.0));
-    reject_duplicate_keys(
-        &requirement_views,
-        "exact conformance evidence contains duplicate requirement views",
-    )?;
+    reject_duplicate_keys(&requirement_views, "exact conformance evidence contains duplicate requirement views")?;
 
     let mut requirements = allocations
         .vector::<(TraitRequirementId, ImportedRequirementSelection)>(record.requirements.len())
@@ -280,10 +246,7 @@ fn reconstruct_exact(
         requirements.push((requirement, selection));
     }
     requirements.sort_by(|left, right| left.0.cmp(&right.0));
-    reject_duplicate_keys(
-        &requirements,
-        "exact conformance evidence contains duplicate requirement selections",
-    )?;
+    reject_duplicate_keys(&requirements, "exact conformance evidence contains duplicate requirement selections")?;
 
     let mut associated_types = allocations
         .vector::<(AssociatedTypeRequirementId, ExactAssociatedTypeBinding)>(record.associated_types.len())
@@ -297,9 +260,7 @@ fn reconstruct_exact(
             phalcom_compiler_artifact::semantic::world::CallableAssociatedTypeBindingValueV1::Type { ty } => {
                 AssociatedTypeBindingValue::Type(mapped_type(*ty, types, "exact associated-type binding")?)
             }
-            phalcom_compiler_artifact::semantic::world::CallableAssociatedTypeBindingValueV1::Dynamic => {
-                AssociatedTypeBindingValue::Dynamic
-            }
+            phalcom_compiler_artifact::semantic::world::CallableAssociatedTypeBindingValueV1::Dynamic => AssociatedTypeBindingValue::Dynamic,
         };
         associated_types.push((
             requirement.clone(),
@@ -312,21 +273,13 @@ fn reconstruct_exact(
         ));
     }
     associated_types.sort_by(|left, right| left.0.cmp(&right.0));
-    reject_duplicate_keys(
-        &associated_types,
-        "exact conformance evidence contains duplicate associated-type bindings",
-    )?;
+    reject_duplicate_keys(&associated_types, "exact conformance evidence contains duplicate associated-type bindings")?;
 
     let mut trait_header_contract = allocations
         .vector::<GenericConstraint>(record.trait_header_contract.len())
         .map_err(ArtifactError::Allocation)?;
     for constraint in &record.trait_header_contract {
-        trait_header_contract.push(super::semantic_import::reconstruct_constraint(
-            constraint,
-            types,
-            owners,
-            allocations,
-        )?);
+        trait_header_contract.push(super::semantic_import::reconstruct_constraint(constraint, types, owners, allocations)?);
     }
 
     let trait_header_conformance_proofs = record
@@ -338,10 +291,7 @@ fn reconstruct_exact(
                 .map_err(ArtifactError::Allocation)?;
             for proof in proofs {
                 check_evidence_index(proof.evidence, all_nodes.len())?;
-                imported.push((
-                    reconstruct_generic_conformance_key(&proof.key, types, owners, allocations)?,
-                    proof.evidence,
-                ));
+                imported.push((reconstruct_generic_conformance_key(&proof.key, types, owners, allocations)?, proof.evidence));
             }
             imported.sort_by(|left, right| left.0.cmp(&right.0));
             if imported.windows(2).any(|pair| pair[0].0 == pair[1].0) {
@@ -377,31 +327,17 @@ fn reconstruct_derived(
     let origin = match &record.origin {
         CallableDerivedConformanceOriginV1::ConditionalSource { exact_source } => {
             check_evidence_index(*exact_source, all_nodes.len())?;
-            if !matches!(
-                all_nodes.get(*exact_source as usize),
-                Some(CallableConformanceEvidenceNodeV1::Exact { .. })
-            ) {
+            if !matches!(all_nodes.get(*exact_source as usize), Some(CallableConformanceEvidenceNodeV1::Exact { .. })) {
                 return Err(invalid("derived conformance conditional source does not reference exact evidence"));
             }
-            ImportedDerivedConformanceOrigin::ConditionalSource {
-                exact_source: *exact_source,
-            }
+            ImportedDerivedConformanceOrigin::ConditionalSource { exact_source: *exact_source }
         }
         CallableDerivedConformanceOriginV1::GuardedRule {
             rule,
             exact_subject,
             exact_trait_ref,
         } => {
-            let imported_rule = reconstruct_derived_rule(
-                rule,
-                all_nodes.len(),
-                traits,
-                callables,
-                types,
-                owners,
-                limits,
-                allocations,
-            )?;
+            let imported_rule = reconstruct_derived_rule(rule, all_nodes.len(), traits, callables, types, owners, limits, allocations)?;
             ImportedDerivedConformanceOrigin::GuardedRule {
                 rule: allocations.boxed(imported_rule).map_err(ArtifactError::Allocation)?,
                 exact_subject: mapped_type(*exact_subject, types, "guarded derived exact subject")?,
@@ -466,20 +402,8 @@ pub(crate) fn reconstruct_derived_rule(
     let trait_surface = traits
         .surface(&trait_ref.declaration)
         .ok_or_else(|| invalid("derived conformance rule references an absent imported trait surface"))?;
-    let generic_signature = super::semantic_import::reconstruct_signature(
-        &rule.generic_signature,
-        types,
-        owners,
-        allocations,
-    )?;
-    let associated_type_plan = reconstruct_associated_type_plan(
-        &rule.associated_type_plan,
-        &impl_id,
-        &trait_ref.declaration,
-        types,
-        owners,
-        allocations,
-    )?;
+    let generic_signature = super::semantic_import::reconstruct_signature(&rule.generic_signature, types, owners, allocations)?;
+    let associated_type_plan = reconstruct_associated_type_plan(&rule.associated_type_plan, &impl_id, &trait_ref.declaration, types, owners, allocations)?;
 
     let mut requirement_views = allocations
         .vector::<(TraitRequirementId, InstantiatedTraitRequirement)>(rule.requirement_views.len())
@@ -495,10 +419,7 @@ pub(crate) fn reconstruct_derived_rule(
         )?);
     }
     requirement_views.sort_by(|left, right| left.0.cmp(&right.0));
-    reject_duplicate_keys(
-        &requirement_views,
-        "derived conformance rule contains duplicate requirement views",
-    )?;
+    reject_duplicate_keys(&requirement_views, "derived conformance rule contains duplicate requirement views")?;
 
     let mut requirements = allocations
         .vector::<(TraitRequirementId, ImportedRequirementSelection)>(rule.requirements.len())
@@ -524,10 +445,7 @@ pub(crate) fn reconstruct_derived_rule(
         ));
     }
     requirements.sort_by(|left, right| left.0.cmp(&right.0));
-    reject_duplicate_keys(
-        &requirements,
-        "derived conformance rule contains duplicate requirement selections",
-    )?;
+    reject_duplicate_keys(&requirements, "derived conformance rule contains duplicate requirement selections")?;
 
     let source = source_span(&rule.source, owners)?;
     if source.module != source_module {
@@ -566,42 +484,32 @@ fn reconstruct_compiler_derived(
     })
 }
 
-fn classification(
-    classification: &CallableStructuralClassificationV1,
-    owners: &StableOwnerCatalog<'_>,
-) -> Result<StructuralClassification, ArtifactError> {
+fn classification(classification: &CallableStructuralClassificationV1, owners: &StableOwnerCatalog<'_>) -> Result<StructuralClassification, ArtifactError> {
     Ok(match classification {
         CallableStructuralClassificationV1::Unsupported => StructuralClassification::Unsupported,
-        CallableStructuralClassificationV1::OrderedProduct { form } => {
-            StructuralClassification::OrderedProduct(match form {
-                CallableOrderedProductFormV1::Unit => OrderedProductForm::Unit,
-                CallableOrderedProductFormV1::Tuple => OrderedProductForm::Tuple,
-                CallableOrderedProductFormV1::TupleFromPacks => OrderedProductForm::TupleFromPacks,
-                CallableOrderedProductFormV1::Pack => OrderedProductForm::Pack,
-                CallableOrderedProductFormV1::PackFromPacks => OrderedProductForm::PackFromPacks,
-                CallableOrderedProductFormV1::Data { owner } => {
-                    OrderedProductForm::Data { owner: owners.declaration(owner)? }
-                }
-            })
-        }
-        CallableStructuralClassificationV1::UnorderedProduct { form } => {
-            StructuralClassification::UnorderedProduct(match form {
-                CallableUnorderedProductFormV1::Record => UnorderedProductForm::Record,
-                CallableUnorderedProductFormV1::Data { owner } => {
-                    UnorderedProductForm::Data { owner: owners.declaration(owner)? }
-                }
-            })
-        }
-        CallableStructuralClassificationV1::Sum { owner } => {
-            StructuralClassification::Sum { owner: owners.declaration(owner)? }
-        }
+        CallableStructuralClassificationV1::OrderedProduct { form } => StructuralClassification::OrderedProduct(match form {
+            CallableOrderedProductFormV1::Unit => OrderedProductForm::Unit,
+            CallableOrderedProductFormV1::Tuple => OrderedProductForm::Tuple,
+            CallableOrderedProductFormV1::TupleFromPacks => OrderedProductForm::TupleFromPacks,
+            CallableOrderedProductFormV1::Pack => OrderedProductForm::Pack,
+            CallableOrderedProductFormV1::PackFromPacks => OrderedProductForm::PackFromPacks,
+            CallableOrderedProductFormV1::Data { owner } => OrderedProductForm::Data {
+                owner: owners.declaration(owner)?,
+            },
+        }),
+        CallableStructuralClassificationV1::UnorderedProduct { form } => StructuralClassification::UnorderedProduct(match form {
+            CallableUnorderedProductFormV1::Record => UnorderedProductForm::Record,
+            CallableUnorderedProductFormV1::Data { owner } => UnorderedProductForm::Data {
+                owner: owners.declaration(owner)?,
+            },
+        }),
+        CallableStructuralClassificationV1::Sum { owner } => StructuralClassification::Sum {
+            owner: owners.declaration(owner)?,
+        },
     })
 }
 
-fn parameter_owner(
-    owner: &ParameterOwnerV1,
-    owners: &StableOwnerCatalog<'_>,
-) -> Result<TypeParameterOwner, ArtifactError> {
+fn parameter_owner(owner: &ParameterOwnerV1, owners: &StableOwnerCatalog<'_>) -> Result<TypeParameterOwner, ArtifactError> {
     Ok(match owner {
         ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(owners.declaration(owner)?),
         ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(owners.callable(owner)?),
@@ -615,9 +523,7 @@ fn trait_ref(
     owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
 ) -> Result<TraitRef, ArtifactError> {
-    let mut arguments = allocations
-        .vector::<TypeId>(row.arguments.len())
-        .map_err(ArtifactError::Allocation)?;
+    let mut arguments = allocations.vector::<TypeId>(row.arguments.len()).map_err(ArtifactError::Allocation)?;
     for argument in &row.arguments {
         arguments.push(mapped_type(*argument, types, "trait reference argument")?);
     }
@@ -627,10 +533,7 @@ fn trait_ref(
     ))
 }
 
-fn reject_duplicate_keys<K: PartialEq, T>(
-    rows: &[(K, T)],
-    message: &'static str,
-) -> Result<(), ArtifactError> {
+fn reject_duplicate_keys<K: PartialEq, T>(rows: &[(K, T)], message: &'static str) -> Result<(), ArtifactError> {
     if rows.windows(2).any(|pair| pair[0].0 == pair[1].0) {
         Err(invalid(message))
     } else {

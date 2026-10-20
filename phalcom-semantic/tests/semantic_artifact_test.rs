@@ -1,7 +1,7 @@
 use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::header::{
-    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V2, SEMANTIC_ARTIFACT_ABI_V2, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities,
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V3, SEMANTIC_ARTIFACT_ABI_V2, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities,
     TeloscHeaderV2,
 };
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
@@ -9,38 +9,32 @@ use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
 use phalcom_compiler_artifact::module_world::SpanV1;
 use phalcom_compiler_artifact::query::{
-    DependencyEvidenceEntryV3, PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, QueryImageV3, QueryProductRefV2, QueryRootEntryV3,
+    DependencyEvidenceEntryV4, PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, PortableQueryProductFamilyV1, QueryImageV4, QueryProductRefV3,
+    QueryRootEntryV4,
 };
 use phalcom_compiler_artifact::semantic::aggregates::{
     DataInfoV1, DataShapeV1, DeclaredTypeBasisV1, DeclaredTypeFactV1, DeclaredTypeStateV1, EnumInfoV1, StructuralPrimaryContractsV1,
     UnknownReasonV1, VisibilityV1,
 };
-use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
 use phalcom_compiler_artifact::semantic::operational::OperationalOpV1;
+use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
 use phalcom_compiler_artifact::semantic::type_store::{
     ArtifactKindId, ArtifactTypeId, KindV1, StaticDomainV1, TypeEntryV1, TypeGraphV1, TypeMemberSelectorV1, TypeV1,
 };
 use phalcom_compiler_artifact::semantic::world::{
-    AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1,
-    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1,
-    CallableBindingAuthorityV1, CallableBindingConsistencyV1, CallableBindingRowV1, CallableCausalInvalidityV1,
-    CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1,
-    CallableBindingReadSafetyV1, CallableCallSpecializationV1, CallableDiagnosticSeverityV1, CallableEvidenceDiagnosticV1,
-    CallableExpressionRowV1, CallableExpressionStatusV1, CallableFlowGraphV1, CallableFlowStateSummaryV1,
-    CallableGeneratedBindingReasonV1, CallableInitializationStateV1, CallableSignatureRecordV1, SemanticDenotationV1,
-    ConditionalInherentMemberV1, ConditionalInherentSetV1, ConformanceHeadRecordV1, ConformanceTargetV1,
-    ConstructorInitializationRecordV1, DeclarationSurfaceRecordV1, DispatchCallableFactV1, EffectSpecV1,
-    EnumRequirementOwnerV1, EnumRequirementRecordV1, EnumRequirementSourceV1,
-    ExactSelectorV1, FieldSignatureV1, ImplementationKindV1, InherentImplDomainV1, InherentImplTargetV1,
-    ModuleStaticBindingIndexV1, ModuleStaticBindingPhaseV1, ModuleStaticBindingRecordV1, ModuleStaticBindingVisibleNameV1,
-    NativeLifecycleSpecV1,
-    RaisesSpecV1, ReturnContractValidationV1,
-    CanonicalStaticProgramV1, ReturnFlowV1, SelectorKindV1, SemanticWorldV3,
-    StaticConstantOutcomeV1, StaticConstantRecordV1, StaticConstantSymbolV1, StaticDefinitionRecordV1,
-    StaticDefinitionSignatureV1, StaticValueDomainV1, TraitRefV1, TraitSurfaceRecordV1, TypeKnowledgeV1,
-    CallableConformanceAssociatedTypePlanV1, CallableConformanceCompletenessV1, CanonicalCheckedStaticApplicationV1, WitnessPlanV1,
-    StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1,
-    StaticDomainCaseCatalogRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
+    AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1, CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1,
+    CallableAnalysisStatusV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1, CallableBindingReadSafetyV1, CallableBindingRowV1,
+    CallableCallSpecializationV1, CallableCausalInvalidityV1, CallableConformanceAssociatedTypePlanV1, CallableConformanceCompletenessV1,
+    CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableDiagnosticSeverityV1, CallableEvidenceDiagnosticV1,
+    CallableExpressionRowV1, CallableExpressionStatusV1, CallableFlowGraphV1, CallableFlowStateSummaryV1, CallableGeneratedBindingReasonV1,
+    CallableInitializationStateV1, CallableSignatureRecordV1, CanonicalCheckedStaticApplicationV1, CanonicalStaticProgramV1, ConditionalInherentMemberV1,
+    ConditionalInherentSetV1, ConformanceHeadRecordV1, ConformanceTargetV1, ConstructorInitializationRecordV1, DeclarationSurfaceRecordV1,
+    DispatchCallableFactV1, EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1, EnumRequirementSourceV1, ExactSelectorV1, FieldSignatureV1,
+    ImplementationKindV1, InherentImplDomainV1, InherentImplTargetV1, ModuleStaticBindingIndexV1, ModuleStaticBindingPhaseV1, ModuleStaticBindingRecordV1,
+    ModuleStaticBindingVisibleNameV1, NativeLifecycleSpecV1, RaisesSpecV1, ReturnContractValidationV1, ReturnFlowV1, SelectorKindV1, SemanticDenotationV1,
+    SemanticWorldV3, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1, StaticConstantOutcomeV1, StaticConstantRecordV1, StaticConstantSymbolV1,
+    StaticDefinitionRecordV1, StaticDefinitionSignatureV1, StaticDomainCaseCatalogRecordV1, StaticValueDomainV1, TraitRefV1, TraitSurfaceRecordV1,
+    TypeKnowledgeV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1, WitnessPlanV1,
 };
 use phalcom_semantic::artifact::{
     CompilerArtifactImage, ImportedOperationalNode, decode_and_validate_artifact, encode_artifact, import_compiler_image,
@@ -49,8 +43,7 @@ use phalcom_semantic::artifact::{
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::identity::{
-    StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableImplRef, StableModuleRef,
-    StableProjectRef, StableTypeMemberRef,
+    StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableImplRef, StableModuleRef, StableProjectRef, StableTypeMemberRef,
 };
 use phalcom_type_meta::{
     ArtifactIdentityScheme, KindNode, KindNodeEntry, KindNodeId, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity,
@@ -109,7 +102,7 @@ fn sample_image() -> CompilerArtifactImage {
         stable_identity_schema: 1,
         module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
         semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V2,
-        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V2,
+        query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V3,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [7; 16],
         type_metadata_schema_version: 13,
@@ -229,8 +222,8 @@ fn sample_image() -> CompilerArtifactImage {
         associated_surfaces: vec![],
     };
 
-    let query_image = QueryImageV3 {
-        supported_roots: vec![QueryRootEntryV3 {
+    let query_image = QueryImageV4 {
+        supported_roots: vec![QueryRootEntryV4 {
             key: PortableQueryKeyV1 {
                 kind: PortableQueryKindV1::LinkedInterface,
                 owner: PortableQueryOwnerKeyV1::Module(StableModuleRef {
@@ -241,8 +234,8 @@ fn sample_image() -> CompilerArtifactImage {
                     path: Box::new([]),
                 }),
             },
-            product: QueryProductRefV2 {
-                kind: PortableQueryKindV1::LinkedInterface,
+            product: QueryProductRefV3 {
+                family: PortableQueryProductFamilyV1::Module,
                 row_index: 0,
             },
             input_fingerprint: 0,
@@ -491,13 +484,9 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
     image.semantic_world.associated_surfaces.push(AssociatedSurfaceRecordV1 {
         owner: stable_owner.clone(),
         families: vec![AssociatedFamilyRecordV1 {
-            selector: TypeMemberSelectorV1::Named {
-                name: "Construct".to_string(),
-            },
+            selector: TypeMemberSelectorV1::Named { name: "Construct".to_string() },
             kind: AssociatedFamilyKindV1::DataConstructor,
-            members: vec![AssociatedMemberV1::DataConstructor {
-                owner: stable_owner.clone(),
-            }],
+            members: vec![AssociatedMemberV1::DataConstructor { owner: stable_owner.clone() }],
         }],
     });
     image.semantic_world.structural_contracts.enum_contracts.push(EnumInfoV1 {
@@ -515,8 +504,7 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
     let limits = ValidationLimits::default();
     let seed_bytes = encode_artifact(&image).expect("encode structural seed artifact");
     let mut seed_decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let seed_payload =
-        decode_and_validate_artifact(&seed_bytes, &limits, None, &mut seed_decode_budget).expect("validate structural seed artifact");
+    let seed_payload = decode_and_validate_artifact(&seed_bytes, &limits, None, &mut seed_decode_budget).expect("validate structural seed artifact");
     let mut seed_import_budget = AllocationBudget::new(32 * 1024 * 1024);
     let seed_import = import_compiler_image(seed_payload, &limits, &mut seed_import_budget).expect("reconstruct structural seed");
     assert_eq!(
@@ -548,10 +536,7 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
     let input_fingerprint = phalcom_semantic::db::fingerprint::data_declaration_input_fingerprint(&product).raw();
     let product_fingerprint = phalcom_semantic::db::fingerprint::data_declaration_product_fingerprint(&product).raw();
 
-    let enum_owner = phalcom_semantic::identity::DeclarationId::new(
-        owner.module.clone(),
-        "CachedChoice".into(),
-    );
+    let enum_owner = phalcom_semantic::identity::DeclarationId::new(owner.module.clone(), "CachedChoice".into());
     let enum_info = seed_import
         .semantic_aggregates
         .enum_semantics
@@ -567,46 +552,46 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
     let enum_input_fingerprint = phalcom_semantic::db::fingerprint::enum_declaration_input_fingerprint(&enum_product).raw();
     let enum_product_fingerprint = phalcom_semantic::db::fingerprint::enum_declaration_product_fingerprint(&enum_product).raw();
 
-    image.query_image.supported_roots.push(QueryRootEntryV3 {
+    image.query_image.supported_roots.push(QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::DataDeclaration,
             owner: PortableQueryOwnerKeyV1::Declaration(stable_owner.clone()),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::DataDeclaration,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::DataDeclaration,
             row_index: 0,
         },
         input_fingerprint: 0,
         product_fingerprint: 0,
         dependency_indices: vec![],
     });
-    image.query_image.supported_roots.push(QueryRootEntryV3 {
+    image.query_image.supported_roots.push(QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::EnumDeclaration,
             owner: PortableQueryOwnerKeyV1::Declaration(stable_enum_owner.clone()),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::EnumDeclaration,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::EnumDeclaration,
             row_index: 0,
         },
         input_fingerprint: 0,
         product_fingerprint: 0,
         dependency_indices: vec![],
     });
-    image.query_image.supported_roots.push(QueryRootEntryV3 {
+    image.query_image.supported_roots.push(QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::AssociatedSurface,
             owner: PortableQueryOwnerKeyV1::Declaration(stable_owner.clone()),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::AssociatedSurface,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::AssociatedSurface,
             row_index: 0,
         },
         input_fingerprint: 0,
         product_fingerprint: 0,
         dependency_indices: vec![],
     });
-    image.query_image.dependency_evidence.push(DependencyEvidenceEntryV3 {
+    image.query_image.dependency_evidence.push(DependencyEvidenceEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::DataDeclaration,
             owner: PortableQueryOwnerKeyV1::Declaration(stable_owner.clone()),
@@ -714,17 +699,16 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         .find(|root| root.key.kind == PortableQueryKindV1::DataDeclaration)
         .expect("data query root");
     data_root.product_fingerprint = data_portable_product_fingerprint;
-    image.query_image.dependency_evidence[0].stable_aggregate_owner =
-        PortableQueryOwnerKeyV1::Declaration(StableDeclarationRef {
-            module: StableModuleRef {
-                project: StableProjectRef::Builtin {
-                    namespace: "universe".into(),
-                    version: "0.1.0".into(),
-                },
-                path: vec!["core".into()].into_boxed_slice(),
+    image.query_image.dependency_evidence[0].stable_aggregate_owner = PortableQueryOwnerKeyV1::Declaration(StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
             },
-            path: vec!["OtherPayload".into()].into_boxed_slice(),
-        });
+            path: vec!["core".into()].into_boxed_slice(),
+        },
+        path: vec!["OtherPayload".into()].into_boxed_slice(),
+    });
 
     let mismatched_bytes = encode_artifact(&image).expect("encode mismatched dependency owner artifact");
     let mut mismatch_decode_budget = AllocationBudget::new(32 * 1024 * 1024);
@@ -755,23 +739,16 @@ fn p7_type_member_product_imports_as_current_main_ready_query() {
         },
         path: vec!["TypeOwner".into()].into_boxed_slice(),
     };
-    image
-        .semantic_world
-        .type_member_declarations
-        .push(TypeMemberDeclarationRecordV1 {
-            owner: stable_owner.clone(),
-            selector: TypeMemberSelectorV1::Named {
-                name: "Element".into(),
-            },
-            parameters: vec![],
-            result_domain: TypeMemberDomainV1::Kind {
-                kind: ArtifactKindId(0),
-            },
-            intrinsic: None,
-            implementation: TypeMemberImplementationV1::Phalcom,
-        });
+    image.semantic_world.type_member_declarations.push(TypeMemberDeclarationRecordV1 {
+        owner: stable_owner.clone(),
+        selector: TypeMemberSelectorV1::Named { name: "Element".into() },
+        parameters: vec![],
+        result_domain: TypeMemberDomainV1::Kind { kind: ArtifactKindId(0) },
+        intrinsic: None,
+        implementation: TypeMemberImplementationV1::Phalcom,
+    });
 
-    image.query_image.supported_roots.push(QueryRootEntryV3 {
+    image.query_image.supported_roots.push(QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::TypeMemberDeclaration,
             owner: PortableQueryOwnerKeyV1::TypeMember(StableTypeMemberRef {
@@ -779,8 +756,8 @@ fn p7_type_member_product_imports_as_current_main_ready_query() {
                 selector: "Element".into(),
             }),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::TypeMemberDeclaration,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::TypeMemberDeclaration,
             row_index: 0,
         },
         input_fingerprint: 0,
@@ -800,7 +777,7 @@ fn p7_type_member_product_imports_as_current_main_ready_query() {
         },
         selector: "Element".into(),
     });
-    image.query_image.dependency_evidence.push(DependencyEvidenceEntryV3 {
+    image.query_image.dependency_evidence.push(DependencyEvidenceEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::TypeMemberDeclaration,
             owner: type_member_owner.clone(),
@@ -808,14 +785,8 @@ fn p7_type_member_product_imports_as_current_main_ready_query() {
         stable_aggregate_owner: type_member_owner,
         product_fingerprint: 0,
     });
-    image
-        .query_image
-        .dependency_evidence
-        .sort();
-    image
-        .query_image
-        .supported_roots
-        .sort_by(|left, right| left.key.cmp(&right.key));
+    image.query_image.dependency_evidence.sort();
+    image.query_image.supported_roots.sort_by(|left, right| left.key.cmp(&right.key));
     image
         .query_image
         .refresh_portable_structural_fingerprints(&image.semantic_world)
@@ -824,11 +795,9 @@ fn p7_type_member_product_imports_as_current_main_ready_query() {
     let bytes = encode_artifact(&image).expect("encode type-member artifact");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
-        .expect("validate type-member artifact");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate type-member artifact");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(payload, &limits, &mut import_budget)
-        .expect("import P7 type-member semantic product");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("import P7 type-member semantic product");
 
     assert_eq!(imported.associated_authority.type_member_len(), 1);
     assert_eq!(imported.query_products.len(), 1, "only the reusable type-member root is reconstructed");
@@ -880,37 +849,26 @@ fn p7_static_case_catalog_reconstructs_as_semantic_authority_without_ready_query
         .semantic_world
         .type_graph
         .static_domains
-        .push(StaticDomainV1::Nominal {
-            declaration: owner.clone(),
-        });
-    image
-        .semantic_world
-        .static_case_catalogs
-        .push(StaticDomainCaseCatalogRecordV1 {
-            domain: StaticCaseDomainV1::Nominal {
-                declaration: owner,
+        .push(StaticDomainV1::Nominal { declaration: owner.clone() });
+    image.semantic_world.static_case_catalogs.push(StaticDomainCaseCatalogRecordV1 {
+        domain: StaticCaseDomainV1::Nominal { declaration: owner },
+        cases: vec![StaticCaseHeaderV1 {
+            selector: ExactSelectorV1 {
+                base: TypeMemberSelectorV1::Named { name: "Ready".into() },
+                kind: SelectorKindV1::Getter,
+                slots: vec![],
             },
-            cases: vec![StaticCaseHeaderV1 {
-                selector: ExactSelectorV1 {
-                    base: TypeMemberSelectorV1::Named {
-                        name: "Ready".into(),
-                    },
-                    kind: SelectorKindV1::Getter,
-                    slots: vec![],
-                },
-                shape: StaticCaseShapeV1::Singleton,
-                source: SpanV1 { start: 4, end: 9 },
-            }],
-        });
+            shape: StaticCaseShapeV1::Singleton,
+            source: SpanV1 { start: 4, end: 9 },
+        }],
+    });
 
     let bytes = encode_artifact(&image).expect("encode P7 static-case authority");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload =
-        decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 static-case authority");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 static-case authority");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported =
-        import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 static-case authority");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 static-case authority");
 
     assert_eq!(imported.static_case_authority.catalog_len(), 1);
     assert_eq!(imported.static_case_authority.signature_len(), 0);
@@ -976,13 +934,13 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
         body_provenance: CallableDefinitionBodyProvenanceV1::SourceBody,
         inherent_body_context: None,
     });
-    image.query_image.supported_roots.push(QueryRootEntryV3 {
+    image.query_image.supported_roots.push(QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::CallableDefinition,
             owner: PortableQueryOwnerKeyV1::Callable(callable),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::CallableDefinition,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::CallableDefinition,
             row_index: 0,
         },
         input_fingerprint: 0,
@@ -998,11 +956,9 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
     let bytes = encode_artifact(&image).expect("encode P7 callable-signature authority");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload =
-        decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 callable-signature authority");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 callable-signature authority");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported =
-        import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 callable-signature authority");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 callable-signature authority");
 
     assert_eq!(imported.callable_authority.signature_len(), 1);
     assert_eq!(imported.callable_authority.definition_len(), 1);
@@ -1016,8 +972,7 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
         .publish_query_products_into_empty_db(&mut db)
         .expect("publish imported callable definition");
     assert!(
-        db.query_keys()
-            .any(|key| matches!(key, phalcom_semantic::db::QueryKey::CallableDefinition(_))),
+        db.query_keys().any(|key| matches!(key, phalcom_semantic::db::QueryKey::CallableDefinition(_))),
         "the reusable root must publish the exact current-main CallableDefinition family"
     );
 }
@@ -1099,11 +1054,9 @@ fn p7_enum_requirements_reconstruct_as_snapshot_authority_without_ready_query() 
     let bytes = encode_artifact(&image).expect("encode P7 enum-requirement authority");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
-        .expect("validate P7 enum-requirement authority");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 enum-requirement authority");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(payload, &limits, &mut import_budget)
-        .expect("reconstruct P7 enum-requirement authority");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 enum-requirement authority");
 
     assert_eq!(imported.enum_requirement_authority.owner_len(), 1);
     assert_eq!(imported.enum_requirement_authority.requirement_len(), 1);
@@ -1167,14 +1120,8 @@ fn p7_constructor_initialization_reconstructs_as_snapshot_authority_without_read
             replacement: None,
         },
     };
-    image
-        .semantic_world
-        .callable_signatures
-        .push(signature(factory.clone(), 1, "new"));
-    image
-        .semantic_world
-        .callable_signatures
-        .push(signature(initializer.clone(), 0, "initialize"));
+    image.semantic_world.callable_signatures.push(signature(factory.clone(), 1, "new"));
+    image.semantic_world.callable_signatures.push(signature(initializer.clone(), 0, "initialize"));
     image.semantic_world.constructor_initializations.push(ConstructorInitializationRecordV1 {
         factory,
         initializer,
@@ -1187,11 +1134,9 @@ fn p7_constructor_initialization_reconstructs_as_snapshot_authority_without_read
     let bytes = encode_artifact(&image).expect("encode P7 constructor authority");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
-        .expect("validate P7 constructor authority");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 constructor authority");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(payload, &limits, &mut import_budget)
-        .expect("reconstruct P7 constructor authority");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 constructor authority");
 
     assert_eq!(imported.constructor_initialization_authority.len(), 1);
     assert_eq!(
@@ -1275,11 +1220,9 @@ fn p7_declaration_dispatch_reconstructs_as_budgeted_snapshot_authority() {
     let bytes = encode_artifact(&image).expect("encode P7 dispatch authority");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
-        .expect("validate P7 dispatch authority");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 dispatch authority");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(payload, &limits, &mut import_budget)
-        .expect("reconstruct P7 dispatch authority");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 dispatch authority");
 
     assert_eq!(imported.dispatch_authority.surface_len(), 1);
     assert_eq!(imported.dispatch_authority.callable_len(), 1);
@@ -1309,18 +1252,14 @@ fn p7_conditional_inherent_dispatch_reconstructs_without_live_selector_index() {
     };
     image.semantic_world.type_graph.types.push(TypeEntryV1 {
         kind: ArtifactKindId(0),
-        form: TypeV1::Nominal {
-            declaration: owner.clone(),
-        },
+        form: TypeV1::Nominal { declaration: owner.clone() },
     });
 
     let implementation = StableImplRef {
         module: owner.module.clone(),
         local_id: 7,
     };
-    let target = InherentImplTargetV1::Declaration {
-        declaration: owner.clone(),
-    };
+    let target = InherentImplTargetV1::Declaration { declaration: owner.clone() };
     let callable = StableCallableRef {
         owner: StableCallableOwnerRef::Declaration(owner.clone()),
         side: StableDispatchSide::Instance,
@@ -1377,11 +1316,9 @@ fn p7_conditional_inherent_dispatch_reconstructs_without_live_selector_index() {
     let bytes = encode_artifact(&image).expect("encode P7 conditional inherent authority");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
-        .expect("validate P7 conditional inherent authority");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 conditional inherent authority");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(payload, &limits, &mut import_budget)
-        .expect("reconstruct P7 conditional inherent authority");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 conditional inherent authority");
 
     assert_eq!(imported.conditional_inherent_authority.set_len(), 1);
     assert_eq!(imported.conditional_inherent_authority.domain_len(), 1);
@@ -1415,9 +1352,7 @@ fn p7_conformance_head_reconstructs_with_current_authorization_check() {
     };
     image.semantic_world.type_graph.types.push(TypeEntryV1 {
         kind: ArtifactKindId(0),
-        form: TypeV1::Nominal {
-            declaration: target.clone(),
-        },
+        form: TypeV1::Nominal { declaration: target.clone() },
     });
     image.semantic_world.conformance_heads.push(ConformanceHeadRecordV1 {
         impl_id: StableImplRef {
@@ -1425,9 +1360,7 @@ fn p7_conformance_head_reconstructs_with_current_authorization_check() {
             local_id: 9,
         },
         source_module: module,
-        target: ConformanceTargetV1::Declaration {
-            declaration: target,
-        },
+        target: ConformanceTargetV1::Declaration { declaration: target },
         target_type: ArtifactTypeId(1),
         trait_ref: TraitRefV1 {
             declaration: trait_owner,
@@ -1441,11 +1374,9 @@ fn p7_conformance_head_reconstructs_with_current_authorization_check() {
     let bytes = encode_artifact(&image).expect("encode P7 conformance head");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
-        .expect("validate P7 conformance head");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 conformance head");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(payload, &limits, &mut import_budget)
-        .expect("reconstruct P7 conformance head");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 conformance head");
 
     assert_eq!(imported.conformance_authority.len(), 1);
     assert_eq!(
@@ -1500,11 +1431,9 @@ fn p7_trait_surface_reconstructs_complete_diagnostic_payload() {
     let bytes = encode_artifact(&image).expect("encode P7 trait authority");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
-        .expect("validate P7 trait authority");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 trait authority");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(payload, &limits, &mut import_budget)
-        .expect("reconstruct P7 trait authority");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 trait authority");
 
     assert_eq!(imported.trait_authority.surface_len(), 1);
     assert_eq!(imported.trait_authority.member_len(), 0);
@@ -1544,9 +1473,7 @@ fn p7_witness_preflight_binds_portable_plan_to_live_conformance_and_trait_author
 
     image.semantic_world.type_graph.types.push(TypeEntryV1 {
         kind: ArtifactKindId(0),
-        form: TypeV1::Nominal {
-            declaration: target.clone(),
-        },
+        form: TypeV1::Nominal { declaration: target.clone() },
     });
     image.semantic_world.trait_surfaces.push(TraitSurfaceRecordV1 {
         declaration: trait_owner.clone(),
@@ -1562,9 +1489,7 @@ fn p7_witness_preflight_binds_portable_plan_to_live_conformance_and_trait_author
     image.semantic_world.conformance_heads.push(ConformanceHeadRecordV1 {
         impl_id: implementation.clone(),
         source_module: module.clone(),
-        target: ConformanceTargetV1::Declaration {
-            declaration: target,
-        },
+        target: ConformanceTargetV1::Declaration { declaration: target },
         target_type: ArtifactTypeId(1),
         trait_ref: TraitRefV1 {
             declaration: trait_owner.clone(),
@@ -1603,11 +1528,9 @@ fn p7_witness_preflight_binds_portable_plan_to_live_conformance_and_trait_author
     let bytes = encode_artifact(&image).expect("encode P7 witness preflight");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
-        .expect("validate P7 witness preflight");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 witness preflight");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(payload, &limits, &mut import_budget)
-        .expect("bind P7 witness plan to live authorities");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("bind P7 witness plan to live authorities");
 
     assert_eq!(imported.witness_preflight_authority.len(), 1);
     assert_eq!(imported.witness_preflight_authority.requirement_view_len(), 0);
@@ -1669,9 +1592,7 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
     });
     image.semantic_world.callable_analyses.push(CallableAnalysisRecordV1 {
         callable: callable.clone(),
-        body_source_owner: Some(CallableAnalysisSourceOwnerV1::Callable {
-            callable: callable.clone(),
-        }),
+        body_source_owner: Some(CallableAnalysisSourceOwnerV1::Callable { callable: callable.clone() }),
         body_range: SpanV1 { start: 0, end: 0 },
         status: CallableAnalysisStatusV1::Complete,
         exits_unreachable: false,
@@ -1700,9 +1621,7 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
             binding_read_safety: Some(CallableBindingReadSafetyV1::ProvenInitialized),
             binding_read: Some(1),
             binding_write: None,
-            denotation: Some(SemanticDenotationV1::TypeForm {
-                ty: ArtifactTypeId(0),
-            }),
+            denotation: Some(SemanticDenotationV1::TypeForm { ty: ArtifactTypeId(0) }),
             call_specialization: Some(CallableCallSpecializationV1 {
                 callable: callable.clone(),
                 bindings: vec![],
@@ -1720,9 +1639,7 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
                 current: TypeKnowledgeV1::Unknown {
                     reason: UnknownReasonV1::NoTypeEvidence,
                 },
-                denotation: Some(SemanticDenotationV1::TypeForm {
-                    ty: ArtifactTypeId(0),
-                }),
+                denotation: Some(SemanticDenotationV1::TypeForm { ty: ArtifactTypeId(0) }),
                 consistency: CallableBindingConsistencyV1::Unconstrained,
                 causal_invalidity: CallableCausalInvalidityV1::Clean,
                 mutable: false,
@@ -1750,9 +1667,7 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
                 version: 0,
                 explanation: None,
                 authority: CallableBindingAuthorityV1::BodyLocalSource {
-                    site_owner: CallableAnalysisSourceOwnerV1::Callable {
-                        callable: callable.clone(),
-                    },
+                    site_owner: CallableAnalysisSourceOwnerV1::Callable { callable: callable.clone() },
                     site_local: 1,
                     declaration_range: SpanV1 { start: 1, end: 2 },
                 },
@@ -1809,11 +1724,9 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
     let bytes = encode_artifact(&image).expect("encode P7 callable binding authority");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
-        .expect("validate P7 callable binding authority");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 callable binding authority");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(payload, &limits, &mut import_budget)
-        .expect("reconstruct P7 callable binding authority");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 callable binding authority");
 
     assert_eq!(imported.callable_binding_authority.callable_len(), 1);
     assert_eq!(imported.callable_binding_authority.binding_len(), 2);
@@ -1897,11 +1810,9 @@ fn p7_static_constant_reconstructs_typed_authority_without_checked_body_fabricat
     let bytes = encode_artifact(&image).expect("encode P7 static constant authority");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
-        .expect("validate P7 static constant authority");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 static constant authority");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(payload, &limits, &mut import_budget)
-        .expect("reconstruct P7 static constant authority");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 static constant authority");
 
     assert_eq!(imported.static_constant_authority.len(), 1);
     assert_eq!(
@@ -1927,9 +1838,7 @@ fn p7_static_definition_preserves_source_free_operational_program_without_ast() 
     };
     let signature = StaticDefinitionSignatureV1 {
         parameters: vec![],
-        result_domain: StaticValueDomainV1::ValueType {
-            ty: ArtifactTypeId(0),
-        },
+        result_domain: StaticValueDomainV1::ValueType { ty: ArtifactTypeId(0) },
         generic_signature: None,
     };
     image.semantic_world.static_definitions.push(StaticDefinitionRecordV1 {
@@ -1948,9 +1857,7 @@ fn p7_static_definition_preserves_source_free_operational_program_without_ast() 
             kinded_parameters: vec![],
             static_constant_reads: vec![],
             dependencies: vec![],
-            result: StaticValueDomainV1::ValueType {
-                ty: ArtifactTypeId(0),
-            },
+            result: StaticValueDomainV1::ValueType { ty: ArtifactTypeId(0) },
             input_fingerprint: 0x57A71C,
             module_binding_fingerprint: None,
         },
@@ -1960,26 +1867,18 @@ fn p7_static_definition_preserves_source_free_operational_program_without_ast() 
     let bytes = encode_artifact(&image).expect("encode P7 static definition authority");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
-        .expect("validate P7 static definition authority");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 static definition authority");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(payload, &limits, &mut import_budget)
-        .expect("reconstruct P7 static definition authority");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("reconstruct P7 static definition authority");
 
     assert_eq!(imported.static_definition_authority.len(), 1);
     let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
     ]));
     let id = phalcom_semantic::identity::DeclarationId::new(module, "CachedDefinition".into());
-    let definition = imported
-        .static_definition_authority
-        .get(&id)
-        .expect("relocated static definition");
+    let definition = imported.static_definition_authority.get(&id).expect("relocated static definition");
     assert_eq!(definition.canonical_program.owner.0, id);
-    assert!(matches!(
-        definition.canonical_program.root,
-        ImportedOperationalNode::Constant(_)
-    ));
+    assert!(matches!(definition.canonical_program.root, ImportedOperationalNode::Constant(_)));
     assert_eq!(
         imported.query_products.len(),
         0,
@@ -2005,9 +1904,7 @@ fn p7_static_application_denotation_binds_to_imported_checked_application_identi
     };
     let static_signature = StaticDefinitionSignatureV1 {
         parameters: vec![],
-        result_domain: StaticValueDomainV1::ValueType {
-            ty: ArtifactTypeId(0),
-        },
+        result_domain: StaticValueDomainV1::ValueType { ty: ArtifactTypeId(0) },
         generic_signature: None,
     };
     image.semantic_world.static_definitions.push(StaticDefinitionRecordV1 {
@@ -2032,9 +1929,7 @@ fn p7_static_application_denotation_binds_to_imported_checked_application_identi
             kinded_parameters: vec![],
             static_constant_reads: vec![],
             dependencies: vec![],
-            result: StaticValueDomainV1::ValueType {
-                ty: ArtifactTypeId(0),
-            },
+            result: StaticValueDomainV1::ValueType { ty: ArtifactTypeId(0) },
             input_fingerprint: 0xA770,
             module_binding_fingerprint: None,
         },
@@ -2079,9 +1974,7 @@ fn p7_static_application_denotation_binds_to_imported_checked_application_identi
     });
     image.semantic_world.callable_analyses.push(CallableAnalysisRecordV1 {
         callable: callable.clone(),
-        body_source_owner: Some(CallableAnalysisSourceOwnerV1::Callable {
-            callable: callable.clone(),
-        }),
+        body_source_owner: Some(CallableAnalysisSourceOwnerV1::Callable { callable: callable.clone() }),
         body_range: SpanV1 { start: 0, end: 1 },
         status: CallableAnalysisStatusV1::Complete,
         exits_unreachable: false,
@@ -2146,11 +2039,9 @@ fn p7_static_application_denotation_binds_to_imported_checked_application_identi
     let bytes = encode_artifact(&image).expect("encode P7 static-application denotation");
     let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget)
-        .expect("validate P7 static-application denotation");
+    let payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate P7 static-application denotation");
     let mut import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let imported = import_compiler_image(payload, &limits, &mut import_budget)
-        .expect("import P7 static-application denotation");
+    let imported = import_compiler_image(payload, &limits, &mut import_budget).expect("import P7 static-application denotation");
 
     let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
@@ -2160,20 +2051,14 @@ fn p7_static_application_denotation_binds_to_imported_checked_application_identi
         phalcom_common::selector::Selector::decode("run"),
         phalcom_semantic::identity::DispatchSide::Instance,
     );
-    let binding = imported
-        .callable_binding_authority
-        .binding(&callable_id, 0)
-        .expect("imported callable binding");
+    let binding = imported.callable_binding_authority.binding(&callable_id, 0).expect("imported callable binding");
     let phalcom_semantic::types::denotation::SemanticDenotation::StaticApplication(application) =
         binding.state.denotation.as_ref().expect("static application denotation")
     else {
         panic!("binding denotation must remain a checked static application");
     };
     assert_eq!(application.ordinal, 0);
-    assert_eq!(
-        application.body.0,
-        phalcom_semantic::identity::DeclarationId::new(module, "StaticBody".into())
-    );
+    assert_eq!(application.body.0, phalcom_semantic::identity::DeclarationId::new(module, "StaticBody".into()));
 }
 
 #[test]
@@ -2263,13 +2148,13 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
         constructor_result_type: ArtifactTypeId(1),
         shape_contributions: vec![],
     });
-    image.query_image.supported_roots.push(QueryRootEntryV3 {
+    image.query_image.supported_roots.push(QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
             kind: PortableQueryKindV1::DataDeclaration,
             owner: PortableQueryOwnerKeyV1::Declaration(stable_cached_owner),
         },
-        product: QueryProductRefV2 {
-            kind: PortableQueryKindV1::DataDeclaration,
+        product: QueryProductRefV3 {
+            family: PortableQueryProductFamilyV1::DataDeclaration,
             row_index: 0,
         },
         input_fingerprint: 0,
@@ -2323,7 +2208,11 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
         "receipt registration must not allocate IDs"
     );
     assert!(Arc::ptr_eq(&imported.project_universe, &imported.external_world.linked().universe));
-    assert_eq!(imported.query_products.len(), 1, "package-owned DataDeclaration root must survive portable fingerprint validation");
+    assert_eq!(
+        imported.query_products.len(),
+        1,
+        "package-owned DataDeclaration root must survive portable fingerprint validation"
+    );
     let package_owner = phalcom_semantic::identity::DeclarationId::new(
         phalcom_modules::ModuleId::resolved(project_id, phalcom_modules::ModulePath::root()),
         "CachedPackagePayload".into(),
@@ -2383,9 +2272,7 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
     std::fs::write(second_target_root.join("src/package.ph"), "").expect("write second package source");
 
     let mut relocated_projects = phalcom_modules::ProjectUniverse::new();
-    relocated_projects
-        .load_root(unrelated_manifest)
-        .expect("allocate unrelated graph node first");
+    relocated_projects.load_root(unrelated_manifest).expect("allocate unrelated graph node first");
     let relocated_project_id = relocated_projects
         .load_root(second_target_root.join("project.toml"))
         .expect("load relocated resolver target");
@@ -2396,15 +2283,9 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
             .expect("make relocated trusted resolver receipt");
     let relocated_resolver = Resolver(relocated_receipt);
     let mut relocated_import_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let relocated = import_compiler_image_bytes_with_project_catalog(
-        &bytes,
-        None,
-        &limits,
-        &mut relocated_import_budget,
-        &relocated_projects,
-        &relocated_resolver,
-    )
-    .expect("portable query fingerprint must survive package project-ID relocation");
+    let relocated =
+        import_compiler_image_bytes_with_project_catalog(&bytes, None, &limits, &mut relocated_import_budget, &relocated_projects, &relocated_resolver)
+            .expect("portable query fingerprint must survive package project-ID relocation");
     assert_eq!(relocated.query_products.len(), 1);
 
     let relocated_owner = phalcom_semantic::identity::DeclarationId::new(

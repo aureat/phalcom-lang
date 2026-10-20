@@ -7,10 +7,7 @@
 
 use super::identity::StableOwnerCatalog;
 use super::static_import::ImportedStaticValueGraph;
-use super::static_program_import::{
-    ImportedCanonicalStaticProgram, reconstruct_canonical_static_program,
-    reconstruct_static_definition_signature,
-};
+use super::static_program_import::{ImportedCanonicalStaticProgram, reconstruct_canonical_static_program, reconstruct_static_definition_signature};
 use super::type_import::ReconstructedTypeGraph;
 use crate::diagnostic::SemanticDiagnostic;
 use crate::identity::DeclarationId;
@@ -76,61 +73,24 @@ pub(crate) fn reconstruct_static_definitions(
 
     for record in records {
         let id = owners.declaration(&record.id)?;
-        let signature =
-            reconstruct_static_definition_signature(&record.signature, types, owners, allocations)?;
+        let signature = reconstruct_static_definition_signature(&record.signature, types, owners, allocations)?;
         if signature
             .generic_signature
             .as_ref()
             .is_some_and(|signature| signature.owner != TypeParameterOwner::Declaration(id.clone()))
         {
-            return Err(invalid(
-                "static definition generic signature belongs to a different declaration",
-            ));
+            return Err(invalid("static definition generic signature belongs to a different declaration"));
         }
 
-        let canonical_program = reconstruct_canonical_static_program(
-            &record.canonical_program,
-            static_values,
-            types,
-            owners,
-            limits,
-            allocations,
-        )?;
+        let canonical_program = reconstruct_canonical_static_program(&record.canonical_program, static_values, types, owners, limits, allocations)?;
         if canonical_program.owner.0 != id {
-            return Err(invalid(
-                "canonical static program owner disagrees with its definition record",
-            ));
+            return Err(invalid("canonical static program owner disagrees with its definition record"));
         }
 
         let alias_owner = record
             .alias_info
             .as_ref()
-            .map(|alias| -> Result<DeclarationId, ArtifactError> {
-                if alias != &record.id {
-                    return Err(invalid(
-                        "static definition alias link belongs to another declaration",
-                    ));
-                }
-                let structural_alias = contracts
-                    .type_aliases
-                    .iter()
-                    .find(|row| row.declaration == *alias)
-                    .ok_or_else(|| {
-                        invalid(
-                            "static definition alias link has no structural type-alias row",
-                        )
-                    })?;
-                if !contracts
-                    .declaration_shells
-                    .iter()
-                    .any(|shell| shell.declaration == *alias)
-                {
-                    return Err(invalid(
-                        "static definition alias link has no structural declaration shell",
-                    ));
-                }
-                owners.declaration(alias)
-            })
+            .map(|alias| import_alias_owner(&record.id, alias, contracts, owners))
             .transpose()?;
 
         let mut diagnostics = allocations
@@ -148,34 +108,133 @@ pub(crate) fn reconstruct_static_definitions(
         definitions.push(ImportedStaticDefinition {
             id,
             signature,
-            source_range: super::diagnostic_import::range(
-                &record.source,
-                "static definition source",
-            )?,
+            source_range: super::diagnostic_import::range(&record.source, "static definition source")?,
             alias_owner,
-            canonical_program: allocations
-                .arc(canonical_program)
-                .map_err(ArtifactError::Allocation)?,
-            diagnostics: allocations
-                .arc_slice(diagnostics)
-                .map_err(ArtifactError::Allocation)?,
+            canonical_program: allocations.arc(canonical_program).map_err(ArtifactError::Allocation)?,
+            diagnostics: allocations.arc_slice(diagnostics).map_err(ArtifactError::Allocation)?,
         });
     }
 
     definitions.sort_by(|left, right| left.id.cmp(&right.id));
     if definitions.windows(2).any(|pair| pair[0].id == pair[1].id) {
-        return Err(invalid(
-            "static definition owner is duplicated after stable-owner relocation",
-        ));
+        return Err(invalid("static definition owner is duplicated after stable-owner relocation"));
     }
 
     Ok(ImportedStaticDefinitionAuthority {
-        definitions: allocations
-            .boxed_slice(definitions)
-            .map_err(ArtifactError::Allocation)?,
+        definitions: allocations.boxed_slice(definitions).map_err(ArtifactError::Allocation)?,
     })
+}
+
+fn import_alias_owner(
+    definition: &phalcom_type_meta::identity::StableDeclarationRef,
+    alias: &phalcom_type_meta::identity::StableDeclarationRef,
+    contracts: &StructuralPrimaryContractsV2,
+    owners: &StableOwnerCatalog<'_>,
+) -> Result<DeclarationId, ArtifactError> {
+    if alias != definition {
+        return Err(invalid("static definition alias link belongs to another declaration"));
+    }
+    if !contracts.type_aliases.iter().any(|row| &row.declaration == alias) {
+        return Err(invalid("static definition alias link has no structural type-alias row"));
+    }
+    owners.declaration(alias)
 }
 
 fn invalid(message: impl Into<String>) -> ArtifactError {
     ValidationError::ReferentialIntegrity(message.into()).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{StableOwnerCatalog, import_alias_owner};
+    use crate::identity::{DeclarationId, ModuleId};
+    use phalcom_compiler_artifact::module_world::{ArtifactModuleId, ModuleKindV1, ModuleV2, ModuleWorldV2, SpanV1};
+    use phalcom_compiler_artifact::semantic::aggregates::{StructuralPrimaryContractsV2, TypeAliasRecordV1};
+    use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, ArtifactTypeId};
+    use phalcom_modules::ProjectUniverse;
+    use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
+
+    #[test]
+    fn static_definition_alias_uses_alias_row_without_nominal_shell() {
+        let module = StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: Box::new(["core".into()]),
+        };
+        let owner = StableDeclarationRef {
+            module: module.clone(),
+            path: Box::new(["Alias".into()]),
+        };
+        let module_world = ModuleWorldV2 {
+            entry: ArtifactModuleId(0),
+            initialization_order: vec![ArtifactModuleId(0)],
+            modules: vec![ModuleV2 {
+                identity: module,
+                path: vec!["core".into()],
+                kind: ModuleKindV1::Module,
+                declarations: vec![],
+                exports: vec![],
+                imports: vec![],
+                exposed_children: vec![],
+                metadata: vec![],
+                linked_exports: vec![],
+                globals: vec![],
+                import_bindings: vec![],
+                linked_reads: vec![],
+                runtime_dependencies: vec![],
+                references: vec![],
+                runtime_edges: vec![],
+                topology_parent: None,
+                topology_children: vec![],
+                interface_fingerprint: 0,
+                linked_interface_fingerprint: 0,
+                dependency_fingerprint: 0,
+            }],
+            semantic_rows: vec![],
+            external_projects: vec![],
+            topology_fingerprint: 0,
+        };
+        let projects = ProjectUniverse::new();
+        let owners = StableOwnerCatalog::new(&module_world, &projects).unwrap();
+        let empty_contracts = || StructuralPrimaryContractsV2 {
+            declaration_shells: vec![],
+            intrinsic_static_domains: vec![],
+            intrinsic_type_owners: vec![],
+            hierarchy_edges: vec![],
+            type_aliases: vec![],
+            generic_signatures: vec![],
+            data_contracts: vec![],
+            enum_contracts: vec![],
+            variant_contracts: vec![],
+        };
+        let mut contracts = empty_contracts();
+        contracts.type_aliases.push(TypeAliasRecordV1 {
+            declaration: owner.clone(),
+            kind: ArtifactKindId(0),
+            kind_shape: "Type".into(),
+            generic_signature: None,
+            form: ArtifactTypeId(0),
+            structural_form: "Unit".into(),
+            dependencies: vec![],
+            source_span: SpanV1 { start: 0, end: 0 },
+        });
+
+        assert!(contracts.declaration_shells.is_empty());
+        let expected = DeclarationId::new(
+            ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+                phalcom_modules::identity::ModuleComponent::from_identifier("core").unwrap(),
+            ])),
+            "Alias".into(),
+        );
+        assert_eq!(import_alias_owner(&owner, &owner, &contracts, &owners).unwrap(), expected);
+        assert!(import_alias_owner(&owner, &owner, &empty_contracts(), &owners).is_err());
+
+        let foreign = StableDeclarationRef {
+            module: owner.module.clone(),
+            path: Box::new(["Other".into()]),
+        };
+        assert!(import_alias_owner(&owner, &foreign, &contracts, &owners).is_err());
+    }
 }

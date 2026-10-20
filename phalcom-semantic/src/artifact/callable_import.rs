@@ -11,25 +11,17 @@ use super::type_import::ReconstructedTypeGraph;
 use crate::declaration_type::DeclaredTypeFact;
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{CallableId, CallableParameterId, DispatchSide};
-use crate::impls::{
-    CallableDefinitionBodyProvenance, CallableDefinitionOrigin, CoveringImplSubstitution, EffectiveCallableDefinition, InherentBodyContext,
-};
-use crate::signature::{
-    CallableParameterSemantic, CallableSemanticSignature, ParameterContract, RestValueContract, ReturnContractValidation,
-};
-use crate::types::evidence::{
-    DynamicReason, EvidenceOrigin, EvidenceSet, EvidenceStatus, TypeKnowledge, UnknownReason,
-};
+use crate::impls::{CallableDefinitionBodyProvenance, CallableDefinitionOrigin, CoveringImplSubstitution, EffectiveCallableDefinition, InherentBodyContext};
+use crate::signature::{CallableParameterSemantic, CallableSemanticSignature, ParameterContract, RestValueContract, ReturnContractValidation};
+use crate::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceSet, EvidenceStatus, TypeKnowledge, UnknownReason};
 use phalcom_ast::ast::RestMode;
 use phalcom_common::modifier::ImplementationKind;
 use phalcom_common::range::SourceRange;
-use phalcom_compiler_artifact::semantic::aggregates::{
-    DeclaredTypeFactV1, DynamicReasonV1, UnknownReasonV1,
-};
+use phalcom_compiler_artifact::semantic::aggregates::{DeclaredTypeFactV1, DynamicReasonV1, UnknownReasonV1};
 use phalcom_compiler_artifact::semantic::world::{
-    CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableSignatureRecordV1, EffectSpecV1,
-    EvidenceOriginV1, EvidenceStatusV1, ImplementationKindV1, ParameterContractV1,
-    RaisesSpecV1, RestValueContractV1, ReturnContractValidationV1, ReturnFlowV1, TypeExprSpecV1, TypeKnowledgeV1,
+    CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableSignatureRecordV1, EffectSpecV1, EvidenceOriginV1,
+    EvidenceStatusV1, ImplementationKindV1, ParameterContractV1, RaisesSpecV1, RestValueContractV1, ReturnContractValidationV1, ReturnFlowV1, TypeExprSpecV1,
+    TypeKnowledgeV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
@@ -98,12 +90,11 @@ pub(crate) fn reconstruct_callable_authority(
             return Err(referential("callable definition has no canonical callable-signature authority"));
         };
         if canonical_signature.as_ref() != &definition.signature {
-            return Err(referential("callable definition signature disagrees with canonical callable-signature authority"));
+            return Err(referential(
+                "callable definition signature disagrees with canonical callable-signature authority",
+            ));
         }
-        definitions.push((
-            definition.callable.clone(),
-            allocations.arc(definition).map_err(ArtifactError::Allocation)?,
-        ));
+        definitions.push((definition.callable.clone(), allocations.arc(definition).map_err(ArtifactError::Allocation)?));
     }
     definitions.sort_by(|left, right| left.0.cmp(&right.0));
     if definitions.windows(2).any(|pair| &pair[0].0 == &pair[1].0) {
@@ -125,12 +116,8 @@ fn reconstruct_callable_definition(
     let callable = owners.callable(&record.callable)?;
     let origin = match &record.origin {
         CallableDefinitionOriginV1::PrimaryDeclaration => CallableDefinitionOrigin::PrimaryDeclaration,
-        CallableDefinitionOriginV1::InherentImpl { impl_id } => {
-            CallableDefinitionOrigin::InherentImpl(owners.implementation(impl_id)?)
-        }
-        CallableDefinitionOriginV1::ConformanceWitness { impl_id } => {
-            CallableDefinitionOrigin::ConformanceWitness(owners.implementation(impl_id)?)
-        }
+        CallableDefinitionOriginV1::InherentImpl { impl_id } => CallableDefinitionOrigin::InherentImpl(owners.implementation(impl_id)?),
+        CallableDefinitionOriginV1::ConformanceWitness { impl_id } => CallableDefinitionOrigin::ConformanceWitness(owners.implementation(impl_id)?),
     };
     let signature = reconstruct_callable_signature(&record.signature, types, owners, allocations)?;
     if signature.callable != callable {
@@ -138,11 +125,9 @@ fn reconstruct_callable_definition(
     }
     let body_provenance = match &record.body_provenance {
         CallableDefinitionBodyProvenanceV1::SourceBody => CallableDefinitionBodyProvenance::SourceBody,
-        CallableDefinitionBodyProvenanceV1::GeneratedDelegation { target_field } => {
-            CallableDefinitionBodyProvenance::GeneratedDelegation {
-                target_field: allocations.boxed_str(target_field).map_err(ArtifactError::Allocation)?,
-            }
-        }
+        CallableDefinitionBodyProvenanceV1::GeneratedDelegation { target_field } => CallableDefinitionBodyProvenance::GeneratedDelegation {
+            target_field: allocations.boxed_str(target_field).map_err(ArtifactError::Allocation)?,
+        },
     };
     let inherent_body_context = record
         .inherent_body_context
@@ -157,9 +142,7 @@ fn reconstruct_callable_definition(
                 .covering
                 .as_ref()
                 .map(|covering| -> Result<_, ArtifactError> {
-                    let mut impl_to_decl = allocations
-                        .vector(covering.impl_to_decl.len())
-                        .map_err(ArtifactError::Allocation)?;
+                    let mut impl_to_decl = allocations.vector(covering.impl_to_decl.len()).map_err(ArtifactError::Allocation)?;
                     for binding in &covering.impl_to_decl {
                         let implementation = types
                             .parameters
@@ -173,9 +156,7 @@ fn reconstruct_callable_definition(
                             .ok_or_else(|| referential("covering impl substitution references an absent declaration parameter"))?;
                         impl_to_decl.push((implementation, declaration));
                     }
-                    let mut decl_to_impl = allocations
-                        .vector(covering.decl_to_impl.len())
-                        .map_err(ArtifactError::Allocation)?;
+                    let mut decl_to_impl = allocations.vector(covering.decl_to_impl.len()).map_err(ArtifactError::Allocation)?;
                     for binding in &covering.decl_to_impl {
                         let implementation = types
                             .parameters
@@ -190,16 +171,10 @@ fn reconstruct_callable_definition(
                         decl_to_impl.push((declaration, implementation));
                     }
                     Ok(CoveringImplSubstitution {
-                        impl_to_decl: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(
-                            impl_to_decl,
-                            allocations,
-                        )
-                        .map_err(frozen_ordered_map_error)?,
-                        decl_to_impl: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(
-                            decl_to_impl,
-                            allocations,
-                        )
-                        .map_err(frozen_ordered_map_error)?,
+                        impl_to_decl: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(impl_to_decl, allocations)
+                            .map_err(frozen_ordered_map_error)?,
+                        decl_to_impl: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(decl_to_impl, allocations)
+                            .map_err(frozen_ordered_map_error)?,
                     })
                 })
                 .transpose()?;
@@ -211,8 +186,7 @@ fn reconstruct_callable_definition(
             })
         })
         .transpose()?;
-    let source_member_index = usize::try_from(record.source_member_index)
-        .map_err(|_| referential("callable source member index exceeds address space"))?;
+    let source_member_index = usize::try_from(record.source_member_index).map_err(|_| referential("callable source member index exceeds address space"))?;
     Ok(EffectiveCallableDefinition {
         callable,
         origin,
@@ -226,9 +200,7 @@ fn reconstruct_callable_definition(
 fn frozen_ordered_map_error(error: crate::ordered_map::FrozenOrderedMapError) -> ArtifactError {
     match error {
         crate::ordered_map::FrozenOrderedMapError::Allocation(error) => ArtifactError::Allocation(error),
-        crate::ordered_map::FrozenOrderedMapError::DuplicateKey => {
-            referential("covering impl substitution contains duplicate parameter identities")
-        }
+        crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("covering impl substitution contains duplicate parameter identities"),
     }
 }
 
@@ -269,22 +241,16 @@ pub(crate) fn reconstruct_callable_signature(
         let declared_type = reconstruct_declared_type(&parameter.declared_type, types, owners, allocations)?;
         let rest = rest_mode(parameter.rest_mode, true)?;
         let contract = match &parameter.contract {
-            ParameterContractV1::Fixed { fact } => {
-                ParameterContract::Fixed(reconstruct_declared_type(fact, types, owners, allocations)?)
-            }
+            ParameterContractV1::Fixed { fact } => ParameterContract::Fixed(reconstruct_declared_type(fact, types, owners, allocations)?),
             ParameterContractV1::Rest { mode, contract } => {
                 let mode = rest_mode(*mode, false)?;
                 ParameterContract::Rest {
                     mode,
                     contract: match contract {
                         RestValueContractV1::Unconstrained => RestValueContract::Unconstrained,
-                        RestValueContractV1::Element { fact } => {
-                            RestValueContract::Element(reconstruct_declared_type(fact, types, owners, allocations)?)
-                        }
+                        RestValueContractV1::Element { fact } => RestValueContract::Element(reconstruct_declared_type(fact, types, owners, allocations)?),
                         RestValueContractV1::Lane { ty } => RestValueContract::Lane(mapped_type(*ty, types)?),
-                        RestValueContractV1::Invalid { reason } => {
-                            RestValueContract::Invalid(import_unknown_reason(reason, allocations)?)
-                        }
+                        RestValueContractV1::Invalid { reason } => RestValueContract::Invalid(import_unknown_reason(reason, allocations)?),
                     },
                 }
             }
@@ -303,11 +269,7 @@ pub(crate) fn reconstruct_callable_signature(
             rest,
             declared_type,
             contract,
-            source: parameter
-                .source
-                .as_ref()
-                .map(|source| import_source_span(source, owners))
-                .transpose()?,
+            source: parameter.source.as_ref().map(|source| import_source_span(source, owners)).transpose()?,
         });
     }
 
@@ -328,11 +290,7 @@ pub(crate) fn reconstruct_callable_signature(
         .as_ref()
         .map(|knowledge| import_type_knowledge(knowledge, types, allocations))
         .transpose()?;
-    let source = record
-        .source
-        .as_ref()
-        .map(|source| import_source_span(source, owners))
-        .transpose()?;
+    let source = record.source.as_ref().map(|source| import_source_span(source, owners)).transpose()?;
     let implementation = match &record.implementation {
         ImplementationKindV1::Phalcom => ImplementationKind::Phalcom,
         ImplementationKindV1::Native => ImplementationKind::Native,
@@ -405,27 +363,15 @@ pub(crate) fn import_type_knowledge(
                 EvidenceOriginV1::ContextualDerivation => EvidenceOrigin::ContextualDerivation,
                 EvidenceOriginV1::PatternDecomposition => EvidenceOrigin::PatternDecomposition,
             };
-            let mut ranges = child
-                .vector::<SourceRange>(provenance.ranges.len())
-                .map_err(ArtifactError::Allocation)?;
+            let mut ranges = child.vector::<SourceRange>(provenance.ranges.len()).map_err(ArtifactError::Allocation)?;
             for range in &provenance.ranges {
                 ranges.push(source_range(range.start, range.end, "callable evidence")?);
             }
-            let mut descriptions = child
-                .vector::<String>(provenance.descriptions.len())
-                .map_err(ArtifactError::Allocation)?;
+            let mut descriptions = child.vector::<String>(provenance.descriptions.len()).map_err(ArtifactError::Allocation)?;
             for description in &provenance.descriptions {
                 descriptions.push(child.string(description).map_err(ArtifactError::Allocation)?);
             }
-            TypeKnowledge::known_with_evidence(
-                ty,
-                status,
-                origin,
-                EvidenceSet {
-                    ranges,
-                    descriptions,
-                },
-            )
+            TypeKnowledge::known_with_evidence(ty, status, origin, EvidenceSet { ranges, descriptions })
         }
         TypeKnowledgeV1::Unknown { reason } => TypeKnowledge::Unknown(import_unknown_reason(reason, &mut child)?),
         TypeKnowledgeV1::Dynamic { reason } => TypeKnowledge::Dynamic(import_dynamic_reason(reason)),
@@ -480,9 +426,7 @@ pub(crate) fn import_unknown_reason(reason: &UnknownReasonV1, allocations: &mut 
         UnknownReasonV1::NoTypeEvidence => UnknownReason::NoTypeEvidence,
         UnknownReasonV1::MissingInitializer => UnknownReason::MissingInitializer,
         UnknownReasonV1::UnannotatedDeclaration => UnknownReason::UnannotatedDeclaration,
-        UnknownReasonV1::UnresolvedName { name } => {
-            UnknownReason::UnresolvedName(allocations.boxed_str(name).map_err(ArtifactError::Allocation)?)
-        }
+        UnknownReasonV1::UnresolvedName { name } => UnknownReason::UnresolvedName(allocations.boxed_str(name).map_err(ArtifactError::Allocation)?),
         UnknownReasonV1::DynamicMessageSend => UnknownReason::DynamicMessageSend,
         UnknownReasonV1::OpaqueNative => UnknownReason::OpaqueNative,
         UnknownReasonV1::RecursiveFixpoint => UnknownReason::RecursiveFixpoint,
@@ -511,9 +455,9 @@ fn import_return_flow(flow: &ReturnFlowV1) -> Result<phalcom_native_meta::Return
     Ok(match flow {
         ReturnFlowV1::Value => phalcom_native_meta::ReturnFlowSpec::Value,
         ReturnFlowV1::Receiver => phalcom_native_meta::ReturnFlowSpec::Receiver,
-        ReturnFlowV1::Argument { index } => phalcom_native_meta::ReturnFlowSpec::Argument(
-            usize::try_from(*index).map_err(|_| referential("callable return flow index exceeds address space"))?,
-        ),
+        ReturnFlowV1::Argument { index } => {
+            phalcom_native_meta::ReturnFlowSpec::Argument(usize::try_from(*index).map_err(|_| referential("callable return flow index exceeds address space"))?)
+        }
         ReturnFlowV1::Never => phalcom_native_meta::ReturnFlowSpec::Never,
         ReturnFlowV1::Unknown => phalcom_native_meta::ReturnFlowSpec::Unknown,
     })
@@ -602,11 +546,7 @@ fn matches_native_raises(spec: phalcom_native_meta::RaisesSpec, wire: &RaisesSpe
     match (spec, wire) {
         (phalcom_native_meta::RaisesSpec::Unknown, RaisesSpecV1::Unknown) => true,
         (phalcom_native_meta::RaisesSpec::Known(types), RaisesSpecV1::Known { types: wire_types }) => {
-            types.len() == wire_types.len()
-                && types
-                    .iter()
-                    .zip(wire_types.iter())
-                    .all(|(ty, wire)| matches_native_type_expr(ty, wire))
+            types.len() == wire_types.len() && types.iter().zip(wire_types.iter()).all(|(ty, wire)| matches_native_type_expr(ty, wire))
         }
         _ => false,
     }
@@ -617,22 +557,15 @@ fn matches_return_flow(spec: phalcom_native_meta::ReturnFlowSpec, wire: &ReturnF
     match (spec, wire) {
         (ReturnFlowSpec::Value, ReturnFlowV1::Value) => true,
         (ReturnFlowSpec::Receiver, ReturnFlowV1::Receiver) => true,
-        (ReturnFlowSpec::Argument(index), ReturnFlowV1::Argument { index: wire_index }) => {
-            u64::try_from(index).ok() == Some(*wire_index)
-        }
+        (ReturnFlowSpec::Argument(index), ReturnFlowV1::Argument { index: wire_index }) => u64::try_from(index).ok() == Some(*wire_index),
         (ReturnFlowSpec::Never, ReturnFlowV1::Never) => true,
         (ReturnFlowSpec::Unknown, ReturnFlowV1::Unknown) => true,
         _ => false,
     }
 }
 
-fn matches_native_lifecycle(
-    spec: phalcom_native_meta::NativeLifecycleSpec,
-    wire: &phalcom_compiler_artifact::semantic::world::NativeLifecycleSpecV1,
-) -> bool {
-    spec.since == wire.since.as_deref()
-        && spec.deprecated_since == wire.deprecated_since.as_deref()
-        && spec.replacement == wire.replacement.as_deref()
+fn matches_native_lifecycle(spec: phalcom_native_meta::NativeLifecycleSpec, wire: &phalcom_compiler_artifact::semantic::world::NativeLifecycleSpecV1) -> bool {
+    spec.since == wire.since.as_deref() && spec.deprecated_since == wire.deprecated_since.as_deref() && spec.replacement == wire.replacement.as_deref()
 }
 
 fn import_native_metadata(
@@ -686,10 +619,7 @@ fn import_native_metadata(
             return Err(referential("non-catalog raised-type metadata requires an owned representation"));
         }
     };
-    if signature.lifecycle.since.is_some()
-        || signature.lifecycle.deprecated_since.is_some()
-        || signature.lifecycle.replacement.is_some()
-    {
+    if signature.lifecycle.since.is_some() || signature.lifecycle.deprecated_since.is_some() || signature.lifecycle.replacement.is_some() {
         return Err(referential("non-catalog native lifecycle metadata requires an owned representation"));
     }
     Ok((

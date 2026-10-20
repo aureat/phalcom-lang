@@ -1,9 +1,55 @@
-use super::{SemanticPublicationFailpoint, SemanticUpdateFailure, SemanticWorkspaceSession};
+use super::{SemanticPublicationFailpoint, SemanticUpdateFailure, SemanticWorkspaceSession, retire_blocked_declaration_shell_queries};
+use crate::db::{InputFingerprint, ProductFingerprint, QueryKey, QueryState, QueryValue, SemanticDb};
+use crate::diagnostic::SemanticSourceSpan;
+use crate::identity::{DeclarationId, WorkspaceId};
 use crate::snapshot::SemanticSnapshot;
-use phalcom_modules::identity::{SourceId, SourceLocation};
+use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
+use crate::types::id::{KindId, TypeId};
+use phalcom_modules::identity::{ModuleId, SourceId, SourceLocation};
 use phalcom_modules::session::{SourceRevision, WorkspaceSourceBatchMutation};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[test]
+fn blocked_nominal_shell_is_retired_while_alias_shell_remains_authoritative() {
+    let module = ModuleId::universe_root();
+    let nominal_owner = DeclarationId::new(module.clone(), "Nominal".into());
+    let alias_owner = DeclarationId::new(module.clone(), "Alias".into());
+    let nominal_key = QueryKey::DeclarationShell(nominal_owner.clone());
+    let alias_key = QueryKey::DeclarationShell(alias_owner.clone());
+    let mut db = SemanticDb::with_workspace(WorkspaceId::from_raw(153));
+    let revision = db.revision();
+    let mut type_aliases = TypeAliasTable::new();
+    type_aliases.insert(TypeAliasInfo {
+        declaration: alias_owner.clone(),
+        kind: KindId::TYPE,
+        kind_shape: "Type".into(),
+        generic_signature: None,
+        form: TypeId::DUMMY,
+        structural_form: "Type".into(),
+        dependencies: Box::new([]),
+        source: SemanticSourceSpan::new(module, phalcom_common::range::SourceRange::default()),
+    });
+
+    for (key, fingerprint) in [(&nominal_key, 1), (&alias_key, 2)] {
+        db.set_state(
+            key.clone(),
+            QueryState::Ready {
+                revision,
+                validated_revision: revision,
+                input_fingerprint: InputFingerprint(fingerprint),
+                product_fingerprint: ProductFingerprint(fingerprint),
+                value: QueryValue::from_bytes([]),
+            },
+        );
+    }
+
+    retire_blocked_declaration_shell_queries(&mut db, &BTreeSet::from([nominal_owner, alias_owner]), &type_aliases);
+
+    assert!(db.query_state(&nominal_key).is_none());
+    assert!(db.query_state(&alias_key).is_some());
+}
 
 fn set_overlay(path: &str, revision: u64, text: &str) -> WorkspaceSourceBatchMutation {
     let display_path = PathBuf::from(path);
