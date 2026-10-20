@@ -18,7 +18,8 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 | Plan | Status | Completion | Verification | Objective |
 |---|---|---|---|---|
 | `ARTF001.C1.P1` | COMPLETE | IMPLEMENTED | BASELINED | Repository setup, current-main baseline, P7 and main persistence census, authority reconciliation matrix, and P2 handoff. |
-| `ARTF001.C1.P2.R3` | IN_PROGRESS | PARTIAL | UNVERIFIED | Complete P2 before P3: native declaration/alias/hierarchy reconstruction, native witness/derived-conformance, source-free static program execution, complete native `CallableAnalysis`, module execution authority, dependency-closed query import, immutable imported canonical generation, ordinary `SemanticWorkspaceSession` publication without source access, whole-load allocation N/N-1/retry, and hostile matrix certification. Supersedes P2.R2. |
+| `ARTF001.C1.P2.R3` | SUPERSEDED | PARTIAL | UNVERIFIED | Complete P2 before P3: native declaration/alias/hierarchy reconstruction, native witness/derived-conformance, source-free static program execution, complete native `CallableAnalysis`, module execution authority, dependency-closed query import, immutable imported canonical generation, ordinary `SemanticWorkspaceSession` publication without source access, whole-load allocation N/N-1/retry, and hostile matrix certification. Superseded by P2.R4. |
+| `ARTF001.C1.P2.R4` | IN_PROGRESS | NOT_STARTED | UNVERIFIED | Final P2 closure: current-schema P7 recovery, ordinary session publication, consumer consolidation, and certification. Supersedes P2.R3. |
 | `ARTF001.C1.P3` | PROPOSED | NOT_STARTED | UNVERIFIED | Do not start until P2 publishes reconstructed current-main semantic/query authority through the ordinary session. |
 | `ARTF001.C1.P4` | PROPOSED | NOT_STARTED | UNVERIFIED | Core canonical artifact compiler and source-free compilation path parity. |
 | `ARTF001.C1.P5` | PROPOSED | NOT_STARTED | UNVERIFIED | Universe source cutover from `phalcom-core/core/universe` to `packages/universe` retaining `ProjectIdentity::Universe`. |
@@ -26,12 +27,12 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 
 ## Current continuation state (2026-10-20)
 
-- Code revision: `cf6de4bfff06b81994c66592cd3da8756e961e6c` on `feat/artifact-universe-consolidation`; P7 `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94` is the in-progress `MERGE_HEAD`. The merge has not been committed.
-- Active plan: `ARTF001.C1.P2.R3`, superseding `ARTF001.C1.P2.R2`.
-- Current status: P2.R3 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. The P7 `CanonicalUniverseFormalImage` build/load path and current V2/V4/V3 schema adapters are restored. Structural V2 carries independent static-domain and intrinsic type-owner row families; the exporter includes shell-less owners, and both semantic import paths resolve the rows through `StableOwnerCatalog`. The declaration shell's three-case owner is a redundant runtime-owner witness, validated against its binding. The Pack-owner consultation found that Pack already has semantic application and structural type/value representations; no direct Pack type-member operations are specified, so the existing runtime-owner/type-owner separation remains. Compile checks pass for `phalcom-compiler-artifact`, `phalcom-semantic`, and `phalcom-core`; semantic reports 68 warnings and core reports one unused-method warning. No tests were run. The artifact transaction still stages `ImportedCompilerImage` without publishing a complete imported snapshot or ordinary `SemanticWorkspaceSession`.
-- Next action: continue the remaining T1 schema matrix and P2 native session-publication work that does not depend on a new direct Pack projection contract. Any such contract requires a Level 2 semantic/specification amendment first. P3 remains proposed until P2 meets its acceptance contract.
-- Branch rule: Continue on `feat/artifact-universe-consolidation`; preserve the staged merge and existing user changes. No commit or push has been made in this continuation.
-- Record-update scope: This update supersedes the obsolete loader-blocker status, records the restored P7 image lifecycle and current compile evidence, and adds the accepted independent-projection schema amendment. It does not close T1 or P2.
+- Code revision: `2d3cf9ce2ca66d5da45aae8b26b765179efbddc1` on `feat/artifact-universe-consolidation`; P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
+- Active plan: `ARTF001.C1.P2.R4`, superseding `ARTF001.C1.P2.R3`.
+- Current status: P2.R4 active (`IN_PROGRESS / NOT_STARTED / UNVERIFIED`). P2 remains open; P3 is blocked pending R4 acceptance. The merge-period test prohibition is ended: R4 requires executed test evidence for every behavioral acceptance gate.
+- Pack consultation: closed. Pack remains runtime owner and semantic application form without an eighth type-member owner.
+- Next action: execute R4 tasks T0 through T9 in order to achieve final P2 closure and certification.
+- Branch rule: Continue on `feat/artifact-universe-consolidation`.
 
 ## Starting Baseline & Provenance
 
@@ -246,21 +247,21 @@ The separate `ArtifactImportTransaction::stage_payload_with_digest` path still r
 
 ## Active plan
 
-`ARTF001.C1.P2.R3` — Complete P2 Before P3: Native Semantic Authority, Query Closure, Imported Session Publication, and Certification. Supersedes P2.R2. Tasks T0–T9 define the complete path to P2 closure before unblocking P3.
+`ARTF001.C1.P2.R4` — Final P2 Closure: Current-Schema P7 Recovery, Ordinary Session Publication, Consumer Consolidation, and Certification. Supersedes P2.R3. Tasks T0–T9 define the complete path to P2 closure before unblocking P3.
 
-### P2.R3 task ledger
+### P2.R4 task ledger
 
 | Task | Objective | Status |
 |---|---|---|
-| T0 | Re-pin, normalize records, and establish executable completeness contracts (`manifest.rs`) | COMPLETE |
-| T1 | Close current-main wire/schema authority (declarations, aliases, module execution, callable phase evidence) | IN_PROGRESS |
-| T2 | Materialize declarations, aliases, hierarchy, and structural compiler authority | PENDING |
-| T3 | Complete native witness, evidence, derived-conformance, and static authority | PENDING |
-| T4 | Complete native `CallableAnalysis` | PENDING |
-| T5 | Complete module execution authority and derived snapshot products | PENDING |
-| T6 | Complete dependency-bearing query import | PENDING |
-| T7 | Build the imported canonical generation and ordinary session publication | PENDING |
-| T8 | Whole-load allocation, hostile input, rollback, and source-free certification | PENDING |
-| T9 | P2 closure, checkpoint update, and P3 handoff | PENDING |
+| R4.T0 | Re-pin, normalize lifecycle records, terminate no-test period | COMPLETE |
+| R4.T1 | Correct compatibility identity and port test/census infrastructure to current schemas | IN_PROGRESS |
+| R4.T2 | Recover complete V2/V4/V3 build/load lifecycle and close current semantic authority | PENDING |
+| R4.T3 | Re-establish exact allocation, rollback, failpoint, and retry certification | PENDING |
+| R4.T4 | Finish dependency-bearing current query profile and fail-closed required-root completeness | PENDING |
+| R4.T5 | Certify ordinary imported SemanticWorkspaceSession with overlays/invalidation/rollback | PENDING |
+| R4.T6 | Consolidate duplicate consumer/import staging architecture and stabilize APIs | PENDING |
+| R4.T7 | Fresh-process source denial, compiler parity, diagnostics parity, real package/runtime functionality | PENDING |
+| R4.T8 | Broad regression, schema freeze, manifest closure, cleanup | PENDING |
+| R4.T9 | P2 acceptance, walkthrough, checkpoint closure, P3 handoff | PENDING |
 
-The original `ARTF001.C1.P2-handoff.md` and `ARTF001.C1.P2-walkthrough.md` are historical records for the first closure attempt. The current operational handoff is `ARTF001-C1-P2-R2-handoff.md`.
+The previous plans P2.R1, P2.R2, and P2.R3 remain preserved as implementation history. The current active plan is `ARTF001.C1.P2.R4`.
