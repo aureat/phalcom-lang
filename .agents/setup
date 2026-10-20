@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+log_step() {
+	local label="$1"
+	shift
+	local started=$SECONDS
+	printf '\n[%s] %s\n' "$(date --iso-8601=seconds)" "$label"
+	"$@"
+	printf '[%s] completed in %ss: %s\n' "$(date --iso-8601=seconds)" "$((SECONDS - started))" "$label"
+}
+
+install_system_dependencies() {
+	local package
+	local missing=()
+	for package in ca-certificates curl build-essential pkg-config libssl-dev xvfb; do
+		if ! dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null | grep -qx installed; then
+			missing+=("$package")
+		fi
+	done
+
+	if ((${#missing[@]} == 0)); then
+		printf 'Required Debian packages are already installed.\n'
+		return
+	fi
+
+	local -a apt=(apt-get)
+	if ((EUID != 0)); then
+		apt=(sudo apt-get)
+	fi
+	"${apt[@]}" update
+	"${apt[@]}" install -y --no-install-recommends "${missing[@]}"
+}
+
+install_rust_toolchain() {
+	local toolchain
+	toolchain="$(awk -F '\"' '/^[[:space:]]*channel[[:space:]]*=/ { print $2; exit }' rust-toolchain.toml)"
+	if [[ -z "$toolchain" ]]; then
+		printf 'Could not read the pinned Rust channel from rust-toolchain.toml.\n' >&2
+		return 1
+	fi
+
+	export PATH="$HOME/.cargo/bin:$PATH"
+	if ! command -v rustup >/dev/null 2>&1; then
+		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+	fi
+	rustup toolchain install "$toolchain" --profile minimal \
+		--component rustfmt \
+		--component clippy \
+		--component miri \
+		--component rustc-codegen-cranelift-preview
+}
+
+node_archive_arch() {
+	case "$(uname -m)" in
+		x86_64) printf 'x64\n' ;;
+		aarch64) printf 'arm64\n' ;;
+		*) printf 'Unsupported Node.js orb architecture: %s\n' "$(uname -m)" >&2; return 1 ;;
+	esac
+}
+
+install_node_22() {
+	local install_root="$HOME/.local/share/phalcom"
+	local node_link="$install_root/node-22"
+	local node_arch
+	node_arch="$(node_archive_arch)"
+
+	if [[ ! -x "$node_link/bin/node" ]] || [[ "$($node_link/bin/node --version)" != v22.* ]]; then
+		local version archive temp_dir
+		version="$(curl -fsSL https://nodejs.org/dist/index.tab | awk 'NR > 1 && !found && $1 ~ /^v22\./ { print $1; found = 1 }')"
+		if [[ -z "$version" ]]; then
+			printf 'Could not find a Node.js 22 release.\n' >&2
+			return 1
+		fi
+		archive="node-${version}-linux-${node_arch}.tar.xz"
+		mkdir -p "$install_root"
+		temp_dir="$(mktemp -d "$install_root/.node-install.XXXXXX")"
+		trap 'rm -rf -- "$temp_dir"' RETURN
+		curl -fsSLo "$temp_dir/$archive" "https://nodejs.org/dist/$version/$archive"
+		curl -fsSLo "$temp_dir/SHASUMS256.txt" "https://nodejs.org/dist/$version/SHASUMS256.txt"
+		(
+			cd "$temp_dir"
+			grep -F "  $archive" SHASUMS256.txt | sha256sum --check --status
+		)
+		tar -xJf "$temp_dir/$archive" -C "$install_root"
+		ln -sfn "$install_root/node-${version}-linux-${node_arch}" "$node_link"
+		rm -rf -- "$temp_dir"
+		trap - RETURN
+	fi
+
+	export PATH="$node_link/bin:$PATH"
+	[[ "$(node --version)" == v22.* ]]
+}
+
+persist_login_path() {
+	local profile="$HOME/.bash_profile"
+	local marker='# Phalcom orb toolchains'
+	if ! grep -Fqx "$marker" "$profile" 2>/dev/null; then
+		{
+			printf '\n%s\n' "$marker"
+			printf '%s\n' 'export PATH="$HOME/.cargo/bin:$HOME/.local/share/phalcom/node-22/bin:$PATH"'
+		} >> "$profile"
+	fi
+}
+
+install_extension_dependencies() {
+	if [[ ! -f tools/vsphalcom/package-lock.json ]]; then
+		printf 'Expected tools/vsphalcom/package-lock.json was not found.\n' >&2
+		return 1
+	fi
+	local marker='tools/vsphalcom/node_modules/.amp-setup-fingerprint'
+	local fingerprint
+	fingerprint="$({ sha256sum tools/vsphalcom/package.json tools/vsphalcom/package-lock.json; node --version; npm --version; } | sha256sum | awk '{ print $1 }')"
+	if [[ -f "$marker" ]] && [[ "$(cat "$marker")" == "$fingerprint" ]] && npm ls --prefix tools/vsphalcom --all --silent >/dev/null 2>&1; then
+		printf 'Locked extension dependencies already match the package files and Node.js/npm versions.\n'
+		return
+	fi
+	npm ci --prefix tools/vsphalcom --no-audit --no-fund
+	printf '%s\n' "$fingerprint" > "$marker"
+}
+
+fetch_rust_dependencies() {
+	PATH="$HOME/.cargo/bin:$PATH" cargo fetch --locked
+}
+
+log_step 'Install missing system build and extension-test packages' install_system_dependencies
+log_step 'Install the pinned Rust toolchain and CI components' install_rust_toolchain
+log_step 'Install Node.js 22 for the VS Code extension toolchain' install_node_22
+log_step 'Persist Rust and Node.js paths for future login shells' persist_login_path
+log_step 'Install locked VS Code extension dependencies' install_extension_dependencies
+log_step 'Fetch locked Rust workspace dependencies' fetch_rust_dependencies

@@ -1,5 +1,6 @@
 # Build artifacts
 /target
+/.amp/portals/*
 
 # OS / editor cruft
 .DS_Store
