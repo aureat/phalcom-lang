@@ -2,6 +2,7 @@
 extern crate core;
 
 pub mod adt;
+pub mod artifact;
 pub mod bytecode;
 pub mod callable;
 pub mod chunk;

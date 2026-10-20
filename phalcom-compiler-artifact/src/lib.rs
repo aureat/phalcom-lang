@@ -4,6 +4,7 @@ pub mod codec;
 pub mod container;
 pub mod digest;
 pub mod error;
+pub mod executable;
 pub mod header;
 pub mod identity;
 pub mod limits;
