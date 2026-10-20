@@ -3911,11 +3911,31 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        // Publish declaration type metadata as explicit DB products before any
-        // formal surface, signature, or body query can consume it.
+        // Ensure declaration query authority before any formal surface,
+        // signature, or body query can consume it. An image-backed session
+        // consumes the exact frozen shell product rather than reconstructing
+        // query input from the final aggregate declaration table: the aggregate
+        // may have gained later projections while the immutable query root
+        // correctly retains its original checked input fingerprint.
         let mut published_shells = BTreeSet::new();
         for (declaration, info) in self.base_declarations.iter() {
             published_shells.insert(declaration.clone());
+            let key = QueryKey::DeclarationShell(declaration.clone());
+            if self.db.is_canonical_query(&key) {
+                let Some(shell) = self.db.product(&key).and_then(|product| product.as_declaration_shell()) else {
+                    return Err(QueryOutcome::Failed(format!(
+                        "canonical declaration shell {declaration:?} has no typed DeclarationShell product"
+                    )));
+                };
+                if shell.declaration() != declaration {
+                    return Err(QueryOutcome::Failed(format!(
+                        "canonical declaration shell key {declaration:?} disagrees with product owner {:?}",
+                        shell.declaration()
+                    )));
+                }
+                self.db.metrics().record_hit();
+                continue;
+            }
             match query_declaration_shell(&mut self.db, Arc::new(TypeDeclarationShell::Nominal(info.clone()))) {
                 QueryOutcome::Ready(_) => {}
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -3925,6 +3945,22 @@ impl SemanticWorkspaceSession {
             }
         }
         for (declaration, _) in self.base_declarations.iter() {
+            let key = QueryKey::DeclarationSurface(declaration.clone());
+            if self.db.is_canonical_query(&key) {
+                let Some(surface) = self.db.product(&key).and_then(|product| product.as_declaration_surface()) else {
+                    return Err(QueryOutcome::Failed(format!(
+                        "canonical declaration surface {declaration:?} has no typed DeclarationSurface product"
+                    )));
+                };
+                if surface.id.as_ref() != Some(declaration) {
+                    return Err(QueryOutcome::Failed(format!(
+                        "canonical declaration surface key {declaration:?} disagrees with product owner {:?}",
+                        surface.id
+                    )));
+                }
+                self.db.metrics().record_hit();
+                continue;
+            }
             let surface = self
                 .base_dispatch
                 .surface(declaration)
@@ -3939,6 +3975,23 @@ impl SemanticWorkspaceSession {
             }
         }
         for (_, signature) in self.base_callable_signatures.iter() {
+            let key = QueryKey::CallableSignature(signature.callable.clone());
+            if self.db.is_canonical_query(&key) {
+                let Some(canonical_signature) = self.db.product(&key).and_then(|product| product.as_callable_signature()) else {
+                    return Err(QueryOutcome::Failed(format!(
+                        "canonical callable signature {:?} has no typed CallableSignature product",
+                        signature.callable
+                    )));
+                };
+                if canonical_signature.callable != signature.callable {
+                    return Err(QueryOutcome::Failed(format!(
+                        "canonical callable signature key {:?} disagrees with product owner {:?}",
+                        signature.callable, canonical_signature.callable
+                    )));
+                }
+                self.db.metrics().record_hit();
+                continue;
+            }
             match query_bootstrap_callable_signature(&mut self.db, Arc::new(signature.clone())) {
                 QueryOutcome::Ready(_) => {}
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
