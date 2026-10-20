@@ -52,7 +52,7 @@ jobs:
           cargo +nightly-2026-07-10
           --config 'build.rustc-wrapper=""'
           test -p phalcom-semantic --test semantic
-          ordinary_image_session_keeps_universe_external_across_replacement
+          ordinary_image_session
           -- --nocapture
       - name: Image-backed rollback and fail-closed unit gates
         run: >-

@@ -309,6 +309,172 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
 }
 
 #[test]
+fn ordinary_image_session_local_edit_reuses_unrelated_local_queries_and_retains_universe_identity() {
+    use phalcom_modules::{
+        ModuleId, ModulePath, ProjectIdentity, SourceId, SourceLocation, SourceRevision, SyntheticProjectIdAllocator,
+        WorkspaceSourceBatchMutation,
+    };
+    use phalcom_semantic::{SemanticWorkspaceSession, db::QueryKey, identity::WorkspaceId};
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+
+    let image = canonical_universe_formal_image().unwrap();
+    let mut ids = SyntheticProjectIdAllocator;
+    let edited = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+    let stable = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+    assert!(matches!(edited.project, ProjectIdentity::Synthetic(_)));
+    assert!(matches!(stable.project, ProjectIdentity::Synthetic(_)));
+
+    let mut session = SemanticWorkspaceSession::from_image(WorkspaceId::from_raw(736), image.clone());
+    let initial = session
+        .apply_module_mutations([
+            WorkspaceSourceBatchMutation::SetOverlayForModule {
+                module: edited.clone(),
+                source: SourceLocation {
+                    source_id: SourceId("image-edited.ph".into()),
+                    display_path: "/tmp/image-edited.ph".into(),
+                },
+                text: Arc::from("from universe.collections import Array\nconst edited: Int = 1\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlayForModule {
+                module: stable.clone(),
+                source: SourceLocation {
+                    source_id: SourceId("image-stable.ph".into()),
+                    display_path: "/tmp/image-stable.ph".into(),
+                },
+                text: Arc::from("const stable: Int = 7\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .expect("initial local image overlay should publish");
+    assert!(!initial.snapshot.has_errors(), "{:?}", initial.snapshot.diagnostics);
+
+    let stable_key = QueryKey::ModuleStaticBindings(stable.clone());
+    let edited_key = QueryKey::ModuleStaticBindings(edited.clone());
+    let stable_product = session.db().product(&stable_key).expect("stable module query product").clone();
+    assert!(session.db().local_query_state(&stable_key).is_some());
+    assert!(session.db().local_query_state(&edited_key).is_some());
+
+    let initial_universe_targets = session
+        .module_session()
+        .resolved_imports()
+        .iter()
+        .filter(|((importer, written), _)| importer == &edited && written.starts_with("universe"))
+        .map(|(_, target)| target.clone())
+        .collect::<Vec<_>>();
+    assert!(!initial_universe_targets.is_empty(), "local import must resolve through external Universe authority");
+    assert!(
+        initial_universe_targets.iter().all(|target| target.project == ProjectIdentity::Universe),
+        "Universe imports must retain the builtin project identity"
+    );
+
+    let canonical_keys = image.query_image().entries().map(|(key, _)| key.clone()).collect::<BTreeSet<_>>();
+    let update = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlayForModule {
+            module: edited.clone(),
+            source: SourceLocation {
+                source_id: SourceId("image-edited.ph".into()),
+                display_path: "/tmp/image-edited.ph".into(),
+            },
+            text: Arc::from("from universe.random import Xoshiro256PlusPlus\nlet edited = Xoshiro256PlusPlus.seed(42).nextU64\n"),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
+        .expect("edited local image overlay should republish");
+    assert!(!update.snapshot.has_errors(), "{:?}", update.snapshot.diagnostics);
+    assert!(update.stats.query_products_recomputed > 0, "the edited local source must recompute query products");
+    assert!(
+        update.stats.semantic_structure_shards_reused > 0,
+        "the unrelated local module structure must be reused"
+    );
+    assert!(!update.invalidated.is_empty(), "the edited local source must invalidate prior local query state");
+    assert!(!update.recomputed.is_empty(), "the edited local source must recompute local query state");
+    assert!(
+        update.invalidated.iter().all(|key| !canonical_keys.contains(key)),
+        "canonical query roots must never enter the local invalidation set"
+    );
+    assert!(
+        update.recomputed.iter().all(|key| !canonical_keys.contains(key)),
+        "canonical query roots must never enter the local recomputation set"
+    );
+    assert!(!update.invalidated.iter().any(|key| key == &stable_key), "unrelated local query must not be invalidated");
+    assert!(!update.recomputed.iter().any(|key| key == &stable_key), "unrelated local query must not be recomputed");
+    let retained_stable = session.db().product(&stable_key).expect("stable module query product remains published");
+    assert!(Arc::ptr_eq(retained_stable, &stable_product), "unrelated local query product must retain Arc identity");
+
+    let edited_universe_targets = session
+        .module_session()
+        .resolved_imports()
+        .iter()
+        .filter(|((importer, written), _)| importer == &edited && written.starts_with("universe"))
+        .map(|(_, target)| target.clone())
+        .collect::<Vec<_>>();
+    assert!(!edited_universe_targets.is_empty(), "edited import must still resolve through external Universe authority");
+    assert!(
+        edited_universe_targets.iter().all(|target| target.project == ProjectIdentity::Universe),
+        "editing a local module must not rebase imported Universe identities"
+    );
+    assert!(session.module_session().sources().keys().all(|module| !module.project.is_universe()));
+}
+
+#[test]
+fn ordinary_image_sessions_share_canonical_products_but_isolate_workspace_state() {
+    use phalcom_modules::{ModuleId, ModulePath, SourceId, SourceLocation, SourceRevision, SyntheticProjectIdAllocator, WorkspaceSourceBatchMutation};
+    use phalcom_semantic::{SemanticWorkspaceSession, db::QueryKey, identity::WorkspaceId};
+    use std::sync::Arc;
+
+    let image = canonical_universe_formal_image().unwrap();
+    let mut left = SemanticWorkspaceSession::from_image(WorkspaceId::from_raw(737), image.clone());
+    let right = SemanticWorkspaceSession::from_image(WorkspaceId::from_raw(738), image.clone());
+    assert_ne!(left.workspace(), right.workspace());
+    assert!(Arc::ptr_eq(left.last_snapshot().expect("left initial snapshot"), image.snapshot()));
+    assert!(Arc::ptr_eq(right.last_snapshot().expect("right initial snapshot"), image.snapshot()));
+
+    let canonical_key = image.query_image().entries().next().expect("canonical query root").0.clone();
+    let left_canonical = left.db().product(&canonical_key).expect("left canonical product").clone();
+    let right_canonical = right.db().product(&canonical_key).expect("right canonical product").clone();
+    assert!(Arc::ptr_eq(&left_canonical, &right_canonical), "sessions must share the exact immutable canonical product");
+    assert!(left.db().local_query_state(&canonical_key).is_none());
+    assert!(right.db().local_query_state(&canonical_key).is_none());
+
+    let mut ids = SyntheticProjectIdAllocator;
+    let local = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+    let published = left
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlayForModule {
+            module: local.clone(),
+            source: SourceLocation {
+                source_id: SourceId("image-session-left.ph".into()),
+                display_path: "/tmp/image-session-left.ph".into(),
+            },
+            text: Arc::from("const sessionValue: Int = 1\n"),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        }])
+        .expect("left session local source should publish");
+    assert!(!published.snapshot.has_errors(), "{:?}", published.snapshot.diagnostics);
+
+    let local_key = QueryKey::ModuleStaticBindings(local.clone());
+    assert!(left.db().local_query_state(&local_key).is_some(), "left session must publish ordinary local query state");
+    assert!(left.db().product(&local_key).is_some(), "left session must own the local query product");
+    assert!(right.db().local_query_state(&local_key).is_none(), "right session must not observe left local query state");
+    assert!(right.db().product(&local_key).is_none(), "right session must not observe left local query products");
+    assert!(right.module_session().sources().is_empty(), "right session source ownership must remain isolated");
+    assert!(Arc::ptr_eq(right.last_snapshot().expect("right snapshot remains canonical"), image.snapshot()));
+    assert!(right.last_known_good_snapshot().is_some_and(|snapshot| Arc::ptr_eq(snapshot, image.snapshot())));
+
+    let left_after = left.db().product(&canonical_key).expect("left canonical product remains readable");
+    let right_after = right.db().product(&canonical_key).expect("right canonical product remains readable");
+    assert!(Arc::ptr_eq(left_after, &left_canonical));
+    assert!(Arc::ptr_eq(right_after, &right_canonical));
+    assert!(Arc::ptr_eq(left_after, right_after));
+    assert!(left.db().local_query_state(&canonical_key).is_none());
+    assert!(right.db().local_query_state(&canonical_key).is_none());
+}
+
+#[test]
 fn from_image_zero_canonical_entries_copied_cardinality_guard() {
     let image = canonical_universe_formal_image().unwrap();
     let recorder = ::telos_observability::PerfRecorder::new(::telos_observability::PerfRunMetadata::new(
