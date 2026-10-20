@@ -5542,6 +5542,11 @@ pub fn export_query_image_v4(
     use phalcom_compiler_artifact::query::{DependencyEvidenceEntryV4, PortableQueryKeyV1, QueryImageV4, QueryRootEntryV4};
     use std::collections::{BTreeMap, BTreeSet};
 
+    let required_source_root_count = queries
+        .entries()
+        .filter(|(key, _)| canonical_query_root_requirement(key.kind()) == CanonicalQueryRootRequirement::Required)
+        .count();
+
     let mut candidates = Vec::new();
     for (key, entry) in queries.entries() {
         let requirement = canonical_query_root_requirement(key.kind());
@@ -5556,7 +5561,7 @@ pub fn export_query_image_v4(
         }
         let owner = match portable_query_owner_v4(key) {
             Ok(owner) => owner,
-            Err(error) if requirement == CanonicalQueryRootRequirement::Optional => continue,
+            Err(_) if requirement == CanonicalQueryRootRequirement::Optional => continue,
             Err(error) => return Err(error),
         };
         let portable_key = PortableQueryKeyV1 {
@@ -5565,7 +5570,7 @@ pub fn export_query_image_v4(
         };
         let product = match portable_query_product_ref(&portable_key, entry.product.as_ref(), modules, world) {
             Ok(product) => product,
-            Err(error) if requirement == CanonicalQueryRootRequirement::Optional => continue,
+            Err(_) if requirement == CanonicalQueryRootRequirement::Optional => continue,
             Err(error) => return Err(error),
         };
         candidates.push((key.clone(), portable_key, product, entry, requirement));
@@ -5668,6 +5673,16 @@ pub fn export_query_image_v4(
         });
     }
     supported_roots.sort_unstable_by(|left, right| left.key.cmp(&right.key));
+
+    let exported_required_root_count = supported_roots
+        .iter()
+        .filter(|root| canonical_query_root_requirement(query_kind_from_portable(root.key.kind)) == CanonicalQueryRootRequirement::Required)
+        .count();
+    if exported_required_root_count != required_source_root_count {
+        return Err(referential(format!(
+            "required canonical query root count changed during export: source={required_source_root_count}, exported={exported_required_root_count}"
+        )));
+    }
 
     let mut image = QueryImageV4 {
         supported_roots,

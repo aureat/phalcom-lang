@@ -289,15 +289,6 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
 
     // 3. QUERY_IMAGE
-    let required_source_root_count = view
-        .formal
-        .query_image()
-        .entries()
-        .filter(|(key, _)| {
-            phalcom_semantic::artifact::query_policy::canonical_query_root_requirement(key.kind())
-                == phalcom_semantic::artifact::query_policy::CanonicalQueryRootRequirement::Required
-        })
-        .count();
     let query_image = export_query_image_v4(
         view.formal.query_image(),
         view.formal.dependency_fingerprints(),
@@ -306,20 +297,6 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
         limits,
     )
     .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
-    let exported_required_root_count = query_image
-        .supported_roots
-        .iter()
-        .filter(|root| {
-            phalcom_semantic::artifact::query_policy::canonical_query_root_requirement(
-                phalcom_semantic::artifact::query_policy::query_kind_from_portable(root.key.kind),
-            ) == phalcom_semantic::artifact::query_policy::CanonicalQueryRootRequirement::Required
-        })
-        .count();
-    if exported_required_root_count != required_source_root_count {
-        return Err(TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(format!(
-            "required canonical query root count changed during export: source={required_source_root_count}, exported={exported_required_root_count}"
-        ))));
-    }
     let query_image_bytes = query_image
         .encode()
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
