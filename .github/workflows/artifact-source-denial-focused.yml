@@ -1,0 +1,49 @@
+name: Artifact source-denial focused verification
+
+on:
+  push:
+    branches:
+      - feat/artifact-universe-consolidation
+    paths:
+      - ".github/workflows/artifact-source-denial-focused.yml"
+      - "phalcom-core/src/modules/canonical_artifact.rs"
+      - "phalcom-core/src/modules/compile.rs"
+      - "phalcom-core/tests/core/modules/canonical_artifact.rs"
+      - "phalcom-modules/src/builtin.rs"
+      - "phalcom-modules/src/session.rs"
+      - "phalcom-semantic/src/canonical_image.rs"
+      - "phalcom-semantic/src/session.rs"
+      - "phalcom-semantic/src/prelude.rs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artifact-source-denial-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: ""
+  RUSTC_WRAPPER: ""
+
+jobs:
+  fresh-process:
+    name: Fresh-process artifact source denial
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Loaded artifact compiles with canonical source access denied
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          test -p phalcom-core --test core
+          modules_canonical_artifact::fresh_process_source_denied_artifact_compilation
+          -- --exact --nocapture
