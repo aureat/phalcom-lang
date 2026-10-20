@@ -5444,16 +5444,16 @@ pub fn export_query_image(
 
 fn query_root_dependency_closure_failure(
     dependencies: &[crate::db::DependencyEdge],
-    dependency_fingerprints: &crate::canonical_image::CanonicalDependencyFingerprints,
+    mut current_fingerprint: impl FnMut(&crate::db::QueryKey) -> Option<crate::db::ProductFingerprint>,
 ) -> Option<String> {
-    use crate::artifact::query_policy::{CanonicalQueryPersistence, canonical_query_persistence};
+    use crate::artifact::query_policy::query_root_is_reusable;
 
     for edge in dependencies {
         let dependency = &edge.dependency;
-        let Some(current_fingerprint) = dependency_fingerprints.get(dependency) else {
+        let Some(current_fingerprint) = current_fingerprint(dependency) else {
             return Some(format!("dependency {dependency:?} has no current live fingerprint"));
         };
-        if *current_fingerprint != edge.observed_fingerprint {
+        if current_fingerprint != edge.observed_fingerprint {
             return Some(format!(
                 "dependency {dependency:?} observed fingerprint {:?} does not match current live fingerprint {:?}",
                 edge.observed_fingerprint, current_fingerprint
@@ -5462,15 +5462,24 @@ fn query_root_dependency_closure_failure(
         if portable_query_owner_v4(dependency).is_err() {
             return Some(format!("dependency {dependency:?} has no representable portable owner"));
         }
-        if !matches!(canonical_query_persistence(dependency.kind()), CanonicalQueryPersistence::EligibleStructural)
-            && dependency.kind() != crate::db::QueryKind::HierarchyEdge
-        {
+        if !query_root_is_reusable(dependency.kind()) && dependency.kind() != crate::db::QueryKind::HierarchyEdge {
             return Some(format!(
-                "dependency {dependency:?} is outside canonical structural dependency policy"
+                "dependency {dependency:?} is outside canonical artifact dependency policy"
             ));
         }
     }
     None
+}
+
+fn export_dependency_fingerprint(
+    queries: &crate::canonical_image::CanonicalSemanticQueryImage,
+    dependency_fingerprints: &crate::canonical_image::CanonicalDependencyFingerprints,
+    key: &crate::db::QueryKey,
+) -> Option<crate::db::ProductFingerprint> {
+    queries
+        .entry(key)
+        .map(|entry| entry.product_fingerprint)
+        .or_else(|| dependency_fingerprints.get(key).copied())
 }
 
 #[cfg(test)]
@@ -5495,7 +5504,7 @@ mod query_export_required_root_tests {
 
         let missing = CanonicalDependencyFingerprints::Source(BTreeMap::new());
         assert!(
-            query_root_dependency_closure_failure(std::slice::from_ref(&edge), &missing)
+            query_root_dependency_closure_failure(std::slice::from_ref(&edge), |key| missing.get(key).copied())
                 .expect("missing dependency evidence must fail")
                 .contains("no current live fingerprint")
         );
@@ -5505,13 +5514,16 @@ mod query_export_required_root_tests {
             ProductFingerprint::new(0x52),
         )]));
         assert!(
-            query_root_dependency_closure_failure(std::slice::from_ref(&edge), &stale)
+            query_root_dependency_closure_failure(std::slice::from_ref(&edge), |key| stale.get(key).copied())
                 .expect("stale dependency evidence must fail")
                 .contains("does not match current live fingerprint")
         );
 
         let current = CanonicalDependencyFingerprints::Source(BTreeMap::from([(dependency, observed)]));
-        assert_eq!(query_root_dependency_closure_failure(std::slice::from_ref(&edge), &current), None);
+        assert_eq!(
+            query_root_dependency_closure_failure(std::slice::from_ref(&edge), |key| current.get(key).copied()),
+            None
+        );
     }
 }
 
@@ -5525,8 +5537,7 @@ pub fn export_query_image_v4(
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::query::QueryImageV4, ArtifactError> {
     use crate::artifact::query_policy::{
-        CanonicalQueryPersistence, CanonicalQueryRootRequirement, canonical_query_persistence, canonical_query_root_requirement,
-        portable_query_kind, query_root_is_reusable,
+        CanonicalQueryRootRequirement, canonical_query_root_requirement, portable_query_kind, query_root_is_reusable,
     };
     use phalcom_compiler_artifact::query::{DependencyEvidenceEntryV4, PortableQueryKeyV1, QueryImageV4, QueryRootEntryV4};
     use std::collections::{BTreeMap, BTreeSet};
@@ -5570,7 +5581,9 @@ pub fn export_query_image_v4(
             let Some((_, _, _, entry, requirement)) = candidates.iter().find(|(candidate, ..)| candidate == key) else {
                 return Err(referential("retained canonical query root was lost from the export candidate set"));
             };
-            if let Some(reason) = query_root_dependency_closure_failure(&entry.dependencies, dependency_fingerprints) {
+            if let Some(reason) = query_root_dependency_closure_failure(&entry.dependencies, |dependency| {
+                export_dependency_fingerprint(queries, dependency_fingerprints, dependency)
+            }) {
                 match requirement {
                     CanonicalQueryRootRequirement::Required => {
                         return Err(referential(format!("required canonical query root {key:?} is not export-closed: {reason}")));
@@ -5595,7 +5608,7 @@ pub fn export_query_image_v4(
         }
         for edge in entry.dependencies.iter() {
             let dependency = &edge.dependency;
-            let Some(fingerprint) = dependency_fingerprints.get(dependency) else {
+            let Some(fingerprint) = export_dependency_fingerprint(queries, dependency_fingerprints, dependency) else {
                 return Err(referential("retained query dependency has no current live fingerprint"));
             };
             let portable = PortableQueryKeyV1 {

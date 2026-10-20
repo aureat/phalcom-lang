@@ -160,14 +160,13 @@ pub const fn query_root_is_reusable(kind: QueryKind) -> bool {
 
 /// Explicit current compiler-image root profile required by ARTF001.C1.P2.R4.T4.
 ///
-/// These families are read by ordinary linking/semantic compilation from the
-/// imported image. No current family is optional: if a root exists in the
-/// source-canonical DB for one of these kinds, silently dropping it would
-/// weaken the compiler base.
+/// Required families are consumed as exact immutable query roots by ordinary
+/// image-backed semantic compilation. Optional families may still contribute
+/// reconstructible dependency evidence, but their root identity is not required
+/// when that identity depends on source-only provenance.
 pub const fn canonical_query_root_requirement(kind: QueryKind) -> CanonicalQueryRootRequirement {
     match kind {
-        QueryKind::UnlinkedInterface
-        | QueryKind::ResolvedImports
+        QueryKind::ResolvedImports
         | QueryKind::LinkedInterface
         | QueryKind::DeclarationShell
         | QueryKind::CallableDefinition
@@ -182,6 +181,7 @@ pub const fn canonical_query_root_requirement(kind: QueryKind) -> CanonicalQuery
         | QueryKind::TypeMemberDeclaration
         | QueryKind::ModuleStaticBindingCatalog
         | QueryKind::ModuleStaticBindings => CanonicalQueryRootRequirement::Required,
+        QueryKind::UnlinkedInterface => CanonicalQueryRootRequirement::Optional,
         _ => CanonicalQueryRootRequirement::NotReusable,
     }
 }
@@ -299,7 +299,6 @@ mod tests {
             .filter(|kind| canonical_query_root_requirement(*kind) == CanonicalQueryRootRequirement::Required)
             .collect::<BTreeSet<_>>();
         let expected = BTreeSet::from([
-            QueryKind::UnlinkedInterface,
             QueryKind::ResolvedImports,
             QueryKind::LinkedInterface,
             QueryKind::DeclarationShell,
@@ -317,6 +316,10 @@ mod tests {
             QueryKind::ModuleStaticBindings,
         ]);
         assert_eq!(required, expected);
+        assert_eq!(
+            canonical_query_root_requirement(QueryKind::UnlinkedInterface),
+            CanonicalQueryRootRequirement::Optional
+        );
         for kind in QueryKind::ALL {
             let requirement = canonical_query_root_requirement(kind);
             assert_eq!(
