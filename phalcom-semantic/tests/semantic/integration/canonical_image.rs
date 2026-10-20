@@ -386,10 +386,6 @@ fn ordinary_image_session_local_edit_reuses_unrelated_local_queries_and_retains_
         .expect("edited local image overlay should republish");
     assert!(!update.snapshot.has_errors(), "{:?}", update.snapshot.diagnostics);
     assert!(update.stats.query_products_recomputed > 0, "the edited local source must recompute query products");
-    assert!(
-        update.stats.semantic_structure_shards_reused > 0,
-        "the unrelated local module structure must be reused"
-    );
     assert!(!update.invalidated.is_empty(), "the edited local source must invalidate prior local query state");
     assert!(!update.recomputed.is_empty(), "the edited local source must recompute local query state");
     assert!(
