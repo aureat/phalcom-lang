@@ -60,9 +60,9 @@ fn match_product_model_shape() {
                 source: dummy_range,
             }]),
             proof: BranchProofEnvironment {
-                bindings: BTreeMap::new(),
+                bindings: BTreeMap::new().into(),
                 equalities: Box::new([]),
-                local_bindings: BTreeMap::new(),
+                local_bindings: BTreeMap::new().into(),
                 local_equalities: Box::new([]),
             },
             usefulness: PatternUsefulness::Useful,

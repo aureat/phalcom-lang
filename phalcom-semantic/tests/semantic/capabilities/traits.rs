@@ -2200,7 +2200,7 @@ class Caller {
         let analysis = fixture.analysis.snapshot.callable_analyses.get(&callable).unwrap_or_else(|| {
             panic!(
                 "missing caller analysis {callable:?}; available={:?}",
-                fixture.analysis.snapshot.callable_analyses.keys()
+                fixture.analysis.snapshot.callable_analyses.keys().collect::<Vec<_>>()
             )
         });
         let call = analysis

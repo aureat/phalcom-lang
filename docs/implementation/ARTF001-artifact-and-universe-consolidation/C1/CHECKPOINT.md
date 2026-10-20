@@ -27,11 +27,11 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 
 ## Current continuation state (2026-10-20)
 
-- Code revision at this continuation: `3a72820e9` on `feat/artifact-universe-consolidation`; P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
+- Starting revision for the current continuation: `dbec7ec05` on `feat/artifact-universe-consolidation`; the remote branch matched this commit before current fixture and documentation follow-up work. P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
 - Active plan: `ARTF001.C1.P2.R4`, superseding `ARTF001.C1.P2.R3`.
 - Current status: P2.R4 active (`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`). P2 remains open; P3 is blocked pending R4 acceptance. The merge-period test prohibition is ended: R4 requires executed test evidence for every behavioral acceptance gate. The task ledger and continuation findings below own current progress.
 - Pack consultation: closed. Pack remains runtime owner and semantic application form without an eighth type-member owner.
-- Next action: continue R4.T3 from the exact whole-load allocation result below. Re-run the prepublication failpoint gate when its unit-test target can compile, then continue the ordered T2/T3 and downstream acceptance gates. The borrowed V4 validation decision is settled and the exact N/N-1/retry and child-rollback checks now pass.
+- Next action: R4.T3 is complete at `IMPLEMENTED / FOCUSED_TESTED`. The core failpoint target compiles and its four-boundary retry test passes. The semantic integration target compiles after fixture migration; the 20-test semantic-artifact suite and the 11-test compiler-artifact round-trip suite pass. The R4.T5 local-overlay regression still exposes an immutable canonical-query mutation path; see `ARTF001.C1.P2.R4-T5-canonical-query-mutation-incident.md`. Keep T5 changes stopped pending architectural consultation and continue independent R4.T2 authority closure.
 - Branch rule: Continue on `feat/artifact-universe-consolidation`.
 
 ## Starting Baseline & Provenance
@@ -102,7 +102,7 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 - R2 typed query-owner slice: `cargo test -p phalcom-semantic --test artifact_query_import_test` PASS (4/4); `cargo test -p phalcom-semantic --lib artifact::query_policy` PASS (5/5); `cargo test -p phalcom-semantic --test semantic-artifact` PASS (5/5) after the stricter staging validation. `StableOwnerCatalog` requires an internal owner to match an exact module row, and an external owner to use a project in the artifact allowlist with an exact persistent binding in the caller's project graph. `QueryKey::from_portable_owner` relocates typed module, declaration, callable, field, type-member, and other exactly representable owners through that authority; mismatched owners and wire forms that omit live identity (including generic-conformance propositions, exact enum-case dispatch targets, and associated static-domain case identity) fail closed. Reusable-root admission requires both PERF003 structural eligibility and a product location represented as a root; this excludes source-dependent `ParsedModule` and dependency-evidence-only `HierarchyEdge`.
 - R2 nested semantic-owner authority: `TypeGraphImporter`, `StaticValueImporter`, and structural aggregate reconstruction receive the same `StableOwnerCatalog` as typed query-owner validation. Stable declaration, callable, implementation, variant, static-data, and static-variant owners pass exact module-row/external-project checks before live identities are formed. Focused verification: type importer 4/4, static importer 2/2, query-owner integration 4/4, and semantic-artifact integration 5/5. The structural fixture includes the referenced `core` module in its module world. Query product reconstruction, current fingerprints, full dependency closure/freshness, semantic product reconstruction beyond primary data/enum/variant tables, and publication remain open.
 
-### P2 audit findings still open
+### P2 audit findings at the initial R2 handoff (historical snapshot)
 
 - `ImportedCompilerImage` now reconstructs portable type and static-value graphs into current-main `TypeStore` and `StaticValueStore` products and reconstructs primary data/enum/variant structural tables, but still retains `SemanticWorldV3` and `QueryImageV3` wire DTOs. Declaration shells, hierarchy/aliases, enum requirements, callable/conformance/proof/operational products, `SemanticSnapshot`, and typed `SemanticDb` products remain incomplete.
 - `QueryImageV3` has typed project-qualified owners and product-row references/fingerprints. The P7 persistence contract and root-location gate are now ported, and exact owner conversion is implemented for representable identities. Live query-product reconstruction, product/input fingerprint validation, dependency closure/freshness, and typed `SemanticDb` publication remain open.
@@ -255,10 +255,10 @@ The separate `ArtifactImportTransaction::stage_payload_with_digest` path still r
 |---|---|---|
 | R4.T0 | Re-pin, normalize lifecycle records, terminate no-test period | COMPLETE |
 | R4.T1 | Correct compatibility identity and port test/census infrastructure to current schemas | IN_PROGRESS |
-| R4.T2 | Recover complete V2/V4/V3 build/load lifecycle and close current semantic authority | IN_PROGRESS |
-| R4.T3 | Re-establish exact allocation, rollback, failpoint, and retry certification | IN_PROGRESS |
+| R4.T2 | Recover complete ModuleWorldV2/SemanticWorldV4/QueryImageV4 build/load lifecycle and close current semantic authority | IN_PROGRESS |
+| R4.T3 | Re-establish exact allocation, rollback, failpoint, and retry certification | COMPLETE |
 | R4.T4 | Finish dependency-bearing current query profile and fail-closed required-root completeness | PENDING |
-| R4.T5 | Certify ordinary imported SemanticWorkspaceSession with overlays/invalidation/rollback | PENDING |
+| R4.T5 | Certify ordinary imported SemanticWorkspaceSession with overlays/invalidation/rollback | BLOCKED — INC-1 |
 | R4.T6 | Consolidate duplicate consumer/import staging architecture and stabilize APIs | PENDING |
 | R4.T7 | Fresh-process source denial, compiler parity, diagnostics parity, real package/runtime functionality | PENDING |
 | R4.T8 | Broad regression, schema freeze, manifest closure, cleanup | PENDING |
@@ -464,8 +464,9 @@ not promote T2–T7 acceptance or authorize early consumer consolidation.
 
 ### P2.R4 query-product family and final shell consistency ruling — 2026-10-20
 
-The user supplied an audit ruling after independent inspection confirmed that
-QueryImageV3 conflates logical query kind with physical product-table identity.
+The user supplied an audit ruling after independent inspection confirmed that,
+at the time, QueryImageV3 conflated logical query kind with physical
+product-table identity.
 The V4 semantic world already carries alias authority in
 `StructuralPrimaryContractsV2.type_aliases`; the gap is the query locator, not
 missing semantic data. The query correction is assigned `R4.T2.6b` because
@@ -646,18 +647,69 @@ blocked.
   `Arc` identity. `from_image` constructs its inert source provider and reads
   only image-owned products. Session-local construction allocations are not
   included in the artifact-load budget.
-- **Failpoints:** The four prepublication failpoint test was attempted through
-  `cargo test -p phalcom-core --lib
-  loaded_artifact_prepublication_failures_are_retryable -- --nocapture`, but
-  the lib-test target does not compile because of 11 fixture/API errors in
-  module materialization, registry, and semantic-lowering tests. This leaves
-  T3.6 unverified; it does not change the passing loader allocation result.
-  The semantic integration target is likewise blocked at test compilation by
-  inherited API-fixture drift (451 errors). Neither target's unrelated
-  fixtures were changed.
-- **Status:** R4.T3 remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED. Exact
-  allocation, N/N-1/retry, query classification, publication accounting, and
-  section-local rollback are verified. Prepublication failpoint recovery is
-  not verified; R4.T2 and later R4 acceptance gates remain open.
+- **Failpoints:** `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core
+  --lib loaded_artifact_prepublication_failures_are_retryable -- --nocapture`
+  passed: 1 test, 0 failures. The test exercises all four boundaries
+  (`AfterModuleImport`, `AfterSemanticImport`, `AfterQueryImport`, and
+  `AfterMetadataValidation`) and proves failed loads return no artifact and
+  clean retries match the control identities.
+- **Fixture compilation:** The 11 core unit-test fixture/API errors were
+  repaired without production behavior changes. The semantic integration
+  target's stale fixture representations were migrated by API family; its
+  diagnostics fell from 451 errors to a successful `cargo check --test
+  semantic`. No full semantic test run was performed.
+- **T5 incident:** The selected `ordinary_image_session_keeps_universe_external_across_replacement`
+  regression passes the initial snapshot identity checks, then panics during
+  the first local update when `query_declaration_shell` failure handling tries
+  to mutate an immutable canonical query. The scoped incident packet records
+  the backtrace, evidence, alternatives, and decision requested. No production
+  workaround was made. R4.T5 is blocked pending the ownership/fingerprint
+  ruling; this does not invalidate the T3 loader transaction gates.
+- **Status:** R4.T3 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED. Exact
+  allocation, N/N-1/retry, query classification, publication accounting,
+  child rollback, and prepublication failpoint recovery are verified. R4.T2
+  and the later R4 acceptance gates remain open.
 
 The previous plans P2.R1, P2.R2, and P2.R3 remain preserved as implementation history. The current active plan is `ARTF001.C1.P2.R4`.
+
+### P2.R4 R4.T5 canonical-query mutation incident — 2026-10-20
+
+- **Trigger:** Ordinary local updates over an imported image reach
+  `SemanticDb::set_state` for a key owned by the immutable canonical query
+  image. This crosses the semantic-authority boundary; local correction would
+  choose between query-root parity and session-bootstrap ownership.
+- **Evidence:** The canonical-session overlay regression fails through
+  `query_declaration_shell -> query_failure -> SemanticDb::set_state`. The
+  semantic test target compiles, and the snapshot identity contract passes
+  before the update failure. The exact key and query failure branch are not
+  yet known.
+- **Packet:**
+  [`ARTF001.C1.P2.R4-T5-canonical-query-mutation-incident.md`](ARTF001.C1.P2.R4-T5-canonical-query-mutation-incident.md)
+- **Decision requested:** Determine whether declaration-shell fingerprint /
+  dependency parity or `from_image` bootstrap ownership should be corrected,
+  and define non-mutating failure behavior for non-reusable immutable keys.
+- **Status:** R4.T5 is blocked pending consultation. Do not add a fallback that
+  mutates or duplicates canonical query state.
+
+### P2.R4 T2 current-schema artifact test recovery — 2026-10-20
+
+- **Fixture migration:** Updated the semantic-artifact test fixture from the
+  obsolete V3/V1 shapes to SemanticWorldV4, StructuralPrimaryContractsV2,
+  CallableAnalysisRecordV2, current module authority collections, and complete
+  module execution phase rows. External package authority now uses a root
+  package module plus a nonroot `core` module, preserving the package receipt
+  and relocated-owner assertions.
+- **Current-schema validation:** Static-application denotations now resolve to
+  the exact checked application row identified by their static body and
+  ordinal. The canonical static-program validator already checks row ordering,
+  signature, target, and argument validity.
+- **Verification:** `cargo check -p phalcom-semantic --test semantic-artifact`
+  passed. `cargo test -p phalcom-semantic --test semantic-artifact` passed
+  20/20; `cargo test -p phalcom-compiler-artifact --test round_trip_test`
+  passed 11/11; `blocked_nominal_shell_is_retired_while_alias_shell_remains_authoritative`
+  passed 1/1; the named T2.6b nominal/alias query round-trip passed 1/1. The
+  semantic integration target compiles after its broader fixture migration.
+- **Status:** This closes the stale semantic-artifact test-target blocker and
+  adds focused T2 evidence. R4.T2 remains IN_PROGRESS; no full semantic
+  integration suite or full P2 exit gate has run. R4.T5 remains blocked by the
+  separate canonical-query mutation incident above.

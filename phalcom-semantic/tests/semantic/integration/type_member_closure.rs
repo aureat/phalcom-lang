@@ -474,7 +474,7 @@ fn tuple_entries_is_complete_pack_projection_for_concrete_and_symbolic_tuples() 
     let mut budget = QueryBudget::new(100);
     let cancel = CancellationToken::new();
     let conformance_index = phalcom_semantic::impls::ConformanceIndex::new();
-    let witness_plans = std::collections::BTreeMap::new();
+    let witness_plans = phalcom_semantic::parent_map::ParentMap::default();
     let trait_surfaces = phalcom_semantic::traits::TraitSurfaceTable::new();
     let empty_hierarchy = phalcom_semantic::types::relation::MapTypeHierarchy::new();
     let mode = ProjectionNormalizationMode::Exact {
@@ -554,7 +554,7 @@ fn complete_type_pack_projections_and_map_preserve_both_lanes() {
     let mut budget = QueryBudget::new(200);
     let cancel = CancellationToken::new();
     let conformance_index = phalcom_semantic::impls::ConformanceIndex::new();
-    let witness_plans = std::collections::BTreeMap::new();
+    let witness_plans = phalcom_semantic::parent_map::ParentMap::default();
     let trait_surfaces = phalcom_semantic::traits::TraitSurfaceTable::new();
     let hierarchy = phalcom_semantic::types::relation::MapTypeHierarchy::new();
     let mode = ProjectionNormalizationMode::Exact {
@@ -732,7 +732,7 @@ fn tuple_element_unions_payloads_and_preserves_unsolved_pack_projection() {
     let mut budget = QueryBudget::new(200);
     let cancel = CancellationToken::new();
     let conformance_index = phalcom_semantic::impls::ConformanceIndex::new();
-    let witness_plans = std::collections::BTreeMap::new();
+    let witness_plans = phalcom_semantic::parent_map::ParentMap::default();
     let trait_surfaces = phalcom_semantic::traits::TraitSurfaceTable::new();
     let hierarchy = phalcom_semantic::types::relation::MapTypeHierarchy::new();
     let mode = ProjectionNormalizationMode::Exact {
@@ -831,7 +831,7 @@ fn record_value_unions_closed_fields_and_preserves_open_row_projection() {
     let mut budget = QueryBudget::new(200);
     let cancel = CancellationToken::new();
     let conformance_index = phalcom_semantic::impls::ConformanceIndex::new();
-    let witness_plans = std::collections::BTreeMap::new();
+    let witness_plans = phalcom_semantic::parent_map::ParentMap::default();
     let trait_surfaces = phalcom_semantic::traits::TraitSurfaceTable::new();
     let hierarchy = phalcom_semantic::types::relation::MapTypeHierarchy::new();
     let mode = ProjectionNormalizationMode::Exact {
@@ -917,7 +917,7 @@ fn test_associated_type_compatibility_preserves_trait_projections() {
     // Verify metadata export preserves AssociatedProjection structure
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let exported = exporter.export_type_form(associated_proj).expect("export associated projection");
-    let bundle = exporter.build_complete_test_bundle(&[]).expect("build bundle");
+    let bundle = exporter.build_bundle(&[]).expect("build bundle");
     let node = &bundle.types[exported.0 as usize];
     assert!(matches!(&node.form, TypeNode::AssociatedProjection { .. }));
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("valid metadata");
@@ -1119,7 +1119,7 @@ fn test_symbolic_projection_survives_generic_substitution() {
     let mut budget = QueryBudget::new(100);
     let cancel = CancellationToken::new();
     let conformance_index = phalcom_semantic::impls::ConformanceIndex::new();
-    let witness_plans = std::collections::BTreeMap::new();
+    let witness_plans = phalcom_semantic::parent_map::ParentMap::default();
     let trait_surfaces = phalcom_semantic::traits::TraitSurfaceTable::new();
     let empty_hier = phalcom_semantic::types::relation::MapTypeHierarchy::new();
     let declarations = DeclarationTypeTable::new();
@@ -1152,7 +1152,7 @@ fn test_stable_metadata_export_for_packs_and_projections() {
     let pack = store.type_pack(Box::new([int_id, str_id])).unwrap();
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let pack_node = exporter.export_type_form(pack).expect("export type pack");
-    let bundle = exporter.build_complete_test_bundle(&[]).expect("build bundle with pack");
+    let bundle = exporter.build_bundle(&[]).expect("build bundle with pack");
     assert!(matches!(&bundle.types[pack_node.0 as usize].form, TypeNode::TypePack(elems) if elems.len() == 2));
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("valid pack bundle");
 
@@ -1171,7 +1171,7 @@ fn test_stable_metadata_export_for_packs_and_projections() {
         .unwrap();
     let mut exporter2 = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let lab_node = exporter2.export_type_form(labeled_pack).expect("export labeled type pack");
-    let bundle2 = exporter2.build_complete_test_bundle(&[]).expect("build bundle with labeled pack");
+    let bundle2 = exporter2.build_bundle(&[]).expect("build bundle with labeled pack");
     assert!(matches!(&bundle2.types[lab_node.0 as usize].form, TypeNode::LabeledTypePack(elems) if elems.len() == 2));
     validate_metadata_bundle(&bundle2, &ValidationLimits::default()).expect("valid labeled pack bundle");
 
@@ -1182,7 +1182,7 @@ fn test_stable_metadata_export_for_packs_and_projections() {
     let pack_alt = store_alt.type_pack(Box::new([int_alt, str_alt])).unwrap();
     let mut exporter_alt = MetadataExporter::new(&store_alt, None, None, None, MetadataProfile::RuntimePublic);
     let pack_alt_node = exporter_alt.export_type_form(pack_alt).expect("export alt pack");
-    let bundle_alt = exporter_alt.build_complete_test_bundle(&[]).expect("build alt bundle");
+    let bundle_alt = exporter_alt.build_bundle(&[]).expect("build alt bundle");
 
     assert_eq!(
         bundle.types[pack_node.0 as usize].structural_fingerprint, bundle_alt.types[pack_alt_node.0 as usize].structural_fingerprint,

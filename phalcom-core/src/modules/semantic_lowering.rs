@@ -3743,9 +3743,9 @@ mod tests {
             exact_target: TypeId::DUMMY,
             exact_trait_ref: TraitRef::new(trait_declaration, Box::<[TypeId]>::default()),
             impl_environment: TypeEnvironment::default(),
-            requirement_views: BTreeMap::new(),
-            requirements: BTreeMap::new(),
-            associated_types: BTreeMap::new(),
+            requirement_views: BTreeMap::new().into(),
+            requirements: BTreeMap::new().into(),
+            associated_types: BTreeMap::new().into(),
             trait_header_contract: Box::default(),
             trait_header_conformance_proofs: None,
             fingerprint: Default::default(),
@@ -3869,16 +3869,14 @@ mod tests {
         let gate_ref = TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Gate".into()), Box::<[TypeId]>::default());
         let gate_key = GenericConformanceKey::new(TypeTerm::Canonical(TypeId::DUMMY), gate_ref);
         let mut completed_prerequisite = (*exact_conformance_evidence()).clone();
-        completed_prerequisite.trait_header_conformance_proofs = Some(BTreeMap::new());
+        completed_prerequisite.trait_header_conformance_proofs = Some(BTreeMap::new().into());
         let mut completed_parent = (*exact_conformance_evidence()).clone();
         completed_parent.trait_header_contract = Box::new([phalcom_semantic::types::parameter::GenericConstraint::Conforms {
             subject: TypeTerm::Canonical(TypeId::DUMMY),
             trait_ref: gate_key.trait_ref.clone(),
         }]);
-        completed_parent.trait_header_conformance_proofs = Some(BTreeMap::from([(
-            gate_key,
-            GenericConformanceEvidence::Exact(Arc::new(completed_prerequisite)),
-        )]));
+        completed_parent.trait_header_conformance_proofs =
+            Some(BTreeMap::from([(gate_key, GenericConformanceEvidence::Exact(Arc::new(completed_prerequisite)))]).into());
         assert_eq!(
             classify_realization_prerequisite_projection(&selection, &GenericConformanceEvidence::Exact(Arc::new(completed_parent)), true),
             Ok(false),
@@ -3886,25 +3884,31 @@ mod tests {
         );
 
         let mut recursive_prerequisite = (*exact_conformance_evidence()).clone();
-        recursive_prerequisite.trait_header_conformance_proofs = Some(BTreeMap::from([(
+        recursive_prerequisite.trait_header_conformance_proofs = Some(
+            BTreeMap::from([(
             GenericConformanceKey::new(
                 TypeTerm::Canonical(TypeId::DUMMY),
                 TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Nested".into()), Box::<[TypeId]>::default()),
             ),
             GenericConformanceEvidence::Exact(exact_conformance_evidence()),
-        )]));
+            )])
+            .into(),
+        );
         let mut recursive_parent = (*exact_conformance_evidence()).clone();
         recursive_parent.trait_header_contract = Box::new([phalcom_semantic::types::parameter::GenericConstraint::Conforms {
             subject: TypeTerm::Canonical(TypeId::DUMMY),
             trait_ref: TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Gate".into()), Box::<[TypeId]>::default()),
         }]);
-        recursive_parent.trait_header_conformance_proofs = Some(BTreeMap::from([(
+        recursive_parent.trait_header_conformance_proofs = Some(
+            BTreeMap::from([(
             GenericConformanceKey::new(
                 TypeTerm::Canonical(TypeId::DUMMY),
                 TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Gate".into()), Box::<[TypeId]>::default()),
             ),
             GenericConformanceEvidence::Exact(Arc::new(recursive_prerequisite)),
-        )]));
+            )])
+            .into(),
+        );
         assert_eq!(
             classify_realization_prerequisite_projection(&selection, &GenericConformanceEvidence::Exact(Arc::new(recursive_parent)), true),
             Err(ProjectionError::UnsupportedContextualRealizationEvidence(

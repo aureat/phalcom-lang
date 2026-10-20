@@ -2913,7 +2913,27 @@ impl SemanticWorldValidationView<'_> {
                     Err(invalid("static-term denotation does not have a static-domain kind"))
                 }
             }
-            SemanticDenotationV1::StaticApplication { .. } => Err(invalid("static-application denotation has no retained checked-body application row")),
+            SemanticDenotationV1::StaticApplication { body, ordinal } => {
+                let definition = self
+                    .static_definitions
+                    .iter()
+                    .find(|definition| &definition.id == body)
+                    .ok_or_else(|| invalid("static-application denotation references an absent checked body"))?;
+                if &definition.canonical_program.owner != body {
+                    return Err(invalid("static-application denotation body disagrees with its canonical program owner"));
+                }
+                let application_index = usize::try_from(*ordinal).map_err(|_| invalid("static-application denotation ordinal exceeds address space"))?;
+                if definition
+                    .canonical_program
+                    .applications
+                    .get(application_index)
+                    .filter(|application| application.ordinal == *ordinal)
+                    .is_none()
+                {
+                    return Err(invalid("static-application denotation has no retained checked-body application row"));
+                }
+                Ok(())
+            }
             SemanticDenotationV1::AssociatedValue { value } => match value {
                 AssociatedValueDenotationV1::Exact {
                     owner_form,

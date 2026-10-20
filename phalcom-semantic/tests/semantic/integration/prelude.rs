@@ -20,7 +20,7 @@ fn synthetic_module() -> ModuleId {
 fn dummy_linked(entry: ModuleId) -> Arc<LinkedProgram> {
     Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::new(),
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
         graphs: Default::default(),
         entry: entry.clone(),
         initialization_order: vec![entry],

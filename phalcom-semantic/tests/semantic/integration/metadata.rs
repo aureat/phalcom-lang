@@ -746,7 +746,7 @@ fn cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metada
                 interface: LinkedModuleInterface {
                     module: api_module.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::from([("Api".into(), export_api)]),
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Api".into(), export_api)])),
                     metadata: phalcom_modules::metadata::ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
@@ -763,12 +763,12 @@ fn cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metada
                 interface: LinkedModuleInterface {
                     module: client_module.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::new(),
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                     metadata: phalcom_modules::metadata::ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
                     local_globals: client_globals,
-                    imports: BTreeMap::from([("Api".into(), ImportBindingId(0))]),
+                    imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Api".into(), ImportBindingId(0))])),
                 },
                 linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
                     module: api_module.clone(),
@@ -781,7 +781,7 @@ fn cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metada
     let input = SemanticWorkspaceInput::new(
         Arc::new(LinkedProgram {
             universe: Arc::new(ProjectUniverse::new()),
-            modules: linked_modules,
+            modules: phalcom_modules::authority::ModuleAuthorityMap::Source(linked_modules),
             graphs: phalcom_modules::graph::ModuleGraphs::default(),
             entry: client_module.clone(),
             initialization_order: vec![api_module.clone(), client_module.clone()],

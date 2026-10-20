@@ -395,11 +395,11 @@ fn cv_env_04_branch_proof_nearest_binding_precedence() {
     let ty_inner = TypeId(20);
 
     let mut outer_env = BranchProofEnvironment::default();
-    outer_env.bindings.insert(t0, ty_outer);
+    outer_env.bindings.insert_source(t0, ty_outer).expect("source analysis map");
     outer_env.equalities = Box::new([TypeConstraint::Equal(ty_outer, ty_inner)]);
 
     let mut inner_env = BranchProofEnvironment::default();
-    inner_env.bindings.insert(t0, ty_inner);
+    inner_env.bindings.insert_source(t0, ty_inner).expect("source analysis map");
     inner_env.equalities = Box::new([TypeConstraint::Subtype(ty_inner, ty_outer)]);
 
     // Active branch proofs stack has outer then inner (inner is nearest)

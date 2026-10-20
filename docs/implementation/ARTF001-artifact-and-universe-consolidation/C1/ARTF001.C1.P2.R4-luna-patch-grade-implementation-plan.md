@@ -24,7 +24,7 @@ target_completion: IMPLEMENTED
 
 `ARTF001.C1.P2.R4` is the final implementation and certification plan for P2.
 
-It supersedes `ARTF001.C1.P2.R3` as the active execution plan while preserving P2.R3 as implementation history and as a requirements inventory. The repository has materially changed since R3 was authored: the certified PERF003 P7 branch is now genuinely merged into `feat/artifact-universe-consolidation`, the complete P7 artifact producer/importer/query/canonical-image machinery is present in ancestry, current `ModuleWorldV2` / `SemanticWorldV4` / `QueryImageV3` adapters compile, and `SemanticWorkspaceSession::from_image` already exists.
+It supersedes `ARTF001.C1.P2.R3` as the active execution plan while preserving P2.R3 as implementation history and as a requirements inventory. The certified PERF003 P7 branch is merged into `feat/artifact-universe-consolidation`, and the current module, semantic, query, and canonical-image machinery is present in ancestry. QueryImage V3 was the adapter at R4 plan creation; the accepted R4.T2.6b amendment upgraded the current contract to QueryImage V4 and query fingerprint ABI V3. Current execution requirements below use those amended versions.
 
 R4 therefore MUST NOT continue the old family-by-family transplant strategy. Its job is to:
 
@@ -48,7 +48,7 @@ source-backed current canonical semantic generation
         |
         | existing current/P7 producer machinery
         v
-ModuleWorldV2 + SemanticWorldV4 + QueryImageV3 + Metadata
+ModuleWorldV2 + SemanticWorldV4 + QueryImageV4 + Metadata
         |
         v
 .telosc
@@ -132,7 +132,7 @@ Current `phalcom-core/src/modules/canonical_artifact.rs` already uses:
 ```text
 MODULE_WORLD_SCHEMA_V2
 SEMANTIC_WORLD_SCHEMA_V4
-QUERY_IMAGE_SCHEMA_V3
+QUERY_IMAGE_SCHEMA_V4
 ```
 
 and the current producer already calls:
@@ -140,7 +140,7 @@ and the current producer already calls:
 ```text
 project_module_world(...)
 export_semantic_world_v4(...)
-export_query_image_v3(...)
+export_query_image_v4(...)
 ```
 
 The current loader already performs:
@@ -154,15 +154,15 @@ load_module_world_with_allocation_budget
     ->
 SemanticWorldV4::decode_with_allocation_budget
     ->
-QueryImageV3::decode_with_allocation_budget
+QueryImageV4::decode_with_allocation_budget
     ->
-V3 product-reference validation
+V4 product-reference validation
     ->
-V3 portable structural fingerprint validation
+V4 portable structural fingerprint validation
     ->
 validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget
     ->
-reconstruct_query_image_v3_with_allocation_budget
+reconstruct_query_image_v4_with_allocation_budget
     ->
 metadata decode
     ->
@@ -182,7 +182,7 @@ Current artifact compatibility constants include:
 ```text
 MODULE_SEMANTIC_ABI_V2   = 2
 SEMANTIC_ARTIFACT_ABI_V3 = 3
-QUERY_FINGERPRINT_ABI_V2 = 2
+QUERY_FINGERPRINT_ABI_V3 = 3
 ```
 
 Current wire families include:
@@ -193,7 +193,7 @@ SemanticWorldV4
 StructuralPrimaryContractsV2
 CallableAnalysisRecordV2
 ModuleExecutionAuthorityV1
-QueryImageV3
+QueryImageV4
 ```
 
 Structural V2 includes independent, project-qualified:
@@ -643,7 +643,7 @@ CompilerArtifactPayload
     |
     +-- SemanticWorldV4
     |
-    +-- QueryImageV3
+    +-- QueryImageV4
     |
     +-- MetadataSectionV1
     |
@@ -709,7 +709,7 @@ No second production semantic import model survives beside this flow.
 |---|---|---|---|
 | R4.T0 | Re-pin, normalize lifecycle records, terminate no-test period | NOT_STARTED | exact SHAs, clean tree, active R4 record |
 | R4.T1 | Correct compatibility identity and port test/census infrastructure to current schemas | NOT_STARTED | test targets compile; ABI tests pass |
-| R4.T2 | Recover complete V2/V4/V3 build/load lifecycle and close current semantic authority | NOT_STARTED | canonical artifact builds/loads; native equivalence gates pass |
+| R4.T2 | Recover complete ModuleWorldV2/SemanticWorldV4/QueryImageV4 build/load lifecycle and close current semantic authority | NOT_STARTED | canonical artifact builds/loads; native equivalence gates pass |
 | R4.T3 | Re-establish exact allocation, rollback, failpoint, and retry certification | NOT_STARTED | stage deltas zero; N/N−1/retry pass |
 | R4.T4 | Finish dependency-bearing current query profile and fail-closed required-root completeness | NOT_STARTED | required root census exact; query hostile matrix passes |
 | R4.T5 | Certify ordinary imported `SemanticWorkspaceSession` with overlays/invalidation/rollback | NOT_STARTED | source-free session + edits/recompile pass |
@@ -824,7 +824,7 @@ docs(artifact): start P2.R4 closure and certification
 
 ---
 
-# 8. R4.T1 — Correct current compatibility identity and port P7 certification code to V2/V4/V3
+# 8. R4.T1 — Correct current compatibility identity and port P7 certification code to ModuleWorldV2/SemanticWorldV4/QueryImageV4
 
 ## Purpose
 
@@ -832,7 +832,7 @@ Ensure the current artifact truthfully labels its schema/ABI contract and that a
 
 ## T1.1 Replace stale core ABI literals
 
-Current `phalcom-core/src/modules/canonical_artifact.rs` writes and validates old literals:
+At R4 plan creation, `phalcom-core/src/modules/canonical_artifact.rs` wrote and validated old literals:
 
 ```text
 module_semantic_abi = 1
@@ -840,14 +840,14 @@ semantic_artifact_abi = 1
 query_fingerprint_abi = 2
 ```
 
-This is incorrect for the current V2/V4/V3 payload.
+Those values are incorrect for the amended ModuleWorldV2/SemanticWorldV4/QueryImageV4 payload.
 
 Change both producer and reader to canonical constants:
 
 ```rust
 MODULE_SEMANTIC_ABI_V2
 SEMANTIC_ARTIFACT_ABI_V3
-QUERY_FINGERPRINT_ABI_V2
+QUERY_FINGERPRINT_ABI_V3
 STABLE_IDENTITY_SCHEMA_V1
 ```
 
@@ -872,7 +872,7 @@ Build a canonical artifact and assert:
 ```text
 header.module_semantic_abi   == MODULE_SEMANTIC_ABI_V2
 header.semantic_artifact_abi == SEMANTIC_ARTIFACT_ABI_V3
-header.query_fingerprint_abi == QUERY_FINGERPRINT_ABI_V2
+header.query_fingerprint_abi == QUERY_FINGERPRINT_ABI_V3
 header.stable_identity_schema == STABLE_IDENTITY_SCHEMA_V1
 ```
 
@@ -887,7 +887,7 @@ Port:
 ```text
 ModuleWorldV1      -> ModuleWorldV2
 SemanticWorldV3    -> SemanticWorldV4
-QueryImageV1/V2    -> QueryImageV3
+QueryImageV1/V2/V3 -> QueryImageV4
 ```
 
 Use the same production boundaries as the real loader.
@@ -901,7 +901,7 @@ validate_and_import_semantic_world_with_module_world_and_project_universe_and_al
 For query import, use:
 
 ```rust
-reconstruct_query_image_v3_with_allocation_budget(...)
+reconstruct_query_image_v4_with_allocation_budget(...)
 ```
 
 Do not keep a V3/V1 census merely because it is easier to account.
@@ -917,7 +917,7 @@ The integration allocation test must:
 3. materialize current module world;
 4. decode current `SemanticWorldV4`;
 5. import with exact module world + exact loaded project universe;
-6. decode/reconstruct current `QueryImageV3`;
+6. decode/reconstruct current `QueryImageV4`;
 7. measure current whole loader.
 
 No conversion through a legacy semantic world is accepted as production-equivalent evidence.
@@ -1022,7 +1022,7 @@ test(artifact): port P7 certification harness to V2 V4 V3
 
 ---
 
-# 9. R4.T2 — Recover the complete current V2/V4/V3 lifecycle and close current semantic authority
+# 9. R4.T2 — Recover the complete current ModuleWorldV2/SemanticWorldV4/QueryImageV4 lifecycle and close current semantic authority
 
 ## Purpose
 
@@ -1520,7 +1520,7 @@ B   ModuleWorldV2 DTO decode
 C   module native materialization
 D   SemanticWorldV4 DTO decode
 E   semantic native import
-F   QueryImageV3 DTO decode
+F   QueryImageV4 DTO decode
 G   metadata DTO decode
 H0  canonical semantic-world identity
 H-K current query reconstruction
@@ -1763,7 +1763,7 @@ The profile must be based on actual compiler/bootstrap requirements.
 
 ## T4.4 Remove silent loss of required roots
 
-Current `export_query_image_v3` reverse-prunes candidates until closure is stable.
+Current `export_query_image_v4` reverse-prunes candidates until closure is stable.
 
 For a root classified as REQUIRED:
 
@@ -2563,7 +2563,7 @@ what deterministic serialization already works
 what only needs command/build integration
 ```
 
-P3 should not reimplement `export_semantic_world_v4` or `export_query_image_v3` from scratch.
+P3 should not reimplement `export_semantic_world_v4` or `export_query_image_v4` from scratch.
 
 ## T9.5 Final P2 completion report
 
@@ -3274,7 +3274,7 @@ P3 RESPONSIBILITY:
 R4-CERTIFIED OUTPUT CONTRACT:
     ModuleWorldV2
     SemanticWorldV4
-    QueryImageV3
+    QueryImageV4
     MetadataSectionV1
     frozen current header ABI/schema tuple
 

@@ -50,7 +50,7 @@ fn analyze_imported_constructor(
                 interface: LinkedModuleInterface {
                     module: package_module,
                     kind: *kind,
-                    exports: BTreeMap::new(),
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout::default(),
@@ -72,7 +72,7 @@ fn analyze_imported_constructor(
             interface: LinkedModuleInterface {
                 module: data_module.clone(),
                 kind: data_kind,
-                exports: BTreeMap::from([(
+                exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(
                     "Secret".into(),
                     LinkedExport {
                         public_name: "Secret".into(),
@@ -82,12 +82,12 @@ fn analyze_imported_constructor(
                         }),
                         range: Default::default(),
                     },
-                )]),
+                )])),
                 metadata: ModuleMetadata::default(),
             },
             bindings: ModuleBindingLayout {
-                local_globals: BTreeMap::from([("Secret".into(), GlobalBindingId(0))]),
-                imports: BTreeMap::new(),
+                local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Secret".into(), GlobalBindingId(0))])),
+                imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             },
             linked_reads: Vec::new(),
             runtime_dependencies: Vec::new(),
@@ -117,7 +117,7 @@ fn analyze_imported_constructor(
                 module: consumer_module.clone(),
                 kind: ModuleKind::Module,
                 exports: if reexport {
-                    BTreeMap::from([(
+                    phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(
                         "Secret".into(),
                         LinkedExport {
                             public_name: "Secret".into(),
@@ -127,15 +127,15 @@ fn analyze_imported_constructor(
                             }),
                             range: Default::default(),
                         },
-                    )])
+                    )]))
                 } else {
-                    BTreeMap::new()
+                    phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new())
                 },
                 metadata: ModuleMetadata::default(),
             },
             bindings: ModuleBindingLayout {
-                local_globals: BTreeMap::new(),
-                imports: BTreeMap::from([("Secret".into(), ImportBindingId(0))]),
+                local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
+                imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Secret".into(), ImportBindingId(0))])),
             },
             linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
                 module: data_module,
@@ -147,7 +147,7 @@ fn analyze_imported_constructor(
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: linked_modules,
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(linked_modules),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: consumer_module,
         initialization_order: sources.keys().cloned().collect(),

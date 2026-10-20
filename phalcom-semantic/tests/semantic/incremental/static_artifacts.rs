@@ -51,12 +51,12 @@ fn artifact_input(provider_source: &str, consumer_source: &str, generation: u64)
         interface: LinkedModuleInterface {
             module: provider.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::from([("exported_const".into(), export)]),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("exported_const".into(), export)])),
             metadata: Default::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([("exported_const".into(), GlobalBindingId(0))]),
-            imports: BTreeMap::new(),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("exported_const".into(), GlobalBindingId(0))])),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
         },
         linked_reads: Vec::new(),
         runtime_dependencies: Vec::new(),
@@ -65,19 +65,22 @@ fn artifact_input(provider_source: &str, consumer_source: &str, generation: u64)
         interface: LinkedModuleInterface {
             module: consumer.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: Default::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::new(),
-            imports: BTreeMap::from([("imported_const".into(), ImportBindingId(0))]),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("imported_const".into(), ImportBindingId(0))])),
         },
         linked_reads: vec![LinkedReadSpec::Binding(symbol)],
         runtime_dependencies: vec![provider.clone()],
     };
     let program = LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::from([(provider.clone(), provider_linked), (consumer.clone(), consumer_linked)]),
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([
+            (provider.clone(), provider_linked),
+            (consumer.clone(), consumer_linked),
+        ])),
         graphs: Default::default(),
         entry: consumer.clone(),
         initialization_order: vec![provider.clone(), consumer.clone()],

@@ -218,7 +218,8 @@ fn associated_and_family_selections_emit_external_callable_owner_requirements() 
     );
     let invocation_target = phalcom_semantic::identity::InvocationTargetId::Behavioral(external_callable);
 
-    analysis.associated_resolutions = Arc::new(BTreeMap::from([(
+    analysis.associated_resolutions = Arc::new(
+        BTreeMap::from([(
         expression_id,
         phalcom_semantic::checker::associated::AssociatedResolution {
             owner_form: phalcom_semantic::types::id::TypeId(0),
@@ -232,8 +233,11 @@ fn associated_and_family_selections_emit_external_callable_owner_requirements() 
                 callable_type: phalcom_semantic::types::id::TypeId(0),
             },
         },
-    )]));
-    analysis.family_applications = Arc::new(BTreeMap::from([(
+        )])
+        .into(),
+    );
+    analysis.family_applications = Arc::new(
+        BTreeMap::from([(
         expression_id,
         phalcom_semantic::checker::associated::FamilyApplicationResolution {
             family_type: phalcom_semantic::types::id::TypeId(0),
@@ -245,7 +249,9 @@ fn associated_and_family_selections_emit_external_callable_owner_requirements() 
                 result_type: phalcom_semantic::types::id::TypeId(0),
             },
         },
-    )]));
+        )])
+        .into(),
+    );
 
     let analyses = HashMap::from([(analysis.callable.clone(), Arc::new(analysis))]);
     let (_, requirements) = aggregate(&fixture, &analyses);
@@ -627,7 +633,11 @@ fn type_form_nominal_and_applied_roots_emit_canonical_class_read() {
     assert!(matches!(store.get(applied), phalcom_semantic::types::store::TypeData::Applied { .. }));
 
     let mut expressions = analysis.expressions.clone();
-    let expression = expressions.values_mut().next().expect("body has a type-form expression");
+    let expression_id = expressions.keys().next().copied().expect("body has a type-form expression");
+    let expression = expressions
+        .get_source_mut(&expression_id)
+        .expect("source analysis map")
+        .expect("type-form expression");
     expression.denotation = Some(phalcom_semantic::types::denotation::SemanticDenotation::TypeForm(applied));
     analysis.expressions = expressions;
     let analyses = HashMap::from([(analysis.callable.clone(), Arc::new(analysis))]);
@@ -1112,6 +1122,7 @@ fn missing_checked_static_initializer_keeps_import_projection_conservative() {
         lkg_value: Some(value),
         diagnostics: Arc::new([]),
         imported: None,
+        authority: None,
     }));
     let (products, requirements) = compute_module_import_phase_products(
         &fixture.semantic,

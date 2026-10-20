@@ -7,7 +7,8 @@ fn test_explanation_arena_and_causal_slice() {
     let mut arena = ExplanationArena::new();
 
     let lit_expr = ExpressionId::new(BodyId(1), LocalExpressionId(0));
-    let n1 = arena.alloc(
+    let n1 = arena
+        .alloc(
         ExplanationStep::Literal {
             expression: lit_expr,
             ty: TypeId(1),
@@ -15,9 +16,11 @@ fn test_explanation_arena_and_causal_slice() {
         EvidenceStatus::Established,
         EvidenceOrigin::Syntax,
         Vec::new(),
-    );
+        )
+        .expect("source explanation arena");
 
-    let n2 = arena.alloc(
+    let n2 = arena
+        .alloc(
         ExplanationStep::FlowRefinement {
             binding: BindingId(1),
             predicate: PredicateKind::IsInstance,
@@ -27,9 +30,11 @@ fn test_explanation_arena_and_causal_slice() {
         EvidenceStatus::Established,
         EvidenceOrigin::Flow,
         vec![n1],
-    );
+        )
+        .expect("source explanation arena");
 
-    let n3 = arena.alloc(
+    let n3 = arena
+        .alloc(
         ExplanationStep::Subtyping {
             actual: TypeId(1),
             expected: TypeId(1),
@@ -38,7 +43,8 @@ fn test_explanation_arena_and_causal_slice() {
         EvidenceStatus::Established,
         EvidenceOrigin::Flow,
         vec![n2],
-    );
+        )
+        .expect("source explanation arena");
 
     assert_eq!(arena.len(), 3);
 

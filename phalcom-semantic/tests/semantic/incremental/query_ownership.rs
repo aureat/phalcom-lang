@@ -39,7 +39,7 @@ fn single_module_input(module: ModuleId, source_code: &str, generation: u64) -> 
         interface: LinkedModuleInterface {
             module: module.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout::default(),
@@ -52,7 +52,7 @@ fn single_module_input(module: ModuleId, source_code: &str, generation: u64) -> 
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-        modules,
+        modules: modules.into(),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: module.clone(),
         initialization_order: vec![module.clone()],

@@ -30,7 +30,7 @@ fn input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceIn
         interface: LinkedModuleInterface {
             module: module.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
@@ -42,7 +42,7 @@ fn input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceIn
     };
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-        modules: BTreeMap::from([(module.clone(), linked_module)]),
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(module.clone(), linked_module)])),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: module.clone(),
         initialization_order: vec![module.clone()],
@@ -102,11 +102,11 @@ fn layered_input(a_source: &str, b_source: &str, c_source: &str, generation: u64
                 interface: LinkedModuleInterface {
                     module: a.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::from([export(&a, "Api")]),
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([export(&a, "Api")])),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
-                    local_globals: BTreeMap::from([("Api".into(), GlobalBindingId(0))]),
+                    local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Api".into(), GlobalBindingId(0))])),
                     ..ModuleBindingLayout::default()
                 },
                 linked_reads: Vec::new(),
@@ -119,12 +119,12 @@ fn layered_input(a_source: &str, b_source: &str, c_source: &str, generation: u64
                 interface: LinkedModuleInterface {
                     module: b.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::from([export(&b, "Middle")]),
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([export(&b, "Middle")])),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
-                    local_globals: BTreeMap::from([("Middle".into(), GlobalBindingId(0))]),
-                    imports: BTreeMap::from([("Api".into(), ImportBindingId(0))]),
+                    local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Middle".into(), GlobalBindingId(0))])),
+                    imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Api".into(), ImportBindingId(0))])),
                 },
                 linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
                     module: a.clone(),
@@ -139,12 +139,12 @@ fn layered_input(a_source: &str, b_source: &str, c_source: &str, generation: u64
                 interface: LinkedModuleInterface {
                     module: c.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::new(),
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
-                    local_globals: BTreeMap::from([("Top".into(), GlobalBindingId(0))]),
-                    imports: BTreeMap::from([("Middle".into(), ImportBindingId(0))]),
+                    local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Top".into(), GlobalBindingId(0))])),
+                    imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Middle".into(), ImportBindingId(0))])),
                 },
                 linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
                     module: b.clone(),
@@ -157,7 +157,7 @@ fn layered_input(a_source: &str, b_source: &str, c_source: &str, generation: u64
     SemanticWorkspaceInput::new(
         Arc::new(LinkedProgram {
             universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-            modules: linked_modules,
+            modules: phalcom_modules::authority::ModuleAuthorityMap::Source(linked_modules),
             graphs: phalcom_modules::graph::ModuleGraphs::default(),
             entry: c.clone(),
             initialization_order: vec![a, b, c],

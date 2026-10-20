@@ -759,7 +759,6 @@ mod tests {
         Arc::new(SemanticMetadataBundle {
             header: SemanticMetadataHeader {
                 schema_version: TYPE_METADATA_SCHEMA_VERSION,
-                legacy_fingerprint_schema_version: None,
                 semantic_model_version,
                 producer: ProducerIdentity("test".into()),
                 producer_version: "1".into(),
@@ -777,6 +776,9 @@ mod tests {
             generic_signatures: Box::new([]),
             declarations: Box::new([]),
             static_domains: Box::new([]),
+            static_values: Box::new([]),
+            static_constants: Box::new([]),
+            static_definitions: Box::new([]),
             aliases: Box::new([]),
             callables: Box::new([]),
             fields: Box::new([]),

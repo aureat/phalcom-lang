@@ -30,12 +30,12 @@ fn resolver_fixture() -> (LinkedTypeResolver, ModuleId, DeclarationId) {
         interface: LinkedModuleInterface {
             module: current.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::new(),
-            imports: BTreeMap::from([("pkg".into(), ImportBindingId(0))]),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("pkg".into(), ImportBindingId(0))])),
         },
         linked_reads: vec![LinkedReadSpec::Module(imported.clone())],
         runtime_dependencies: vec![imported.clone()],
@@ -44,7 +44,7 @@ fn resolver_fixture() -> (LinkedTypeResolver, ModuleId, DeclarationId) {
         interface: LinkedModuleInterface {
             module: imported.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::from([(
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(
                 "Leaf".into(),
                 LinkedExport {
                     public_name: "Leaf".into(),
@@ -54,7 +54,7 @@ fn resolver_fixture() -> (LinkedTypeResolver, ModuleId, DeclarationId) {
                     }),
                     range: Default::default(),
                 },
-            )]),
+            )])),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout::default(),
@@ -64,7 +64,10 @@ fn resolver_fixture() -> (LinkedTypeResolver, ModuleId, DeclarationId) {
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::from([(current.clone(), linked_current), (imported.clone(), linked_imported)]),
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([
+            (current.clone(), linked_current),
+            (imported.clone(), linked_imported),
+        ])),
         graphs: Default::default(),
         entry: current.clone(),
         initialization_order: vec![current.clone()],

@@ -625,7 +625,7 @@ fn snapshot_metadata_catalog_excludes_stale_static_case_history() {
     .with_algebraic_semantics(&revision_b.snapshot.data_semantics, &revision_b.snapshot.enum_semantics)
     .with_associated_static_domains(&revision_b.snapshot.associated_static_domains)
     .with_aliases(&revision_b.snapshot.type_aliases)
-    .build_complete_test_bundle(&[])
+    .build_bundle(&[])
     .expect("revision B snapshot metadata");
 
     let catalog = bundle

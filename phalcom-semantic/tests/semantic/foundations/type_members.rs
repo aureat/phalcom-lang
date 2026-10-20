@@ -874,7 +874,7 @@ fn record_fields_projection_preserves_exact_row_identity() {
     let fields_node = exporter
         .export_type_form(fields)
         .expect("source-authored Record::Fields projection is exportable");
-    let bundle = exporter.build_complete_test_bundle(&[]).expect("source-authored projection metadata");
+    let bundle = exporter.build_bundle(&[]).expect("source-authored projection metadata");
     let phalcom_type_meta::type_node::TypeNode::TypeMemberProjection(exported) = &bundle.types[fields_node.0 as usize].form else {
         panic!("expected exported type-member projection");
     };

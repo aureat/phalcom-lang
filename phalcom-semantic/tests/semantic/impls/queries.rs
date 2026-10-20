@@ -36,7 +36,7 @@ fn single_module_input(module: ModuleId, source: &str) -> SemanticWorkspaceInput
         interface: LinkedModuleInterface {
             module: module.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout::default(),
@@ -47,7 +47,7 @@ fn single_module_input(module: ModuleId, source: &str) -> SemanticWorkspaceInput
     modules.insert(module.clone(), linked_module);
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-        modules,
+        modules: modules.into(),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: module.clone(),
         initialization_order: vec![module.clone()],
@@ -1908,19 +1908,19 @@ fn linked_modules_publish_canonical_ownership_through_reexports() {
                 interface: LinkedModuleInterface {
                     module: traits.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::from([(
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(
                         "Tagged".into(),
                         LinkedExport {
                             public_name: "Tagged".into(),
                             target: LinkedExportTarget::Binding(trait_symbol.clone()),
                             range: Default::default(),
                         },
-                    )]),
+                    )])),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
-                    local_globals: BTreeMap::from([("Tagged".into(), GlobalBindingId(0))]),
-                    imports: BTreeMap::new(),
+                    local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Tagged".into(), GlobalBindingId(0))])),
+                    imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                 },
                 linked_reads: Vec::new(),
                 runtime_dependencies: Vec::new(),
@@ -1933,19 +1933,19 @@ fn linked_modules_publish_canonical_ownership_through_reexports() {
                 interface: LinkedModuleInterface {
                     module: models.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::from([(
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(
                         "User".into(),
                         LinkedExport {
                             public_name: "User".into(),
                             target: LinkedExportTarget::Binding(user_symbol.clone()),
                             range: Default::default(),
                         },
-                    )]),
+                    )])),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
-                    local_globals: BTreeMap::from([("User".into(), GlobalBindingId(0))]),
-                    imports: BTreeMap::from([("Tagged".into(), ImportBindingId(0))]),
+                    local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("User".into(), GlobalBindingId(0))])),
+                    imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Tagged".into(), ImportBindingId(0))])),
                 },
                 linked_reads: vec![LinkedReadSpec::Binding(trait_symbol.clone())],
                 runtime_dependencies: vec![facade.clone()],
@@ -1958,19 +1958,19 @@ fn linked_modules_publish_canonical_ownership_through_reexports() {
                 interface: LinkedModuleInterface {
                     module: facade.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::from([(
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(
                         "Tagged".into(),
                         LinkedExport {
                             public_name: "Tagged".into(),
                             target: LinkedExportTarget::Binding(trait_symbol.clone()),
                             range: Default::default(),
                         },
-                    )]),
+                    )])),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
-                    local_globals: BTreeMap::new(),
-                    imports: BTreeMap::from([("Tagged".into(), ImportBindingId(0))]),
+                    local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
+                    imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Tagged".into(), ImportBindingId(0))])),
                 },
                 linked_reads: vec![LinkedReadSpec::Binding(trait_symbol.clone())],
                 runtime_dependencies: vec![traits.clone()],
@@ -1983,12 +1983,15 @@ fn linked_modules_publish_canonical_ownership_through_reexports() {
                 interface: LinkedModuleInterface {
                     module: foreign.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::new(),
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
-                    local_globals: BTreeMap::new(),
-                    imports: BTreeMap::from([("Tagged".into(), ImportBindingId(0)), ("User".into(), ImportBindingId(1))]),
+                    local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
+                    imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([
+                        ("Tagged".into(), ImportBindingId(0)),
+                        ("User".into(), ImportBindingId(1)),
+                    ])),
                 },
                 linked_reads: vec![LinkedReadSpec::Binding(trait_symbol), LinkedReadSpec::Binding(user_symbol)],
                 runtime_dependencies: vec![facade.clone(), models.clone()],
@@ -2014,7 +2017,7 @@ fn linked_modules_publish_canonical_ownership_through_reexports() {
     }
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: linked_modules,
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(linked_modules),
         graphs: Default::default(),
         entry: models.clone(),
         initialization_order: vec![traits.clone(), facade.clone(), models.clone(), foreign.clone()],

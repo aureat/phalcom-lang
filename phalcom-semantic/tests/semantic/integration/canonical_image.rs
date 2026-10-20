@@ -68,7 +68,8 @@ fn canonical_formal_image_source_parity_and_provider_isolation() {
     use phalcom_semantic::canonical_image::canonical_universe_formal_image_with_provider;
     use std::sync::Arc;
     let image = canonical_universe_formal_image().unwrap();
-    let input = phalcom_semantic::SemanticWorkspaceInput::new(image.linked().clone(), image.sources().clone(), 0).with_interfaces(image.interfaces().clone());
+    let input = phalcom_semantic::SemanticWorkspaceInput::new(image.linked().clone(), image.sources().clone(), 0)
+        .with_interfaces(image.interfaces().as_source().expect("source image interfaces").clone());
     let reference = phalcom_semantic::analyze_workspace(input).unwrap().snapshot;
     assert_eq!(reference.status, image.snapshot().status);
     assert_eq!(reference.callable_signatures.len(), image.snapshot().callable_signatures.len());
@@ -126,8 +127,11 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
     let mut ids = SyntheticProjectIdAllocator;
     let local = ModuleId::synthetic(ids.allocate(), ModulePath::root());
     let mut session = SemanticWorkspaceSession::from_image(WorkspaceId::from_raw(733), image.clone());
-    assert!(session.last_snapshot().is_none());
-    assert!(session.last_known_good_snapshot().is_none());
+    assert!(Arc::ptr_eq(session.last_snapshot().expect("initial image snapshot"), image.snapshot()));
+    assert!(Arc::ptr_eq(
+        session.last_known_good_snapshot().expect("initial image last-known-good snapshot"),
+        image.snapshot()
+    ));
     assert!(image.snapshot().type_aliases.iter().next().is_some());
     assert!(image.snapshot().static_definitions.iter().next().is_some());
     assert!(image.snapshot().static_constants.iter().next().is_some());
@@ -188,8 +192,14 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
                 rule
             ));
         }
-        assert_eq!(update.snapshot.conformance_index.local_len(), 0);
-        assert_eq!(update.snapshot.conformance_index.parent_len(), image.snapshot().conformance_index.len());
+        assert_eq!(
+            update.snapshot.conformance_index.iter().count(),
+            image.snapshot().conformance_index.iter().count()
+        );
+        assert_eq!(
+            update.snapshot.conformance_index.iter().count(),
+            image.snapshot().conformance_index.iter().count()
+        );
         for (impl_id, contribution) in image.snapshot().conformance_index.iter() {
             assert!(std::ptr::eq(
                 update.snapshot.conformance_index.get(impl_id).expect("canonical conformance head"),
@@ -200,7 +210,10 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         assert_eq!(update.snapshot.data_semantics.data_decls.local_len(), 0);
         assert_eq!(update.snapshot.enum_semantics.enums.local_len(), 0);
         assert_eq!(update.snapshot.associated_surfaces.surfaces.local_len(), 0);
-        assert_eq!(update.snapshot.enum_requirements.requirements.local_len(), 0);
+        assert_eq!(
+            update.snapshot.enum_requirements.requirements.len(),
+            image.snapshot().enum_requirements.requirements.len()
+        );
         assert_eq!(update.snapshot.type_member_declarations.local_len(), 0);
         assert_eq!(update.snapshot.type_aliases.local_len(), 0);
         assert_eq!(update.snapshot.static_definitions.local_len(), 0);
@@ -291,7 +304,10 @@ fn from_image_zero_canonical_entries_copied_cardinality_guard() {
     let _guard = context.install_current_thread();
 
     let session = phalcom_semantic::SemanticWorkspaceSession::from_image(phalcom_semantic::identity::WorkspaceId::from_raw(999), image.clone());
-    assert!(session.canonical_image().is_some());
+    assert!(std::sync::Arc::ptr_eq(
+        session.last_snapshot().expect("initial image snapshot"),
+        image.snapshot()
+    ));
 
     #[cfg(feature = "perf-observability")]
     {

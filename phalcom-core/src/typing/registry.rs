@@ -127,7 +127,6 @@ mod tests {
     fn test_header() -> SemanticMetadataHeader {
         SemanticMetadataHeader {
             schema_version: TYPE_METADATA_SCHEMA_VERSION,
-            legacy_fingerprint_schema_version: None,
             semantic_model_version: SEMANTIC_MODEL_VERSION,
             producer: ProducerIdentity("test".into()),
             producer_version: "1".into(),
@@ -189,6 +188,9 @@ mod tests {
                 source: None,
             }]),
             static_domains: Box::new([]),
+            static_values: Box::new([]),
+            static_constants: Box::new([]),
+            static_definitions: Box::new([]),
             aliases: Box::new([]),
             callables: Box::new([CallableSemanticRecord {
                 callable: callable_ref.clone(),

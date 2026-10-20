@@ -413,12 +413,12 @@ class Client {
                 interface: LinkedModuleInterface {
                     module: api_mod.clone(),
                     kind: ModuleKind::Module,
-                    exports: api_exports,
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(api_exports),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
-                    local_globals: BTreeMap::from([("Service".into(), GlobalBindingId(0))]),
-                    imports: BTreeMap::new(),
+                    local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Service".into(), GlobalBindingId(0))])),
+                    imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                 },
                 linked_reads: Vec::new(),
                 runtime_dependencies: Vec::new(),
@@ -433,12 +433,12 @@ class Client {
                 interface: LinkedModuleInterface {
                     module: client_mod.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::new(),
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
-                    local_globals: BTreeMap::from([("Client".into(), GlobalBindingId(0))]),
-                    imports: client_imports,
+                    local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Client".into(), GlobalBindingId(0))])),
+                    imports: phalcom_modules::authority::ModuleAuthorityMap::Source(client_imports),
                 },
                 linked_reads: vec![phalcom_modules::linker::LinkedReadSpec::Binding(SymbolId {
                     module: api_mod.clone(),
@@ -450,7 +450,7 @@ class Client {
 
         let linked = Arc::new(LinkedProgram {
             universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-            modules,
+            modules: modules.into(),
             graphs: phalcom_modules::graph::ModuleGraphs::default(),
             entry: client_mod.clone(),
             initialization_order: vec![api_mod.clone(), client_mod.clone()],

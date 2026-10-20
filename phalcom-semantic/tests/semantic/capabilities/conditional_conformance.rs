@@ -1610,7 +1610,7 @@ fn make_input(module: phalcom_modules::identity::ModuleId, source: &str, generat
             interface: phalcom_modules::interface::LinkedModuleInterface {
                 module: module.clone(),
                 kind: phalcom_modules::source::ModuleKind::Module,
-                exports: std::collections::BTreeMap::new(),
+                exports: phalcom_modules::authority::ModuleAuthorityMap::Source(std::collections::BTreeMap::new()),
                 metadata: phalcom_modules::metadata::ModuleMetadata::default(),
             },
             bindings: phalcom_modules::linker::ModuleBindingLayout {
@@ -1634,7 +1634,7 @@ fn make_input(module: phalcom_modules::identity::ModuleId, source: &str, generat
     );
     let linked = std::sync::Arc::new(phalcom_modules::linker::LinkedProgram {
         universe: std::sync::Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-        modules: linked_modules,
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(linked_modules),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: module.clone(),
         initialization_order: vec![module],

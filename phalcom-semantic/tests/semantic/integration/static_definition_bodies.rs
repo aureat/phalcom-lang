@@ -613,7 +613,11 @@ fn symbolic_vector_identity_spread_stays_unreduced_before_reading_its_source() {
         .expect("checked constant identity spread");
     let mut checked = copied.checked.as_ref().unwrap().expression.clone();
     let mut resolutions = (*checked.sequence_literals).clone();
-    let resolution = resolutions.values_mut().next().expect("checked constant literal");
+    let expression_id = resolutions.keys().next().copied().expect("checked constant literal");
+    let resolution = resolutions
+        .get_source_mut(&expression_id)
+        .expect("source analysis map")
+        .expect("checked constant literal");
     let source_range = *resolution.exact_expansions.keys().next().expect("checked Vector spread source range");
     resolution.result_type = symbolic_type;
     resolution.extent = Some(symbolic_extent);
@@ -621,10 +625,13 @@ fn symbolic_vector_identity_spread_stays_unreduced_before_reading_its_source() {
         source_range,
         extent: symbolic_extent,
     };
-    resolution.exact_expansions.insert(
+    resolution
+        .exact_expansions
+        .insert_source(
         source_range,
         phalcom_semantic::checker::SequenceExpansionResolution::VectorStorage { extent: symbolic_extent },
-    );
+        )
+        .expect("source expansion map");
     checked.sequence_literals = Arc::new(resolutions);
 
     let mut values = StaticValueStore::new();
@@ -1071,12 +1078,12 @@ fn imported_const_input(provider_source: &str, generation: u64) -> (SemanticWork
         interface: LinkedModuleInterface {
             module: provider.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::from([("base".into(), export)]),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("base".into(), export)])),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([("base".into(), GlobalBindingId(0))]),
-            imports: BTreeMap::new(),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("base".into(), GlobalBindingId(0))])),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
         },
         linked_reads: Vec::new(),
         runtime_dependencies: Vec::new(),
@@ -1085,19 +1092,22 @@ fn imported_const_input(provider_source: &str, generation: u64) -> (SemanticWork
         interface: LinkedModuleInterface {
             module: consumer.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::new(),
-            imports: BTreeMap::from([("imported".into(), ImportBindingId(0))]),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("imported".into(), ImportBindingId(0))])),
         },
         linked_reads: vec![LinkedReadSpec::Binding(symbol)],
         runtime_dependencies: vec![provider.clone()],
     };
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::from([(provider.clone(), provider_linked), (consumer.clone(), consumer_linked)]),
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([
+            (provider.clone(), provider_linked),
+            (consumer.clone(), consumer_linked),
+        ])),
         graphs: Default::default(),
         entry: consumer.clone(),
         initialization_order: vec![provider.clone(), consumer.clone()],
@@ -1181,12 +1191,12 @@ fn imported_const_expr_input(provider_source: &str, consumer_source: &str, gener
         interface: LinkedModuleInterface {
             module: provider.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::from([("base".into(), export)]),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("base".into(), export)])),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([("base".into(), GlobalBindingId(0))]),
-            imports: BTreeMap::new(),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("base".into(), GlobalBindingId(0))])),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
         },
         linked_reads: Vec::new(),
         runtime_dependencies: Vec::new(),
@@ -1195,19 +1205,22 @@ fn imported_const_expr_input(provider_source: &str, consumer_source: &str, gener
         interface: LinkedModuleInterface {
             module: consumer.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::new(),
-            imports: BTreeMap::from([("imported".into(), ImportBindingId(0))]),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("imported".into(), ImportBindingId(0))])),
         },
         linked_reads: vec![LinkedReadSpec::Binding(symbol)],
         runtime_dependencies: vec![provider.clone()],
     };
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::from([(provider.clone(), provider_linked), (consumer.clone(), consumer_linked)]),
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([
+            (provider.clone(), provider_linked),
+            (consumer.clone(), consumer_linked),
+        ])),
         graphs: Default::default(),
         entry: consumer.clone(),
         initialization_order: vec![provider.clone(), consumer.clone()],

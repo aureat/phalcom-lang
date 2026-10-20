@@ -26,7 +26,7 @@ fn input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceIn
         interface: LinkedModuleInterface {
             module: module.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout::default(),
@@ -37,7 +37,7 @@ fn input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceIn
     modules.insert(module.clone(), linked_module);
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-        modules,
+        modules: modules.into(),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: module.clone(),
         initialization_order: vec![module.clone()],
@@ -448,7 +448,7 @@ class Caller { invoke(_ value: Good) { value.value() } }
                 interface: LinkedModuleInterface {
                     module: stable_module.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::new(),
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout::default(),

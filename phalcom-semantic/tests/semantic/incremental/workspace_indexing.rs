@@ -141,12 +141,12 @@ fn two_module_input_with_provider(
         interface: LinkedModuleInterface {
             module: provider.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::from([("Foo".into(), export_foo)]),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Foo".into(), export_foo)])),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([("Foo".into(), GlobalBindingId(0))]),
-            imports: BTreeMap::new(),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Foo".into(), GlobalBindingId(0))])),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
         },
         linked_reads: Vec::new(),
         runtime_dependencies: Vec::new(),
@@ -157,12 +157,12 @@ fn two_module_input_with_provider(
         interface: LinkedModuleInterface {
             module: consumer.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([("Consumer".into(), GlobalBindingId(0))]),
-            imports: BTreeMap::from([(imported_name.into(), ImportBindingId(0))]),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Consumer".into(), GlobalBindingId(0))])),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(imported_name.into(), ImportBindingId(0))])),
         },
         linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
             module: provider.clone(),
@@ -173,7 +173,7 @@ fn two_module_input_with_provider(
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-        modules: BTreeMap::from([(provider.clone(), p_mod), (consumer.clone(), c_mod)]),
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(provider.clone(), p_mod), (consumer.clone(), c_mod)])),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: consumer,
         initialization_order: vec![provider, module("consumer")],
@@ -761,12 +761,12 @@ fn make_fanout_input(provider_source: &str, consumer_sources: Vec<(usize, String
         interface: LinkedModuleInterface {
             module: provider.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::from([("Foo".into(), export_foo)]),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Foo".into(), export_foo)])),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([("Foo".into(), GlobalBindingId(0))]),
-            imports: BTreeMap::new(),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Foo".into(), GlobalBindingId(0))])),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
         },
         linked_reads: Vec::new(),
         runtime_dependencies: Vec::new(),
@@ -792,12 +792,12 @@ fn make_fanout_input(provider_source: &str, consumer_sources: Vec<(usize, String
             interface: LinkedModuleInterface {
                 module: c_mod_id.clone(),
                 kind: ModuleKind::Module,
-                exports: BTreeMap::new(),
+                exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                 metadata: ModuleMetadata::default(),
             },
             bindings: ModuleBindingLayout {
-                local_globals: BTreeMap::from([(format!("C{i:02}").into(), GlobalBindingId(0))]),
-                imports: BTreeMap::from([("Foo".into(), ImportBindingId(0))]),
+                local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(format!("C{i:02}").into(), GlobalBindingId(0))])),
+                imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Foo".into(), ImportBindingId(0))])),
             },
             linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
                 module: provider.clone(),
@@ -811,7 +811,7 @@ fn make_fanout_input(provider_source: &str, consumer_sources: Vec<(usize, String
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-        modules: linked_modules,
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(linked_modules),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: module("c00"),
         initialization_order: init_order,

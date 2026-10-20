@@ -10,7 +10,7 @@ use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::types::environment::{TypeEnvironment, TypeView};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::store::TypeData;
-use phalcom_semantic::{SemanticWorkspaceInput, SemanticWorkspaceSession, TypeHierarchy, analyze_single_module, analyze_workspace};
+use phalcom_semantic::{SemanticWorkspaceInput, SemanticWorkspaceSession, analyze_single_module, analyze_workspace};
 use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Arc;
@@ -310,7 +310,7 @@ fn linked_alias_workspace(modules: Vec<LinkedAliasModule>) -> (Arc<LinkedProgram
                 interface: LinkedModuleInterface {
                     module: module.clone(),
                     kind: ModuleKind::Module,
-                    exports: export_map,
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(export_map),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
@@ -319,7 +319,7 @@ fn linked_alias_workspace(modules: Vec<LinkedAliasModule>) -> (Arc<LinkedProgram
                         .enumerate()
                         .map(|(index, name)| ((*name).into(), GlobalBindingId(index as u32)))
                         .collect(),
-                    imports: import_bindings,
+                    imports: phalcom_modules::authority::ModuleAuthorityMap::Source(import_bindings),
                 },
                 linked_reads,
                 runtime_dependencies: imports.iter().map(|(_, target, _)| target.clone()).collect(),
@@ -330,7 +330,7 @@ fn linked_alias_workspace(modules: Vec<LinkedAliasModule>) -> (Arc<LinkedProgram
     (
         Arc::new(LinkedProgram {
             universe: Arc::new(ProjectUniverse::new()),
-            modules: linked_modules,
+            modules: phalcom_modules::authority::ModuleAuthorityMap::Source(linked_modules),
             graphs: phalcom_modules::graph::ModuleGraphs::default(),
             entry,
             initialization_order: module_ids,
@@ -475,12 +475,12 @@ export Client
             interface: LinkedModuleInterface {
                 module: api_module.clone(),
                 kind: ModuleKind::Module,
-                exports: BTreeMap::from([("Service".into(), service_export)]),
+                exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Service".into(), service_export)])),
                 metadata: ModuleMetadata::default(),
             },
             bindings: ModuleBindingLayout {
-                local_globals: BTreeMap::from([("Service".into(), GlobalBindingId(0))]),
-                imports: BTreeMap::new(),
+                local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Service".into(), GlobalBindingId(0))])),
+                imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             },
             linked_reads: Vec::new(),
             runtime_dependencies: Vec::new(),
@@ -492,12 +492,12 @@ export Client
             interface: LinkedModuleInterface {
                 module: client_module.clone(),
                 kind: ModuleKind::Module,
-                exports: BTreeMap::from([("Client".into(), client_export)]),
+                exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Client".into(), client_export)])),
                 metadata: ModuleMetadata::default(),
             },
             bindings: ModuleBindingLayout {
-                local_globals: BTreeMap::from([("Client".into(), GlobalBindingId(0))]),
-                imports: BTreeMap::from([("Service".into(), ImportBindingId(0))]),
+                local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Client".into(), GlobalBindingId(0))])),
+                imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Service".into(), ImportBindingId(0))])),
             },
             linked_reads: vec![LinkedReadSpec::Binding(service_symbol)],
             runtime_dependencies: vec![api_module.clone()],
@@ -506,7 +506,7 @@ export Client
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules,
+        modules: modules.into(),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: client_module.clone(),
         initialization_order: vec![api_module.clone(), client_module.clone()],
@@ -626,12 +626,12 @@ fn workspace_multi_module_linking_resolution_and_cycles() {
             interface: LinkedModuleInterface {
                 module: point_mod.clone(),
                 kind: ModuleKind::Module,
-                exports: point_exports,
+                exports: phalcom_modules::authority::ModuleAuthorityMap::Source(point_exports),
                 metadata: ModuleMetadata::default(),
             },
             bindings: ModuleBindingLayout {
-                local_globals: BTreeMap::from([("Point".into(), GlobalBindingId(0))]),
-                imports: BTreeMap::new(),
+                local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Point".into(), GlobalBindingId(0))])),
+                imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             },
             linked_reads: Vec::new(),
             runtime_dependencies: Vec::new(),
@@ -658,12 +658,12 @@ fn workspace_multi_module_linking_resolution_and_cycles() {
             interface: LinkedModuleInterface {
                 module: circle_mod.clone(),
                 kind: ModuleKind::Module,
-                exports: circle_exports,
+                exports: phalcom_modules::authority::ModuleAuthorityMap::Source(circle_exports),
                 metadata: ModuleMetadata::default(),
             },
             bindings: ModuleBindingLayout {
-                local_globals: BTreeMap::from([("Circle".into(), GlobalBindingId(0))]),
-                imports: circle_imports,
+                local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Circle".into(), GlobalBindingId(0))])),
+                imports: phalcom_modules::authority::ModuleAuthorityMap::Source(circle_imports),
             },
             linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
                 module: point_mod.clone(),
@@ -675,7 +675,7 @@ fn workspace_multi_module_linking_resolution_and_cycles() {
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(universe),
-        modules,
+        modules: modules.into(),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: circle_mod.clone(),
         initialization_order: vec![point_mod.clone(), circle_mod.clone()],
@@ -730,7 +730,7 @@ fn inheritance_cycle_is_rejected_in_workspace() {
             interface: LinkedModuleInterface {
                 module: mod_a.clone(),
                 kind: ModuleKind::Module,
-                exports: BTreeMap::from([(
+                exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(
                     "A".into(),
                     LinkedExport {
                         public_name: "A".into(),
@@ -740,12 +740,12 @@ fn inheritance_cycle_is_rejected_in_workspace() {
                         }),
                         range: phalcom_common::range::SourceRange::default(),
                     },
-                )]),
+                )])),
                 metadata: ModuleMetadata::default(),
             },
             bindings: ModuleBindingLayout {
-                local_globals: BTreeMap::from([("A".into(), GlobalBindingId(0))]),
-                imports: BTreeMap::from([("B".into(), ImportBindingId(0))]),
+                local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("A".into(), GlobalBindingId(0))])),
+                imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("B".into(), ImportBindingId(0))])),
             },
             linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
                 module: mod_b.clone(),
@@ -761,7 +761,7 @@ fn inheritance_cycle_is_rejected_in_workspace() {
             interface: LinkedModuleInterface {
                 module: mod_b.clone(),
                 kind: ModuleKind::Module,
-                exports: BTreeMap::from([(
+                exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(
                     "B".into(),
                     LinkedExport {
                         public_name: "B".into(),
@@ -771,12 +771,12 @@ fn inheritance_cycle_is_rejected_in_workspace() {
                         }),
                         range: phalcom_common::range::SourceRange::default(),
                     },
-                )]),
+                )])),
                 metadata: ModuleMetadata::default(),
             },
             bindings: ModuleBindingLayout {
-                local_globals: BTreeMap::from([("B".into(), GlobalBindingId(0))]),
-                imports: BTreeMap::from([("A".into(), ImportBindingId(0))]),
+                local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("B".into(), GlobalBindingId(0))])),
+                imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("A".into(), ImportBindingId(0))])),
             },
             linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
                 module: mod_a.clone(),
@@ -788,7 +788,7 @@ fn inheritance_cycle_is_rejected_in_workspace() {
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(universe),
-        modules,
+        modules: modules.into(),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: mod_a.clone(),
         initialization_order: vec![mod_a.clone(), mod_b.clone()],
@@ -833,7 +833,7 @@ fn same_leaf_name_in_two_modules_stays_distinct() {
             interface: LinkedModuleInterface {
                 module: mod_x.clone(),
                 kind: ModuleKind::Module,
-                exports: BTreeMap::new(),
+                exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                 metadata: ModuleMetadata::default(),
             },
             bindings: ModuleBindingLayout::default(),
@@ -847,7 +847,7 @@ fn same_leaf_name_in_two_modules_stays_distinct() {
             interface: LinkedModuleInterface {
                 module: mod_y.clone(),
                 kind: ModuleKind::Module,
-                exports: BTreeMap::new(),
+                exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                 metadata: ModuleMetadata::default(),
             },
             bindings: ModuleBindingLayout::default(),
@@ -858,7 +858,7 @@ fn same_leaf_name_in_two_modules_stays_distinct() {
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules,
+        modules: modules.into(),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: mod_x.clone(),
         initialization_order: vec![mod_x.clone(), mod_y.clone()],
@@ -954,7 +954,7 @@ fn deterministic_fresh_store_analysis_matches_structurally() {
                 interface: LinkedModuleInterface {
                     module: mod_a.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::from([(
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(
                         "Base".into(),
                         LinkedExport {
                             public_name: "Base".into(),
@@ -964,12 +964,12 @@ fn deterministic_fresh_store_analysis_matches_structurally() {
                             }),
                             range: phalcom_common::range::SourceRange::default(),
                         },
-                    )]),
+                    )])),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
-                    local_globals: BTreeMap::from([("Base".into(), GlobalBindingId(0))]),
-                    imports: BTreeMap::new(),
+                    local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Base".into(), GlobalBindingId(0))])),
+                    imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                 },
                 linked_reads: Vec::new(),
                 runtime_dependencies: Vec::new(),
@@ -982,7 +982,7 @@ fn deterministic_fresh_store_analysis_matches_structurally() {
                 interface: LinkedModuleInterface {
                     module: mod_b.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::from([(
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(
                         "Sub".into(),
                         LinkedExport {
                             public_name: "Sub".into(),
@@ -992,12 +992,12 @@ fn deterministic_fresh_store_analysis_matches_structurally() {
                             }),
                             range: phalcom_common::range::SourceRange::default(),
                         },
-                    )]),
+                    )])),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
-                    local_globals: BTreeMap::from([("Sub".into(), GlobalBindingId(0))]),
-                    imports: BTreeMap::from([("Base".into(), ImportBindingId(0))]),
+                    local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Sub".into(), GlobalBindingId(0))])),
+                    imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Base".into(), ImportBindingId(0))])),
                 },
                 linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
                     module: mod_a.clone(),
@@ -1009,7 +1009,7 @@ fn deterministic_fresh_store_analysis_matches_structurally() {
 
         let linked = Arc::new(LinkedProgram {
             universe: Arc::new(ProjectUniverse::new()),
-            modules,
+            modules: modules.into(),
             graphs: phalcom_modules::graph::ModuleGraphs::default(),
             entry: mod_b.clone(),
             initialization_order: vec![mod_a.clone(), mod_b.clone()],

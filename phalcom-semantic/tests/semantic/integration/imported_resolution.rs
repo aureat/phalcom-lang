@@ -188,12 +188,12 @@ fn imported_class_participates_in_expression_type_inference_with_declaring_modul
         interface: LinkedModuleInterface {
             module: point_module.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::from([("Point".into(), point_export)]),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Point".into(), point_export)])),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([("Point".into(), GlobalBindingId(0))]),
-            imports: BTreeMap::new(),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Point".into(), GlobalBindingId(0))])),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
         },
         linked_reads: Vec::new(),
         runtime_dependencies: Vec::new(),
@@ -203,12 +203,12 @@ fn imported_class_participates_in_expression_type_inference_with_declaring_modul
         interface: LinkedModuleInterface {
             module: consumer_module.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([("Consumer".into(), GlobalBindingId(0))]),
-            imports: BTreeMap::from([("Point".into(), ImportBindingId(0))]),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Consumer".into(), GlobalBindingId(0))])),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Point".into(), ImportBindingId(0))])),
         },
         linked_reads: vec![LinkedReadSpec::Binding(point_symbol)],
         runtime_dependencies: vec![point_module.clone()],
@@ -216,7 +216,10 @@ fn imported_class_participates_in_expression_type_inference_with_declaring_modul
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::from([(point_module.clone(), point_linked), (consumer_module.clone(), consumer_linked)]),
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([
+            (point_module.clone(), point_linked),
+            (consumer_module.clone(), consumer_linked),
+        ])),
         graphs: Default::default(),
         entry: consumer_module.clone(),
         initialization_order: vec![point_module.clone(), consumer_module.clone()],
@@ -278,12 +281,12 @@ fn imported_static_domain_case_publishes_provider_identity_before_runtime_reject
         interface: LinkedModuleInterface {
             module: shapes_module.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::from([("Shape".into(), shape_export)]),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Shape".into(), shape_export)])),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([("Shape".into(), GlobalBindingId(0))]),
-            imports: BTreeMap::new(),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Shape".into(), GlobalBindingId(0))])),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
         },
         linked_reads: Vec::new(),
         runtime_dependencies: Vec::new(),
@@ -292,12 +295,12 @@ fn imported_static_domain_case_publishes_provider_identity_before_runtime_reject
         interface: LinkedModuleInterface {
             module: consumer_module.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([("Probe".into(), GlobalBindingId(0))]),
-            imports: BTreeMap::from([("Shape".into(), ImportBindingId(0))]),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Probe".into(), GlobalBindingId(0))])),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Shape".into(), ImportBindingId(0))])),
         },
         linked_reads: vec![LinkedReadSpec::Binding(shape_symbol)],
         runtime_dependencies: vec![shapes_module.clone()],
@@ -326,7 +329,10 @@ fn imported_static_domain_case_publishes_provider_identity_before_runtime_reject
     ]);
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::from([(shapes_module.clone(), shape_linked), (consumer_module.clone(), consumer_linked)]),
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([
+            (shapes_module.clone(), shape_linked),
+            (consumer_module.clone(), consumer_linked),
+        ])),
         graphs: Default::default(),
         entry: consumer_module.clone(),
         initialization_order: vec![shapes_module.clone(), consumer_module.clone()],
@@ -393,12 +399,12 @@ fn static_domain_provider_input(provider_name: &str, provider_source: &str, cons
         interface: LinkedModuleInterface {
             module: shapes_module.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::from([(provider_name.into(), provider_export)]),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(provider_name.into(), provider_export)])),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([(provider_name.into(), GlobalBindingId(0))]),
-            imports: BTreeMap::new(),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(provider_name.into(), GlobalBindingId(0))])),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
         },
         linked_reads: Vec::new(),
         runtime_dependencies: Vec::new(),
@@ -407,12 +413,15 @@ fn static_domain_provider_input(provider_name: &str, provider_source: &str, cons
         interface: LinkedModuleInterface {
             module: consumer_module.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout {
-            local_globals: BTreeMap::from([("Selected".into(), GlobalBindingId(0)), ("Probe".into(), GlobalBindingId(1))]),
-            imports: BTreeMap::from([(provider_name.into(), ImportBindingId(0))]),
+            local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([
+                ("Selected".into(), GlobalBindingId(0)),
+                ("Probe".into(), GlobalBindingId(1)),
+            ])),
+            imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(provider_name.into(), ImportBindingId(0))])),
         },
         linked_reads: vec![LinkedReadSpec::Binding(provider_symbol)],
         runtime_dependencies: vec![shapes_module.clone()],
@@ -441,7 +450,10 @@ fn static_domain_provider_input(provider_name: &str, provider_source: &str, cons
     ]);
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::from([(shapes_module.clone(), provider_linked), (consumer_module.clone(), consumer_linked)]),
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([
+            (shapes_module.clone(), provider_linked),
+            (consumer_module.clone(), consumer_linked),
+        ])),
         graphs: Default::default(),
         entry: consumer_module.clone(),
         initialization_order: vec![shapes_module, consumer_module],
@@ -517,7 +529,7 @@ fn imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold
     .with_algebraic_semantics(&revision_a.snapshot.data_semantics, &revision_a.snapshot.enum_semantics)
     .with_associated_static_domains(&revision_a.snapshot.associated_static_domains)
     .with_aliases(&revision_a.snapshot.type_aliases)
-    .build_complete_test_bundle(&[])
+    .build_bundle(&[])
     .expect("multi-module provider metadata");
     let provider_catalog = bundle
         .static_domains
@@ -664,7 +676,7 @@ fn imported_associated_static_domain_retains_provider_owner_specialization() {
     .with_algebraic_semantics(&update.snapshot.data_semantics, &update.snapshot.enum_semantics)
     .with_associated_static_domains(&update.snapshot.associated_static_domains)
     .with_aliases(&update.snapshot.type_aliases)
-    .build_complete_test_bundle(&[])
+    .build_bundle(&[])
     .expect("cross-module associated static metadata");
     let alias = bundle
         .aliases
@@ -843,7 +855,7 @@ fn workspace_partial_snapshot_publishes_module_diagnostic_and_valid_product() {
         interface: LinkedModuleInterface {
             module,
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
             metadata: ModuleMetadata::default(),
         },
         bindings: ModuleBindingLayout::default(),
@@ -852,10 +864,10 @@ fn workspace_partial_snapshot_publishes_module_diagnostic_and_valid_product() {
     };
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::from([
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([
             (valid_module.clone(), linked_module(valid_module.clone())),
             (blocked_module.clone(), linked_module(blocked_module.clone())),
-        ]),
+        ])),
         graphs: Default::default(),
         entry: valid_module.clone(),
         initialization_order: vec![valid_module.clone(), blocked_module.clone()],
@@ -909,14 +921,14 @@ fn qualified_module_type_lookup_uses_public_linked_exports_and_fails_closed() {
     };
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::from([
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([
             (
                 models.clone(),
                 LinkedModule {
                     interface: LinkedModuleInterface {
                         module: models.clone(),
                         kind: ModuleKind::Module,
-                        exports: BTreeMap::from([("Public".into(), public_export)]),
+                        exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("Public".into(), public_export)])),
                         metadata: ModuleMetadata::default(),
                     },
                     bindings: ModuleBindingLayout::default(),
@@ -930,18 +942,18 @@ fn qualified_module_type_lookup_uses_public_linked_exports_and_fails_closed() {
                     interface: LinkedModuleInterface {
                         module: consumer.clone(),
                         kind: ModuleKind::Module,
-                        exports: BTreeMap::new(),
+                        exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                         metadata: ModuleMetadata::default(),
                     },
                     bindings: ModuleBindingLayout {
-                        local_globals: BTreeMap::new(),
-                        imports: BTreeMap::from([("models".into(), ImportBindingId(0))]),
+                        local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
+                        imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("models".into(), ImportBindingId(0))])),
                     },
                     linked_reads: vec![LinkedReadSpec::Module(models.clone())],
                     runtime_dependencies: vec![models.clone()],
                 },
             ),
-        ]),
+        ])),
         graphs: Default::default(),
         entry: consumer.clone(),
         initialization_order: vec![models.clone(), consumer.clone()],
@@ -998,26 +1010,26 @@ fn exported_global_and_top_level_binding_use_module_binding_target() {
     ]);
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::from([
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([
             (
                 provider.clone(),
                 LinkedModule {
                     interface: LinkedModuleInterface {
                         module: provider.clone(),
                         kind: ModuleKind::Module,
-                        exports: BTreeMap::from([(
+                        exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([(
                             "version".into(),
                             LinkedExport {
                                 public_name: "version".into(),
                                 target: LinkedExportTarget::Binding(symbol.clone()),
                                 range: Default::default(),
                             },
-                        )]),
+                        )])),
                         metadata: ModuleMetadata::default(),
                     },
                     bindings: ModuleBindingLayout {
-                        local_globals: BTreeMap::from([("version".into(), GlobalBindingId(0))]),
-                        imports: BTreeMap::new(),
+                        local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("version".into(), GlobalBindingId(0))])),
+                        imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                     },
                     linked_reads: Vec::new(),
                     runtime_dependencies: Vec::new(),
@@ -1029,18 +1041,18 @@ fn exported_global_and_top_level_binding_use_module_binding_target() {
                     interface: LinkedModuleInterface {
                         module: consumer.clone(),
                         kind: ModuleKind::Module,
-                        exports: BTreeMap::new(),
+                        exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                         metadata: ModuleMetadata::default(),
                     },
                     bindings: ModuleBindingLayout {
-                        local_globals: BTreeMap::new(),
-                        imports: BTreeMap::from([("version".into(), ImportBindingId(0))]),
+                        local_globals: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
+                        imports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::from([("version".into(), ImportBindingId(0))])),
                     },
                     linked_reads: vec![LinkedReadSpec::Binding(symbol.clone())],
                     runtime_dependencies: vec![provider.clone()],
                 },
             ),
-        ]),
+        ])),
         graphs: Default::default(),
         entry: consumer.clone(),
         initialization_order: vec![provider.clone(), consumer.clone()],

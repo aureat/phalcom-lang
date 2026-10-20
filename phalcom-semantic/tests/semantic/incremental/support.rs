@@ -40,7 +40,7 @@ pub(crate) fn multi_module_input(modules: Vec<(ModuleId, String)>, generation: u
                 interface: LinkedModuleInterface {
                     module: module.clone(),
                     kind: ModuleKind::Module,
-                    exports: BTreeMap::new(),
+                    exports: phalcom_modules::authority::ModuleAuthorityMap::Source(BTreeMap::new()),
                     metadata: ModuleMetadata::default(),
                 },
                 bindings: ModuleBindingLayout {
@@ -59,7 +59,7 @@ pub(crate) fn multi_module_input(modules: Vec<(ModuleId, String)>, generation: u
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-        modules: linked_modules,
+        modules: phalcom_modules::authority::ModuleAuthorityMap::Source(linked_modules),
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: sources.keys().next().cloned().expect("multi-module fixture requires one module"),
         initialization_order: sources.keys().cloned().collect(),

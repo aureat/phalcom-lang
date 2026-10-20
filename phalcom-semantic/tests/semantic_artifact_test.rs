@@ -1,7 +1,7 @@
 use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::header::{
-    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V3, SEMANTIC_ARTIFACT_ABI_V2, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities,
+    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V3, SEMANTIC_ARTIFACT_ABI_V3, TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities,
     TeloscHeaderV2,
 };
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
@@ -13,8 +13,8 @@ use phalcom_compiler_artifact::query::{
     QueryRootEntryV4,
 };
 use phalcom_compiler_artifact::semantic::aggregates::{
-    DataInfoV1, DataShapeV1, DeclaredTypeBasisV1, DeclaredTypeFactV1, DeclaredTypeStateV1, EnumInfoV1, StructuralPrimaryContractsV1,
-    UnknownReasonV1, VisibilityV1,
+    DataInfoV1, DataShapeV1, DeclaredTypeBasisV1, DeclaredTypeFactV1, DeclaredTypeStateV1, EnumInfoV1, StructuralPrimaryContractsV2, TraitRefV1, UnknownReasonV1,
+    VisibilityV1,
 };
 use phalcom_compiler_artifact::semantic::operational::OperationalOpV1;
 use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
@@ -22,7 +22,8 @@ use phalcom_compiler_artifact::semantic::type_store::{
     ArtifactKindId, ArtifactTypeId, KindV1, StaticDomainV1, TypeEntryV1, TypeGraphV1, TypeMemberSelectorV1, TypeV1,
 };
 use phalcom_compiler_artifact::semantic::world::{
-    AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1, CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1,
+    AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1, CallableAnalysisRecordV1, CallableAnalysisRecordV2,
+    CallableAnalysisSourceOwnerV1,
     CallableAnalysisStatusV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1, CallableBindingReadSafetyV1, CallableBindingRowV1,
     CallableCallSpecializationV1, CallableCausalInvalidityV1, CallableConformanceAssociatedTypePlanV1, CallableConformanceCompletenessV1,
     CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableDiagnosticSeverityV1, CallableEvidenceDiagnosticV1,
@@ -32,8 +33,8 @@ use phalcom_compiler_artifact::semantic::world::{
     DispatchCallableFactV1, EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1, EnumRequirementSourceV1, ExactSelectorV1, FieldSignatureV1,
     ImplementationKindV1, InherentImplDomainV1, InherentImplTargetV1, ModuleStaticBindingIndexV1, ModuleStaticBindingPhaseV1, ModuleStaticBindingRecordV1,
     ModuleStaticBindingVisibleNameV1, NativeLifecycleSpecV1, RaisesSpecV1, ReturnContractValidationV1, ReturnFlowV1, SelectorKindV1, SemanticDenotationV1,
-    SemanticWorldV3, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1, StaticConstantOutcomeV1, StaticConstantRecordV1, StaticConstantSymbolV1,
-    StaticDefinitionRecordV1, StaticDefinitionSignatureV1, StaticDomainCaseCatalogRecordV1, StaticValueDomainV1, TraitRefV1, TraitSurfaceRecordV1,
+    ModuleExecutionAuthorityV1, SemanticWorldV4, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1, StaticConstantOutcomeV1, StaticConstantRecordV1,
+    StaticConstantSymbolV1, StaticDefinitionRecordV1, StaticDefinitionSignatureV1, StaticDomainCaseCatalogRecordV1, StaticValueDomainV1, TraitSurfaceRecordV1,
     TypeKnowledgeV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1, WitnessPlanV1,
 };
 use phalcom_semantic::artifact::{
@@ -101,7 +102,7 @@ fn sample_image() -> CompilerArtifactImage {
         semantic_model_version: 1,
         stable_identity_schema: 1,
         module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
-        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V2,
+        semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V3,
         query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V3,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [7; 16],
@@ -121,10 +122,10 @@ fn sample_image() -> CompilerArtifactImage {
     let iface = phalcom_modules::UnlinkedModuleInterface {
         id: root.clone(),
         kind: phalcom_modules::ModuleKind::Package,
-        declarations: std::collections::BTreeMap::new(),
-        exports: std::collections::BTreeMap::new(),
+        declarations: std::collections::BTreeMap::new().into(),
+        exports: std::collections::BTreeMap::new().into(),
         imports: vec![],
-        exposed_children: std::collections::BTreeSet::new(),
+        exposed_children: std::collections::BTreeSet::new().into(),
         metadata: phalcom_modules::ModuleMetadata::default(),
     };
     let mut interfaces = std::collections::BTreeMap::new();
@@ -132,7 +133,7 @@ fn sample_image() -> CompilerArtifactImage {
     let linked_iface = phalcom_modules::LinkedModuleInterface {
         module: root.clone(),
         kind: phalcom_modules::ModuleKind::Package,
-        exports: std::collections::BTreeMap::new(),
+        exports: std::collections::BTreeMap::new().into(),
         metadata: phalcom_modules::ModuleMetadata::default(),
     };
     let mut modules = std::collections::BTreeMap::new();
@@ -147,7 +148,7 @@ fn sample_image() -> CompilerArtifactImage {
     );
     let linked = Arc::new(phalcom_modules::LinkedProgram {
         universe: universe.clone(),
-        modules,
+        modules: modules.into(),
         graphs: phalcom_modules::ModuleGraphs::default(),
         entry: root.clone(),
         initialization_order: vec![root.clone()],
@@ -163,7 +164,7 @@ fn sample_image() -> CompilerArtifactImage {
     let external_world = phalcom_modules::canonical_products::CanonicalExternalModuleWorld::from_parts(linked, interfaces, topology).unwrap();
     let module_world = phalcom_modules::compiler_artifact::project_module_world(&external_world, &ValidationLimits::default()).unwrap();
 
-    let semantic_world = SemanticWorldV3 {
+    let semantic_world = SemanticWorldV4 {
         type_graph: TypeGraphV1 {
             types: vec![TypeEntryV1 {
                 kind: ArtifactKindId(0),
@@ -181,9 +182,12 @@ fn sample_image() -> CompilerArtifactImage {
             lambdas: vec![],
             variance_overrides: vec![],
         },
-        structural_contracts: StructuralPrimaryContractsV1 {
+        structural_contracts: StructuralPrimaryContractsV2 {
             declaration_shells: vec![],
-            hierarchy_and_aliases: vec![],
+            intrinsic_static_domains: vec![],
+            intrinsic_type_owners: vec![],
+            hierarchy_edges: vec![],
+            type_aliases: vec![],
             generic_signatures: vec![],
             data_contracts: vec![],
             enum_contracts: vec![],
@@ -220,6 +224,18 @@ fn sample_image() -> CompilerArtifactImage {
         static_case_catalogs: vec![],
         static_case_signatures: vec![],
         associated_surfaces: vec![],
+        module_execution_authority: ModuleExecutionAuthorityV1 {
+            import_phase_products: module_world
+                .modules
+                .iter()
+                .map(|module| phalcom_compiler_artifact::semantic::world::ModuleImportPhaseProductV1 {
+                    module: module.identity.clone(),
+                    bindings: vec![],
+                    coverage: phalcom_compiler_artifact::semantic::world::PhaseEvidenceCoverageV1::Full,
+                })
+                .collect(),
+            runtime_requirements: vec![],
+        },
     };
 
     let query_image = QueryImageV4 {
@@ -277,33 +293,34 @@ fn sample_module_world_with_core() -> phalcom_compiler_artifact::module_world::M
     let root_interface = phalcom_modules::UnlinkedModuleInterface {
         id: root.clone(),
         kind: phalcom_modules::ModuleKind::Package,
-        declarations: std::collections::BTreeMap::new(),
-        exports: std::collections::BTreeMap::new(),
+        declarations: std::collections::BTreeMap::new().into(),
+        exports: std::collections::BTreeMap::new().into(),
         imports: vec![],
         exposed_children: [phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component")]
             .into_iter()
-            .collect(),
+            .collect::<std::collections::BTreeSet<_>>()
+            .into(),
         metadata: phalcom_modules::ModuleMetadata::default(),
     };
     let core_interface = phalcom_modules::UnlinkedModuleInterface {
         id: core.clone(),
         kind: phalcom_modules::ModuleKind::Module,
-        declarations: std::collections::BTreeMap::new(),
-        exports: std::collections::BTreeMap::new(),
+        declarations: std::collections::BTreeMap::new().into(),
+        exports: std::collections::BTreeMap::new().into(),
         imports: vec![],
-        exposed_children: std::collections::BTreeSet::new(),
+        exposed_children: std::collections::BTreeSet::new().into(),
         metadata: phalcom_modules::ModuleMetadata::default(),
     };
     let linked_root = phalcom_modules::LinkedModuleInterface {
         module: root.clone(),
         kind: phalcom_modules::ModuleKind::Package,
-        exports: std::collections::BTreeMap::new(),
+        exports: std::collections::BTreeMap::new().into(),
         metadata: phalcom_modules::ModuleMetadata::default(),
     };
     let linked_core = phalcom_modules::LinkedModuleInterface {
         module: core.clone(),
         kind: phalcom_modules::ModuleKind::Module,
-        exports: std::collections::BTreeMap::new(),
+        exports: std::collections::BTreeMap::new().into(),
         metadata: phalcom_modules::ModuleMetadata::default(),
     };
     let mut modules = std::collections::BTreeMap::new();
@@ -320,7 +337,7 @@ fn sample_module_world_with_core() -> phalcom_compiler_artifact::module_world::M
     }
     let linked = Arc::new(phalcom_modules::LinkedProgram {
         universe: universe.clone(),
-        modules,
+        modules: modules.into(),
         graphs: phalcom_modules::ModuleGraphs::default(),
         entry: root.clone(),
         initialization_order: vec![root.clone(), core.clone()],
@@ -339,6 +356,24 @@ fn sample_module_world_with_core() -> phalcom_compiler_artifact::module_world::M
     ));
     let world = phalcom_modules::canonical_products::CanonicalExternalModuleWorld::from_parts(linked, interfaces, topology).unwrap();
     phalcom_modules::compiler_artifact::project_module_world(&world, &ValidationLimits::default()).unwrap()
+}
+
+fn sync_empty_module_execution_authority(image: &mut CompilerArtifactImage) {
+    let mut import_phase_products = image
+        .module_world
+        .modules
+        .iter()
+        .map(|module| phalcom_compiler_artifact::semantic::world::ModuleImportPhaseProductV1 {
+            module: module.identity.clone(),
+            bindings: vec![],
+            coverage: phalcom_compiler_artifact::semantic::world::PhaseEvidenceCoverageV1::Full,
+        })
+        .collect::<Vec<_>>();
+    import_phase_products.sort_by(|left, right| left.module.cmp(&right.module));
+    image.semantic_world.module_execution_authority = ModuleExecutionAuthorityV1 {
+        import_phase_products,
+        runtime_requirements: vec![],
+    };
 }
 
 #[test]
@@ -391,6 +426,7 @@ fn transactional_semantic_export_and_import_round_trip() {
 fn structural_data_contract_reconstructs_as_native_semantic_product() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
     let universe_project = StableProjectRef::Builtin {
         namespace: "universe".into(),
         version: "0.1.0".into(),
@@ -443,6 +479,7 @@ fn structural_data_contract_reconstructs_as_native_semantic_product() {
 fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_fingerprints() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
     let stable_owner = StableDeclarationRef {
         module: StableModuleRef {
             project: StableProjectRef::Builtin {
@@ -497,6 +534,11 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         default_result_type: ArtifactTypeId(2),
         variants: vec![],
     });
+    image.semantic_world.enum_requirements.push(EnumRequirementOwnerV1 {
+        owner: stable_enum_owner.clone(),
+        requirements: vec![],
+        case_statuses: vec![],
+    });
 
     // First reconstruct the structural row without a DataDeclaration query root
     // so the test obtains the receiving compiler's canonical current-main
@@ -533,7 +575,6 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         info,
         diagnostics: diagnostics.clone(),
     };
-    let input_fingerprint = phalcom_semantic::db::fingerprint::data_declaration_input_fingerprint(&product).raw();
     let product_fingerprint = phalcom_semantic::db::fingerprint::data_declaration_product_fingerprint(&product).raw();
 
     let enum_owner = phalcom_semantic::identity::DeclarationId::new(owner.module.clone(), "CachedChoice".into());
@@ -549,7 +590,6 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         variants: Arc::from([]),
         diagnostics,
     };
-    let enum_input_fingerprint = phalcom_semantic::db::fingerprint::enum_declaration_input_fingerprint(&enum_product).raw();
     let enum_product_fingerprint = phalcom_semantic::db::fingerprint::enum_declaration_product_fingerprint(&enum_product).raw();
 
     image.query_image.supported_roots.push(QueryRootEntryV4 {
@@ -601,7 +641,7 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
     });
     image
         .query_image
-        .refresh_portable_structural_fingerprints(&image.semantic_world)
+        .refresh_portable_structural_fingerprints_v4(&image.semantic_world)
         .expect("refresh portable structural fingerprints");
 
     let data_portable_product_fingerprint = image
@@ -728,6 +768,7 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
 fn p7_type_member_product_imports_as_current_main_ready_query() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
 
     let stable_owner = StableDeclarationRef {
         module: StableModuleRef {
@@ -789,7 +830,7 @@ fn p7_type_member_product_imports_as_current_main_ready_query() {
     image.query_image.supported_roots.sort_by(|left, right| left.key.cmp(&right.key));
     image
         .query_image
-        .refresh_portable_structural_fingerprints(&image.semantic_world)
+        .refresh_portable_structural_fingerprints_v4(&image.semantic_world)
         .expect("refresh type-member portable fingerprint");
 
     let bytes = encode_artifact(&image).expect("encode type-member artifact");
@@ -835,6 +876,7 @@ fn p7_type_member_product_imports_as_current_main_ready_query() {
 fn p7_static_case_catalog_reconstructs_as_semantic_authority_without_ready_query() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
     let owner = StableDeclarationRef {
         module: StableModuleRef {
             project: StableProjectRef::Builtin {
@@ -883,6 +925,7 @@ fn p7_static_case_catalog_reconstructs_as_semantic_authority_without_ready_query
 fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
     let owner = StableDeclarationRef {
         module: StableModuleRef {
             project: StableProjectRef::Builtin {
@@ -950,7 +993,7 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
     image.query_image.supported_roots.sort_by(|left, right| left.key.cmp(&right.key));
     image
         .query_image
-        .refresh_portable_structural_fingerprints(&image.semantic_world)
+        .refresh_portable_structural_fingerprints_v4(&image.semantic_world)
         .expect("refresh P7 callable-definition portable evidence");
 
     let bytes = encode_artifact(&image).expect("encode P7 callable-signature authority");
@@ -981,6 +1024,7 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
 fn p7_enum_requirements_reconstruct_as_snapshot_authority_without_ready_query() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
 
     let enum_owner = StableDeclarationRef {
         module: StableModuleRef {
@@ -1072,6 +1116,7 @@ fn p7_enum_requirements_reconstruct_as_snapshot_authority_without_ready_query() 
 fn p7_constructor_initialization_reconstructs_as_snapshot_authority_without_ready_query() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
 
     let owner = StableDeclarationRef {
         module: StableModuleRef {
@@ -1122,6 +1167,7 @@ fn p7_constructor_initialization_reconstructs_as_snapshot_authority_without_read
     };
     image.semantic_world.callable_signatures.push(signature(factory.clone(), 1, "new"));
     image.semantic_world.callable_signatures.push(signature(initializer.clone(), 0, "initialize"));
+    image.semantic_world.callable_signatures.sort_by(|left, right| left.callable.cmp(&right.callable));
     image.semantic_world.constructor_initializations.push(ConstructorInitializationRecordV1 {
         factory,
         initializer,
@@ -1150,6 +1196,7 @@ fn p7_constructor_initialization_reconstructs_as_snapshot_authority_without_read
 fn p7_declaration_dispatch_reconstructs_as_budgeted_snapshot_authority() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
 
     let owner = StableDeclarationRef {
         module: StableModuleRef {
@@ -1239,6 +1286,7 @@ fn p7_declaration_dispatch_reconstructs_as_budgeted_snapshot_authority() {
 fn p7_conditional_inherent_dispatch_reconstructs_without_live_selector_index() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
 
     let owner = StableDeclarationRef {
         module: StableModuleRef {
@@ -1292,6 +1340,7 @@ fn p7_conditional_inherent_dispatch_reconstructs_without_live_selector_index() {
             replacement: None,
         },
     };
+    image.semantic_world.callable_signatures.push(signature.clone());
     image.semantic_world.conditional_inherent_sets.push(ConditionalInherentSetV1 {
         target: target.clone(),
         domains: vec![InherentImplDomainV1 {
@@ -1334,6 +1383,7 @@ fn p7_conditional_inherent_dispatch_reconstructs_without_live_selector_index() {
 fn p7_conformance_head_reconstructs_with_current_authorization_check() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
 
     let module = StableModuleRef {
         project: StableProjectRef::Builtin {
@@ -1390,6 +1440,7 @@ fn p7_conformance_head_reconstructs_with_current_authorization_check() {
 fn p7_trait_surface_reconstructs_complete_diagnostic_payload() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
 
     let module = StableModuleRef {
         project: StableProjectRef::Builtin {
@@ -1450,6 +1501,7 @@ fn p7_trait_surface_reconstructs_complete_diagnostic_payload() {
 fn p7_witness_preflight_binds_portable_plan_to_live_conformance_and_trait_authority() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
 
     let module = StableModuleRef {
         project: StableProjectRef::Builtin {
@@ -1546,6 +1598,7 @@ fn p7_witness_preflight_binds_portable_plan_to_live_conformance_and_trait_author
 fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysis() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
 
     let stable_module = StableModuleRef {
         project: StableProjectRef::Builtin {
@@ -1590,7 +1643,7 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
             replacement: None,
         },
     });
-    image.semantic_world.callable_analyses.push(CallableAnalysisRecordV1 {
+    image.semantic_world.callable_analyses.push(CallableAnalysisRecordV2::from_v1_with_observed_import_phases(CallableAnalysisRecordV1 {
         callable: callable.clone(),
         body_source_owner: Some(CallableAnalysisSourceOwnerV1::Callable { callable: callable.clone() }),
         body_range: SpanV1 { start: 0, end: 0 },
@@ -1667,7 +1720,9 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
                 version: 0,
                 explanation: None,
                 authority: CallableBindingAuthorityV1::BodyLocalSource {
-                    site_owner: CallableAnalysisSourceOwnerV1::Callable { callable: callable.clone() },
+                    site_owner: CallableAnalysisSourceOwnerV1::Module {
+                        module: stable_module.clone(),
+                    },
                     site_local: 1,
                     declaration_range: SpanV1 { start: 1, end: 2 },
                 },
@@ -1697,8 +1752,26 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
         diagnostics: vec![],
         dependencies: vec![],
         semantic_dependencies: vec![],
-    });
+    }, vec![]));
 
+    image.semantic_world.static_constants.push(StaticConstantRecordV1 {
+        symbol: StaticConstantSymbolV1 {
+            module: stable_module.clone(),
+            name: "cached".into(),
+        },
+        declaration_source: SpanV1 { start: 1, end: 2 },
+        initializer_source: SpanV1 { start: 2, end: 2 },
+        input_fingerprint: 0,
+        dependencies: vec![],
+        static_constant_reads: vec![],
+        record_key_static_constant_reads: vec![],
+        result_type: Some(ArtifactTypeId(0)),
+        outcome: StaticConstantOutcomeV1::Reduced {
+            value: ArtifactStaticValueId(0),
+        },
+        lkg_value: Some(ArtifactStaticValueId(0)),
+        diagnostics: vec![],
+    });
     image.semantic_world.module_static_bindings.push(ModuleStaticBindingIndexV1 {
         module: stable_module.clone(),
         bindings: vec![ModuleStaticBindingRecordV1 {
@@ -1781,6 +1854,7 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
 fn p7_static_constant_reconstructs_typed_authority_without_checked_body_fabrication() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
     let stable_module = StableModuleRef {
         project: StableProjectRef::Builtin {
             namespace: "universe".into(),
@@ -1826,6 +1900,7 @@ fn p7_static_constant_reconstructs_typed_authority_without_checked_body_fabricat
 fn p7_static_definition_preserves_source_free_operational_program_without_ast() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
     let owner = StableDeclarationRef {
         module: StableModuleRef {
             project: StableProjectRef::Builtin {
@@ -1890,6 +1965,7 @@ fn p7_static_definition_preserves_source_free_operational_program_without_ast() 
 fn p7_static_application_denotation_binds_to_imported_checked_application_identity() {
     let mut image = sample_image();
     image.module_world = sample_module_world_with_core();
+    sync_empty_module_execution_authority(&mut image);
 
     let stable_module = StableModuleRef {
         project: StableProjectRef::Builtin {
@@ -1972,7 +2048,7 @@ fn p7_static_application_denotation_binds_to_imported_checked_application_identi
             replacement: None,
         },
     });
-    image.semantic_world.callable_analyses.push(CallableAnalysisRecordV1 {
+    image.semantic_world.callable_analyses.push(CallableAnalysisRecordV2::from_v1_with_observed_import_phases(CallableAnalysisRecordV1 {
         callable: callable.clone(),
         body_source_owner: Some(CallableAnalysisSourceOwnerV1::Callable { callable: callable.clone() }),
         body_range: SpanV1 { start: 0, end: 1 },
@@ -2034,7 +2110,7 @@ fn p7_static_application_denotation_binds_to_imported_checked_application_identi
         diagnostics: vec![],
         dependencies: vec![],
         semantic_dependencies: vec![],
-    });
+    }, vec![]));
 
     let bytes = encode_artifact(&image).expect("encode P7 static-application denotation");
     let limits = ValidationLimits::default();
@@ -2118,6 +2194,10 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
         version: "2.4.1".into(),
     };
     image.module_world.external_projects = vec![stable_package.clone()];
+    let stable_module = StableModuleRef {
+        project: stable_package.clone(),
+        path: vec!["core".into()].into_boxed_slice(),
+    };
     image
         .module_world
         .refresh_portable_topology_fingerprint()
@@ -2126,7 +2206,7 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
     let stable_cached_owner = StableDeclarationRef {
         module: StableModuleRef {
             project: stable_package.clone(),
-            path: Box::new([]),
+            path: stable_module.path.clone(),
         },
         path: vec!["CachedPackagePayload".into()].into_boxed_slice(),
     };
@@ -2163,7 +2243,7 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
     });
     image
         .query_image
-        .refresh_portable_structural_fingerprints(&image.semantic_world)
+        .refresh_portable_structural_fingerprints_v4(&image.semantic_world)
         .expect("refresh package query fingerprint");
 
     image.metadata.package_digest = image.header.package_identity.digest().0;
@@ -2183,6 +2263,7 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
     )
     .expect("write project manifest");
     std::fs::write(project_root.join("src/package.ph"), "").expect("write package source");
+    std::fs::write(project_root.join("src/core.ph"), "").expect("write core module source");
     let mut projects = phalcom_modules::ProjectUniverse::new();
     let project_id = projects.load_root(project_root.join("project.toml")).expect("load persistent resolver target");
     let receipt = phalcom_modules::ValidatedPackageAuthorityReceipt::from_trusted_resolver(stable_package.clone(), artifact_digest, project_id)
@@ -2214,7 +2295,10 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
         "package-owned DataDeclaration root must survive portable fingerprint validation"
     );
     let package_owner = phalcom_semantic::identity::DeclarationId::new(
-        phalcom_modules::ModuleId::resolved(project_id, phalcom_modules::ModulePath::root()),
+        phalcom_modules::ModuleId::resolved(
+            project_id,
+            phalcom_modules::ModulePath::from_components(vec![phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component")]),
+        ),
         "CachedPackagePayload".into(),
     );
     let mut package_db = phalcom_semantic::db::SemanticDb::new();
@@ -2270,6 +2354,7 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
     )
     .expect("write second project manifest");
     std::fs::write(second_target_root.join("src/package.ph"), "").expect("write second package source");
+    std::fs::write(second_target_root.join("src/core.ph"), "").expect("write second core module source");
 
     let mut relocated_projects = phalcom_modules::ProjectUniverse::new();
     relocated_projects.load_root(unrelated_manifest).expect("allocate unrelated graph node first");
@@ -2289,7 +2374,10 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
     assert_eq!(relocated.query_products.len(), 1);
 
     let relocated_owner = phalcom_semantic::identity::DeclarationId::new(
-        phalcom_modules::ModuleId::resolved(relocated_project_id, phalcom_modules::ModulePath::root()),
+        phalcom_modules::ModuleId::resolved(
+            relocated_project_id,
+            phalcom_modules::ModulePath::from_components(vec![phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component")]),
+        ),
         "CachedPackagePayload".into(),
     );
     let mut relocated_db = phalcom_semantic::db::SemanticDb::new();
