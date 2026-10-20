@@ -229,8 +229,22 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
     }
 }
 
+fn immutable_canonical_terminal_failure(db: &SemanticDb, key: &QueryKey, attempted: &str) -> String {
+    format!(
+        "immutable canonical query {key:?} cannot record local {attempted}; canonical input fingerprint {:?}, canonical product fingerprint {:?}",
+        db.canonical_query_input_fingerprint(key),
+        db.canonical_query_product_fingerprint(key),
+    )
+}
+
 fn query_failure<T>(db: &mut SemanticDb, key: QueryKey, failure: impl Into<String>) -> QueryOutcome<T> {
     let failure = failure.into();
+    if db.is_canonical_query(&key) {
+        return QueryOutcome::Failed(format!(
+            "{}; original failure: {failure}",
+            immutable_canonical_terminal_failure(db, &key, "failure state")
+        ));
+    }
     let revision = db.revision();
     db.set_state(
         key,
@@ -244,6 +258,12 @@ fn query_failure<T>(db: &mut SemanticDb, key: QueryKey, failure: impl Into<Strin
 
 #[allow(dead_code)]
 fn query_blocked<T>(db: &mut SemanticDb, key: QueryKey, reason: BlockReason) -> QueryOutcome<T> {
+    if db.is_canonical_query(&key) {
+        return QueryOutcome::Failed(format!(
+            "{}; original block reason: {reason:?}",
+            immutable_canonical_terminal_failure(db, &key, "blocked state")
+        ));
+    }
     let revision = db.revision();
     db.set_state(
         key,
@@ -253,6 +273,31 @@ fn query_blocked<T>(db: &mut SemanticDb, key: QueryKey, reason: BlockReason) -> 
         },
     );
     QueryOutcome::Blocked(reason)
+}
+
+fn query_cancelled<T>(db: &mut SemanticDb, key: QueryKey) -> QueryOutcome<T> {
+    if db.is_canonical_query(&key) {
+        return QueryOutcome::Failed(immutable_canonical_terminal_failure(db, &key, "cancelled state"));
+    }
+    db.set_state(key, QueryState::Cancelled { revision: db.revision() });
+    QueryOutcome::Cancelled
+}
+
+fn query_budget_exceeded<T>(db: &mut SemanticDb, key: QueryKey, report: crate::db::budget::BudgetReport) -> QueryOutcome<T> {
+    if db.is_canonical_query(&key) {
+        return QueryOutcome::Failed(format!(
+            "{}; original budget report: {report:?}",
+            immutable_canonical_terminal_failure(db, &key, "budget-exceeded state")
+        ));
+    }
+    db.set_state(
+        key,
+        QueryState::BudgetExceeded {
+            revision: db.revision(),
+            report: report.clone(),
+        },
+    );
+    QueryOutcome::BudgetExceeded(report)
 }
 
 fn class_definition_for<'a>(unit: &'a ParsedModuleUnit, declaration: &DeclarationId) -> Option<&'a ClassDef> {
@@ -350,8 +395,15 @@ fn publish_current_product(
     dependencies: Vec<DependencyEdge>,
 ) -> Result<(), String> {
     let revision = db.revision();
-    db.publish_product_ready(key, revision, input_fingerprint, product_fingerprint, product, dependencies)
+    let canonical_input_fingerprint = db.canonical_query_input_fingerprint(&key);
+    let canonical_product_fingerprint = db.canonical_query_product_fingerprint(&key);
+    db.publish_product_ready(key.clone(), revision, input_fingerprint, product_fingerprint, product, dependencies)
         .map_err(|error| {
+            if error.is_immutable() {
+                return format!(
+                    "immutable canonical query {key:?} rejected local publication: requested input fingerprint {input_fingerprint:?}, canonical input fingerprint {canonical_input_fingerprint:?}, requested product fingerprint {product_fingerprint:?}, canonical product fingerprint {canonical_product_fingerprint:?}"
+                );
+            }
             format!(
                 "stale semantic query publication: expected revision {:?}, attempted revision {:?}",
                 error.expected_revision(),
@@ -615,14 +667,7 @@ pub fn query_unlinked_interface(
             Ok(unlinked) => Arc::new(unlinked),
             Err(err) => {
                 let query_err = format!("failed to build unlinked interface: {err:?}");
-                db.set_state(
-                    key,
-                    QueryState::Failed {
-                        revision: db.revision(),
-                        failure: query_err.clone(),
-                    },
-                );
-                return QueryOutcome::Failed(query_err);
+                return query_failure(db, key, query_err);
             }
         },
     };
@@ -773,14 +818,7 @@ pub fn query_semantic_component(
         }
         Err(err) => {
             let query_err = format!("linker error: {err:?}");
-            db.set_state(
-                key,
-                QueryState::Failed {
-                    revision: db.revision(),
-                    failure: query_err.clone(),
-                },
-            );
-            QueryOutcome::Failed(query_err)
+            query_failure(db, key, query_err)
         }
     }
 }
@@ -3714,32 +3752,14 @@ pub fn query_attribute_argument(
     match product.analysis.status {
         CallableAnalysisStatus::Cancelled => {
             db.metrics().record_cancellation();
-            db.set_state(key, QueryState::Cancelled { revision: db.revision() });
-            QueryOutcome::Cancelled
+            query_cancelled(db, key)
         }
         CallableAnalysisStatus::BudgetExceeded => {
             let report = crate::db::budget::BudgetReport::new(crate::db::budget::BudgetKind::Steps, budget.max_steps, budget.max_steps);
             db.metrics().record_budget_exhaustion();
-            db.set_state(
-                key,
-                QueryState::BudgetExceeded {
-                    revision: db.revision(),
-                    report: report.clone(),
-                },
-            );
-            QueryOutcome::BudgetExceeded(report)
+            query_budget_exceeded(db, key, report)
         }
-        CallableAnalysisStatus::Blocked => {
-            let reason = BlockReason::SuppressedDependency;
-            db.set_state(
-                key,
-                QueryState::Blocked {
-                    revision: db.revision(),
-                    reason: reason.clone(),
-                },
-            );
-            QueryOutcome::Blocked(reason)
-        }
+        CallableAnalysisStatus::Blocked => query_blocked(db, key, BlockReason::SuppressedDependency),
         CallableAnalysisStatus::Complete | CallableAnalysisStatus::Partial | CallableAnalysisStatus::InternalFailure(_) => {
             let mut recorder = crate::db::DependencyRecorder::new(key.clone());
             for semantic_dependency in product.analysis.semantic_dependencies.iter() {
@@ -3971,32 +3991,14 @@ fn query_callable_body_with_requirement(
     match arc_analysis.status {
         CallableAnalysisStatus::Cancelled => {
             db.metrics().record_cancellation();
-            db.set_state(key, QueryState::Cancelled { revision: db.revision() });
-            QueryOutcome::Cancelled
+            query_cancelled(db, key)
         }
         CallableAnalysisStatus::BudgetExceeded => {
             let report = crate::db::budget::BudgetReport::new(crate::db::budget::BudgetKind::Steps, budget.max_steps, budget.max_steps);
             db.metrics().record_budget_exhaustion();
-            db.set_state(
-                key,
-                QueryState::BudgetExceeded {
-                    revision: db.revision(),
-                    report: report.clone(),
-                },
-            );
-            QueryOutcome::BudgetExceeded(report)
+            query_budget_exceeded(db, key, report)
         }
-        CallableAnalysisStatus::Blocked => {
-            let reason = crate::types::outcome::BlockReason::SuppressedDependency;
-            db.set_state(
-                key,
-                QueryState::Blocked {
-                    revision: db.revision(),
-                    reason: reason.clone(),
-                },
-            );
-            QueryOutcome::Blocked(reason)
-        }
+        CallableAnalysisStatus::Blocked => query_blocked(db, key, crate::types::outcome::BlockReason::SuppressedDependency),
         // Internal failures are already contained at callable scope. Publish
         // the structured product so release/LSP queries remain operational;
         // test fixtures enforce fail-fast policy by asserting the incident

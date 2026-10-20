@@ -1,0 +1,56 @@
+name: Artifact consolidation focused verification
+
+on:
+  push:
+    branches:
+      - feat/artifact-universe-consolidation
+    paths:
+      - "phalcom-semantic/**"
+      - "phalcom-compiler-artifact/**"
+      - "phalcom-modules/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/artifact-consolidation-focused.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artifact-consolidation-focused-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: ""
+  RUSTC_WRAPPER: ""
+
+jobs:
+  semantic-session:
+    name: Semantic image/session boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Check semantic library
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          check -p phalcom-semantic --lib
+      - name: Check semantic integration target
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          check -p phalcom-semantic --test semantic
+      - name: Imported-image local-overlay regression
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          test -p phalcom-semantic --test semantic
+          ordinary_image_session_keeps_universe_external_across_replacement
+          -- --nocapture

@@ -182,6 +182,24 @@ impl SemanticDb {
         self.canonical.as_ref()?.query_image().entry(key)
     }
 
+    /// Whether this exact query root is owned by the immutable canonical image.
+    ///
+    /// Dependency-only evidence is deliberately excluded: only an admitted
+    /// canonical query entry owns a reusable typed query product.
+    pub(crate) fn is_canonical_query(&self, key: &QueryKey) -> bool {
+        self.canonical_entry(key).is_some()
+    }
+
+    /// Direct input fingerprint recorded for an immutable canonical query root.
+    pub(crate) fn canonical_query_input_fingerprint(&self, key: &QueryKey) -> Option<InputFingerprint> {
+        self.canonical_entry(key).map(|entry| entry.input_fingerprint)
+    }
+
+    /// Product fingerprint recorded for an immutable canonical query root.
+    pub(crate) fn canonical_query_product_fingerprint(&self, key: &QueryKey) -> Option<ProductFingerprint> {
+        self.canonical_entry(key).map(|entry| entry.product_fingerprint)
+    }
+
     /// Canonical dependencies are immutable leaves; local dependencies need
     /// current-revision validation even when their fingerprint did not change.
     pub fn is_current(&self, key: &QueryKey) -> bool {
