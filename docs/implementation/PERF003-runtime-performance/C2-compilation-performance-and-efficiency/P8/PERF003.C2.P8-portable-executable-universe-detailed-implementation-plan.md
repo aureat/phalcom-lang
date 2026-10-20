@@ -3,8 +3,8 @@ id: PERF003.C2.P8
 program: PERF003
 checkpoint: PERF003.C2
 phase: PERF003.C2.P8
-status: PLANNED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 prepared_against_revision: 3ca30fca
 prepared_against_working_tree: true

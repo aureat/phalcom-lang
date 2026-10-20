@@ -27,11 +27,11 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 
 ## Current continuation state (2026-10-20)
 
-- Starting revision for the current continuation: `dbec7ec05` on `feat/artifact-universe-consolidation`; the remote branch matched this commit before current fixture and documentation follow-up work. P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
+- Latest fetched revision: `48c47753b` on `feat/artifact-universe-consolidation`; the remote branch still matched that revision. The continuation source changes are committed at `22a95bbb1` and `4807ecaf2`. P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
 - Active plan: `ARTF001.C1.P2.R4`, superseding `ARTF001.C1.P2.R3`.
-- Current status: P2.R4 active (`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`). P2 remains open; P3 is blocked pending R4 acceptance. The merge-period test prohibition is ended: R4 requires executed test evidence for every behavioral acceptance gate. The task ledger and continuation findings below own current progress.
+- Current status: P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. P2 is open and P3 remains blocked pending R4 acceptance. R4.T3 is complete. The former R4.T5 canonical-query mutation blocker was resolved before `48c47753b`; the older incident entry below is historical. Full P2 acceptance has not been established.
 - Pack consultation: closed. Pack remains runtime owner and semantic application form without an eighth type-member owner.
-- Next action: R4.T3 is complete at `IMPLEMENTED / FOCUSED_TESTED`. The core failpoint target compiles and its four-boundary retry test passes. The semantic integration target compiles after fixture migration; the 20-test semantic-artifact suite and the 11-test compiler-artifact round-trip suite pass. The R4.T5 local-overlay regression still exposes an immutable canonical-query mutation path; see `ARTF001.C1.P2.R4-T5-canonical-query-mutation-incident.md`. Keep T5 changes stopped pending architectural consultation and continue independent R4.T2 authority closure.
+- Next action: close R4's compiler-image gates under P2.R4, then continue to P8's executable source-free VM path. P8 has started but is not complete; no source-free VM runtime proof exists. Keep R4 and P2 status separate from P8 progress.
 - Branch rule: Continue on `feat/artifact-universe-consolidation`.
 
 ## Starting Baseline & Provenance
@@ -258,7 +258,7 @@ The separate `ArtifactImportTransaction::stage_payload_with_digest` path still r
 | R4.T2 | Recover complete ModuleWorldV2/SemanticWorldV4/QueryImageV4 build/load lifecycle and close current semantic authority | IN_PROGRESS |
 | R4.T3 | Re-establish exact allocation, rollback, failpoint, and retry certification | COMPLETE |
 | R4.T4 | Finish dependency-bearing current query profile and fail-closed required-root completeness | PENDING |
-| R4.T5 | Certify ordinary imported SemanticWorkspaceSession with overlays/invalidation/rollback | BLOCKED — INC-1 |
+| R4.T5 | Certify ordinary imported SemanticWorkspaceSession with overlays/invalidation/rollback | IN_PROGRESS — initial local overlay defect resolved; remaining closure evidence open |
 | R4.T6 | Consolidate duplicate consumer/import staging architecture and stabilize APIs | PENDING |
 | R4.T7 | Fresh-process source denial, compiler parity, diagnostics parity, real package/runtime functionality | PENDING |
 | R4.T8 | Broad regression, schema freeze, manifest closure, cleanup | PENDING |
@@ -428,7 +428,7 @@ the absent final row; the exact removal event was not executed by this probe.
 No Package source, query-freeze, or query-representation correction was made.
 The architectural consultation remains pending. The user requested a handoff;
 the current implementer handoff now replaces superseded restart instructions
-with the verified state and narrow resume path. No commit or push was made.
+with the verified state and narrow resume path. No commit or push was made at that earlier handoff.
 
 ### P2.R4 downstream proof preparation — 2026-10-20
 
@@ -688,8 +688,9 @@ The previous plans P2.R1, P2.R2, and P2.R3 remain preserved as implementation hi
 - **Decision requested:** Determine whether declaration-shell fingerprint /
   dependency parity or `from_image` bootstrap ownership should be corrected,
   and define non-mutating failure behavior for non-reusable immutable keys.
-- **Status:** R4.T5 is blocked pending consultation. Do not add a fallback that
-  mutates or duplicates canonical query state.
+- **Historical status:** This blocker was resolved before revision
+  `48c47753b`; retain the incident packet as evidence of the investigation.
+  Do not treat its pending decision as current status.
 
 ### P2.R4 T2 current-schema artifact test recovery — 2026-10-20
 
@@ -709,7 +710,62 @@ The previous plans P2.R1, P2.R2, and P2.R3 remain preserved as implementation hi
   passed 11/11; `blocked_nominal_shell_is_retired_while_alias_shell_remains_authoritative`
   passed 1/1; the named T2.6b nominal/alias query round-trip passed 1/1. The
   semantic integration target compiles after its broader fixture migration.
-- **Status:** This closes the stale semantic-artifact test-target blocker and
-  adds focused T2 evidence. R4.T2 remains IN_PROGRESS; no full semantic
-  integration suite or full P2 exit gate has run. R4.T5 remains blocked by the
-  separate canonical-query mutation incident above.
+- **Status at this entry:** This closes the stale semantic-artifact test-target
+  blocker and adds focused T2 evidence. R4.T2 remains IN_PROGRESS; no full
+  semantic integration suite or full P2 exit gate has run. R4.T5 status is
+  superseded by the later continuation record.
+
+### P2.R4 and P8 continuation — 2026-10-20, revision 48c47753b
+
+- **Session ownership fixes:** `SemanticWorkspaceSession::from_image` seeds
+  `PreludeTypeMap` from the image snapshot. First local publication now wraps
+  the canonical `DerivedConformanceRuleIndex` with a parent overlay instead
+  of cloning it into local state. The affected canonical rule is
+  `impl Universe.collections.iterator_laws local2 trait Iterable parameter428
+  target2511`; the same canonical parent remains authoritative.
+- **Regression correction:** The cold-session test now checks that a generic
+  update publishes the edited binding as current and present. It retains the
+  statistics, invalidation, and `Arc` identity checks; it does not weaken a
+  semantic assertion.
+- **Focused evidence:** `fresh_process_source_denied_artifact_compilation`
+  passed 1/1 in 7.26s with `/tmp/artf001-universe.telosc` reused. Across three
+  local revisions it found no canonical local query state, invalidation, or
+  recomputation, and the canonical rule retained the same `Arc`. Required
+  roots were current and validated: 336 `DeclarationShell`, 4
+  `DeclarationSurface`, and 51 `CallableSignature`. Four slotmap modules and
+  eight slotmap/runtime tests compiled with source denied and zero bootstrap.
+  This was not a fresh artifact build or runtime execution.
+- **Other focused evidence:** Query-policy 6/6; hostile missing/stale required
+  root 1/1; semantic-artifact 20/20; artifact query import 4/4; compiler
+  round-trip 11/11. The ordinary source-built session test target with three
+  tests compiled successfully, then was canceled during canonical source bootstrap; it is
+  incomplete, not a pass. Rollback, fail-closed, and source-canonical-root
+  regressions were not rerun. Broad workspace checks were not run.
+- **P8 status:** The approved `PERF003.C2.P8` plan is in progress. The
+  instruction codec covers 128 opcodes with exhaustive conversion; bounded
+  prototype encoding and the core layout projector are present. The final core
+  library check passed, including the prototype owner-string-cap correction. There is no executable section, capture, materializer, or runtime
+  proof yet. P2.R4 owns compiler-image completion; after that, continue with
+  P8's source-free VM path. Do not mark P8 complete.
+- **Delivery boundary:** The fetched remote remains at `48c47753b`. The user later requested committing and pushing the continuation; see the delivery record below.
+
+
+### Continuation handoff — 2026-10-20
+
+The user requested a handoff. Continue from
+[`ARTF001.C1.P2.R4-implementer-handoff.md`](ARTF001.C1.P2.R4-implementer-handoff.md).
+The compiler consumer fixes have focused source-denied compilation evidence;
+source-free VM execution remains unimplemented and unproven. P8 has partial
+instruction, prototype, constant-recipe, and projection infrastructure. The delivery core library check passed including the final prototype owner-string-cap
+correction. Source changes are committed at `22a95bbb1` and `4807ecaf2`.
+R4/P2 and P8 retain their separate incomplete lifecycle states.
+
+
+### Delivery preparation — 2026-10-20
+
+The user authorized committing and pushing until the consolidation worktree is clean.
+`22a95bbb1` contains the image-session fixes and regressions; `4807ecaf2` contains
+the partial executable DTO and projection infrastructure. The final core library
+check passed in 7.17s, including the owner-string-cap correction; evidence is
+`/tmp/artf001-delivery-check.log`. The documentation commit preserves the current
+handoff. R4/P2 and P8 remain incomplete; no source-free VM runtime result is claimed.
