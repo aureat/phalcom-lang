@@ -61,6 +61,11 @@ jobs:
           test -p phalcom-semantic --lib
           session::publication_tests::image_backed
           -- --nocapture
+      - name: Canonical query root policy and closure gates
+        run: |
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --lib artifact::query_policy::tests -- --nocapture
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --lib artifact::export::query_export_required_root_tests -- --nocapture
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --lib canonical_image::tests::required_query_profile_roots_are_canonical_immutable_leaves -- --exact --nocapture
       - name: Semantic artifact gates
         run: |
           cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic-artifact

@@ -68,6 +68,7 @@ pub use module_static_import::ImportedModuleStaticBindingAuthority;
 pub use query_policy::{
     CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_from_portable, query_kind_profile_support, query_root_is_reusable,
 };
+pub(crate) use query_policy::{CanonicalQueryRootRequirement, canonical_query_root_requirement};
 pub use query_product_import::ImportedQueryProducts;
 pub use semantic_import::ImportedSemanticAggregates;
 pub use static_case_import::ImportedStaticCaseAuthority;

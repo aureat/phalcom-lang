@@ -2026,6 +2026,37 @@ mod tests {
     }
 
     #[test]
+    fn required_query_profile_roots_are_canonical_immutable_leaves() {
+        use crate::artifact::{CanonicalQueryRootRequirement, canonical_query_root_requirement};
+
+        let image = canonical_universe_formal_image().unwrap().clone();
+        let mut db = SemanticDb::with_canonical_image(WorkspaceId::from_raw(93), image.clone());
+        let mut observed = std::collections::BTreeMap::<QueryKind, usize>::new();
+
+        for (key, entry) in image.query_image().entries() {
+            if canonical_query_root_requirement(key.kind()) != CanonicalQueryRootRequirement::Required {
+                continue;
+            }
+            *observed.entry(key.kind()).or_default() += 1;
+            assert!(db.is_current(key), "required canonical root must be current: {key:?}");
+            assert!(db.validate_ready(key), "required canonical root must validate ready: {key:?}");
+            assert_eq!(
+                db.product_origin(key),
+                Some(crate::db::SemanticProductOrigin::Canonical(image.world().clone())),
+                "required canonical root must retain canonical origin: {key:?}"
+            );
+            assert!(db.local_query_state(key).is_none(), "required canonical root must not synthesize local state: {key:?}");
+            assert_eq!(db.ready_product_fingerprint(key), Some(entry.product_fingerprint));
+        }
+
+        for kind in QueryKind::ALL {
+            if canonical_query_root_requirement(kind) == CanonicalQueryRootRequirement::Required {
+                assert!(observed.get(&kind).is_some_and(|count| *count > 0), "required canonical root family has no source root: {kind:?}");
+            }
+        }
+    }
+
+    #[test]
     fn freeze_rejects_structural_rows_changed_by_final_settlement_and_their_dependents() {
         let image = canonical_universe_formal_image().unwrap();
         let (id, surface) = image.snapshot().dispatch.surfaces().iter().next().unwrap();

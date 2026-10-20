@@ -132,6 +132,25 @@ fn canonical_linked_program_for_session(db: &SemanticDb, provider: &phalcom_modu
     }
 }
 
+fn extend_canonical_trait_resolver_authority(
+    db: &SemanticDb,
+    known_declarations: &mut HashSet<DeclarationId>,
+    trait_associated_types: &mut BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>>,
+) {
+    let Some(image) = db.canonical_image() else {
+        return;
+    };
+    for (declaration, _) in image.snapshot().trait_headers.iter() {
+        known_declarations.insert(declaration.clone());
+    }
+    for (declaration, surface) in image.snapshot().trait_surfaces.iter() {
+        let associated = trait_associated_types.entry(declaration.clone()).or_default();
+        for requirement in surface.associated_types.values() {
+            associated.insert(requirement.name.to_string(), requirement.requirement.clone());
+        }
+    }
+}
+
 /// Performance and recomputation metrics for one semantic workspace update.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SemanticUpdateStats {
@@ -2408,6 +2427,7 @@ impl SemanticWorkspaceSession {
             known_declarations.insert(crate::checker::proof_predicate::proof_predicate_declaration(kind));
         }
         let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
+        extend_canonical_trait_resolver_authority(&self.db, &mut known_declarations, &mut trait_associated_types);
         for (module, shard) in &self.semantic_structure_shards {
             for statement in &shard.source.program.statements {
                 if let Statement::Trait(trait_def) = statement {

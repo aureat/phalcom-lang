@@ -1,4 +1,7 @@
-use super::{SemanticPublicationFailpoint, SemanticUpdateFailure, SemanticWorkspaceSession, retire_blocked_declaration_shell_queries};
+use super::{
+    SemanticPublicationFailpoint, SemanticUpdateFailure, SemanticWorkspaceSession, extend_canonical_trait_resolver_authority,
+    retire_blocked_declaration_shell_queries,
+};
 use crate::db::{
     InputFingerprint, ProductFingerprint, QueryKey, QueryOutcome, QueryState, QueryValue, SemanticDb, SemanticProductOrigin,
     query_declaration_shell,
@@ -10,7 +13,7 @@ use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::id::{KindId, TypeId};
 use phalcom_modules::identity::{ModuleId, SourceId, SourceLocation};
 use phalcom_modules::session::{SourceRevision, WorkspaceSourceBatchMutation};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -263,6 +266,45 @@ fn generated_trait_property_accessors_share_source_member_index() {
     assert!(diagnostic_surface.diagnostics.iter().any(|diagnostic| {
         diagnostic.code == crate::diagnostic::DiagnosticCode::TraitMemberConflict && diagnostic.message.contains("duplicate trait member selector")
     }));
+}
+
+#[test]
+fn image_backed_canonical_trait_resolution_authority_is_seeded_without_source_syntax() {
+    use crate::canonical_image::canonical_universe_formal_image;
+
+    let image = canonical_universe_formal_image().expect("canonical image");
+    let session = SemanticWorkspaceSession::from_image(WorkspaceId::from_raw(733), image.clone());
+    let mut known_declarations = HashSet::new();
+    let mut associated_types = BTreeMap::new();
+    extend_canonical_trait_resolver_authority(session.db(), &mut known_declarations, &mut associated_types);
+
+    let iterator = image
+        .snapshot()
+        .trait_headers
+        .iter()
+        .map(|(declaration, _)| declaration)
+        .find(|declaration| declaration.name.as_ref() == "Iterator")
+        .expect("canonical Iterator trait header");
+    let iterable = image
+        .snapshot()
+        .trait_headers
+        .iter()
+        .map(|(declaration, _)| declaration)
+        .find(|declaration| declaration.name.as_ref() == "Iterable")
+        .expect("canonical Iterable trait header");
+
+    assert!(known_declarations.contains(iterator));
+    assert!(known_declarations.contains(iterable));
+    let iterator_item = associated_types
+        .get(iterator)
+        .and_then(|members| members.get("Item"))
+        .expect("Iterator associated Item requirement");
+    assert_eq!(&iterator_item.trait_declaration, iterator);
+    let iterable_item = associated_types
+        .get(iterable)
+        .and_then(|members| members.get("Item"))
+        .expect("Iterable associated Item requirement");
+    assert_eq!(&iterable_item.trait_declaration, iterable);
 }
 
 #[test]
