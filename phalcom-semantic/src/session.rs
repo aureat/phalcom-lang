@@ -1276,7 +1276,7 @@ impl SemanticWorkspaceSession {
                 .linked
                 .modules
                 .iter()
-                .filter(|(module, linked)| previous.module_products.linked.get(*module) != Some(&linked.interface))
+                .filter(|(module, linked)| previous.module_products.linked_interface(module) != Some(&linked.interface))
                 .map(|(module, _)| module.clone())
                 .chain(
                     previous
@@ -8973,7 +8973,7 @@ impl SemanticWorkspaceSession {
                     is_complete,
                     input.attribute_execution_mode,
                 );
-            snapshot_obj.import_phase_products = Arc::new(import_phase_products);
+            snapshot_obj.import_phase_products = Arc::new(import_phase_products.into());
             snapshot_obj.generated_runtime_requirements = Arc::from(generated_runtime_requirements);
         }
         let snapshot = Arc::new(snapshot_obj);
@@ -9097,7 +9097,7 @@ impl SemanticWorkspaceSession {
             input.module_graph_changed
                 || module_delta.as_ref().is_some_and(|delta| delta.module_graph_changed)
                 || previous.semantic_graph != snapshot.semantic_graph
-                || !previous.module_products.linked.keys().eq(snapshot.module_products.linked.keys())
+                || !previous.module_products.linked_module_keys().eq(snapshot.module_products.linked_module_keys())
         });
         let declaration_index_changed = previous_snapshot.as_deref().is_none_or(|previous| {
             let previous_callables = previous.callable_signatures.iter().map(|(callable, _)| callable).collect::<BTreeSet<_>>();

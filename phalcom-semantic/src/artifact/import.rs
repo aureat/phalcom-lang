@@ -44,6 +44,214 @@ use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+#[cfg(feature = "allocation-diagnostics")]
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[cfg(feature = "allocation-diagnostics")]
+const IMPORT_ALLOCATION_DIAGNOSTIC_STAGE_NAMES: [&str; 20] = [
+    "start",
+    "validation",
+    "module execution authority",
+    "type graph",
+    "structural contracts",
+    "static values",
+    "callable signatures, definitions, and enum requirements",
+    "trait surfaces",
+    "dispatch surfaces and field signatures",
+    "conditional inherent authority",
+    "conformance heads",
+    "witness plans",
+    "callable analyses",
+    "derived conformance and trait dispatch",
+    "constructor initializations",
+    "associated and static owners",
+    "formal projection",
+    "snapshot construction",
+    "module owner indexes",
+    "complete",
+];
+
+#[cfg(feature = "allocation-diagnostics")]
+static IMPORT_ALLOCATION_DIAGNOSTIC_OBSERVED: [AtomicUsize; IMPORT_ALLOCATION_DIAGNOSTIC_STAGE_NAMES.len()] =
+    [const { AtomicUsize::new(usize::MAX) }; IMPORT_ALLOCATION_DIAGNOSTIC_STAGE_NAMES.len()];
+#[cfg(feature = "allocation-diagnostics")]
+static IMPORT_ALLOCATION_DIAGNOSTIC_LEDGER: [AtomicUsize; IMPORT_ALLOCATION_DIAGNOSTIC_STAGE_NAMES.len()] =
+    [const { AtomicUsize::new(usize::MAX) }; IMPORT_ALLOCATION_DIAGNOSTIC_STAGE_NAMES.len()];
+
+#[cfg(feature = "allocation-diagnostics")]
+const CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_NAMES: [&str; 59] = [
+    "callable table buffers",
+    "callable binding and import-phase facts",
+    "callable expression facts and statuses",
+    "callable dispatch authority",
+    "callable specializations",
+    "callable denotations",
+    "callable expression index",
+    "callable resolution authority",
+    "callable proof authority",
+    "callable flow authority",
+    "callable exits and source owners",
+    "callable explanation and diagnostics",
+    "callable dependency rows",
+    "callable product assembly",
+    "callable product fingerprint",
+    "callable table publication",
+    "dispatch setup",
+    "dispatch conditional capabilities",
+    "dispatch trait sites",
+    "dispatch candidates",
+    "dispatch contextual realizations",
+    "resolution setup",
+    "resolution iteration lanes",
+    "resolution positional expansions",
+    "resolution invalid expansions",
+    "resolution sequence literals",
+    "resolution associated members",
+    "resolution callable references",
+    "resolution family applications",
+    "Exact evidence setup",
+    "Exact evidence requirement views",
+    "Exact evidence requirements",
+    "Exact evidence associated types",
+    "Exact evidence trait contract",
+    "Exact evidence header proofs",
+    "Exact evidence fingerprint computation",
+    "Exact evidence validation and publication",
+    "Exact requirement-view Debug formatting",
+    "Exact requirement-selection Debug formatting",
+    "witness-plan staging buffers",
+    "witness-plan identities and generic header",
+    "witness-plan requirement views",
+    "witness-plan requirement selections and evidence",
+    "witness-plan associated types",
+    "witness-plan completeness and diagnostics",
+    "witness-plan construction and fingerprint",
+    "witness-plan source fingerprints and rows",
+    "witness-plan root publication",
+    "structural contract validation",
+    "structural generic-signature index",
+    "structural data table",
+    "structural enum and variant tables",
+    "structural type aliases",
+    "structural hierarchy",
+    "structural declarations and intrinsic owners",
+    "structural root publication",
+    "callable signature table",
+    "callable definition table",
+    "enum requirement table",
+];
+
+#[cfg(feature = "allocation-diagnostics")]
+static CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_OBSERVED: [AtomicUsize; CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_NAMES.len()] =
+    [const { AtomicUsize::new(0) }; CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_NAMES.len()];
+#[cfg(feature = "allocation-diagnostics")]
+static CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_LEDGER: [AtomicUsize; CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_NAMES.len()] =
+    [const { AtomicUsize::new(0) }; CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_NAMES.len()];
+
+/// One allocation-census checkpoint from the explicitly enabled diagnostic importer.
+#[cfg(feature = "allocation-diagnostics")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ImportAllocationDiagnosticStage {
+    pub name: &'static str,
+    pub observed_bytes: usize,
+    pub ledger_bytes: usize,
+}
+
+/// Clears the fixed-size stage census before one diagnostic import.
+#[cfg(feature = "allocation-diagnostics")]
+pub fn reset_import_allocation_diagnostics() {
+    for observed in &IMPORT_ALLOCATION_DIAGNOSTIC_OBSERVED {
+        observed.store(usize::MAX, Ordering::Relaxed);
+    }
+    for ledger in &IMPORT_ALLOCATION_DIAGNOSTIC_LEDGER {
+        ledger.store(usize::MAX, Ordering::Relaxed);
+    }
+    for observed in &CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_OBSERVED {
+        observed.store(0, Ordering::Relaxed);
+    }
+    for ledger in &CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_LEDGER {
+        ledger.store(0, Ordering::Relaxed);
+    }
+}
+
+/// Returns allocation checkpoints after a diagnostic import has completed.
+#[cfg(feature = "allocation-diagnostics")]
+pub fn import_allocation_diagnostic_stages() -> Vec<ImportAllocationDiagnosticStage> {
+    IMPORT_ALLOCATION_DIAGNOSTIC_STAGE_NAMES
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| {
+            let observed_bytes = IMPORT_ALLOCATION_DIAGNOSTIC_OBSERVED[index].load(Ordering::Relaxed);
+            let ledger_bytes = IMPORT_ALLOCATION_DIAGNOSTIC_LEDGER[index].load(Ordering::Relaxed);
+            (observed_bytes != usize::MAX && ledger_bytes != usize::MAX).then_some(ImportAllocationDiagnosticStage {
+                name,
+                observed_bytes,
+                ledger_bytes,
+            })
+        })
+        .collect()
+}
+
+/// Returns summed allocation intervals for the internal callable importer.
+#[cfg(feature = "allocation-diagnostics")]
+pub fn callable_import_allocation_diagnostic_stages() -> Vec<ImportAllocationDiagnosticStage> {
+    CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_NAMES
+        .iter()
+        .enumerate()
+        .map(|(index, name)| ImportAllocationDiagnosticStage {
+            name,
+            observed_bytes: CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_OBSERVED[index].load(Ordering::Relaxed),
+            ledger_bytes: CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_LEDGER[index].load(Ordering::Relaxed),
+        })
+        .collect()
+}
+
+#[cfg(feature = "allocation-diagnostics")]
+fn record_import_allocation_diagnostic_stage(index: usize, allocations: &AllocationBudget) {
+    let observed_bytes = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(usize::MAX);
+    IMPORT_ALLOCATION_DIAGNOSTIC_OBSERVED[index].store(observed_bytes, Ordering::Relaxed);
+    IMPORT_ALLOCATION_DIAGNOSTIC_LEDGER[index].store(allocations.requested(), Ordering::Relaxed);
+}
+
+#[cfg(feature = "allocation-diagnostics")]
+fn record_callable_import_allocation_diagnostic_stage(
+    index: usize,
+    allocations: &AllocationBudget,
+    previous_observed: &mut usize,
+    previous_ledger: &mut usize,
+) {
+    let observed = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(*previous_observed);
+    let ledger = allocations.requested();
+    CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_OBSERVED[index].fetch_add(observed.saturating_sub(*previous_observed), Ordering::Relaxed);
+    CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_LEDGER[index].fetch_add(ledger.saturating_sub(*previous_ledger), Ordering::Relaxed);
+    *previous_observed = observed;
+    *previous_ledger = ledger;
+}
+
+#[cfg(feature = "allocation-diagnostics")]
+pub(crate) fn record_callable_import_observed_allocation_diagnostic(index: usize, previous_observed: usize) {
+    let observed = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(previous_observed);
+    CALLABLE_IMPORT_ALLOCATION_DIAGNOSTIC_OBSERVED[index].fetch_add(observed.saturating_sub(previous_observed), Ordering::Relaxed);
+}
+
+#[cfg(not(feature = "allocation-diagnostics"))]
+#[inline(always)]
+pub(crate) fn record_callable_import_observed_allocation_diagnostic(_index: usize, _previous_observed: usize) {}
+
+#[cfg(not(feature = "allocation-diagnostics"))]
+#[inline(always)]
+fn record_callable_import_allocation_diagnostic_stage(
+    _index: usize,
+    _allocations: &AllocationBudget,
+    _previous_observed: &mut usize,
+    _previous_ledger: &mut usize,
+) {
+}
+
+#[cfg(not(feature = "allocation-diagnostics"))]
+#[inline(always)]
+fn record_import_allocation_diagnostic_stage(_index: usize, _allocations: &AllocationBudget) {}
+
 #[cfg(test)]
 use crate::identity::VariantId;
 
@@ -843,7 +1051,13 @@ fn import_structural_primary_contracts_with_owner_catalog(
     allocations: &mut AllocationBudget,
     owner_catalog: Option<&StableOwnerCatalog<'_>>,
 ) -> Result<LoadedStructuralContracts, ArtifactError> {
+    #[cfg(feature = "allocation-diagnostics")]
+    let mut diagnostic_previous_observed = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(0);
+    #[cfg(feature = "allocation-diagnostics")]
+    let mut diagnostic_previous_ledger = allocations.requested();
     contracts.validate_with_allocation_budget(limits, allocations)?;
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(48, allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
     type_relocation.verify_store(store)?;
 
     let mut generic_signature_entries = allocations.vector(contracts.generic_signatures.len()).map_err(allocation_error)?;
@@ -857,6 +1071,8 @@ fn import_structural_primary_contracts_with_owner_catalog(
             crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
             crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("generic signature owner is duplicated after relocation"),
         })?;
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(49, allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
     let mut data_entries = allocations.vector(contracts.data_contracts.len()).map_err(allocation_error)?;
     for data_wire in &contracts.data_contracts {
@@ -1007,6 +1223,8 @@ fn import_structural_primary_contracts_with_owner_catalog(
         crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
         crate::parent_map::FrozenParentMapError::DuplicateKey => referential("data declaration owner is duplicated after relocation"),
     })?;
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(50, allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
     let mut variant_entries = allocations.vector(contracts.variant_contracts.len()).map_err(allocation_error)?;
 
@@ -1158,6 +1376,8 @@ fn import_structural_primary_contracts_with_owner_catalog(
             crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
             crate::parent_map::FrozenParentMapError::DuplicateKey => referential("enum or variant owner is duplicated after relocation"),
         })?;
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(51, allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
     let mut alias_entries = allocations.vector(contracts.type_aliases.len()).map_err(allocation_error)?;
     for alias in &contracts.type_aliases {
@@ -1198,6 +1418,8 @@ fn import_structural_primary_contracts_with_owner_catalog(
         crate::type_alias::FrozenTypeAliasTableError::Allocation(error) => allocation_error(error),
         crate::type_alias::FrozenTypeAliasTableError::DuplicateDeclaration => referential("type alias owner is duplicated after relocation"),
     })?;
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(52, allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
     let mut superclass_entries = allocations.vector(contracts.hierarchy_edges.len()).map_err(allocation_error)?;
     let mut template_entries = allocations.vector(contracts.hierarchy_edges.len()).map_err(allocation_error)?;
     for edge in &contracts.hierarchy_edges {
@@ -1238,6 +1460,8 @@ fn import_structural_primary_contracts_with_owner_catalog(
                     referential("supertype template owner is duplicated after identity relocation")
                 }
             })?;
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(53, allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
     let mut declaration_entries = allocations
         .vector::<(crate::identity::DeclarationId, DeclarationTypeInfo)>(contracts.declaration_shells.len())
@@ -1330,6 +1554,7 @@ fn import_structural_primary_contracts_with_owner_catalog(
             crate::declarations::FrozenDeclarationTypeTableError::DuplicateDeclaration => {
                 referential("declaration shell owner is duplicated after stable-identity relocation")
             }
+            _ => referential("declaration shell owner is duplicated after stable-identity relocation"),
         })?;
     let mut intrinsic_static_domains = allocations
         .vector::<(crate::identity::DeclarationId, crate::types::id::KindId)>(contracts.intrinsic_static_domains.len())
@@ -1357,21 +1582,34 @@ fn import_structural_primary_contracts_with_owner_catalog(
             intrinsic_type_owners.push((declaration, owner));
         }
     }
-    for (declaration, kind) in intrinsic_static_domains {
-        declaration_table.register_imported_intrinsic_static_domain(declaration, kind);
-    }
-    for (declaration, owner) in intrinsic_type_owners {
-        declaration_table.register_intrinsic_type_owner(declaration, owner);
-    }
+    declaration_table
+        .install_frozen_intrinsic_authority_with_allocation_budget(intrinsic_static_domains, intrinsic_type_owners, allocations)
+        .map_err(|error| match error {
+            crate::declarations::FrozenDeclarationTypeTableError::Allocation(error) => allocation_error(error),
+            crate::declarations::FrozenDeclarationTypeTableError::DuplicateIntrinsicStaticDomain => {
+                referential("intrinsic static-domain owner is duplicated after stable-identity relocation")
+            }
+            crate::declarations::FrozenDeclarationTypeTableError::DuplicateIntrinsicTypeOwner => {
+                referential("intrinsic type-owner declaration is duplicated after stable-identity relocation")
+            }
+            crate::declarations::FrozenDeclarationTypeTableError::DuplicateDeclaration => {
+                referential("declaration shell owner is duplicated after stable-identity relocation")
+            }
+        })?;
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(54, allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
-    Ok(LoadedStructuralContracts {
+    let loaded = LoadedStructuralContracts {
         declaration_table: allocations.arc(declaration_table).map_err(allocation_error)?,
         hierarchy: allocations.arc(hierarchy).map_err(allocation_error)?,
         type_aliases: allocations.arc(type_aliases).map_err(allocation_error)?,
         data_table: allocations.arc(data_table).map_err(allocation_error)?,
         enum_table: allocations.arc(enum_table).map_err(allocation_error)?,
         generic_signatures,
-    })
+    };
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(55, allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
+    Ok(loaded)
 }
 
 use crate::artifact::validate::{compute_witness_layout_fingerprint, validate_pending_static_references};
@@ -1616,6 +1854,26 @@ enum CallableEvidenceImportState {
     Complete(crate::generic_evidence::GenericConformanceEvidence),
 }
 
+fn clone_generic_conformance_evidence_with_allocation_budget(
+    evidence: &crate::generic_evidence::GenericConformanceEvidence,
+    allocations: &mut AllocationBudget,
+) -> Result<crate::generic_evidence::GenericConformanceEvidence, ArtifactError> {
+    use crate::generic_evidence::{AssumedConformanceEvidence, GenericConformanceEvidence};
+
+    Ok(match evidence {
+        GenericConformanceEvidence::Exact(evidence) => GenericConformanceEvidence::Exact(Arc::clone(evidence)),
+        GenericConformanceEvidence::Assumed(evidence) => GenericConformanceEvidence::Assumed(AssumedConformanceEvidence {
+            key: crate::generic_evidence::GenericConformanceKey {
+                subject: crate::types::parameter::clone_type_term_with_allocation_budget(&evidence.key.subject, allocations).map_err(allocation_error)?,
+                trait_ref: evidence.key.trait_ref.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+            },
+            owner: evidence.owner.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+        }),
+        GenericConformanceEvidence::Derived(evidence) => GenericConformanceEvidence::Derived(Arc::clone(evidence)),
+        GenericConformanceEvidence::CompilerDerived(evidence) => GenericConformanceEvidence::CompilerDerived(Arc::clone(evidence)),
+    })
+}
+
 struct CallableEvidenceImporter<'a> {
     relocation: &'a TypeRelocation,
     store: &'a TypeStore,
@@ -1662,7 +1920,9 @@ impl<'a> CallableEvidenceImporter<'a> {
             .get(index)
             .ok_or_else(|| referential("callable conformance evidence reference is out of range"))?;
         match self.states.get(index) {
-            Some(CallableEvidenceImportState::Complete(evidence)) => return Ok(evidence.clone()),
+            Some(CallableEvidenceImportState::Complete(evidence)) => {
+                return clone_generic_conformance_evidence_with_allocation_budget(evidence, self.allocations);
+            }
             Some(CallableEvidenceImportState::Visiting) => return Err(referential("callable conformance evidence graph contains a cycle")),
             Some(CallableEvidenceImportState::Unvisited) => {}
             None => return Err(referential("callable conformance evidence reference is out of range")),
@@ -1683,7 +1943,14 @@ impl<'a> CallableEvidenceImporter<'a> {
 
         match imported {
             Ok(evidence) => {
-                self.states[index] = CallableEvidenceImportState::Complete(evidence.clone());
+                let cached = match clone_generic_conformance_evidence_with_allocation_budget(&evidence, self.allocations) {
+                    Ok(cached) => cached,
+                    Err(error) => {
+                        self.states[index] = CallableEvidenceImportState::Unvisited;
+                        return Err(error);
+                    }
+                };
+                self.states[index] = CallableEvidenceImportState::Complete(cached);
                 Ok(evidence)
             }
             Err(error) => {
@@ -1743,6 +2010,8 @@ impl<'a> CallableEvidenceImporter<'a> {
     ) -> Result<crate::generic_evidence::GenericConformanceEvidence, ArtifactError> {
         use phalcom_compiler_artifact::semantic::world::CallableAssociatedTypeBindingValueV1 as Value;
 
+        let mut diagnostic_previous_observed = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(0);
+        let mut diagnostic_previous_ledger = self.allocations.requested();
         let source_impl = import_stable_impl_with_allocation_budget(&evidence.source_impl, self.allocations)?;
         let source_plan_fingerprint = self
             .source_plan_fingerprints
@@ -1753,6 +2022,7 @@ impl<'a> CallableEvidenceImporter<'a> {
         let exact_target = self.relocation.ty(evidence.exact_target)?;
         let exact_trait_ref = import_trait_ref_identity(&evidence.exact_trait_ref, self.relocation, self.allocations)?;
         let impl_environment = import_callable_type_environment_with_budget(&evidence.impl_environment, self.relocation, self.allocations)?;
+        record_callable_import_allocation_diagnostic_stage(29, self.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
         let mut requirement_views = self.allocations.vector(evidence.requirement_views.len()).map_err(allocation_error)?;
         for view in &evidence.requirement_views {
@@ -1776,6 +2046,7 @@ impl<'a> CallableEvidenceImporter<'a> {
             ));
         }
         let requirement_views = import_analysis_map(requirement_views, self.allocations, "Exact conformance requirement views are not canonical")?;
+        record_callable_import_allocation_diagnostic_stage(30, self.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
         let mut requirements = self.allocations.vector(evidence.requirements.len()).map_err(allocation_error)?;
         for entry in &evidence.requirements {
@@ -1787,6 +2058,7 @@ impl<'a> CallableEvidenceImporter<'a> {
             requirements.push((requirement, selection));
         }
         let requirements = import_analysis_map(requirements, self.allocations, "Exact conformance requirement selections are not canonical")?;
+        record_callable_import_allocation_diagnostic_stage(31, self.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
         let mut associated_types = self.allocations.vector(evidence.associated_types.len()).map_err(allocation_error)?;
         for binding in &evidence.associated_types {
@@ -1808,12 +2080,14 @@ impl<'a> CallableEvidenceImporter<'a> {
             ));
         }
         let associated_types = import_analysis_map(associated_types, self.allocations, "Exact conformance associated types are not canonical")?;
+        record_callable_import_allocation_diagnostic_stage(32, self.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
         let mut trait_header_contract = self.allocations.vector(evidence.trait_header_contract.len()).map_err(allocation_error)?;
         for constraint in &evidence.trait_header_contract {
             trait_header_contract.push(import_constraint_with_allocation_budget(constraint, self.relocation, self.allocations)?);
         }
         let trait_header_contract = self.allocations.boxed_slice(trait_header_contract).map_err(allocation_error)?;
+        record_callable_import_allocation_diagnostic_stage(33, self.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let trait_header_conformance_proofs = evidence
             .trait_header_conformance_proofs
             .as_ref()
@@ -1828,6 +2102,7 @@ impl<'a> CallableEvidenceImporter<'a> {
                 import_analysis_map(imported, self.allocations, "Exact conformance proof keys are not canonical")
             })
             .transpose()?;
+        record_callable_import_allocation_diagnostic_stage(34, self.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
         let fingerprint = crate::impls::conformance_evidence_fingerprint(
             source_plan_fingerprint,
@@ -1839,6 +2114,7 @@ impl<'a> CallableEvidenceImporter<'a> {
             &associated_types,
             &trait_header_contract,
         );
+        record_callable_import_allocation_diagnostic_stage(35, self.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let evidence = crate::impls::ConformanceEvidence::from_frozen_parts(
             source_impl,
             exact_target,
@@ -1852,8 +2128,10 @@ impl<'a> CallableEvidenceImporter<'a> {
             fingerprint,
         );
         validate_relocated_conformance_evidence_fingerprint(&evidence, source_plan_fingerprint)?;
+        let evidence = self.allocations.arc(evidence).map_err(allocation_error)?;
+        record_callable_import_allocation_diagnostic_stage(36, self.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         Ok(crate::generic_evidence::GenericConformanceEvidence::Exact(
-            self.allocations.arc(evidence).map_err(allocation_error)?,
+            evidence,
         ))
     }
 
@@ -2222,6 +2500,8 @@ pub(crate) fn import_callable_expression_dispatch_authority(
     use phalcom_compiler_artifact::semantic::world::CallableTraitDispatchSiteV1 as PortableTraitDispatch;
 
     let mut child = allocations.child(allocations.remaining());
+    let mut diagnostic_previous_observed = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(0);
+    let mut diagnostic_previous_ledger = child.requested();
     let mut importer = CallableEvidenceImporter::new(
         record.conformance_evidence.len(),
         relocation,
@@ -2234,6 +2514,7 @@ pub(crate) fn import_callable_expression_dispatch_authority(
         .allocations
         .vector::<ImportedCallableExpressionDispatchAuthority>(record.expressions.len())
         .map_err(allocation_error)?;
+    record_callable_import_allocation_diagnostic_stage(16, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
     for (index, expression) in record.expressions.iter().enumerate() {
         if expression.ordinal as usize != index {
             return Err(referential("callable expression rows are not dense and ordinal-sorted"));
@@ -2253,6 +2534,7 @@ pub(crate) fn import_callable_expression_dispatch_authority(
                 })
             })
             .transpose()?;
+        record_callable_import_allocation_diagnostic_stage(17, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let trait_dispatch = expression
             .trait_dispatch
             .as_deref()
@@ -2311,6 +2593,7 @@ pub(crate) fn import_callable_expression_dispatch_authority(
                 })
             })
             .transpose()?;
+        record_callable_import_allocation_diagnostic_stage(18, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let trait_dispatch_candidates = expression
             .trait_dispatch_candidates
             .as_ref()
@@ -2326,11 +2609,13 @@ pub(crate) fn import_callable_expression_dispatch_authority(
                 Ok::<_, ArtifactError>(importer.allocations.boxed_slice(imported).map_err(allocation_error)?)
             })
             .transpose()?;
+        record_callable_import_allocation_diagnostic_stage(19, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let contextual_realization = expression
             .contextual_realization
             .as_deref()
             .map(|realization| import_callable_contextual_realization(realization, record, body, &mut importer))
             .transpose()?;
+        record_callable_import_allocation_diagnostic_stage(20, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         output.push(ImportedCallableExpressionDispatchAuthority {
             ordinal: expression.ordinal,
             conditional_capability,
@@ -2782,7 +3067,7 @@ fn import_callable_inherent_specialization(
         impl_id,
         receiver: importer.relocation.ty(specialization.receiver)?,
         owner_view: importer.relocation.ty(specialization.owner_view)?,
-        bindings: bindings.iter().map(|(parameter, ty)| (*parameter, *ty)).collect(),
+        bindings,
         environment,
         conformance_provenance,
     })
@@ -3659,10 +3944,15 @@ fn import_enum_requirements(
                 let requirement = requirement_values
                     .get(requirement_order)
                     .ok_or_else(|| referential("enum case status requirement order is missing"))?;
+                let expected_requirement = owner_record
+                    .requirements
+                    .iter()
+                    .find(|candidate| candidate.source_order as usize == requirement_order)
+                    .ok_or_else(|| referential("enum case status requirement source order is missing"))?;
                 let variant = import_stable_variant_with_allocation_budget(&record.variant, allocations)?;
                 if record.requirement_order as usize != requirement_order
                     || record.variant_order as usize != variant_order
-                    || record.requirement != crate::metadata::stable_identity::to_stable_callable(&requirement.signature.callable)
+                    || record.requirement != expected_requirement.requirement
                     || variant != enum_info.variants[variant_order]
                 {
                     return Err(referential("enum case status order or owner identity disagrees with enum semantics"));
@@ -5030,6 +5320,8 @@ pub(super) fn import_callable_resolution_authority(
     use phalcom_compiler_artifact::semantic::world as wire;
 
     let mut child = allocations.child(allocations.remaining());
+    let mut diagnostic_previous_observed = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(0);
+    let mut diagnostic_previous_ledger = child.requested();
     let mut importer = CallableEvidenceImporter::new(
         record.conformance_evidence.len(),
         relocation,
@@ -5038,6 +5330,7 @@ pub(super) fn import_callable_resolution_authority(
         &mut child,
         limits.max_recursion_depth,
     )?;
+    record_callable_import_allocation_diagnostic_stage(21, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
     let expression = |ordinal: u32| -> Result<crate::identity::ExpressionId, ArtifactError> {
         if ordinal as usize >= record.expressions.len() {
             return Err(referential("callable resolution references an absent expression"));
@@ -5062,6 +5355,7 @@ pub(super) fn import_callable_resolution_authority(
     }
     let for_iteration_lanes = import_analysis_map(lanes, importer.allocations, "callable iteration lanes are not canonical")?;
     let for_iteration_lanes = importer.allocations.arc(for_iteration_lanes).map_err(allocation_error)?;
+    record_callable_import_allocation_diagnostic_stage(22, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
     let mut expansions = importer.allocations.vector(record.positional_expansions.len()).map_err(allocation_error)?;
     for expansion in &record.positional_expansions {
@@ -5081,6 +5375,7 @@ pub(super) fn import_callable_resolution_authority(
     }
     let positional_expansions = import_analysis_map(expansions, importer.allocations, "callable positional expansions are not canonical")?;
     let positional_expansions = importer.allocations.arc(positional_expansions).map_err(allocation_error)?;
+    record_callable_import_allocation_diagnostic_stage(23, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
     let mut invalid = importer
         .allocations
         .vector(record.known_invalid_positional_expansions.len())
@@ -5098,6 +5393,7 @@ pub(super) fn import_callable_resolution_authority(
     }
     let known_invalid_positional_expansions = import_analysis_map(invalid, importer.allocations, "known-invalid positional expansions are not canonical")?;
     let known_invalid_positional_expansions = importer.allocations.arc(known_invalid_positional_expansions).map_err(allocation_error)?;
+    record_callable_import_allocation_diagnostic_stage(24, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
     let mut literals = importer.allocations.vector(record.sequence_literals.len()).map_err(allocation_error)?;
     for literal in &record.sequence_literals {
@@ -5146,6 +5442,7 @@ pub(super) fn import_callable_resolution_authority(
     }
     let sequence_literals = import_analysis_map(literals, importer.allocations, "callable sequence literals are not canonical")?;
     let sequence_literals = importer.allocations.arc(sequence_literals).map_err(allocation_error)?;
+    record_callable_import_allocation_diagnostic_stage(25, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
     let mut associated = importer.allocations.vector(record.associated_resolutions.len()).map_err(allocation_error)?;
     for resolution in &record.associated_resolutions {
@@ -5198,6 +5495,7 @@ pub(super) fn import_callable_resolution_authority(
     }
     let associated_resolutions = import_analysis_map(associated, importer.allocations, "callable associated resolutions are not canonical")?;
     let associated_resolutions = importer.allocations.arc(associated_resolutions).map_err(allocation_error)?;
+    record_callable_import_allocation_diagnostic_stage(26, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
     let mut references = importer
         .allocations
@@ -5253,7 +5551,9 @@ pub(super) fn import_callable_resolution_authority(
     }
     let callable_reference_resolutions = import_analysis_map(references, importer.allocations, "callable reference resolutions are not canonical")?;
     let callable_reference_resolutions = importer.allocations.arc(callable_reference_resolutions).map_err(allocation_error)?;
+    record_callable_import_allocation_diagnostic_stage(27, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
     let family_applications = import_callable_family_applications(record, body, relocation, importer.allocations)?;
+    record_callable_import_allocation_diagnostic_stage(28, importer.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
     drop(importer);
     allocations.commit_child(child).map_err(allocation_error)?;
     Ok(ImportedCallableResolutionAuthority {
@@ -5271,9 +5571,9 @@ fn import_callable_observed_import_phases(
     record: &phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2,
     callable: &CallableId,
     module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
-    import_phase_products: &BTreeMap<crate::identity::ModuleId, phalcom_modules::linker::ModuleImportPhaseProduct>,
+    import_phase_products: &impl phalcom_modules::linker::ModuleImportPhaseProductLookup,
     allocations: &mut AllocationBudget,
-) -> Result<BTreeMap<phalcom_modules::identity::SourceImportBindingId, phalcom_modules::graph::DependencyPhase>, ArtifactError> {
+) -> Result<crate::checker::analysis_map::AnalysisMap<phalcom_modules::identity::SourceImportBindingId, phalcom_modules::graph::DependencyPhase>, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world::DependencyPhaseV1;
     use phalcom_modules::graph::DependencyPhase;
     use phalcom_modules::identity::{ImportBindingLocalId, ImportSiteId, ImportSiteLocalId, SourceImportBindingId};
@@ -5286,7 +5586,7 @@ fn import_callable_observed_import_phases(
     let product = import_phase_products
         .get(&native_module)
         .ok_or_else(|| referential("callable phase owner has no module import phase product"))?;
-    let mut phases = BTreeMap::new();
+    let mut phases = allocations.vector(record.observed_import_phases.len()).map_err(allocation_error)?;
     for observed in &record.observed_import_phases {
         let (site, local) = module_world
             .source_import_binding_at(stable_module, observed.binding)?
@@ -5316,11 +5616,21 @@ fn import_callable_observed_import_phases(
         if !phase_is_covered {
             return Err(referential("callable observed phase disagrees with module phase summary"));
         }
-        if phases.insert(binding, phase).is_some() {
-            return Err(referential("callable observed import phase is duplicated after identity relocation"));
-        }
+        phases.push((binding, phase));
     }
-    Ok(phases)
+    if phases.is_empty() {
+        return Ok(crate::checker::analysis_map::AnalysisMap::new());
+    }
+    phases.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    crate::checker::analysis_map::AnalysisMap::from_budgeted_entries(phases, allocations).map_err(|error| match error {
+        crate::checker::analysis_map::AnalysisMapBuildError::Allocation(error) => allocation_error(error),
+        crate::checker::analysis_map::AnalysisMapBuildError::Entries(phalcom_type_meta::allocation::SortedMapEntriesError::DuplicateKey) => {
+            referential("callable observed import phase is duplicated after identity relocation")
+        }
+        crate::checker::analysis_map::AnalysisMapBuildError::Entries(phalcom_type_meta::allocation::SortedMapEntriesError::OutOfOrder) => {
+            referential("callable observed import phases are not canonical after identity relocation")
+        }
+    })
 }
 
 fn stable_callable_module(callable: &phalcom_type_meta::identity::StableCallableRef) -> &phalcom_type_meta::identity::StableModuleRef {
@@ -5338,7 +5648,7 @@ fn import_module_execution_authority(
     allocations: &mut AllocationBudget,
 ) -> Result<
     (
-        BTreeMap<crate::identity::ModuleId, phalcom_modules::linker::ModuleImportPhaseProduct>,
+        phalcom_modules::authority::ModuleAuthorityMap<crate::identity::ModuleId, phalcom_modules::linker::ModuleImportPhaseProduct>,
         Vec<phalcom_modules::linker::RuntimeDependencyRequirement>,
     ),
     ArtifactError,
@@ -5356,7 +5666,9 @@ fn import_module_execution_authority(
     if authority.import_phase_products.len() != module_world.modules.len() {
         return Err(referential("module import phase authority must contain one product for every module-world row"));
     }
-    let mut phase_products = BTreeMap::new();
+    let mut phase_product_entries = allocations
+        .vector::<(crate::identity::ModuleId, phalcom_modules::linker::ModuleImportPhaseProduct)>(authority.import_phase_products.len())
+        .map_err(allocation_error)?;
     for product in &authority.import_phase_products {
         if !module_world.modules.iter().any(|row| row.identity == product.module) {
             return Err(referential("module import phase product owner is absent from the module world"));
@@ -5368,7 +5680,9 @@ fn import_module_execution_authority(
             return Err(referential("module import phase product does not cover the exact source-binding range"));
         }
         let module = import_stable_module_with_allocation_budget(&product.module, allocations)?;
-        let mut bindings = BTreeMap::new();
+        let mut binding_entries = allocations
+            .vector::<(SourceImportBindingId, ImportPhaseSummary)>(product.bindings.len())
+            .map_err(allocation_error)?;
         for (expected_ordinal, row) in product.bindings.iter().enumerate() {
             let expected_ordinal = u32::try_from(expected_ordinal).map_err(|_| referential("module import phase ordinal exceeds u32"))?;
             if row.binding != expected_ordinal {
@@ -5391,10 +5705,12 @@ fn import_module_execution_authority(
                 },
                 observed: row.summary.observed,
             };
-            if bindings.insert(source_binding, summary).is_some() {
-                return Err(referential("module import phase binding is duplicated after identity relocation"));
-            }
+            binding_entries.push((source_binding, summary));
         }
+        let bindings = phalcom_modules::authority::ModuleAuthorityMap::from_budgeted_entries(binding_entries, allocations).map_err(|error| match error {
+            phalcom_modules::authority::ModuleAuthorityBuildError::Allocation(error) => allocation_error(error),
+            _ => referential("module import phase binding is duplicated after identity relocation"),
+        })?;
         let imported = ModuleImportPhaseProduct {
             module: module.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
             bindings,
@@ -5403,10 +5719,12 @@ fn import_module_execution_authority(
                 wire::PhaseEvidenceCoverageV1::Incomplete => PhaseEvidenceCoverage::Incomplete,
             },
         };
-        if phase_products.insert(module, imported).is_some() {
-            return Err(referential("module import phase product owner is duplicated after identity relocation"));
-        }
+        phase_product_entries.push((module, imported));
     }
+    let phase_products = phalcom_modules::authority::ModuleAuthorityMap::from_budgeted_entries(phase_product_entries, allocations).map_err(|error| match error {
+        phalcom_modules::authority::ModuleAuthorityBuildError::Allocation(error) => allocation_error(error),
+        _ => referential("module import phase product owner is duplicated after identity relocation"),
+    })?;
 
     let mut runtime_requirements = allocations
         .vector::<RuntimeDependencyRequirement>(authority.runtime_requirements.len())
@@ -5517,7 +5835,7 @@ pub(super) fn import_callable_analysis_records(
     store: &TypeStore,
     source_plan_fingerprints: &[(crate::identity::ImplId, crate::db::ProductFingerprint)],
     module_world: Option<&phalcom_compiler_artifact::module_world::ModuleWorldV2>,
-    import_phase_products: &BTreeMap<crate::identity::ModuleId, phalcom_modules::linker::ModuleImportPhaseProduct>,
+    import_phase_products: &impl phalcom_modules::linker::ModuleImportPhaseProductLookup,
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<
@@ -5532,13 +5850,16 @@ pub(super) fn import_callable_analysis_records(
 
     ensure_complete_callable_analysis_payload(records)?;
     let mut child = allocations.child(allocations.remaining());
+    let mut diagnostic_previous_observed = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(0);
+    let mut diagnostic_previous_ledger = child.requested();
     let mut rows = child.vector(records.len()).map_err(allocation_error)?;
     let mut binding_range_entries = child.vector(records.len()).map_err(allocation_error)?;
+    record_callable_import_allocation_diagnostic_stage(0, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
     for (body_index, record) in records.iter().enumerate() {
         let callable = import_stable_callable_with_allocation_budget(&record.callable, &mut child)?;
         let observed_import_phases = match module_world {
             Some(module_world) => import_callable_observed_import_phases(record, &callable, module_world, import_phase_products, &mut child)?,
-            None if record.observed_import_phases.is_empty() => BTreeMap::new(),
+            None if record.observed_import_phases.is_empty() => crate::checker::analysis_map::AnalysisMap::new(),
             None => return Err(referential("module world is required to resolve callable source-import phase authority")),
         };
         let body = BodyId(u32::try_from(body_index).map_err(|_| referential("callable body ordinal exceeds portable range"))?);
@@ -5563,9 +5884,11 @@ pub(super) fn import_callable_analysis_records(
                 crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("callable binding source range is duplicated"),
             })?;
         binding_range_entries.push((callable.clone_with_allocation_budget(&mut child).map_err(allocation_error)?, formal_ranges));
+        record_callable_import_allocation_diagnostic_stage(1, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
 
         let facts = import_callable_expression_facts(record, relocation, &mut child)?;
         let statuses = import_callable_expression_statuses(&record.expressions, relocation, &mut child)?;
+        record_callable_import_allocation_diagnostic_stage(2, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let dispatch = import_callable_expression_dispatch_authority(
             record,
             body,
@@ -5575,6 +5898,7 @@ pub(super) fn import_callable_analysis_records(
             &mut child,
             limits.max_recursion_depth,
         )?;
+        record_callable_import_allocation_diagnostic_stage(3, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let specializations = import_callable_call_specializations(
             &record.expressions,
             &record.conformance_evidence,
@@ -5584,7 +5908,9 @@ pub(super) fn import_callable_analysis_records(
             &mut child,
             limits.max_recursion_depth,
         )?;
+        record_callable_import_allocation_diagnostic_stage(4, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let denotations = import_callable_denotations(record, relocation, &mut child)?;
+        record_callable_import_allocation_diagnostic_stage(5, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let mut specializations = specializations.into_iter().peekable();
         let mut denotations = denotations.expressions.into_iter().peekable();
         let mut expression_entries = child.vector(record.expressions.len()).map_err(allocation_error)?;
@@ -5621,10 +5947,14 @@ pub(super) fn import_callable_analysis_records(
             return Err(referential("callable sparse expression authority references an absent expression"));
         }
         let expressions = import_analysis_map(expression_entries, &mut child, "callable expression rows are not canonical")?;
+        record_callable_import_allocation_diagnostic_stage(6, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let resolutions = import_callable_resolution_authority(record, body, relocation, store, source_plan_fingerprints, limits, &mut child)?;
+        record_callable_import_allocation_diagnostic_stage(7, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let proofs = proof::import_callable_proofs_v2(record, body, relocation, limits, &mut child)?;
+        record_callable_import_allocation_diagnostic_stage(8, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let flow_graph = import_callable_flow_graph_with_allocation_budget(&record.flow_graph, limits, &mut child)?;
         let entry_flow = import_callable_flow_state_summary(&record.entry_flow, relocation, &mut child)?;
+        record_callable_import_allocation_diagnostic_stage(9, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let mut normal_returns = child.vector(record.normal_returns.len()).map_err(allocation_error)?;
         for exit in &record.normal_returns {
             let status = import_callable_status(&exit.status, relocation, &mut child)?;
@@ -5679,12 +6009,14 @@ pub(super) fn import_callable_analysis_records(
                 })
             })
             .transpose()?;
+        record_callable_import_allocation_diagnostic_stage(10, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let explanations = explanation::import_explanations(&record.explanations, body, relocation, &mut child)?;
         let mut diagnostics = child.vector(record.diagnostics.len()).map_err(allocation_error)?;
         for diagnostic in &record.diagnostics {
             diagnostics.push(diagnostic::import_diagnostic_with_allocation_budget(diagnostic, relocation, &mut child)?);
         }
         let diagnostics = budgeted_arc_slice(diagnostics, &mut child)?;
+        record_callable_import_allocation_diagnostic_stage(11, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let mut dependencies = child.vector(record.dependencies.len()).map_err(allocation_error)?;
         for dependency in &record.dependencies {
             dependencies.push(import_stable_callable_with_allocation_budget(dependency, &mut child)?);
@@ -5695,6 +6027,7 @@ pub(super) fn import_callable_analysis_records(
             semantic_dependencies.push(import_static_semantic_dependency(dependency, relocation, &mut child)?);
         }
         let semantic_dependencies = budgeted_arc_slice(semantic_dependencies, &mut child)?;
+        record_callable_import_allocation_diagnostic_stage(12, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         let mut analysis = CallableAnalysis {
             callable: callable.clone_with_allocation_budget(&mut child).map_err(allocation_error)?,
             body_range,
@@ -5731,7 +6064,9 @@ pub(super) fn import_callable_analysis_records(
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status: import_callable_analysis_status(&record.status),
         };
+        record_callable_import_allocation_diagnostic_stage(13, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         analysis.dependency_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
+        record_callable_import_allocation_diagnostic_stage(14, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
         rows.push((callable, child.arc(analysis).map_err(allocation_error)?));
     }
     let table = crate::checker::analysis::CallableAnalysisTable::from_budgeted_entries(rows, &mut child).map_err(|error| match error {
@@ -5744,6 +6079,7 @@ pub(super) fn import_callable_analysis_records(
             crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
             crate::parent_map::FrozenParentMapError::DuplicateKey => referential("callable binding range owner is duplicated"),
         })?;
+    record_callable_import_allocation_diagnostic_stage(15, &child, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
     allocations.commit_child(child).map_err(allocation_error)?;
     Ok((table, binding_ranges))
 }
@@ -6206,8 +6542,6 @@ pub fn validate_and_import_semantic_world(world: SemanticWorldV4, limits: &Valid
 }
 
 /// Imports semantic authority using the caller's cumulative load transaction.
-/// It currently fails closed while validation and materialization still have
-/// allocation requests outside that ledger.
 pub fn validate_and_import_semantic_world_with_allocation_budget(
     world: SemanticWorldV4,
     limits: &ValidationLimits,
@@ -6240,6 +6574,19 @@ pub fn validate_and_import_semantic_world_with_module_world_and_project_universe
     validate_and_import_semantic_world_with_optional_module_world(world, Some(module_world), Some(projects), limits, transaction)
 }
 
+/// Runs semantic reconstruction with stage reporting available to focused
+/// allocation diagnostics. This API exists only with the feature enabled.
+#[cfg(feature = "allocation-diagnostics")]
+pub fn validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget_for_diagnostics(
+    world: SemanticWorldV4,
+    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    projects: &phalcom_modules::ProjectUniverse,
+    limits: &ValidationLimits,
+    transaction: &mut AllocationBudget,
+) -> Result<ValidatedSemanticParts, ArtifactError> {
+    validate_and_import_semantic_world_with_optional_module_world(world, Some(module_world), Some(projects), limits, transaction)
+}
+
 fn validate_and_import_semantic_world_with_optional_module_world(
     world: SemanticWorldV4,
     module_world: Option<&phalcom_compiler_artifact::module_world::ModuleWorldV2>,
@@ -6247,19 +6594,11 @@ fn validate_and_import_semantic_world_with_optional_module_world(
     limits: &ValidationLimits,
     transaction: &mut AllocationBudget,
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
-    // TypeStore relocation/interning and the primary/static owner imports do
-    // not yet expose every allocator request to this transaction. Reject
-    // before validation or materialization can allocate outside its ledger.
-    require_semantic_import_allocation_accounting()?;
     let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
     let mut allocations = transaction.child(section_limit);
     let parts = validate_and_import_semantic_world_inner(world, module_world, projects, limits, &mut allocations)?;
     transaction.commit_child(allocations).map_err(allocation_error)?;
     Ok(parts)
-}
-
-fn require_semantic_import_allocation_accounting() -> Result<(), ArtifactError> {
-    Ok(())
 }
 
 fn allocation_error(error: AllocationError) -> ArtifactError {
@@ -6276,15 +6615,17 @@ fn validate_and_import_semantic_world_inner(
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
+    record_import_allocation_diagnostic_stage(0, allocations);
     world.validate_with_allocation_budget(limits, allocations)?;
     ensure_complete_callable_analysis_payload(&world.callable_analyses)?;
+    record_import_allocation_diagnostic_stage(1, allocations);
     let (import_phase_products, generated_runtime_requirements) = match module_world {
         Some(module_world) => import_module_execution_authority(&world.module_execution_authority, module_world, allocations)?,
         None if world.module_execution_authority.import_phase_products.is_empty()
             && world.module_execution_authority.runtime_requirements.is_empty()
             && world.callable_analyses.iter().all(|analysis| analysis.observed_import_phases.is_empty()) =>
         {
-            (BTreeMap::new(), Vec::new())
+            (phalcom_modules::authority::ModuleAuthorityMap::new(), Vec::new())
         }
         None => return Err(referential("module world is required to resolve source-import phase authority")),
     };
@@ -6297,8 +6638,10 @@ fn validate_and_import_semantic_world_inner(
     } else {
         None
     };
+    record_import_allocation_diagnostic_stage(2, allocations);
     // 3. Fresh TypeStore with checked TypeRelocation
     let (mut type_store, type_relocation) = TypeStore::import_type_graph_with_allocation_budget(&world.type_graph, limits, allocations)?;
+    record_import_allocation_diagnostic_stage(3, allocations);
 
     // 4. Structural primary contracts (shells, hierarchy, aliases, data/enum contracts, signatures)
     let structural_contracts = import_structural_primary_contracts_with_owner_catalog(
@@ -6309,6 +6652,7 @@ fn validate_and_import_semantic_world_inner(
         allocations,
         owner_catalog.as_ref(),
     )?;
+    record_import_allocation_diagnostic_stage(4, allocations);
 
     // 5. Fresh StaticValueStore through validated factories
     let (static_values, static_relocation) = import_static_value_graph_with_allocation_budget(
@@ -6322,6 +6666,7 @@ fn validate_and_import_semantic_world_inner(
         limits,
         allocations,
     )?;
+    record_import_allocation_diagnostic_stage(5, allocations);
 
     // Cross-validate pending static references
     validate_pending_static_references(&world.structural_contracts, &static_relocation)?;
@@ -6335,6 +6680,10 @@ fn validate_and_import_semantic_world_inner(
     }
 
     // 8. Reconstruct callable signatures and definitions (P7.T7.B)
+    #[cfg(feature = "allocation-diagnostics")]
+    let mut callable_table_previous_observed = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(0);
+    #[cfg(feature = "allocation-diagnostics")]
+    let mut callable_table_previous_ledger = allocations.requested();
     let mut callable_signature_entries = allocations.vector(world.callable_signatures.len()).map_err(allocation_error)?;
     for rec in &world.callable_signatures {
         let sig = import_callable_signature(rec, &type_relocation, &type_store, allocations)?;
@@ -6347,6 +6696,8 @@ fn validate_and_import_semantic_world_inner(
                 referential("callable signature owner is duplicated after stable-identity relocation")
             }
         })?;
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(56, allocations, &mut callable_table_previous_observed, &mut callable_table_previous_ledger);
     let mut callable_definition_entries = allocations
         .vector::<(crate::identity::CallableId, crate::impls::EffectiveCallableDefinition)>(world.callable_definitions.len())
         .map_err(allocation_error)?;
@@ -6360,6 +6711,8 @@ fn validate_and_import_semantic_world_inner(
             crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
             crate::parent_map::FrozenParentMapError::DuplicateKey => referential("callable definition owner is duplicated after stable-identity relocation"),
         })?;
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(57, allocations, &mut callable_table_previous_observed, &mut callable_table_previous_ledger);
 
     let enum_requirements = import_enum_requirements(
         &world.enum_requirements,
@@ -6368,6 +6721,9 @@ fn validate_and_import_semantic_world_inner(
         &type_store,
         allocations,
     )?;
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(58, allocations, &mut callable_table_previous_observed, &mut callable_table_previous_ledger);
+    record_import_allocation_diagnostic_stage(6, allocations);
 
     // 10. Reconstruct trait surfaces and trait headers (P7.T7.B)
     let mut trait_surface_entries = allocations
@@ -6503,6 +6859,7 @@ fn validate_and_import_semantic_world_inner(
             crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
             crate::parent_map::FrozenParentMapError::DuplicateKey => referential("trait header owner is duplicated after identity relocation"),
         })?;
+    record_import_allocation_diagnostic_stage(7, allocations);
 
     // 11. Reconstruct surfaces, dispatch resolver, and field signatures (P7.T7.B)
     let field_signature_capacity = world
@@ -6623,6 +6980,7 @@ fn validate_and_import_semantic_world_inner(
             crate::signature::FrozenFieldSignatureTableError::DuplicateField => referential("field signature owner is duplicated after identity relocation"),
         },
     )?;
+    record_import_allocation_diagnostic_stage(8, allocations);
 
     let domain_count = world
         .conditional_inherent_sets
@@ -6745,6 +7103,7 @@ fn validate_and_import_semantic_world_inner(
                 referential("inherent implementation domain is duplicated after identity relocation")
             }
         })?;
+    record_import_allocation_diagnostic_stage(9, allocations);
     // 12. Reconstruct immutable conformance heads without source B-tree indexes.
     let mut conformance_entries = allocations
         .vector::<(crate::identity::ImplId, crate::impls::ConformanceContribution)>(world.conformance_heads.len())
@@ -6794,13 +7153,20 @@ fn validate_and_import_semantic_world_inner(
             crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
             crate::parent_map::FrozenParentMapError::DuplicateKey => referential("conformance head is duplicated after identity relocation"),
         })?;
+    record_import_allocation_diagnostic_stage(10, allocations);
 
+    #[cfg(feature = "allocation-diagnostics")]
+    let mut witness_diagnostic_previous_observed = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(0);
+    #[cfg(feature = "allocation-diagnostics")]
+    let mut witness_diagnostic_previous_ledger = allocations.requested();
     let mut witness_plan_entries = allocations
         .vector::<(crate::identity::ImplId, Arc<crate::impls::ConformanceWitnessPlan>)>(world.witness_plans.len())
         .map_err(allocation_error)?;
     let mut source_plan_fingerprints = allocations
         .vector::<(crate::identity::ImplId, crate::db::ProductFingerprint)>(world.witness_plans.len())
         .map_err(allocation_error)?;
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(39, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
     for witness in &world.witness_plans {
         let impl_id = import_stable_impl_with_allocation_budget(&witness.impl_id, allocations)?;
         let source_module = import_stable_module_with_allocation_budget(&witness.source_module, allocations)?;
@@ -6819,6 +7185,8 @@ fn validate_and_import_semantic_world_inner(
         } else {
             None
         };
+        #[cfg(feature = "allocation-diagnostics")]
+        record_callable_import_allocation_diagnostic_stage(40, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
         let mut requirement_view_entries = allocations
             .vector::<(crate::traits::TraitRequirementId, crate::traits::InstantiatedTraitRequirement)>(witness.requirement_views.len())
             .map_err(allocation_error)?;
@@ -6849,6 +7217,8 @@ fn validate_and_import_semantic_world_inner(
                 crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
                 crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("witness requirement view is duplicated"),
             })?;
+        #[cfg(feature = "allocation-diagnostics")]
+        record_callable_import_allocation_diagnostic_stage(41, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
 
         let mut requirement_entries = allocations
             .vector::<(crate::traits::TraitRequirementId, crate::impls::RequirementSelectionTemplate)>(witness.requirements.len())
@@ -6878,13 +7248,19 @@ fn validate_and_import_semantic_world_inner(
                 crate::ordered_map::FrozenOrderedMapError::Allocation(error) => allocation_error(error),
                 crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("witness requirement selection is duplicated"),
             })?;
+        #[cfg(feature = "allocation-diagnostics")]
+        record_callable_import_allocation_diagnostic_stage(42, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
         let associated_type_plan = import_callable_associated_type_plan(&witness.associated_type_plan, &impl_id, &trait_decl, &type_relocation, allocations)?;
+        #[cfg(feature = "allocation-diagnostics")]
+        record_callable_import_allocation_diagnostic_stage(43, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
         let completeness = import_callable_conformance_completeness(&witness.completeness, &type_relocation, allocations)?;
         let mut diagnostics = allocations.vector(witness.diagnostics.len()).map_err(allocation_error)?;
         for diagnostic in &witness.diagnostics {
             diagnostics.push(import_trait_surface_diagnostic(diagnostic, &type_relocation, allocations)?);
         }
         let diagnostics = allocations.boxed_slice(diagnostics).map_err(allocation_error)?;
+        #[cfg(feature = "allocation-diagnostics")]
+        record_callable_import_allocation_diagnostic_stage(44, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
         let plan = crate::impls::ConformanceWitnessPlan::from_parts(
             impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
             source_module,
@@ -6898,12 +7274,16 @@ fn validate_and_import_semantic_world_inner(
             completeness,
             diagnostics,
         );
+        #[cfg(feature = "allocation-diagnostics")]
+        record_callable_import_allocation_diagnostic_stage(45, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
 
         source_plan_fingerprints.push((impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, plan.fingerprint));
         witness_plan_entries.push((
             impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
             allocations.arc(plan).map_err(allocation_error)?,
         ));
+        #[cfg(feature = "allocation-diagnostics")]
+        record_callable_import_allocation_diagnostic_stage(46, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
     }
 
     let witness_plans_map =
@@ -6911,6 +7291,9 @@ fn validate_and_import_semantic_world_inner(
             crate::parent_map::FrozenParentMapError::Allocation(error) => allocation_error(error),
             crate::parent_map::FrozenParentMapError::DuplicateKey => referential("witness plan is duplicated after identity relocation"),
         })?;
+    #[cfg(feature = "allocation-diagnostics")]
+    record_callable_import_allocation_diagnostic_stage(47, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
+    record_import_allocation_diagnostic_stage(11, allocations);
 
     let (callable_analyses, callable_binding_ranges) = import_callable_analysis_records(
         &world.callable_analyses,
@@ -6922,6 +7305,7 @@ fn validate_and_import_semantic_world_inner(
         limits,
         allocations,
     )?;
+    record_import_allocation_diagnostic_stage(12, allocations);
 
     let mut imported_derived_conformance_rules = allocations
         .vector::<crate::derived_conformance::DerivedConformanceRule>(world.derived_conformance_rules.len())
@@ -6950,6 +7334,7 @@ fn validate_and_import_semantic_world_inner(
             crate::trait_dispatch::FrozenTraitDispatchIndexError::Allocation(error) => allocation_error(error),
             crate::trait_dispatch::FrozenTraitDispatchIndexError::DuplicateBucket => referential("trait dispatch index contains a duplicate bucket"),
         })?;
+    record_import_allocation_diagnostic_stage(13, allocations);
 
     let mut constructor_entries = allocations.vector(world.constructor_initializations.len()).map_err(allocation_error)?;
     for rec in &world.constructor_initializations {
@@ -7012,6 +7397,7 @@ fn validate_and_import_semantic_world_inner(
     let constructor_initializations =
         crate::signature::ConstructorInitializationTable::from_frozen_entries_with_allocation_budget(constructor_entries, allocations)
             .map_err(frozen_ordered_map_error)?;
+    record_import_allocation_diagnostic_stage(14, allocations);
 
     let ImportedAssociatedAuthority {
         associated_surfaces,
@@ -7036,6 +7422,7 @@ fn validate_and_import_semantic_world_inner(
     )?;
     let static_constants = import_static_constant_owners(&world.static_constants, &static_relocation, &type_relocation, allocations)?;
     let module_static_bindings = import_module_static_binding_indexes(&world.module_static_bindings, &world.callable_analyses, &type_relocation, allocations)?;
+    record_import_allocation_diagnostic_stage(15, allocations);
 
     let surfaces = dispatch_resolver.surfaces().clone();
     let formal_projection = crate::presentation::FormalSemanticProjection::from_callable_analysis_table_with_binding_ranges_and_allocation_budget(
@@ -7049,6 +7436,7 @@ fn validate_and_import_semantic_world_inner(
         crate::presentation::FormalSemanticProjectionBuildError::DuplicateModule => referential("formal projection contains a duplicate module"),
     })?;
     let formal_projection = allocations.arc(formal_projection).map_err(allocation_error)?;
+    record_import_allocation_diagnostic_stage(16, allocations);
     let type_store = allocations.arc(type_store).map_err(allocation_error)?;
     let static_values = allocations.arc(static_values).map_err(allocation_error)?;
     let snap_sources = allocations.arc(BTreeMap::new()).map_err(allocation_error)?;
@@ -7141,6 +7529,7 @@ fn validate_and_import_semantic_world_inner(
     // PATCH2 reconstructs this semantic owner graph, but PATCH6 owns the
     // source-free image completeness check and final snapshot promotion.
     let snapshot = allocations.arc(snapshot).map_err(allocation_error)?;
+    record_import_allocation_diagnostic_stage(17, allocations);
 
     // Build secondary owner indexes in a single O(N) pass (P7.T8)
     let mut declarations = allocations
@@ -7156,7 +7545,9 @@ fn validate_and_import_semantic_world_inner(
         data_by_module: import_module_owner_index(data, allocations)?,
         enums_by_module: import_module_owner_index(enums, allocations)?,
     };
+    record_import_allocation_diagnostic_stage(18, allocations);
 
+    record_import_allocation_diagnostic_stage(19, allocations);
     Ok(ValidatedSemanticParts {
         structural_contracts,
         type_store,
@@ -8763,7 +9154,8 @@ mod tests {
                     phase: DependencyPhase::Runtime,
                     observed: true,
                 },
-            )]),
+            )])
+            .into(),
             coverage: PhaseEvidenceCoverage::Complete,
         };
         let products = std::collections::BTreeMap::from([(module.clone(), product)]);
@@ -8781,7 +9173,8 @@ mod tests {
                     phase: DependencyPhase::InterfaceOnly,
                     observed: true,
                 },
-            )]),
+            )])
+            .into(),
             coverage: PhaseEvidenceCoverage::Complete,
         };
         let stricter_products = std::collections::BTreeMap::from([(module, stricter_product)]);

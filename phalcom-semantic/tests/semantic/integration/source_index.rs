@@ -1143,7 +1143,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
         constructor_super_initializer: None,
         dependency_fingerprint: ProductFingerprint::new(1),
         status: CallableAnalysisStatus::Complete,
-        observed_import_phases: Arc::new(BTreeMap::new()),
+        observed_import_phases: Arc::new(phalcom_semantic::checker::analysis_map::AnalysisMap::new()),
     };
 
     index.attach_formal_analysis(&module, &analysis, &callable).expect("unique formal attachment");

@@ -745,10 +745,7 @@ pub struct CallableAnalysis {
     pub status: CallableAnalysisStatus,
     /// Joined use-phases for each imported source binding observed in this callable body.
     pub observed_import_phases: Arc<
-        std::collections::BTreeMap<
-            phalcom_modules::identity::SourceImportBindingId,
-            phalcom_modules::graph::DependencyPhase,
-        >,
+        AnalysisMap<phalcom_modules::identity::SourceImportBindingId, phalcom_modules::graph::DependencyPhase>,
     >,
 }
 
@@ -1108,7 +1105,7 @@ mod callable_analysis_table_tests {
             constructor_super_initializer: None,
             dependency_fingerprint: crate::db::ProductFingerprint(0),
             status: CallableAnalysisStatus::Complete,
-            observed_import_phases: Arc::new(std::collections::BTreeMap::new()),
+            observed_import_phases: Arc::new(crate::checker::analysis_map::AnalysisMap::new()),
         })
     }
 

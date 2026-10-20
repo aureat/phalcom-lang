@@ -158,20 +158,20 @@ tagged!(CallableExplainRelationOutcomeV1 {
 });
 record!(CallableExplanationNodeV1 { step: CallableExplanationStepV1, rule: CallableDerivationRuleV1, status: EvidenceStatusV1, origin: EvidenceOriginV1, evidence: Vec<CallableExplanationEvidenceV1>, parents: Vec<u32> });
 
-struct ExplanationValidation<'a> {
-    analysis: &'a CallableAnalysisRecordV1,
-    world: &'a SemanticWorldV3,
-    limits: &'a ValidationLimits,
+struct ExplanationValidation<'a, 'w, 'v> {
+    analysis: CallableAnalysisValidationView<'a>,
+    world: &'w SemanticWorldValidationView<'v>,
+    limits: &'w ValidationLimits,
 }
-impl ExplanationValidation<'_> {
+impl ExplanationValidation<'_, '_, '_> {
     fn callable(&self, callable: &StableCallableRef) -> Result<(), ArtifactError> {
         self.string(&callable.selector)?;
         if let Some(owner) = callable.owner.enclosing_declaration() {
             self.world.validate_declaration_reference(owner)?;
         } else if let Some(owner) = callable.owner.try_declaration() {
             if owner.is_synthetic_main()
-                && callable != &self.analysis.callable
-                && self.world.callable_analyses.binary_search_by(|row| row.callable.cmp(callable)).is_err()
+                && callable != self.analysis.callable
+                && self.world.callable_analyses.find_by_callable(callable).is_none()
             {
                 return Err(invalid("callable explanation references an absent module-body callable"));
             }
@@ -719,13 +719,13 @@ impl ExplanationValidation<'_> {
     }
 }
 pub(super) fn validate_explanations(
-    analysis: &CallableAnalysisRecordV1,
-    world: &SemanticWorldV3,
+    analysis: CallableAnalysisValidationView<'_>,
+    world: &SemanticWorldValidationView<'_>,
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<(), ArtifactError> {
     let validate = ExplanationValidation { analysis, world, limits };
-    let rows = &analysis.explanations;
+    let rows = analysis.explanations;
     if rows.len() > limits.max_semantic_entries_per_family {
         return Err(invalid("explanation node limit exceeded"));
     }

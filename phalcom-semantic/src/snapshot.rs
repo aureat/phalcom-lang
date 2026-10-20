@@ -21,6 +21,8 @@ use crate::type_alias::TypeAliasTable;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use phalcom_common::selector::Selector;
+use phalcom_modules::authority::{ModuleAuthorityMap, ModuleAuthoritySet};
+use phalcom_modules::canonical_products::CanonicalExternalModuleWorld;
 use phalcom_modules::graph::SemanticGraph;
 use phalcom_modules::identity::{SourceId, SourceLocation};
 use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface};
@@ -59,6 +61,14 @@ pub struct ModuleQueryProducts {
     pub display_path_modules: Arc<BTreeMap<PathBuf, ModuleId>>,
     pub topology: Arc<ModuleTopology>,
     pub reverse_imports: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
+    /// Shared immutable artifact module base. Source workspaces keep their
+    /// mutable interface maps in the fields above; artifact publication reads
+    /// this canonical owner directly and retains only its mutable overlays.
+    pub external_modules: Option<Arc<CanonicalExternalModuleWorld>>,
+    /// Frozen artifact import indexes, used when the canonical module base is
+    /// present. Source snapshots continue to use the BTreeMap fields above.
+    pub resolved_imports_authority: Option<ModuleAuthorityMap<(ModuleId, String), ModuleId>>,
+    pub reverse_imports_authority: Option<ModuleAuthorityMap<ModuleId, ModuleAuthoritySet<ModuleId>>>,
 }
 
 pub struct ModuleQueryProductsInputs {
@@ -114,6 +124,9 @@ impl ModuleQueryProducts {
             display_path_modules,
             topology,
             reverse_imports,
+            external_modules: None,
+            resolved_imports_authority: None,
+            reverse_imports_authority: None,
         }
     }
 
@@ -131,6 +144,9 @@ impl ModuleQueryProducts {
             display_path_modules: Arc::new(BTreeMap::new()),
             topology,
             reverse_imports: Arc::new(BTreeMap::new()),
+            external_modules: None,
+            resolved_imports_authority: None,
+            reverse_imports_authority: None,
         }
     }
 
@@ -150,6 +166,9 @@ impl ModuleQueryProducts {
             display_path_modules: allocations.arc(BTreeMap::new())?,
             topology,
             reverse_imports: allocations.arc(BTreeMap::new())?,
+            external_modules: None,
+            resolved_imports_authority: None,
+            reverse_imports_authority: None,
         })
     }
 
@@ -157,49 +176,128 @@ impl ModuleQueryProducts {
         modules: Arc<phalcom_modules::canonical_products::CanonicalExternalModuleWorld>,
         allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
     ) -> Result<Self, ModuleQueryProductsBuildError> {
-        let mut unlinked = BTreeMap::new();
-        for (module, interface) in modules.interfaces() {
-            if unlinked.insert(module.clone(), (**interface).clone()).is_some() {
-                return Err(ModuleQueryProductsBuildError::DuplicateKey);
-            }
-        }
+        let linked_modules = &modules.linked().modules;
+        let import_count = linked_modules
+            .values()
+            .map(|linked_module| {
+                linked_module
+                    .bindings
+                    .imports
+                    .values()
+                    .filter(|import_id| linked_module.linked_reads.get(import_id.0 as usize).is_some())
+                    .count()
+            })
+            .try_fold(0usize, |total, count| total.checked_add(count))
+            .ok_or(phalcom_type_meta::allocation::AllocationError::Overflow)?;
 
-        let mut linked = BTreeMap::new();
-        let mut resolved_imports = BTreeMap::new();
-        for (module, linked_module) in &modules.linked().modules {
-            if linked.insert(module.clone(), linked_module.interface.clone()).is_some() {
-                return Err(ModuleQueryProductsBuildError::DuplicateKey);
-            }
+        let mut resolved_entries = allocations.vector::<((ModuleId, String), ModuleId)>(import_count)?;
+        for (module, linked_module) in linked_modules {
             for (name, import_id) in &linked_module.bindings.imports {
                 let Some(read_spec) = linked_module.linked_reads.get(import_id.0 as usize) else {
                     continue;
                 };
                 let target = match read_spec {
-                    phalcom_modules::linker::LinkedReadSpec::Binding(symbol) => symbol.module.clone(),
-                    phalcom_modules::linker::LinkedReadSpec::Module(target) => target.clone(),
+                    phalcom_modules::linker::LinkedReadSpec::Binding(symbol) => &symbol.module,
+                    phalcom_modules::linker::LinkedReadSpec::Module(target) => target,
                 };
-                if resolved_imports.insert((module.clone(), name.to_string()), target).is_some() {
-                    return Err(ModuleQueryProductsBuildError::DuplicateKey);
-                }
+                resolved_entries.push((
+                    (module.clone_with_allocation_budget(allocations)?, allocations.string(name)?),
+                    target.clone_with_allocation_budget(allocations)?,
+                ));
             }
         }
+        let resolved_imports_authority = ModuleAuthorityMap::from_budgeted_entries(resolved_entries, allocations).map_err(|error| match error {
+            phalcom_modules::authority::ModuleAuthorityBuildError::Allocation(error) => ModuleQueryProductsBuildError::Allocation(error),
+            phalcom_modules::authority::ModuleAuthorityBuildError::Entries(_) | phalcom_modules::authority::ModuleAuthorityBuildError::SetEntries(_) => {
+                ModuleQueryProductsBuildError::DuplicateKey
+            }
+        })?;
 
-        let mut reverse_imports: BTreeMap<ModuleId, BTreeSet<ModuleId>> = BTreeMap::new();
-        for ((importer, _), target) in &resolved_imports {
-            reverse_imports.entry(target.clone()).or_default().insert(importer.clone());
+        let mut reverse_pairs = allocations.vector::<(ModuleId, ModuleId)>(resolved_imports_authority.len())?;
+        for ((importer, _), target) in resolved_imports_authority.iter() {
+            reverse_pairs.push((target.clone_with_allocation_budget(allocations)?, importer.clone_with_allocation_budget(allocations)?));
         }
+        reverse_pairs.sort_unstable();
+        reverse_pairs.dedup();
+        let reverse_group_count = reverse_pairs
+            .iter()
+            .enumerate()
+            .filter(|(index, pair)| *index == 0 || reverse_pairs[*index - 1].0 != pair.0)
+            .count();
+        let mut reverse_group_lengths = allocations.vector::<usize>(reverse_group_count)?;
+        let mut cursor = 0;
+        while cursor < reverse_pairs.len() {
+            let start = cursor;
+            let target = &reverse_pairs[cursor].0;
+            cursor += 1;
+            while cursor < reverse_pairs.len() && &reverse_pairs[cursor].0 == target {
+                cursor += 1;
+            }
+            reverse_group_lengths.push(cursor - start);
+        }
+        let mut reverse_entries = allocations.vector::<(ModuleId, ModuleAuthoritySet<ModuleId>)>(reverse_group_count)?;
+        let mut reverse_pairs = reverse_pairs.into_iter();
+        for group_len in reverse_group_lengths {
+            let (target, first_importer) = reverse_pairs.next().ok_or(ModuleQueryProductsBuildError::DuplicateKey)?;
+            let mut importers = allocations.vector::<ModuleId>(group_len)?;
+            importers.push(first_importer);
+            for _ in 1..group_len {
+                let (_, importer) = reverse_pairs.next().ok_or(ModuleQueryProductsBuildError::DuplicateKey)?;
+                importers.push(importer);
+            }
+            let importers = ModuleAuthoritySet::from_budgeted_sorted_entries(importers, allocations).map_err(|error| match error {
+                phalcom_modules::authority::ModuleAuthorityBuildError::Allocation(error) => ModuleQueryProductsBuildError::Allocation(error),
+                phalcom_modules::authority::ModuleAuthorityBuildError::Entries(_) | phalcom_modules::authority::ModuleAuthorityBuildError::SetEntries(_) => {
+                    ModuleQueryProductsBuildError::DuplicateKey
+                }
+            })?;
+            reverse_entries.push((target, importers));
+        }
+        let reverse_imports_authority = ModuleAuthorityMap::from_budgeted_sorted_entries(reverse_entries, allocations).map_err(|error| match error {
+            phalcom_modules::authority::ModuleAuthorityBuildError::Allocation(error) => ModuleQueryProductsBuildError::Allocation(error),
+            phalcom_modules::authority::ModuleAuthorityBuildError::Entries(_) | phalcom_modules::authority::ModuleAuthorityBuildError::SetEntries(_) => {
+                ModuleQueryProductsBuildError::DuplicateKey
+            }
+        })?;
+
         Ok(Self {
             universe: modules.linked().universe.clone(),
-            unlinked: allocations.arc(unlinked)?,
-            linked: allocations.arc(linked)?,
+            unlinked: allocations.arc(BTreeMap::new())?,
+            linked: allocations.arc(BTreeMap::new())?,
             import_products: allocations.arc(BTreeMap::new())?,
-            resolved_imports: allocations.arc(resolved_imports)?,
+            resolved_imports: allocations.arc(BTreeMap::new())?,
             sources: allocations.arc(BTreeMap::new())?,
             source_modules: allocations.arc(BTreeMap::new())?,
             display_path_modules: allocations.arc(BTreeMap::new())?,
             topology: modules.topology().clone(),
-            reverse_imports: allocations.arc(reverse_imports)?,
+            reverse_imports: allocations.arc(BTreeMap::new())?,
+            external_modules: Some(modules),
+            resolved_imports_authority: Some(resolved_imports_authority),
+            reverse_imports_authority: Some(reverse_imports_authority),
         })
+    }
+
+    pub fn linked_interface(&self, module: &ModuleId) -> Option<&LinkedModuleInterface> {
+        self.linked.get(module).or_else(|| {
+            self.external_modules
+                .as_ref()
+                .and_then(|external| external.linked().modules.get(module).map(|linked| &linked.interface))
+        })
+    }
+
+    pub fn linked_module_keys(&self) -> Box<dyn Iterator<Item = &ModuleId> + '_> {
+        if let Some(external) = &self.external_modules {
+            Box::new(
+                external
+                    .linked()
+                    .modules
+                    .keys()
+                    .filter(|module| !self.linked.contains_key(*module))
+                    .chain(self.linked.keys()),
+            )
+        } else {
+            Box::new(self.linked.keys())
+        }
     }
 }
 
@@ -303,7 +401,7 @@ pub struct SemanticSnapshot {
     /// Retained source-local semantic structure shards for incremental reuse.
     pub semantic_structure_shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
     /// Observed and inferred dependency use-phases for each imported source binding.
-    pub import_phase_products: Arc<BTreeMap<ModuleId, phalcom_modules::linker::ModuleImportPhaseProduct>>,
+    pub import_phase_products: Arc<phalcom_modules::authority::ModuleAuthorityMap<ModuleId, phalcom_modules::linker::ModuleImportPhaseProduct>>,
     /// Runtime dependency requirements discovered during semantic analysis.
     pub generated_runtime_requirements: Arc<[phalcom_modules::RuntimeDependencyRequirement]>,
     pub status: SnapshotStatus,
@@ -325,6 +423,12 @@ impl SemanticSnapshot {
                 || !analysis.pattern_site_resolutions.is_empty()
         });
         let callable_analyses_are_complete = self.callable_analyses.values().all(|analysis| analysis.status.is_complete());
+        let has_module_query_authority = self
+            .module_products
+            .external_modules
+            .as_ref()
+            .is_some_and(|modules| !modules.interfaces().is_empty() && !modules.linked().modules.is_empty())
+            || (!self.module_products.unlinked.is_empty() && !self.module_products.linked.is_empty());
         self.sources.is_empty()
             && self.presentation_sources.is_empty()
             && !self.callable_analyses.is_empty()
@@ -352,8 +456,7 @@ impl SemanticSnapshot {
             && !self.static_definitions.is_empty()
             && !self.static_constants.is_empty()
             && self.module_static_bindings.iter().next().is_some()
-            && !self.module_products.unlinked.is_empty()
-            && !self.module_products.linked.is_empty()
+            && has_module_query_authority
     }
 
     // Snapshot construction intentionally mirrors its immutable field layout.
@@ -416,7 +519,7 @@ impl SemanticSnapshot {
             static_values: Arc::new(StaticValueStore::new()),
             module_static_bindings: Arc::new(crate::parent_map::ParentMap::default()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
-            import_phase_products: Arc::new(BTreeMap::new()),
+            import_phase_products: Arc::new(phalcom_modules::authority::ModuleAuthorityMap::new()),
             generated_runtime_requirements: Arc::from([]),
             status: SnapshotStatus::Complete,
         }
@@ -485,7 +588,7 @@ impl SemanticSnapshot {
             static_values: Arc::new(StaticValueStore::new()),
             module_static_bindings: Arc::new(crate::parent_map::ParentMap::default()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
-            import_phase_products: Arc::new(BTreeMap::new()),
+            import_phase_products: Arc::new(phalcom_modules::authority::ModuleAuthorityMap::new()),
             generated_runtime_requirements: Arc::from([]),
             status: SnapshotStatus::Complete,
         }
@@ -744,17 +847,45 @@ impl SemanticSnapshot {
     }
 
     pub fn module_queries(&self) -> ModuleQueryFacade<'_> {
-        ModuleQueryFacade::new(
-            &self.module_products.universe,
-            &self.module_products.unlinked,
-            &self.module_products.linked,
-            &self.module_products.resolved_imports,
-            &self.module_products.sources,
-            &self.module_products.source_modules,
-            &self.module_products.display_path_modules,
-        )
-        .with_topology(&self.module_products.topology)
-        .with_reverse_imports(&self.module_products.reverse_imports)
+        use phalcom_modules::authority::{ModuleAuthorityMapRef, ReverseImportsRef};
+
+        let resolved_imports = self
+            .module_products
+            .resolved_imports_authority
+            .as_ref()
+            .map(ModuleAuthorityMapRef::from)
+            .unwrap_or_else(|| ModuleAuthorityMapRef::from(&self.module_products.resolved_imports));
+        let reverse_imports = self
+            .module_products
+            .reverse_imports_authority
+            .as_ref()
+            .map(ReverseImportsRef::from)
+            .unwrap_or_else(|| ReverseImportsRef::from(&self.module_products.reverse_imports));
+        let facade = if let Some(external_modules) = &self.module_products.external_modules {
+            ModuleQueryFacade::new_with_external_modules_and_overlays(
+                &self.module_products.universe,
+                external_modules,
+                &self.module_products.unlinked,
+                &self.module_products.linked,
+                resolved_imports,
+                &self.module_products.sources,
+                &self.module_products.source_modules,
+                &self.module_products.display_path_modules,
+            )
+        } else {
+            ModuleQueryFacade::new(
+                &self.module_products.universe,
+                &self.module_products.unlinked,
+                &self.module_products.linked,
+                resolved_imports,
+                &self.module_products.sources,
+                &self.module_products.source_modules,
+                &self.module_products.display_path_modules,
+            )
+        };
+        facade
+            .with_topology(&self.module_products.topology)
+            .with_reverse_imports(reverse_imports)
     }
 
     /// Returns true if this snapshot's module query facade is backed by precomputed indexed products.

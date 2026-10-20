@@ -33,6 +33,7 @@ use phalcom_modules::manifest::{DependencySpec, ValidatedProjectManifest};
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::ModuleKind;
 use std::collections::{BTreeMap, hash_map::DefaultHasher};
+use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -42,6 +43,36 @@ pub(crate) fn finish_input(hasher: DefaultHasher) -> InputFingerprint {
 
 pub(crate) fn finish_product(hasher: DefaultHasher) -> ProductFingerprint {
     ProductFingerprint::new(hasher.finish())
+}
+
+/// Hashes the same UTF-8 bytes as `format!("{value:?}").hash(hasher)` without
+/// allocating an intermediate `String`.
+pub(crate) fn hash_debug_without_allocation(value: &impl std::fmt::Debug, hasher: &mut impl Hasher) {
+    struct HasherWriter<'a, H>(&'a mut H);
+
+    impl<H: Hasher> std::fmt::Write for HasherWriter<'_, H> {
+        fn write_str(&mut self, value: &str) -> std::fmt::Result {
+            self.0.write(value.as_bytes());
+            Ok(())
+        }
+    }
+
+    let mut writer = HasherWriter(hasher);
+    write!(&mut writer, "{value:?}").expect("writing Debug output into a hasher cannot fail");
+    // Hash for `str` writes its bytes followed by this terminator.
+    writer.0.write_u8(0xff);
+}
+
+fn hash_option_u64_sequence(is_some: bool, len: usize, values: impl IntoIterator<Item = u64>, hasher: &mut impl Hasher) {
+    if !is_some {
+        std::mem::discriminant(&None::<Vec<u64>>).hash(hasher);
+        return;
+    }
+    std::mem::discriminant(&Some(Vec::<u64>::new())).hash(hasher);
+    len.hash(hasher);
+    for value in values {
+        hasher.write(&value.to_ne_bytes());
+    }
 }
 
 pub(crate) fn hash_range(range: SourceRange, hasher: &mut impl Hasher) {
@@ -335,10 +366,46 @@ pub(crate) fn hash_generic_signature(signature: &GenericSignature, hasher: &mut 
     } else {
         "legacy-generic-parameter-metadata-absent".hash(hasher);
     }
-    let mut sorted_constraints = signature.constraints.to_vec();
-    sorted_constraints.sort();
-    for constraint in &sorted_constraints {
-        constraint.hash(hasher);
+    hash_sorted_slice_without_allocation(&signature.constraints, hasher);
+}
+
+fn hash_sorted_slice_without_allocation<T: Ord + Hash>(values: &[T], hasher: &mut impl Hasher) {
+    if values.windows(2).all(|pair| pair[0] <= pair[1]) {
+        for value in values {
+            value.hash(hasher);
+        }
+        return;
+    }
+
+    // Preserve the sorted-vector hash without allocating a temporary sorted
+    // buffer. Constraint lists are short; selecting the next distinct value
+    // is bounded and duplicate values are emitted with their original count.
+    let mut previous: Option<&T> = None;
+    let mut emitted_previous = 0;
+    for _ in 0..values.len() {
+        let next = match previous {
+            Some(value) => {
+                let copies = values.iter().filter(|candidate| *candidate == value).count();
+                if emitted_previous < copies {
+                    emitted_previous += 1;
+                    Some(value)
+                } else {
+                    let next = values.iter().filter(|candidate| *candidate > value).min();
+                    previous = next;
+                    emitted_previous = usize::from(next.is_some());
+                    next
+                }
+            }
+            None => {
+                let first = values.iter().min();
+                previous = first;
+                emitted_previous = usize::from(first.is_some());
+                first
+            }
+        };
+        if let Some(value) = next {
+            value.hash(hasher);
+        }
     }
 }
 
@@ -506,22 +573,38 @@ fn hash_dispatch_callable_signature(signature: &crate::dispatch::CallableSignatu
 }
 
 fn hash_member_surface(surface: &crate::surface::MemberSurface, include_provenance: bool, hasher: &mut impl Hasher) {
-    let mut fields = surface.fields.iter().collect::<Vec<_>>();
-    fields.sort_by_key(|(left, _)| *left);
-    fields.len().hash(hasher);
-    for (name, knowledge) in fields {
+    surface.fields.len().hash(hasher);
+    for_each_surface_entry(&surface.fields, |name, knowledge| {
         name.hash(hasher);
         hash_type_knowledge(knowledge, include_provenance, hasher);
         surface.field_visibility.get(name).copied().unwrap_or_default().hash(hasher);
-    }
+    });
 
-    let mut callables = surface.callable_signatures.iter().collect::<Vec<_>>();
-    callables.sort_by_key(|(left, _)| *left);
-    callables.len().hash(hasher);
-    for (selector, signature) in callables {
+    surface.callable_signatures.len().hash(hasher);
+    for_each_surface_entry(&surface.callable_signatures, |selector, signature| {
         selector.hash(hasher);
         hash_dispatch_callable_signature(signature, include_provenance, hasher);
         surface.callable_visibility.get(selector).copied().unwrap_or_default().hash(hasher);
+    });
+}
+
+/// Frozen surface maps are already ordered by key. Source-backed maps retain a
+/// hash representation, so allocate and sort only on that non-import path to
+/// preserve the same deterministic fingerprint order.
+fn for_each_surface_entry<K, V>(map: &crate::surface::SurfaceMap<K, V>, mut visit: impl FnMut(&K, &V))
+where
+    K: Eq + std::hash::Hash + Ord,
+{
+    if map.is_frozen() {
+        for (key, value) in map.iter() {
+            visit(key, value);
+        }
+    } else {
+        let mut entries = map.iter().collect::<Vec<_>>();
+        entries.sort_unstable_by(|left, right| left.0.cmp(right.0));
+        for (key, value) in entries {
+            visit(key, value);
+        }
     }
 }
 
@@ -990,11 +1073,9 @@ pub(crate) fn hash_generic_conformance_evidence(evidence: &crate::generic_eviden
             exact.source_impl.hash(hasher);
             exact.exact_target.hash(hasher);
             exact.exact_trait_ref.hash(hasher);
-            crate::generic_evidence::GenericConformanceKey::new(
-                crate::types::parameter::TypeTerm::Canonical(exact.exact_target),
-                exact.exact_trait_ref.clone(),
-            )
-            .hash(hasher);
+            let key_subject = crate::types::parameter::TypeTerm::Canonical(exact.exact_target);
+            key_subject.hash(hasher);
+            exact.exact_trait_ref.hash(hasher);
             match &exact.trait_header_conformance_proofs {
                 None => 0u8.hash(hasher),
                 Some(proofs) => {
@@ -1030,9 +1111,7 @@ pub(crate) fn hash_generic_conformance_evidence(evidence: &crate::generic_eviden
                     exact_trait_ref.hash(hasher);
                 }
             }
-            let mut bindings = derived.impl_bindings.bindings().iter().collect::<Vec<_>>();
-            bindings.sort_by_key(|(parameter, _)| **parameter);
-            bindings.hash(hasher);
+            derived.impl_bindings.bindings().hash(hasher);
             for nested in derived.nested.iter() {
                 match nested {
                     crate::generic_evidence::NestedGenericEvidence::Conformance(nested) => {
@@ -1103,15 +1182,19 @@ fn hash_conditional_selected_call_capability(capability: Option<&crate::dispatch
     applicability.impl_id.hash(hasher);
     applicability.receiver.hash(hasher);
     applicability.owner_view.hash(hasher);
-    let mut bindings = applicability.bindings.iter().collect::<Vec<_>>();
-    bindings.sort_by_key(|(parameter, _)| **parameter);
-    bindings.hash(hasher);
-    let mut environment_bindings = applicability.environment.bindings.iter().collect::<Vec<_>>();
-    environment_bindings.sort_by_key(|(parameter, _)| **parameter);
-    environment_bindings.hash(hasher);
-    let mut row_bindings = applicability.environment.row_bindings.iter().collect::<Vec<_>>();
-    row_bindings.sort_by_key(|(parameter, _)| **parameter);
-    row_bindings.hash(hasher);
+    applicability.bindings.len().hash(hasher);
+    for (parameter, ty) in applicability.bindings.iter() {
+        parameter.hash(hasher);
+        ty.hash(hasher);
+    }
+    applicability.environment.bindings.len().hash(hasher);
+    for (parameter, ty) in &applicability.environment.bindings {
+        (parameter, ty).hash(hasher);
+    }
+    applicability.environment.row_bindings.len().hash(hasher);
+    for (parameter, row) in &applicability.environment.row_bindings {
+        (parameter, row).hash(hasher);
+    }
     applicability.environment.self_binding.hash(hasher);
     match &applicability.conformance_provenance {
         None => 0u8.hash(hasher),
@@ -1671,7 +1754,7 @@ pub fn hierarchy_edge_input_fingerprint(
 /// fingerprint so those callers cannot reuse a stale specialization.
 pub fn hierarchy_edge_product_fingerprint(
     class_decl: &DeclarationId,
-    super_decl: &Option<DeclarationId>,
+    super_decl: Option<&DeclarationId>,
     superclass_syntax: Option<&str>,
 ) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
@@ -1927,24 +2010,23 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         hash_conditional_selected_call_capability(expression.conditional_capability.as_ref(), &mut hasher);
         hash_trait_dispatch_site(expression.trait_dispatch.as_ref(), &mut hasher);
         hash_contextual_realization(expression.contextual_realization.as_deref(), &mut hasher);
-        expression
-            .trait_dispatch_candidates
-            .as_ref()
-            .map(|candidates| {
-                candidates
-                    .iter()
-                    .map(|candidate| {
-                        let mut candidate_hasher = DefaultHasher::new();
-                        candidate.exact_trait_ref.hash(&mut candidate_hasher);
-                        candidate.requirement.hash(&mut candidate_hasher);
-                        candidate.source_impl.hash(&mut candidate_hasher);
-                        candidate.evidence_fingerprint.raw().hash(&mut candidate_hasher);
-                        hash_requirement_selection(&candidate.selection, &mut candidate_hasher);
-                        candidate_hasher.finish()
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .hash(&mut hasher);
+        match expression.trait_dispatch_candidates.as_deref() {
+            None => hash_option_u64_sequence(false, 0, std::iter::empty::<u64>(), &mut hasher),
+            Some(candidates) => hash_option_u64_sequence(
+                true,
+                candidates.len(),
+                candidates.iter().map(|candidate| {
+                    let mut candidate_hasher = DefaultHasher::new();
+                    candidate.exact_trait_ref.hash(&mut candidate_hasher);
+                    candidate.requirement.hash(&mut candidate_hasher);
+                    candidate.source_impl.hash(&mut candidate_hasher);
+                    candidate.evidence_fingerprint.raw().hash(&mut candidate_hasher);
+                    hash_requirement_selection(&candidate.selection, &mut candidate_hasher);
+                    candidate_hasher.finish()
+                }),
+                &mut hasher,
+            ),
+        }
         hash_denotation(&expression.denotation, &mut hasher);
         hash_analysis_status(&expression.status, &analysis.internal_incidents, &mut hasher);
         hash_causal_invalidity(expression.causal_invalidity, &mut hasher);
@@ -3240,6 +3322,81 @@ pub fn static_constant_product_fingerprint(
 mod tests {
     use super::*;
     use crate::types::evidence::EvidenceStatus;
+
+    #[test]
+    fn streamed_debug_hash_matches_allocating_string_hash() {
+        let values = ["plain", "quoted \" text", "λ and 🦀"];
+        for value in values {
+            let mut expected = DefaultHasher::new();
+            format!("{value:?}").hash(&mut expected);
+
+            let mut actual = DefaultHasher::new();
+            hash_debug_without_allocation(&value, &mut actual);
+            assert_eq!(actual.finish(), expected.finish(), "values={values:?}");
+        }
+    }
+
+    #[test]
+    fn streamed_debug_hash_matches_allocating_analysis_map_hash() {
+        let value = crate::checker::analysis_map::AnalysisMap::from_source(std::collections::BTreeMap::from([
+            (1_u32, "one"),
+            (3, "three"),
+        ]));
+        let mut expected = DefaultHasher::new();
+        format!("{value:?}").hash(&mut expected);
+
+        let mut actual = DefaultHasher::new();
+        hash_debug_without_allocation(&value, &mut actual);
+        assert_eq!(actual.finish(), expected.finish());
+    }
+
+    #[test]
+    fn streamed_option_sequence_hash_matches_vec_hash() {
+        for values in [None, Some(Vec::new()), Some(vec![3_u64, 19, 28])] {
+            let mut expected = DefaultHasher::new();
+            values.hash(&mut expected);
+
+            let mut actual = DefaultHasher::new();
+            match values.as_deref() {
+                None => hash_option_u64_sequence(false, 0, std::iter::empty::<u64>(), &mut actual),
+                Some(values) => hash_option_u64_sequence(true, values.len(), values.iter().copied(), &mut actual),
+            }
+            assert_eq!(actual.finish(), expected.finish(), "values={values:?}");
+        }
+    }
+
+    #[test]
+    fn streamed_sorted_slice_hash_matches_sorted_vector_hash() {
+        for values in [&[][..], &[1_u8, 2, 3], &[3_u8, 1, 2, 1, 3]] {
+            let mut expected = values.to_vec();
+            expected.sort();
+            let mut expected_hasher = DefaultHasher::new();
+            for value in &expected {
+                value.hash(&mut expected_hasher);
+            }
+
+            let mut actual_hasher = DefaultHasher::new();
+            hash_sorted_slice_without_allocation(values, &mut actual_hasher);
+            assert_eq!(actual_hasher.finish(), expected_hasher.finish(), "values={values:?}");
+        }
+    }
+
+    #[test]
+    fn analysis_map_hash_matches_sorted_vector_hash() {
+        for source in [
+            std::collections::BTreeMap::new(),
+            std::collections::BTreeMap::from([(3_u32, 19_u64), (1, 28), (2, 7)]),
+        ] {
+            let entries = crate::checker::analysis_map::AnalysisMap::from_source(source);
+            let expected_entries = entries.iter().collect::<Vec<_>>();
+            let mut expected = DefaultHasher::new();
+            expected_entries.hash(&mut expected);
+
+            let mut actual = DefaultHasher::new();
+            entries.hash(&mut actual);
+            assert_eq!(actual.finish(), expected.finish());
+        }
+    }
 
     #[test]
     fn return_contract_validation_fingerprint_distinguishes_variants() {

@@ -6,14 +6,23 @@ use phalcom_compiler_artifact::section::SectionKind;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV4;
 use phalcom_core::modules::canonical_artifact::{
     TeloscArtifactError, build_universe_telosc, load_universe_telosc_from_bytes, load_universe_telosc_from_bytes_with_allocation_summary,
+    loader_allocation_diagnostic_stages, reset_loader_allocation_diagnostics,
 };
 use phalcom_core::modules::canonical_universe::canonical_universe_program;
-use phalcom_semantic::artifact::import::validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget;
+use phalcom_semantic::SemanticWorkspaceSession;
+use phalcom_semantic::artifact::import::{
+    callable_import_allocation_diagnostic_stages,
+    import_allocation_diagnostic_stages,
+    reset_import_allocation_diagnostics,
+    validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget,
+};
 use phalcom_semantic::artifact::query::reconstruct_query_image_v4_with_allocation_budget;
 use phalcom_semantic::canonical_image::CanonicalSemanticWorldId;
+use phalcom_semantic::identity::WorkspaceId;
 use phalcom_semantic::types::store::TypeStore;
 use phalcom_type_meta::allocation::AllocationBudget;
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 struct CountingAllocator;
@@ -106,6 +115,58 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     };
 
     let type_world = decode_world();
+    let mut validation_transaction = AllocationBudget::new(usize::MAX);
+    REQUESTED_BYTES.store(0, Ordering::Relaxed);
+    MEASURING.store(true, Ordering::Relaxed);
+    let validation = type_world.validate_with_allocation_budget(&semantic_limits, &mut validation_transaction);
+    MEASURING.store(false, Ordering::Relaxed);
+    let independently_observed_validation = REQUESTED_BYTES.load(Ordering::Relaxed);
+    validation.expect("validate canonical Universe semantic world");
+    let validation_requested = validation_transaction.requested();
+    eprintln!(
+        "SEMANTIC WORLD V4 VALIDATION: ledger={} observed={} delta={}",
+        validation_requested,
+        independently_observed_validation,
+        independently_observed_validation.abs_diff(validation_requested)
+    );
+    assert_eq!(
+        independently_observed_validation, validation_requested,
+        "independent V4 validation allocator requests must match its ledger"
+    );
+
+    let exact_validation_limits = ValidationLimits {
+        max_decoded_section_bytes: validation_requested as u64,
+        ..limits
+    };
+    let mut exact_validation = AllocationBudget::new(validation_requested);
+    REQUESTED_BYTES.store(0, Ordering::Relaxed);
+    MEASURING.store(true, Ordering::Relaxed);
+    let exact_validation_result = type_world.validate_with_allocation_budget(&exact_validation_limits, &mut exact_validation);
+    MEASURING.store(false, Ordering::Relaxed);
+    let exact_validation_observed = REQUESTED_BYTES.load(Ordering::Relaxed);
+    exact_validation_result.expect("V4 validation at its exact ledger budget must succeed");
+    assert_eq!(exact_validation_observed, validation_requested);
+    assert_eq!(exact_validation.requested(), validation_requested);
+
+    let mut decode_validation_transaction = AllocationBudget::new(usize::MAX);
+    REQUESTED_BYTES.store(0, Ordering::Relaxed);
+    MEASURING.store(true, Ordering::Relaxed);
+    let decode_validation = SemanticWorldV4::decode_with_allocation_budget(semantic_bytes, &semantic_limits, &mut decode_validation_transaction);
+    MEASURING.store(false, Ordering::Relaxed);
+    let independently_observed_decode_validation = REQUESTED_BYTES.load(Ordering::Relaxed);
+    decode_validation.expect("decode and validate canonical Universe semantic world");
+    let decode_validation_requested = decode_validation_transaction.requested();
+    eprintln!(
+        "SEMANTIC WORLD V4 DECODE + VALIDATION: ledger={} observed={} delta={}",
+        decode_validation_requested,
+        independently_observed_decode_validation,
+        independently_observed_decode_validation.abs_diff(decode_validation_requested)
+    );
+    assert_eq!(
+        independently_observed_decode_validation, decode_validation_requested,
+        "independent V4 decode-plus-validation allocator requests must match its ledger"
+    );
+
     let mut type_transaction = AllocationBudget::new(usize::MAX);
     REQUESTED_BYTES.store(0, Ordering::Relaxed);
     MEASURING.store(true, Ordering::Relaxed);
@@ -144,6 +205,7 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     };
     let semantic_world_for_measurement = decode_world();
     let mut exact_transaction = AllocationBudget::new(semantic_requested);
+    reset_import_allocation_diagnostics();
     REQUESTED_BYTES.store(0, Ordering::Relaxed);
     MEASURING.store(true, Ordering::Relaxed);
     phalcom_type_meta::allocation::register_allocation_probe(|| REQUESTED_BYTES.load(Ordering::Relaxed));
@@ -156,12 +218,40 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     );
     MEASURING.store(false, Ordering::Relaxed);
     let independently_observed_semantic = REQUESTED_BYTES.load(Ordering::Relaxed);
+    let diagnostic_stages = import_allocation_diagnostic_stages();
     eprintln!(
         "SEMANTIC IMPORT EXACT CHECK:\n  ledger requested: {}\n  independently observed: {}\n  delta: {}",
         semantic_requested,
         independently_observed_semantic,
         independently_observed_semantic.abs_diff(semantic_requested)
     );
+    for pair in diagnostic_stages.windows(2) {
+        let ledger_delta = pair[1].ledger_bytes - pair[0].ledger_bytes;
+        let observed_delta = pair[1].observed_bytes - pair[0].observed_bytes;
+        if ledger_delta == observed_delta {
+            continue;
+        }
+        eprintln!(
+            "SEMANTIC IMPORT STAGE {} -> {}: ledger={} observed={} delta={}",
+            pair[0].name,
+            pair[1].name,
+            ledger_delta,
+            observed_delta,
+            observed_delta.abs_diff(ledger_delta),
+        );
+    }
+    for phase in callable_import_allocation_diagnostic_stages() {
+        if phase.ledger_bytes == phase.observed_bytes {
+            continue;
+        }
+        eprintln!(
+            "CALLABLE IMPORT PHASE {}: ledger={} observed={} delta={}",
+            phase.name,
+            phase.ledger_bytes,
+            phase.observed_bytes,
+            phase.observed_bytes.abs_diff(phase.ledger_bytes),
+        );
+    }
     let imported = imported.expect("semantic import at exact ledger budget must succeed");
     assert_eq!(
         independently_observed_semantic, semantic_requested,
@@ -242,14 +332,130 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
 
     REQUESTED_BYTES.store(0, Ordering::Relaxed);
     MEASURING.store(true, Ordering::Relaxed);
+    phalcom_semantic::artifact::query::reset_query_reconstruction_census();
+    phalcom_semantic::canonical_image::reset_loaded_publication_census();
+    reset_loader_allocation_diagnostics();
     let loaded = load_universe_telosc_from_bytes(&artifact_bytes, &limits_exact);
     MEASURING.store(false, Ordering::Relaxed);
     let observed = REQUESTED_BYTES.load(Ordering::Relaxed);
+    let load_stages = loader_allocation_diagnostic_stages();
+    for pair in load_stages.windows(2) {
+        let ledger_delta = pair[1].ledger_bytes - pair[0].ledger_bytes;
+        let observed_delta = pair[1].observed_bytes - pair[0].observed_bytes;
+        assert_eq!(
+            observed_delta,
+            ledger_delta,
+            "whole-load stage {} -> {} must account for every request",
+            pair[0].name,
+            pair[1].name,
+        );
+    }
+    let query_census = phalcom_semantic::artifact::query::take_query_reconstruction_census();
+    for (name, row) in [
+        ("Q0 closure/root validation", query_census.closure_and_roots),
+        ("Q1 owner decode + QueryKey reconstruction", query_census.owner_key_resolution),
+        ("Q2 product + fingerprint reconstruction", query_census.product_reconstruction),
+        ("Q3 dependency/entry/fingerprint assembly", query_census.entry_assembly),
+        ("Q4 loaded query-image validation", query_census.loaded_validation),
+        ("Q5 query image Arc publication", query_census.query_image_publication),
+    ] {
+        assert_eq!(
+            row.observed_bytes,
+            row.ledger_bytes,
+            "query reconstruction stage {name} must account for every request"
+        );
+    }
+    for row in &query_census.product_by_kind {
+        assert_eq!(row.observed_bytes, row.ledger_bytes, "query product {:?} must account for every request", row.kind);
+    }
+    assert_eq!(
+        query_census.product_buffer_observed,
+        query_census.product_buffer_ledger,
+        "query reconstruction product buffer must account for every request"
+    );
+    let whole_query_stage = load_stages
+        .windows(2)
+        .find(|pair| pair[1].name == "query reconstruction")
+        .expect("whole-load query reconstruction boundary must be recorded");
+    let query_census_observed = [
+        query_census.closure_and_roots,
+        query_census.owner_key_resolution,
+        query_census.product_reconstruction,
+        query_census.entry_assembly,
+        query_census.loaded_validation,
+        query_census.query_image_publication,
+    ]
+    .iter()
+    .map(|row| row.observed_bytes)
+    .sum::<usize>();
+    let query_census_ledger = [
+        query_census.closure_and_roots,
+        query_census.owner_key_resolution,
+        query_census.product_reconstruction,
+        query_census.entry_assembly,
+        query_census.loaded_validation,
+        query_census.query_image_publication,
+    ]
+    .iter()
+    .map(|row| row.ledger_bytes)
+    .sum::<usize>();
+    let qx_observed = whole_query_stage[1].observed_bytes - whole_query_stage[0].observed_bytes - query_census_observed;
+    let qx_ledger = whole_query_stage[1].ledger_bytes - whole_query_stage[0].ledger_bytes - query_census_ledger;
+    assert_eq!(qx_observed, 0, "QX must contain no unclassified allocator requests");
+    assert_eq!(qx_ledger, 0, "QX must contain no unclassified ledger requests");
+    let publication = phalcom_semantic::canonical_image::take_loaded_publication_census();
+    assert_eq!(publication.fingerprint_aggregate_observed, 0, "fingerprint aggregation must not allocate");
+    assert_eq!(publication.fingerprint_query_lookup_observed, 0, "fingerprint query lookup must not allocate");
+    assert!(
+        publication.fingerprint_aggregate_by_kind.is_empty(),
+        "fingerprint aggregation by query kind must not allocate: {:?}",
+        publication.fingerprint_aggregate_by_kind
+    );
+    for (name, ledger, stage_observed) in [
+        ("snapshot clone", publication.snapshot_clone_ledger, publication.snapshot_clone),
+        ("status promotion", publication.status_promotion_ledger, publication.status_promotion),
+        ("ModuleQueryProducts reconstruction", publication.module_query_products_ledger, publication.module_query_products),
+        (
+            "ModuleQueryProducts Arc/publication",
+            publication.module_query_products_publication_ledger,
+            publication.module_query_products_publication,
+        ),
+        ("source-free completeness", publication.source_free_completeness_ledger, publication.source_free_completeness),
+        ("advisory validation", publication.advisory_validation_ledger, publication.advisory_validation),
+        ("query reader validation", publication.query_reader_validation_ledger, publication.query_reader_validation),
+        ("fingerprint validation", publication.fingerprint_validation_ledger, publication.fingerprint_validation),
+        ("final Arc<SemanticSnapshot>", publication.snapshot_arc_ledger, publication.snapshot_arc),
+        ("Arc<CanonicalUniverseFormalImage>", publication.formal_image_arc_ledger, publication.formal_image_arc),
+    ] {
+        assert_eq!(
+            stage_observed,
+            ledger,
+            "formal publication stage {name} must account for every request"
+        );
+    }
 
     let loaded = loaded.expect("load at exact budget N must succeed");
 
+    // Contract B: the artifact-load transaction ends at the immutable,
+    // complete image. Ordinary session construction is a separate infallible
+    // in-memory handoff over that already-published image and is deliberately
+    // outside N's loader allocation measurement.
+    let image = loaded.formal_image.clone();
+    assert!(image.snapshot().is_source_free_artifact_complete());
+    let session = SemanticWorkspaceSession::from_image(WorkspaceId::from_raw(9001), image.clone());
+    assert!(Arc::ptr_eq(
+        session.last_snapshot().expect("image session publishes its initial snapshot"),
+        image.snapshot(),
+    ));
+    assert!(Arc::ptr_eq(
+        session
+            .last_known_good_snapshot()
+            .expect("image session retains its initial last-known-good snapshot"),
+        image.snapshot(),
+    ));
+
     // Drop artifact with measurement disabled
-    drop(loaded);
+    drop((session, loaded));
 
     eprintln!(
         "FULL LOAD ALLOCATION DISCRIMINATOR:\n  ledger requested (N): {}\n  independent allocator requested: {}\n  delta: {}",
@@ -279,9 +485,10 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     drop(retry_cumulative);
 
     // 5. Verify local stage limit failure is distinct from cumulative exhaustion
+    let local_section_limit = decode_module_budget.requested().saturating_add(module_transaction.requested());
     let limits_local_stage = ValidationLimits {
         max_total_allocation_bytes: n as u64,
-        max_decoded_section_bytes: 400_000,
+        max_decoded_section_bytes: u64::try_from(local_section_limit).expect("local section limit fits u64"),
         ..limits
     };
     let (failed_local, failed_local_requested) = load_universe_telosc_from_bytes_with_allocation_summary(&artifact_bytes, &limits_local_stage);
@@ -299,7 +506,10 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     let preceding_module_bytes = preceding_container
         .require_section(SectionKind::ModuleWorld)
         .expect("preceding module section must exist");
-    ModuleWorldV2::decode_with_allocation_budget(preceding_module_bytes, &limits, &mut preceding_stage_budget).expect("preceding module DTO stage must decode");
+    let preceding_module_dto =
+        ModuleWorldV2::decode_with_allocation_budget(preceding_module_bytes, &limits, &mut preceding_stage_budget).expect("preceding module DTO stage must decode");
+    phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&preceding_module_dto, &limits, &mut preceding_stage_budget)
+        .expect("preceding module materialization stage must succeed");
     let expected_preceding_debit = preceding_stage_budget.requested();
     assert_eq!(
         failed_local_requested, expected_preceding_debit,

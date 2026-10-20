@@ -175,7 +175,8 @@ fn finalization_omits_proven_interface_import_and_keeps_unknown_runtime() {
                 phase: DependencyPhase::InterfaceOnly,
                 observed: true,
             },
-        )]),
+        )])
+        .into(),
         coverage: PhaseEvidenceCoverage::Complete,
     };
     let executable = linker
@@ -210,7 +211,8 @@ fn finalization_includes_generated_runtime_requirements() {
                 phase: DependencyPhase::InterfaceOnly,
                 observed: true,
             },
-        )]),
+        )])
+        .into(),
         coverage: PhaseEvidenceCoverage::Complete,
     };
     let requirement = RuntimeDependencyRequirement {

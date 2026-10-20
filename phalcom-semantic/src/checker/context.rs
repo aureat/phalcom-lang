@@ -4227,7 +4227,7 @@ impl<'a> CheckingContext<'a> {
             constructor_super_initializer: self.constructor_super_initializer,
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status,
-            observed_import_phases: std::sync::Arc::new(self.observed_import_phases),
+            observed_import_phases: std::sync::Arc::new(crate::checker::analysis_map::AnalysisMap::from_source(self.observed_import_phases)),
         }
     }
 

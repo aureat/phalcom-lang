@@ -883,7 +883,7 @@ pub fn query_hierarchy_edge(
     } else {
         HierarchyEdgeProduct::new(class_decl.clone(), effective_super_decl)
     });
-    let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &product.super_decl, superclass_syntax);
+    let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, product.super_decl.as_ref(), superclass_syntax);
     let dependencies = recorder.finish();
     if let Err(error) = publish_current_product(
         db,
@@ -919,7 +919,7 @@ pub fn query_bootstrap_hierarchy_edge(
     db.metrics().record_miss();
 
     let product = Arc::new(HierarchyEdgeProduct::new(class_decl.clone(), super_decl.clone()));
-    let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &super_decl, None);
+    let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, super_decl.as_ref(), None);
     if let Err(error) = publish_current_product(
         db,
         key.clone(),

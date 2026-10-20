@@ -148,7 +148,7 @@ answer whether that duplicate should be budgeted or removed for V4. This is a
 representation and validation-ownership decision, not a mechanical port of the
 module map constructors.
 
-## 14. Decision requested
+## 14. Decision request and ruling
 
 For current V4 semantic import, should R4 preserve V3 validation reuse by
 charging a complete temporary V4-to-V3 projection to stage E, or validate the
@@ -161,8 +161,25 @@ same validation rules. Do not account for a clone after the fact; if the
 projection remains, charge each allocation at construction and establish that
 the stage limit handles its temporary peak.
 
+**Ruling received from the user's audit conclusion:** validate V4 in place with
+borrowed views shared with V3 common validation. Do not keep a full V4-to-V3
+projection in production validation. This applies to semantic-world decode as
+well as import because V4 decode validates the decoded value. The old projection
+may be kept temporarily as a test-only differential oracle, then removed.
+
+Public APIs that claim allocation-budgeted semantic validation or import must
+reject while known successful-path allocations escape the transaction. Any
+temporary accounting probe that bypasses the guard must be test-only. No wire
+schema or ABI bump is authorized. Measure V4 validation and decode-plus-
+validation independently before rerunning stage E; isolate any residual
+semantic-import delta before proceeding to N/N-1 and rollback/retry.
+
 ## 15. Status
 
-This request is pending review. Module and type-graph exact accounting are
-focused-tested; semantic import exact accounting is not. Do not promote R4.T3
-or proceed to its N/N-1 and rollback gates until the semantic stage is exact.
+The architectural decision was implemented. The focused saved-artifact whole-
+load gate now reports exact independent allocator equality for V4 validation
+(2,557,138 bytes), V4 decode-plus-validation (121,856,466 bytes), and semantic
+import (316,234,625 bytes). Whole-load N/N-1/retry and section-local child
+rollback also pass. R4.T3 remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED because
+the prepublication failpoint test target is blocked at compilation by unrelated
+fixture/API drift; see the latest T3 entry in `CHECKPOINT.md` for exact scope.

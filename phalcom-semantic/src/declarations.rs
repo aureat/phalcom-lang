@@ -237,6 +237,8 @@ impl NominalDeclarationHeader {
 pub struct DeclarationTypeTable {
     parent: Option<Arc<DeclarationTypeTable>>,
     frozen: Option<Arc<BudgetedSortedMap<DeclarationId, DeclarationTypeInfo>>>,
+    frozen_intrinsic_static_domains: Option<Arc<BudgetedSortedMap<DeclarationId, KindId>>>,
+    frozen_intrinsic_type_owners: Option<Arc<BudgetedSortedMap<DeclarationId, IntrinsicTypeOwner>>>,
     entries: HashMap<DeclarationId, DeclarationTypeInfo>,
     intrinsic_static_domains: HashMap<DeclarationId, KindId>,
     intrinsic_type_owners: HashMap<DeclarationId, IntrinsicTypeOwner>,
@@ -247,6 +249,8 @@ pub struct DeclarationTypeTable {
 pub(crate) enum FrozenDeclarationTypeTableError {
     Allocation(AllocationError),
     DuplicateDeclaration,
+    DuplicateIntrinsicStaticDomain,
+    DuplicateIntrinsicTypeOwner,
 }
 
 impl DeclarationTypeTable {
@@ -259,6 +263,8 @@ impl DeclarationTypeTable {
         Self {
             parent: Some(parent),
             frozen: None,
+            frozen_intrinsic_static_domains: None,
+            frozen_intrinsic_type_owners: None,
             entries: HashMap::new(),
             intrinsic_static_domains: HashMap::new(),
             intrinsic_type_owners: HashMap::new(),
@@ -282,6 +288,33 @@ impl DeclarationTypeTable {
             frozen: Some(frozen),
             ..Self::default()
         })
+    }
+
+    /// Installs budgeted immutable intrinsic authority while keeping the
+    /// existing source maps available as mutable overlays.
+    pub(crate) fn install_frozen_intrinsic_authority_with_allocation_budget(
+        &mut self,
+        mut static_domains: Vec<(DeclarationId, KindId)>,
+        mut type_owners: Vec<(DeclarationId, IntrinsicTypeOwner)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<(), FrozenDeclarationTypeTableError> {
+        static_domains.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        type_owners.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        if !static_domains.is_empty() {
+            let static_domains = BudgetedSortedMap::from_sorted_entries(static_domains).map_err(|error| match error {
+                SortedMapEntriesError::DuplicateKey => FrozenDeclarationTypeTableError::DuplicateIntrinsicStaticDomain,
+                SortedMapEntriesError::OutOfOrder => unreachable!("entries were sorted before frozen construction"),
+            })?;
+            self.frozen_intrinsic_static_domains = Some(allocations.arc(static_domains).map_err(FrozenDeclarationTypeTableError::Allocation)?);
+        }
+        if !type_owners.is_empty() {
+            let type_owners = BudgetedSortedMap::from_sorted_entries(type_owners).map_err(|error| match error {
+                SortedMapEntriesError::DuplicateKey => FrozenDeclarationTypeTableError::DuplicateIntrinsicTypeOwner,
+                SortedMapEntriesError::OutOfOrder => unreachable!("entries were sorted before frozen construction"),
+            })?;
+            self.frozen_intrinsic_type_owners = Some(allocations.arc(type_owners).map_err(FrozenDeclarationTypeTableError::Allocation)?);
+        }
+        Ok(())
     }
 
     /// Read-only handle to the parent table, if parented.
@@ -462,6 +495,7 @@ impl DeclarationTypeTable {
         self.intrinsic_type_owners
             .get(declaration)
             .copied()
+            .or_else(|| self.frozen_intrinsic_type_owners.as_ref().and_then(|owners| owners.get(declaration)).copied())
             .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_type_owner(declaration)))
     }
 
@@ -469,6 +503,15 @@ impl DeclarationTypeTable {
         self.intrinsic_type_owners
             .iter()
             .find_map(|(declaration, candidate)| (*candidate == owner).then(|| declaration.clone()))
+            .or_else(|| {
+                self.frozen_intrinsic_type_owners.as_ref().and_then(|owners| {
+                    owners
+                        .as_entries()
+                        .iter()
+                        .filter(|(declaration, _)| !self.intrinsic_type_owners.contains_key(declaration))
+                        .find_map(|(declaration, candidate)| (*candidate == owner).then(|| declaration.clone()))
+                })
+            })
             .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_type_owner_declaration(owner)))
     }
 
@@ -479,13 +522,24 @@ impl DeclarationTypeTable {
             tables.push(table);
             curr = table.parent.as_deref();
         }
-        tables.into_iter().rev().flat_map(|table| table.intrinsic_type_owners.keys())
+        tables.into_iter().rev().flat_map(|table| {
+            table.intrinsic_type_owners.keys().chain(
+                table.frozen_intrinsic_type_owners.iter().flat_map(move |owners| {
+                    owners
+                        .as_entries()
+                        .iter()
+                        .filter(move |(declaration, _)| !table.intrinsic_type_owners.contains_key(declaration))
+                        .map(|(declaration, _)| declaration)
+                }),
+            )
+        })
     }
 
     pub fn intrinsic_static_domain_kind(&self, declaration: &DeclarationId) -> Option<KindId> {
         self.intrinsic_static_domains
             .get(declaration)
             .copied()
+            .or_else(|| self.frozen_intrinsic_static_domains.as_ref().and_then(|domains| domains.get(declaration)).copied())
             .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_static_domain_kind(declaration)))
     }
 
@@ -496,11 +550,26 @@ impl DeclarationTypeTable {
             tables.push(t);
             curr = t.parent.as_deref();
         }
-        tables.into_iter().rev().flat_map(|t| t.intrinsic_static_domains.keys())
+        tables.into_iter().rev().flat_map(|table| {
+            table.intrinsic_static_domains.keys().chain(
+                table.frozen_intrinsic_static_domains.iter().flat_map(move |domains| {
+                    domains
+                        .as_entries()
+                        .iter()
+                        .filter(move |(declaration, _)| !table.intrinsic_static_domains.contains_key(declaration))
+                        .map(|(declaration, _)| declaration)
+                }),
+            )
+        })
     }
 
     pub fn is_intrinsic_static_domain(&self, declaration: &DeclarationId) -> bool {
-        self.intrinsic_static_domains.contains_key(declaration) || self.parent.as_ref().is_some_and(|p| p.is_intrinsic_static_domain(declaration))
+        self.intrinsic_static_domains.contains_key(declaration)
+            || self
+                .frozen_intrinsic_static_domains
+                .as_ref()
+                .is_some_and(|domains| domains.contains_key(declaration))
+            || self.parent.as_ref().is_some_and(|p| p.is_intrinsic_static_domain(declaration))
     }
 
     pub fn remove(&mut self, declaration: &DeclarationId) -> Option<DeclarationTypeInfo> {

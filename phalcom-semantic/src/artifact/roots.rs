@@ -1655,7 +1655,7 @@ mod tests {
             constructor_super_initializer: None,
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status: CallableAnalysisStatus::Complete,
-            observed_import_phases: Arc::new(std::collections::BTreeMap::new()),
+            observed_import_phases: Arc::new(crate::checker::analysis_map::AnalysisMap::new()),
         }
     }
 

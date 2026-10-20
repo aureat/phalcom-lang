@@ -108,7 +108,7 @@ record!(CallablePatternSiteResolutionV1 { ordinal: u32, kind: CallablePatternSit
 impl CallableAnalysisRecordV1 {
     /// Checks local proof closure without allocating scratch or materializing owners.
     pub fn validate_proof_graph(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
-        validate_proofs(None, self.into(), limits).map(|_| ())
+        validate_proofs(None, CallableAnalysisValidationView::from(self).into(), limits).map(|_| ())
     }
 
     /// Also checks canonical type, kind, parameter, variant, and field owners.
@@ -121,9 +121,9 @@ impl CallableAnalysisRecordV1 {
         validate_proofs(
             Some(ProofWorld {
                 type_graph,
-                structural_contracts,
+                structural: StructuralValidationAuthority::V1(structural_contracts),
             }),
-            self.into(),
+            CallableAnalysisValidationView::from(self).into(),
             limits,
         )
         .map(|_| ())
@@ -133,42 +133,29 @@ impl CallableAnalysisRecordV1 {
 impl CallableAnalysisRecordV2 {
     /// Checks local proof closure without allocating scratch or materializing owners.
     pub fn validate_proof_graph(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
-        validate_proofs(None, self.into(), limits).map(|_| ())
+        validate_proofs(None, CallableAnalysisValidationView::from(self).into(), limits).map(|_| ())
     }
 }
 
 #[derive(Clone, Copy)]
 struct CallableAnalysisProofView<'a> {
     callable: &'a StableCallableRef,
-    local_proof_graph: &'a Option<CallableProofGraphV1>,
+    local_proof_graph: Option<&'a CallableProofGraphV1>,
     match_resolutions: &'a [CallableMatchResolutionV1],
     pattern_site_resolutions: &'a [CallablePatternSiteResolutionV1],
     expressions: &'a [CallableExpressionRowV1],
     bindings: &'a [CallableBindingRowV1],
 }
 
-impl<'a> From<&'a CallableAnalysisRecordV1> for CallableAnalysisProofView<'a> {
-    fn from(record: &'a CallableAnalysisRecordV1) -> Self {
+impl<'a> From<CallableAnalysisValidationView<'a>> for CallableAnalysisProofView<'a> {
+    fn from(record: CallableAnalysisValidationView<'a>) -> Self {
         Self {
-            callable: &record.callable,
-            local_proof_graph: &record.local_proof_graph,
-            match_resolutions: &record.match_resolutions,
-            pattern_site_resolutions: &record.pattern_site_resolutions,
-            expressions: &record.expressions,
-            bindings: &record.bindings,
-        }
-    }
-}
-
-impl<'a> From<&'a CallableAnalysisRecordV2> for CallableAnalysisProofView<'a> {
-    fn from(record: &'a CallableAnalysisRecordV2) -> Self {
-        Self {
-            callable: &record.callable,
-            local_proof_graph: &record.local_proof_graph,
-            match_resolutions: &record.match_resolutions,
-            pattern_site_resolutions: &record.pattern_site_resolutions,
-            expressions: &record.expressions,
-            bindings: &record.bindings,
+            callable: record.callable,
+            local_proof_graph: record.local_proof_graph,
+            match_resolutions: record.match_resolutions,
+            pattern_site_resolutions: record.pattern_site_resolutions,
+            expressions: record.expressions,
+            bindings: record.bindings,
         }
     }
 }
@@ -176,7 +163,7 @@ impl<'a> From<&'a CallableAnalysisRecordV2> for CallableAnalysisProofView<'a> {
 #[derive(Clone, Copy)]
 struct ProofWorld<'a> {
     type_graph: &'a TypeGraphV1,
-    structural_contracts: &'a StructuralPrimaryContractsV1,
+    structural: StructuralValidationAuthority<'a>,
 }
 
 impl ProofWorld<'_> {
@@ -190,14 +177,14 @@ impl ProofWorld<'_> {
 
 /// No scratch allocation: all references are into one record's local graph.
 pub(super) fn validate_callable_proofs(
-    world: Option<&SemanticWorldV3>,
-    record: &CallableAnalysisRecordV1,
+    world: Option<&SemanticWorldValidationView<'_>>,
+    record: CallableAnalysisValidationView<'_>,
     limits: &ValidationLimits,
 ) -> Result<usize, ArtifactError> {
     validate_proofs(
         world.map(|world| ProofWorld {
-            type_graph: &world.type_graph,
-            structural_contracts: &world.structural_contracts,
+            type_graph: world.type_graph,
+            structural: world.structural,
         }),
         record.into(),
         limits,
@@ -211,7 +198,7 @@ fn validate_proofs(world: Option<ProofWorld<'_>>, record: CallableAnalysisProofV
         limits,
         rows: 0,
     };
-    if let Some(graph) = &record.local_proof_graph {
+    if let Some(graph) = record.local_proof_graph {
         if &graph.owner != record.callable {
             return Err(invalid("callable proof graph belongs to another callable"));
         }
@@ -233,8 +220,8 @@ fn validate_proofs(world: Option<ProofWorld<'_>>, record: CallableAnalysisProofV
                     let parameter = check.parameter(*parameter)?;
                     if let Some(parameter) = parameter {
                         let constructor_owns_parameter = world
-                            .structural_contracts
-                            .variant_contracts
+                            .structural
+                            .variant_contracts()
                             .iter()
                             .find(|row| &row.variant == variant)
                             .and_then(|row| row.constructor.as_ref())
@@ -350,7 +337,7 @@ impl ProofValidator<'_> {
     fn variant(&self, variant: &StableVariantRef) -> Result<(), ArtifactError> {
         if self
             .world
-            .is_some_and(|world| !world.structural_contracts.variant_contracts.iter().any(|row| &row.variant == variant))
+            .is_some_and(|world| !world.structural.variant_contracts().iter().any(|row| &row.variant == variant))
         {
             return Err(invalid("callable proof variant owner is absent"));
         }
@@ -374,7 +361,6 @@ impl ProofValidator<'_> {
         if self
             .record
             .local_proof_graph
-            .as_ref()
             .is_none_or(|graph| ordinal as usize >= graph.scopes.len())
         {
             return Err(invalid("callable proof scope is absent"));
@@ -385,7 +371,6 @@ impl ProofValidator<'_> {
         let graph = self
             .record
             .local_proof_graph
-            .as_ref()
             .ok_or_else(|| invalid("callable proof rigid has no owning graph"))?;
         let rigid = graph.rigids.get(ordinal as usize).ok_or_else(|| invalid("callable proof rigid is absent"))?;
         if let Some(mut current) = scope {
@@ -580,10 +565,8 @@ impl ProofValidator<'_> {
                 if let Some(world) = self.world {
                     for owner in owner.iter().chain(owner_candidates) {
                         if !world
-                            .structural_contracts
-                            .declaration_shells
-                            .iter()
-                            .any(|declaration| &declaration.declaration == owner)
+                            .structural
+                            .has_declaration(owner)
                         {
                             return Err(invalid("callable pattern declaration owner is absent"));
                         }
@@ -630,7 +613,7 @@ impl ProofValidator<'_> {
                             self.row(depth)?;
                             self.parameter(binder.parameter)?;
                             self.rigid(binder.rigid, Some(case.scope))?;
-                            let rigid = &self.record.local_proof_graph.as_ref().expect("scope validated").rigids[binder.rigid as usize];
+                            let rigid = &self.record.local_proof_graph.expect("scope validated").rigids[binder.rigid as usize];
                             if rigid.scope != case.scope
                                 || !matches!(&rigid.origin, CallableRigidOriginV1::VariantParameter { variant, parameter } if variant == &case.variant && parameter == &binder.parameter)
                             {
@@ -653,8 +636,8 @@ impl ProofValidator<'_> {
                         }
                         if let Some(world) = self.world {
                             if !world
-                                .structural_contracts
-                                .variant_contracts
+                                .structural
+                                .variant_contracts()
                                 .iter()
                                 .any(|variant| variant.variant == field.variant && (field.field as usize) < variant.fields.len())
                             {

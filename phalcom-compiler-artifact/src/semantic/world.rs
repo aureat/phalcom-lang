@@ -1885,6 +1885,277 @@ record!(SemanticWorldV3 {
     associated_surfaces: Vec<AssociatedSurfaceRecordV1>,
 });
 
+#[derive(Clone, Copy)]
+pub(super) enum StructuralValidationAuthority<'a> {
+    V1(&'a StructuralPrimaryContractsV1),
+    V2(&'a StructuralPrimaryContractsV2),
+}
+
+impl StructuralValidationAuthority<'_> {
+    fn validate_with_allocation_budget(&self, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+        match self {
+            Self::V1(contracts) => contracts.validate_with_allocation_budget(limits, allocations),
+            Self::V2(contracts) => contracts.validate_with_allocation_budget(limits, allocations),
+        }
+    }
+
+    pub(super) fn enum_contracts(&self) -> &[crate::semantic::aggregates::EnumInfoV1] {
+        match self {
+            Self::V1(contracts) => &contracts.enum_contracts,
+            Self::V2(contracts) => &contracts.enum_contracts,
+        }
+    }
+
+    pub(super) fn data_contracts(&self) -> &[crate::semantic::aggregates::DataInfoV1] {
+        match self {
+            Self::V1(contracts) => &contracts.data_contracts,
+            Self::V2(contracts) => &contracts.data_contracts,
+        }
+    }
+
+    pub(super) fn variant_contracts(&self) -> &[crate::semantic::aggregates::VariantInfoV1] {
+        match self {
+            Self::V1(contracts) => &contracts.variant_contracts,
+            Self::V2(contracts) => &contracts.variant_contracts,
+        }
+    }
+
+    pub(super) fn has_declaration(&self, owner: &StableDeclarationRef) -> bool {
+        let shell = match self {
+            Self::V1(contracts) => contracts.declaration_shells.iter().any(|row| &row.declaration == owner),
+            Self::V2(contracts) => contracts.declaration_shells.iter().any(|row| &row.declaration == owner),
+        };
+        shell
+            || self.data_contracts().iter().any(|row| &row.owner == owner)
+            || self.enum_contracts().iter().any(|row| &row.owner == owner)
+    }
+
+    pub(super) fn alias_form(&self, owner: &StableDeclarationRef) -> Option<ArtifactTypeId> {
+        match self {
+            Self::V1(contracts) => contracts
+                .hierarchy_and_aliases
+                .iter()
+                .find(|row| &row.declaration == owner)
+                .and_then(|row| row.aliased_type),
+            Self::V2(contracts) => contracts.type_aliases.iter().find(|row| &row.declaration == owner).map(|row| row.form),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct CallableAnalysisValidationView<'a> {
+    pub(super) callable: &'a StableCallableRef,
+    pub(super) body_range: &'a SpanV1,
+    pub(super) status: &'a CallableAnalysisStatusV1,
+    pub(super) flow_graph: &'a CallableFlowGraphV1,
+    pub(super) constructor_super_initializer: Option<&'a ConstructorSuperInitializerV1>,
+    pub(super) expressions: &'a [CallableExpressionRowV1],
+    pub(super) conformance_evidence: &'a [CallableConformanceEvidenceNodeV1],
+    pub(super) bindings: &'a [CallableBindingRowV1],
+    pub(super) for_iteration_lanes: &'a [CallableForIterationLaneV1],
+    pub(super) positional_expansions: &'a [CallablePositionalExpansionV1],
+    pub(super) known_invalid_positional_expansions: &'a [CallableKnownInvalidPositionalExpansionV1],
+    pub(super) sequence_literals: &'a [CallableSequenceLiteralV1],
+    pub(super) associated_resolutions: &'a [CallableAssociatedResolutionV1],
+    pub(super) callable_reference_resolutions: &'a [CallableReferenceResolutionV1],
+    pub(super) family_applications: &'a [CallableFamilyApplicationV1],
+    pub(super) local_proof_graph: Option<&'a CallableProofGraphV1>,
+    pub(super) match_resolutions: &'a [CallableMatchResolutionV1],
+    pub(super) pattern_site_resolutions: &'a [CallablePatternSiteResolutionV1],
+    pub(super) entry_flow: &'a CallableFlowStateSummaryV1,
+    pub(super) normal_returns: &'a [CallableNormalReturnV1],
+    pub(super) throws: &'a [CallableFlowStateSummaryV1],
+    pub(super) explanations: &'a [CallableExplanationNodeV1],
+    pub(super) return_explanation: Option<u32>,
+    pub(super) diagnostic_cause_count: u32,
+    pub(super) diagnostics: &'a [CallableEvidenceDiagnosticV1],
+    pub(super) dependencies: &'a [StableCallableRef],
+    pub(super) semantic_dependencies: &'a [StaticSemanticDependencyV1],
+}
+
+impl<'a> From<&'a CallableAnalysisRecordV1> for CallableAnalysisValidationView<'a> {
+    fn from(record: &'a CallableAnalysisRecordV1) -> Self {
+        Self {
+            callable: &record.callable,
+            body_range: &record.body_range,
+            status: &record.status,
+            flow_graph: &record.flow_graph,
+            constructor_super_initializer: record.constructor_super_initializer.as_ref(),
+            expressions: &record.expressions,
+            conformance_evidence: &record.conformance_evidence,
+            bindings: &record.bindings,
+            for_iteration_lanes: &record.for_iteration_lanes,
+            positional_expansions: &record.positional_expansions,
+            known_invalid_positional_expansions: &record.known_invalid_positional_expansions,
+            sequence_literals: &record.sequence_literals,
+            associated_resolutions: &record.associated_resolutions,
+            callable_reference_resolutions: &record.callable_reference_resolutions,
+            family_applications: &record.family_applications,
+            local_proof_graph: record.local_proof_graph.as_ref(),
+            match_resolutions: &record.match_resolutions,
+            pattern_site_resolutions: &record.pattern_site_resolutions,
+            entry_flow: &record.entry_flow,
+            normal_returns: &record.normal_returns,
+            throws: &record.throws,
+            explanations: &record.explanations,
+            return_explanation: record.return_explanation,
+            diagnostic_cause_count: record.diagnostic_cause_count,
+            diagnostics: &record.diagnostics,
+            dependencies: &record.dependencies,
+            semantic_dependencies: &record.semantic_dependencies,
+        }
+    }
+}
+
+impl<'a> From<&'a CallableAnalysisRecordV2> for CallableAnalysisValidationView<'a> {
+    fn from(record: &'a CallableAnalysisRecordV2) -> Self {
+        Self {
+            callable: &record.callable,
+            body_range: &record.body_range,
+            status: &record.status,
+            flow_graph: &record.flow_graph,
+            constructor_super_initializer: record.constructor_super_initializer.as_ref(),
+            expressions: &record.expressions,
+            conformance_evidence: &record.conformance_evidence,
+            bindings: &record.bindings,
+            for_iteration_lanes: &record.for_iteration_lanes,
+            positional_expansions: &record.positional_expansions,
+            known_invalid_positional_expansions: &record.known_invalid_positional_expansions,
+            sequence_literals: &record.sequence_literals,
+            associated_resolutions: &record.associated_resolutions,
+            callable_reference_resolutions: &record.callable_reference_resolutions,
+            family_applications: &record.family_applications,
+            local_proof_graph: record.local_proof_graph.as_ref(),
+            match_resolutions: &record.match_resolutions,
+            pattern_site_resolutions: &record.pattern_site_resolutions,
+            entry_flow: &record.entry_flow,
+            normal_returns: &record.normal_returns,
+            throws: &record.throws,
+            explanations: &record.explanations,
+            return_explanation: record.return_explanation,
+            diagnostic_cause_count: record.diagnostic_cause_count,
+            diagnostics: &record.diagnostics,
+            dependencies: &record.dependencies,
+            semantic_dependencies: &record.semantic_dependencies,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum CallableAnalysisValidationSet<'a> {
+    V1(&'a [CallableAnalysisRecordV1]),
+    V2(&'a [CallableAnalysisRecordV2]),
+}
+
+pub(super) enum CallableAnalysisValidationIter<'a> {
+    V1(std::slice::Iter<'a, CallableAnalysisRecordV1>),
+    V2(std::slice::Iter<'a, CallableAnalysisRecordV2>),
+}
+
+impl<'a> Iterator for CallableAnalysisValidationIter<'a> {
+    type Item = CallableAnalysisValidationView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::V1(records) => records.next().map(Into::into),
+            Self::V2(records) => records.next().map(Into::into),
+        }
+    }
+}
+
+impl CallableAnalysisValidationSet<'_> {
+    pub(super) fn len(&self) -> usize {
+        match self {
+            Self::V1(records) => records.len(),
+            Self::V2(records) => records.len(),
+        }
+    }
+
+    pub(super) fn iter(&self) -> CallableAnalysisValidationIter<'_> {
+        match self {
+            Self::V1(records) => CallableAnalysisValidationIter::V1(records.iter()),
+            Self::V2(records) => CallableAnalysisValidationIter::V2(records.iter()),
+        }
+    }
+
+    pub(super) fn is_strictly_sorted(&self) -> bool {
+        let mut previous = None;
+        for record in self.iter() {
+            if previous.is_some_and(|owner| owner >= record.callable) {
+                return false;
+            }
+            previous = Some(record.callable);
+        }
+        true
+    }
+
+    pub(super) fn find_by_callable(&self, callable: &StableCallableRef) -> Option<CallableAnalysisValidationView<'_>> {
+        match self {
+            Self::V1(records) => records
+                .binary_search_by(|record| record.callable.cmp(callable))
+                .ok()
+                .map(|index| (&records[index]).into()),
+            Self::V2(records) => records
+                .binary_search_by(|record| record.callable.cmp(callable))
+                .ok()
+                .map(|index| (&records[index]).into()),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct SemanticWorldValidationView<'a> {
+    pub(super) type_graph: &'a TypeGraphV1,
+    pub(super) structural: StructuralValidationAuthority<'a>,
+    pub(super) enum_requirements: &'a [EnumRequirementOwnerV1],
+    pub(super) static_values: &'a StaticValueGraphV1,
+    pub(super) static_definitions: &'a [StaticDefinitionRecordV1],
+    pub(super) static_constants: &'a [StaticConstantRecordV1],
+    pub(super) module_static_bindings: &'a [ModuleStaticBindingIndexV1],
+    pub(super) witness_plans: &'a [WitnessPlanV1],
+    pub(super) derived_conformance_rules: &'a [DerivedConformanceRuleRecordV1],
+    pub(super) callable_signatures: &'a [CallableSignatureRecordV1],
+    pub(super) callable_definitions: &'a [CallableDefinitionRecordV1],
+    pub(super) callable_analyses: CallableAnalysisValidationSet<'a>,
+    pub(super) trait_surfaces: &'a [TraitSurfaceRecordV1],
+    pub(super) dispatch_surfaces: &'a [DeclarationSurfaceRecordV1],
+    pub(super) conditional_inherent_sets: &'a [ConditionalInherentSetV1],
+    pub(super) conformance_heads: &'a [ConformanceHeadRecordV1],
+    pub(super) type_member_declarations: &'a [TypeMemberDeclarationRecordV1],
+    pub(super) associated_static_domains: &'a [AssociatedStaticDomainRecordV1],
+    pub(super) static_case_catalogs: &'a [StaticDomainCaseCatalogRecordV1],
+    pub(super) static_case_signatures: &'a [StaticCaseSignatureRecordV1],
+    pub(super) associated_surfaces: &'a [AssociatedSurfaceRecordV1],
+}
+
+impl<'a> From<&'a SemanticWorldV3> for SemanticWorldValidationView<'a> {
+    fn from(world: &'a SemanticWorldV3) -> Self {
+        Self {
+            type_graph: &world.type_graph,
+            structural: StructuralValidationAuthority::V1(&world.structural_contracts),
+            enum_requirements: &world.enum_requirements,
+            static_values: &world.static_values,
+            static_definitions: &world.static_definitions,
+            static_constants: &world.static_constants,
+            module_static_bindings: &world.module_static_bindings,
+            witness_plans: &world.witness_plans,
+            derived_conformance_rules: &world.derived_conformance_rules,
+            callable_signatures: &world.callable_signatures,
+            callable_definitions: &world.callable_definitions,
+            callable_analyses: CallableAnalysisValidationSet::V1(&world.callable_analyses),
+            trait_surfaces: &world.trait_surfaces,
+            dispatch_surfaces: &world.dispatch_surfaces,
+            conditional_inherent_sets: &world.conditional_inherent_sets,
+            conformance_heads: &world.conformance_heads,
+            type_member_declarations: &world.type_member_declarations,
+            associated_static_domains: &world.associated_static_domains,
+            static_case_catalogs: &world.static_case_catalogs,
+            static_case_signatures: &world.static_case_signatures,
+            associated_surfaces: &world.associated_surfaces,
+        }
+    }
+}
+
 impl SemanticWorldV3 {
     pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
         self.validate(&ValidationLimits::default())?;
@@ -1935,7 +2206,7 @@ impl SemanticWorldV3 {
     pub fn validate(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
         let limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
         let mut allocations = AllocationBudget::new(limit);
-        self.validate_inner(limits, &mut allocations)
+        SemanticWorldValidationView::from(self).validate_inner(limits, &mut allocations)
     }
 
     /// Validates semantic references against the caller's load transaction.
@@ -1945,16 +2216,18 @@ impl SemanticWorldV3 {
         // Several component validators still allocate scratch that is not
         // charged through AllocationBudget. Fail before entering them so a
         // semantic decoder cannot commit a partially accounted section.
-        require_semantic_validation_allocation_accounting()?;
+        require_legacy_semantic_validation_allocation_accounting()?;
         let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
         let mut allocations = transaction.child(section_limit);
-        self.validate_inner(limits, &mut allocations)?;
+        SemanticWorldValidationView::from(self).validate_inner(limits, &mut allocations)?;
         transaction.commit_child(allocations).map_err(allocation_error)
     }
+}
 
+impl SemanticWorldValidationView<'_> {
     fn validate_inner(&self, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
         self.type_graph.validate(limits)?;
-        self.structural_contracts.validate_with_allocation_budget(limits, allocations)?;
+        self.structural.validate_with_allocation_budget(limits, allocations)?;
         self.static_values.validate_with_allocation_budget(limits, allocations)?;
         if self.witness_plans.len() > limits.max_semantic_entries_per_family
             || self.derived_conformance_rules.len() > limits.max_semantic_entries_per_family
@@ -1980,7 +2253,7 @@ impl SemanticWorldV3 {
         if self.callable_signatures.windows(2).any(|pair| pair[0].callable >= pair[1].callable) {
             return Err(invalid("callable signature owners must be unique and sorted"));
         }
-        for signature in &self.callable_signatures {
+        for signature in self.callable_signatures {
             validate_callable_signature(signature, limits)?;
         }
         validate_static_definitions(self, limits, allocations)?;
@@ -1988,8 +2261,8 @@ impl SemanticWorldV3 {
         if self.callable_definitions.windows(2).any(|pair| pair[0].callable >= pair[1].callable) {
             return Err(invalid("callable definition owners must be unique and sorted"));
         }
-        for definition in &self.callable_definitions {
-            validate_callable_definition(definition, &self.type_graph, limits)?;
+        for definition in self.callable_definitions {
+            validate_callable_definition(definition, self.type_graph, limits)?;
             if let Ok(index) = self
                 .callable_signatures
                 .binary_search_by(|signature| signature.callable.cmp(&definition.callable))
@@ -2003,8 +2276,8 @@ impl SemanticWorldV3 {
         }
         let total_diagnostics = self.trait_surfaces.iter().map(|s| s.diagnostics.len()).sum::<usize>();
         let mut trait_diagnostic_causes = allocations.vector::<u32>(total_diagnostics).map_err(allocation_error)?;
-        for surface in &self.trait_surfaces {
-            validate_trait_surface(surface, &self.callable_signatures, &self.type_graph, limits)?;
+        for surface in self.trait_surfaces {
+            validate_trait_surface(surface, self.callable_signatures, self.type_graph, limits)?;
             for diagnostic in &surface.diagnostics {
                 if let Some(cause) = diagnostic.root_cause {
                     trait_diagnostic_causes.push(cause);
@@ -2024,8 +2297,8 @@ impl SemanticWorldV3 {
         if self.witness_plans.windows(2).any(|pair| pair[0].impl_id >= pair[1].impl_id) {
             return Err(invalid("witness plans must be unique and sorted by implementation identity"));
         }
-        for witness in &self.witness_plans {
-            validate_witness_plan(witness, &self.trait_surfaces, &self.callable_signatures, &self.type_graph, limits, allocations)?;
+        for witness in self.witness_plans {
+            validate_witness_plan(witness, self.trait_surfaces, self.callable_signatures, self.type_graph, limits, allocations)?;
         }
         if self
             .derived_conformance_rules
@@ -2034,14 +2307,14 @@ impl SemanticWorldV3 {
         {
             return Err(invalid("derived conformance rules must be unique and sorted by implementation identity"));
         }
-        for record in &self.derived_conformance_rules {
-            validate_derived_conformance_rule(record, &self.trait_surfaces, &self.callable_signatures, &self.type_graph, limits, allocations)?;
+        for record in self.derived_conformance_rules {
+            validate_derived_conformance_rule(record, self.trait_surfaces, self.callable_signatures, self.type_graph, limits, allocations)?;
         }
         if self.dispatch_surfaces.windows(2).any(|pair| pair[0].declaration >= pair[1].declaration) {
             return Err(invalid("declaration surface owners must be unique and sorted"));
         }
-        for surface in &self.dispatch_surfaces {
-            validate_declaration_surface(surface, &self.callable_signatures, &self.type_graph, limits)?;
+        for surface in self.dispatch_surfaces {
+            validate_declaration_surface(surface, self.callable_signatures, self.type_graph, limits)?;
         }
         if self
             .conditional_inherent_sets
@@ -2050,16 +2323,16 @@ impl SemanticWorldV3 {
         {
             return Err(invalid("conditional inherent sets must be unique and target-sorted"));
         }
-        for set in &self.conditional_inherent_sets {
-            validate_conditional_inherent_set(set, &self.callable_signatures, &self.type_graph, limits)?;
+        for set in self.conditional_inherent_sets {
+            validate_conditional_inherent_set(set, self.callable_signatures, self.type_graph, limits)?;
         }
         if self.enum_requirements.windows(2).any(|pair| pair[0].owner >= pair[1].owner) {
             return Err(invalid("enum requirement owners must be unique and sorted"));
         }
-        if self.enum_requirements.len() != self.structural_contracts.enum_contracts.len() {
+        if self.enum_requirements.len() != self.structural.enum_contracts().len() {
             return Err(invalid("enum requirement owners do not cover every enum contract"));
         }
-        for (owner, enum_contract) in self.enum_requirements.iter().zip(&self.structural_contracts.enum_contracts) {
+        for (owner, enum_contract) in self.enum_requirements.iter().zip(self.structural.enum_contracts()) {
             if owner.owner != enum_contract.owner {
                 return Err(invalid("enum requirement owner ordering disagrees with enum contracts"));
             }
@@ -2160,7 +2433,7 @@ impl SemanticWorldV3 {
                 }
             }
         }
-        for analysis in &self.callable_analyses {
+        for analysis in self.callable_analyses.iter() {
             if analysis.body_range.start > analysis.body_range.end {
                 return Err(invalid("callable body source range is inverted"));
             }
@@ -2174,7 +2447,7 @@ impl SemanticWorldV3 {
             {
                 return Err(invalid("constructor super-initializer range is inverted"));
             }
-            for expression in &analysis.expressions {
+            for expression in analysis.expressions {
                 if let Some(selection) = &expression.conditional_dispatch {
                     self.validate_conditional_dispatch_selection(selection)?;
                 }
@@ -2185,7 +2458,7 @@ impl SemanticWorldV3 {
                     {
                         return Err(invalid("conditional call capability disagrees with its expression selection or implementation"));
                     }
-                    validate_witness_specialization(&capability.applicability, &self.type_graph, limits)?;
+                    validate_witness_specialization(&capability.applicability, self.type_graph, limits)?;
                 }
                 if let Some(site) = expression.trait_dispatch.as_deref() {
                     let validate_requirement = |requirement: &CallableRequirementIdentityV1| {
@@ -2287,7 +2560,7 @@ impl SemanticWorldV3 {
                     }
                 }
             }
-            for lane in analysis.for_iteration_lanes.iter().chain(&analysis.positional_expansions) {
+            for lane in analysis.for_iteration_lanes.iter().chain(analysis.positional_expansions) {
                 if lane.source_range.start > lane.source_range.end {
                     return Err(invalid("callable iteration source range is inverted"));
                 }
@@ -2316,13 +2589,13 @@ impl SemanticWorldV3 {
                     }
                 }
             }
-            for expansion in &analysis.known_invalid_positional_expansions {
+            for expansion in analysis.known_invalid_positional_expansions {
                 if expansion.source_range.start > expansion.source_range.end {
                     return Err(invalid("known-invalid positional expansion source range is inverted"));
                 }
                 self.validate_denotation_type(expansion.source_type)?;
             }
-            for literal in &analysis.sequence_literals {
+            for literal in analysis.sequence_literals {
                 if literal.source_range.start > literal.source_range.end {
                     return Err(invalid("sequence literal source range is inverted"));
                 }
@@ -2345,7 +2618,7 @@ impl SemanticWorldV3 {
                     self.validate_denotation_type(extent)?;
                 }
             }
-            for resolution in &analysis.associated_resolutions {
+            for resolution in analysis.associated_resolutions {
                 self.validate_denotation_type(resolution.owner_form)?;
                 if resolution.family.as_ref().is_some_and(|family| family.owner != resolution.lookup_owner) {
                     return Err(invalid("associated resolution family belongs to another lookup owner"));
@@ -2373,7 +2646,7 @@ impl SemanticWorldV3 {
                     }
                 }
             }
-            for resolution in &analysis.callable_reference_resolutions {
+            for resolution in analysis.callable_reference_resolutions {
                 self.validate_denotation_type(resolution.family_type)?;
                 if resolution.members.len() > limits.max_semantic_entries_per_family {
                     return Err(invalid("callable reference member count exceeds its owner-local limit"));
@@ -2397,7 +2670,7 @@ impl SemanticWorldV3 {
                         if member.conditional.as_ref() != Some(&capability.selection) || capability.selection.impl_id != capability.applicability.impl_id {
                             return Err(invalid("bound behavioral capability disagrees with its conditional selection"));
                         }
-                        validate_witness_specialization(&capability.applicability, &self.type_graph, limits)?;
+                        validate_witness_specialization(&capability.applicability, self.type_graph, limits)?;
                     }
                     if let Some(selection) = &member.trait_dispatch {
                         self.validate_denotation_type(selection.exact_target)?;
@@ -2408,7 +2681,7 @@ impl SemanticWorldV3 {
                     }
                 }
             }
-            for application in &analysis.family_applications {
+            for application in analysis.family_applications {
                 self.validate_denotation_type(application.family_type)?;
                 match &application.selection {
                     CallableFamilyApplicationSelectionV1::Static {
@@ -2442,20 +2715,20 @@ impl SemanticWorldV3 {
                 }
             }
             proof::validate_callable_proofs(Some(self), analysis, limits)?;
-            self.validate_callable_flow_state(analysis, &analysis.entry_flow, limits)?;
-            for exit in &analysis.normal_returns {
+            self.validate_callable_flow_state(analysis, analysis.entry_flow, limits)?;
+            for exit in analysis.normal_returns {
                 self.validate_callable_flow_state(analysis, &exit.flow, limits)?;
                 if let CallableExpressionStatusV1::Blocked { reason } = &exit.status {
-                    validate_callable_block_reason(reason, &self.type_graph, limits)?;
+                    validate_callable_block_reason(reason, self.type_graph, limits)?;
                 }
                 if let TypeKnowledgeV1::Known { ty, .. } = &exit.knowledge {
                     self.validate_denotation_type(*ty)?;
                 }
             }
-            for flow in &analysis.throws {
+            for flow in analysis.throws {
                 self.validate_callable_flow_state(analysis, flow, limits)?;
             }
-            for binding in &analysis.bindings {
+            for binding in analysis.bindings {
                 if binding.range.start > binding.range.end {
                     return Err(invalid("callable binding range is inverted"));
                 }
@@ -2485,7 +2758,7 @@ impl SemanticWorldV3 {
                     {
                         return Err(invalid("callable binding consistency text exceeds its string limit"));
                     }
-                    CallableBindingConsistencyV1::Blocked { reason } => validate_callable_block_reason(reason, &self.type_graph, limits)?,
+                    CallableBindingConsistencyV1::Blocked { reason } => validate_callable_block_reason(reason, self.type_graph, limits)?,
                     _ => {}
                 }
                 match &binding.authority {
@@ -2501,7 +2774,7 @@ impl SemanticWorldV3 {
                     self.validate_callable_denotation(denotation, limits)?;
                 }
             }
-            for expression in &analysis.expressions {
+            for expression in analysis.expressions {
                 if expression.range.start > expression.range.end {
                     return Err(invalid("callable expression source range is inverted"));
                 }
@@ -2532,7 +2805,7 @@ impl SemanticWorldV3 {
                     } if *cause as usize >= limits.max_semantic_entries_per_family => {
                         return Err(invalid("callable expression cause ordinal exceeds its owner-local limit"));
                     }
-                    CallableExpressionStatusV1::Blocked { reason } => validate_callable_block_reason(reason, &self.type_graph, limits)?,
+                    CallableExpressionStatusV1::Blocked { reason } => validate_callable_block_reason(reason, self.type_graph, limits)?,
                     _ => {}
                 }
                 if let Some(denotation) = &expression.denotation {
@@ -2540,7 +2813,7 @@ impl SemanticWorldV3 {
                 }
             }
         }
-        if self.callable_analyses.windows(2).any(|pair| pair[0].callable >= pair[1].callable) {
+        if !self.callable_analyses.is_strictly_sorted() {
             return Err(invalid("callable analysis owners must be unique and sorted"));
         }
         validate_module_static_bindings(self, limits)?;
@@ -2550,7 +2823,7 @@ impl SemanticWorldV3 {
 
     fn validate_callable_flow_state(
         &self,
-        analysis: &CallableAnalysisRecordV1,
+        analysis: CallableAnalysisValidationView<'_>,
         flow: &CallableFlowStateSummaryV1,
         limits: &ValidationLimits,
     ) -> Result<(), ArtifactError> {
@@ -2574,7 +2847,7 @@ impl SemanticWorldV3 {
                 self.validate_denotation_type(contract.ty)?;
             }
             if let CallableBindingConsistencyV1::Blocked { reason } = &binding.consistency {
-                validate_callable_block_reason(reason, &self.type_graph, limits)?;
+                validate_callable_block_reason(reason, self.type_graph, limits)?;
             }
         }
         for field in &flow.fields {
@@ -2587,7 +2860,7 @@ impl SemanticWorldV3 {
                 }
             }
             match &field.validity {
-                CallableFieldContractValidityV1::Blocked { reason } => validate_callable_block_reason(reason, &self.type_graph, limits)?,
+                CallableFieldContractValidityV1::Blocked { reason } => validate_callable_block_reason(reason, self.type_graph, limits)?,
                 CallableFieldContractValidityV1::DynamicBoundary { reason } if reason.len() > limits.max_string_bytes => {
                     return Err(invalid("callable flow field dynamic-boundary text exceeds its limit"));
                 }
@@ -2737,9 +3010,7 @@ impl SemanticWorldV3 {
     }
 
     fn validate_declaration_reference(&self, owner: &StableDeclarationRef) -> Result<(), ArtifactError> {
-        if self.structural_contracts.declaration_shells.iter().any(|row| &row.declaration == owner)
-            || self.structural_contracts.data_contracts.iter().any(|row| &row.owner == owner)
-            || self.structural_contracts.enum_contracts.iter().any(|row| &row.owner == owner)
+        if self.structural.has_declaration(owner)
             || self.trait_surfaces.iter().any(|row| &row.declaration == owner)
             || self.dispatch_surfaces.iter().any(|row| &row.declaration == owner)
             || self.associated_surfaces.iter().any(|row| &row.owner == owner)
@@ -2767,11 +3038,11 @@ impl SemanticWorldV3 {
             return Err(invalid("associated member owner disagrees with its lookup owner"));
         }
         let has_primary_owner_authority = match member {
-            AssociatedMemberV1::Variant { variant } => self.structural_contracts.variant_contracts.iter().any(|contract| contract.variant == *variant),
-            AssociatedMemberV1::DataConstructor { owner } => self.structural_contracts.data_contracts.iter().any(|contract| contract.owner == *owner),
+            AssociatedMemberV1::Variant { variant } => self.structural.variant_contracts().iter().any(|contract| contract.variant == *variant),
+            AssociatedMemberV1::DataConstructor { owner } => self.structural.data_contracts().iter().any(|contract| contract.owner == *owner),
             AssociatedMemberV1::DataComponent { owner, index } => self
-                .structural_contracts
-                .data_contracts
+                .structural
+                .data_contracts()
                 .iter()
                 .find(|contract| contract.owner == *owner)
                 .is_some_and(|contract| (*index as usize) < contract.components.len()),
@@ -2818,8 +3089,8 @@ impl SemanticWorldV3 {
             }
             InvocationTargetV1::VariantConstructor { variant } => {
                 if self
-                    .structural_contracts
-                    .variant_contracts
+                    .structural
+                    .variant_contracts()
                     .iter()
                     .any(|row| &row.variant == variant && row.constructor.is_some())
                 {
@@ -2829,7 +3100,7 @@ impl SemanticWorldV3 {
                 }
             }
             InvocationTargetV1::DataConstructor { owner } => {
-                if self.structural_contracts.data_contracts.iter().any(|row| &row.owner == owner) {
+                if self.structural.data_contracts().iter().any(|row| &row.owner == owner) {
                     Ok(())
                 } else {
                     Err(invalid("data-constructor target has no data declaration authority"))
@@ -2911,6 +3182,34 @@ record!(SemanticWorldV4 {
     module_execution_authority: ModuleExecutionAuthorityV1,
 });
 
+impl<'a> From<&'a SemanticWorldV4> for SemanticWorldValidationView<'a> {
+    fn from(world: &'a SemanticWorldV4) -> Self {
+        Self {
+            type_graph: &world.type_graph,
+            structural: StructuralValidationAuthority::V2(&world.structural_contracts),
+            enum_requirements: &world.enum_requirements,
+            static_values: &world.static_values,
+            static_definitions: &world.static_definitions,
+            static_constants: &world.static_constants,
+            module_static_bindings: &world.module_static_bindings,
+            witness_plans: &world.witness_plans,
+            derived_conformance_rules: &world.derived_conformance_rules,
+            callable_signatures: &world.callable_signatures,
+            callable_definitions: &world.callable_definitions,
+            callable_analyses: CallableAnalysisValidationSet::V2(&world.callable_analyses),
+            trait_surfaces: &world.trait_surfaces,
+            dispatch_surfaces: &world.dispatch_surfaces,
+            conditional_inherent_sets: &world.conditional_inherent_sets,
+            conformance_heads: &world.conformance_heads,
+            type_member_declarations: &world.type_member_declarations,
+            associated_static_domains: &world.associated_static_domains,
+            static_case_catalogs: &world.static_case_catalogs,
+            static_case_signatures: &world.static_case_signatures,
+            associated_surfaces: &world.associated_surfaces,
+        }
+    }
+}
+
 impl SemanticWorldV4 {
     pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
         self.validate(&ValidationLimits::default())?;
@@ -2971,10 +3270,11 @@ impl SemanticWorldV4 {
     }
 
     pub fn validate_with_allocation_budget(&self, limits: &ValidationLimits, transaction: &mut AllocationBudget) -> Result<(), ArtifactError> {
-        self.structural_contracts.validate_with_allocation_budget(limits, transaction)?;
-        validate_module_execution_authority(&self.module_execution_authority, limits, transaction)?;
+        let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut allocations = transaction.child(section_limit);
+        validate_module_execution_authority(&self.module_execution_authority, limits, &mut allocations)?;
         for analysis in &self.callable_analyses {
-            let mut seen_phases = transaction.vector::<u32>(analysis.observed_import_phases.len()).map_err(allocation_error)?;
+            let mut seen_phases = allocations.vector::<u32>(analysis.observed_import_phases.len()).map_err(allocation_error)?;
             for phase in &analysis.observed_import_phases {
                 seen_phases.push(phase.binding);
             }
@@ -2983,8 +3283,8 @@ impl SemanticWorldV4 {
                 return Err(invalid("duplicate binding in callable observed import phases"));
             }
         }
-        let v3 = self.to_v3_for_validation();
-        v3.validate_with_allocation_budget(limits, transaction)
+        SemanticWorldValidationView::from(self).validate_inner(limits, &mut allocations)?;
+        transaction.commit_child(allocations).map_err(allocation_error)
     }
 
     pub fn to_v3_for_validation(&self) -> SemanticWorldV3 {
@@ -3253,13 +3553,13 @@ fn validate_static_definition_signature(
     Ok(())
 }
 
-fn validate_static_definitions(world: &SemanticWorldV3, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+fn validate_static_definitions(world: &SemanticWorldValidationView<'_>, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
     for pair in world.static_definitions.windows(2) {
         if pair[0].id >= pair[1].id {
             return Err(invalid("static definition owners must be unique and sorted"));
         }
     }
-    for definition in &world.static_definitions {
+    for definition in world.static_definitions {
         crate::semantic::aggregates::validate_owner(&definition.id, limits)?;
         if definition.source.start > definition.source.end
             || definition.alias_info.as_ref().is_some_and(|alias| alias != &definition.id)
@@ -3377,13 +3677,7 @@ fn validate_static_definitions(world: &SemanticWorldV3, limits: &ValidationLimit
             }
         }
         validate_static_application_graph(&program.applications, allocations)?;
-        if definition.alias_info.is_some()
-            && !world
-                .structural_contracts
-                .hierarchy_and_aliases
-                .iter()
-                .any(|row| row.declaration == definition.id && row.aliased_type.is_some())
-        {
+        if definition.alias_info.is_some() && world.structural.alias_form(&definition.id).is_none() {
             return Err(invalid("static definition alias projection lacks structural alias authority"));
         }
         for diagnostic in &definition.diagnostics {
@@ -3458,7 +3752,7 @@ fn validate_static_constant_symbol(symbol: &StaticConstantSymbolV1, limits: &Val
     Ok(())
 }
 
-fn validate_static_constants(world: &SemanticWorldV3, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+fn validate_static_constants(world: &SemanticWorldValidationView<'_>, limits: &ValidationLimits) -> Result<(), ArtifactError> {
     for pair in world.static_constants.windows(2) {
         let left = (&pair[0].symbol.module, &pair[0].symbol.name);
         let right = (&pair[1].symbol.module, &pair[1].symbol.name);
@@ -3466,7 +3760,7 @@ fn validate_static_constants(world: &SemanticWorldV3, limits: &ValidationLimits)
             return Err(invalid("static constant owners must be unique and sorted"));
         }
     }
-    for constant in &world.static_constants {
+    for constant in world.static_constants {
         validate_static_constant_symbol(&constant.symbol, limits)?;
         if constant.declaration_source.start > constant.declaration_source.end
             || constant.initializer_source.start > constant.initializer_source.end
@@ -3510,7 +3804,7 @@ fn validate_static_constants(world: &SemanticWorldV3, limits: &ValidationLimits)
             validate_witness_diagnostic(diagnostic, &world.callable_signatures, &world.type_graph, limits)?;
         }
     }
-    for constant in &world.static_constants {
+    for constant in world.static_constants {
         for symbol in constant.static_constant_reads.iter() {
             if world
                 .static_constants
@@ -3524,13 +3818,13 @@ fn validate_static_constants(world: &SemanticWorldV3, limits: &ValidationLimits)
     Ok(())
 }
 
-fn validate_module_static_bindings(world: &SemanticWorldV3, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+fn validate_module_static_bindings(world: &SemanticWorldValidationView<'_>, limits: &ValidationLimits) -> Result<(), ArtifactError> {
     for pair in world.module_static_bindings.windows(2) {
         if pair[0].module >= pair[1].module {
             return Err(invalid("module static-binding indexes must be unique and module-sorted"));
         }
     }
-    for index in &world.module_static_bindings {
+    for index in world.module_static_bindings {
         if index.module.path.len() > limits.max_semantic_entries_per_family
             || index.module.path.iter().any(|part| part.is_empty() || part.len() > limits.max_string_bytes)
             || index.bindings.len() > limits.max_semantic_entries_per_family
@@ -3554,9 +3848,7 @@ fn validate_module_static_bindings(world: &SemanticWorldV3, limits: &ValidationL
             }
             let analysis_index = world
                 .callable_analyses
-                .binary_search_by(|analysis| analysis.callable.cmp(&binding.source_body))
-                .ok()
-                .map(|position| &world.callable_analyses[position])
+                .find_by_callable(&binding.source_body)
                 .ok_or_else(|| invalid("module static binding references an absent source body"))?;
             let StableCallableOwnerRef::Declaration(body_owner) = &binding.source_body.owner else {
                 return Err(invalid("module static-binding source body is not a module-owned declaration body"));
@@ -3667,7 +3959,7 @@ fn compare_exact_selectors(left: &ExactSelectorV1, right: &ExactSelectorV1) -> s
         .then_with(|| compare_selector_slots(&left.slots, &right.slots))
 }
 
-fn validate_static_case_domain(world: &SemanticWorldV3, domain: &StaticCaseDomainV1) -> Result<(), ArtifactError> {
+fn validate_static_case_domain(world: &SemanticWorldValidationView<'_>, domain: &StaticCaseDomainV1) -> Result<(), ArtifactError> {
     use crate::semantic::type_store::StaticDomainV1;
     match domain {
         StaticCaseDomainV1::Nominal { declaration } => {
@@ -3708,7 +4000,7 @@ fn validate_static_case_selector(selector: &ExactSelectorV1, limits: &Validation
     Ok(())
 }
 
-fn validate_static_case_owners(world: &SemanticWorldV3, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+fn validate_static_case_owners(world: &SemanticWorldValidationView<'_>, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
     if world
         .static_case_catalogs
         .windows(2)
@@ -3726,7 +4018,7 @@ fn validate_static_case_owners(world: &SemanticWorldV3, limits: &ValidationLimit
     let max_case_count = world.static_case_catalogs.iter().map(|catalog| catalog.cases.len()).max().unwrap_or(0);
     let mut selector_order = allocations.vector::<usize>(max_case_count).map_err(allocation_error)?;
     let mut signature_index = 0usize;
-    for catalog in &world.static_case_catalogs {
+    for catalog in world.static_case_catalogs {
         validate_static_case_domain(world, &catalog.domain)?;
         if catalog.cases.len() > limits.max_semantic_entries_per_family || catalog.cases.windows(2).any(|pair| pair[0].source.start >= pair[1].source.start) {
             return Err(invalid(
@@ -5518,11 +5810,11 @@ fn validate_type_expr(ty: &TypeExprSpecV1, limits: &ValidationLimits, depth: usi
 /// Validation context for one callable record's local ordinal coordinate
 /// space. Equal ordinal values in different records remain unrelated.
 struct CallableAnalysisOrdinalContext<'a> {
-    record: &'a CallableAnalysisRecordV1,
+    record: CallableAnalysisValidationView<'a>,
 }
 
 impl<'a> CallableAnalysisOrdinalContext<'a> {
-    fn new(record: &'a CallableAnalysisRecordV1) -> Self {
+    fn new(record: CallableAnalysisValidationView<'a>) -> Self {
         Self { record }
     }
 
@@ -5608,13 +5900,13 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
             return Err(invalid("callable flow graph contains a dangling node reference"));
         }
         if let Some(entry) = record.flow_graph.entry
-            && !matches!(&record.flow_graph.nodes[entry as usize].kind, CallableFlowNodeKindV1::Entry)
+            && !matches!(record.flow_graph.nodes[entry as usize].kind, CallableFlowNodeKindV1::Entry)
         {
             return Err(invalid("callable flow graph entry ordinal does not identify an entry node"));
         }
         if record.flow_graph.exits.iter().any(|exit| {
             !matches!(
-                &record.flow_graph.nodes[*exit as usize].kind,
+                record.flow_graph.nodes[*exit as usize].kind,
                 CallableFlowNodeKindV1::Exit | CallableFlowNodeKindV1::Throw
             )
         }) {
@@ -5623,7 +5915,7 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
         if !record.flow_graph.exits.is_empty() {
             let mut seen = allocations.vector::<u8>(record.flow_graph.nodes.len()).map_err(allocation_error)?;
             seen.resize(record.flow_graph.nodes.len(), 0);
-            for exit in &record.flow_graph.exits {
+            for exit in record.flow_graph.exits.iter() {
                 let slot = &mut seen[*exit as usize];
                 if *slot != 0 {
                     return Err(invalid("callable flow graph contains a duplicate exit"));
@@ -5718,7 +6010,7 @@ impl<'a> CallableAnalysisOrdinalContext<'a> {
                     })
             })
             .ok_or_else(|| invalid("callable resolution nested row count overflow"))?;
-        let boundary_rows = std::iter::once(&record.entry_flow)
+        let boundary_rows = std::iter::once(record.entry_flow)
             .chain(record.normal_returns.iter().map(|exit| &exit.flow))
             .chain(record.throws.iter())
             .try_fold(0usize, |total, flow| total.checked_add(flow.bindings.len())?.checked_add(flow.fields.len()))
@@ -5750,7 +6042,7 @@ fn callable_evidence_kind(node: &CallableConformanceEvidenceNodeV1) -> u8 {
     }
 }
 
-fn validate_callable_evidence_reference(record: &CallableAnalysisRecordV1, ordinal: u32, expected_kind: Option<u8>) -> Result<usize, ArtifactError> {
+fn validate_callable_evidence_reference(record: CallableAnalysisValidationView<'_>, ordinal: u32, expected_kind: Option<u8>) -> Result<usize, ArtifactError> {
     let index = usize::try_from(ordinal).map_err(|_| invalid("callable conformance evidence ordinal exceeds address space"))?;
     let node = record
         .conformance_evidence
@@ -5763,7 +6055,7 @@ fn validate_callable_evidence_reference(record: &CallableAnalysisRecordV1, ordin
 }
 
 fn validate_callable_binding_evidence_reference(
-    record: &CallableAnalysisRecordV1,
+    record: CallableAnalysisValidationView<'_>,
     binding: &CallableGenericCallConformanceBindingV1,
 ) -> Result<(), ArtifactError> {
     use CallableGenericCallConformanceSourceV1 as Source;
@@ -5783,7 +6075,7 @@ fn validate_callable_binding_evidence_reference(
 }
 
 fn validate_callable_specialization_evidence_references(
-    record: &CallableAnalysisRecordV1,
+    record: CallableAnalysisValidationView<'_>,
     specialization: &CallableInherentImplSpecializationV1,
 ) -> Result<(), ArtifactError> {
     if let Some(bindings) = &specialization.conformance_provenance {
@@ -5795,7 +6087,7 @@ fn validate_callable_specialization_evidence_references(
 }
 
 fn validate_callable_selection_evidence_references(
-    record: &CallableAnalysisRecordV1,
+    record: CallableAnalysisValidationView<'_>,
     selection: &CallableRequirementSelectionV1,
     depth: usize,
     limit: usize,
@@ -5875,9 +6167,9 @@ fn count_callable_requirement_selection_edges(selection: &CallableRequirementSel
     }
 }
 
-fn count_callable_evidence_edges(record: &CallableAnalysisRecordV1, limit: usize) -> Result<usize, ArtifactError> {
+fn count_callable_evidence_edges(record: CallableAnalysisValidationView<'_>, limit: usize) -> Result<usize, ArtifactError> {
     let mut count = 0usize;
-    for node in &record.conformance_evidence {
+    for node in record.conformance_evidence {
         let edges = match node {
             CallableConformanceEvidenceNodeV1::Exact { evidence } => {
                 let proofs = evidence.trait_header_conformance_proofs.as_ref().map_or(0, Vec::len);
@@ -5919,7 +6211,7 @@ fn count_callable_evidence_edges(record: &CallableAnalysisRecordV1, limit: usize
 }
 
 fn push_callable_evidence_edge(
-    record: &CallableAnalysisRecordV1,
+    record: CallableAnalysisValidationView<'_>,
     edges: &mut Vec<(usize, usize)>,
     from: usize,
     ordinal: u32,
@@ -5931,7 +6223,7 @@ fn push_callable_evidence_edge(
 }
 
 fn collect_callable_binding_edges(
-    record: &CallableAnalysisRecordV1,
+    record: CallableAnalysisValidationView<'_>,
     edges: &mut Vec<(usize, usize)>,
     from: usize,
     binding: &CallableGenericCallConformanceBindingV1,
@@ -5950,7 +6242,7 @@ fn collect_callable_binding_edges(
 }
 
 fn collect_callable_specialization_edges(
-    record: &CallableAnalysisRecordV1,
+    record: CallableAnalysisValidationView<'_>,
     edges: &mut Vec<(usize, usize)>,
     from: usize,
     specialization: &CallableInherentImplSpecializationV1,
@@ -5964,7 +6256,7 @@ fn collect_callable_specialization_edges(
 }
 
 fn collect_callable_requirement_selection_edges(
-    record: &CallableAnalysisRecordV1,
+    record: CallableAnalysisValidationView<'_>,
     edges: &mut Vec<(usize, usize)>,
     from: usize,
     selection: &CallableRequirementSelectionV1,
@@ -5995,7 +6287,7 @@ fn collect_callable_requirement_selection_edges(
     Ok(())
 }
 
-fn collect_callable_evidence_edges(record: &CallableAnalysisRecordV1, edges: &mut Vec<(usize, usize)>, limit: usize) -> Result<(), ArtifactError> {
+fn collect_callable_evidence_edges(record: CallableAnalysisValidationView<'_>, edges: &mut Vec<(usize, usize)>, limit: usize) -> Result<(), ArtifactError> {
     for (from, node) in record.conformance_evidence.iter().enumerate() {
         match node {
             CallableConformanceEvidenceNodeV1::Exact { evidence } => {
@@ -6032,7 +6324,7 @@ fn collect_callable_evidence_edges(record: &CallableAnalysisRecordV1, edges: &mu
 }
 
 fn validate_callable_conformance_evidence_graph(
-    record: &CallableAnalysisRecordV1,
+    record: CallableAnalysisValidationView<'_>,
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<(), ArtifactError> {
@@ -6040,7 +6332,7 @@ fn validate_callable_conformance_evidence_graph(
     if node_count > limits.max_semantic_entries_per_family {
         return Err(invalid("callable conformance evidence node count exceeds its owner-local limit"));
     }
-    for expression in &record.expressions {
+    for expression in record.expressions {
         if let Some(specialization) = &expression.call_specialization {
             for binding in &specialization.conformances {
                 validate_callable_binding_evidence_reference(record, binding)?;
@@ -6072,14 +6364,14 @@ fn validate_callable_conformance_evidence_graph(
             validate_callable_contextual_realization_evidence(record, realization, limits)?;
         }
     }
-    for lane in record.for_iteration_lanes.iter().chain(&record.positional_expansions) {
+    for lane in record.for_iteration_lanes.iter().chain(record.positional_expansions) {
         for requirement in [&lane.iterator, &lane.next] {
             if let CallableForIterationRequirementV1::Evidence { evidence, .. } = requirement {
                 validate_callable_evidence_reference(record, *evidence, None)?;
             }
         }
     }
-    for resolution in &record.callable_reference_resolutions {
+    for resolution in record.callable_reference_resolutions {
         for member in &resolution.members {
             if let Some(capability) = &member.conditional_capability {
                 validate_callable_specialization_evidence_references(record, &capability.applicability)?;
@@ -6144,7 +6436,7 @@ fn validate_callable_conformance_evidence_graph(
 }
 
 fn validate_callable_realization_capability_evidence(
-    record: &CallableAnalysisRecordV1,
+    record: CallableAnalysisValidationView<'_>,
     capability: &CallableRealizationCapabilityV1,
     limits: &ValidationLimits,
 ) -> Result<(), ArtifactError> {
@@ -6161,7 +6453,7 @@ fn validate_callable_realization_capability_evidence(
     Ok(())
 }
 
-fn validate_callable_contextual_expression(record: &CallableAnalysisRecordV1, expression: u32) -> Result<(), ArtifactError> {
+fn validate_callable_contextual_expression(record: CallableAnalysisValidationView<'_>, expression: u32) -> Result<(), ArtifactError> {
     if expression as usize >= record.expressions.len() {
         return Err(invalid("contextual realization references an absent owner-local expression"));
     }
@@ -6169,7 +6461,7 @@ fn validate_callable_contextual_expression(record: &CallableAnalysisRecordV1, ex
 }
 
 fn validate_callable_contextual_realization_evidence(
-    record: &CallableAnalysisRecordV1,
+    record: CallableAnalysisValidationView<'_>,
     realization: &CallableContextualRealizationV1,
     limits: &ValidationLimits,
 ) -> Result<(), ArtifactError> {
@@ -6213,6 +6505,6 @@ fn allocation_error(error: AllocationError) -> ArtifactError {
     })
 }
 
-fn require_semantic_validation_allocation_accounting() -> Result<(), ArtifactError> {
-    Ok(())
+fn require_legacy_semantic_validation_allocation_accounting() -> Result<(), ArtifactError> {
+    Err(ArtifactError::Allocation(AllocationError::UnaccountedBoundary))
 }

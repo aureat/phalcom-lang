@@ -31,7 +31,7 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 - Active plan: `ARTF001.C1.P2.R4`, superseding `ARTF001.C1.P2.R3`.
 - Current status: P2.R4 active (`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`). P2 remains open; P3 is blocked pending R4 acceptance. The merge-period test prohibition is ended: R4 requires executed test evidence for every behavioral acceptance gate. The task ledger and continuation findings below own current progress.
 - Pack consultation: closed. Pack remains runtime owner and semantic application form without an eighth type-member owner.
-- Next action: obtain the T3 semantic-import validation/allocation decision recorded in [`ARTF001.C1.P2.R4-semantic-import-allocation-consultation.md`](ARTF001.C1.P2.R4-semantic-import-allocation-consultation.md), then close the semantic stage before continuing the ordered R4 gates. Module materialization and type-graph import now match their ledgers; semantic import does not.
+- Next action: continue R4.T3 from the exact whole-load allocation result below. Re-run the prepublication failpoint gate when its unit-test target can compile, then continue the ordered T2/T3 and downstream acceptance gates. The borrowed V4 validation decision is settled and the exact N/N-1/retry and child-rollback checks now pass.
 - Branch rule: Continue on `feat/artifact-universe-consolidation`.
 
 ## Starting Baseline & Provenance
@@ -597,5 +597,67 @@ blocked.
 - **Status:** R4.T3 remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED. The module
   representation work is implemented; exact semantic import, later stages,
   N/N-1, rollback, retry, and P2 closure remain unproven.
+
+### P2.R4 T3 borrowed V4 validation ruling — 2026-10-20
+
+- **Incident:** [`ARTF001.C1.P2.R4-semantic-import-allocation-consultation.md`](ARTF001.C1.P2.R4-semantic-import-allocation-consultation.md)
+- **Decision:** Validate `SemanticWorldV4` in place through borrowed validation
+  views shared with V3 common validation. Production validation must not build
+  a complete V3 semantic-world copy. Preserve schema-specific structural
+  authority and V4-only module execution and observed-import-phase checks.
+- **Expanded boundary:** The same validator runs during V4 decode and semantic
+  import, so the projection affects decode accounting as well as stage E.
+  Measure V4 validation and decode-plus-validation separately, then rerun stage
+  E and classify any residual delta.
+- **Accounting contract:** Public budgeted validation/import APIs must reject
+  while known successful-path allocations escape their transaction. A
+  temporary diagnostic bypass is permitted only in test code. Keep independent
+  allocator equality; do not adjust the ledger after observation.
+- **Plan amendment:** R4.T3.1b records borrowed V1/V2 structural and callable
+  views, temporary differential use of the old projection only in tests, no
+  wire-schema/ABI change, and the required validation/decode/import gate order.
+- **Status at ruling capture:** Decision settled; implementation and its
+  focused evidence were pending at that point. The subsequent implementation
+  and exact whole-load evidence are recorded in the following T3 section.
+
+### P2.R4 T3 exact whole-load allocation and session boundary — 2026-10-20
+
+- **Exact load gate:** With the saved canonical artifact, `cargo test -p
+  phalcom-core --features allocation-diagnostics --test artifact-allocation --
+  --nocapture --test-threads=1` passed. Current `N_image` is 450,922,288 bytes;
+  the independent allocator observed the same total. Every named loader stage,
+  query reconstruction phase, product-by-kind row, publication phase, and QX
+  residual matched exactly. QueryKind census uses all 46 kinds. Fingerprint
+  aggregation allocates zero bytes.
+- **Semantic stages:** V4 validation matched at 2,557,138 bytes;
+  decode-plus-validation matched at 121,856,466 bytes; semantic import matched
+  at 316,234,625 bytes. Module materialization matched at 1,138,500 bytes and
+  type graph import at 1,393,544 bytes. The full measured load, exact-budget
+  import, and query reconstruction all completed.
+- **Failure/retry:** N-1 returned typed cumulative `BudgetExceeded`; clean
+  retry at N passed. The module materialization child-stage failure left the
+  parent ledger equal to the preceding successful stages, and clean retry
+  passed. The test also retains the direct semantic-import N-1 rollback check.
+- **Session boundary:** Contract B is used: artifact loading ends at the
+  immutable, complete `CanonicalUniverseFormalImage`; session construction is
+  outside N and returns `SemanticWorkspaceSession` directly from that image.
+  The focused gate verifies the loaded snapshot is complete/source-free and
+  that both the initial and last-known-good session snapshots retain the same
+  `Arc` identity. `from_image` constructs its inert source provider and reads
+  only image-owned products. Session-local construction allocations are not
+  included in the artifact-load budget.
+- **Failpoints:** The four prepublication failpoint test was attempted through
+  `cargo test -p phalcom-core --lib
+  loaded_artifact_prepublication_failures_are_retryable -- --nocapture`, but
+  the lib-test target does not compile because of 11 fixture/API errors in
+  module materialization, registry, and semantic-lowering tests. This leaves
+  T3.6 unverified; it does not change the passing loader allocation result.
+  The semantic integration target is likewise blocked at test compilation by
+  inherited API-fixture drift (451 errors). Neither target's unrelated
+  fixtures were changed.
+- **Status:** R4.T3 remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED. Exact
+  allocation, N/N-1/retry, query classification, publication accounting, and
+  section-local rollback are verified. Prepublication failpoint recovery is
+  not verified; R4.T2 and later R4 acceptance gates remain open.
 
 The previous plans P2.R1, P2.R2, and P2.R3 remain preserved as implementation history. The current active plan is `ARTF001.C1.P2.R4`.

@@ -2,8 +2,8 @@
 use super::*;
 
 pub(super) fn validate_callable_owner(
-    analysis: &CallableAnalysisRecordV1,
-    world: &SemanticWorldV3,
+    analysis: CallableAnalysisValidationView<'_>,
+    world: &SemanticWorldValidationView<'_>,
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<(), ArtifactError> {
@@ -49,7 +49,7 @@ pub(super) fn validate_callable_owner(
         } => Some(*cause),
         _ => None,
     };
-    for row in &analysis.expressions {
+    for row in analysis.expressions {
         if let Some(id) = status_cause(&row.status) {
             cause(id)?;
         }
@@ -57,12 +57,12 @@ pub(super) fn validate_callable_owner(
             cause(id)?;
         }
     }
-    for row in &analysis.bindings {
+    for row in analysis.bindings {
         if let CallableCausalInvalidityV1::One { cause: id } = row.causal_invalidity {
             cause(id)?;
         }
     }
-    for exit in &analysis.normal_returns {
+    for exit in analysis.normal_returns {
         if let Some(id) = status_cause(&exit.status) {
             cause(id)?;
         }
@@ -75,7 +75,7 @@ pub(super) fn validate_callable_owner(
             }
         }
     }
-    for flow in std::iter::once(&analysis.entry_flow)
+    for flow in std::iter::once(analysis.entry_flow)
         .chain(analysis.normal_returns.iter().map(|exit| &exit.flow))
         .chain(analysis.throws.iter())
     {
@@ -85,19 +85,19 @@ pub(super) fn validate_callable_owner(
             }
         }
     }
-    for diagnostic in &analysis.diagnostics {
-        validate_witness_diagnostic(diagnostic, &world.callable_signatures, &world.type_graph, limits)?;
+    for diagnostic in analysis.diagnostics {
+        validate_witness_diagnostic(diagnostic, world.callable_signatures, world.type_graph, limits)?;
         if let Some(id) = diagnostic.root_cause {
             cause(id)?;
         }
         for reference in &diagnostic.explanations {
-            if reference.callable != analysis.callable {
+            if &reference.callable != analysis.callable {
                 return Err(invalid("diagnostic explanation belongs to another callable"));
             }
             explanation(reference.ordinal)?;
         }
     }
-    for node in &analysis.explanations {
+    for node in analysis.explanations {
         for evidence in &node.evidence {
             if let CallableExplanationEvidenceV1::Suppressed { cause: id } = evidence {
                 cause(*id)?;
@@ -107,19 +107,19 @@ pub(super) fn validate_callable_owner(
     if used.iter().any(|present| !present) {
         return Err(invalid("callable diagnostic cause ordinals must be dense"));
     }
-    for dependency in &analysis.semantic_dependencies {
+    for dependency in analysis.semantic_dependencies {
         validate_dependency(dependency, world, limits)?;
     }
     Ok(())
 }
 
-fn validate_dependency(dependency: &StaticSemanticDependencyV1, world: &SemanticWorldV3, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+fn validate_dependency(dependency: &StaticSemanticDependencyV1, world: &SemanticWorldValidationView<'_>, limits: &ValidationLimits) -> Result<(), ArtifactError> {
     use StaticSemanticDependencyV1 as D;
     match dependency {
         D::GenericConformance { subject, trait_ref } => {
-            validate_type_term(subject, &world.type_graph)?;
+            validate_type_term(subject, world.type_graph)?;
             for arg in &trait_ref.arguments {
-                validate_type_id(*arg, &world.type_graph)?;
+                validate_type_id(*arg, world.type_graph)?;
             }
         }
         D::TraitDispatchBucket { selector, .. } | D::StaticCaseSignature { selector, .. } => validate_static_case_selector(selector, limits)?,

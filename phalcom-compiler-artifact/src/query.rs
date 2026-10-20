@@ -1493,7 +1493,7 @@ impl QueryImageV4 {
             // Verify owner agreement for module-world products
             if root.product.family == PortableQueryProductFamilyV1::Module {
                 let module = &modules.modules[root.product.row_index as usize];
-                if root.key.owner != PortableQueryOwnerKeyV1::Module(module.identity.clone()) {
+                if !matches!(&root.key.owner, PortableQueryOwnerKeyV1::Module(owner) if owner == &module.identity) {
                     return Err(ValidationError::ReferentialIntegrity(format!(
                         "query root owner {:?} does not match referenced module {:?}",
                         root.key.owner, module.identity

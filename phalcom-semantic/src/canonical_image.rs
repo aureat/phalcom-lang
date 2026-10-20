@@ -49,6 +49,9 @@ static LOADED_PUBLICATION_CENSUS_LEDGER: [AtomicUsize; LOADED_PUBLICATION_CENSUS
     AtomicUsize::new(0),
     AtomicUsize::new(0),
 ];
+static LOADED_FINGERPRINT_AGGREGATE_OBSERVED: AtomicUsize = AtomicUsize::new(0);
+static LOADED_FINGERPRINT_QUERY_LOOKUP_OBSERVED: AtomicUsize = AtomicUsize::new(0);
+static LOADED_FINGERPRINT_AGGREGATE_BY_KIND: [AtomicUsize; QueryKind::ALL.len()] = [const { AtomicUsize::new(0) }; QueryKind::ALL.len()];
 
 #[cfg(test)]
 std::thread_local! {
@@ -56,7 +59,7 @@ std::thread_local! {
 }
 
 #[doc(hidden)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LoadedPublicationCensus {
     pub snapshot_clone: usize,
     pub snapshot_clone_ledger: usize,
@@ -78,6 +81,9 @@ pub struct LoadedPublicationCensus {
     pub snapshot_arc_ledger: usize,
     pub formal_image_arc: usize,
     pub formal_image_arc_ledger: usize,
+    pub fingerprint_aggregate_observed: usize,
+    pub fingerprint_query_lookup_observed: usize,
+    pub fingerprint_aggregate_by_kind: Vec<(QueryKind, usize)>,
 }
 
 #[doc(hidden)]
@@ -87,6 +93,11 @@ pub fn reset_loaded_publication_census() {
         row.store(0, Ordering::Relaxed);
     }
     for row in &LOADED_PUBLICATION_CENSUS_LEDGER {
+        row.store(0, Ordering::Relaxed);
+    }
+    LOADED_FINGERPRINT_AGGREGATE_OBSERVED.store(0, Ordering::Relaxed);
+    LOADED_FINGERPRINT_QUERY_LOOKUP_OBSERVED.store(0, Ordering::Relaxed);
+    for row in &LOADED_FINGERPRINT_AGGREGATE_BY_KIND {
         row.store(0, Ordering::Relaxed);
     }
     LOADED_PUBLICATION_CENSUS_ACTIVE.store(true, Ordering::Relaxed);
@@ -118,6 +129,16 @@ pub fn take_loaded_publication_census() -> LoadedPublicationCensus {
         snapshot_arc_ledger: ledger(8),
         formal_image_arc: row(9),
         formal_image_arc_ledger: ledger(9),
+        fingerprint_aggregate_observed: LOADED_FINGERPRINT_AGGREGATE_OBSERVED.load(Ordering::Relaxed),
+        fingerprint_query_lookup_observed: LOADED_FINGERPRINT_QUERY_LOOKUP_OBSERVED.load(Ordering::Relaxed),
+        fingerprint_aggregate_by_kind: QueryKind::ALL
+            .iter()
+            .enumerate()
+            .filter_map(|(index, kind)| {
+                let observed = LOADED_FINGERPRINT_AGGREGATE_BY_KIND[index].load(Ordering::Relaxed);
+                (observed != 0).then_some((*kind, observed))
+            })
+            .collect(),
     }
 }
 
@@ -1255,6 +1276,8 @@ impl CanonicalUniverseFormalImage {
         record_publication_census(6, reader_start, &transaction);
         let fingerprint_start = publication_census_checkpoint(&transaction);
         for (key, fp) in dependency_fingerprints.iter() {
+            let kind = key.kind();
+            let aggregate_before = phalcom_type_meta::allocation::current_observed_bytes();
             if let Some(expected) = aggregate_structural_fingerprint(&snapshot_obj, key) {
                 if expected != *fp {
                     return Err(CanonicalImageError::IncompletePublication(format!(
@@ -1262,7 +1285,18 @@ impl CanonicalUniverseFormalImage {
                     )));
                 }
             }
-            if queries.entry(key).is_some_and(|entry| entry.product_fingerprint != *fp) {
+            if let (Some(before), Some(after)) = (aggregate_before, phalcom_type_meta::allocation::current_observed_bytes()) {
+                LOADED_FINGERPRINT_AGGREGATE_OBSERVED.fetch_add(after - before, Ordering::Relaxed);
+                if let Some(index) = QueryKind::ALL.iter().position(|candidate| *candidate == kind) {
+                    LOADED_FINGERPRINT_AGGREGATE_BY_KIND[index].fetch_add(after - before, Ordering::Relaxed);
+                }
+            }
+            let lookup_before = phalcom_type_meta::allocation::current_observed_bytes();
+            let query_fingerprint_mismatch = queries.entry(key).is_some_and(|entry| entry.product_fingerprint != *fp);
+            if let (Some(before), Some(after)) = (lookup_before, phalcom_type_meta::allocation::current_observed_bytes()) {
+                LOADED_FINGERPRINT_QUERY_LOOKUP_OBSERVED.fetch_add(after - before, Ordering::Relaxed);
+            }
+            if query_fingerprint_mismatch {
                 return Err(CanonicalImageError::IncompletePublication(format!(
                     "loaded query entry disagrees with dependency fingerprint: {key:?}"
                 )));
@@ -1544,8 +1578,7 @@ pub(crate) fn aggregate_structural_fingerprint(snapshot: &SemanticSnapshot, key:
             .map(|product| fingerprint::type_member_declaration_product_fingerprint(product)),
         QueryKey::HierarchyEdge(id) => {
             if snapshot.declarations.contains(id) {
-                let super_decl = snapshot.hierarchy.superclass(id).cloned();
-                Some(fingerprint::hierarchy_edge_product_fingerprint(id, &super_decl, None))
+                Some(fingerprint::hierarchy_edge_product_fingerprint(id, snapshot.hierarchy.superclass(id), None))
             } else {
                 None
             }
@@ -1808,8 +1841,8 @@ mod tests {
     fn loaded_formal_image_final_arc_failure_does_not_commit_and_retry_succeeds() {
         let (world, modules, snapshot, queries, fingerprints) = loaded_publication_inputs();
         assert!(
-            snapshot.module_products.unlinked.is_empty(),
-            "fixture must exercise ModuleQueryProducts reconstruction"
+            snapshot.module_products.external_modules.is_some(),
+            "fixture must exercise shared external module authority publication"
         );
         let mut discovery = AllocationBudget::new(usize::MAX);
         let image =
@@ -1819,8 +1852,8 @@ mod tests {
         assert!(image.snapshot().advisory.modules.is_empty());
         assert!(image.snapshot().advisory.callables.is_empty());
         assert!(image.reader().is_ok());
-        assert!(!image.snapshot().module_products.unlinked.is_empty());
-        assert!(!image.snapshot().module_products.linked.is_empty());
+        assert!(image.snapshot().module_products.external_modules.is_some());
+        assert!(image.snapshot().module_queries().is_fully_indexed());
         let required = discovery.requested();
         assert!(required > 0);
         let control_query_identity = image

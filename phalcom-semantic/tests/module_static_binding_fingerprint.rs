@@ -88,7 +88,7 @@ fn module_bindings_with_explanation(explanation: Option<ExplanationId>) -> Arc<M
         constructor_super_initializer: None,
         dependency_fingerprint: ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
-        observed_import_phases: Arc::new(BTreeMap::new()),
+        observed_import_phases: Arc::new(phalcom_semantic::checker::analysis_map::AnalysisMap::new()),
     };
 
     Arc::new(ModuleStaticBindingIndex::from_module_analysis(&module, &parsed.program, &analysis))

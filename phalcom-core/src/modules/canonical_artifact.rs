@@ -32,7 +32,84 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Arc;
+#[cfg(feature = "allocation-diagnostics")]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
+
+#[cfg(feature = "allocation-diagnostics")]
+const LOAD_ALLOCATION_DIAGNOSTIC_STAGE_NAMES: [&str; 15] = [
+    "container and provenance",
+    "module DTO decode",
+    "module materialization",
+    "semantic DTO decode",
+    "query DTO decode",
+    "query DTO validation",
+    "query product-reference validation",
+    "query portable structural fingerprint validation",
+    "semantic import",
+    "metadata DTO decode",
+    "semantic world identity",
+    "query reconstruction",
+    "metadata bundle materialization",
+    "formal image publication",
+    "loaded artifact publication",
+];
+
+#[cfg(feature = "allocation-diagnostics")]
+static LOAD_ALLOCATION_DIAGNOSTIC_OBSERVED: [AtomicUsize; LOAD_ALLOCATION_DIAGNOSTIC_STAGE_NAMES.len()] =
+    [const { AtomicUsize::new(usize::MAX) }; LOAD_ALLOCATION_DIAGNOSTIC_STAGE_NAMES.len()];
+#[cfg(feature = "allocation-diagnostics")]
+static LOAD_ALLOCATION_DIAGNOSTIC_LEDGER: [AtomicUsize; LOAD_ALLOCATION_DIAGNOSTIC_STAGE_NAMES.len()] =
+    [const { AtomicUsize::new(usize::MAX) }; LOAD_ALLOCATION_DIAGNOSTIC_STAGE_NAMES.len()];
+
+/// One cumulative boundary in the canonical Universe loader's allocation census.
+#[cfg(feature = "allocation-diagnostics")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LoaderAllocationDiagnosticStage {
+    pub name: &'static str,
+    pub observed_bytes: usize,
+    pub ledger_bytes: usize,
+}
+
+/// Clears cumulative loader allocation boundaries for the next focused measurement.
+#[cfg(feature = "allocation-diagnostics")]
+pub fn reset_loader_allocation_diagnostics() {
+    for observed in &LOAD_ALLOCATION_DIAGNOSTIC_OBSERVED {
+        observed.store(usize::MAX, Ordering::Relaxed);
+    }
+    for ledger in &LOAD_ALLOCATION_DIAGNOSTIC_LEDGER {
+        ledger.store(usize::MAX, Ordering::Relaxed);
+    }
+}
+
+/// Returns recorded cumulative loader allocation boundaries.
+#[cfg(feature = "allocation-diagnostics")]
+pub fn loader_allocation_diagnostic_stages() -> Vec<LoaderAllocationDiagnosticStage> {
+    LOAD_ALLOCATION_DIAGNOSTIC_STAGE_NAMES
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| {
+            let observed_bytes = LOAD_ALLOCATION_DIAGNOSTIC_OBSERVED[index].load(Ordering::Relaxed);
+            let ledger_bytes = LOAD_ALLOCATION_DIAGNOSTIC_LEDGER[index].load(Ordering::Relaxed);
+            (observed_bytes != usize::MAX && ledger_bytes != usize::MAX).then_some(LoaderAllocationDiagnosticStage {
+                name,
+                observed_bytes,
+                ledger_bytes,
+            })
+        })
+        .collect()
+}
+
+#[cfg(feature = "allocation-diagnostics")]
+fn record_loader_allocation_diagnostic_stage(index: usize, allocations: &AllocationBudget) {
+    let observed_bytes = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(usize::MAX);
+    LOAD_ALLOCATION_DIAGNOSTIC_OBSERVED[index].store(observed_bytes, Ordering::Relaxed);
+    LOAD_ALLOCATION_DIAGNOSTIC_LEDGER[index].store(allocations.requested(), Ordering::Relaxed);
+}
+
+#[cfg(not(feature = "allocation-diagnostics"))]
+#[inline(always)]
+fn record_loader_allocation_diagnostic_stage(_index: usize, _allocations: &AllocationBudget) {}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TeloscCapabilities {
@@ -417,17 +494,25 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
         .require_section(SectionKind::Metadata)
         .map_err(|_| TeloscArtifactError::Capability("missing METADATA section"))?;
     validate_section_provenance(container.header(), module_world_sec, semantic_world_sec, query_image_sec, metadata_sec)?;
+    record_loader_allocation_diagnostic_stage(0, allocations);
 
     let module_world_v2 = ModuleWorldV2::decode_with_allocation_budget(module_world_sec, limits, allocations)?;
+    record_loader_allocation_diagnostic_stage(1, allocations);
     let modules = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_world_v2, limits, allocations)?;
+    record_loader_allocation_diagnostic_stage(2, allocations);
     #[cfg(test)]
     maybe_fail_after(LoaderTestBoundary::AfterModuleImport)?;
 
     let semantic_world_v4 = SemanticWorldV4::decode_with_allocation_budget(semantic_world_sec, limits, allocations)?;
+    record_loader_allocation_diagnostic_stage(3, allocations);
     let query_v4 = QueryImageV4::decode_with_allocation_budget(query_image_sec, limits, allocations)?;
+    record_loader_allocation_diagnostic_stage(4, allocations);
     query_v4.validate(limits)?;
+    record_loader_allocation_diagnostic_stage(5, allocations);
     query_v4.validate_product_references(&module_world_v2, &semantic_world_v4)?;
+    record_loader_allocation_diagnostic_stage(6, allocations);
     query_v4.validate_portable_structural_fingerprints_v4(&semantic_world_v4)?;
+    record_loader_allocation_diagnostic_stage(7, allocations);
 
     let parts = validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget(
         semantic_world_v4,
@@ -436,10 +521,12 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
         limits,
         allocations,
     )?;
+    record_loader_allocation_diagnostic_stage(8, allocations);
     #[cfg(test)]
     maybe_fail_after(LoaderTestBoundary::AfterSemanticImport)?;
 
     let meta_v1 = MetadataSectionV1::decode_with_allocation_budget(metadata_sec, limits, allocations)?;
+    record_loader_allocation_diagnostic_stage(9, allocations);
     timings.section_validation = t_section.elapsed();
 
     let t_reloc = Instant::now();
@@ -463,8 +550,10 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
         type_metadata_schema_version: container.header().type_metadata_schema_version,
     };
     let world_id = CanonicalSemanticWorldId::for_artifact_world(1, container.header().source_digest, compatibility);
+    record_loader_allocation_diagnostic_stage(10, allocations);
 
     let (query_image, fingerprints) = reconstruct_query_image_v4_with_allocation_budget(query_v4, &parts.snapshot, &world_id, &modules, limits, allocations)?;
+    record_loader_allocation_diagnostic_stage(11, allocations);
     #[cfg(test)]
     maybe_fail_after(LoaderTestBoundary::AfterQueryImport)?;
 
@@ -477,16 +566,18 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     let bundle_limits = phalcom_type_meta::ValidationLimits::default();
     let expected_package_digest = *container.header().package_identity.digest().as_bytes();
     let metadata_bundle = meta_v1.decode_bundle_with_allocation_budget(&preflight_limits, &bundle_limits, &expected_package_digest, allocations)?;
+    record_loader_allocation_diagnostic_stage(12, allocations);
     #[cfg(test)]
     maybe_fail_after(LoaderTestBoundary::AfterMetadataValidation)?;
 
     let modules = allocations.arc(modules).map_err(|error| allocation_error(error, transaction_limit))?;
     let formal_image = CanonicalUniverseFormalImage::from_loaded_artifact(world_id, modules, parts.snapshot, query_image, fingerprints, allocations)?;
+    record_loader_allocation_diagnostic_stage(13, allocations);
 
     timings.relocation = t_reloc.elapsed();
 
     let metadata_bundle = allocations.arc(metadata_bundle).map_err(|error| allocation_error(error, transaction_limit))?;
-    finish_loaded_universe_telosc(
+    let loaded = finish_loaded_universe_telosc(
         TeloscCapabilities::compiler_only_v1(),
         &meta_v1,
         &preflight_limits,
@@ -495,7 +586,9 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
         formal_image,
         metadata_bundle,
         *timings,
-    )
+    )?;
+    record_loader_allocation_diagnostic_stage(14, allocations);
+    Ok(loaded)
 }
 
 /// Validates metadata section preflight and constructs `Arc<LoadedUniverseArtifact>` (`PERF003.C2.P7.T10/T12`).

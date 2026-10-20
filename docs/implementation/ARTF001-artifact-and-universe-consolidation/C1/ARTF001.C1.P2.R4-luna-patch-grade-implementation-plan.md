@@ -1484,6 +1484,34 @@ replacement, and overlay hiding/deletion. Then rerun the saved-artifact module
 materialization discriminator. Continue to the later stage, N/N-1, rollback,
 and retry gates only if the measured discrepancy is resolved.
 
+### T3.1b Allocation-exact borrowed semantic validation amendment
+
+`SemanticWorldV4` validation must operate on borrowed current-schema authority.
+Production decode, validation, and import paths must not materialize a complete
+`SemanticWorldV3` or another owned semantic-world copy. V3 and V4 share common
+validation over borrowed family views; structural V1/V2 differences and V4-only
+module execution and observed-import-phase rules remain explicit. The V1/V2
+callable payload is exposed through a borrowed callable view, with V1 supplying
+an empty observed-phase slice and V2 borrowing its phase rows.
+
+The former V4-to-V3 projection may remain temporarily as a test-only
+differential oracle, but must be removed from production encode/decode/import
+paths. Preserve all existing common and V4-specific validation rules. No
+semantic-world schema, semantic artifact ABI, stable identity, or container
+schema change is authorized by this amendment.
+
+Known unaccounted successful-path allocations must remain fail-closed at public
+budgeted validation/import APIs. Any diagnostic bypass must be test-only and
+must invoke the inner implementation without weakening production guards.
+Measure V4 validation and V4 decode-plus-validation independently against
+allocator observations before rerunning semantic import. If a residual delta
+remains after removing the projection, isolate its allocation owner before
+changing the ledger or advancing to N/N-1, rollback, or retry gates.
+
+The same V4 validation path is used by semantic-world decode and semantic
+import. Therefore T3 must establish exact accounting for both boundaries, not
+only stage E.
+
 At minimum measure:
 
 ```text

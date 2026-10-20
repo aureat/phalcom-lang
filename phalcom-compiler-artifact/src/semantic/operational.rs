@@ -213,13 +213,14 @@ pub(crate) fn validate_op(
 
 pub(crate) fn validate_module(module: &StableModuleRef, limits: &ValidationLimits) -> Result<(), ArtifactError> {
     crate::identity::validate_persistent_project_ref(&module.project, limits)?;
-    let project_strings: Vec<&str> = match &module.project {
-        StableProjectRef::Builtin { namespace, version } => vec![namespace, version],
-        StableProjectRef::Package { package, version, .. } => vec![package, version],
-        StableProjectRef::SourceArtifact { logical_uri, .. } => vec![logical_uri],
+    let valid_project_strings = |value: &str| !value.is_empty() && value.len() <= limits.max_string_bytes;
+    let project_strings_are_valid = match &module.project {
+        StableProjectRef::Builtin { namespace, version } => valid_project_strings(namespace) && valid_project_strings(version),
+        StableProjectRef::Package { package, version, .. } => valid_project_strings(package) && valid_project_strings(version),
+        StableProjectRef::SourceArtifact { logical_uri, .. } => valid_project_strings(logical_uri),
         StableProjectRef::Session { .. } => return Err(invalid("session project identity is not persistent")),
     };
-    if project_strings.iter().any(|value| value.is_empty() || value.len() > limits.max_string_bytes)
+    if !project_strings_are_valid
         || module.path.len() > limits.max_semantic_entries_per_family
         || module.path.iter().any(|part| part.is_empty() || part.len() > limits.max_string_bytes)
     {

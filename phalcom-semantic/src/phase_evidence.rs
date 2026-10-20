@@ -2104,7 +2104,7 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
             module_id.clone(),
             ModuleImportPhaseProduct {
                 module: module_id.clone(),
-                bindings: binding_summaries,
+                bindings: binding_summaries.into(),
                 coverage,
             },
         );

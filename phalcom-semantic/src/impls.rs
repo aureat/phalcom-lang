@@ -2470,7 +2470,7 @@ pub fn conformance_witness_plan_fingerprint(plan: &ConformanceWitnessPlan) -> Pr
     plan.source_module.hash(&mut hasher);
     plan.target_template.hash(&mut hasher);
     plan.trait_ref_template.hash(&mut hasher);
-    format!("{:?}", plan.generic_signature).hash(&mut hasher);
+    crate::db::fingerprint::hash_debug_without_allocation(&plan.generic_signature, &mut hasher);
     plan.requirement_views.len().hash(&mut hasher);
     for (requirement, view) in &plan.requirement_views {
         requirement.hash(&mut hasher);
@@ -2481,10 +2481,10 @@ pub fn conformance_witness_plan_fingerprint(plan: &ConformanceWitnessPlan) -> Pr
         view.visibility.hash(&mut hasher);
         view.default_callable.hash(&mut hasher);
     }
-    format!("{:?}", plan.requirements).hash(&mut hasher);
+    crate::db::fingerprint::hash_debug_without_allocation(&plan.requirements, &mut hasher);
     plan.associated_type_plan.fingerprint.hash(&mut hasher);
     plan.invalid_explicit_members.hash(&mut hasher);
-    format!("{:?}", plan.completeness).hash(&mut hasher);
+    crate::db::fingerprint::hash_debug_without_allocation(&plan.completeness, &mut hasher);
     ProductFingerprint::new(hasher.finish())
 }
 
@@ -2502,15 +2502,15 @@ pub(crate) fn conformance_evidence_fingerprint(
     source_plan.hash(&mut hasher);
     target.hash(&mut hasher);
     trait_ref.hash(&mut hasher);
-    let mut bindings = environment.bindings.iter().collect::<Vec<_>>();
-    bindings.sort_by_key(|(parameter, _)| **parameter);
-    bindings.hash(&mut hasher);
-    let mut row_bindings = environment.row_bindings.iter().collect::<Vec<_>>();
-    row_bindings.sort_by_key(|(parameter, _)| **parameter);
-    row_bindings.hash(&mut hasher);
+    environment.bindings.hash(&mut hasher);
+    environment.row_bindings.hash(&mut hasher);
     environment.self_binding.hash(&mut hasher);
-    format!("{:?}", requirement_views).hash(&mut hasher);
-    format!("{:?}", requirements).hash(&mut hasher);
+    let requirement_views_observed_before = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(0);
+    crate::db::fingerprint::hash_debug_without_allocation(requirement_views, &mut hasher);
+    crate::artifact::import::record_callable_import_observed_allocation_diagnostic(37, requirement_views_observed_before);
+    let requirements_observed_before = phalcom_type_meta::allocation::current_observed_bytes().unwrap_or(0);
+    crate::db::fingerprint::hash_debug_without_allocation(requirements, &mut hasher);
+    crate::artifact::import::record_callable_import_observed_allocation_diagnostic(38, requirements_observed_before);
     for (requirement, binding) in associated_types {
         requirement.hash(&mut hasher);
         binding.value.hash(&mut hasher);
@@ -4172,7 +4172,7 @@ pub struct InherentImplSpecialization {
     pub impl_id: ImplId,
     pub receiver: TypeId,
     pub owner_view: TypeId,
-    pub bindings: HashMap<TypeParameterId, TypeId>,
+    pub bindings: AnalysisMap<TypeParameterId, TypeId>,
     pub environment: TypeEnvironment,
     /// Provenance for every conformance constraint in the selected impl
     /// signature. `None` means applicability was checked without an evidence
@@ -5119,7 +5119,7 @@ pub fn check_impl_domain_applicability(
         impl_id: domain.impl_id.clone(),
         receiver,
         owner_view,
-        bindings,
+        bindings: bindings.into(),
         environment: env,
         conformance_provenance: None,
     })

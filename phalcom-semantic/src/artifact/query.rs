@@ -20,53 +20,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 const QUERY_RECONSTRUCTION_CENSUS_PHASES: usize = 6;
-const QUERY_KIND_CENSUS_KINDS: [QueryKind; 45] = [
-    QueryKind::ParsedModule,
-    QueryKind::UnlinkedInterface,
-    QueryKind::ResolvedImports,
-    QueryKind::LinkedInterface,
-    QueryKind::DeclarationShell,
-    QueryKind::SemanticComponent,
-    QueryKind::DeclarationSurface,
-    QueryKind::TraitHeader,
-    QueryKind::TraitSurface,
-    QueryKind::ConformanceDispatch,
-    QueryKind::TraitDispatchBucket,
-    QueryKind::GenericConformance,
-    QueryKind::CallableDefinition,
-    QueryKind::HierarchyEdge,
-    QueryKind::FieldSignature,
-    QueryKind::ConstructorInitialization,
-    QueryKind::CallableSignature,
-    QueryKind::CallableBody,
-    QueryKind::CallableEffects,
-    QueryKind::CallableControl,
-    QueryKind::CallableTermination,
-    QueryKind::CallableContracts,
-    QueryKind::VerificationConditions,
-    QueryKind::SourceStructure,
-    QueryKind::SourceFormalAttachment,
-    QueryKind::AdvisoryCallable,
-    QueryKind::AdvisoryModule,
-    QueryKind::ModuleDiagnostics,
-    QueryKind::ModuleMetadata,
-    QueryKind::DataDeclaration,
-    QueryKind::EnumDeclaration,
-    QueryKind::EnumRequirements,
-    QueryKind::TypeMemberDeclaration,
-    QueryKind::StaticDomainCaseCatalog,
-    QueryKind::StaticCaseSignature,
-    QueryKind::AssociatedStaticDomainDeclaration,
-    QueryKind::AssociatedSurface,
-    QueryKind::ResolvedImport,
-    QueryKind::LinkedName,
-    QueryKind::PublicExport,
-    QueryKind::StaticDefinition,
-    QueryKind::StaticConstant,
-    QueryKind::ModuleStaticBindingCatalog,
-    QueryKind::ModuleStaticBindings,
-    QueryKind::CheckedStaticBody,
-];
+const QUERY_KIND_CENSUS_KINDS: [QueryKind; QueryKind::ALL.len()] = QueryKind::ALL;
 static QUERY_RECONSTRUCTION_CENSUS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static QUERY_RECONSTRUCTION_CENSUS_OBSERVED: [AtomicUsize; QUERY_RECONSTRUCTION_CENSUS_PHASES] = [
     AtomicUsize::new(0),
@@ -162,6 +116,7 @@ static QUERY_PRODUCT_KIND_OBSERVED: [AtomicUsize; QUERY_KIND_CENSUS_KINDS.len()]
     AtomicUsize::new(0),
     AtomicUsize::new(0),
     AtomicUsize::new(0),
+    AtomicUsize::new(0),
 ];
 static QUERY_PRODUCT_KIND_LEDGER: [AtomicUsize; QUERY_KIND_CENSUS_KINDS.len()] = [
     AtomicUsize::new(0),
@@ -209,7 +164,10 @@ static QUERY_PRODUCT_KIND_LEDGER: [AtomicUsize; QUERY_KIND_CENSUS_KINDS.len()] =
     AtomicUsize::new(0),
     AtomicUsize::new(0),
     AtomicUsize::new(0),
+    AtomicUsize::new(0),
 ];
+static QUERY_PRODUCT_BUFFER_OBSERVED: AtomicUsize = AtomicUsize::new(0);
+static QUERY_PRODUCT_BUFFER_LEDGER: AtomicUsize = AtomicUsize::new(0);
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -240,6 +198,8 @@ pub struct QueryReconstructionCensus {
     pub loaded_validation: QueryReconstructionCensusRow,
     pub query_image_publication: QueryReconstructionCensusRow,
     pub product_by_kind: Vec<QueryProductKindCensusRow>,
+    pub product_buffer_observed: usize,
+    pub product_buffer_ledger: usize,
 }
 
 #[doc(hidden)]
@@ -258,6 +218,8 @@ pub fn reset_query_reconstruction_census() {
     for row in QUERY_PRODUCT_KIND_OBSERVED.iter().chain(QUERY_PRODUCT_KIND_LEDGER.iter()) {
         row.store(0, Ordering::Relaxed);
     }
+    QUERY_PRODUCT_BUFFER_OBSERVED.store(0, Ordering::Relaxed);
+    QUERY_PRODUCT_BUFFER_LEDGER.store(0, Ordering::Relaxed);
     QUERY_RECONSTRUCTION_CENSUS_ACTIVE.store(true, Ordering::Relaxed);
 }
 
@@ -293,6 +255,8 @@ pub fn take_query_reconstruction_census() -> QueryReconstructionCensus {
         loaded_validation: row(4),
         query_image_publication: row(5),
         product_by_kind,
+        product_buffer_observed: QUERY_PRODUCT_BUFFER_OBSERVED.load(Ordering::Relaxed),
+        product_buffer_ledger: QUERY_PRODUCT_BUFFER_LEDGER.load(Ordering::Relaxed),
     }
 }
 
@@ -663,6 +627,39 @@ fn callable_definition_fingerprint(definition: &crate::impls::EffectiveCallableD
     ProductFingerprint::new(value)
 }
 
+fn format_import_path_with_allocation_budget(
+    path: &phalcom_ast::ast::ImportPath,
+    allocations: &mut AllocationBudget,
+) -> Result<String, CanonicalImageError> {
+    use phalcom_ast::ast::ImportRoot;
+
+    let mut len = match &path.root {
+        ImportRoot::Absolute(segment) => segment.name.len(),
+        ImportRoot::Relative { dots, .. } => usize::from(*dots),
+    };
+    for (index, segment) in path.segments.iter().enumerate() {
+        if index > 0 || matches!(path.root, ImportRoot::Absolute(_)) {
+            len = len.checked_add(1).ok_or_else(|| allocation_error(AllocationError::Overflow))?;
+        }
+        len = len
+            .checked_add(segment.name.len())
+            .ok_or_else(|| allocation_error(AllocationError::Overflow))?;
+    }
+
+    let mut bytes = allocations.vector::<u8>(len).map_err(allocation_error)?;
+    match &path.root {
+        ImportRoot::Absolute(segment) => bytes.extend_from_slice(segment.name.as_bytes()),
+        ImportRoot::Relative { dots, .. } => bytes.extend(std::iter::repeat_n(b'.', usize::from(*dots))),
+    }
+    for (index, segment) in path.segments.iter().enumerate() {
+        if index > 0 || matches!(path.root, ImportRoot::Absolute(_)) {
+            bytes.push(b'.');
+        }
+        bytes.extend_from_slice(segment.name.as_bytes());
+    }
+    String::from_utf8(bytes).map_err(|_| allocation_error(AllocationError::Failed))
+}
+
 fn product_and_fingerprints(
     snapshot: &SemanticSnapshot,
     key: &QueryKey,
@@ -702,18 +699,27 @@ fn product_and_fingerprints(
                 .get(module)
                 .ok_or_else(|| incomplete("missing import source interface for portable owner"))?;
             let references = modules.linked().graphs.references.edges_from(module);
-            let mut imports = std::collections::BTreeMap::new();
+            let mut import_entries = allocations.vector::<(String, crate::identity::ModuleId)>(interface.imports.len()).map_err(allocation_error)?;
             for import in &interface.imports {
                 let edge = references
                     .iter()
                     .find(|edge| edge.range == import.range())
                     .ok_or_else(|| incomplete("resolved import has no matching owner edge"))?;
-                let path = import.path().to_string();
-                if imports.insert(path, edge.to.clone()).is_some() {
-                    return Err(incomplete("duplicate resolved import path in portable owner"));
-                }
+                let path = format_import_path_with_allocation_budget(import.path(), allocations)?;
+                import_entries.push((path, edge.to.clone_with_allocation_budget(allocations).map_err(allocation_error)?));
             }
-            let product = Arc::new(crate::module_product::ResolvedImportsProduct::new(module.clone(), imports, Vec::new()));
+            let imports = phalcom_modules::authority::ModuleAuthorityMap::from_budgeted_entries(import_entries, allocations).map_err(|error| match error {
+                phalcom_modules::authority::ModuleAuthorityBuildError::Allocation(error) => allocation_error(error),
+                phalcom_modules::authority::ModuleAuthorityBuildError::Entries(_) | phalcom_modules::authority::ModuleAuthorityBuildError::SetEntries(_) => {
+                    incomplete("duplicate resolved import path in portable owner")
+                }
+            })?;
+            let product = crate::module_product::ResolvedImportsProduct::new(
+                module.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
+                imports,
+                Vec::new(),
+            );
+            let product = allocations.arc(product).map_err(allocation_error)?;
             let product_fingerprint = fp::resolved_imports_product_fingerprint(&product);
             let input_fingerprint = fp::unlinked_interface_input_fingerprint(interface);
             (SemanticProduct::ResolvedImports(product), product_fingerprint, input_fingerprint)
@@ -918,7 +924,7 @@ fn product_and_fingerprints(
         QueryKey::HierarchyEdge(class_decl) => {
             let super_decl = snapshot.hierarchy.superclass(class_decl).cloned();
             let product = Arc::new(crate::hierarchy_product::HierarchyEdgeProduct::new(class_decl.clone(), super_decl.clone()));
-            let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(class_decl, &super_decl, None);
+            let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(class_decl, super_decl.as_ref(), None);
             let input_fingerprint = crate::db::fingerprint::hierarchy_edge_input_fingerprint(class_decl, None, &super_decl);
             (SemanticProduct::HierarchyEdge(product), product_fingerprint, input_fingerprint)
         }
@@ -1001,15 +1007,13 @@ pub fn reconstruct_query_image_v4_with_allocation_budget(
     for evidence in &image.dependency_evidence {
         evidence_keys.push(resolve_query_key_v3(&evidence.key, &mut allocations)?);
     }
-    record_census_phase(1, root_start, &allocations);
-
     let key_count = root_keys
         .len()
         .checked_add(evidence_keys.len())
         .ok_or_else(|| allocation_error(AllocationError::Overflow))?;
     let mut all_keys = allocations.vector::<QueryKey>(key_count).map_err(allocation_error)?;
     for key in root_keys.iter().chain(evidence_keys.iter()) {
-        all_keys.push(key.clone_with_allocation_budget(&mut allocations).map_err(allocation_error)?);
+        all_keys.push(clone_loaded_query_key_with_allocation_budget(key, &mut allocations)?);
     }
     all_keys.sort_unstable();
     all_keys.dedup();
@@ -1046,13 +1050,24 @@ pub fn reconstruct_query_image_v4_with_allocation_budget(
             return Err(incomplete("multiple portable dependency evidence rows relocate to the same live query owner"));
         }
     }
+    record_census_phase(1, root_start, &allocations);
 
     let product_start = census_checkpoint(&allocations);
+    let product_buffer_start = census_checkpoint(&allocations);
     let mut live_products = allocations
         .vector::<(Arc<SemanticProduct>, ProductFingerprint, InputFingerprint)>(all_keys.len())
         .map_err(allocation_error)?;
+    if QUERY_RECONSTRUCTION_CENSUS_ACTIVE.load(Ordering::Relaxed) {
+        if let (Some(start), Some(end)) = (product_buffer_start.0, phalcom_type_meta::allocation::current_observed_bytes()) {
+            QUERY_PRODUCT_BUFFER_OBSERVED.fetch_add(end - start, Ordering::Relaxed);
+        }
+        QUERY_PRODUCT_BUFFER_LEDGER.fetch_add(allocations.requested() - product_buffer_start.1, Ordering::Relaxed);
+    }
     for key in &all_keys {
+        let kind = key.kind();
+        let product_kind_start = census_checkpoint(&allocations);
         live_products.push(product_and_fingerprints(snapshot, key, modules, &mut allocations)?);
+        record_product_kind_census(kind, product_kind_start, &allocations);
     }
     record_census_phase(2, product_start, &allocations);
 
@@ -1074,8 +1089,8 @@ pub fn reconstruct_query_image_v4_with_allocation_budget(
                 let dependency = &all_keys[dependency_key_index];
                 let observed_fingerprint = live_products[dependency_key_index].1;
                 edges.push(DependencyEdge {
-                    dependent: key.clone_with_allocation_budget(&mut allocations).map_err(allocation_error)?,
-                    dependency: dependency.clone_with_allocation_budget(&mut allocations).map_err(allocation_error)?,
+                    dependent: clone_loaded_query_key_with_allocation_budget(key, &mut allocations)?,
+                    dependency: clone_loaded_query_key_with_allocation_budget(dependency, &mut allocations)?,
                     observed_fingerprint,
                 });
             }
@@ -1085,7 +1100,7 @@ pub fn reconstruct_query_image_v4_with_allocation_budget(
             allocations.arc_slice(Vec::new()).map_err(allocation_error)?
         };
         entries.push((
-            key.clone_with_allocation_budget(&mut allocations).map_err(allocation_error)?,
+            clone_loaded_query_key_with_allocation_budget(key, &mut allocations)?,
             CanonicalQueryEntry {
                 input_fingerprint: *input_fingerprint,
                 product_fingerprint: *product_fingerprint,
@@ -1094,7 +1109,7 @@ pub fn reconstruct_query_image_v4_with_allocation_budget(
             },
         ));
         fingerprints.push((
-            key.clone_with_allocation_budget(&mut allocations).map_err(allocation_error)?,
+            clone_loaded_query_key_with_allocation_budget(key, &mut allocations)?,
             *product_fingerprint,
         ));
     }
@@ -1116,6 +1131,49 @@ pub fn reconstruct_query_image_v4_with_allocation_budget(
     record_census_phase(5, publication_start, &allocations);
     transaction.commit_child(allocations).map_err(allocation_error)?;
     Ok((query_image, fingerprints))
+}
+
+/// Clones heap-backed identity components for loaded query tables. The
+/// destination vector already budgets the inline `QueryKey` storage, so this
+/// charges only the nested identity allocations.
+fn clone_loaded_query_key_with_allocation_budget(key: &QueryKey, allocations: &mut AllocationBudget) -> Result<QueryKey, CanonicalImageError> {
+    use QueryKey as Q;
+
+    Ok(match key {
+        Q::UnlinkedInterface(module) => Q::UnlinkedInterface(module.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
+        Q::ResolvedImports(module) => Q::ResolvedImports(module.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
+        Q::LinkedInterface(module) => Q::LinkedInterface(module.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
+        Q::DeclarationShell(declaration)
+        | Q::HierarchyEdge(declaration)
+        | Q::DeclarationSurface(declaration)
+        | Q::TraitHeader(declaration)
+        | Q::TraitSurface(declaration)
+        | Q::DataDeclaration(declaration)
+        | Q::EnumDeclaration(declaration)
+        | Q::AssociatedSurface(declaration) => {
+            let declaration = declaration.clone_with_allocation_budget(allocations).map_err(allocation_error)?;
+            match key {
+                Q::DeclarationShell(_) => Q::DeclarationShell(declaration),
+                Q::HierarchyEdge(_) => Q::HierarchyEdge(declaration),
+                Q::DeclarationSurface(_) => Q::DeclarationSurface(declaration),
+                Q::TraitHeader(_) => Q::TraitHeader(declaration),
+                Q::TraitSurface(_) => Q::TraitSurface(declaration),
+                Q::DataDeclaration(_) => Q::DataDeclaration(declaration),
+                Q::EnumDeclaration(_) => Q::EnumDeclaration(declaration),
+                Q::AssociatedSurface(_) => Q::AssociatedSurface(declaration),
+                _ => unreachable!("guarded declaration query key"),
+            }
+        }
+        Q::CallableDefinition(callable) => Q::CallableDefinition(callable.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
+        Q::CallableSignature(callable) => Q::CallableSignature(callable.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
+        Q::FieldSignature(field) => Q::FieldSignature(field.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
+        Q::TypeMemberDeclaration(member) => Q::TypeMemberDeclaration(member.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
+        Q::ModuleStaticBindingCatalog(module) => {
+            Q::ModuleStaticBindingCatalog(module.clone_with_allocation_budget(allocations).map_err(allocation_error)?)
+        }
+        Q::ModuleStaticBindings(module) => Q::ModuleStaticBindings(module.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
+        _ => return Err(incomplete("loaded query key has no budget-aware clone")),
+    })
 }
 
 fn clone_stable_project_with_budget(project: &StableProjectRef, allocations: &mut AllocationBudget) -> Result<StableProjectRef, CanonicalImageError> {
@@ -1297,9 +1355,16 @@ fn reconstruct_query_image_inner(
     record_census_phase(1, owner_start, allocations);
 
     let product_start = census_checkpoint(allocations);
+    let product_buffer_start = census_checkpoint(allocations);
     let mut roots = allocations
         .vector::<(QueryKey, Arc<SemanticProduct>, ProductFingerprint, InputFingerprint)>(image.supported_roots.len())
         .map_err(allocation_error)?;
+    if QUERY_RECONSTRUCTION_CENSUS_ACTIVE.load(Ordering::Relaxed) {
+        if let (Some(start), Some(end)) = (product_buffer_start.0, phalcom_type_meta::allocation::current_observed_bytes()) {
+            QUERY_PRODUCT_BUFFER_OBSERVED.fetch_add(end - start, Ordering::Relaxed);
+        }
+        QUERY_PRODUCT_BUFFER_LEDGER.fetch_add(allocations.requested() - product_buffer_start.1, Ordering::Relaxed);
+    }
     for query_key in keys {
         let kind = query_key.kind();
         let product_kind_start = census_checkpoint(allocations);

@@ -39,12 +39,14 @@ path = "tests/canonical_bootstrap_stack.rs"
 [[test]]
 name = "artifact-allocation"
 path = "tests/artifact_allocation.rs"
+required-features = ["allocation-diagnostics"]
 
 
 
 
 [features]
 default = []
+allocation-diagnostics = ["phalcom-semantic/allocation-diagnostics"]
 perf-observability = ["dep:telos-observability", "phalcom-semantic/perf-observability"]
 test-timings = ["perf-observability", "phalcom-semantic/test-timings"]
 # Per-opcode `tracing` instrumentation in the VM dispatch loop (`vm/dispatch.rs`):

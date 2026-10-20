@@ -108,7 +108,38 @@ impl<'a> ModuleQueryFacade<'a> {
         }
     }
 
+    /// Creates a query view over a frozen artifact base with mutable source
+    /// overlays. Overlay entries take precedence while the base remains the
+    /// authority for untouched modules.
+    pub fn new_with_external_modules_and_overlays(
+        universe: &'a ProjectUniverse,
+        external_modules: &'a CanonicalExternalModuleWorld,
+        unlinked: impl Into<ModuleAuthorityMapRef<'a, ModuleId, UnlinkedModuleInterface>>,
+        linked: impl Into<ModuleAuthorityMapRef<'a, ModuleId, LinkedModuleInterface>>,
+        resolved_imports: impl Into<ModuleAuthorityMapRef<'a, (ModuleId, String), ModuleId>>,
+        sources: impl Into<ModuleAuthorityMapRef<'a, ModuleId, SourceLocation>>,
+        source_modules: impl Into<ModuleAuthorityMapRef<'a, SourceId, ModuleId>>,
+        display_path_modules: impl Into<ModuleAuthorityMapRef<'a, std::path::PathBuf, ModuleId>>,
+    ) -> Self {
+        Self {
+            universe,
+            unlinked: Some(unlinked.into()),
+            linked: Some(linked.into()),
+            external_modules: Some(external_modules),
+            resolved_imports: resolved_imports.into(),
+            sources: sources.into(),
+            source_modules: source_modules.into(),
+            display_path_modules: display_path_modules.into(),
+            topology: None,
+            reverse_imports: None,
+            fallback_scans: None,
+        }
+    }
+
     fn unlinked_interface(&self, module: &ModuleId) -> Option<&UnlinkedModuleInterface> {
+        if let Some(interface) = self.unlinked.as_ref().and_then(|unlinked| unlinked.get(module)) {
+            return Some(interface);
+        }
         if let Some(external_modules) = self.external_modules {
             return external_modules.interfaces().get(module).map(std::sync::Arc::as_ref);
         }
@@ -116,6 +147,9 @@ impl<'a> ModuleQueryFacade<'a> {
     }
 
     fn linked_interface(&self, module: &ModuleId) -> Option<&LinkedModuleInterface> {
+        if let Some(interface) = self.linked.as_ref().and_then(|linked| linked.get(module)) {
+            return Some(interface);
+        }
         if let Some(external_modules) = self.external_modules {
             return external_modules.linked().modules.get(module).map(|linked| &linked.interface);
         }
@@ -235,7 +269,7 @@ impl<'a> ModuleQueryFacade<'a> {
 
         self.record_fallback_scan();
         let mut children = BTreeSet::new();
-        let candidates: Box<dyn Iterator<Item = &ModuleId> + '_> = if let Some(external_modules) = self.external_modules {
+        let mut candidates: Box<dyn Iterator<Item = &ModuleId> + '_> = if let Some(external_modules) = self.external_modules {
             Box::new(external_modules.interfaces().keys())
         } else {
             Box::new(
@@ -245,6 +279,12 @@ impl<'a> ModuleQueryFacade<'a> {
                     .chain(self.unlinked.expect("source module query view has unlinked interfaces").keys()),
             )
         };
+        if let Some(linked) = self.linked {
+            candidates = Box::new(candidates.chain(linked.keys()));
+        }
+        if let Some(unlinked) = self.unlinked {
+            candidates = Box::new(candidates.chain(unlinked.keys()));
+        }
         for candidate in candidates {
             if candidate.project == project {
                 let components = candidate.path.components();

@@ -324,8 +324,31 @@ pub struct ImportPhaseSummary {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModuleImportPhaseProduct {
     pub module: ModuleId,
-    pub bindings: BTreeMap<SourceImportBindingId, ImportPhaseSummary>,
+    pub bindings: crate::authority::ModuleAuthorityMap<SourceImportBindingId, ImportPhaseSummary>,
     pub coverage: PhaseEvidenceCoverage,
+}
+
+/// Read-only lookup accepted by executable finalization for source and frozen phase products.
+pub trait ModuleImportPhaseProductLookup {
+    fn get(&self, module: &ModuleId) -> Option<&ModuleImportPhaseProduct>;
+}
+
+impl ModuleImportPhaseProductLookup for BTreeMap<ModuleId, ModuleImportPhaseProduct> {
+    fn get(&self, module: &ModuleId) -> Option<&ModuleImportPhaseProduct> {
+        BTreeMap::get(self, module)
+    }
+}
+
+impl ModuleImportPhaseProductLookup for crate::authority::ModuleAuthorityMap<ModuleId, ModuleImportPhaseProduct> {
+    fn get(&self, module: &ModuleId) -> Option<&ModuleImportPhaseProduct> {
+        crate::authority::ModuleAuthorityMap::get(self, module)
+    }
+}
+
+impl<T: ModuleImportPhaseProductLookup> ModuleImportPhaseProductLookup for std::sync::Arc<T> {
+    fn get(&self, module: &ModuleId) -> Option<&ModuleImportPhaseProduct> {
+        (**self).get(module)
+    }
 }
 
 /// The only linked product accepted by executable compilation/materialization.
@@ -804,7 +827,7 @@ impl ModuleLinker {
     pub fn finalize_executable(
         &self,
         semantic: SemanticLinkedProgram,
-        phase_products: &BTreeMap<ModuleId, ModuleImportPhaseProduct>,
+        phase_products: &impl ModuleImportPhaseProductLookup,
     ) -> Result<ExecutableLinkedProgram, LinkError> {
         self.finalize_executable_with_requirements(semantic, phase_products, &[])
     }
@@ -816,7 +839,7 @@ impl ModuleLinker {
     pub fn finalize_executable_with_requirements(
         &self,
         semantic: SemanticLinkedProgram,
-        phase_products: &BTreeMap<ModuleId, ModuleImportPhaseProduct>,
+        phase_products: &impl ModuleImportPhaseProductLookup,
         requirements: &[RuntimeDependencyRequirement],
     ) -> Result<ExecutableLinkedProgram, LinkError> {
         self.finalize_executable_with_availability(semantic, phase_products, requirements, &AvailabilityContract::default())
@@ -828,7 +851,7 @@ impl ModuleLinker {
     pub fn finalize_executable_with_availability(
         &self,
         semantic: SemanticLinkedProgram,
-        phase_products: &BTreeMap<ModuleId, ModuleImportPhaseProduct>,
+        phase_products: &impl ModuleImportPhaseProductLookup,
         requirements: &[RuntimeDependencyRequirement],
         availability: &AvailabilityContract,
     ) -> Result<ExecutableLinkedProgram, LinkError> {

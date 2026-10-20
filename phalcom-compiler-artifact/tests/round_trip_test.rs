@@ -498,6 +498,326 @@ fn runtime_requirement() -> phalcom_compiler_artifact::semantic::world::RuntimeD
     }
 }
 
+fn assert_v4_validation_matches_projected_v3(world: &SemanticWorldV4, case: &str, expected_valid: bool) {
+    let limits = ValidationLimits::default();
+    let projected = world.to_v3_for_validation().validate(&limits);
+    let actual = world.validate(&limits);
+    assert_eq!(
+        actual.is_ok(),
+        projected.is_ok(),
+        "V4 validation outcome diverged from the projected-V3 oracle for {case}: V4={actual:?}, projected V3={projected:?}"
+    );
+    assert_eq!(
+        actual.is_ok(),
+        expected_valid,
+        "unexpected validation outcome for {case}: V4={actual:?}, projected V3={projected:?}"
+    );
+}
+
+fn sample_callable_analysis() -> phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2 {
+    use phalcom_compiler_artifact::module_world::SpanV1;
+    use phalcom_compiler_artifact::semantic::world::*;
+    use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide};
+
+    let module = sample_module_world().modules[1].identity.clone();
+    let callable = StableCallableRef {
+        owner: StableCallableOwnerRef::Declaration(StableDeclarationRef {
+            module: module.clone(),
+            path: vec!["Body".into()].into_boxed_slice(),
+        }),
+        side: StableDispatchSide::Instance,
+        selector: "body".into(),
+    };
+    let explanation = CallableExplanationNodeV1 {
+        step: CallableExplanationStepV1::UnknownBoundary {
+            reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+            source: None,
+        },
+        rule: CallableDerivationRuleV1::UnknownPropagation,
+        status: EvidenceStatusV1::Established,
+        origin: EvidenceOriginV1::Syntax,
+        evidence: vec![],
+        parents: vec![],
+    };
+    let source = CallableAnalysisRecordV1 {
+        callable: callable.clone(),
+        body_source_owner: None,
+        body_range: SpanV1 { start: 0, end: 8 },
+        status: CallableAnalysisStatusV1::Complete,
+        exits_unreachable: true,
+        flow_graph: CallableFlowGraphV1 {
+            nodes: vec![],
+            edges: vec![],
+            entry: None,
+            exits: vec![],
+        },
+        constructor_super_initializer: None,
+        expressions: vec![],
+        conformance_evidence: vec![],
+        bindings: vec![CallableBindingRowV1 {
+            ordinal: 0,
+            name: "value".into(),
+            parameter: None,
+            range: SpanV1 { start: 0, end: 1 },
+            contract: None,
+            current: TypeKnowledgeV1::Unknown {
+                reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+            },
+            denotation: None,
+            consistency: CallableBindingConsistencyV1::Unconstrained,
+            causal_invalidity: CallableCausalInvalidityV1::Clean,
+            mutable: false,
+            initialization: CallableInitializationStateV1::DefinitelyInitialized,
+            version: 0,
+            explanation: None,
+            authority: CallableBindingAuthorityV1::ModuleValue {
+                module: module.clone(),
+                name: "value".into(),
+                import_binding: None,
+            },
+        }],
+        for_iteration_lanes: vec![],
+        positional_expansions: vec![],
+        known_invalid_positional_expansions: vec![],
+        sequence_literals: vec![],
+        associated_resolutions: vec![],
+        callable_reference_resolutions: vec![],
+        family_applications: vec![],
+        local_proof_graph: Some(CallableProofGraphV1 {
+            owner: callable,
+            scopes: vec![CallableProofScopeV1 { parent: None }],
+            rigids: vec![],
+        }),
+        match_resolutions: vec![],
+        pattern_site_resolutions: vec![],
+        entry_flow: CallableFlowStateSummaryV1 {
+            bindings: vec![],
+            fields: vec![],
+            fact_count: 0,
+        },
+        normal_returns: vec![],
+        throws: vec![],
+        return_validation: ReturnContractValidationV1::NotApplicable,
+        explanations: vec![explanation],
+        return_explanation: Some(0),
+        diagnostic_cause_count: 0,
+        diagnostics: vec![],
+        dependencies: vec![],
+        semantic_dependencies: vec![],
+    };
+
+    CallableAnalysisRecordV2::from_v1_with_observed_import_phases(source, vec![])
+}
+
+#[test]
+fn semantic_world_v4_validation_matches_projected_v3_for_shared_hostile_cases() {
+    use phalcom_compiler_artifact::module_world::SpanV1;
+    use phalcom_compiler_artifact::semantic::aggregates::TraitRefV1;
+    use phalcom_compiler_artifact::semantic::static_value::ArtifactStaticValueId;
+    use phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId;
+    use phalcom_compiler_artifact::semantic::world::*;
+    use phalcom_type_meta::identity::{StableDeclarationRef, StableImplRef};
+
+    assert_v4_validation_matches_projected_v3(&sample_semantic_world(), "empty valid V4 world", true);
+
+    let (structural, _) = semantic_world_with_static_alias(Some("Alias"), true);
+    assert_v4_validation_matches_projected_v3(&structural, "alias and hierarchy rows", true);
+
+    let (missing_alias, _) = semantic_world_with_static_alias(None, false);
+    assert_v4_validation_matches_projected_v3(&missing_alias, "static definition lacks alias authority", false);
+
+    let mut callable = sample_semantic_world();
+    callable.callable_analyses.push(sample_callable_analysis());
+    assert_v4_validation_matches_projected_v3(&callable, "callable proof and explanation records", true);
+    let mut cyclic_proof = callable.clone();
+    cyclic_proof.callable_analyses[0]
+        .local_proof_graph
+        .as_mut()
+        .expect("sample callable proof graph")
+        .scopes[0]
+        .parent = Some(0);
+    assert_v4_validation_matches_projected_v3(&cyclic_proof, "callable proof scope cycle", false);
+    let mut dangling_explanation = callable.clone();
+    dangling_explanation.callable_analyses[0].return_explanation = Some(1);
+    assert_v4_validation_matches_projected_v3(&dangling_explanation, "callable return explanation is dangling", false);
+
+    let module = sample_module_world().modules[1].identity.clone();
+    let source_body = callable.callable_analyses[0].callable.clone();
+    let symbol = StaticConstantSymbolV1 {
+        module: module.clone(),
+        name: "value".into(),
+    };
+    let mut module_bindings = callable.clone();
+    module_bindings.module_static_bindings.push(ModuleStaticBindingIndexV1 {
+        module: module.clone(),
+        bindings: vec![ModuleStaticBindingRecordV1 {
+            symbol: symbol.clone(),
+            source_body,
+            source_binding_ordinal: 0,
+            phase: ModuleStaticBindingPhaseV1::Runtime,
+            declaration_source: SpanV1 { start: 0, end: 8 },
+            initializer_source: None,
+        }],
+        visible_names: vec![ModuleStaticBindingVisibleNameV1 {
+            name: "value".into(),
+            symbol: symbol.clone(),
+        }],
+    });
+    assert_v4_validation_matches_projected_v3(&module_bindings, "module static binding authority", true);
+    let mut imported_binding = module_bindings.clone();
+    imported_binding.callable_analyses[0].bindings[0].authority = CallableBindingAuthorityV1::ModuleValue {
+        module: module.clone(),
+        name: "value".into(),
+        import_binding: Some(1),
+    };
+    assert_v4_validation_matches_projected_v3(&imported_binding, "module static binding uses an imported alias", false);
+
+    let missing_read = StaticConstantSymbolV1 {
+        module: module.clone(),
+        name: "missing".into(),
+    };
+    let mut bad_constant = sample_semantic_world();
+    bad_constant.static_constants.push(StaticConstantRecordV1 {
+        symbol,
+        declaration_source: SpanV1 { start: 0, end: 1 },
+        initializer_source: SpanV1 { start: 2, end: 3 },
+        input_fingerprint: 0,
+        dependencies: vec![],
+        static_constant_reads: vec![missing_read],
+        record_key_static_constant_reads: vec![],
+        result_type: Some(ArtifactTypeId(0)),
+        outcome: StaticConstantOutcomeV1::Reduced {
+            value: ArtifactStaticValueId(0),
+        },
+        lkg_value: None,
+        diagnostics: vec![],
+    });
+    assert_v4_validation_matches_projected_v3(&bad_constant, "static constant read lacks a canonical owner", false);
+
+    let trait_owner = StableDeclarationRef {
+        module: module.clone(),
+        path: vec!["Trait".into()].into_boxed_slice(),
+    };
+    let mut bad_trait = sample_semantic_world();
+    bad_trait.trait_surfaces.push(TraitSurfaceRecordV1 {
+        declaration: trait_owner.clone(),
+        generic_signature: None,
+        header_source: EnumRequirementSourceV1 {
+            module: module.clone(),
+            range: SpanV1 { start: 2, end: 1 },
+        },
+        members: vec![],
+        associated_types: vec![],
+        diagnostics: vec![],
+    });
+    assert_v4_validation_matches_projected_v3(&bad_trait, "trait surface has an inverted source range", false);
+
+    let mut bad_witness = sample_semantic_world();
+    let implementation = StableImplRef {
+        module: module.clone(),
+        local_id: 7,
+    };
+    bad_witness.witness_plans.push(WitnessPlanV1 {
+        impl_id: implementation.clone(),
+        source_module: module.clone(),
+        trait_ref_template: TraitRefV1 {
+            declaration: trait_owner,
+            arguments: vec![],
+        },
+        target_template: ArtifactTypeId(0),
+        generic_signature: None,
+        requirement_views: vec![],
+        requirements: vec![],
+        associated_type_plan: CallableConformanceAssociatedTypePlanV1 {
+            impl_id: implementation,
+            bindings: vec![],
+            failures: vec![],
+            diagnostics: vec![],
+        },
+        invalid_explicit_members: false,
+        completeness: CallableConformanceCompletenessV1::Complete,
+        diagnostics: vec![],
+        conformance_evidence: vec![],
+        fingerprint: 0,
+        ordered_selected_callables: vec![],
+        slot_layout_fingerprint: [0; 32],
+    });
+    assert_v4_validation_matches_projected_v3(&bad_witness, "witness plan references an absent trait surface", false);
+
+    let surface_owner = StableDeclarationRef {
+        module: module.clone(),
+        path: vec!["Surface".into()].into_boxed_slice(),
+    };
+    let mut bad_dispatch = sample_semantic_world();
+    bad_dispatch.dispatch_surfaces.push(DeclarationSurfaceRecordV1 {
+        declaration: surface_owner.clone(),
+        instance_callables: vec![],
+        class_callables: vec![],
+        fields: vec![FieldSignatureV1 {
+            owner: surface_owner.clone(),
+            name: "".into(),
+            declared_type: None,
+            knowledge: TypeKnowledgeV1::Unknown {
+                reason: phalcom_compiler_artifact::semantic::aggregates::UnknownReasonV1::NoTypeEvidence,
+            },
+            mutable: None,
+            side: 0,
+            visibility: phalcom_compiler_artifact::semantic::aggregates::VisibilityV1::Public,
+            source: None,
+        }],
+    });
+    assert_v4_validation_matches_projected_v3(&bad_dispatch, "dispatch surface has an empty field name", false);
+
+    let mut bad_static_cases = sample_semantic_world();
+    bad_static_cases.static_case_catalogs.push(StaticDomainCaseCatalogRecordV1 {
+        domain: StaticCaseDomainV1::Nominal { declaration: surface_owner },
+        cases: vec![],
+    });
+    assert_v4_validation_matches_projected_v3(&bad_static_cases, "static-case catalog references an absent domain", false);
+}
+
+#[test]
+fn semantic_world_v4_only_authority_rejections_are_not_projected_to_v3() {
+    use phalcom_compiler_artifact::semantic::world::{CallableObservedImportPhaseV1, DependencyPhaseV1, LinkedReadSpecV1};
+
+    let (mut invalid_alias, _) = semantic_world_with_static_alias(Some("Alias"), true);
+    invalid_alias.structural_contracts.type_aliases[0].source_span.start = 2;
+    invalid_alias.structural_contracts.type_aliases[0].source_span.end = 1;
+    let projected = invalid_alias.to_v3_for_validation().validate(&ValidationLimits::default());
+    let actual = invalid_alias.validate(&ValidationLimits::default());
+    assert!(projected.is_ok(), "the V3 projection drops the V2 alias source span: {projected:?}");
+    assert!(actual.is_err(), "V4 must reject an inverted V2 alias source span");
+
+    let mut duplicate_observation = sample_semantic_world();
+    let mut analysis = sample_callable_analysis();
+    analysis.observed_import_phases = vec![
+        CallableObservedImportPhaseV1 {
+            binding: 0,
+            phase: DependencyPhaseV1::Runtime,
+        },
+        CallableObservedImportPhaseV1 {
+            binding: 0,
+            phase: DependencyPhaseV1::InterfaceOnly,
+        },
+    ];
+    duplicate_observation.callable_analyses.push(analysis);
+    let projected = duplicate_observation.to_v3_for_validation().validate(&ValidationLimits::default());
+    let actual = duplicate_observation.validate(&ValidationLimits::default());
+    assert!(projected.is_ok(), "the V3 projection intentionally omits observed import phases: {projected:?}");
+    assert!(actual.is_err(), "V4 must reject duplicate observed import-phase bindings");
+
+    let mut invalid_runtime_requirement = sample_semantic_world();
+    let mut requirement = runtime_requirement();
+    if let Some(LinkedReadSpecV1::Binding { symbol }) = &mut requirement.read_target {
+        symbol.path = vec!["different".into()].into_boxed_slice();
+    }
+    invalid_runtime_requirement.module_execution_authority.runtime_requirements.push(requirement);
+    let projected = invalid_runtime_requirement.to_v3_for_validation().validate(&ValidationLimits::default());
+    let actual = invalid_runtime_requirement.validate(&ValidationLimits::default());
+    assert!(projected.is_ok(), "the V3 projection intentionally omits runtime requirements: {projected:?}");
+    assert!(actual.is_err(), "V4 must reject a runtime requirement with inconsistent read authority");
+}
+
 fn semantic_world_with_static_alias(structural_alias_name: Option<&str>, with_hierarchy: bool) -> (SemanticWorldV4, StableDeclarationRef) {
     use phalcom_compiler_artifact::module_world::SpanV1;
     use phalcom_compiler_artifact::semantic::aggregates::{HierarchyEdgeRecordV1, TypeAliasRecordV1};
