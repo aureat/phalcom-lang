@@ -7639,7 +7639,7 @@ impl SemanticWorkspaceSession {
                     .expect("semantic module import authority must include its executable linked layout");
                 ctx.seed_symbolic_module_import_values(semantic_module, linked_module, &module_static_bindings);
             } else if let Some(linked_module) = input.linked.modules.get(module_id) {
-                ctx.seed_linked_module_import_values(linked_module, &module_static_bindings);
+                ctx.seed_linked_import_values(linked_module, &module_static_bindings);
             }
 
             for stmt in &parsed_unit.program.statements {

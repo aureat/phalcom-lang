@@ -1087,8 +1087,8 @@ impl<'a> CheckingContext<'a> {
         self.module_value_exports = Some(exports);
     }
 
-    /// Seeds selective imports in a callable body's outer scope from the
-    /// canonical linked target while retaining the source binding's identity.
+    /// Seeds the current module's already checked values plus selective
+    /// imports into a callable body's outer scope.
     pub(crate) fn seed_linked_module_import_values(
         &mut self,
         linked_module: &phalcom_modules::linker::LinkedModule,
@@ -1102,6 +1102,19 @@ impl<'a> CheckingContext<'a> {
                 self.declare_module_value_binding(name.to_owned(), &fact.state, fact.phase, fact.symbol.clone(), None);
             }
         }
+        self.seed_linked_import_values(linked_module, bindings);
+    }
+
+    /// Seeds only selective imports from the canonical linked target.
+    ///
+    /// Top-level module rechecking must use this form: its local declarations
+    /// are about to be checked from source and seeding their already checked
+    /// facts would redeclare every local binding in the same lexical scope.
+    pub(crate) fn seed_linked_import_values(
+        &mut self,
+        linked_module: &phalcom_modules::linker::LinkedModule,
+        bindings: &crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
+    ) {
         for (local_name, import_id) in &linked_module.bindings.imports {
             let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
                 continue;
