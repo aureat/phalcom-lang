@@ -623,6 +623,64 @@ record!(ModuleWorldV2 {
 });
 
 impl ModuleWorldV2 {
+    /// Returns the module-relative source-binding ordinal for one import-site
+    /// binding. Import sites retain their vector position even when they have
+    /// no items, while each site contributes only its authored bindings.
+    pub fn source_import_binding_ordinal(&self, module: &StableModuleRef, site: u32, local: u32) -> Result<Option<u32>, ArtifactError> {
+        let Some(row) = self.modules.iter().find(|row| row.identity == *module) else {
+            return Ok(None);
+        };
+        let mut base = 0u32;
+        for (site_index, import) in row.imports.iter().enumerate() {
+            let site_index = u32::try_from(site_index).map_err(|_| invalid("source import site ordinal exceeds u32"))?;
+            let count = source_import_binding_count(import)?;
+            if site_index == site {
+                return if local < count {
+                    base.checked_add(local)
+                        .map(Some)
+                        .ok_or_else(|| invalid("source import binding ordinal exceeds u32"))
+                } else {
+                    Ok(None)
+                };
+            }
+            base = base.checked_add(count).ok_or_else(|| invalid("source import binding ordinal exceeds u32"))?;
+        }
+        Ok(None)
+    }
+
+    /// Decodes a module-relative source-binding ordinal into its import-site
+    /// row and site-local binding ordinal.
+    pub fn source_import_binding_at(&self, module: &StableModuleRef, ordinal: u32) -> Result<Option<(u32, u32)>, ArtifactError> {
+        let Some(row) = self.modules.iter().find(|row| row.identity == *module) else {
+            return Ok(None);
+        };
+        let mut base = 0u32;
+        for (site_index, import) in row.imports.iter().enumerate() {
+            let site_index = u32::try_from(site_index).map_err(|_| invalid("source import site ordinal exceeds u32"))?;
+            let count = source_import_binding_count(import)?;
+            let end = base.checked_add(count).ok_or_else(|| invalid("source import binding ordinal exceeds u32"))?;
+            if ordinal >= base && ordinal < end {
+                return Ok(Some((site_index, ordinal - base)));
+            }
+            base = end;
+        }
+        Ok(None)
+    }
+
+    /// Counts the source bindings represented by a module's ordered import
+    /// rows. Empty selective imports and re-exports contribute no bindings.
+    pub fn source_import_binding_count(&self, module: &StableModuleRef) -> Result<Option<u32>, ArtifactError> {
+        let Some(row) = self.modules.iter().find(|row| row.identity == *module) else {
+            return Ok(None);
+        };
+        let count = row.imports.iter().try_fold(0u32, |count, import| {
+            count
+                .checked_add(source_import_binding_count(import)?)
+                .ok_or_else(|| invalid("source import binding count exceeds u32"))
+        })?;
+        Ok(Some(count))
+    }
+
     /// Recomputes the artifact-scoped topology fingerprint from portable module
     /// identities and the module links represented in this wire image.
     pub fn portable_topology_fingerprint(&self) -> Result<u64, ArtifactError> {
@@ -941,6 +999,16 @@ impl ModuleWorldV2 {
         let mut budget = limits.max_decoded_section_bytes;
         Self::decode_with_budget(bytes, limits, &mut budget)
     }
+}
+
+fn source_import_binding_count(import: &ImportV1) -> Result<u32, ArtifactError> {
+    let count = match import {
+        ImportV1::Module { .. } => 1,
+        ImportV1::Selective { items, .. } | ImportV1::ReExport { items, .. } => {
+            u32::try_from(items.len()).map_err(|_| invalid("source import item count exceeds u32"))?
+        }
+    };
+    Ok(count)
 }
 
 struct PortableTopologyHasher {

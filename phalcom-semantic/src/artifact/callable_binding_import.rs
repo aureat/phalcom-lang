@@ -23,7 +23,7 @@ use crate::types::outcome::{BlockReason, BudgetKind, BudgetReport, DynamicBounda
 use crate::types::relation::RefutationReason;
 use phalcom_common::range::SourceRange;
 use phalcom_compiler_artifact::semantic::world::{
-    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableBindingAssumptionBasisV1,
+    CallableAnalysisRecordV2, CallableAnalysisSourceOwnerV1, CallableBindingAssumptionBasisV1,
     CallableBindingAuthorityV1, CallableBindingConsistencyV1, CallableBindingContractOriginV1,
     CallableBindingRowV1, CallableBlockReasonV1, CallableBudgetKindV1, CallableBudgetReportV1,
     CallableCausalInvalidityV1, CallableGeneratedBindingReasonV1, CallableInitializationStateV1,
@@ -91,7 +91,7 @@ impl ImportedCallableBindingAuthority {
 }
 
 pub(crate) fn reconstruct_callable_bindings(
-    records: &[CallableAnalysisRecordV1],
+    records: &[CallableAnalysisRecordV2],
     types: &ReconstructedTypeGraph,
     static_definitions: &super::static_definition_import::ImportedStaticDefinitionAuthority,
     owners: &StableOwnerCatalog<'_>,

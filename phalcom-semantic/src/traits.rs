@@ -7,6 +7,8 @@
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ModuleId};
+use crate::ordered_map::{FrozenOrderedMapError, OrderedMap};
+use crate::parent_map::{FrozenParentMapError, ParentMap};
 use crate::signature::{CallableParameterSemantic, CallableSemanticSignature};
 use crate::surface::MemberVisibility;
 use crate::types::environment::{TypeEnvironment, TypeView};
@@ -58,6 +60,17 @@ impl TraitRef {
             declaration,
             arguments: arguments.into(),
         }
+    }
+
+    pub(crate) fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        let declaration = self.declaration.clone_with_allocation_budget(allocations)?;
+        let mut arguments = allocations.vector(self.arguments.len())?;
+        arguments.extend_from_slice(&self.arguments);
+        let arguments = allocations.boxed_slice(arguments)?;
+        Ok(Self { declaration, arguments })
     }
 
     /// Forms a canonical trait reference verifying declaration identity, arity,
@@ -137,6 +150,79 @@ pub struct TraitRequirementId {
     pub side: DispatchSide,
 }
 
+impl TraitRequirementId {
+    pub(crate) fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(Self {
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            selector: clone_selector_with_allocation_budget(&self.selector, allocations)?,
+            side: self.side,
+        })
+    }
+}
+
+pub(crate) fn clone_selector_with_allocation_budget(
+    selector: &Selector,
+    allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+) -> Result<Selector, phalcom_type_meta::allocation::AllocationError> {
+    use phalcom_common::selector::{SelectorBase, SelectorSlot};
+
+    let base = match &selector.base {
+        SelectorBase::Named(name) => SelectorBase::Named(allocations.string(name)?),
+        SelectorBase::Subscript => SelectorBase::Subscript,
+    };
+    let mut slots = allocations.vector(selector.slots.len())?;
+    for slot in selector.slots.iter() {
+        slots.push(match slot {
+            SelectorSlot::Positional => SelectorSlot::Positional,
+            SelectorSlot::Label(label) => SelectorSlot::Label(allocations.string(label)?),
+        });
+    }
+    let slots = allocations.boxed_slice(slots)?;
+    Ok(Selector {
+        base,
+        kind: selector.kind,
+        slots,
+    })
+}
+
+pub(crate) fn clone_selector_pattern_with_allocation_budget(
+    pattern: &phalcom_common::selector::SelectorPattern,
+    allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+) -> Result<phalcom_common::selector::SelectorPattern, phalcom_type_meta::allocation::AllocationError> {
+    use phalcom_common::selector::{SelectorBase, SelectorPattern, SelectorSlot};
+
+    let base = match &pattern.base {
+        SelectorBase::Named(name) => SelectorBase::Named(allocations.string(name)?),
+        SelectorBase::Subscript => SelectorBase::Subscript,
+    };
+    let mut prefix = allocations.vector(pattern.prefix.len())?;
+    for slot in pattern.prefix.iter() {
+        prefix.push(match slot {
+            SelectorSlot::Positional => SelectorSlot::Positional,
+            SelectorSlot::Label(label) => SelectorSlot::Label(allocations.string(label)?),
+        });
+    }
+    let prefix = allocations.boxed_slice(prefix)?;
+    let mut suffix = allocations.vector(pattern.suffix.len())?;
+    for slot in pattern.suffix.iter() {
+        suffix.push(match slot {
+            SelectorSlot::Positional => SelectorSlot::Positional,
+            SelectorSlot::Label(label) => SelectorSlot::Label(allocations.string(label)?),
+        });
+    }
+    let suffix = allocations.boxed_slice(suffix)?;
+    Ok(SelectorPattern {
+        base,
+        kind: pattern.kind.clone(),
+        prefix,
+        suffix,
+        has_gap: pattern.has_gap,
+    })
+}
+
 /// Stable identity for one associated type declaration owned by a trait.
 ///
 /// The source-order index, rather than the spelling, is canonical so that
@@ -152,6 +238,16 @@ pub struct AssociatedTypeRequirementId {
 impl AssociatedTypeRequirementId {
     pub fn new(owner: DeclarationId, index: u32) -> Self {
         Self { owner, index }
+    }
+
+    pub(crate) fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(Self {
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            index: self.index,
+        })
     }
 }
 
@@ -178,6 +274,9 @@ pub struct TraitSurfaceMember {
     pub signature: CallableSemanticSignature,
     pub visibility: MemberVisibility,
     pub source: SemanticSourceSpan,
+    /// Zero-based member position in the owning trait declaration. Generated
+    /// property accessors share the property's source member index.
+    pub source_member_index: usize,
     pub default_present: bool,
     pub default_source: Option<SemanticSourceSpan>,
 }
@@ -255,14 +354,76 @@ impl TraitSurfaceMember {
     }
 }
 
+/// Precomputed trait requirement layout in canonical BTree key order.
+/// Enables O(1) requirement slot lookup for backend lowering without
+/// snapshot-wide trait table enumeration.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TraitRequirementLayout {
+    slots: OrderedMap<TraitRequirementId, u32>,
+    ordered: Arc<[TraitRequirementId]>,
+}
+
+impl TraitRequirementLayout {
+    pub fn from_members(members: &OrderedMap<TraitRequirementId, TraitSurfaceMember>) -> Self {
+        let mut slots = BTreeMap::new();
+        let mut ordered = Vec::with_capacity(members.len());
+        for (slot, requirement) in members.keys().enumerate() {
+            slots.insert(requirement.clone(), slot as u32);
+            ordered.push(requirement.clone());
+        }
+        Self {
+            slots: slots.into(),
+            ordered: Arc::from(ordered.into_boxed_slice()),
+        }
+    }
+
+    pub fn slot(&self, requirement: &TraitRequirementId) -> Option<u32> {
+        self.slots.get(requirement).copied()
+    }
+
+    pub fn ordered_requirements(&self) -> &[TraitRequirementId] {
+        &self.ordered
+    }
+
+    pub fn slots(&self) -> &OrderedMap<TraitRequirementId, u32> {
+        &self.slots
+    }
+
+    fn from_frozen_members_with_allocation_budget(
+        members: &OrderedMap<TraitRequirementId, TraitSurfaceMember>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, FrozenOrderedMapError> {
+        let mut slots = allocations.vector(members.len()).map_err(FrozenOrderedMapError::Allocation)?;
+        let mut ordered = allocations.vector(members.len()).map_err(FrozenOrderedMapError::Allocation)?;
+        for (slot, requirement) in members.keys().enumerate() {
+            let slot = u32::try_from(slot).map_err(|_| FrozenOrderedMapError::Allocation(phalcom_type_meta::allocation::AllocationError::Overflow))?;
+            slots.push((
+                requirement
+                    .clone_with_allocation_budget(allocations)
+                    .map_err(FrozenOrderedMapError::Allocation)?,
+                slot,
+            ));
+            ordered.push(
+                requirement
+                    .clone_with_allocation_budget(allocations)
+                    .map_err(FrozenOrderedMapError::Allocation)?,
+            );
+        }
+        let slots = OrderedMap::from_frozen_entries_with_allocation_budget(slots, allocations)?;
+        let ordered = allocations.arc_slice(ordered).map_err(FrozenOrderedMapError::Allocation)?;
+        Ok(Self { slots, ordered })
+    }
+}
+
 /// Complete, body-independent behavioral surface for one trait declaration.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraitSurface {
     pub declaration: DeclarationId,
     pub generic_signature: Option<GenericSignature>,
-    pub members: BTreeMap<TraitRequirementId, TraitSurfaceMember>,
-    pub associated_types: BTreeMap<AssociatedTypeRequirementId, TraitAssociatedTypeRequirement>,
+    pub members: OrderedMap<TraitRequirementId, TraitSurfaceMember>,
+    pub associated_types: OrderedMap<AssociatedTypeRequirementId, TraitAssociatedTypeRequirement>,
     pub diagnostics: Box<[crate::diagnostic::SemanticDiagnostic]>,
+    pub requirement_layout: TraitRequirementLayout,
 }
 
 impl TraitSurface {
@@ -270,10 +431,42 @@ impl TraitSurface {
         Self {
             declaration,
             generic_signature,
-            members: BTreeMap::new(),
-            associated_types: BTreeMap::new(),
+            members: OrderedMap::default(),
+            associated_types: OrderedMap::default(),
             diagnostics: Box::new([]),
+            requirement_layout: TraitRequirementLayout::default(),
         }
+    }
+
+    pub fn requirement_slot(&self, requirement: &TraitRequirementId) -> Option<u32> {
+        self.requirement_layout.slot(requirement)
+    }
+
+    pub fn requirement_layout(&self) -> &TraitRequirementLayout {
+        &self.requirement_layout
+    }
+
+    pub fn finalize_requirement_layout(&mut self) {
+        self.requirement_layout = TraitRequirementLayout::from_members(&self.members);
+    }
+
+    pub(crate) fn from_frozen_import_parts(
+        declaration: DeclarationId,
+        generic_signature: Option<GenericSignature>,
+        members: OrderedMap<TraitRequirementId, TraitSurfaceMember>,
+        associated_types: OrderedMap<AssociatedTypeRequirementId, TraitAssociatedTypeRequirement>,
+        diagnostics: Box<[crate::diagnostic::SemanticDiagnostic]>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, FrozenOrderedMapError> {
+        let requirement_layout = TraitRequirementLayout::from_frozen_members_with_allocation_budget(&members, allocations)?;
+        Ok(Self {
+            declaration,
+            generic_signature,
+            members,
+            associated_types,
+            diagnostics,
+            requirement_layout,
+        })
     }
 
     pub fn get(&self, requirement: &TraitRequirementId) -> Option<&TraitSurfaceMember> {
@@ -310,7 +503,8 @@ impl TraitSurface {
 /// Snapshot-owned trait surfaces keyed by canonical declaration identity.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TraitSurfaceTable {
-    entries: BTreeMap<DeclarationId, Arc<TraitSurface>>,
+    parent: Option<Arc<Self>>,
+    entries: ParentMap<DeclarationId, Arc<TraitSurface>>,
 }
 
 impl TraitSurfaceTable {
@@ -318,24 +512,71 @@ impl TraitSurfaceTable {
         Self::default()
     }
 
+    /// Shares immutable canonical trait contracts with a local workspace.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<(DeclarationId, Arc<TraitSurface>)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, FrozenParentMapError> {
+        Ok(Self {
+            entries: ParentMap::from_frozen_entries_with_allocation_budget(entries, allocations)?,
+            ..Self::default()
+        })
+    }
+
+    /// Number of workspace-owned contracts.
+    pub fn local_len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Number of immutable canonical trait contracts.
+    pub fn parent_len(&self) -> usize {
+        self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    /// Number of visible canonical and workspace trait contracts.
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent_len()
+    }
+
+    /// Iterates only workspace-owned trait contracts.
+    pub fn iter_local(&self) -> impl Iterator<Item = (&DeclarationId, &Arc<TraitSurface>)> {
+        self.entries.iter_local()
+    }
+
     pub fn insert(&mut self, surface: Arc<TraitSurface>) {
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.contains(&surface.declaration)),
+            "cannot overwrite a canonical trait surface"
+        );
         self.entries.insert(surface.declaration.clone(), surface);
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&Arc<TraitSurface>> {
-        self.entries.get(declaration)
+        self.entries
+            .get(declaration)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
     }
 
     pub fn contains(&self, declaration: &DeclarationId) -> bool {
-        self.entries.contains_key(declaration)
+        self.get(declaration).is_some()
     }
 
     pub fn remove_module(&mut self, module: &ModuleId) {
         self.entries.retain(|declaration, _| &declaration.module != module);
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&DeclarationId, &Arc<TraitSurface>)> {
-        self.entries.iter()
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&DeclarationId, &Arc<TraitSurface>)> + '_> {
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter().chain(self.entries.iter_local())),
+            None => Box::new(self.entries.iter()),
+        }
     }
 }
 
@@ -429,7 +670,7 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
         .map(|requirement| (requirement.name.to_string(), requirement.requirement.clone()))
         .collect::<BTreeMap<_, _>>();
 
-    for trait_member in &trait_def.members {
+    for (source_member_index, trait_member) in trait_def.members.iter().enumerate() {
         if let TraitMember::Property(property) = trait_member {
             let side = if property.attributes.iter().any(|attribute| attribute.name == "class") {
                 DispatchSide::Class
@@ -481,6 +722,7 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
                         signature,
                         visibility,
                         source: source.clone(),
+                        source_member_index,
                         default_present: false,
                         default_source: None,
                     },
@@ -556,6 +798,7 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
                 signature,
                 visibility: behavior_member_visibility(member),
                 source,
+                source_member_index,
                 default_present,
                 default_source,
             },
@@ -563,6 +806,7 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
     }
     diagnostics.extend(ctx.diagnostics.iter().cloned());
     surface.diagnostics = diagnostics.into_boxed_slice();
+    surface.finalize_requirement_layout();
     surface
 }
 
@@ -745,7 +989,8 @@ pub struct TraitHeader {
 /// Immutable-by-publication collection of trait headers for one snapshot.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TraitHeaderTable {
-    entries: BTreeMap<DeclarationId, Arc<TraitHeader>>,
+    parent: Option<Arc<Self>>,
+    entries: ParentMap<DeclarationId, Arc<TraitHeader>>,
 }
 
 impl TraitHeaderTable {
@@ -753,17 +998,61 @@ impl TraitHeaderTable {
         Self::default()
     }
 
+    /// Shares immutable canonical trait headers with a local workspace.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<(DeclarationId, Arc<TraitHeader>)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, FrozenParentMapError> {
+        Ok(Self {
+            entries: ParentMap::from_frozen_entries_with_allocation_budget(entries, allocations)?,
+            ..Self::default()
+        })
+    }
+
+    /// Number of workspace-owned headers.
+    pub fn local_len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Number of immutable canonical trait headers.
+    pub fn parent_len(&self) -> usize {
+        self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    /// Number of visible canonical and workspace trait headers.
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent_len()
+    }
+
+    /// Iterates only workspace-owned trait headers.
+    pub fn iter_local(&self) -> impl Iterator<Item = (&DeclarationId, &Arc<TraitHeader>)> {
+        self.entries.iter_local()
+    }
+
     pub fn insert(&mut self, header: impl Into<Arc<TraitHeader>>) {
         let header = header.into();
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.contains(&header.declaration)),
+            "cannot overwrite a canonical trait header"
+        );
         self.entries.insert(header.declaration.clone(), header);
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&Arc<TraitHeader>> {
-        self.entries.get(declaration)
+        self.entries
+            .get(declaration)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
     }
 
     pub fn contains(&self, declaration: &DeclarationId) -> bool {
-        self.entries.contains_key(declaration)
+        self.get(declaration).is_some()
     }
 
     pub fn remove(&mut self, declaration: &DeclarationId) {
@@ -774,8 +1063,11 @@ impl TraitHeaderTable {
         self.entries.retain(|declaration, _| &declaration.module != module);
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&DeclarationId, &Arc<TraitHeader>)> {
-        self.entries.iter()
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&DeclarationId, &Arc<TraitHeader>)> + '_> {
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter().chain(self.entries.iter_local())),
+            None => Box::new(self.entries.iter()),
+        }
     }
 }
 

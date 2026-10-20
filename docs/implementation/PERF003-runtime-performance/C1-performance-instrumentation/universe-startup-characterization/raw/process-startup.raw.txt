@@ -1,0 +1,277 @@
+# BASELINE_HEAD=b00d75b3ac9f50d37cf9abfddfde00917e099031
+# BRANCH=perf/universe-characterization
+CASE,python,1,0,26955250
+COMMAND,/usr/bin/time -l python3 docs/implementation/PERF003-runtime-performance/C1-performance-instrumentation/universe-startup-characterization/fixtures/tiny.py
+STDOUT_BEGIN
+hello
+STDOUT_END
+STDERR_BEGIN
+        0.02 real         0.01 user         0.00 sys
+            15269888  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1589  page reclaims
+                  41  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   1  voluntary context switches
+                  15  involuntary context switches
+           159534983  instructions retired
+            69165490  cycles elapsed
+             7061912  peak memory footprint
+STDERR_END
+CASE,python,2,0,26793500
+COMMAND,/usr/bin/time -l python3 docs/implementation/PERF003-runtime-performance/C1-performance-instrumentation/universe-startup-characterization/fixtures/tiny.py
+STDOUT_BEGIN
+hello
+STDOUT_END
+STDERR_BEGIN
+        0.02 real         0.01 user         0.00 sys
+            15286272  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1590  page reclaims
+                  41  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  21  involuntary context switches
+           159914815  instructions retired
+            68362251  cycles elapsed
+             7094704  peak memory footprint
+STDERR_END
+CASE,python,3,0,25163584
+COMMAND,/usr/bin/time -l python3 docs/implementation/PERF003-runtime-performance/C1-performance-instrumentation/universe-startup-characterization/fixtures/tiny.py
+STDOUT_BEGIN
+hello
+STDOUT_END
+STDERR_BEGIN
+        0.02 real         0.01 user         0.00 sys
+            15237120  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1587  page reclaims
+                  41  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  11  involuntary context switches
+           159518017  instructions retired
+            64353583  cycles elapsed
+             7045552  peak memory footprint
+STDERR_END
+CASE,python,4,0,26591666
+COMMAND,/usr/bin/time -l python3 docs/implementation/PERF003-runtime-performance/C1-performance-instrumentation/universe-startup-characterization/fixtures/tiny.py
+STDOUT_BEGIN
+hello
+STDOUT_END
+STDERR_BEGIN
+        0.02 real         0.01 user         0.00 sys
+            15269888  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1589  page reclaims
+                  41  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  11  involuntary context switches
+           159659954  instructions retired
+            68607267  cycles elapsed
+             7078320  peak memory footprint
+STDERR_END
+CASE,python,5,0,26201875
+COMMAND,/usr/bin/time -l python3 docs/implementation/PERF003-runtime-performance/C1-performance-instrumentation/universe-startup-characterization/fixtures/tiny.py
+STDOUT_BEGIN
+hello
+STDOUT_END
+STDERR_BEGIN
+        0.02 real         0.01 user         0.00 sys
+            15286272  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1590  page reclaims
+                  41  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  12  involuntary context switches
+           159524406  instructions retired
+            67034864  cycles elapsed
+             7094704  peak memory footprint
+STDERR_END
+CASE,python_no_site,1,0,18547167
+COMMAND,/usr/bin/time -l python3 -S docs/implementation/PERF003-runtime-performance/C1-performance-instrumentation/universe-startup-characterization/fixtures/tiny.py
+STDOUT_BEGIN
+hello
+STDOUT_END
+STDERR_BEGIN
+        0.01 real         0.00 user         0.00 sys
+            12664832  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1432  page reclaims
+                  40  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  13  involuntary context switches
+           112502498  instructions retired
+            44179393  cycles elapsed
+             4882864  peak memory footprint
+STDERR_END
+CASE,python_no_site,2,0,19671583
+COMMAND,/usr/bin/time -l python3 -S docs/implementation/PERF003-runtime-performance/C1-performance-instrumentation/universe-startup-characterization/fixtures/tiny.py
+STDOUT_BEGIN
+hello
+STDOUT_END
+STDERR_BEGIN
+        0.01 real         0.00 user         0.00 sys
+            12697600  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1437  page reclaims
+                  40  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  11  involuntary context switches
+           112334146  instructions retired
+            45997961  cycles elapsed
+             4915632  peak memory footprint
+STDERR_END
+CASE,python_no_site,3,0,19582500
+COMMAND,/usr/bin/time -l python3 -S docs/implementation/PERF003-runtime-performance/C1-performance-instrumentation/universe-startup-characterization/fixtures/tiny.py
+STDOUT_BEGIN
+hello
+STDOUT_END
+STDERR_BEGIN
+        0.01 real         0.00 user         0.00 sys
+            12681216  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1433  page reclaims
+                  40  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  14  involuntary context switches
+           112396082  instructions retired
+            46281899  cycles elapsed
+             4899248  peak memory footprint
+STDERR_END
+CASE,python_no_site,4,0,18999583
+COMMAND,/usr/bin/time -l python3 -S docs/implementation/PERF003-runtime-performance/C1-performance-instrumentation/universe-startup-characterization/fixtures/tiny.py
+STDOUT_BEGIN
+hello
+STDOUT_END
+STDERR_BEGIN
+        0.01 real         0.00 user         0.00 sys
+            12599296  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1427  page reclaims
+                  40  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  15  involuntary context switches
+           112265714  instructions retired
+            44949792  cycles elapsed
+             4800920  peak memory footprint
+STDERR_END
+CASE,python_no_site,5,0,18954084
+COMMAND,/usr/bin/time -l python3 -S docs/implementation/PERF003-runtime-performance/C1-performance-instrumentation/universe-startup-characterization/fixtures/tiny.py
+STDOUT_BEGIN
+hello
+STDOUT_END
+STDERR_BEGIN
+        0.01 real         0.00 user         0.00 sys
+            12697600  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1434  page reclaims
+                  40  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  12  involuntary context switches
+           112364673  instructions retired
+            45016336  cycles elapsed
+             4915632  peak memory footprint
+STDERR_END
+CASE,telos_blocker_probe,1,65,35803978708
+COMMAND,/usr/bin/time -l target/debug/phalcom docs/implementation/PERF003-runtime-performance/C1-performance-instrumentation/universe-startup-characterization/fixtures/tiny.ph
+STDOUT_BEGIN
+STDOUT_END
+STDERR_BEGIN
+Compile error: io error: metadata export error: legacy metadata cannot represent a Record remainder outside the Symbol key domain
+       35.80 real        35.24 user         0.32 sys
+           678805504  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               40114  page reclaims
+                1547  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   3  voluntary context switches
+               11191  involuntary context switches
+        408511988233  instructions retired
+        114246650380  cycles elapsed
+           634864480  peak memory footprint
+STDERR_END

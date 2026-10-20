@@ -55,7 +55,7 @@ pub struct FormalQueryInputs<'a> {
     pub enum_semantics: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
     pub type_member_declarations:
-        Option<&'a BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
+        Option<&'a crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
     /// Checked module value facts used by the ordinary callable body checker.
     pub module_values: Option<crate::module_bindings::ModuleValueEnvironment<'a>>,
@@ -130,7 +130,7 @@ fn signature_projection_input_fingerprint(
     crate::db::InputFingerprint::new(hasher.finish())
 }
 
-fn semantic_dependency_query_key(dependency: &crate::checker::analysis::SemanticDependency) -> QueryKey {
+pub(crate) fn semantic_dependency_query_key(dependency: &crate::checker::analysis::SemanticDependency) -> QueryKey {
     match dependency {
         crate::checker::analysis::SemanticDependency::DeclarationShell(declaration) => QueryKey::DeclarationShell(declaration.clone()),
         crate::checker::analysis::SemanticDependency::TraitHeader(declaration) => QueryKey::TraitHeader(declaration.clone()),
@@ -158,6 +158,44 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::ModuleStaticBindings(module) => QueryKey::ModuleStaticBindings(module.clone()),
         crate::checker::analysis::SemanticDependency::StaticConstant(id) => QueryKey::StaticConstant(id.clone()),
     }
+}
+
+/// Rebuilds the exact validated dependency edges used by ordinary callable
+/// body publication for a body that was rechecked directly by the session.
+pub(crate) fn callable_body_dependency_edges(
+    db: &SemanticDb,
+    callable: &crate::identity::CallableId,
+    analysis: &CallableAnalysis,
+    conformance_semantics: Option<&crate::trait_dispatch::ConformanceSemanticView<'_>>,
+) -> Result<Vec<crate::db::DependencyEdge>, String> {
+    let key = QueryKey::CallableBody(callable.clone());
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    let definition = QueryKey::CallableDefinition(callable.clone());
+    if db.product(&definition).is_some() {
+        db.record_dependency(&mut recorder, definition)?;
+    }
+    for semantic_dependency in analysis.semantic_dependencies.iter() {
+        let dependency = semantic_dependency_query_key(semantic_dependency);
+        if dependency == key {
+            return Err("callable body captured a self-dependency".to_owned());
+        }
+        match semantic_dependency {
+            crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) => {
+                let Some(fingerprint) = conformance_semantics.and_then(|view| view.fingerprint_for(impl_id)) else {
+                    return Err(format!("missing current conformance view for {dependency:?}"));
+                };
+                recorder.record(dependency, fingerprint);
+            }
+            crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket) => {
+                let Some(view) = conformance_semantics else {
+                    return Err(format!("missing current trait-dispatch view for {dependency:?}"));
+                };
+                recorder.record(dependency, view.bucket_fingerprint(bucket));
+            }
+            _ => db.record_dependency(&mut recorder, dependency)?,
+        }
+    }
+    Ok(recorder.finish())
 }
 
 fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::analysis::SemanticDependency> {

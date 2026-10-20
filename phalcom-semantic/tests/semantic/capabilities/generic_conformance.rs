@@ -83,7 +83,7 @@ class Probe {
         None,
         MetadataProfile::RuntimePublic,
     );
-    let bundle = exporter.build_bundle(&[]).expect("generic callable metadata");
+    let bundle = exporter.build_complete_test_bundle(&[]).expect("generic callable metadata");
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("valid generic callable metadata");
 
     let constraint = bundle
@@ -806,8 +806,11 @@ class Forwarder {
     let call = fixture.expression(outer, "Forwarder.inner(value)");
     let specialization = call.call_specialization.as_ref().expect("generic helper specialization");
     assert_eq!(specialization.bindings.len(), 1);
-    let (parameter, ty) = specialization.bindings[0];
+    let (parameter, argument) = specialization.bindings[0];
     assert_eq!(parameter, callee);
+    let phalcom_semantic::types::store::StaticArgument::Term(ty) = argument else {
+        panic!("forwarded type parameter must remain a proper type term")
+    };
     assert!(matches!(fixture.analysis.snapshot.store.get(ty), TypeData::Parameter(parameter) if *parameter == caller));
     assert_eq!(call.knowledge.ty(), Some(ty));
 }
@@ -842,7 +845,10 @@ class FloatReduction {{
             .as_ref()
             .expect("caller generics")
             .parameters[0];
-        let (_, bound_type) = specialization.bindings[0];
+        let (_, argument) = specialization.bindings[0];
+        let phalcom_semantic::types::store::StaticArgument::Term(bound_type) = argument else {
+            panic!("forwarded associated-equality subject must remain a proper type term")
+        };
         assert!(matches!(fixture.analysis.snapshot.store.get(bound_type), TypeData::Parameter(parameter) if *parameter == caller_parameter));
         assert_eq!(specialization.conformances.len(), 1);
         assert!(matches!(
@@ -957,6 +963,13 @@ class DynamicCaller {
     );
 
     fixture.assert_diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::GenericConstraintUnsatisfied, 1);
+    fixture.assert_no_internal_incidents();
+    let run = fixture.callable("DynamicCaller", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "DynamicCaller.consume(dyn_val)");
+    assert!(
+        call.call_specialization.is_none(),
+        "a Dynamic-dependent constraint must not publish a call specialization or runtime witness recipe"
+    );
 }
 
 #[test]

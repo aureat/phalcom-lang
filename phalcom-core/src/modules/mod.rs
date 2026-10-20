@@ -6,23 +6,28 @@
 
 pub mod artifact;
 pub mod builtin_materialize;
-pub(crate) mod canonical_universe;
+pub mod canonical_artifact;
+pub mod canonical_universe;
 pub mod compile;
 pub mod compile_session;
 pub mod context;
 pub mod initialize;
 pub mod linkage;
 pub mod materialize;
+pub mod parity;
 pub mod reflection_cache;
 pub mod reflection_metadata;
 pub mod registry;
 pub mod semantic_lowering;
 mod static_constant;
 
+pub use parity::{assert_compile_error_parity, assert_compiled_program_parity, assert_semantic_diagnostics_parity, compare_compiled_programs};
+
 pub use artifact::{ClassBlueprint, EnumBlueprint, ModuleMaterializationPlan, RuntimeDeclarationBlueprint, VariantBlueprint};
-pub(crate) use canonical_universe::{CanonicalUniverseProgram, canonical_universe_program};
+pub use canonical_universe::{CanonicalCompatibilityIdentity, CanonicalCompilerImageView, CanonicalUniverseProgram, canonical_universe_program};
 pub use compile::{
-    AnalyzedProgram, CompiledModule, CompiledProgram, EntrySelection, ProgramAnalyzer, ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics,
+    AnalyzedProgram, CompiledModule, CompiledProgram, EntrySelection, ProgramAnalyzer, ProgramCompilationOptions, ProgramCompileError, ProgramCompiler,
+    ProgramSemanticDiagnostics,
 };
 pub use compile_session::ProgramCompilationSession;
 pub use context::ModuleExecutionContext;

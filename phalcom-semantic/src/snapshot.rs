@@ -4,7 +4,7 @@ use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, SourceSiteId, SourceSiteRef, TypeId, WorkspaceId};
-use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan, EffectiveCallableDefinition};
+use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, EffectiveCallableDefinition};
 use crate::module_bindings::ModuleStaticBindingIndex;
 use crate::presentation::{FormalFactRef, FormalFactSite, FormalSemanticProjection, SemanticSiteView};
 use crate::semantic_shard::ModuleSemanticStructureShard;
@@ -33,12 +33,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 fn collect_internal_incidents(
-    callable_analyses: &HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
+    callable_analyses: impl IntoIterator<Item = Arc<crate::checker::CallableAnalysis>>,
 ) -> Arc<[InternalSemanticIncident]> {
-    let mut incidents = callable_analyses
-        .values()
-        .flat_map(|analysis| analysis.internal_incidents.iter().cloned())
-        .collect::<Vec<_>>();
+    let mut incidents = Vec::new();
+    for analysis in callable_analyses {
+        incidents.extend(analysis.internal_incidents.iter().cloned());
+    }
     incidents.sort_by_key(|incident| (incident.callable.clone(), incident.id));
     Arc::from(incidents.into_boxed_slice())
 }
@@ -70,6 +70,18 @@ pub struct ModuleQueryProductsInputs {
     pub sources: Arc<BTreeMap<ModuleId, SourceLocation>>,
     pub topology: Arc<ModuleTopology>,
     pub reverse_imports: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
+}
+
+#[derive(Debug)]
+pub enum ModuleQueryProductsBuildError {
+    Allocation(phalcom_type_meta::allocation::AllocationError),
+    DuplicateKey,
+}
+
+impl From<phalcom_type_meta::allocation::AllocationError> for ModuleQueryProductsBuildError {
+    fn from(error: phalcom_type_meta::allocation::AllocationError) -> Self {
+        Self::Allocation(error)
+    }
 }
 
 impl ModuleQueryProducts {
@@ -121,6 +133,74 @@ impl ModuleQueryProducts {
             reverse_imports: Arc::new(BTreeMap::new()),
         }
     }
+
+    pub fn empty_with_allocation_budget(
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        let universe = allocations.arc(ProjectUniverse::new())?;
+        let topology = allocations.arc(ModuleTopology::from_parts(ResolverGeneration(0), &universe, &BTreeMap::new(), &BTreeMap::new()))?;
+        Ok(Self {
+            universe,
+            unlinked: allocations.arc(BTreeMap::new())?,
+            linked: allocations.arc(BTreeMap::new())?,
+            import_products: allocations.arc(BTreeMap::new())?,
+            resolved_imports: allocations.arc(BTreeMap::new())?,
+            sources: allocations.arc(BTreeMap::new())?,
+            source_modules: allocations.arc(BTreeMap::new())?,
+            display_path_modules: allocations.arc(BTreeMap::new())?,
+            topology,
+            reverse_imports: allocations.arc(BTreeMap::new())?,
+        })
+    }
+
+    pub fn from_external_modules_with_allocation_budget(
+        modules: Arc<phalcom_modules::canonical_products::CanonicalExternalModuleWorld>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, ModuleQueryProductsBuildError> {
+        let mut unlinked = BTreeMap::new();
+        for (module, interface) in modules.interfaces() {
+            if unlinked.insert(module.clone(), (**interface).clone()).is_some() {
+                return Err(ModuleQueryProductsBuildError::DuplicateKey);
+            }
+        }
+
+        let mut linked = BTreeMap::new();
+        let mut resolved_imports = BTreeMap::new();
+        for (module, linked_module) in &modules.linked().modules {
+            if linked.insert(module.clone(), linked_module.interface.clone()).is_some() {
+                return Err(ModuleQueryProductsBuildError::DuplicateKey);
+            }
+            for (name, import_id) in &linked_module.bindings.imports {
+                let Some(read_spec) = linked_module.linked_reads.get(import_id.0 as usize) else {
+                    continue;
+                };
+                let target = match read_spec {
+                    phalcom_modules::linker::LinkedReadSpec::Binding(symbol) => symbol.module.clone(),
+                    phalcom_modules::linker::LinkedReadSpec::Module(target) => target.clone(),
+                };
+                if resolved_imports.insert((module.clone(), name.to_string()), target).is_some() {
+                    return Err(ModuleQueryProductsBuildError::DuplicateKey);
+                }
+            }
+        }
+
+        let mut reverse_imports: BTreeMap<ModuleId, BTreeSet<ModuleId>> = BTreeMap::new();
+        for ((importer, _), target) in &resolved_imports {
+            reverse_imports.entry(target.clone()).or_default().insert(importer.clone());
+        }
+        Ok(Self {
+            universe: modules.linked().universe.clone(),
+            unlinked: allocations.arc(unlinked)?,
+            linked: allocations.arc(linked)?,
+            import_products: allocations.arc(BTreeMap::new())?,
+            resolved_imports: allocations.arc(resolved_imports)?,
+            sources: allocations.arc(BTreeMap::new())?,
+            source_modules: allocations.arc(BTreeMap::new())?,
+            display_path_modules: allocations.arc(BTreeMap::new())?,
+            topology: modules.topology().clone(),
+            reverse_imports: allocations.arc(reverse_imports)?,
+        })
+    }
 }
 
 impl Default for ModuleQueryProducts {
@@ -161,7 +241,7 @@ pub struct SemanticSnapshot {
     /// Read-only compiler-generated source documents used solely for semantic
     /// provenance and editor presentation. They are never analysis inputs.
     pub presentation_sources: Arc<BTreeMap<ModuleId, Arc<str>>>,
-    pub surfaces: Arc<HashMap<DeclarationId, DeclarationSurface>>,
+    pub surfaces: Arc<crate::parent_map::ParentMap<DeclarationId, DeclarationSurface>>,
     pub dispatch: Arc<SurfaceDispatchResolver>,
     pub callable_signatures: Arc<CallableSignatureTable>,
     /// Canonical class-side factory to instance-initializer construction paths.
@@ -169,13 +249,13 @@ pub struct SemanticSnapshot {
     /// Canonical accepted callable-definition provenance, keyed by the
     /// target-owned callable identity. Backend lowering consumes this map
     /// directly and must not reconstruct acceptance from source locations.
-    pub callable_definitions: Arc<BTreeMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
+    pub callable_definitions: Arc<crate::parent_map::ParentMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
     /// Explicit conformance heads published for this exact semantic snapshot.
     /// The index contains source-head matches only, never witness evidence.
     pub conformance_index: Arc<ConformanceIndex>,
     /// Source witness/default selections, keyed by the declaring conformance
     /// identity. Exact evidence is derived only from this canonical plan.
-    pub conformance_witness_plans: Arc<BTreeMap<crate::identity::ImplId, Arc<ConformanceWitnessPlan>>>,
+    pub conformance_witness_plans: Arc<crate::impls::ConformanceWitnessPlans>,
     /// Guarded derived conformance rules published for this semantic snapshot.
     pub derived_conformance_rules: Arc<crate::derived_conformance::DerivedConformanceRuleIndex>,
     /// Bounded ordinary receiver/selector discovery for trait evidence.
@@ -191,7 +271,7 @@ pub struct SemanticSnapshot {
     pub hierarchy: Arc<MapTypeHierarchy>,
     pub diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
     pub semantic_graph: Arc<SemanticGraph>,
-    pub callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    pub callable_analyses: Arc<crate::checker::CallableAnalysisTable>,
     /// Internal analyzer incidents, kept separate from source diagnostics.
     pub internal_incidents: Arc<[InternalSemanticIncident]>,
     pub formal_projection: Arc<FormalSemanticProjection>,
@@ -205,14 +285,13 @@ pub struct SemanticSnapshot {
     pub associated_surfaces: Arc<AssociatedFamilyTable>,
     /// Checked source type-member contracts keyed by stable declaration identity.
     /// Associated namespace selection remains exclusively in `associated_surfaces`.
-    pub type_member_declarations: Arc<BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
+    pub type_member_declarations: Arc<crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     /// Checked associated static-domain declarations keyed by stable owner/name identity.
-    pub associated_static_domains:
-        Arc<BTreeMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
+    pub associated_static_domains: Arc<crate::ordered_map::OrderedMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
     /// Source-structural static case membership, independent of payload validity.
-    pub static_case_catalogs: Arc<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
+    pub static_case_catalogs: Arc<crate::ordered_map::OrderedMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
     /// Checked constructor contracts keyed by stable static-case identity.
-    pub static_case_signatures: Arc<BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>,
+    pub static_case_signatures: Arc<crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>,
     /// Checked static definitions keyed by declaration identity.
     pub static_definitions: Arc<StaticDefinitionTable>,
     /// Checked compile-time constants keyed by canonical static constant identity.
@@ -220,7 +299,7 @@ pub struct SemanticSnapshot {
     /// Immutable static-value arena shared by semantic products in this store lineage.
     pub static_values: Arc<StaticValueStore>,
     /// Ordinary-checker facts keyed by stable module binding identity.
-    pub module_static_bindings: Arc<BTreeMap<ModuleId, Arc<ModuleStaticBindingIndex>>>,
+    pub module_static_bindings: Arc<crate::parent_map::ParentMap<ModuleId, Arc<ModuleStaticBindingIndex>>>,
     /// Retained source-local semantic structure shards for incremental reuse.
     pub semantic_structure_shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
     /// Observed and inferred dependency use-phases for each imported source binding.
@@ -231,6 +310,52 @@ pub struct SemanticSnapshot {
 }
 
 impl SemanticSnapshot {
+    pub fn is_source_free_artifact_complete(&self) -> bool {
+        self.status.is_complete() && self.has_source_free_artifact_contents()
+    }
+
+    pub fn has_source_free_artifact_contents(&self) -> bool {
+        let has_callable_body_facts = self.callable_analyses.values().any(|analysis| {
+            !analysis.expressions.is_empty()
+                || !analysis.bindings.is_empty()
+                || !analysis.associated_resolutions.is_empty()
+                || !analysis.callable_reference_resolutions.is_empty()
+                || !analysis.family_applications.is_empty()
+                || !analysis.match_resolutions.is_empty()
+                || !analysis.pattern_site_resolutions.is_empty()
+        });
+        let callable_analyses_are_complete = self.callable_analyses.values().all(|analysis| analysis.status.is_complete());
+        self.sources.is_empty()
+            && self.presentation_sources.is_empty()
+            && !self.callable_analyses.is_empty()
+            && callable_analyses_are_complete
+            && has_callable_body_facts
+            && !self.callable_signatures.is_empty()
+            && !self.callable_definitions.is_empty()
+            && self.constructor_initializations.len() > 0
+            && !self.field_signatures.is_empty()
+            && self.trait_surfaces.len() > 0
+            && self.trait_headers.len() > 0
+            && !self.declarations.is_empty()
+            && !self.hierarchy.is_empty()
+            && !self.dispatch.surfaces().is_empty()
+            && !self.data_semantics.data_decls.is_empty()
+            && !self.enum_semantics.enums.is_empty()
+            && !self.enum_requirements.requirements.is_empty()
+            && !self.type_aliases.is_empty()
+            && self.conformance_index.iter().next().is_some()
+            && !self.conformance_witness_plans.is_empty()
+            && !self.derived_conformance_rules.is_empty()
+            && !self.trait_dispatch_index.is_empty()
+            && self.associated_surfaces.surfaces.iter().next().is_some()
+            && self.type_member_declarations.iter().next().is_some()
+            && !self.static_definitions.is_empty()
+            && !self.static_constants.is_empty()
+            && self.module_static_bindings.iter().next().is_some()
+            && !self.module_products.unlinked.is_empty()
+            && !self.module_products.linked.is_empty()
+    }
+
     // Snapshot construction intentionally mirrors its immutable field layout.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -239,7 +364,7 @@ impl SemanticSnapshot {
         generation: u64,
         store: Arc<TypeStore>,
         sources: Arc<BTreeMap<ModuleId, Arc<ParsedModuleUnit>>>,
-        surfaces: Arc<HashMap<DeclarationId, DeclarationSurface>>,
+        surfaces: Arc<crate::parent_map::ParentMap<DeclarationId, DeclarationSurface>>,
         dispatch: Arc<SurfaceDispatchResolver>,
         callable_signatures: Arc<CallableSignatureTable>,
         declarations: Arc<DeclarationTypeTable>,
@@ -259,9 +384,9 @@ impl SemanticSnapshot {
             dispatch,
             callable_signatures,
             constructor_initializations: Arc::new(ConstructorInitializationTable::default()),
-            callable_definitions: Arc::new(BTreeMap::new()),
+            callable_definitions: Arc::new(crate::parent_map::ParentMap::default()),
             conformance_index: Arc::new(ConformanceIndex::new()),
-            conformance_witness_plans: Arc::new(BTreeMap::new()),
+            conformance_witness_plans: Arc::new(crate::parent_map::ParentMap::default()),
             derived_conformance_rules: Arc::new(crate::derived_conformance::DerivedConformanceRuleIndex::new()),
             trait_dispatch_index: Arc::new(TraitDispatchIndex::default()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
@@ -272,7 +397,7 @@ impl SemanticSnapshot {
             hierarchy,
             diagnostics,
             semantic_graph,
-            callable_analyses: Arc::new(HashMap::new()),
+            callable_analyses: Arc::new(crate::checker::CallableAnalysisTable::new()),
             internal_incidents: Arc::from([]),
             formal_projection: Arc::new(FormalSemanticProjection::default()),
             source_index: Arc::new(SourceSemanticIndex::default()),
@@ -282,14 +407,14 @@ impl SemanticSnapshot {
             enum_semantics: Arc::new(EnumSemanticTable::new()),
             enum_requirements: Arc::new(EnumRequirementTable::new()),
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
-            type_member_declarations: Arc::new(BTreeMap::new()),
-            associated_static_domains: Arc::new(BTreeMap::new()),
-            static_case_catalogs: Arc::new(BTreeMap::new()),
-            static_case_signatures: Arc::new(BTreeMap::new()),
+            type_member_declarations: Arc::new(crate::parent_map::ParentMap::default()),
+            associated_static_domains: Arc::new(crate::ordered_map::OrderedMap::default()),
+            static_case_catalogs: Arc::new(crate::ordered_map::OrderedMap::default()),
+            static_case_signatures: Arc::new(crate::ordered_map::OrderedMap::default()),
             static_definitions: Arc::new(StaticDefinitionTable::new()),
             static_constants: Arc::new(StaticConstantTable::new()),
             static_values: Arc::new(StaticValueStore::new()),
-            module_static_bindings: Arc::new(BTreeMap::new()),
+            module_static_bindings: Arc::new(crate::parent_map::ParentMap::default()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             import_phase_products: Arc::new(BTreeMap::new()),
             generated_runtime_requirements: Arc::from([]),
@@ -304,19 +429,20 @@ impl SemanticSnapshot {
         generation: u64,
         store: Arc<TypeStore>,
         sources: Arc<BTreeMap<ModuleId, Arc<ParsedModuleUnit>>>,
-        surfaces: Arc<HashMap<DeclarationId, DeclarationSurface>>,
+        surfaces: Arc<crate::parent_map::ParentMap<DeclarationId, DeclarationSurface>>,
         dispatch: Arc<SurfaceDispatchResolver>,
         callable_signatures: Arc<CallableSignatureTable>,
         declarations: Arc<DeclarationTypeTable>,
         hierarchy: Arc<MapTypeHierarchy>,
         diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
         semantic_graph: Arc<SemanticGraph>,
-        callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+        callable_analyses: HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
     ) -> Self {
         let store_id = store.id();
         let id = SnapshotId::new(workspace, revision, store_id);
         let formal_projection = Arc::new(FormalSemanticProjection::from_callable_analyses(&callable_analyses));
-        let internal_incidents = collect_internal_incidents(&callable_analyses);
+        let internal_incidents = collect_internal_incidents(callable_analyses.values().cloned());
+        let callable_analyses = crate::checker::CallableAnalysisTable::from(callable_analyses);
         Self {
             id,
             generation,
@@ -327,9 +453,9 @@ impl SemanticSnapshot {
             dispatch,
             callable_signatures,
             constructor_initializations: Arc::new(ConstructorInitializationTable::default()),
-            callable_definitions: Arc::new(BTreeMap::new()),
+            callable_definitions: Arc::new(crate::parent_map::ParentMap::default()),
             conformance_index: Arc::new(ConformanceIndex::new()),
-            conformance_witness_plans: Arc::new(BTreeMap::new()),
+            conformance_witness_plans: Arc::new(crate::parent_map::ParentMap::default()),
             derived_conformance_rules: Arc::new(crate::derived_conformance::DerivedConformanceRuleIndex::new()),
             trait_dispatch_index: Arc::new(TraitDispatchIndex::default()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
@@ -340,7 +466,7 @@ impl SemanticSnapshot {
             hierarchy,
             diagnostics,
             semantic_graph,
-            callable_analyses,
+            callable_analyses: Arc::new(callable_analyses),
             internal_incidents,
             formal_projection,
             source_index: Arc::new(SourceSemanticIndex::default()),
@@ -350,14 +476,14 @@ impl SemanticSnapshot {
             enum_semantics: Arc::new(EnumSemanticTable::new()),
             enum_requirements: Arc::new(EnumRequirementTable::new()),
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
-            type_member_declarations: Arc::new(BTreeMap::new()),
-            associated_static_domains: Arc::new(BTreeMap::new()),
-            static_case_catalogs: Arc::new(BTreeMap::new()),
-            static_case_signatures: Arc::new(BTreeMap::new()),
+            type_member_declarations: Arc::new(crate::parent_map::ParentMap::default()),
+            associated_static_domains: Arc::new(crate::ordered_map::OrderedMap::default()),
+            static_case_catalogs: Arc::new(crate::ordered_map::OrderedMap::default()),
+            static_case_signatures: Arc::new(crate::ordered_map::OrderedMap::default()),
             static_definitions: Arc::new(StaticDefinitionTable::new()),
             static_constants: Arc::new(StaticConstantTable::new()),
             static_values: Arc::new(StaticValueStore::new()),
-            module_static_bindings: Arc::new(BTreeMap::new()),
+            module_static_bindings: Arc::new(crate::parent_map::ParentMap::default()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             import_phase_products: Arc::new(BTreeMap::new()),
             generated_runtime_requirements: Arc::from([]),
@@ -392,7 +518,7 @@ impl SemanticSnapshot {
 
     pub fn with_type_member_declarations(
         mut self,
-        declarations: Arc<BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
+        declarations: Arc<crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     ) -> Self {
         self.type_member_declarations = declarations;
         self
@@ -400,7 +526,7 @@ impl SemanticSnapshot {
 
     pub fn with_associated_static_domains(
         mut self,
-        domains: Arc<BTreeMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
+        domains: Arc<crate::ordered_map::OrderedMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
     ) -> Self {
         self.associated_static_domains = domains;
         self
@@ -408,7 +534,7 @@ impl SemanticSnapshot {
 
     pub fn with_static_case_catalogs(
         mut self,
-        catalogs: Arc<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
+        catalogs: Arc<crate::ordered_map::OrderedMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
     ) -> Self {
         self.static_case_catalogs = catalogs;
         self
@@ -416,7 +542,7 @@ impl SemanticSnapshot {
 
     pub fn with_static_case_signatures(
         mut self,
-        signatures: Arc<BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>,
+        signatures: Arc<crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>,
     ) -> Self {
         self.static_case_signatures = signatures;
         self
@@ -439,7 +565,7 @@ impl SemanticSnapshot {
     }
 
     /// Publishes ordinary checker facts for stable module binding identities.
-    pub fn with_module_static_bindings(mut self, bindings: Arc<BTreeMap<ModuleId, Arc<ModuleStaticBindingIndex>>>) -> Self {
+    pub fn with_module_static_bindings(mut self, bindings: Arc<crate::parent_map::ParentMap<ModuleId, Arc<ModuleStaticBindingIndex>>>) -> Self {
         self.module_static_bindings = bindings;
         self
     }
@@ -477,7 +603,10 @@ impl SemanticSnapshot {
     }
 
     /// Attaches the accepted callable definitions for this exact snapshot.
-    pub fn with_callable_definitions(mut self, definitions: Arc<BTreeMap<crate::identity::CallableId, EffectiveCallableDefinition>>) -> Self {
+    pub fn with_callable_definitions(
+        mut self,
+        definitions: Arc<crate::parent_map::ParentMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
+    ) -> Self {
         self.callable_definitions = definitions;
         self
     }
@@ -488,7 +617,7 @@ impl SemanticSnapshot {
         self
     }
 
-    pub fn with_conformance_witness_plans(mut self, plans: Arc<BTreeMap<crate::identity::ImplId, Arc<ConformanceWitnessPlan>>>) -> Self {
+    pub fn with_conformance_witness_plans(mut self, plans: Arc<crate::impls::ConformanceWitnessPlans>) -> Self {
         self.conformance_witness_plans = plans;
         self
     }
@@ -572,8 +701,8 @@ impl SemanticSnapshot {
         crate::types::normalize_type(&mut store, ty, &mut context)
     }
 
-    pub fn with_callable_analyses(mut self, callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>) -> Self {
-        self.internal_incidents = collect_internal_incidents(&callable_analyses);
+    pub fn with_callable_analyses(mut self, callable_analyses: Arc<crate::checker::CallableAnalysisTable>) -> Self {
+        self.internal_incidents = collect_internal_incidents(callable_analyses.values().cloned());
         self.callable_analyses = callable_analyses;
         self
     }
@@ -665,7 +794,7 @@ impl SemanticSnapshot {
         &self.sources
     }
 
-    pub fn surfaces(&self) -> &Arc<HashMap<DeclarationId, DeclarationSurface>> {
+    pub fn surfaces(&self) -> &Arc<crate::parent_map::ParentMap<DeclarationId, DeclarationSurface>> {
         &self.surfaces
     }
 
@@ -726,7 +855,7 @@ impl SemanticSnapshot {
         &self.semantic_graph
     }
 
-    pub fn callable_analyses(&self) -> &Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>> {
+    pub fn callable_analyses(&self) -> &Arc<crate::checker::CallableAnalysisTable> {
         &self.callable_analyses
     }
 

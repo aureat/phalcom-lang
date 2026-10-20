@@ -98,6 +98,13 @@ impl DependencyIndex {
             return;
         }
         transaction.forward.insert(key.clone(), self.forward.get(key).cloned());
+        #[cfg(feature = "perf-observability")]
+        {
+            use telos_observability::{PerfContext, PerfCounter};
+            let context = PerfContext::current_thread();
+            context.record_counter(PerfCounter::SemanticDbUndoDependencyEntries, 1);
+            context.record_counter(PerfCounter::SemanticDbUndoDependencyForwardEntries, 1);
+        }
     }
 
     fn remember_reverse(&mut self, key: &QueryKey) {
@@ -108,17 +115,39 @@ impl DependencyIndex {
             return;
         }
         transaction.reverse.insert(key.clone(), self.reverse.get(key).cloned());
+        #[cfg(feature = "perf-observability")]
+        {
+            use telos_observability::{PerfContext, PerfCounter};
+            let context = PerfContext::current_thread();
+            context.record_counter(PerfCounter::SemanticDbUndoDependencyEntries, 1);
+            context.record_counter(PerfCounter::SemanticDbUndoDependencyReverseEntries, 1);
+        }
     }
 
     pub fn replace_dependencies(&mut self, key: QueryKey, dependencies: impl IntoIterator<Item = DependencyEdge>) {
+        self.replace_dependencies_with_leaves(key, dependencies, |_| false);
+    }
+
+    /// Retains forward observations of immutable roots without reverse edges.
+    pub(crate) fn replace_dependencies_with_leaves(
+        &mut self,
+        key: QueryKey,
+        dependencies: impl IntoIterator<Item = DependencyEdge>,
+        is_immutable: impl Fn(&QueryKey) -> bool,
+    ) {
         let edges: Vec<DependencyEdge> = dependencies.into_iter().collect();
         let mut reverse_keys = self
             .forward
             .get(&key)
             .into_iter()
-            .flat_map(|old_edges| old_edges.iter().map(|edge| edge.dependency.clone()))
+            .flat_map(|old_edges| {
+                old_edges
+                    .iter()
+                    .filter(|edge| !is_immutable(&edge.dependency))
+                    .map(|edge| edge.dependency.clone())
+            })
             .collect::<BTreeSet<_>>();
-        reverse_keys.extend(edges.iter().map(|edge| edge.dependency.clone()));
+        reverse_keys.extend(edges.iter().filter(|edge| !is_immutable(&edge.dependency)).map(|edge| edge.dependency.clone()));
         self.remember_forward(&key);
         for dependency in reverse_keys {
             self.remember_reverse(&dependency);
@@ -132,6 +161,9 @@ impl DependencyIndex {
         }
 
         for edge in &edges {
+            if is_immutable(&edge.dependency) {
+                continue;
+            }
             self.reverse.entry(edge.dependency.clone()).or_default().insert(key.clone());
         }
         self.forward.insert(key, edges);
@@ -145,7 +177,10 @@ impl DependencyIndex {
             .unwrap_or_default();
         self.remember_forward(key);
         for dependency in dependencies {
-            self.remember_reverse(&dependency);
+            // Immutable leaves have no reverse row to mutate or journal.
+            if self.reverse.contains_key(&dependency) {
+                self.remember_reverse(&dependency);
+            }
         }
         if let Some(old_edges) = self.forward.remove(key) {
             for edge in old_edges {
@@ -191,10 +226,15 @@ impl DependencyIndex {
     pub fn reverse_closure(&self, seeds: impl IntoIterator<Item = QueryKey>) -> BTreeSet<QueryKey> {
         let mut closure = BTreeSet::new();
         let mut worklist: VecDeque<QueryKey> = seeds.into_iter().collect();
+        let seed_count = worklist.len() as u64;
+        let mut nodes_visited = 0u64;
+        let mut edges_considered = 0u64;
 
         while let Some(current) = worklist.pop_front() {
             if closure.insert(current.clone()) {
+                nodes_visited = nodes_visited.saturating_add(1);
                 if let Some(dependents) = self.reverse.get(&current) {
+                    edges_considered = edges_considered.saturating_add(dependents.len() as u64);
                     for dep in dependents {
                         if !closure.contains(dep) {
                             worklist.push_back(dep.clone());
@@ -203,6 +243,17 @@ impl DependencyIndex {
                 }
             }
         }
+
+        #[cfg(feature = "perf-observability")]
+        {
+            use telos_observability::{PerfContext, PerfCounter};
+            let context = PerfContext::current_thread();
+            context.record_counter(PerfCounter::SemanticReverseClosureSeeds, seed_count);
+            context.record_counter(PerfCounter::SemanticReverseClosureNodesVisited, nodes_visited);
+            context.record_counter(PerfCounter::SemanticReverseClosureEdgesConsidered, edges_considered);
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        let _ = (seed_count, nodes_visited, edges_considered);
 
         closure
     }

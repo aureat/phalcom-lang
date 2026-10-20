@@ -1,6 +1,7 @@
 //! Canonical inherent implementation fragment analysis, target resolution, and contribution publication.
 
 use crate::checker::context::{CheckerControl, CheckingContext};
+use crate::checker::analysis_map::AnalysisMap;
 use crate::checker::declaration_signature::{
     CallableSyntaxRef, DelegationError, callable_id_for_syntax, delegated_accessor_signatures, delegated_member_visibility,
     semantic_signature_for_syntax_with_resolver,
@@ -613,7 +614,7 @@ pub struct AssociatedTypeBindingFailure {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConformanceAssociatedTypePlan {
     pub impl_id: ImplId,
-    pub bindings: BTreeMap<crate::traits::AssociatedTypeRequirementId, AssociatedTypeBindingTemplate>,
+    pub bindings: AnalysisMap<crate::traits::AssociatedTypeRequirementId, AssociatedTypeBindingTemplate>,
     pub failures: Box<[AssociatedTypeBindingFailure]>,
     pub diagnostics: Box<[SemanticDiagnostic]>,
     pub fingerprint: ProductFingerprint,
@@ -623,13 +624,39 @@ impl ConformanceAssociatedTypePlan {
     pub fn empty(impl_id: ImplId) -> Self {
         let mut plan = Self {
             impl_id,
-            bindings: BTreeMap::new(),
+            bindings: AnalysisMap::new(),
             failures: Box::new([]),
             diagnostics: Box::new([]),
             fingerprint: ProductFingerprint::default(),
         };
         plan.fingerprint = associated_type_plan_fingerprint(&plan);
         plan
+    }
+
+    pub(crate) fn from_frozen_parts(
+        impl_id: ImplId,
+        bindings: AnalysisMap<crate::traits::AssociatedTypeRequirementId, AssociatedTypeBindingTemplate>,
+        failures: Box<[AssociatedTypeBindingFailure]>,
+        diagnostics: Box<[SemanticDiagnostic]>,
+    ) -> Self {
+        let mut plan = Self {
+            impl_id,
+            bindings,
+            failures,
+            diagnostics,
+            fingerprint: ProductFingerprint::default(),
+        };
+        plan.fingerprint = associated_type_plan_fingerprint(&plan);
+        plan
+    }
+
+    pub(crate) fn from_parts(
+        impl_id: ImplId,
+        bindings: AnalysisMap<crate::traits::AssociatedTypeRequirementId, AssociatedTypeBindingTemplate>,
+        failures: Box<[AssociatedTypeBindingFailure]>,
+        diagnostics: Box<[SemanticDiagnostic]>,
+    ) -> Self {
+        Self::from_frozen_parts(impl_id, bindings, failures, diagnostics)
     }
 }
 
@@ -830,7 +857,7 @@ pub fn build_conformance_associated_type_plan(
 
     let mut plan = ConformanceAssociatedTypePlan {
         impl_id: impl_id.clone(),
-        bindings,
+        bindings: bindings.into(),
         failures: failures.into_boxed_slice(),
         diagnostics: diagnostics.into_boxed_slice(),
         fingerprint: ProductFingerprint::default(),
@@ -855,7 +882,7 @@ fn normalize_source_associated_bindings(
     // results are independent of source order.
     let source_plan = ConformanceAssociatedTypePlan {
         impl_id: impl_id.clone(),
-        bindings: bindings.clone(),
+        bindings: bindings.clone().into(),
         failures: Box::new([]),
         diagnostics: Box::new([]),
         fingerprint: ProductFingerprint::default(),
@@ -1032,9 +1059,9 @@ fn normalize_exact_requirement_signature(
     store: &mut TypeStore,
     trait_ref: &TraitRef,
     target: TypeId,
-    associated_types: &BTreeMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
+    associated_types: &AnalysisMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
     index: &ConformanceIndex,
-    plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    plans: &ConformanceWitnessPlans,
     trait_surfaces: &TraitSurfaceTable,
     declarations: &DeclarationTypeTable,
     hierarchy: &dyn TypeHierarchy,
@@ -1119,7 +1146,7 @@ pub(crate) fn project_inferred_trait_default_signature(
     canonical_signature: &CallableSemanticSignature,
     trait_surfaces: &TraitSurfaceTable,
     conformance_index: &ConformanceIndex,
-    witness_plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    witness_plans: &ConformanceWitnessPlans,
     declarations: &DeclarationTypeTable,
     hierarchy: &dyn TypeHierarchy,
 ) -> Option<CallableSemanticSignature> {
@@ -1172,13 +1199,19 @@ pub(crate) fn project_inferred_trait_default_signature(
                 exact_subject,
                 exact_trait_ref,
             } => {
+                let impl_bindings = derived
+                    .impl_bindings
+                    .bindings()
+                    .iter()
+                    .map(|(parameter, ty)| (*parameter, *ty))
+                    .collect::<HashMap<_, _>>();
                 let environment = conformance_environment(
                     store,
                     Some(declarations),
                     surface,
                     exact_trait_ref,
                     *exact_subject,
-                    derived.impl_bindings.bindings(),
+                    &impl_bindings,
                 );
                 let signature = member.instantiate(store, &environment).signature;
                 Some(normalize_source_signature_in_store(
@@ -1922,13 +1955,54 @@ pub struct ConformanceWitnessPlan {
     pub generic_signature: Option<GenericSignature>,
     /// Source-level trait requirements after binding the trait arguments and
     /// symbolic `Self` to the conformance head template.
-    pub requirement_views: BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
-    pub requirements: BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+    pub requirement_views: crate::ordered_map::OrderedMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+    pub requirements: crate::ordered_map::OrderedMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
     pub associated_type_plan: ConformanceAssociatedTypePlan,
     pub fingerprint: ProductFingerprint,
     pub invalid_explicit_members: bool,
     pub completeness: ConformanceCompleteness,
     pub diagnostics: Box<[SemanticDiagnostic]>,
+}
+
+/// Frozen canonical witness plans with source-local workspace overlays.
+pub type ConformanceWitnessPlans = crate::parent_map::ParentMap<ImplId, Arc<ConformanceWitnessPlan>>;
+
+impl ConformanceWitnessPlan {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_parts<RV, R>(
+        impl_id: ImplId,
+        source_module: crate::identity::ModuleId,
+        target_template: TypeId,
+        trait_ref_template: TraitRef,
+        generic_signature: Option<GenericSignature>,
+        requirement_views: RV,
+        requirements: R,
+        associated_type_plan: ConformanceAssociatedTypePlan,
+        invalid_explicit_members: bool,
+        completeness: ConformanceCompleteness,
+        diagnostics: Box<[SemanticDiagnostic]>,
+    ) -> Self
+    where
+        RV: Into<crate::ordered_map::OrderedMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>>,
+        R: Into<crate::ordered_map::OrderedMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>>,
+    {
+        let mut plan = Self {
+            impl_id,
+            source_module,
+            target_template,
+            trait_ref_template,
+            generic_signature,
+            requirement_views: requirement_views.into(),
+            requirements: requirements.into(),
+            associated_type_plan,
+            fingerprint: ProductFingerprint::default(),
+            invalid_explicit_members,
+            completeness,
+            diagnostics,
+        };
+        plan.fingerprint = conformance_witness_plan_fingerprint(&plan);
+        plan
+    }
 }
 
 /// Exact target/TraitRef proof instantiated from a source witness plan.
@@ -1938,9 +2012,9 @@ pub struct ConformanceEvidence {
     pub exact_target: TypeId,
     pub exact_trait_ref: TraitRef,
     pub impl_environment: TypeEnvironment,
-    pub requirement_views: BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
-    pub requirements: BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
-    pub associated_types: BTreeMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
+    pub requirement_views: AnalysisMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+    pub requirements: AnalysisMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+    pub associated_types: AnalysisMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
     /// Trait-header constraints instantiated for this exact target and trait
     /// application, with exact associated projections normalized. The raw
     /// witness resolver records these obligations; the generic proof session
@@ -1950,8 +2024,40 @@ pub struct ConformanceEvidence {
     /// `None` marks a raw witness that has not passed the generic proof session;
     /// `Some(empty)` is a proof-complete exact witness with no conformance
     /// prerequisites.
-    pub trait_header_conformance_proofs: Option<BTreeMap<crate::generic_evidence::GenericConformanceKey, crate::generic_evidence::GenericConformanceEvidence>>,
+    pub trait_header_conformance_proofs:
+        Option<AnalysisMap<crate::generic_evidence::GenericConformanceKey, crate::generic_evidence::GenericConformanceEvidence>>,
     pub fingerprint: ProductFingerprint,
+}
+
+impl ConformanceEvidence {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_frozen_parts(
+        source_impl: ImplId,
+        exact_target: TypeId,
+        exact_trait_ref: TraitRef,
+        impl_environment: TypeEnvironment,
+        requirement_views: AnalysisMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+        requirements: AnalysisMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+        associated_types: AnalysisMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
+        trait_header_contract: Box<[GenericConstraint]>,
+        trait_header_conformance_proofs: Option<
+            AnalysisMap<crate::generic_evidence::GenericConformanceKey, crate::generic_evidence::GenericConformanceEvidence>,
+        >,
+        fingerprint: ProductFingerprint,
+    ) -> Self {
+        Self {
+            source_impl,
+            exact_target,
+            exact_trait_ref,
+            impl_environment,
+            requirement_views,
+            requirements,
+            associated_types,
+            trait_header_contract,
+            trait_header_conformance_proofs,
+            fingerprint,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2169,7 +2275,7 @@ pub fn build_conformance_witness_plan(
                 &TypeTerm::Canonical(contribution.target_head),
                 &contribution.trait_ref,
             );
-            let staged_associated_types = associated_type_plan
+            let staged_associated_types: AnalysisMap<_, _> = associated_type_plan
                 .bindings
                 .iter()
                 .map(|(req, binding)| {
@@ -2183,9 +2289,9 @@ pub fn build_conformance_witness_plan(
                         },
                     )
                 })
-                .collect::<BTreeMap<_, _>>();
+                .collect();
 
-            let witness_plans_map: BTreeMap<crate::identity::ImplId, std::sync::Arc<ConformanceWitnessPlan>> = all_associated_type_plans
+            let witness_plans_map: ConformanceWitnessPlans = all_associated_type_plans
                 .iter()
                 .map(|(impl_id, p)| {
                     let (target_template, trait_ref_template, generic_signature) = if let Some(contrib) = conformance_index.get(impl_id) {
@@ -2208,8 +2314,8 @@ pub fn build_conformance_witness_plan(
                             target_template,
                             trait_ref_template,
                             generic_signature,
-                            requirement_views: BTreeMap::new(),
-                            requirements: BTreeMap::new(),
+                            requirement_views: BTreeMap::new().into(),
+                            requirements: BTreeMap::new().into(),
                             associated_type_plan: p.clone(),
                             fingerprint: ProductFingerprint::default(),
                             invalid_explicit_members: false,
@@ -2343,8 +2449,8 @@ pub fn build_conformance_witness_plan(
         target_template: contribution.target_head,
         trait_ref_template: contribution.trait_ref.clone(),
         generic_signature: contribution.generic_signature.clone(),
-        requirement_views,
-        requirements,
+        requirement_views: requirement_views.into(),
+        requirements: requirements.into(),
         associated_type_plan,
         fingerprint: ProductFingerprint::default(),
         invalid_explicit_members,
@@ -2382,14 +2488,14 @@ pub fn conformance_witness_plan_fingerprint(plan: &ConformanceWitnessPlan) -> Pr
     ProductFingerprint::new(hasher.finish())
 }
 
-fn conformance_evidence_fingerprint(
+pub(crate) fn conformance_evidence_fingerprint(
     source_plan: ProductFingerprint,
     target: TypeId,
     trait_ref: &TraitRef,
     environment: &TypeEnvironment,
-    requirement_views: &BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
-    requirements: &BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
-    associated_types: &BTreeMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
+    requirement_views: &AnalysisMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+    requirements: &AnalysisMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+    associated_types: &AnalysisMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
     trait_header_contract: &[GenericConstraint],
 ) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
@@ -2468,7 +2574,7 @@ fn normalize_exact_trait_contract_constraint(
 /// repeating witness/default selection.
 pub fn resolve_conformance_evidence(
     index: &ConformanceIndex,
-    plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    plans: &ConformanceWitnessPlans,
     trait_surface: &TraitSurface,
     declarations: &DeclarationTypeTable,
     store: &mut TypeStore,
@@ -2486,7 +2592,7 @@ pub fn resolve_conformance_evidence(
 /// applications without rebuilding a second conformance query.
 pub fn resolve_conformance_evidence_with_surfaces(
     index: &ConformanceIndex,
-    plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    plans: &ConformanceWitnessPlans,
     trait_surfaces: &TraitSurfaceTable,
     declarations: &DeclarationTypeTable,
     store: &mut TypeStore,
@@ -2596,7 +2702,7 @@ pub fn resolve_conformance_evidence_with_surfaces(
                 },
             )
         })
-        .collect::<BTreeMap<_, _>>();
+        .collect::<AnalysisMap<_, _>>();
     for requirement in plan.associated_type_plan.bindings.keys() {
         let value = associated_types
             .get(requirement)
@@ -2625,7 +2731,11 @@ pub fn resolve_conformance_evidence_with_surfaces(
             crate::types::ProjectionNormalizationResult::Normalized(value) | crate::types::ProjectionNormalizationResult::Symbolic(value) => value,
             other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
         };
-        associated_types.get_mut(requirement).expect("associated binding remains staged").value = AssociatedTypeBindingValue::Type(value);
+        associated_types
+            .get_source_mut(requirement)
+            .expect("exact associated bindings are source mutable")
+            .expect("associated binding remains staged")
+            .value = AssociatedTypeBindingValue::Type(value);
     }
     let mut trait_header_contract = Vec::new();
     if let Some(signature) = &trait_surface.generic_signature {
@@ -2701,6 +2811,8 @@ pub fn resolve_conformance_evidence_with_surfaces(
             Err(result) => return projection_result_to_conformance_resolution(result, head.impl_id.clone()),
         };
     }
+    let requirement_views: AnalysisMap<_, _> = requirement_views.into();
+    let requirements: AnalysisMap<_, _> = requirements.into();
     let fingerprint = conformance_evidence_fingerprint(
         plan.fingerprint,
         target,
@@ -2716,8 +2828,8 @@ pub fn resolve_conformance_evidence_with_surfaces(
         exact_target: target,
         exact_trait_ref: head.exact_trait_ref.clone(),
         impl_environment: environment,
-        requirement_views,
-        requirements,
+        requirement_views: requirement_views.into(),
+        requirements: requirements.into(),
         associated_types,
         trait_header_contract,
         trait_header_conformance_proofs: None,
@@ -2900,12 +3012,21 @@ fn specialize_inherent_applicability(
 /// Workspace-level source index for explicit conformance heads.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConformanceIndex {
-    contributions: BTreeMap<ImplId, ConformanceContribution>,
+    contributions: crate::parent_map::ParentMap<ImplId, ConformanceContribution>,
 }
 
 impl ConformanceIndex {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<(ImplId, ConformanceContribution)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, crate::parent_map::FrozenParentMapError> {
+        Ok(Self {
+            contributions: crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(entries, allocations)?,
+        })
     }
 
     pub fn insert(&mut self, contribution: ConformanceContribution) {
@@ -3939,7 +4060,37 @@ pub struct ConditionalInherentMember {
 pub struct ConditionalInherentMemberSet {
     pub target: Option<InherentImplTarget>,
     pub members: Vec<ConditionalInherentMember>,
-    pub by_selector: HashMap<(DispatchSide, Selector), Vec<usize>>,
+    pub by_selector: ConditionalInherentSelectorIndex,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ConditionalInherentSelectorIndex {
+    source: HashMap<(DispatchSide, Selector), Vec<usize>>,
+    frozen: Option<crate::ordered_map::OrderedMap<(DispatchSide, Selector), Vec<usize>>>,
+}
+
+impl ConditionalInherentSelectorIndex {
+    fn insert(&mut self, key: (DispatchSide, Selector), index: usize) {
+        assert!(self.frozen.is_none(), "cannot mutate a frozen conditional selector index");
+        self.source.entry(key).or_default().push(index);
+    }
+
+    fn get(&self, key: &(DispatchSide, Selector)) -> Option<&[usize]> {
+        self.source
+            .get(key)
+            .map(Vec::as_slice)
+            .or_else(|| self.frozen.as_ref().and_then(|entries| entries.get(key).map(Vec::as_slice)))
+    }
+
+    fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<((DispatchSide, Selector), Vec<usize>)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, crate::ordered_map::FrozenOrderedMapError> {
+        Ok(Self {
+            source: HashMap::new(),
+            frozen: Some(crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(entries, allocations)?),
+        })
+    }
 }
 
 impl ConditionalInherentMemberSet {
@@ -3947,8 +4098,54 @@ impl ConditionalInherentMemberSet {
         Self {
             target,
             members: Vec::new(),
-            by_selector: HashMap::new(),
+            by_selector: ConditionalInherentSelectorIndex::default(),
         }
+    }
+
+    pub(crate) fn from_frozen_import_parts_with_allocation_budget(
+        target: Option<InherentImplTarget>,
+        members: Vec<ConditionalInherentMember>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, crate::ordered_map::FrozenOrderedMapError> {
+        let mut ordered = allocations
+            .vector::<((DispatchSide, Selector), usize)>(members.len())
+            .map_err(crate::ordered_map::FrozenOrderedMapError::Allocation)?;
+        for (index, member) in members.iter().enumerate() {
+            ordered.push((
+                (
+                    member.signature_template.side,
+                    crate::traits::clone_selector_with_allocation_budget(&member.signature_template.callable.selector, allocations)
+                        .map_err(crate::ordered_map::FrozenOrderedMapError::Allocation)?,
+                ),
+                index,
+            ));
+        }
+        ordered.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let mut index_entries = allocations
+            .vector::<((DispatchSide, Selector), Vec<usize>)>(ordered.len())
+            .map_err(crate::ordered_map::FrozenOrderedMapError::Allocation)?;
+        let mut start = 0;
+        while start < ordered.len() {
+            let mut end = start + 1;
+            while end < ordered.len() && ordered[start].0 == ordered[end].0 {
+                end += 1;
+            }
+            let mut indices = allocations
+                .vector::<usize>(end - start)
+                .map_err(crate::ordered_map::FrozenOrderedMapError::Allocation)?;
+            indices.extend(ordered[start..end].iter().map(|(_, index)| *index));
+            index_entries.push((
+                (
+                    ordered[start].0.0,
+                    crate::traits::clone_selector_with_allocation_budget(&ordered[start].0.1, allocations)
+                        .map_err(crate::ordered_map::FrozenOrderedMapError::Allocation)?,
+                ),
+                indices,
+            ));
+            start = end;
+        }
+        let by_selector = ConditionalInherentSelectorIndex::from_frozen_entries_with_allocation_budget(index_entries, allocations)?;
+        Ok(Self { target, members, by_selector })
     }
 
     pub fn add_member(&mut self, member: ConditionalInherentMember) {
@@ -3956,11 +4153,11 @@ impl ConditionalInherentMemberSet {
         let selector = member.signature_template.callable.selector.clone();
         let index = self.members.len();
         self.members.push(member);
-        self.by_selector.entry((side, selector)).or_default().push(index);
+        self.by_selector.insert((side, selector), index);
     }
 
     pub fn get_members(&self, side: DispatchSide, selector: &Selector) -> Option<&[usize]> {
-        self.by_selector.get(&(side, selector.clone())).map(|v| v.as_slice())
+        self.by_selector.get(&(side, selector.clone()))
     }
 
     pub fn get_member(&self, side: DispatchSide, selector: &Selector) -> Option<&ConditionalInherentMember> {
@@ -4047,6 +4244,53 @@ pub struct EffectiveCallableDefinition {
     /// Source-only provenance for an accepted inherent implementation body.
     /// The published signature remains declaration-canonical.
     pub inherent_body_context: Option<InherentBodyContext>,
+}
+
+impl EffectiveCallableDefinition {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let origin = match &self.origin {
+            CallableDefinitionOrigin::PrimaryDeclaration => CallableDefinitionOrigin::PrimaryDeclaration,
+            CallableDefinitionOrigin::InherentImpl(implementation) => {
+                CallableDefinitionOrigin::InherentImpl(implementation.clone_with_allocation_budget(allocations)?)
+            }
+            CallableDefinitionOrigin::ConformanceWitness(implementation) => {
+                CallableDefinitionOrigin::ConformanceWitness(implementation.clone_with_allocation_budget(allocations)?)
+            }
+        };
+        let body_provenance = match &self.body_provenance {
+            CallableDefinitionBodyProvenance::SourceBody => CallableDefinitionBodyProvenance::SourceBody,
+            CallableDefinitionBodyProvenance::GeneratedDelegation { target_field } => CallableDefinitionBodyProvenance::GeneratedDelegation {
+                target_field: allocations.boxed_str(target_field)?,
+            },
+        };
+        let inherent_body_context = self
+            .inherent_body_context
+            .as_ref()
+            .map(|context| {
+                Ok::<_, AllocationError>(InherentBodyContext {
+                    generic_signature: context
+                        .generic_signature
+                        .as_ref()
+                        .map(|signature| signature.clone_with_allocation_budget(allocations))
+                        .transpose()?,
+                    covering: context
+                        .covering
+                        .as_ref()
+                        .map(|covering| covering.clone_with_allocation_budget(allocations))
+                        .transpose()?,
+                    source_target_head: context.source_target_head,
+                })
+            })
+            .transpose()?;
+        Ok(Self {
+            callable: self.callable.clone_with_allocation_budget(allocations)?,
+            origin,
+            source_member_index: self.source_member_index,
+            signature: self.signature.clone_with_allocation_budget(allocations)?,
+            body_provenance,
+            inherent_body_context,
+        })
+    }
 }
 
 /// The impl-relative coordinate system used when checking an inherent member's
@@ -4887,7 +5131,7 @@ pub fn check_impl_domain_applicability(
 pub struct ConditionalImplProofContext<'a> {
     pub lexical_evidence: Option<&'a crate::generic_evidence::GenericEvidenceEnvironment>,
     pub conformance_index: Option<&'a ConformanceIndex>,
-    pub witness_plans: Option<&'a BTreeMap<ImplId, std::sync::Arc<ConformanceWitnessPlan>>>,
+    pub witness_plans: Option<&'a ConformanceWitnessPlans>,
     pub trait_surfaces: Option<&'a TraitSurfaceTable>,
     pub derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>,
     pub declarations: Option<&'a DeclarationTypeTable>,

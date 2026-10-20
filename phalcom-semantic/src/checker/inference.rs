@@ -626,7 +626,7 @@ impl InferenceOutcome {
 use crate::types::parameter::{GenericSignature, TypeTerm};
 
 /// Solver-local inference session.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct InferenceSession {
     variables: Vec<InferenceVariable>,
     constraints: Vec<InferenceConstraint>,
@@ -655,6 +655,36 @@ pub struct InferenceSession {
     /// Constraint currently being evaluated. Projection unification uses this
     /// only to attach a residual proof obligation to its owning relation.
     active_constraint_index: Option<u32>,
+}
+
+impl Default for InferenceSession {
+    fn default() -> Self {
+        #[cfg(feature = "perf-observability")]
+        telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::GenericInferenceSessions, 1);
+        Self {
+            variables: Vec::new(),
+            constraints: Vec::new(),
+            substitutions: HashMap::new(),
+            lower_bounds: HashMap::new(),
+            upper_bounds: HashMap::new(),
+            var_aliases: HashMap::new(),
+            var_terms: HashMap::new(),
+            required_premises: Vec::new(),
+            subtype_edges: Vec::new(),
+            bound_origins: HashMap::new(),
+            bound_roles: HashMap::new(),
+            variable_constraint_indices: HashMap::new(),
+            next_var_index: 0,
+            frames: Vec::new(),
+            root_frame: None,
+            next_frame_index: 0,
+            row_solver: Weak::new(),
+            pending_row_equations: Vec::new(),
+            queued_row_equations: Vec::new(),
+            residual_obligations: HashMap::new(),
+            active_constraint_index: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -854,6 +884,8 @@ impl InferenceSession {
     /// Adds a constraint to the session.
     pub fn add_constraint(&mut self, relation: InferenceRelation, origin: ConstraintOrigin, explanation: Option<ExplanationId>) {
         let role = Self::role_for_origin(&origin);
+        #[cfg(feature = "perf-observability")]
+        telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::GenericInferenceConstraintsGenerated, 1);
         self.constraints.push(InferenceConstraint {
             relation,
             origin,
@@ -871,6 +903,8 @@ impl InferenceSession {
         explanation: Option<ExplanationId>,
         role: InferenceConstraintRole,
     ) {
+        #[cfg(feature = "perf-observability")]
+        telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::GenericInferenceConstraintsGenerated, 1);
         self.constraints.push(InferenceConstraint {
             relation,
             origin,
@@ -890,6 +924,8 @@ impl InferenceSession {
     ) {
         let role = Self::role_for_origin(&origin);
         self.record_relation_support(&relation, support);
+        #[cfg(feature = "perf-observability")]
+        telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::GenericInferenceConstraintsGenerated, 1);
         self.constraints.push(InferenceConstraint {
             relation,
             origin,
@@ -2481,6 +2517,12 @@ impl InferenceSession {
         hierarchy: &dyn TypeHierarchy,
         control: &CheckerControl,
     ) -> Result<bool, Box<InferenceOutcome>> {
+        #[cfg(feature = "perf-observability")]
+        {
+            let context = telos_observability::PerfContext::current_thread();
+            context.record_counter(telos_observability::PerfCounter::GenericInferenceSolveCalls, 1);
+            context.record_distribution_sample("generic_inference_constraints_per_solve", self.constraints.len() as u64);
+        }
         let mut any_changed = false;
         loop {
             if control.is_cancelled() {
@@ -2492,6 +2534,8 @@ impl InferenceSession {
             let mut changed = false;
             let constraints = self.constraints.clone();
             for (constraint_index, constraint) in constraints.iter().enumerate() {
+                #[cfg(feature = "perf-observability")]
+                telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::GenericInferenceConstraintsVisited, 1);
                 if control.is_cancelled() {
                     return Err(Box::new(InferenceOutcome::Cancelled));
                 }

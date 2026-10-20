@@ -4,7 +4,7 @@ use crate::advisory::ValueShape;
 use crate::advisory::{AdvisoryFact, AdvisoryTargetResolution};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::{AnalysisStatus, BindingConsistency, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex};
-use crate::identity::{CallableId, ExpressionId, FieldId, ModuleId, SourceSiteId};
+use crate::identity::{BindingId, CallableId, ExpressionId, FieldId, ModuleId, SourceSiteId};
 use crate::signature::CallableSemanticSignature;
 use crate::source_index::SourceSemanticIndex;
 use crate::source_index::interval::{RangeEntry, RangeIndex};
@@ -13,6 +13,7 @@ use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
 use crate::types::store::TypeStore;
 use phalcom_common::range::SourceRange;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedMap};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -337,6 +338,14 @@ pub struct FormalFactSite {
     pub contract: Option<FormalContractRelation>,
 }
 
+fn compare_formal_fact_sites(left: &FormalFactSite, right: &FormalFactSite) -> std::cmp::Ordering {
+    left.module
+        .cmp(&right.module)
+        .then_with(|| left.range.start.cmp(&right.range.start))
+        .then_with(|| left.range.len().cmp(&right.range.len()))
+        .then_with(|| left.fact.cmp(&right.fact))
+}
+
 /// Formal binding-contract relation retained by the source projection.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FormalContractRelation {
@@ -363,14 +372,56 @@ pub struct SemanticSiteView<'a> {
 /// Formal presentation facts and interval index for one source module.
 #[derive(Clone, Debug, Default)]
 pub struct ModuleFormalProjection {
-    by_fact: BTreeMap<FormalFactRef, FormalFactSite>,
+    by_fact: FormalFactLookup,
     sites: Arc<[FormalFactSite]>,
     intervals: RangeIndex<usize>,
+    binding_attachments: BindingAttachmentLookup,
+}
+
+#[derive(Clone, Debug)]
+enum FormalFactLookup {
+    Source(BTreeMap<FormalFactRef, FormalFactSite>),
+    Frozen(Box<[usize]>),
+}
+
+impl Default for FormalFactLookup {
+    fn default() -> Self {
+        Self::Source(BTreeMap::new())
+    }
+}
+
+#[derive(Clone, Debug)]
+enum BindingAttachmentLookup {
+    Source(BTreeMap<(CallableId, BindingId), SourceRange>),
+    Frozen(Box<[(usize, SourceRange)]>),
+}
+
+impl Default for BindingAttachmentLookup {
+    fn default() -> Self {
+        Self::Source(BTreeMap::new())
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum ModuleFormalProjectionBuildError {
+    Allocation(AllocationError),
+    DuplicateFact,
+}
+
+#[derive(Debug)]
+pub(crate) enum FormalSemanticProjectionBuildError {
+    Allocation(AllocationError),
+    DuplicateFact,
+    DuplicateModule,
 }
 
 impl ModuleFormalProjection {
     /// Creates a module formal projection from already-built formal fact sites.
     pub fn new(sites: Vec<FormalFactSite>) -> Self {
+        Self::new_with_binding_attachments(sites, BTreeMap::new())
+    }
+
+    fn new_with_binding_attachments(sites: Vec<FormalFactSite>, binding_attachments: BTreeMap<(CallableId, BindingId), SourceRange>) -> Self {
         let mut by_fact = BTreeMap::new();
         for site in &sites {
             by_fact.insert(site.fact.clone(), site.clone());
@@ -383,15 +434,72 @@ impl ModuleFormalProjection {
                 .map(|(index, site)| RangeEntry::new(site.range, index, formal_fact_priority(&site.fact))),
         );
         Self {
-            by_fact,
+            by_fact: FormalFactLookup::Source(by_fact),
             sites: sites_arc,
             intervals,
+            binding_attachments: BindingAttachmentLookup::Source(binding_attachments),
         }
+    }
+
+    fn new_frozen_with_allocation_budget(
+        sites: Vec<FormalFactSite>,
+        binding_ranges: &crate::parent_map::ParentMap<CallableId, crate::ordered_map::OrderedMap<BindingId, SourceRange>>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, ModuleFormalProjectionBuildError> {
+        let mut fact_indices = allocations.vector::<usize>(sites.len()).map_err(ModuleFormalProjectionBuildError::Allocation)?;
+        fact_indices.extend(0..sites.len());
+        fact_indices.sort_unstable_by(|&left, &right| sites[left].fact.cmp(&sites[right].fact));
+        if fact_indices.windows(2).any(|pair| sites[pair[0]].fact == sites[pair[1]].fact) {
+            return Err(ModuleFormalProjectionBuildError::DuplicateFact);
+        }
+
+        let binding_attachment_count = sites
+            .iter()
+            .filter_map(|site| match &site.fact {
+                FormalFactRef::Binding { callable, binding } => binding_ranges.get(callable)?.get(binding),
+                FormalFactRef::Callable(_) | FormalFactRef::Expression { .. } => None,
+            })
+            .count();
+        let mut binding_attachments = allocations
+            .vector::<(usize, SourceRange)>(binding_attachment_count)
+            .map_err(ModuleFormalProjectionBuildError::Allocation)?;
+        for (index, site) in sites.iter().enumerate() {
+            if let FormalFactRef::Binding { callable, binding } = &site.fact
+                && let Some(range) = binding_ranges.get(callable).and_then(|ranges| ranges.get(binding))
+            {
+                binding_attachments.push((index, *range));
+            }
+        }
+
+        let interval_entries = sites
+            .iter()
+            .enumerate()
+            .map(|(index, site)| RangeEntry::new(site.range, index, formal_fact_priority(&site.fact)));
+        let intervals =
+            RangeIndex::new_with_allocation_budget(interval_entries, sites.len(), allocations).map_err(ModuleFormalProjectionBuildError::Allocation)?;
+        let fact_indices = allocations.boxed_slice(fact_indices).map_err(ModuleFormalProjectionBuildError::Allocation)?;
+        let binding_attachments = allocations
+            .boxed_slice(binding_attachments)
+            .map_err(ModuleFormalProjectionBuildError::Allocation)?;
+        let sites = allocations.arc_slice(sites).map_err(ModuleFormalProjectionBuildError::Allocation)?;
+
+        Ok(Self {
+            by_fact: FormalFactLookup::Frozen(fact_indices),
+            sites,
+            intervals,
+            binding_attachments: BindingAttachmentLookup::Frozen(binding_attachments),
+        })
     }
 
     /// Returns one formal site by canonical fact identity.
     pub fn get(&self, fact: &FormalFactRef) -> Option<&FormalFactSite> {
-        self.by_fact.get(fact)
+        match &self.by_fact {
+            FormalFactLookup::Source(by_fact) => by_fact.get(fact),
+            FormalFactLookup::Frozen(indices) => {
+                let position = indices.binary_search_by(|&index| self.sites[index].fact.cmp(fact)).ok()?;
+                self.sites.get(indices[position])
+            }
+        }
     }
 
     /// Returns most-specific formal site at a source position.
@@ -404,12 +512,42 @@ impl ModuleFormalProjection {
     pub fn sites(&self) -> &[FormalFactSite] {
         &self.sites
     }
+
+    /// Returns the exact compiler-owned declaration site for one binding.
+    /// A formal fact may exist without a source attachment (for example for
+    /// an implicit receiver), so its presentation range is not a substitute.
+    pub fn binding_attachment_range(&self, callable: &CallableId, binding: BindingId) -> Option<SourceRange> {
+        match &self.binding_attachments {
+            BindingAttachmentLookup::Source(attachments) => attachments.get(&(callable.clone(), binding)).copied(),
+            BindingAttachmentLookup::Frozen(attachments) => {
+                let fact_index = match &self.by_fact {
+                    FormalFactLookup::Source(_) => return None,
+                    FormalFactLookup::Frozen(indices) => indices
+                        .binary_search_by(|&index| match &self.sites[index].fact {
+                            FormalFactRef::Callable(_) | FormalFactRef::Expression { .. } => std::cmp::Ordering::Less,
+                            FormalFactRef::Binding {
+                                callable: candidate,
+                                binding: candidate_binding,
+                            } => candidate.cmp(callable).then_with(|| candidate_binding.cmp(&binding)),
+                        })
+                        .ok()
+                        .map(|position| indices[position])?,
+                };
+                attachments
+                    .binary_search_by_key(&fact_index, |(index, _)| *index)
+                    .ok()
+                    .map(|position| attachments[position].1)
+            }
+        }
+    }
 }
 
 /// Indexed machine-readable formal source projection with persistent module roots.
 #[derive(Clone, Debug, Default)]
 pub struct FormalSemanticProjection {
-    modules: im::OrdMap<ModuleId, Arc<ModuleFormalProjection>>,
+    modules: Option<im::OrdMap<ModuleId, Arc<ModuleFormalProjection>>>,
+    frozen_modules: Option<Arc<BudgetedSortedMap<ModuleId, Arc<ModuleFormalProjection>>>>,
+    retired_modules: Option<im::OrdSet<ModuleId>>,
 }
 
 impl FormalSemanticProjection {
@@ -425,7 +563,18 @@ impl FormalSemanticProjection {
         analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
         source_index: Option<&SourceSemanticIndex>,
     ) -> ModuleFormalProjection {
+        Self::build_module_projection_with_binding_ranges(module, callable_ids, analyses, source_index, None)
+    }
+
+    fn build_module_projection_with_binding_ranges(
+        module: &ModuleId,
+        callable_ids: impl IntoIterator<Item = CallableId>,
+        analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
+        source_index: Option<&SourceSemanticIndex>,
+        binding_ranges: Option<&BTreeMap<CallableId, BTreeMap<BindingId, SourceRange>>>,
+    ) -> ModuleFormalProjection {
         let mut sites = Vec::new();
+        let mut binding_attachments = BTreeMap::new();
         let module_index = source_index.and_then(|index| index.module(module));
         for callable in callable_ids {
             let Some(analysis) = analyses.get(&callable) else {
@@ -459,11 +608,17 @@ impl FormalSemanticProjection {
                 });
             }
             for binding in analysis.bindings.values() {
+                let attached_range = binding_ranges
+                    .and_then(|callables| callables.get(&analysis.callable))
+                    .and_then(|bindings| bindings.get(&binding.binding))
+                    .copied()
+                    .or_else(|| source_index.and_then(|index| index.source_site_for_binding(&analysis.callable, binding.binding).map(|site| site.range)));
+                if let Some(range) = attached_range {
+                    binding_attachments.insert((analysis.callable.clone(), binding.binding), range);
+                }
                 sites.push(FormalFactSite {
                     module: module.clone(),
-                    range: source_index
-                        .and_then(|index| index.source_site_for_binding(&analysis.callable, binding.binding).map(|site| site.range))
-                        .unwrap_or(binding.range),
+                    range: attached_range.unwrap_or(binding.range),
                     fact: FormalFactRef::Binding {
                         callable: analysis.callable.clone(),
                         binding: binding.binding,
@@ -478,8 +633,8 @@ impl FormalSemanticProjection {
                 });
             }
         }
-        sites.sort_by_key(|site| (site.module.clone(), site.range.start, site.range.len(), site.fact.clone()));
-        ModuleFormalProjection::new(sites)
+        sites.sort_unstable_by(compare_formal_fact_sites);
+        ModuleFormalProjection::new_with_binding_attachments(sites, binding_attachments)
     }
 
     /// Builds projection from immutable callable products while taking source
@@ -487,6 +642,228 @@ impl FormalSemanticProjection {
     /// retain historical ranges; presentation must not publish those stale
     /// positions.
     pub fn from_callable_analyses_with_source_index(analyses: &HashMap<CallableId, Arc<CallableAnalysis>>, source_index: Option<&SourceSemanticIndex>) -> Self {
+        Self::from_callable_analyses_with_attachments(analyses, source_index, None)
+    }
+
+    /// Builds a source-free formal projection from owner-qualified portable
+    /// binding declaration ranges carried by a semantic artifact.
+    pub fn from_callable_analyses_with_binding_ranges(
+        analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
+        binding_ranges: &BTreeMap<CallableId, BTreeMap<BindingId, SourceRange>>,
+    ) -> Self {
+        Self::from_callable_analyses_with_attachments(analyses, None, Some(binding_ranges))
+    }
+
+    /// Builds a source-free formal projection from an imported callable table
+    /// and owner-qualified declaration ranges carried by the artifact.
+    pub fn from_callable_analysis_table_with_binding_ranges(
+        analyses: &crate::checker::CallableAnalysisTable,
+        binding_ranges: &BTreeMap<CallableId, BTreeMap<BindingId, SourceRange>>,
+    ) -> Self {
+        let mut callables_by_module: BTreeMap<ModuleId, Vec<CallableId>> = BTreeMap::new();
+        for callable in analyses.keys() {
+            callables_by_module.entry(callable.module().clone()).or_default().push(callable.clone());
+        }
+        let mut modules = im::OrdMap::new();
+        for (module, mut callable_ids) in callables_by_module {
+            callable_ids.sort();
+            let mut sites = Vec::new();
+            let mut binding_attachments = BTreeMap::new();
+            for callable in callable_ids {
+                let Some(analysis) = analyses.get(&callable) else { continue };
+                sites.push(FormalFactSite {
+                    module: module.clone(),
+                    range: analysis.body_range,
+                    fact: FormalFactRef::Callable(analysis.callable.clone()),
+                    status: callable_status(analysis.status),
+                    causal_invalidity: callable_causal_invalidity(analysis),
+                    contract: None,
+                });
+                for expression in analysis.expressions.values() {
+                    sites.push(FormalFactSite {
+                        module: module.clone(),
+                        range: expression.range,
+                        fact: FormalFactRef::Expression {
+                            callable: analysis.callable.clone(),
+                            expression: expression.id,
+                        },
+                        status: expression_status(&expression.status),
+                        causal_invalidity: expression.causal_invalidity,
+                        contract: None,
+                    });
+                }
+                for binding in analysis.bindings.values() {
+                    let attached_range = binding_ranges.get(&analysis.callable).and_then(|ranges| ranges.get(&binding.binding)).copied();
+                    if let Some(range) = attached_range {
+                        binding_attachments.insert((analysis.callable.clone(), binding.binding), range);
+                    }
+                    sites.push(FormalFactSite {
+                        module: module.clone(),
+                        range: attached_range.unwrap_or(binding.range),
+                        fact: FormalFactRef::Binding {
+                            callable: analysis.callable.clone(),
+                            binding: binding.binding,
+                        },
+                        status: binding_status(binding),
+                        causal_invalidity: binding.causal_invalidity,
+                        contract: binding.contract.as_ref().map(|contract| FormalContractRelation {
+                            ty: contract.ty,
+                            origin: contract.origin,
+                            consistency: binding.consistency.clone(),
+                        }),
+                    });
+                }
+            }
+            sites.sort_unstable_by(compare_formal_fact_sites);
+            modules.insert(
+                module,
+                Arc::new(ModuleFormalProjection::new_with_binding_attachments(sites, binding_attachments)),
+            );
+        }
+        Self {
+            modules: Some(modules),
+            ..Self::default()
+        }
+    }
+
+    /// Builds the immutable artifact projection using only precharged vectors
+    /// and frozen sorted module authority.
+    pub(crate) fn from_callable_analysis_table_with_binding_ranges_and_allocation_budget(
+        analyses: &crate::checker::CallableAnalysisTable,
+        binding_ranges: &crate::parent_map::ParentMap<CallableId, crate::ordered_map::OrderedMap<BindingId, SourceRange>>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, FormalSemanticProjectionBuildError> {
+        let mut callables = allocations
+            .vector::<&CallableId>(analyses.len())
+            .map_err(FormalSemanticProjectionBuildError::Allocation)?;
+        callables.extend(analyses.keys());
+        callables.sort_unstable_by(|left, right| left.module().cmp(right.module()).then_with(|| left.cmp(right)));
+
+        let module_count = callables.windows(2).filter(|pair| pair[0].module() != pair[1].module()).count() + usize::from(!callables.is_empty());
+        let mut frozen_modules = allocations
+            .vector::<(ModuleId, Arc<ModuleFormalProjection>)>(module_count)
+            .map_err(FormalSemanticProjectionBuildError::Allocation)?;
+
+        let mut start = 0;
+        while start < callables.len() {
+            let module = callables[start].module();
+            let mut end = start + 1;
+            while end < callables.len() && callables[end].module() == module {
+                end += 1;
+            }
+
+            let callable_group = &callables[start..end];
+            let site_count = callable_group
+                .iter()
+                .filter_map(|callable| analyses.get(callable))
+                .map(|analysis| 1 + analysis.expressions.len() + analysis.bindings.len())
+                .sum();
+            let mut sites = allocations
+                .vector::<FormalFactSite>(site_count)
+                .map_err(FormalSemanticProjectionBuildError::Allocation)?;
+
+            for callable in callable_group {
+                let Some(analysis) = analyses.get(callable) else { continue };
+                let owned_module = module
+                    .clone_with_allocation_budget(allocations)
+                    .map_err(FormalSemanticProjectionBuildError::Allocation)?;
+                let owned_callable = analysis
+                    .callable
+                    .clone_with_allocation_budget(allocations)
+                    .map_err(FormalSemanticProjectionBuildError::Allocation)?;
+                sites.push(FormalFactSite {
+                    module: owned_module,
+                    range: analysis.body_range,
+                    fact: FormalFactRef::Callable(owned_callable),
+                    status: callable_status(analysis.status),
+                    causal_invalidity: callable_causal_invalidity(analysis),
+                    contract: None,
+                });
+
+                for expression in analysis.expressions.values() {
+                    let owned_module = module
+                        .clone_with_allocation_budget(allocations)
+                        .map_err(FormalSemanticProjectionBuildError::Allocation)?;
+                    let owned_callable = analysis
+                        .callable
+                        .clone_with_allocation_budget(allocations)
+                        .map_err(FormalSemanticProjectionBuildError::Allocation)?;
+                    sites.push(FormalFactSite {
+                        module: owned_module,
+                        range: expression.range,
+                        fact: FormalFactRef::Expression {
+                            callable: owned_callable,
+                            expression: expression.id,
+                        },
+                        status: expression_status(&expression.status),
+                        causal_invalidity: expression.causal_invalidity,
+                        contract: None,
+                    });
+                }
+
+                for binding in analysis.bindings.values() {
+                    let attached_range = binding_ranges.get(&analysis.callable).and_then(|ranges| ranges.get(&binding.binding)).copied();
+                    let owned_module = module
+                        .clone_with_allocation_budget(allocations)
+                        .map_err(FormalSemanticProjectionBuildError::Allocation)?;
+                    let owned_callable = analysis
+                        .callable
+                        .clone_with_allocation_budget(allocations)
+                        .map_err(FormalSemanticProjectionBuildError::Allocation)?;
+                    sites.push(FormalFactSite {
+                        module: owned_module,
+                        range: attached_range.unwrap_or(binding.range),
+                        fact: FormalFactRef::Binding {
+                            callable: owned_callable,
+                            binding: binding.binding,
+                        },
+                        status: binding_status(binding),
+                        causal_invalidity: binding.causal_invalidity,
+                        contract: binding
+                            .contract
+                            .as_ref()
+                            .map(|contract| -> Result<_, FormalSemanticProjectionBuildError> {
+                                Ok(FormalContractRelation {
+                                    ty: contract.ty,
+                                    origin: contract.origin,
+                                    consistency: binding
+                                        .consistency
+                                        .clone_with_allocation_budget(allocations)
+                                        .map_err(FormalSemanticProjectionBuildError::Allocation)?,
+                                })
+                            })
+                            .transpose()?,
+                    });
+                }
+            }
+
+            sites.sort_unstable_by(compare_formal_fact_sites);
+            let projection = ModuleFormalProjection::new_frozen_with_allocation_budget(sites, binding_ranges, allocations).map_err(|error| match error {
+                ModuleFormalProjectionBuildError::Allocation(error) => FormalSemanticProjectionBuildError::Allocation(error),
+                ModuleFormalProjectionBuildError::DuplicateFact => FormalSemanticProjectionBuildError::DuplicateFact,
+            })?;
+            let projection = allocations.arc(projection).map_err(FormalSemanticProjectionBuildError::Allocation)?;
+            let module = module
+                .clone_with_allocation_budget(allocations)
+                .map_err(FormalSemanticProjectionBuildError::Allocation)?;
+            frozen_modules.push((module, projection));
+            start = end;
+        }
+
+        let frozen_modules = BudgetedSortedMap::from_sorted_entries(frozen_modules).map_err(|_| FormalSemanticProjectionBuildError::DuplicateModule)?;
+        let frozen_modules = allocations.arc(frozen_modules).map_err(FormalSemanticProjectionBuildError::Allocation)?;
+        Ok(Self {
+            modules: None,
+            frozen_modules: Some(frozen_modules),
+            retired_modules: None,
+        })
+    }
+
+    fn from_callable_analyses_with_attachments(
+        analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
+        source_index: Option<&SourceSemanticIndex>,
+        binding_ranges: Option<&BTreeMap<CallableId, BTreeMap<BindingId, SourceRange>>>,
+    ) -> Self {
         let mut callables_by_module: BTreeMap<ModuleId, Vec<CallableId>> = BTreeMap::new();
         for callable in analyses.keys() {
             callables_by_module.entry(callable.module().clone()).or_default().push(callable.clone());
@@ -499,61 +876,101 @@ impl FormalSemanticProjection {
         let mut modules = im::OrdMap::new();
         for (module, mut callable_ids) in callables_by_module {
             callable_ids.sort();
-            let projection = Self::build_module_projection(&module, callable_ids, analyses, source_index);
+            let projection = Self::build_module_projection_with_binding_ranges(&module, callable_ids, analyses, source_index, binding_ranges);
             modules.insert(module, Arc::new(projection));
         }
-        Self { modules }
+        Self {
+            modules: Some(modules),
+            ..Self::default()
+        }
     }
 
     /// Replaces or adds one module's formal projection shard.
     pub fn replace_module(&mut self, module: ModuleId, projection: Arc<ModuleFormalProjection>) {
-        self.modules.insert(module, projection);
+        if let Some(retired) = &mut self.retired_modules {
+            retired.remove(&module);
+        }
+        self.modules.get_or_insert_with(im::OrdMap::new).insert(module, projection);
     }
 
     /// Retires one module's formal projection shard.
     pub fn retire_module(&mut self, module: &ModuleId) {
-        self.modules.remove(module);
+        if let Some(modules) = &mut self.modules {
+            modules.remove(module);
+        }
+        if self.frozen_modules.as_ref().is_some_and(|modules| modules.contains_key(module)) {
+            self.retired_modules.get_or_insert_with(im::OrdSet::new).insert(module.clone());
+        }
     }
 
     /// Returns one module's formal projection shard.
     pub fn module(&self, module: &ModuleId) -> Option<&ModuleFormalProjection> {
-        self.modules.get(module).map(AsRef::as_ref)
+        self.modules.as_ref().and_then(|modules| modules.get(module)).map(AsRef::as_ref).or_else(|| {
+            if self.retired_modules.as_ref().is_some_and(|retired| retired.contains(module)) {
+                None
+            } else {
+                self.frozen_modules.as_ref()?.get(module).map(AsRef::as_ref)
+            }
+        })
     }
 
     /// Returns one module's formal projection shard Arc.
     pub fn module_arc(&self, module: &ModuleId) -> Option<Arc<ModuleFormalProjection>> {
-        self.modules.get(module).cloned()
+        self.modules.as_ref().and_then(|modules| modules.get(module)).cloned().or_else(|| {
+            if self.retired_modules.as_ref().is_some_and(|retired| retired.contains(module)) {
+                None
+            } else {
+                self.frozen_modules.as_ref()?.get(module).cloned()
+            }
+        })
     }
 
     /// Returns iterator over module formal projections.
     pub fn modules(&self) -> impl Iterator<Item = (&ModuleId, &Arc<ModuleFormalProjection>)> {
-        self.modules.iter()
+        let source = self.modules.as_ref().into_iter().flat_map(|modules| modules.iter());
+        let frozen = self.frozen_modules.iter().flat_map(|modules| modules.iter()).filter(|(module, _)| {
+            !self.modules.as_ref().is_some_and(|m| m.contains_key(module)) && !self.retired_modules.as_ref().is_some_and(|r| r.contains(module))
+        });
+        source.chain(frozen)
     }
 
     /// Returns the number of module projection shards without traversing them.
     pub fn module_count(&self) -> usize {
-        self.modules.len()
+        self.modules.as_ref().map_or(0, |modules| modules.len())
+            + self.frozen_modules.as_ref().map_or(0, |modules| {
+                modules
+                    .iter()
+                    .filter(|(module, _)| {
+                        !self.modules.as_ref().is_some_and(|m| m.contains_key(module)) && !self.retired_modules.as_ref().is_some_and(|r| r.contains(module))
+                    })
+                    .count()
+            })
     }
 
     /// Returns one formal site by canonical fact identity.
     pub fn get(&self, fact: &FormalFactRef) -> Option<&FormalFactSite> {
         let module = fact.module();
-        self.modules.get(module)?.get(fact)
+        self.module(module)?.get(fact)
+    }
+
+    /// Returns an exact source-owned formal binding attachment by owner.
+    pub fn binding_attachment_range(&self, callable: &CallableId, binding: BindingId) -> Option<SourceRange> {
+        self.module(callable.module())?.binding_attachment_range(callable, binding)
     }
 
     /// Returns most-specific formal site at a source position.
     pub fn fact_at(&self, module: &ModuleId, offset: usize) -> Option<&FormalFactSite> {
-        self.modules.get(module)?.fact_at(offset)
+        self.module(module)?.fact_at(offset)
     }
 
     /// Number of machine-readable formal site records across all modules.
     pub fn len(&self) -> usize {
-        self.modules.values().map(|m| m.sites.len()).sum()
+        self.modules().map(|(_, module)| module.sites.len()).sum()
     }
 
     /// Whether no formal source facts are published.
     pub fn is_empty(&self) -> bool {
-        self.modules.is_empty()
+        self.module_count() == 0
     }
 }
 

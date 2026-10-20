@@ -81,7 +81,7 @@ impl FamilyMemberType {
 }
 
 /// Structural family type definition holding canonically ordered member shapes.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct FamilyType {
     pub members: Box<[FamilyMemberType]>,
 }

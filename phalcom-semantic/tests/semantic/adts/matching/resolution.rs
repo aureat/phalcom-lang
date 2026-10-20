@@ -26,7 +26,7 @@ fn match_product_model_shape() {
     let var_id = VariantId::new(decl.clone(), Selector::getter("Some").expect("selector"));
     let fam_id = VariantFamilyId::new(decl.clone(), "Some");
 
-    let match_res = MatchResolution {
+    let match_res: MatchResolution = MatchResolution {
         expression: ExpressionId::new(BodyId(1), LocalExpressionId(1)),
         scrutinee: TypeKnowledge::established(TypeId(10), EvidenceOrigin::Flow),
         initial_space: PatternSpaceSummary::Variant {

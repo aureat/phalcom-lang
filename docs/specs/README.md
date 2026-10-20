@@ -55,6 +55,12 @@ in [`numeric-math.md`](numeric-math.md), [`randomness.md`](randomness.md), and
 
 Universe is part of the language platform, but its package architecture is not the general source-language grammar.
 
+### Compiler artifact specification
+
+[`compiler-artifacts/telosc.md`](compiler-artifacts/telosc.md) owns the versioned
+portable compiler/executable artifact boundary and source-free loading contract.
+Implementation status is tracked separately in PERF003.C2.
+
 ### VM and implementation-internals specifications
 
 [`vm/`](vm/) defines the authoritative implementation contract of the Phalcom VM and runtime.

@@ -25,6 +25,12 @@ use std::sync::Arc;
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticConstantId(pub SymbolId);
 
+impl std::borrow::Borrow<SymbolId> for StaticConstantId {
+    fn borrow(&self) -> &SymbolId {
+        &self.0
+    }
+}
+
 impl StaticConstantId {
     pub fn new(module: ModuleId, name: impl Into<Box<str>>) -> Self {
         Self(SymbolId { module, name: name.into() })
@@ -112,6 +118,9 @@ pub struct StaticConstantProduct {
     pub declaration_range: SourceRange,
     pub initializer_range: SourceRange,
     pub checked: Option<Arc<CheckedStaticConstantInitializer>>,
+    /// Source-independent authority when the producer retained the complete
+    /// checked dependency and initializer facts.
+    pub authority: Option<StaticConstantAuthority>,
     pub outcome: StaticEvalOutcome,
     /// Owns every node referenced by a published symbolic outcome.
     pub residuals: Option<Arc<crate::static_eval::StaticResidualStore>>,
@@ -119,6 +128,28 @@ pub struct StaticConstantProduct {
     pub lkg_value: Option<StaticValueRef>,
     pub diagnostics: Arc<[SemanticDiagnostic]>,
     pub imported: Option<ImportedStaticConstantOrigin>,
+}
+
+/// Persistent, source-independent facts required to reuse a checked constant.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StaticConstantAuthority {
+    pub input_fingerprint: InputFingerprint,
+    pub dependencies: Arc<[SemanticDependency]>,
+    pub static_constant_reads: Arc<[SymbolId]>,
+    pub record_key_static_constant_reads: Arc<[SymbolId]>,
+    pub result_type: Option<TypeId>,
+}
+
+impl StaticConstantAuthority {
+    pub fn from_checked(checked: &CheckedStaticConstantInitializer) -> Self {
+        Self {
+            input_fingerprint: checked.input_fingerprint,
+            dependencies: checked.dependencies.clone(),
+            static_constant_reads: checked.static_constant_reads.clone(),
+            record_key_static_constant_reads: checked.record_key_static_constant_reads.clone(),
+            result_type: checked.result_type,
+        }
+    }
 }
 
 impl StaticConstantProduct {
@@ -133,11 +164,13 @@ impl StaticConstantProduct {
         lkg_value: Option<StaticValueRef>,
         diagnostics: Arc<[SemanticDiagnostic]>,
     ) -> Self {
+        let authority = StaticConstantAuthority::from_checked(&checked);
         Self {
             id,
             declaration_range,
             initializer_range,
             checked: Some(checked),
+            authority: Some(authority),
             outcome,
             residuals,
             value,
@@ -153,6 +186,7 @@ impl StaticConstantProduct {
             declaration_range: SourceRange::default(),
             initializer_range: SourceRange::default(),
             checked: None,
+            authority: None,
             outcome: StaticEvalOutcome::Reduced(value),
             residuals: None,
             value: Some(value),
@@ -188,40 +222,77 @@ impl StaticConstantProduct {
 /// Table storing static constants by canonical identity and module.
 #[derive(Clone, Debug, Default)]
 pub struct StaticConstantTable {
-    constants: BTreeMap<StaticConstantId, Arc<StaticConstantProduct>>,
+    parent: Option<Arc<Self>>,
+    constants: crate::ordered_map::OrderedMap<StaticConstantId, Arc<StaticConstantProduct>>,
     by_symbol: BTreeMap<SymbolId, StaticConstantId>,
     module_constants: BTreeMap<ModuleId, BTreeSet<StaticConstantId>>,
 }
 
 impl StaticConstantTable {
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<(StaticConstantId, Arc<StaticConstantProduct>)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, crate::ordered_map::FrozenOrderedMapError> {
+        Ok(Self {
+            constants: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(entries, allocations)?,
+            ..Self::default()
+        })
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
 
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    pub fn local_len(&self) -> usize {
+        self.constants.len()
+    }
+
     pub fn insert(&mut self, product: Arc<StaticConstantProduct>) {
         let id = product.id.clone();
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.get(&id).is_some()),
+            "cannot overwrite a canonical static constant"
+        );
         self.module_constants.entry(id.0.module.clone()).or_default().insert(id.clone());
         self.by_symbol.insert(id.0.clone(), id.clone());
         self.constants.insert(id, product);
     }
 
     pub fn get(&self, id: &StaticConstantId) -> Option<&Arc<StaticConstantProduct>> {
-        self.constants.get(id)
+        self.constants.get(id).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(id)))
     }
 
     pub fn get_by_symbol(&self, symbol: &SymbolId) -> Option<&Arc<StaticConstantProduct>> {
-        self.by_symbol.get(symbol).and_then(|id| self.constants.get(id))
+        self.by_symbol
+            .get(symbol)
+            .and_then(|id| self.constants.get(id))
+            .or_else(|| self.constants.get(symbol))
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get_by_symbol(symbol)))
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&StaticConstantId, &Arc<StaticConstantProduct>)> {
-        self.constants.iter()
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&StaticConstantId, &Arc<StaticConstantProduct>)> + '_> {
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter().chain(self.constants.iter())),
+            None => Box::new(self.constants.iter()),
+        }
     }
 
-    pub fn module_constants<'a>(&'a self, module: &ModuleId) -> impl Iterator<Item = &'a Arc<StaticConstantProduct>> + 'a {
-        self.module_constants
-            .get(module)
-            .into_iter()
-            .flat_map(move |ids| ids.iter().filter_map(|id| self.constants.get(id)))
+    pub fn module_constants<'a>(&'a self, module: &'a ModuleId) -> Box<dyn Iterator<Item = &'a Arc<StaticConstantProduct>> + 'a> {
+        let local = self
+            .constants
+            .iter()
+            .filter_map(move |(id, product)| (&id.0.module == module).then_some(product));
+        match &self.parent {
+            Some(parent) => Box::new(parent.module_constants(module).chain(local)),
+            None => Box::new(local),
+        }
     }
 
     pub fn remove_module(&mut self, module: &ModuleId) {
@@ -234,10 +305,10 @@ impl StaticConstantTable {
     }
 
     pub fn len(&self) -> usize {
-        self.constants.len()
+        self.constants.len() + self.parent.as_ref().map_or(0, |parent| parent.len())
     }
 
     pub fn is_empty(&self) -> bool {
-        self.constants.is_empty()
+        self.constants.is_empty() && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
     }
 }

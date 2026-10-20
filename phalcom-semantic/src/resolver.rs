@@ -11,7 +11,7 @@ use std::sync::{Arc, RwLock};
 #[derive(Clone, Debug, Default)]
 struct AssociatedTypeMemberProducts {
     surfaces: BTreeMap<DeclarationId, Arc<crate::associated::AssociatedSurface>>,
-    declarations: BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    declarations: crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
 }
 
 /// A project-aware type resolver that resolves type names through the linker layout
@@ -28,7 +28,7 @@ pub struct LinkedTypeResolver {
     trait_associated_types: Arc<BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>>>,
     associated_type_members: Arc<RwLock<AssociatedTypeMemberProducts>>,
     static_case_catalogs: Arc<RwLock<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>>,
-    static_case_signatures: Arc<RwLock<BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>>,
+    static_case_signatures: Arc<RwLock<crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>>,
     static_definitions: Arc<RwLock<BTreeMap<DeclarationId, Arc<crate::static_definition::StaticDefinitionProduct>>>>,
 }
 
@@ -57,7 +57,7 @@ impl LinkedTypeResolver {
             trait_associated_types: Arc::new(BTreeMap::new()),
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
             static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
-            static_case_signatures: Arc::new(RwLock::new(BTreeMap::new())),
+            static_case_signatures: Arc::new(RwLock::new(crate::ordered_map::OrderedMap::default())),
             static_definitions: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
@@ -83,7 +83,7 @@ impl LinkedTypeResolver {
             trait_associated_types: Arc::new(BTreeMap::new()),
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
             static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
-            static_case_signatures: Arc::new(RwLock::new(BTreeMap::new())),
+            static_case_signatures: Arc::new(RwLock::new(crate::ordered_map::OrderedMap::default())),
             static_definitions: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
@@ -112,7 +112,7 @@ impl LinkedTypeResolver {
             trait_associated_types: Arc::new(BTreeMap::new()),
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
             static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
-            static_case_signatures: Arc::new(RwLock::new(BTreeMap::new())),
+            static_case_signatures: Arc::new(RwLock::new(crate::ordered_map::OrderedMap::default())),
             static_definitions: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
@@ -159,7 +159,7 @@ impl LinkedTypeResolver {
     pub fn update_associated_type_members(
         &self,
         surfaces: &crate::associated::AssociatedFamilyTable,
-        declarations: &BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+        declarations: &crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
     ) {
         if let Ok(mut products) = self.associated_type_members.write() {
             products.surfaces = surfaces.surfaces.iter().map(|(owner, surface)| (owner.clone(), surface.clone())).collect();
@@ -176,7 +176,7 @@ impl LinkedTypeResolver {
         }
     }
 
-    pub fn update_static_case_signatures(&self, signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>) {
+    pub fn update_static_case_signatures(&self, signatures: &crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>) {
         if let Ok(mut current) = self.static_case_signatures.write() {
             *current = signatures.clone();
         }

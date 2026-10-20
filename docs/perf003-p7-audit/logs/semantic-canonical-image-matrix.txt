@@ -1,0 +1,68 @@
+warning: unused import: `crate::identity::VariantId`
+  --> phalcom-semantic/src/artifact/import.rs:47:5
+   |
+47 | use crate::identity::VariantId;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `import_type_member_selector` is never used
+    --> phalcom-semantic/src/artifact/import.rs:1267:15
+     |
+1267 | pub(crate) fn import_type_member_selector(selector: &TypeMemberSelectorV1) -> crate::types::type_member::TypeMemberSelector {
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `import_associated_selector` is never used
+    --> phalcom-semantic/src/artifact/import.rs:1274:4
+     |
+1274 | fn import_associated_selector(selector: &TypeMemberSelectorV1) -> phalcom_common::selector::SelectorBase {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `import_source_span` is never used
+    --> phalcom-semantic/src/artifact/import.rs:2428:4
+     |
+2428 | fn import_source_span(source: &phalcom_compiler_artifact::semantic::world::EnumRequirementSourceV1) -> Result<SemanticSourceSpan, ...
+     |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `import_callable_associated_type_requirement_identity` is never used
+    --> phalcom-semantic/src/artifact/import.rs:2575:4
+     |
+2575 | fn import_callable_associated_type_requirement_identity(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `import_associated_static_domain_declaration` is never used
+    --> phalcom-semantic/src/artifact/import.rs:3663:4
+     |
+3663 | fn import_associated_static_domain_declaration(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `import_static_case_domain` is never used
+    --> phalcom-semantic/src/artifact/import.rs:3697:15
+     |
+3697 | pub(crate) fn import_static_case_domain(
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `import_associated_member` is never used
+    --> phalcom-semantic/src/artifact/import.rs:3913:4
+     |
+3913 | fn import_associated_member(member: &AssociatedMemberV1) -> Result<crate::associated::AssociatedMemberId, ArtifactError> {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `phalcom-semantic` (lib test) generated 8 warnings (run `cargo fix --lib -p phalcom-semantic --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/phalcom_semantic-4af5dc78ce70d090)
+
+running 9 tests
+test canonical_image::tests::canonical_image_bootstrap_reentry_fails_before_locking ... ok
+test canonical_image::negative_fact_tests::canonical_image_static_lineage_id_does_not_hide_divergent_values ... ok
+test canonical_image::negative_fact_tests::canonical_image_exact_world_provenance_rejects_digest_collision ... ok
+test canonical_image::tests::canonical_image_database_reads_are_immutable_leaves_across_local_rollback ... ok
+test canonical_image::tests::canonical_image_freeze_requires_commit_and_classifies_every_nonready_state ... ok
+test canonical_image::tests::canonical_image_freeze_closes_dependencies_and_local_discards_do_not_mutate_roots ... ok
+test canonical_image::negative_fact_tests::canonical_image_never_freezes_negative_local_conformance_search ... ok
+test canonical_image::tests::canonical_image_rejects_foreign_stale_and_cyclic_dependencies ... ok
+test canonical_image::tests::canonical_image_reader_validates_all_final_arena_and_static_roots ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 305 filtered out; finished in 45.24s

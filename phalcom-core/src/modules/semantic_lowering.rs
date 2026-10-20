@@ -1066,7 +1066,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
     // 1. Project Enums in this module
     let core_ids = phalcom_semantic::core_surface::CoreDeclarationIds::default();
     let mut enums = Vec::new();
-    for (owner, enum_info) in &snapshot.enum_semantics.enums {
+    for (owner, enum_info) in snapshot.enum_semantics.enums.iter() {
         if owner.module != *module {
             continue;
         }
@@ -1120,7 +1120,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
 
     // 2. Project Data Declarations in this module
     let mut data_decls = Vec::new();
-    for (owner, data_info) in &snapshot.data_semantics.data_decls {
+    for (owner, data_info) in snapshot.data_semantics.data_decls.iter() {
         if owner.module != *module {
             continue;
         }
@@ -1492,7 +1492,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                     family: literal.family,
                     construction: literal.construction,
                     extent: literal.extent,
-                    exact_expansions: literal.exact_expansions.clone(),
+                    exact_expansions: literal.exact_expansions.iter().map(|(range, expansion)| (*range, expansion.clone())).collect(),
                     expected_extent: literal.extent.and_then(|extent| match snapshot.store.get(extent) {
                         TypeData::ConstInt(value) => u32::try_from(value.to_bigint()).ok(),
                         _ => None,
@@ -2614,8 +2614,8 @@ fn project_slot_repr_type(ty: TypeId, store: &TypeStore) -> crate::product::Prod
     }
 }
 
-fn project_match_resolution(
-    resolution: &phalcom_semantic::match_semantics::MatchResolution,
+fn project_match_resolution<R, S, K>(
+    resolution: &phalcom_semantic::match_semantics::MatchResolution<R, S, K>,
     snapshot: &SemanticSnapshot,
 ) -> Result<MatchLoweringSpec, ProjectionError> {
     if !matches!(resolution.exhaustiveness, phalcom_semantic::match_semantics::ExhaustivenessResult::Proven) {
@@ -2647,8 +2647,8 @@ fn project_match_resolution(
     Ok(MatchLoweringSpec { arms: arms.into_boxed_slice() })
 }
 
-fn project_pattern_site_resolution(
-    site: &phalcom_semantic::match_semantics::PatternSiteResolution,
+fn project_pattern_site_resolution<R, S, K>(
+    site: &phalcom_semantic::match_semantics::PatternSiteResolution<R, S, K>,
     snapshot: &SemanticSnapshot,
 ) -> Result<PatternSiteLoweringSpec, ProjectionError> {
     let bindings = site
@@ -2667,9 +2667,9 @@ fn project_pattern_site_resolution(
     Ok(PatternSiteLoweringSpec { pattern, bindings })
 }
 
-fn project_pattern_resolution(
-    pattern: &phalcom_semantic::match_semantics::PatternResolution,
-    bindings: &[phalcom_semantic::match_semantics::PatternBindingResolution],
+fn project_pattern_resolution<R, S, K>(
+    pattern: &phalcom_semantic::match_semantics::PatternResolution<R, S, K>,
+    bindings: &[phalcom_semantic::match_semantics::PatternBindingResolution<R, K>],
     snapshot: &SemanticSnapshot,
 ) -> Result<ExecutablePattern, ProjectionError> {
     match pattern {
@@ -3046,7 +3046,7 @@ fn exact_prerequisite_has_flat_runtime_environment(exact: &phalcom_semantic::imp
         .trait_header_contract
         .iter()
         .any(|constraint| matches!(constraint, phalcom_semantic::types::parameter::GenericConstraint::Conforms { .. }))
-        && exact.trait_header_conformance_proofs.as_ref().is_some_and(BTreeMap::is_empty)
+        && exact.trait_header_conformance_proofs.as_ref().is_some_and(|proofs| proofs.is_empty())
 }
 
 fn project_antecedent_slots(

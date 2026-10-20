@@ -1,0 +1,5 @@
+=== Running Warm Suite: mode=source (20 repetitions) ===
+  Warm Summary [source] (N=20): min=4.99ms, median=5.15ms, mean=5.32ms, p95=5.81ms, max=6.03ms, stddev=0.32ms, peak_rss=828112896 bytes
+=== Running Warm Suite: mode=artifact (20 repetitions) ===
+  Warm Summary [artifact] (N=20): min=4.91ms, median=5.08ms, mean=5.16ms, p95=5.55ms, max=5.59ms, stddev=0.22ms, peak_rss=334823424 bytes
+Successfully wrote target/perf003-p7-audit/RAW-WARM.csv

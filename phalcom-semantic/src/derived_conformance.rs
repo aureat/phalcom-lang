@@ -1,3 +1,4 @@
+use crate::checker::analysis_map::AnalysisMap;
 use crate::db::key::ProductFingerprint;
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{DeclarationId, ImplId, ModuleId, TypeId};
@@ -5,6 +6,7 @@ use crate::impls::{ConformanceAssociatedTypePlan, RequirementSelectionTemplate};
 use crate::traits::{InstantiatedTraitRequirement, TraitRef, TraitRequirementId};
 use crate::types::id::TypeParameterId;
 use crate::types::parameter::GenericSignature;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::BTreeMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -32,8 +34,8 @@ pub struct DerivedConformanceRule {
     pub trait_ref: TraitRef,
     pub generic_signature: GenericSignature,
     pub associated_type_plan: ConformanceAssociatedTypePlan,
-    pub requirement_views: BTreeMap<TraitRequirementId, InstantiatedTraitRequirement>,
-    pub requirements: BTreeMap<TraitRequirementId, RequirementSelectionTemplate>,
+    pub requirement_views: AnalysisMap<TraitRequirementId, InstantiatedTraitRequirement>,
+    pub requirements: AnalysisMap<TraitRequirementId, RequirementSelectionTemplate>,
     pub fingerprint: ProductFingerprint,
     pub source: SemanticSourceSpan,
 }
@@ -49,6 +51,33 @@ impl DerivedConformanceRule {
         associated_type_plan: ConformanceAssociatedTypePlan,
         requirement_views: BTreeMap<TraitRequirementId, InstantiatedTraitRequirement>,
         requirements: BTreeMap<TraitRequirementId, RequirementSelectionTemplate>,
+        source: SemanticSourceSpan,
+    ) -> Self {
+        Self::from_frozen_parts(
+            impl_id,
+            source_module,
+            target_parameter,
+            target_template,
+            trait_ref,
+            generic_signature,
+            associated_type_plan,
+            requirement_views.into(),
+            requirements.into(),
+            source,
+        )
+    }
+
+    /// Builds an imported rule around already-frozen map fields.
+    pub(crate) fn from_frozen_parts(
+        impl_id: ImplId,
+        source_module: ModuleId,
+        target_parameter: TypeParameterId,
+        target_template: TypeId,
+        trait_ref: TraitRef,
+        generic_signature: GenericSignature,
+        associated_type_plan: ConformanceAssociatedTypePlan,
+        requirement_views: AnalysisMap<TraitRequirementId, InstantiatedTraitRequirement>,
+        requirements: AnalysisMap<TraitRequirementId, RequirementSelectionTemplate>,
         source: SemanticSourceSpan,
     ) -> Self {
         let mut rule = Self {
@@ -72,8 +101,74 @@ impl DerivedConformanceRule {
 /// Deterministic index of guarded derived conformance rules, keyed by consequent trait declaration.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DerivedConformanceRuleIndex {
-    rules_by_trait: BTreeMap<DeclarationId, Vec<Arc<DerivedConformanceRule>>>,
-    rules_by_impl: BTreeMap<ImplId, Arc<DerivedConformanceRule>>,
+    parent: Option<Arc<Self>>,
+    rules_by_trait: crate::ordered_map::OrderedMap<DeclarationId, Vec<Arc<DerivedConformanceRule>>>,
+    rules_by_impl: crate::ordered_map::OrderedMap<ImplId, Arc<DerivedConformanceRule>>,
+}
+
+#[derive(Debug)]
+pub(crate) enum FrozenDerivedConformanceRuleIndexError {
+    Allocation(AllocationError),
+    DuplicateKey,
+}
+
+impl FrozenDerivedConformanceRuleIndexError {
+    fn from_ordered_map(error: crate::ordered_map::FrozenOrderedMapError) -> Self {
+        match error {
+            crate::ordered_map::FrozenOrderedMapError::Allocation(error) => Self::Allocation(error),
+            crate::ordered_map::FrozenOrderedMapError::DuplicateKey => Self::DuplicateKey,
+        }
+    }
+}
+
+/// Borrowed canonical-first trait bucket with indexed and iterable access.
+/// Both slices remain in their owning tables; constructing the view copies no rules.
+pub struct DerivedRuleView<'a> {
+    parent: &'a [Arc<DerivedConformanceRule>],
+    local: &'a [Arc<DerivedConformanceRule>],
+}
+
+impl DerivedRuleView<'_> {
+    /// Number of rules visible across the canonical and local buckets.
+    pub fn len(&self) -> usize {
+        self.parent.len() + self.local.len()
+    }
+
+    /// Whether neither bucket contains a rule.
+    pub fn is_empty(&self) -> bool {
+        self.parent.is_empty() && self.local.is_empty()
+    }
+
+    /// Exact indexed rule without materializing either bucket.
+    pub fn get(&self, index: usize) -> Option<&Arc<DerivedConformanceRule>> {
+        if index < self.parent.len() {
+            self.parent.get(index)
+        } else {
+            self.local.get(index - self.parent.len())
+        }
+    }
+
+    /// Iterates canonical rules followed by workspace rules.
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<DerivedConformanceRule>> {
+        self.parent.iter().chain(self.local.iter())
+    }
+}
+
+impl std::ops::Index<usize> for DerivedRuleView<'_> {
+    type Output = Arc<DerivedConformanceRule>;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        self.get(index).expect("derived conformance rule index out of bounds")
+    }
+}
+
+impl<'a> IntoIterator for DerivedRuleView<'a> {
+    type Item = &'a Arc<DerivedConformanceRule>;
+    type IntoIter = std::iter::Chain<std::slice::Iter<'a, Arc<DerivedConformanceRule>>, std::slice::Iter<'a, Arc<DerivedConformanceRule>>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.parent.iter().chain(self.local.iter())
+    }
 }
 
 impl DerivedConformanceRuleIndex {
@@ -81,21 +176,118 @@ impl DerivedConformanceRuleIndex {
         Self::default()
     }
 
+    /// Shares canonical rules without cloning trait buckets or impl entries.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        assert!(parent.parent.is_none(), "derived rule parent must be a canonical root");
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    /// Publishes artifact-owned rules from charged contiguous buffers.
+    ///
+    /// Source sessions continue to use the mutable local `OrderedMap` overlay
+    /// through [`Self::insert`]. Artifact imports use this constructor so the
+    /// canonical rule index does not allocate native tree nodes and then copy
+    /// them into a second representation.
+    pub(crate) fn from_frozen_rules_with_allocation_budget(
+        rules: Vec<DerivedConformanceRule>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, FrozenDerivedConformanceRuleIndexError> {
+        let mut rules_by_impl_entries = allocations
+            .vector::<(ImplId, Arc<DerivedConformanceRule>)>(rules.len())
+            .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+        let mut rules_by_trait_flat = allocations
+            .vector::<(DeclarationId, Arc<DerivedConformanceRule>)>(rules.len())
+            .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+
+        for rule in rules {
+            let rule = allocations.arc(rule).map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+            let impl_id = rule
+                .impl_id
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+            let trait_declaration = rule
+                .trait_ref
+                .declaration
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+            rules_by_impl_entries.push((impl_id, Arc::clone(&rule)));
+            rules_by_trait_flat.push((trait_declaration, rule));
+        }
+
+        rules_by_trait_flat.sort_unstable_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.impl_id.cmp(&right.1.impl_id)));
+        let bucket_count = rules_by_trait_flat
+            .windows(2)
+            .filter(|pair| pair[0].0 != pair[1].0)
+            .count()
+            .checked_add(usize::from(!rules_by_trait_flat.is_empty()))
+            .ok_or(FrozenDerivedConformanceRuleIndexError::Allocation(AllocationError::Overflow))?;
+        let mut rules_by_trait_entries = allocations
+            .vector::<(DeclarationId, Vec<Arc<DerivedConformanceRule>>)>(bucket_count)
+            .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+        let mut offset = 0;
+        while offset < rules_by_trait_flat.len() {
+            let end = rules_by_trait_flat[offset..]
+                .iter()
+                .position(|(trait_declaration, _)| trait_declaration != &rules_by_trait_flat[offset].0)
+                .map_or(rules_by_trait_flat.len(), |relative| offset + relative);
+            let trait_declaration = rules_by_trait_flat[offset]
+                .0
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+            let mut bucket = allocations
+                .vector::<Arc<DerivedConformanceRule>>(end - offset)
+                .map_err(FrozenDerivedConformanceRuleIndexError::Allocation)?;
+            for (_, rule) in &rules_by_trait_flat[offset..end] {
+                bucket.push(Arc::clone(rule));
+            }
+            rules_by_trait_entries.push((trait_declaration, bucket));
+            offset = end;
+        }
+
+        let rules_by_trait = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(rules_by_trait_entries, allocations)
+            .map_err(FrozenDerivedConformanceRuleIndexError::from_ordered_map)?;
+        let rules_by_impl = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(rules_by_impl_entries, allocations)
+            .map_err(FrozenDerivedConformanceRuleIndexError::from_ordered_map)?;
+        Ok(Self {
+            parent: None,
+            rules_by_trait,
+            rules_by_impl,
+        })
+    }
+
     pub fn insert(&mut self, rule: DerivedConformanceRule) {
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.get_rule(&rule.impl_id).is_some()),
+            "cannot overwrite a canonical derived conformance rule"
+        );
+        self.remove(&rule.impl_id);
         let rule_arc = Arc::new(rule);
-        self.rules_by_trait
-            .entry(rule_arc.trait_ref.declaration.clone())
-            .or_default()
-            .push(rule_arc.clone());
+        if let Some(bucket) = self.rules_by_trait.get_mut(&rule_arc.trait_ref.declaration) {
+            bucket.push(rule_arc.clone());
+        } else {
+            self.rules_by_trait.insert(rule_arc.trait_ref.declaration.clone(), vec![rule_arc.clone()]);
+        }
         self.rules_by_impl.insert(rule_arc.impl_id.clone(), rule_arc);
     }
 
-    pub fn rules_for_trait(&self, trait_declaration: &DeclarationId) -> &[Arc<DerivedConformanceRule>] {
-        self.rules_by_trait.get(trait_declaration).map_or(&[], |v| v.as_slice())
+    pub fn rules_for_trait(&self, trait_declaration: &DeclarationId) -> DerivedRuleView<'_> {
+        DerivedRuleView {
+            parent: self
+                .parent
+                .as_ref()
+                .and_then(|parent| parent.rules_by_trait.get(trait_declaration))
+                .map_or(&[], Vec::as_slice),
+            local: self.rules_by_trait.get(trait_declaration).map_or(&[], Vec::as_slice),
+        }
     }
 
     pub fn get_rule(&self, impl_id: &ImplId) -> Option<&Arc<DerivedConformanceRule>> {
-        self.rules_by_impl.get(impl_id)
+        self.rules_by_impl
+            .get(impl_id)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get_rule(impl_id)))
     }
 
     pub fn remove(&mut self, impl_id: &ImplId) {
@@ -114,23 +306,51 @@ impl DerivedConformanceRuleIndex {
     }
 
     pub fn remove_source(&mut self, module: &ModuleId) {
-        self.rules_by_impl.retain(|impl_id, _| &impl_id.module != module);
-        for rules in self.rules_by_trait.values_mut() {
-            rules.retain(|rule| &rule.source_module != module);
+        let removed = self
+            .rules_by_impl
+            .iter()
+            .filter(|(_, rule)| &rule.source_module == module)
+            .map(|(impl_id, _)| impl_id.clone())
+            .collect::<Vec<_>>();
+        for impl_id in removed {
+            self.remove(&impl_id);
         }
-        self.rules_by_trait.retain(|_, rules| !rules.is_empty());
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Arc<DerivedConformanceRule>> {
-        self.rules_by_impl.values()
+        let mut canonical = self
+            .parent
+            .as_ref()
+            .map(|parent| parent.rules_by_impl.values())
+            .into_iter()
+            .flatten()
+            .peekable();
+        let mut local = self.rules_by_impl.values().peekable();
+        std::iter::from_fn(move || match (canonical.peek(), local.peek()) {
+            (Some(left), Some(right)) if left.impl_id <= right.impl_id => canonical.next(),
+            (Some(_), Some(_)) => local.next(),
+            (Some(_), None) => canonical.next(),
+            (None, Some(_)) => local.next(),
+            (None, None) => None,
+        })
     }
 
-    pub fn len(&self) -> usize {
+    /// Number of workspace-owned rules.
+    pub fn local_len(&self) -> usize {
         self.rules_by_impl.len()
     }
 
+    /// Number of rules in the immutable canonical parent.
+    pub fn parent_len(&self) -> usize {
+        self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent_len()
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.rules_by_impl.is_empty()
+        self.len() == 0
     }
 }
 
@@ -141,9 +361,21 @@ pub fn derived_conformance_rule_fingerprint(rule: &DerivedConformanceRule) -> Pr
     let mut hasher = DefaultHasher::new();
     rule.trait_ref.declaration.hash(&mut hasher);
     rule.trait_ref.arguments.hash(&mut hasher);
-    let mut sorted_constraints = rule.generic_signature.constraints.to_vec();
-    sorted_constraints.sort();
-    sorted_constraints.hash(&mut hasher);
+    rule.generic_signature.constraints.len().hash(&mut hasher);
+    let mut emitted = 0;
+    while emitted < rule.generic_signature.constraints.len() {
+        let next = rule
+            .generic_signature
+            .constraints
+            .iter()
+            .find(|candidate| rule.generic_signature.constraints.iter().filter(|other| *other < *candidate).count() == emitted);
+        let Some(next) = next else { break };
+        let duplicates = rule.generic_signature.constraints.iter().filter(|candidate| *candidate == next).count();
+        for _ in 0..duplicates {
+            next.hash(&mut hasher);
+        }
+        emitted += duplicates;
+    }
     for (req, sel) in &rule.requirements {
         req.hash(&mut hasher);
         match sel {
@@ -174,4 +406,129 @@ pub fn derived_conformance_rule_fingerprint(rule: &DerivedConformanceRule) -> Pr
         binding.value_template.hash(&mut hasher);
     }
     ProductFingerprint::new(hasher.finish())
+}
+
+#[cfg(test)]
+mod parent_tests {
+    use super::*;
+    use crate::identity::ImplLocalId;
+    use crate::types::parameter::TypeParameterOwner;
+
+    fn rule(module: ModuleId, ordinal: u32, trait_declaration: DeclarationId) -> DerivedConformanceRule {
+        let impl_id = ImplId::new(module.clone(), ImplLocalId(ordinal));
+        DerivedConformanceRule::new(
+            impl_id.clone(),
+            module.clone(),
+            TypeParameterId(0),
+            TypeId(0),
+            TraitRef::new(trait_declaration, Vec::new()),
+            GenericSignature {
+                owner: TypeParameterOwner::Impl(impl_id.clone()),
+                parameters: Box::new([]),
+                parameter_kinds: Box::new([]),
+                parameter_kind_shapes: Box::new([]),
+                parameter_variances: Box::new([]),
+                parameter_modes: Box::new([]),
+                constraint_shapes: Box::new([]),
+                constraints: Box::new([]),
+            },
+            ConformanceAssociatedTypePlan::empty(impl_id),
+            BTreeMap::new(),
+            BTreeMap::new(),
+            SemanticSourceSpan::new(module, phalcom_common::range::SourceRange::default()),
+        )
+    }
+
+    #[test]
+    fn layered_rule_queries_preserve_canonical_and_local_evidence() {
+        let canonical_module = ModuleId::universe_root();
+        let local_module = ModuleId::resolved(phalcom_modules::ResolvedProjectId::from_raw(99), phalcom_modules::ModulePath::root());
+        let trait_id = DeclarationId::new(canonical_module.clone(), "T".into());
+        let canonical_rule = rule(canonical_module.clone(), 0, trait_id.clone());
+        let local_rule = rule(local_module.clone(), 1, trait_id.clone());
+        let mut parent = DerivedConformanceRuleIndex::new();
+        parent.insert(canonical_rule.clone());
+        let parent = Arc::new(parent);
+        let mut overlay = DerivedConformanceRuleIndex::with_parent(parent.clone());
+        assert_eq!(overlay.rules_for_trait(&trait_id).len(), 1);
+        overlay.insert(local_rule.clone());
+        let ids = overlay
+            .rules_for_trait(&trait_id)
+            .into_iter()
+            .map(|rule| rule.impl_id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec![canonical_rule.impl_id.clone(), local_rule.impl_id.clone()]);
+        let mut sorted = ids.clone();
+        sorted.sort();
+        assert_eq!(overlay.iter().map(|rule| rule.impl_id.clone()).collect::<Vec<_>>(), sorted);
+        assert_eq!(overlay.local_len(), 1);
+        overlay.remove_source(&canonical_module);
+        assert_eq!(overlay.rules_for_trait(&trait_id).len(), 2);
+        overlay.remove_source(&local_module);
+        assert_eq!(overlay.rules_for_trait(&trait_id).len(), 1);
+        assert_eq!(parent.rules_for_trait(&trait_id).len(), 1);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| overlay.insert(canonical_rule))).is_err());
+    }
+
+    #[test]
+    fn derived_rule_fingerprint_is_independent_of_requirement_map_backing() {
+        use crate::checker::analysis_map::AnalysisMap;
+        use crate::identity::{CallableId, DispatchSide};
+        use crate::impls::RequirementSelectionTemplate;
+        use crate::types::id::TypeId;
+        use phalcom_common::selector::Selector;
+        use phalcom_type_meta::allocation::AllocationBudget;
+
+        let module = ModuleId::universe_root();
+        let trait_declaration = DeclarationId::new(module.clone(), "FrozenRuleTrait".into());
+        let impl_id = ImplId::new(module.clone(), ImplLocalId(22));
+        let requirement = TraitRequirementId::new(trait_declaration.clone(), Selector::getter("value").expect("selector"), DispatchSide::Instance);
+        let callable = CallableId::method(trait_declaration.clone(), requirement.selector.clone(), DispatchSide::Instance);
+        let selection = RequirementSelectionTemplate::TraitDefault { callable };
+        let owner = TypeParameterOwner::Impl(impl_id.clone());
+        let generic_signature = GenericSignature {
+            owner,
+            parameters: Box::new([]),
+            parameter_kinds: Box::new([]),
+            parameter_kind_shapes: Box::new([]),
+            parameter_variances: Box::new([]),
+            parameter_modes: Box::new([]),
+            constraint_shapes: Box::new([]),
+            constraints: Box::new([]),
+        };
+        let source_module = module.clone();
+        let source = SemanticSourceSpan::new(module.clone(), phalcom_common::range::SourceRange::default());
+        let source_rule = DerivedConformanceRule::new(
+            impl_id.clone(),
+            source_module.clone(),
+            TypeParameterId(0),
+            TypeId(3),
+            TraitRef::new(trait_declaration, Box::<[TypeId]>::default()),
+            generic_signature.clone(),
+            ConformanceAssociatedTypePlan::empty(impl_id.clone()),
+            BTreeMap::new(),
+            BTreeMap::from([(requirement.clone(), selection.clone())]),
+            source.clone(),
+        );
+
+        let mut budget = AllocationBudget::new(2048);
+        let mut entries = budget.vector(1).expect("map entries are charged");
+        entries.push((requirement, selection));
+        let frozen_requirements = AnalysisMap::from_budgeted_entries(entries, &mut budget).expect("sorted map and shared owner fit");
+        let frozen_rule = DerivedConformanceRule::from_frozen_parts(
+            impl_id,
+            source_module,
+            TypeParameterId(0),
+            TypeId(3),
+            source_rule.trait_ref.clone(),
+            generic_signature,
+            source_rule.associated_type_plan.clone(),
+            AnalysisMap::new(),
+            frozen_requirements,
+            source,
+        );
+
+        assert_eq!(source_rule, frozen_rule);
+        assert_eq!(source_rule.fingerprint, frozen_rule.fingerprint);
+    }
 }

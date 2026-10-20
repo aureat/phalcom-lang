@@ -25,6 +25,11 @@ use phalcom_modules::{ImportSiteId, ImportSiteLocalId};
 /// Canonical linked targets available while building source identity.
 #[derive(Clone, Debug, Default)]
 pub struct SourceIndexContext {
+    /// Explicit source namespace for each callable body analysis. Ordinary
+    /// bodies use their canonical source callable, constructor bodies may map
+    /// to their approved declaration-side callable, and module-body analyses
+    /// may map to the module source namespace.
+    pub body_source_owners: BTreeMap<CallableId, SourceOwner>,
     /// Linked module targets keyed by their canonical source path spelling.
     pub modules: BTreeMap<String, ModuleId>,
     /// Linked exported targets keyed by `(module, exported name)`.
@@ -2096,7 +2101,7 @@ fn parameter_slot(parameter: &phalcom_ast::ast::ParameterDef) -> SelectorSlot {
         .map_or(SelectorSlot::Positional, |label| SelectorSlot::Label(label.clone()))
 }
 
-fn statements_range(statements: &[Statement]) -> SourceRange {
+pub(crate) fn statements_range(statements: &[Statement]) -> SourceRange {
     statements
         .iter()
         .map(statement_range)
@@ -2105,7 +2110,7 @@ fn statements_range(statements: &[Statement]) -> SourceRange {
 }
 
 #[allow(deprecated)]
-fn statement_range(statement: &Statement) -> SourceRange {
+pub(crate) fn statement_range(statement: &Statement) -> SourceRange {
     match statement {
         Statement::Class(class) => class.range,
         Statement::Data(data_def) => data_def.range,

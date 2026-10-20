@@ -107,7 +107,9 @@ let result = Worker.new().apply(Input.new())
             assert_eq!(specialization.bindings[0].0, selected.parameters[0]);
             assert!(matches!(selected.owner, TypeParameterOwner::Callable(ref callable) if callable == &specialization.callable));
             assert_eq!(specialization.conformances.len(), 1);
-            let bound_type = specialization.bindings[0].1;
+            let phalcom_semantic::types::store::StaticArgument::Term(bound_type) = specialization.bindings[0].1 else {
+                panic!("exact conformance subject must remain a proper type term")
+            };
             assert_eq!(
                 specialization.conformances[0].callee_conformance.subject,
                 phalcom_semantic::types::parameter::TypeTerm::Canonical(bound_type)

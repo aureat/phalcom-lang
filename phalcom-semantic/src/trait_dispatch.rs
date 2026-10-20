@@ -5,11 +5,12 @@
 //! selector; exact target matching and P2 conformance evidence remain the
 //! authority for deciding whether a candidate is usable.
 
+use crate::checker::analysis_map::AnalysisMap;
 use crate::db::ProductFingerprint;
 use crate::declarations::DeclarationTypeTable;
 use crate::generic_evidence::{GenericConformanceEvidence, GenericConformanceKey, GenericConformanceProof, GenericEvidenceEnvironment};
 use crate::identity::{CallableId, DataComponentId, DeclarationId, DispatchSide, ImplId, TypeId, VariantId};
-use crate::impls::{ConformanceIndex, ConformanceTarget, ConformanceWitnessPlan, RequirementSelectionTemplate};
+use crate::impls::{ConformanceIndex, ConformanceTarget, RequirementSelectionTemplate};
 use crate::signature::CallableSemanticSignature;
 use crate::traits::{TraitRef, TraitRequirementId, TraitSurfaceTable};
 use crate::types::evidence::UnknownReason;
@@ -19,7 +20,6 @@ use crate::types::store::{TypeData, TypeStore};
 use phalcom_common::selector::Selector;
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 /// Coarse target family used to bound ordinary trait-dispatch discovery.
 ///
@@ -67,8 +67,14 @@ pub struct TraitDispatchContribution {
 /// Immutable, deterministic discovery index for ordinary trait dispatch.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TraitDispatchIndex {
-    buckets: BTreeMap<TraitDispatchBucketKey, Box<[TraitDispatchContribution]>>,
+    buckets: crate::ordered_map::OrderedMap<TraitDispatchBucketKey, Box<[TraitDispatchContribution]>>,
     fingerprint: ProductFingerprint,
+}
+
+#[derive(Debug)]
+pub(crate) enum FrozenTraitDispatchIndexError {
+    Allocation(phalcom_type_meta::allocation::AllocationError),
+    DuplicateBucket,
 }
 
 /// Borrowed immutable semantic inputs used by checker body analysis. The view
@@ -76,7 +82,7 @@ pub struct TraitDispatchIndex {
 pub struct ConformanceSemanticView<'a> {
     pub trait_dispatch: &'a TraitDispatchIndex,
     pub conformance_index: &'a ConformanceIndex,
-    pub witness_plans: &'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    pub witness_plans: &'a crate::impls::ConformanceWitnessPlans,
     pub trait_surfaces: &'a TraitSurfaceTable,
     pub derived_conformance_rules: &'a crate::derived_conformance::DerivedConformanceRuleIndex,
     /// Optional view of current declaration-owned callable results. It is
@@ -155,12 +161,108 @@ impl TraitDispatchIndex {
                 (key, entries.into_boxed_slice())
             })
             .collect::<BTreeMap<_, _>>();
+        let buckets = crate::ordered_map::OrderedMap::from(buckets);
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        buckets.hash(&mut hasher);
+        hash_ordered_buckets(&buckets, &mut hasher);
         Self {
             buckets,
             fingerprint: ProductFingerprint::new(hasher.finish()),
         }
+    }
+
+    pub(crate) fn build_with_allocation_budget(
+        conformance_index: &ConformanceIndex,
+        trait_surfaces: &TraitSurfaceTable,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, FrozenTraitDispatchIndexError> {
+        let mut count = 0usize;
+        for (_, contribution) in conformance_index.iter().filter(|(_, contribution)| contribution.is_lookup_eligible()) {
+            let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) else {
+                continue;
+            };
+            count = count.checked_add(surface.members.len()).ok_or(FrozenTraitDispatchIndexError::Allocation(
+                phalcom_type_meta::allocation::AllocationError::Overflow,
+            ))?;
+        }
+        let mut flattened = allocations
+            .vector::<(TraitDispatchBucketKey, TraitDispatchContribution)>(count)
+            .map_err(FrozenTraitDispatchIndexError::Allocation)?;
+        for (impl_id, contribution) in conformance_index.iter().filter(|(_, contribution)| contribution.is_lookup_eligible()) {
+            let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) else {
+                continue;
+            };
+            for (requirement, member) in surface.iter() {
+                let target_for_entry = clone_target_family_with_allocation_budget(&contribution.target, allocations)?;
+                let target_for_key = clone_target_family_from_family_with_allocation_budget(&target_for_entry, allocations)?;
+                let trait_declaration = contribution
+                    .trait_ref
+                    .declaration
+                    .clone_with_allocation_budget(allocations)
+                    .map_err(FrozenTraitDispatchIndexError::Allocation)?;
+                let requirement = requirement
+                    .clone_with_allocation_budget(allocations)
+                    .map_err(FrozenTraitDispatchIndexError::Allocation)?;
+                let selector = crate::traits::clone_selector_with_allocation_budget(&member.requirement.selector, allocations)
+                    .map_err(FrozenTraitDispatchIndexError::Allocation)?;
+                let impl_id = impl_id
+                    .clone_with_allocation_budget(allocations)
+                    .map_err(FrozenTraitDispatchIndexError::Allocation)?;
+                let entry = TraitDispatchContribution {
+                    impl_id,
+                    target_family: target_for_entry,
+                    trait_declaration,
+                    requirement,
+                    selector,
+                    side: member.requirement.side,
+                };
+                let selector_for_key =
+                    crate::traits::clone_selector_with_allocation_budget(&entry.selector, allocations).map_err(FrozenTraitDispatchIndexError::Allocation)?;
+                let key = TraitDispatchBucketKey {
+                    target_family: target_for_key,
+                    selector: selector_for_key,
+                    side: entry.side,
+                };
+                flattened.push((key, entry));
+            }
+        }
+        flattened.sort_unstable();
+        flattened.dedup();
+        let bucket_count = flattened
+            .windows(2)
+            .filter(|pair| pair[0].0 != pair[1].0)
+            .count()
+            .checked_add(usize::from(!flattened.is_empty()))
+            .ok_or(FrozenTraitDispatchIndexError::Allocation(
+                phalcom_type_meta::allocation::AllocationError::Overflow,
+            ))?;
+        let mut buckets = allocations
+            .vector::<(TraitDispatchBucketKey, Box<[TraitDispatchContribution]>)>(bucket_count)
+            .map_err(FrozenTraitDispatchIndexError::Allocation)?;
+        while let Some((last_key, last_contrib)) = flattened.pop() {
+            let additional_count = flattened.iter().rev().take_while(|(k, _)| k == &last_key).count();
+            let total_count = additional_count + 1;
+            let mut contributions = allocations
+                .vector::<TraitDispatchContribution>(total_count)
+                .map_err(FrozenTraitDispatchIndexError::Allocation)?;
+            for _ in 0..additional_count {
+                contributions.push(flattened.pop().unwrap().1);
+            }
+            contributions.push(last_contrib);
+            contributions.reverse();
+            let contributions = allocations.boxed_slice(contributions).map_err(FrozenTraitDispatchIndexError::Allocation)?;
+            buckets.push((last_key, contributions));
+        }
+        buckets.reverse();
+        let buckets = crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(buckets, allocations).map_err(|error| match error {
+            crate::ordered_map::FrozenOrderedMapError::Allocation(error) => FrozenTraitDispatchIndexError::Allocation(error),
+            crate::ordered_map::FrozenOrderedMapError::DuplicateKey => FrozenTraitDispatchIndexError::DuplicateBucket,
+        })?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        hash_ordered_buckets(&buckets, &mut hasher);
+        Ok(Self {
+            buckets,
+            fingerprint: ProductFingerprint::new(hasher.finish()),
+        })
     }
 
     pub fn candidates_for(&self, target_family: &TraitDispatchTargetFamily, selector: &Selector, side: DispatchSide) -> &[TraitDispatchContribution] {
@@ -174,7 +276,7 @@ impl TraitDispatchIndex {
             .unwrap_or(&[])
     }
 
-    pub fn buckets(&self) -> &BTreeMap<TraitDispatchBucketKey, Box<[TraitDispatchContribution]>> {
+    pub fn buckets(&self) -> &crate::ordered_map::OrderedMap<TraitDispatchBucketKey, Box<[TraitDispatchContribution]>> {
         &self.buckets
     }
 
@@ -200,6 +302,50 @@ impl TraitDispatchIndex {
     }
 }
 
+fn hash_ordered_buckets(buckets: &crate::ordered_map::OrderedMap<TraitDispatchBucketKey, Box<[TraitDispatchContribution]>>, hasher: &mut impl Hasher) {
+    buckets.len().hash(hasher);
+    for (key, contributions) in buckets {
+        key.hash(hasher);
+        contributions.hash(hasher);
+    }
+}
+
+fn clone_target_family_with_allocation_budget(
+    target: &ConformanceTarget,
+    allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+) -> Result<TraitDispatchTargetFamily, FrozenTraitDispatchIndexError> {
+    Ok(match target {
+        ConformanceTarget::Declaration(declaration) => TraitDispatchTargetFamily::Declaration(
+            declaration
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenTraitDispatchIndexError::Allocation)?,
+        ),
+        ConformanceTarget::ExactEnumCase(variant) => TraitDispatchTargetFamily::ExactEnumCase(
+            variant
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenTraitDispatchIndexError::Allocation)?,
+        ),
+    })
+}
+
+fn clone_target_family_from_family_with_allocation_budget(
+    family: &TraitDispatchTargetFamily,
+    allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+) -> Result<TraitDispatchTargetFamily, FrozenTraitDispatchIndexError> {
+    Ok(match family {
+        TraitDispatchTargetFamily::Declaration(declaration) => TraitDispatchTargetFamily::Declaration(
+            declaration
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenTraitDispatchIndexError::Allocation)?,
+        ),
+        TraitDispatchTargetFamily::ExactEnumCase(variant) => TraitDispatchTargetFamily::ExactEnumCase(
+            variant
+                .clone_with_allocation_budget(allocations)
+                .map_err(FrozenTraitDispatchIndexError::Allocation)?,
+        ),
+    })
+}
+
 /// One exact, proven trait requirement exposed by ordinary lookup.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraitEvidencedMemberCandidate {
@@ -211,7 +357,7 @@ pub struct TraitEvidencedMemberCandidate {
     pub evidence_fingerprint: ProductFingerprint,
     pub selection: RequirementSelectionTemplate,
     pub signature: CallableSemanticSignature,
-    pub requirement_targets: BTreeMap<TraitRequirementId, RequirementSelectionTemplate>,
+    pub requirement_targets: AnalysisMap<TraitRequirementId, RequirementSelectionTemplate>,
     pub convergence: TraitDispatchConvergenceKey,
 }
 
@@ -248,7 +394,7 @@ pub struct TraitDispatchSelection {
     /// guarded rule substitution and nested conformance evidence.
     pub evidence: GenericConformanceEvidence,
     pub selection: RequirementSelectionTemplate,
-    pub requirement_targets: BTreeMap<TraitRequirementId, RequirementSelectionTemplate>,
+    pub requirement_targets: AnalysisMap<TraitRequirementId, RequirementSelectionTemplate>,
 }
 
 /// Assumed trait dispatch selection produced from a generic direct conformance bound.
@@ -315,7 +461,7 @@ pub fn target_family_for_receiver(store: &TypeStore, receiver: TypeId) -> Option
 pub fn resolve_trait_evidenced_candidates(
     index: &TraitDispatchIndex,
     conformance_index: &ConformanceIndex,
-    plans: &std::collections::BTreeMap<ImplId, std::sync::Arc<ConformanceWitnessPlan>>,
+    plans: &crate::impls::ConformanceWitnessPlans,
     trait_surfaces: &TraitSurfaceTable,
     derived_rules: &crate::derived_conformance::DerivedConformanceRuleIndex,
     lexical_evidence: Option<&GenericEvidenceEnvironment>,
@@ -470,9 +616,9 @@ fn candidate_from_proof(
             crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { exact_subject, .. } => {
                 let mut environment = crate::types::environment::TypeEnvironment::new();
                 for (&param, &ty) in derived.impl_bindings.bindings() {
-                    environment.bind_param(param, ty);
+                    environment.bind_param(param, ty).expect("derived dispatch environment is source mutable");
                 }
-                environment.bind_self(*exact_subject);
+                environment.bind_self(*exact_subject).expect("derived dispatch environment is source mutable");
                 let mut sig = requirement.signature.clone();
                 sig.parameters = sig
                     .parameters
@@ -523,7 +669,7 @@ fn candidate_from_proof(
         evidence_fingerprint,
         selection,
         signature,
-        requirement_targets,
+        requirement_targets: requirement_targets.into(),
         convergence,
     })
 }
@@ -599,18 +745,17 @@ pub(crate) fn inherent_specialization_fingerprint(applicability: &crate::impls::
     applicability.impl_id.hash(&mut hasher);
     applicability.receiver.hash(&mut hasher);
     applicability.owner_view.hash(&mut hasher);
-    let mut bindings = applicability.bindings.iter().map(|(parameter, ty)| (*parameter, *ty)).collect::<Vec<_>>();
-    bindings.sort();
-    bindings.hash(&mut hasher);
+    applicability.bindings.len().hash(&mut hasher);
+    for (parameter, ty) in applicability.bindings.iter() {
+        parameter.hash(&mut hasher);
+        ty.hash(&mut hasher);
+    }
     applicability.environment.self_binding.hash(&mut hasher);
-    let mut environment_bindings = applicability
-        .environment
-        .bindings
-        .iter()
-        .map(|(parameter, ty)| (*parameter, *ty))
-        .collect::<Vec<_>>();
-    environment_bindings.sort();
-    environment_bindings.hash(&mut hasher);
+    applicability.environment.bindings.len().hash(&mut hasher);
+    for (parameter, ty) in applicability.environment.bindings.iter() {
+        parameter.hash(&mut hasher);
+        ty.hash(&mut hasher);
+    }
     ProductFingerprint::new(hasher.finish())
 }
 

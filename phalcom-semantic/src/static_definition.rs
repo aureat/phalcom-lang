@@ -4,7 +4,7 @@
 
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
-use crate::identity::{BindingId, DeclarationId, ExpressionId, ModuleId};
+use crate::identity::{BindingId, DeclarationId, ExpressionId, ModuleId, VariantId};
 use crate::member_projection::MemberProjection;
 use crate::static_domain::{StaticValueDomain, resolve_static_domain};
 use crate::type_alias::TypeAliasInfo;
@@ -42,6 +42,130 @@ pub struct StaticDefinitionSignature {
     pub where_clause: Option<WhereClauseSyntax>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StaticBinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+    Eq,
+    NotEq,
+    Less,
+    LessEq,
+    Greater,
+    GreaterEq,
+    And,
+    Or,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StaticUnaryOp {
+    Neg,
+    Not,
+    BitNot,
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum OperationalTarget {
+    Declaration(DeclarationId),
+    DataConstructor(DeclarationId),
+    VariantConstructor(VariantId),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OperationalNode {
+    Constant(crate::static_value::StaticValueRef),
+    ReadParameter(u32),
+    ReadLocal(u32),
+    ReadStaticConstant(phalcom_modules::linker::SymbolId),
+    WriteLocal(u32, Box<OperationalNode>),
+    TypeForm(crate::types::id::TypeId),
+    Binary {
+        op: StaticBinaryOp,
+        left: Box<OperationalNode>,
+        right: Box<OperationalNode>,
+    },
+    Unary {
+        op: StaticUnaryOp,
+        operand: Box<OperationalNode>,
+    },
+    StaticApplication {
+        application_ordinal: u32,
+        arguments: Vec<OperationalNode>,
+    },
+    StaticConstruction {
+        target: OperationalTarget,
+        result_type: crate::types::id::TypeId,
+        arguments: Vec<OperationalNode>,
+    },
+    MemberProjection {
+        target: Box<OperationalNode>,
+        member: Box<str>,
+    },
+    If {
+        condition: Box<OperationalNode>,
+        then_branch: Box<OperationalNode>,
+        else_branch: Option<Box<OperationalNode>>,
+    },
+    Sequence {
+        result_type: crate::types::id::TypeId,
+        elements: Vec<OperationalNode>,
+    },
+    Tuple {
+        elements: Vec<OperationalNode>,
+    },
+    Block {
+        local_count: u32,
+        statements: Vec<OperationalNode>,
+        result: Option<Box<OperationalNode>>,
+    },
+    Return(Option<Box<OperationalNode>>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanonicalCheckedStaticApplication {
+    pub id: StaticApplicationId,
+    pub source_range: SourceRange,
+    pub target: DeclarationId,
+    pub signature: StaticDefinitionSignature,
+    pub arguments: Box<[CanonicalStaticApplicationArgument]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CanonicalStaticApplicationArgument {
+    KindedTerm { parameter_index: u32, term: crate::types::id::TypeId },
+    KindedExpression { parameter_index: u32, application_ordinal: u32 },
+    Value { parameter_index: u32 },
+}
+
+/// Source-independent executable owner derived from one checked static body.
+/// The body-local application rows remain the authority for target and checked
+/// signature; operational nodes carry only their ordinal within this owner.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanonicalStaticProgram {
+    pub owner: StaticBodyId,
+    pub parameter_count: u32,
+    pub local_count: u32,
+    pub root: OperationalNode,
+    pub applications: Arc<[CanonicalCheckedStaticApplication]>,
+    pub kinded_parameters: Arc<[u32]>,
+    pub static_constant_reads: Arc<[phalcom_modules::linker::SymbolId]>,
+    pub dependencies: Arc<[crate::checker::analysis::SemanticDependency]>,
+    pub result: StaticValueDomain,
+    pub input_fingerprint: crate::db::key::InputFingerprint,
+    pub module_binding_fingerprint: Option<crate::db::key::ProductFingerprint>,
+}
+
+/// Compatibility name for the operational root carried by existing artifact
+/// codec helpers. The canonical program is the owner, not a detached template.
+pub type OperationalTemplate = CanonicalStaticProgram;
+
 /// Body representation of a static definition.
 #[derive(Clone, Debug)]
 pub enum StaticDefinitionBodyRepr {
@@ -51,6 +175,8 @@ pub enum StaticDefinitionBodyRepr {
     Expression(Expr),
     /// Lexical block body.
     Block(LexicalBlock),
+    /// Source-independent operational template for persistent compiler artifacts.
+    Operational(std::sync::Arc<OperationalTemplate>),
 }
 
 impl StaticDefinitionBodyRepr {
@@ -59,6 +185,7 @@ impl StaticDefinitionBodyRepr {
             Self::TypeForm(ann) => ann.range,
             Self::Expression(expr) => expr.range(),
             Self::Block(block) => block.range,
+            Self::Operational(_) => phalcom_common::range::SourceRange::default(),
         }
     }
 }
@@ -76,6 +203,15 @@ pub struct StaticDefinition {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticBodyId(pub DeclarationId);
 
+impl StaticBodyId {
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(Self(self.0.clone_with_allocation_budget(allocations)?))
+    }
+}
+
 /// Query-local identity for one nested static-definition application in a
 /// checked static body. The ordinal follows the body's structural walk; source
 /// ranges remain provenance and are not used as target identity.
@@ -83,6 +219,18 @@ pub struct StaticBodyId(pub DeclarationId);
 pub struct StaticApplicationId {
     pub body: StaticBodyId,
     pub ordinal: u32,
+}
+
+impl StaticApplicationId {
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(Self {
+            body: self.body.clone_with_allocation_budget(allocations)?,
+            ordinal: self.ordinal,
+        })
+    }
 }
 
 /// One already-checked argument aligned with its target parameter.
@@ -184,6 +332,9 @@ pub struct StaticDefinitionProduct {
     pub diagnostics: Arc<[SemanticDiagnostic]>,
     /// Optimized projection for Type-valued definitions compatible with C3 alias machinery.
     pub alias_info: Option<Arc<TypeAliasInfo>>,
+    /// Source-independent executable authority derived from the checked body.
+    /// Imported products always carry this and have no source checked body.
+    pub canonical_program: Option<Arc<CanonicalStaticProgram>>,
     /// Composed snapshot view of the distinct cached ordinary-checker body.
     pub checked_body: Option<Arc<CheckedStaticBody>>,
 }
@@ -191,17 +342,49 @@ pub struct StaticDefinitionProduct {
 /// Table storing static definitions by declaration ID and module.
 #[derive(Clone, Debug, Default)]
 pub struct StaticDefinitionTable {
-    definitions: BTreeMap<DeclarationId, Arc<StaticDefinitionProduct>>,
+    parent: Option<Arc<Self>>,
+    definitions: crate::ordered_map::OrderedMap<DeclarationId, Arc<StaticDefinitionProduct>>,
     module_definitions: BTreeMap<ModuleId, BTreeSet<DeclarationId>>,
 }
 
 impl StaticDefinitionTable {
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<(DeclarationId, Arc<StaticDefinitionProduct>)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, crate::ordered_map::FrozenOrderedMapError> {
+        Ok(Self {
+            definitions: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(entries, allocations)?,
+            ..Self::default()
+        })
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Attaches the immutable canonical definitions without copying their entries.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    /// Number of workspace-owned definitions, excluding the canonical parent.
+    pub fn local_len(&self) -> usize {
+        self.definitions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.local_len() == 0 && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
+    }
+
     pub fn insert(&mut self, product: Arc<StaticDefinitionProduct>) {
         let decl = product.definition.id.clone();
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.contains_key(&decl)),
+            "cannot overwrite a canonical static definition"
+        );
         self.module_definitions.entry(decl.module.clone()).or_default().insert(decl.clone());
         self.definitions.insert(decl, product);
     }
@@ -226,15 +409,21 @@ impl StaticDefinitionTable {
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&Arc<StaticDefinitionProduct>> {
-        self.definitions.get(declaration)
+        self.definitions
+            .get(declaration)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
     }
 
     pub fn contains_key(&self, declaration: &DeclarationId) -> bool {
-        self.definitions.contains_key(declaration)
+        self.get(declaration).is_some()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&DeclarationId, &Arc<StaticDefinitionProduct>)> {
-        self.definitions.iter()
+    /// Iterates canonical and local definitions in stable parent-then-local order.
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&DeclarationId, &Arc<StaticDefinitionProduct>)> + '_> {
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter().chain(self.definitions.iter())),
+            None => Box::new(self.definitions.iter()),
+        }
     }
 }
 
@@ -408,7 +597,7 @@ pub fn resolve_static_definition(
         }
     };
 
-    let result_domain = if let Some(domain_syntax) = &def.result_domain {
+    let mut result_domain = if let Some(domain_syntax) = &def.result_domain {
         match resolve_static_domain(store, declarations, resolver, site, domain_syntax, diagnostics) {
             TypeFormationOutcome::Ready(domain) => domain,
             _ => StaticValueDomain::Kind(KindId::TYPE),
@@ -426,6 +615,7 @@ pub fn resolve_static_definition(
     };
 
     // Compatibility projection for transparent type aliases
+    let explicit_result_kind = def.result_domain.is_some();
     let alias_info = if let StaticValueDomain::Kind(expected_kind) = result_domain {
         if let StaticDefinitionBodyRepr::TypeForm(ref ann) = body_repr {
             if kinded_params.len() == parameters.len() {
@@ -439,7 +629,7 @@ pub fn resolve_static_definition(
                             TypeData::Lambda(lambda_id) => store.arena().get_lambda(*lambda_id).result_kind,
                             _ => store.kind_of(form_type_id),
                         };
-                        if expected_kind != actual_result_kind {
+                        if explicit_result_kind && expected_kind != actual_result_kind {
                             diagnostics.push(SemanticDiagnostic::error_in(
                                 module_id.clone(),
                                 DiagnosticCode::AnnotationUnresolved,
@@ -452,6 +642,9 @@ pub fn resolve_static_definition(
                             ));
                             None
                         } else {
+                            if !explicit_result_kind {
+                                result_domain = StaticValueDomain::Kind(actual_result_kind);
+                            }
                             let actual_kind = store.kind_of(form_type_id);
                             Some(Arc::new(TypeAliasInfo {
                                 declaration: declaration_id.clone(),
@@ -495,6 +688,7 @@ pub fn resolve_static_definition(
         definition,
         diagnostics: Arc::from(diagnostics.as_slice()),
         alias_info,
+        canonical_program: None,
         checked_body: None,
     }
 }

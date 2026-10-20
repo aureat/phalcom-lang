@@ -2,6 +2,8 @@ mod compare;
 mod env;
 mod measure;
 mod model;
+#[cfg(feature = "perf-observability")]
+mod profile;
 mod store;
 mod suite;
 
@@ -62,6 +64,9 @@ enum Commands {
     Layout(LayoutArgs),
     /// Manage baseline runs
     Baseline(BaselineArgs),
+    /// Inspect and compare internal compiler profiles attached to stored runs
+    #[cfg(feature = "perf-observability")]
+    Profile(profile::ProfileArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -247,6 +252,8 @@ fn main() {
         Some(Commands::Compare(args)) => handle_compare(args),
         Some(Commands::Run(args)) => handle_run(args),
         Some(Commands::Ab(args)) => handle_ab(args),
+        #[cfg(feature = "perf-observability")]
+        Some(Commands::Profile(args)) => profile::handle(&workspace_root(), args),
         None => {
             // Backward compatibility fallback to `run`
             let args = RunArgs {

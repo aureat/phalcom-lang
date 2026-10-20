@@ -20,7 +20,7 @@ use phalcom_common::range::SourceRange;
 use phalcom_common::selector::SelectorBase;
 use phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1;
 use phalcom_compiler_artifact::semantic::world::{
-    AssociatedFamilyKindV1, AssociatedMemberV1, AssociatedStaticDomainRecordV1, AssociatedSurfaceRecordV1, IntrinsicTypeOperationV1, SemanticWorldV3,
+    AssociatedFamilyKindV1, AssociatedMemberV1, AssociatedStaticDomainRecordV1, AssociatedSurfaceRecordV1, IntrinsicTypeOperationV1, SemanticWorldV4,
     TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
@@ -86,7 +86,7 @@ impl ImportedAssociatedAuthority {
 /// Package and SourceArtifact projects may relocate to arbitrary receiving
 /// graph-local IDs without changing artifact identity.
 pub(crate) fn reconstruct_associated_authority(
-    world: &SemanticWorldV3,
+    world: &SemanticWorldV4,
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
     allocations: &mut AllocationBudget,
@@ -164,12 +164,15 @@ fn reconstruct_type_member_product(
 
     let intrinsic = row.intrinsic.as_ref().map(import_intrinsic_type_operation);
     let implementation = import_type_member_implementation(&row.implementation);
+    let parameters = allocations
+        .boxed_slice(parameters)
+        .map_err(ArtifactError::Allocation)?;
     allocations
         .arc(TypeMemberDeclarationProduct {
             id,
             signature: TypeMemberSignature {
                 selector,
-                parameters: allocations.boxed_slice(parameters).map_err(ArtifactError::Allocation)?,
+                parameters,
                 result_domain: type_member_domain(&row.result_domain, types)?,
                 intrinsic,
                 implementation,
@@ -208,11 +211,14 @@ fn reconstruct_static_domain_product(
                 .ok_or_else(|| invalid("associated static-domain row references an absent constructor"))?,
         );
     }
+    let constructors = allocations
+        .boxed_slice(constructors)
+        .map_err(ArtifactError::Allocation)?;
     allocations
         .arc(AssociatedStaticDomainDeclarationProduct {
             id,
             domain,
-            constructors: allocations.boxed_slice(constructors).map_err(ArtifactError::Allocation)?,
+            constructors,
             source_range: SourceRange::default(),
         })
         .map_err(ArtifactError::Allocation)
@@ -246,7 +252,7 @@ fn reconstruct_associated_surface(
     }
 
     allocations
-        .arc(AssociatedSurface { owner, families })
+        .arc(AssociatedSurface { owner, families: families.into() })
         .map_err(ArtifactError::Allocation)
 }
 
@@ -308,7 +314,7 @@ pub(crate) fn type_member_domain(domain: &TypeMemberDomainV1, types: &Reconstruc
 fn type_member_selector(selector: &TypeMemberSelectorV1, allocations: &mut AllocationBudget) -> Result<TypeMemberSelector, ArtifactError> {
     Ok(match selector {
         TypeMemberSelectorV1::Named { name } => {
-            if name.as_ref() == "At" {
+            if name.as_str() == "At" {
                 return Err(invalid("noncanonical type-member selector aliases the subscript identity"));
             }
             TypeMemberSelector::Named(allocations.boxed_str(name).map_err(ArtifactError::Allocation)?)

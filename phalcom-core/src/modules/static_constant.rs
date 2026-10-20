@@ -275,6 +275,43 @@ mod tests {
     }
 
     #[test]
+    fn structural_sequence_materialization_preserves_values_labels_and_owner_identity() {
+        let mut vm = VM::new();
+        let owner_id = vm.module_registry.iter().next().expect("bootstrapped owner module").0.clone();
+        let key = phalcom_semantic::field_key::FieldKey::symbol("pair");
+        let spec = StaticConstantLoweringSpec {
+            id: StaticConstantId::new(owner_id, "__static_test_structural_sequence"),
+            descriptor: MaterializationDescriptor::Sequence {
+                kind: SequenceMaterializationKind::Vector,
+                elements: Arc::from([MaterializationDescriptor::Pack {
+                    positionals: Arc::from([MaterializationDescriptor::Tuple(Arc::from([
+                        MaterializationDescriptor::Int(StaticInt::Small(7)),
+                        MaterializationDescriptor::String(Arc::from("retained")),
+                    ]))]),
+                    labeled: Arc::from([(
+                        Arc::from("named"),
+                        MaterializationDescriptor::Record(Arc::from([(key.clone(), MaterializationDescriptor::Int(StaticInt::Small(8)))])),
+                    )]),
+                }]),
+            },
+        };
+        let reference = vm.ensure_static_constant_materialized(&spec).expect("structural sequence materialization");
+        let value = vm.resolve_static_constant(reference).unwrap();
+        let repeated = vm.ensure_static_constant_materialized(&spec).unwrap();
+        assert_eq!(vm.resolve_static_constant(repeated).unwrap(), value, "owner value must be reused");
+        let pack = vm.heap.vector(value.as_obj().unwrap()).elements()[0];
+        let label = vm.interner.find("named").unwrap();
+        let view = vm.pack_view_value(pack).expect("materialized Pack");
+        let tuple = view.get_positional(0).unwrap();
+        let record = view.get_by_label(label).unwrap();
+        let tuple_values = vm.tuple_view_value(tuple).expect("materialized Tuple").values();
+        assert_eq!(tuple_values[0], Value::int(7));
+        assert!(matches!(vm.heap.get(tuple_values[1].as_obj().unwrap()), Object::Str(_)));
+        assert_eq!(vm.record_view_value(record).expect("materialized Record").entries(), vec![(key, Value::int(8))]);
+        assert_eq!(vm.temp_root_depth(), 0, "owner publication releases temporary roots");
+    }
+
+    #[test]
     fn failed_sequence_materialization_does_not_publish_partial_owner_value() {
         let mut vm = VM::new();
         let owner_id = vm.module_registry.iter().next().expect("bootstrapped owner module").0.clone();

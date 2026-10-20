@@ -11,7 +11,9 @@ use phalcom_ast::ast::{ExpansionMode, GenericParameterSyntax, Statement};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, UniverseSourceProvider};
 use phalcom_native_meta::types::KindSpec;
 use phalcom_native_meta::universe::{UNIVERSE_BINDINGS, UniverseBindingKind, UniverseKey};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError, BudgetedSortedMap, SortedMapEntriesError};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Generic supertype template: records static generic supertype (e.g. `Names<T> is Sequence<Option<T>>`).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -45,6 +47,61 @@ pub struct DeclarationTypeInfo {
     pub generic_binder_header: Option<GenericBinderHeader>,
     pub generic_signature: Option<GenericSignature>,
     pub supertype_template: Option<GenericSupertypeTemplate>,
+}
+
+impl DeclarationTypeInfo {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let generic_binder_header = self
+            .generic_binder_header
+            .as_ref()
+            .map(|header| clone_generic_binder_header_with_allocation_budget(header, allocations))
+            .transpose()?;
+        let generic_signature = self
+            .generic_signature
+            .as_ref()
+            .map(|signature| signature.clone_with_allocation_budget(allocations))
+            .transpose()?;
+        let supertype_template = self
+            .supertype_template
+            .as_ref()
+            .map(|template| {
+                Ok(GenericSupertypeTemplate {
+                    declaration: template.declaration.clone_with_allocation_budget(allocations)?,
+                    supertype: template.supertype,
+                    structural_form: template.structural_form.as_ref().map(|form| allocations.boxed_str(form)).transpose()?,
+                })
+            })
+            .transpose()?;
+        Ok(Self {
+            declaration: self.declaration.clone_with_allocation_budget(allocations)?,
+            form: self.form,
+            class_object_type: self.class_object_type,
+            kind: self.kind,
+            binding: self.binding,
+            generic_binder_header,
+            generic_signature,
+            supertype_template,
+        })
+    }
+}
+
+fn clone_generic_binder_header_with_allocation_budget(
+    header: &GenericBinderHeader,
+    allocations: &mut AllocationBudget,
+) -> Result<GenericBinderHeader, AllocationError> {
+    fn copy_slice<T: Copy>(values: &[T], allocations: &mut AllocationBudget) -> Result<Box<[T]>, AllocationError> {
+        let mut copied = allocations.vector(values.len())?;
+        copied.extend_from_slice(values);
+        allocations.boxed_slice(copied)
+    }
+
+    Ok(GenericBinderHeader {
+        owner: header.owner.clone_with_allocation_budget(allocations)?,
+        parameters: copy_slice(&header.parameters, allocations)?,
+        parameter_kinds: copy_slice(&header.parameter_kinds, allocations)?,
+        parameter_variances: copy_slice(&header.parameter_variances, allocations)?,
+        parameter_modes: copy_slice(&header.parameter_modes, allocations)?,
+    })
 }
 
 /// Semantic type-application behavior for a canonical declaration.
@@ -178,14 +235,72 @@ impl NominalDeclarationHeader {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DeclarationTypeTable {
+    parent: Option<Arc<DeclarationTypeTable>>,
+    frozen: Option<Arc<BudgetedSortedMap<DeclarationId, DeclarationTypeInfo>>>,
     entries: HashMap<DeclarationId, DeclarationTypeInfo>,
     intrinsic_static_domains: HashMap<DeclarationId, KindId>,
     intrinsic_type_owners: HashMap<DeclarationId, IntrinsicTypeOwner>,
+    module_declarations: HashMap<ModuleId, std::collections::BTreeSet<DeclarationId>>,
+}
+
+#[derive(Debug)]
+pub(crate) enum FrozenDeclarationTypeTableError {
+    Allocation(AllocationError),
+    DuplicateDeclaration,
 }
 
 impl DeclarationTypeTable {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates an overlay table referencing an immutable parent authority.
+    pub fn with_parent(parent: Arc<DeclarationTypeTable>) -> Self {
+        Self {
+            parent: Some(parent),
+            frozen: None,
+            entries: HashMap::new(),
+            intrinsic_static_domains: HashMap::new(),
+            intrinsic_type_owners: HashMap::new(),
+            module_declarations: HashMap::new(),
+        }
+    }
+
+    /// Builds immutable artifact authority from a pre-budgeted entry buffer.
+    /// Sorting retains the same identity ordering without allocating tree nodes.
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        mut entries: Vec<(DeclarationId, DeclarationTypeInfo)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, FrozenDeclarationTypeTableError> {
+        entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let frozen = BudgetedSortedMap::from_sorted_entries(entries).map_err(|error| match error {
+            SortedMapEntriesError::DuplicateKey => FrozenDeclarationTypeTableError::DuplicateDeclaration,
+            SortedMapEntriesError::OutOfOrder => unreachable!("entries were sorted before frozen construction"),
+        })?;
+        let frozen = allocations.arc(frozen).map_err(FrozenDeclarationTypeTableError::Allocation)?;
+        Ok(Self {
+            frozen: Some(frozen),
+            ..Self::default()
+        })
+    }
+
+    /// Read-only handle to the parent table, if parented.
+    pub fn parent(&self) -> Option<&Arc<DeclarationTypeTable>> {
+        self.parent.as_ref()
+    }
+
+    /// Number of local overlay entries.
+    pub fn local_len(&self) -> usize {
+        self.entries.len() + self.frozen.as_ref().map_or(0, |entries| entries.len())
+    }
+
+    /// Total number of unique declarations accessible through this table and its parents.
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent.as_ref().map_or(0, |p| p.len())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.local_len() == 0 && self.parent.as_ref().is_none_or(|p| p.is_empty())
     }
 
     /// Replaces the complete declaration product and all independently
@@ -227,6 +342,12 @@ impl DeclarationTypeTable {
     }
 
     fn store_authoritative(&mut self, info: DeclarationTypeInfo) {
+        debug_assert!(
+            self.parent.as_ref().map_or(true, |p| !p.contains(&info.declaration))
+                && self.frozen.as_ref().is_none_or(|entries| !entries.contains_key(&info.declaration)),
+            "local mutation cannot overwrite canonical parent declaration: {:?}",
+            info.declaration
+        );
         self.intrinsic_static_domains.remove(&info.declaration);
         self.intrinsic_type_owners.remove(&info.declaration);
         if let Some(owner) = info.binding.runtime_owner {
@@ -239,12 +360,19 @@ impl DeclarationTypeTable {
                 self.intrinsic_type_owners.insert(info.declaration.clone(), type_owner);
             }
         }
+        self.module_declarations
+            .entry(info.declaration.module.clone())
+            .or_default()
+            .insert(info.declaration.clone());
         self.entries.insert(info.declaration.clone(), info);
     }
 
     /// Registers an authored intrinsic facade against an existing compiler-owned kind.
     /// This deliberately does not create a type form or nominal static domain.
     pub fn register_intrinsic_static_domain(&mut self, declaration: DeclarationId, kind: KindId) {
+        if let Some(set) = self.module_declarations.get_mut(&declaration.module) {
+            set.remove(&declaration);
+        }
         self.entries.remove(&declaration);
         let owner = match kind {
             KindId::TYPE_PACK => Some(IntrinsicTypeOwner::TypePack),
@@ -261,6 +389,13 @@ impl DeclarationTypeTable {
 
     pub fn register_intrinsic_type_owner(&mut self, declaration: DeclarationId, owner: IntrinsicTypeOwner) {
         self.intrinsic_type_owners.insert(declaration, owner);
+    }
+
+    /// Installs an independently transported intrinsic static-domain
+    /// projection on an imported immutable table. Unlike source registration,
+    /// this does not infer or modify the separate intrinsic type-owner family.
+    pub(crate) fn register_imported_intrinsic_static_domain(&mut self, declaration: DeclarationId, kind: KindId) {
+        self.intrinsic_static_domains.insert(declaration, kind);
     }
 
     /// Registers an authored runtime facade against its existing platform owner.
@@ -293,57 +428,105 @@ impl DeclarationTypeTable {
     }
 
     pub fn intrinsic_runtime_owner(&self, declaration: &DeclarationId) -> Option<IntrinsicRuntimeOwner> {
-        self.entries.get(declaration).and_then(|info| info.binding.runtime_owner)
+        self.entries
+            .get(declaration)
+            .and_then(|info| info.binding.runtime_owner)
+            .or_else(|| {
+                self.frozen
+                    .as_ref()
+                    .and_then(|entries| entries.get(declaration))
+                    .and_then(|info| info.binding.runtime_owner)
+            })
+            .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_runtime_owner(declaration)))
     }
 
     pub fn intrinsic_runtime_declarations(&self) -> impl Iterator<Item = (&DeclarationId, IntrinsicRuntimeOwner)> {
-        self.entries
-            .iter()
+        self.iter()
             .filter_map(|(declaration, info)| info.binding.runtime_owner.map(|owner| (declaration, owner)))
     }
 
     pub fn semantic_form(&self, declaration: &DeclarationId) -> Option<DeclarationSemanticForm> {
-        self.entries.get(declaration).map(|info| info.binding.semantic_form)
+        self.entries
+            .get(declaration)
+            .map(|info| info.binding.semantic_form)
+            .or_else(|| {
+                self.frozen
+                    .as_ref()
+                    .and_then(|entries| entries.get(declaration))
+                    .map(|info| info.binding.semantic_form)
+            })
+            .or_else(|| self.parent.as_ref().and_then(|p| p.semantic_form(declaration)))
     }
 
     pub fn intrinsic_type_owner(&self, declaration: &DeclarationId) -> Option<IntrinsicTypeOwner> {
-        self.intrinsic_type_owners.get(declaration).copied()
+        self.intrinsic_type_owners
+            .get(declaration)
+            .copied()
+            .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_type_owner(declaration)))
     }
 
     pub fn intrinsic_type_owner_declaration(&self, owner: IntrinsicTypeOwner) -> Option<DeclarationId> {
         self.intrinsic_type_owners
             .iter()
             .find_map(|(declaration, candidate)| (*candidate == owner).then(|| declaration.clone()))
+            .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_type_owner_declaration(owner)))
+    }
+
+    pub fn intrinsic_type_owner_declarations<'a>(&'a self) -> impl Iterator<Item = &'a DeclarationId> {
+        let mut tables = Vec::new();
+        let mut curr = Some(self);
+        while let Some(table) = curr {
+            tables.push(table);
+            curr = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(|table| table.intrinsic_type_owners.keys())
     }
 
     pub fn intrinsic_static_domain_kind(&self, declaration: &DeclarationId) -> Option<KindId> {
-        self.intrinsic_static_domains.get(declaration).copied()
+        self.intrinsic_static_domains
+            .get(declaration)
+            .copied()
+            .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_static_domain_kind(declaration)))
     }
 
-    pub fn intrinsic_static_domain_declarations(&self) -> impl Iterator<Item = &DeclarationId> {
-        self.intrinsic_static_domains.keys()
+    pub fn intrinsic_static_domain_declarations<'a>(&'a self) -> impl Iterator<Item = &'a DeclarationId> {
+        let mut tables = Vec::new();
+        let mut curr = Some(self);
+        while let Some(t) = curr {
+            tables.push(t);
+            curr = t.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(|t| t.intrinsic_static_domains.keys())
     }
 
     pub fn is_intrinsic_static_domain(&self, declaration: &DeclarationId) -> bool {
-        self.intrinsic_static_domains.contains_key(declaration)
+        self.intrinsic_static_domains.contains_key(declaration) || self.parent.as_ref().is_some_and(|p| p.is_intrinsic_static_domain(declaration))
     }
 
     pub fn remove(&mut self, declaration: &DeclarationId) -> Option<DeclarationTypeInfo> {
         self.intrinsic_static_domains.remove(declaration);
         self.intrinsic_type_owners.remove(declaration);
+        if let Some(set) = self.module_declarations.get_mut(&declaration.module) {
+            set.remove(declaration);
+        }
         self.entries.remove(declaration)
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&DeclarationTypeInfo> {
-        self.entries.get(declaration)
+        self.entries
+            .get(declaration)
+            .or_else(|| self.frozen.as_ref().and_then(|entries| entries.get(declaration)))
+            .or_else(|| self.parent.as_ref().and_then(|p| p.get(declaration)))
     }
 
     pub fn contains(&self, declaration: &DeclarationId) -> bool {
         self.entries.contains_key(declaration)
+            || self.frozen.as_ref().is_some_and(|entries| entries.contains_key(declaration))
+            || self.parent.as_ref().is_some_and(|p| p.contains(declaration))
     }
 
     pub fn form(&self, declaration: &DeclarationId) -> Option<TypeId> {
-        self.entries.get(declaration).map(|info| info.form)
+        self.get(declaration).map(|info| info.form)
     }
 
     /// Returns the proper runtime class projection used by native surface import.
@@ -356,27 +539,69 @@ impl DeclarationTypeTable {
     }
 
     pub fn class_object_type(&self, declaration: &DeclarationId) -> Option<TypeId> {
-        self.entries.get(declaration).map(|info| info.class_object_type)
+        self.get(declaration).map(|info| info.class_object_type)
     }
 
     pub fn kind(&self, declaration: &DeclarationId) -> Option<KindId> {
-        self.entries.get(declaration).map(|info| info.kind)
+        self.get(declaration).map(|info| info.kind)
     }
 
     pub fn generic_signature(&self, declaration: &DeclarationId) -> Option<&GenericSignature> {
-        self.entries.get(declaration).and_then(|info| info.generic_signature.as_ref())
+        self.get(declaration).and_then(|info| info.generic_signature.as_ref())
     }
 
     pub fn generic_binder_header(&self, declaration: &DeclarationId) -> Option<&GenericBinderHeader> {
-        self.entries.get(declaration).and_then(|info| info.generic_binder_header.as_ref())
+        self.get(declaration).and_then(|info| info.generic_binder_header.as_ref())
     }
 
     pub fn supertype_template(&self, declaration: &DeclarationId) -> Option<&GenericSupertypeTemplate> {
-        self.entries.get(declaration).and_then(|info| info.supertype_template.as_ref())
+        self.get(declaration).and_then(|info| info.supertype_template.as_ref())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&DeclarationId, &DeclarationTypeInfo)> {
-        self.entries.iter()
+    /// Iterates declarations belonging to the specified module without full-table scanning.
+    pub fn iter_module<'a>(&'a self, module: &'a ModuleId) -> Box<dyn Iterator<Item = (&'a DeclarationId, &'a DeclarationTypeInfo)> + 'a> {
+        let frozen_iter = self
+            .frozen
+            .iter()
+            .flat_map(|entries| entries.iter())
+            .filter(move |(id, _)| &id.module == module);
+        let map_iter = self
+            .module_declarations
+            .get(module)
+            .into_iter()
+            .flat_map(move |ids| ids.iter().filter_map(move |id| self.entries.get(id).map(|info| (id, info))));
+        let local_iter = frozen_iter.chain(map_iter);
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter_module(module).chain(local_iter)),
+            None => Box::new(local_iter),
+        }
+    }
+
+    /// Iterates only the intrinsic runtime declarations belonging to the specified module.
+    pub fn intrinsic_runtime_declarations_in_module<'a>(
+        &'a self,
+        module: &'a ModuleId,
+    ) -> Box<dyn Iterator<Item = (&'a DeclarationId, IntrinsicRuntimeOwner)> + 'a> {
+        Box::new(
+            self.iter_module(module)
+                .filter_map(|(id, info)| info.binding.runtime_owner.map(|owner| (id, owner))),
+        )
+    }
+
+    /// Iterates only local overlay declarations (excluding parent entries).
+    pub fn iter_local(&self) -> impl Iterator<Item = (&DeclarationId, &DeclarationTypeInfo)> {
+        self.frozen.iter().flat_map(|entries| entries.iter()).chain(self.entries.iter())
+    }
+
+    /// Iterates over all declarations across parent authority and local overlay.
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (&'a DeclarationId, &'a DeclarationTypeInfo)> {
+        let mut tables = Vec::new();
+        let mut curr = Some(self);
+        while let Some(t) = curr {
+            tables.push(t);
+            curr = t.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(|table| table.iter_local())
     }
 }
 
@@ -486,7 +711,15 @@ fn source_declaration_identity(module: &ModuleId, name: &str, universe_resolver:
 /// an identity-injection seam for isolated tests; production passes the canonical
 /// source-aware resolver. Native metadata is attachment/conformance data only.
 pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver: &dyn Fn(UniverseKey) -> DeclarationId) -> DeclarationTypeTable {
-    let provider = UniverseSourceProvider::new();
+    bootstrap_universe_declarations_with_provider(store, universe_resolver, &UniverseSourceProvider::new())
+}
+
+/// Bootstraps canonical declaration type forms from authoritative Universe source using the provided provider.
+pub fn bootstrap_universe_declarations_with_provider(
+    store: &mut TypeStore,
+    universe_resolver: &dyn Fn(UniverseKey) -> DeclarationId,
+    provider: &UniverseSourceProvider,
+) -> DeclarationTypeTable {
     let mut table = DeclarationTypeTable::new();
     let mut source_nominals = HashSet::<(ModuleId, String)>::new();
 

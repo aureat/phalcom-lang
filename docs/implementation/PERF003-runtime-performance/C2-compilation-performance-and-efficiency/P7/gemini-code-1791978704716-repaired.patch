@@ -1,0 +1,551 @@
+diff --git a/phalcom-semantic/src/artifact/mod.rs b/phalcom-semantic/src/artifact/mod.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-semantic/src/artifact/mod.rs
+@@ -0,0 +1,7 @@
++//! Semantic compiler-image persistence, validation, and fresh-store import (`PERF003.C2.P7`).
++
++pub mod export;
++pub mod import;
++pub mod manifest;
++pub mod query;
++pub mod validate;
+diff --git a/phalcom-semantic/src/artifact/manifest.rs b/phalcom-semantic/src/artifact/manifest.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-semantic/src/artifact/manifest.rs
+@@ -0,0 +1,140 @@
++//! Exhaustive field-to-wire/derived/omitted coverage manifest (`PERF003.C2.P7.T0/T5`).
++
++use crate::canonical_image::{CanonicalPersistenceClass, CanonicalProductFamily};
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum PortableDisposition {
++    Wire { section: &'static str },
++    Derived { owner: &'static str },
++    Omitted { reason: &'static str },
++}
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub struct SnapshotFieldCoverage {
++    pub field: &'static str,
++    pub family: CanonicalProductFamily,
++    pub disposition: PortableDisposition,
++    pub compiler_readers: &'static [&'static str],
++}
++
++pub const SNAPSHOT_FIELD_COVERAGE_MANIFEST: &[SnapshotFieldCoverage] = &[
++    SnapshotFieldCoverage {
++        field: "store",
++        family: CanonicalProductFamily::TypeArena,
++        disposition: PortableDisposition::Wire { section: "SEMANTIC_WORLD::type_graph" },
++        compiler_readers: &["ProgramCompiler", "TypeChecker", "MetadataExporter"],
++    },
++    SnapshotFieldCoverage {
++        field: "static_values",
++        family: CanonicalProductFamily::StaticValueArena,
++        disposition: PortableDisposition::Wire { section: "SEMANTIC_WORLD::static_values" },
++        compiler_readers: &["StaticEvaluator", "TypeStore", "ConstantLowering"],
++    },
++    SnapshotFieldCoverage {
++        field: "declarations",
++        family: CanonicalProductFamily::DeclarationsAndAliases,
++        disposition: PortableDisposition::Wire { section: "SEMANTIC_WORLD::aggregates" },
++        compiler_readers: &["ProgramCompiler", "NameResolver", "MetadataExporter"],
++    },
++    SnapshotFieldCoverage {
++        field: "type_aliases",
++        family: CanonicalProductFamily::DeclarationsAndAliases,
++        disposition: PortableDisposition::Wire { section: "SEMANTIC_WORLD::aggregates" },
++        compiler_readers: &["TypeChecker", "MetadataExporter"],
++    },
++    SnapshotFieldCoverage {
++        field: "hierarchy",
++        family: CanonicalProductFamily::HierarchyAndDispatch,
++        disposition: PortableDisposition::Wire { section: "SEMANTIC_WORLD::aggregates" },
++        compiler_readers: &["SubtypingEngine", "SurfaceDispatchResolver"],
++    },
++    SnapshotFieldCoverage {
++        field: "surfaces",
++        family: CanonicalProductFamily::HierarchyAndDispatch,
++        disposition: PortableDisposition::Wire { section: "SEMANTIC_WORLD::primary" },
++        compiler_readers: &["SurfaceDispatchResolver", "MetadataExporter"],
++    },
++    SnapshotFieldCoverage {
++        field: "dispatch",
++        family: CanonicalProductFamily::HierarchyAndDispatch,
++        disposition: PortableDisposition::Wire { section: "SEMANTIC_WORLD::primary" },
++        compiler_readers: &["ProgramCompiler", "CallChecker"],
++    },
++    SnapshotFieldCoverage {
++        field: "callable_signatures",
++        family: CanonicalProductFamily::CallableSignaturesAndDefinitions,
++        disposition: PortableDisposition::Wire { section: "SEMANTIC_WORLD::primary" },
++        compiler_readers: &["ProgramCompiler", "CallChecker", "MetadataExporter"],
++    },
++    SnapshotFieldCoverage {
++        field: "callable_definitions",
++        family: CanonicalProductFamily::CallableSignaturesAndDefinitions,
++        disposition: PortableDisposition::Wire { section: "SEMANTIC_WORLD::primary" },
++        compiler_readers: &["ProgramCompiler", "ModuleLoweringSemantics"],
++    },
++    SnapshotFieldCoverage {
++        field: "callable_definitions_by_module",
++        family: CanonicalProductFamily::CallableSignaturesAndDefinitions,
++        disposition: PortableDisposition::Derived { owner: "SemanticSnapshot::with_callable_definitions" },
++        compiler_readers: &["SemanticSnapshot::callable_definitions_in_module"],
++    },
++    SnapshotFieldCoverage {
++        field: "callable_analyses",
++        family: CanonicalProductFamily::CallableAnalyses,
++        disposition: PortableDisposition::Wire { section: "SEMANTIC_WORLD::primary" },
++        compiler_readers: &["ProgramCompiler", "ModuleLoweringSemantics"],
++    },
++    SnapshotFieldCoverage {
++        field: "source_index",
++        family: CanonicalProductFamily::CompilerSourceAttachments,
++        disposition: PortableDisposition::Wire { section: "SEMANTIC_WORLD::attachments" },
++        compiler_readers: &["ProgramCompiler", "FormalSemanticProjection"],
++    },
++    SnapshotFieldCoverage {
++        field: "sources",
++        family: CanonicalProductFamily::ModulesAndInterfaces,
++        disposition: PortableDisposition::Omitted { reason: "Raw ParsedModuleUnit AST excluded from source-free universe.telosc" },
++        compiler_readers: &[],
++    },
++];
++
++pub const fn disposition_for_family(family: CanonicalProductFamily) -> (CanonicalPersistenceClass, PortableDisposition) {
++    match family {
++        CanonicalProductFamily::ModulesAndInterfaces | CanonicalProductFamily::ImportsAndTopology => (
++            CanonicalPersistenceClass::RequiredSemantic,
++            PortableDisposition::Wire { section: "MODULE_WORLD" },
++        ),
++        CanonicalProductFamily::TypeArena
++        | CanonicalProductFamily::StaticValueArena
++        | CanonicalProductFamily::DeclarationsAndAliases
++        | CanonicalProductFamily::HierarchyAndDispatch
++        | CanonicalProductFamily::CallableSignaturesAndDefinitions
++        | CanonicalProductFamily::CallableAnalyses
++        | CanonicalProductFamily::TraitsAndConformance
++        | CanonicalProductFamily::ConformanceWitnessesAndDispatch
++        | CanonicalProductFamily::DataAndEnums
++        | CanonicalProductFamily::AssociatedAndStaticSemantics
++        | CanonicalProductFamily::CompilerSourceAttachments => (
++            CanonicalPersistenceClass::RequiredSemantic,
++            PortableDisposition::Wire { section: "SEMANTIC_WORLD" },
++        ),
++        CanonicalProductFamily::FrozenStructuralQueries => (
++            CanonicalPersistenceClass::EligibleQuery,
++            PortableDisposition::Wire { section: "QUERY_IMAGE" },
++        ),
++        CanonicalProductFamily::RuntimePublicMetadata => (
++            CanonicalPersistenceClass::RequiredMetadata,
++            PortableDisposition::Wire { section: "METADATA" },
++        ),
++        CanonicalProductFamily::EditorPresentation
++        | CanonicalProductFamily::AdvisoryProducts
++        | CanonicalProductFamily::SourceMaps
++        | CanonicalProductFamily::Diagnostics
++        | CanonicalProductFamily::WorkspaceRevisionHistory
++        | CanonicalProductFamily::MutableSemanticDatabase
++        | CanonicalProductFamily::RuntimeHandles => (
++            CanonicalPersistenceClass::NeverPersist,
++            PortableDisposition::Omitted { reason: "Non-compiler-image or process-local family" },
++        ),
++    }
++}
+diff --git a/phalcom-semantic/src/static_value/artifact.rs b/phalcom-semantic/src/static_value/artifact.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-semantic/src/static_value/artifact.rs
+@@ -0,0 +1,126 @@
++//! Static-value graph export, iterative validation, and fresh-store relocation (`PERF003.C2.P7.T6`).
++
++use super::store::{
++    StaticPackBackingId, StaticStringId, StaticSymbolId, StaticValueId, StaticValueRef,
++    StaticValueStore, StaticValueStoreId,
++};
++use phalcom_compiler_artifact::semantic::static_value::{
++    ArtifactStaticPackBackingId, ArtifactStaticStringId, ArtifactStaticSymbolId,
++    ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1,
++};
++use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
++use std::collections::BTreeMap;
++
++fn invalid(message: impl Into<String>) -> ArtifactError {
++    ValidationError::ReferentialIntegrity(message.into()).into()
++}
++
++pub struct StaticExportContext {
++    store_id: StaticValueStoreId,
++    values: BTreeMap<StaticValueId, ArtifactStaticValueId>,
++}
++
++impl StaticExportContext {
++    pub fn new(store: &StaticValueStore) -> Self {
++        let values = (0..store.len() as u32)
++            .map(|idx| (StaticValueId(idx), ArtifactStaticValueId(idx)))
++            .collect();
++        Self {
++            store_id: store.id(),
++            values,
++        }
++    }
++
++    pub fn verify_store(&self, store: &StaticValueStore) -> Result<(), ArtifactError> {
++        if store.id() != self.store_id {
++            return Err(invalid("foreign StaticValueStore lineage in StaticExportContext"));
++        }
++        Ok(())
++    }
++
++    pub fn export_value(&self, value: StaticValueRef) -> Result<ArtifactStaticValueId, ArtifactError> {
++        if value.store_id() != self.store_id {
++            return Err(invalid("foreign StaticValueRef store lineage"));
++        }
++        self.values
++            .get(&value.value_id())
++            .copied()
++            .ok_or_else(|| invalid("out-of-range StaticValueId in StaticExportContext"))
++    }
++}
++
++#[derive(Debug)]
++pub struct StaticRelocation {
++    pub store_id: StaticValueStoreId,
++    pub values: Vec<StaticValueRef>,
++    pub strings: Vec<StaticStringId>,
++    pub symbols: Vec<StaticSymbolId>,
++    pub pack_backings: Vec<StaticPackBackingId>,
++}
++
++impl StaticRelocation {
++    pub fn value(&self, id: ArtifactStaticValueId) -> Result<StaticValueRef, ArtifactError> {
++        self.values
++            .get(id.0 as usize)
++            .copied()
++            .ok_or_else(|| invalid("out-of-range relocated static value reference"))
++    }
++
++    pub fn string(&self, id: ArtifactStaticStringId) -> Result<StaticStringId, ArtifactError> {
++        self.strings
++            .get(id.0 as usize)
++            .copied()
++            .ok_or_else(|| invalid("out-of-range relocated static string reference"))
++    }
++
++    pub fn symbol(&self, id: ArtifactStaticSymbolId) -> Result<StaticSymbolId, ArtifactError> {
++        self.symbols
++            .get(id.0 as usize)
++            .copied()
++            .ok_or_else(|| invalid("out-of-range relocated static symbol reference"))
++    }
++
++    pub fn pack_backing(&self, id: ArtifactStaticPackBackingId) -> Result<StaticPackBackingId, ArtifactError> {
++        self.pack_backings
++            .get(id.0 as usize)
++            .copied()
++            .ok_or_else(|| invalid("out-of-range relocated static pack backing reference"))
++    }
++}
++
++/// Iteratively validates `StaticValueGraphV1` bounds, pack slice ranges, and acyclicity (`P7.T6`).
++pub fn validate_static_graph_bounds(
++    graph: &StaticValueGraphV1,
++    limits: &ValidationLimits,
++) -> Result<(), ArtifactError> {
++    for s in &graph.strings {
++        if s.len() > limits.max_string_bytes {
++            return Err(invalid("static string exceeds max_string_bytes"));
++        }
++    }
++    for sym in &graph.symbols {
++        if sym.len() > limits.max_string_bytes {
++            return Err(invalid("static symbol exceeds max_string_bytes"));
++        }
++    }
++    for pack in &graph.packs {
++        let backing = graph
++            .pack_backings
++            .get(pack.backing.0 as usize)
++            .ok_or_else(|| invalid("static pack references out-of-range pack backing"))?;
++        let pos_end = (pack.positional_start as usize).saturating_add(pack.positional_len as usize);
++        let lab_end = (pack.labeled_start as usize).saturating_add(pack.labeled_len as usize);
++        if pos_end > backing.positionals.len() || lab_end > backing.labels.len() || backing.labels.len() != backing.labeled_values.len() {
++            return Err(invalid("static pack slice exceeds backing bounds"));
++        }
++    }
++    for (idx, value) in graph.values.iter().enumerate() {
++        if let StaticValueV1::Tuple { id } = value {
++            let elems = graph.tuples.get(id.0 as usize).ok_or_else(|| invalid("out-of-range static tuple"))?;
++            if elems.is_empty() || elems.iter().any(|child| (child.0 as usize) >= idx) {
++                return Err(invalid("non-topological or cyclic static tuple child"));
++            }
++        }
++    }
++    Ok(())
++}
+diff --git a/phalcom-semantic/src/artifact/export.rs b/phalcom-semantic/src/artifact/export.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-semantic/src/artifact/export.rs
+@@ -0,0 +1,55 @@
++//! Semantic primary world DTO and shared export context (`PERF003.C2.P7.T7.B`).
++
++use crate::canonical_image::CanonicalProductFamily;
++use crate::static_value::artifact::StaticExportContext;
++use crate::types::artifact::TypeExportContext;
++use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
++use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1};
++use phalcom_compiler_artifact::semantic::type_store::{ArtifactTypeId, TypeGraphV1};
++use phalcom_type_meta::identity::{StableCallableRef, StableDeclarationRef, StableImplRef};
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub enum OperationalOperandV1 {
++    Slot(u16),
++    StaticValue(ArtifactStaticValueId),
++    Type(ArtifactTypeId),
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct CheckedOperationalStepV1 {
++    pub opcode: u16,
++    pub dst_slot: u16,
++    pub operands: Vec<OperationalOperandV1>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct CheckedOperationalTemplateV1 {
++    pub owner: StableDeclarationRef,
++    pub slot_types: Vec<ArtifactTypeId>,
++    pub result_type: ArtifactTypeId,
++    pub steps: Vec<CheckedOperationalStepV1>,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct WitnessPlanV1 {
++    pub impl_id: StableImplRef,
++    pub trait_decl: StableDeclarationRef,
++    pub target_type: ArtifactTypeId,
++    pub ordered_selected_callables: Vec<StableCallableRef>,
++    pub slot_layout_fingerprint: [u8; 32],
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct SemanticWorldV1 {
++    pub type_graph: TypeGraphV1,
++    pub structural_contracts: StructuralPrimaryContractsV1,
++    pub static_values: StaticValueGraphV1,
++    pub witness_plans: Vec<WitnessPlanV1>,
++    pub checked_templates: Vec<CheckedOperationalTemplateV1>,
++}
++
++pub struct SemanticExportContext {
++    pub types: TypeExportContext,
++    pub statics: StaticExportContext,
++    pub blocked_families: Vec<(CanonicalProductFamily, &'static str)>,
++}
+diff --git a/phalcom-semantic/src/artifact/validate.rs b/phalcom-semantic/src/artifact/validate.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-semantic/src/artifact/validate.rs
+@@ -0,0 +1,55 @@
++//! Cross-validation of pending static references and witness slot fingerprints (`PERF003.C2.P7.T7.B`).
++
++use crate::static_value::artifact::StaticRelocation;
++use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
++use phalcom_compiler_artifact::{ArtifactError, ValidationError};
++use phalcom_type_meta::identity::StableCallableRef;
++
++fn invalid(message: impl Into<String>) -> ArtifactError {
++    ValidationError::ReferentialIntegrity(message.into()).into()
++}
++
++/// Verifies that every `PendingStaticValueRefV1` recorded during `T7.A` structural
++/// contract loading resolves in the `T6` `StaticRelocation` before publication.
++pub fn validate_pending_static_references(
++    contracts: &StructuralPrimaryContractsV1,
++    statics: &StaticRelocation,
++) -> Result<(), ArtifactError> {
++    for sig in &contracts.generic_signatures {
++        for constraint in &sig.constraints {
++            if let Some(pending) = &constraint.pending_static {
++                statics.value(pending.target_value)?;
++            }
++        }
++    }
++    for data in &contracts.data_contracts {
++        for component in &data.components {
++            if let Some(pending) = &component.default_static {
++                statics.value(pending.target_value)?;
++            }
++        }
++    }
++    for enm in &contracts.enum_contracts {
++        for variant in &enm.variants {
++            if let Some(pending) = &variant.discriminant_static {
++                statics.value(pending.target_value)?;
++            }
++            for field in &variant.fields {
++                if let Some(pending) = &field.default_static {
++                    statics.value(pending.target_value)?;
++                }
++            }
++        }
++    }
++    Ok(())
++}
++
++pub fn compute_witness_layout_fingerprint(callables: &[StableCallableRef]) -> [u8; 32] {
++    let mut digest = [0u8; 32];
++    for (idx, callable) in callables.iter().enumerate() {
++        for (b_idx, byte) in callable.selector.as_bytes().iter().enumerate() {
++            digest[b_idx % 32] ^= byte.wrapping_add(idx as u8);
++        }
++    }
++    digest
++}
+diff --git a/phalcom-semantic/src/artifact/import.rs b/phalcom-semantic/src/artifact/import.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-semantic/src/artifact/import.rs
+@@ -0,0 +1,79 @@
++//! Ordered semantic world import and single-pass O(N) owner index reconstruction (`PERF003.C2.P7.T7.A/T7.B/T8`).
++
++use crate::artifact::export::SemanticWorldV1;
++use crate::artifact::validate::{compute_witness_layout_fingerprint, validate_pending_static_references};
++use crate::static_value::artifact::{validate_static_graph_bounds, StaticRelocation};
++use crate::static_value::StaticValueStore;
++use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
++use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
++use phalcom_type_meta::identity::StableDeclarationRef;
++use std::collections::BTreeMap;
++
++fn invalid(message: impl Into<String>) -> ArtifactError {
++    ValidationError::ReferentialIntegrity(message.into()).into()
++}
++
++#[derive(Debug, Default)]
++pub struct ReconstructedModuleOwnerIndexes {
++    pub declarations_by_module: BTreeMap<String, Vec<StableDeclarationRef>>,
++    pub data_by_module: BTreeMap<String, Vec<StableDeclarationRef>>,
++    pub enums_by_module: BTreeMap<String, Vec<StableDeclarationRef>>,
++}
++
++pub struct ValidatedSemanticParts {
++    pub structural_contracts: StructuralPrimaryContractsV1,
++    pub static_values: StaticValueStore,
++    pub static_relocation: StaticRelocation,
++    pub owner_indexes: ReconstructedModuleOwnerIndexes,
++}
++
++/// Executes stages 4–7 of the P7 loader construction order (`T7.A` -> `T6` -> `T7.B` -> `T8`).
++pub fn validate_and_import_semantic_world(
++    world: SemanticWorldV1,
++    limits: &ValidationLimits,
++) -> Result<ValidatedSemanticParts, ArtifactError> {
++    validate_static_graph_bounds(&world.static_values, limits)?;
++    let mut static_store = StaticValueStore::new();
++    let mut strings = Vec::with_capacity(world.static_values.strings.len());
++    for s in &world.static_values.strings {
++        let _ = static_store.intern_string(s);
++        strings.push(crate::static_value::StaticStringId::from_raw_checked(strings.len() as u32));
++    }
++    let mut symbols = Vec::with_capacity(world.static_values.symbols.len());
++    for sym in &world.static_values.symbols {
++        symbols.push(static_store.intern_symbol_id(sym));
++    }
++    let static_relocation = StaticRelocation {
++        store_id: static_store.id(),
++        values: Vec::new(),
++        strings,
++        symbols,
++        pack_backings: Vec::new(),
++    };
++    validate_pending_static_references(&world.structural_contracts, &static_relocation)?;
++    for witness in &world.witness_plans {
++        let actual = compute_witness_layout_fingerprint(&witness.ordered_selected_callables);
++        if actual != witness.slot_layout_fingerprint {
++            return Err(invalid("witness plan slot layout fingerprint mismatch"));
++        }
++    }
++    let mut owner_indexes = ReconstructedModuleOwnerIndexes::default();
++    for shell in &world.structural_contracts.declaration_shells {
++        let key = format!("{:?}", shell.declaration.module);
++        owner_indexes.declarations_by_module.entry(key).or_default().push(shell.declaration.clone());
++    }
++    for data in &world.structural_contracts.data_contracts {
++        let key = format!("{:?}", data.owner.module);
++        owner_indexes.data_by_module.entry(key).or_default().push(data.owner.clone());
++    }
++    for enm in &world.structural_contracts.enum_contracts {
++        let key = format!("{:?}", enm.owner.module);
++        owner_indexes.enums_by_module.entry(key).or_default().push(enm.owner.clone());
++    }
++    Ok(ValidatedSemanticParts {
++        structural_contracts: world.structural_contracts,
++        static_values: static_store,
++        static_relocation,
++        owner_indexes,
++    })
++}
+diff --git a/phalcom-semantic/src/artifact/query.rs b/phalcom-semantic/src/artifact/query.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-semantic/src/artifact/query.rs
+@@ -0,0 +1,54 @@
++//! Query image validation and reverse-pruning of source-dependent roots (`PERF003.C2.P7.T9`).
++
++use phalcom_compiler_artifact::query::{
++    PortableQueryKeyV1, QueryImageV1, QueryProfileSupport,
++};
++use phalcom_compiler_artifact::{ArtifactError, ValidationError};
++use std::collections::BTreeSet;
++
++fn invalid(message: impl Into<String>) -> ArtifactError {
++    ValidationError::ReferentialIntegrity(message.into()).into()
++}
++
++/// Validates that `QueryImageV1` contains no `ParsedModule` roots, has closed
++/// acyclic dependencies, and separates aggregate dependency evidence (`P7.T9`).
++pub fn validate_query_image_closure(image: &QueryImageV1) -> Result<BTreeSet<PortableQueryKeyV1>, ArtifactError> {
++    let mut retained = BTreeSet::new();
++    let len = image.supported_roots.len();
++    for (idx, root) in image.supported_roots.iter().enumerate() {
++        if root.key.kind.profile_support() != QueryProfileSupport::SupportedReusableRoot {
++            return Err(invalid("unsupported or source-dependent query root in QueryImageV1"));
++        }
++        if !retained.insert(root.key.clone()) {
++            return Err(invalid("duplicate query root key in QueryImageV1"));
++        }
++        for &dep in &root.dependency_indices {
++            if (dep as usize) >= len || (dep as usize) == idx {
++                return Err(invalid("out-of-bounds or self-referential query dependency index"));
++            }
++        }
++    }
++    let mut pending: BTreeSet<usize> = (0..len).collect();
++    loop {
++        let leaves = pending
++            .iter()
++            .copied()
++            .filter(|&i| image.supported_roots[i].dependency_indices.iter().all(|&d| !pending.contains(&(d as usize))))
++            .collect::<Vec<_>>();
++        if leaves.is_empty() {
++            break;
++        }
++        for leaf in leaves {
++            pending.remove(&leaf);
++        }
++    }
++    if !pending.is_empty() {
++        return Err(invalid("cyclic dependency in QueryImageV1"));
++    }
++    for evidence in &image.dependency_evidence {
++        if evidence.key.kind.profile_support() == QueryProfileSupport::OmittedSourceDependent {
++            return Err(invalid("ParsedModule cannot appear in dependency evidence"));
++        }
++    }
++    Ok(retained)
++}

@@ -2,7 +2,7 @@
 
 use super::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use super::diagnostic::SemanticSourceSpan;
-use super::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId, ModuleId};
+use super::identity::{CallableId, CallableOwnerId, CallableParameterId, DeclarationId, DispatchSide, FieldId, ModuleId};
 use super::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use super::types::parameter::{GenericSignature, TypeTerm};
 use crate::types::id::TypeId;
@@ -12,7 +12,9 @@ use phalcom_common::modifier::ImplementationKind;
 use phalcom_common::selector::Selector;
 use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_native_surface::NativeSurfaceId;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Arc;
 
 /// Epistemic certification state for a source return contract.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -168,6 +170,22 @@ pub struct CallableParameterSemantic {
 }
 
 impl CallableParameterSemantic {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            id: self.id.clone_with_allocation_budget(allocations)?,
+            local_name: allocations.boxed_str(&self.local_name)?,
+            external_label: self.external_label.as_ref().map(|label| allocations.boxed_str(label)).transpose()?,
+            rest: self.rest,
+            declared_type: self.declared_type.clone_with_allocation_budget(allocations)?,
+            contract: clone_parameter_contract_with_allocation_budget(&self.contract, allocations)?,
+            source: self
+                .source
+                .as_ref()
+                .map(|source| clone_source_span_with_allocation_budget(source, allocations))
+                .transpose()?,
+        })
+    }
+
     pub fn new(id: CallableParameterId, local_name: impl Into<Box<str>>, declared_type: DeclaredTypeFact) -> Self {
         Self {
             id,
@@ -292,13 +310,56 @@ pub struct ConstructorInitializationProduct {
 /// Identity-indexed canonical construction paths retained with a semantic snapshot.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConstructorInitializationTable {
-    by_factory: BTreeMap<CallableId, ConstructorInitializationProduct>,
+    parent: Option<Arc<Self>>,
+    by_factory: crate::ordered_map::OrderedMap<CallableId, ConstructorInitializationProduct>,
     module_factories: BTreeMap<ModuleId, BTreeSet<CallableId>>,
 }
 
 impl ConstructorInitializationTable {
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<(CallableId, ConstructorInitializationProduct)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, crate::ordered_map::FrozenOrderedMapError> {
+        Ok(Self {
+            by_factory: crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(entries, allocations)?,
+            ..Self::default()
+        })
+    }
+
+    /// Attaches canonical construction paths without copying their entries.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    /// Number of workspace-owned construction paths.
+    pub fn local_len(&self) -> usize {
+        self.by_factory.len()
+    }
+
+    /// Number of immutable canonical construction paths.
+    pub fn parent_len(&self) -> usize {
+        self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    /// Number of visible canonical and local construction paths.
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent_len()
+    }
+
+    /// Iterates only locally published construction paths.
+    pub fn iter_local(&self) -> impl Iterator<Item = (&CallableId, &ConstructorInitializationProduct)> {
+        self.by_factory.iter()
+    }
+
     /// Inserts or replaces a canonical construction path.
     pub fn insert(&mut self, product: ConstructorInitializationProduct) {
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.get(&product.factory).is_some()),
+            "cannot overwrite a canonical constructor path"
+        );
         self.module_factories
             .entry(product.factory.module().clone())
             .or_default()
@@ -308,12 +369,17 @@ impl ConstructorInitializationTable {
 
     /// Returns the path for one class-side factory identity.
     pub fn get(&self, factory: &CallableId) -> Option<&ConstructorInitializationProduct> {
-        self.by_factory.get(factory)
+        self.by_factory
+            .get(factory)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(factory)))
     }
 
     /// Returns all paths in stable identity order.
-    pub fn iter(&self) -> impl Iterator<Item = (&CallableId, &ConstructorInitializationProduct)> {
-        self.by_factory.iter()
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&CallableId, &ConstructorInitializationProduct)> + '_> {
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter().chain(self.by_factory.iter())),
+            None => Box::new(self.by_factory.iter()),
+        }
     }
 
     /// Removes every path contributed by a source module.
@@ -327,6 +393,43 @@ impl ConstructorInitializationTable {
 }
 
 impl CallableSemanticSignature {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let mut parameters = allocations.vector(self.parameters.len())?;
+        for parameter in &self.parameters {
+            parameters.push(parameter.clone_with_allocation_budget(allocations)?);
+        }
+        Ok(Self {
+            callable: self.callable.clone_with_allocation_budget(allocations)?,
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            side: self.side,
+            selector: crate::traits::clone_selector_with_allocation_budget(&self.selector, allocations)?,
+            generics: self
+                .generics
+                .as_ref()
+                .map(|signature| signature.clone_with_allocation_budget(allocations))
+                .transpose()?,
+            parameters: allocations.boxed_slice(parameters)?,
+            declared_return: self.declared_return.clone_with_allocation_budget(allocations)?,
+            return_validation: self.return_validation,
+            inferred_return: self
+                .inferred_return
+                .as_ref()
+                .map(|knowledge| knowledge.clone_with_allocation_budget(allocations))
+                .transpose()?,
+            source: self
+                .source
+                .as_ref()
+                .map(|source| clone_source_span_with_allocation_budget(source, allocations))
+                .transpose()?,
+            implementation: self.implementation,
+            native_id: self.native_id,
+            effects: self.effects,
+            raises: self.raises,
+            flow: self.flow,
+            lifecycle: self.lifecycle,
+        })
+    }
+
     pub fn parameter_count(&self) -> usize {
         self.parameters.len()
     }
@@ -361,6 +464,28 @@ impl CallableSemanticSignature {
             .filter(|knowledge| knowledge.is_known() || knowledge.is_dynamic())
             .cloned()
             .unwrap_or_else(|| self.declared_return.to_knowledge())
+    }
+
+    pub(crate) fn published_return_knowledge_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<TypeKnowledge, AllocationError> {
+        if self.declared_return.is_known() {
+            if self.declared_return.basis == DeclaredTypeBasis::SourceAnnotation
+                && self.return_validation == ReturnContractValidation::Satisfied(EvidenceStatus::Established)
+            {
+                if let Some(ty) = self.declared_return.canonical_type() {
+                    return Ok(TypeKnowledge::established(ty, EvidenceOrigin::CallableSignature));
+                }
+            }
+            return self.declared_return.to_knowledge_with_allocation_budget(allocations);
+        }
+
+        if self.declared_return.is_dynamic() {
+            return self.declared_return.to_knowledge_with_allocation_budget(allocations);
+        }
+
+        if let Some(knowledge) = self.inferred_return.as_ref().filter(|knowledge| knowledge.is_known() || knowledge.is_dynamic()) {
+            return knowledge.clone_with_allocation_budget(allocations);
+        }
+        self.declared_return.to_knowledge_with_allocation_budget(allocations)
     }
 
     pub fn published_return_term(&self) -> Option<TypeTerm> {
@@ -544,11 +669,68 @@ pub struct FieldSemanticSignature {
     pub source: Option<SemanticSourceSpan>,
 }
 
+impl FieldSemanticSignature {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            field: self.field.clone_with_allocation_budget(allocations)?,
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            side: self.side,
+            name: allocations.boxed_str(&self.name)?,
+            mutable: self.mutable,
+            declared_type: self.declared_type.clone_with_allocation_budget(allocations)?,
+            source: self
+                .source
+                .as_ref()
+                .map(|source| clone_source_span_with_allocation_budget(source, allocations))
+                .transpose()?,
+        })
+    }
+}
+
+fn clone_parameter_contract_with_allocation_budget(
+    contract: &ParameterContract,
+    allocations: &mut AllocationBudget,
+) -> Result<ParameterContract, AllocationError> {
+    Ok(match contract {
+        ParameterContract::Fixed(fact) => ParameterContract::Fixed(fact.clone_with_allocation_budget(allocations)?),
+        ParameterContract::Rest { mode, contract } => ParameterContract::Rest {
+            mode: *mode,
+            contract: match contract {
+                RestValueContract::Unconstrained => RestValueContract::Unconstrained,
+                RestValueContract::Element(fact) => RestValueContract::Element(fact.clone_with_allocation_budget(allocations)?),
+                RestValueContract::Lane(lane) => RestValueContract::Lane(*lane),
+                RestValueContract::Invalid(reason) => RestValueContract::Invalid(reason.clone_with_allocation_budget(allocations)?),
+            },
+        },
+    })
+}
+
+fn clone_source_span_with_allocation_budget(source: &SemanticSourceSpan, allocations: &mut AllocationBudget) -> Result<SemanticSourceSpan, AllocationError> {
+    Ok(SemanticSourceSpan {
+        module: source.module.clone_with_allocation_budget(allocations)?,
+        range: source.range,
+    })
+}
+
 /// Identity-indexed table of callable signatures.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CallableSignatureTable {
+    parent: Option<Arc<CallableSignatureTable>>,
+    frozen: Option<Arc<FrozenCallableSignatures>>,
     by_id: HashMap<CallableId, CallableSemanticSignature>,
     module_callables: HashMap<ModuleId, BTreeSet<CallableId>>,
+    owner_callables: HashMap<CallableOwnerId, BTreeSet<CallableId>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct FrozenCallableSignatures {
+    entries: Vec<CallableSemanticSignature>,
+}
+
+#[derive(Debug)]
+pub(crate) enum FrozenCallableSignaturesError {
+    Allocation(AllocationError),
+    DuplicateCallable,
 }
 
 impl CallableSignatureTable {
@@ -556,7 +738,63 @@ impl CallableSignatureTable {
         Self::default()
     }
 
+    /// Creates an overlay table referencing an immutable parent authority.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            frozen: None,
+            by_id: HashMap::new(),
+            module_callables: HashMap::new(),
+            owner_callables: HashMap::new(),
+        }
+    }
+
+    /// Publishes artifact-imported signatures as one immutable sorted owner.
+    /// The input vector must already have been allocated through the caller's
+    /// transaction; this method sorts it in place and budgets its retained Arc.
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        mut entries: Vec<CallableSemanticSignature>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, FrozenCallableSignaturesError> {
+        entries.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
+        if entries.windows(2).any(|pair| pair[0].callable == pair[1].callable) {
+            return Err(FrozenCallableSignaturesError::DuplicateCallable);
+        }
+        let frozen = allocations
+            .arc(FrozenCallableSignatures { entries })
+            .map_err(FrozenCallableSignaturesError::Allocation)?;
+        Ok(Self {
+            frozen: Some(frozen),
+            ..Self::default()
+        })
+    }
+
+    pub fn parent(&self) -> Option<&Arc<Self>> {
+        self.parent.as_ref()
+    }
+
+    pub fn local_len(&self) -> usize {
+        self.by_id.len() + self.frozen.as_ref().map_or(0, |frozen| frozen.entries.len())
+    }
+
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.local_len() == 0 && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
+    }
+
     pub fn insert(&mut self, sig: CallableSemanticSignature) {
+        debug_assert!(
+            self.frozen
+                .as_ref()
+                .is_none_or(|frozen| { frozen.entries.binary_search_by(|signature| signature.callable.cmp(&sig.callable)).is_err() })
+                && self.parent.as_ref().is_none_or(|parent| parent.get(&sig.callable).is_none()),
+            "local mutation cannot overwrite canonical parent callable: {:?}",
+            sig.callable
+        );
+        self.owner_callables.entry(sig.callable.owner.clone()).or_default().insert(sig.callable.clone());
         self.module_callables
             .entry(sig.callable.module().clone())
             .or_default()
@@ -567,7 +805,14 @@ impl CallableSignatureTable {
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
         if let Some(callables) = self.module_callables.remove(module) {
             for callable in callables {
-                self.by_id.remove(&callable);
+                if let Some(sig) = self.by_id.remove(&callable) {
+                    if let Some(owner_entries) = self.owner_callables.get_mut(&sig.callable.owner) {
+                        owner_entries.remove(&callable);
+                        if owner_entries.is_empty() {
+                            self.owner_callables.remove(&sig.callable.owner);
+                        }
+                    }
+                }
             }
         }
     }
@@ -578,6 +823,12 @@ impl CallableSignatureTable {
         let Some(signature) = self.by_id.remove(callable) else {
             return;
         };
+        if let Some(callables) = self.owner_callables.get_mut(&signature.callable.owner) {
+            callables.remove(callable);
+            if callables.is_empty() {
+                self.owner_callables.remove(&signature.callable.owner);
+            }
+        }
         if let Some(callables) = self.module_callables.get_mut(signature.callable.module()) {
             callables.remove(callable);
             if callables.is_empty() {
@@ -587,7 +838,32 @@ impl CallableSignatureTable {
     }
 
     pub fn get(&self, callable: &CallableId) -> Option<&CallableSemanticSignature> {
-        self.by_id.get(callable)
+        self.by_id
+            .get(callable)
+            .or_else(|| {
+                self.frozen.as_ref().and_then(|frozen| {
+                    frozen
+                        .entries
+                        .binary_search_by(|signature| signature.callable.cmp(callable))
+                        .ok()
+                        .map(|index| &frozen.entries[index])
+                })
+            })
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(callable)))
+    }
+
+    /// Exact owner/side/selector lookup for an explicit conformance witness.
+    /// These three components already form the canonical CallableId, so the
+    /// identity index supplies the candidate without a global signature scan.
+    /// Compatibility and body/evidence validation remain the caller's job.
+    pub fn get_conformance_witness(
+        &self,
+        implementation: &crate::identity::ImplId,
+        side: DispatchSide,
+        selector: &Selector,
+    ) -> Option<&CallableSemanticSignature> {
+        let id = CallableId::new(crate::identity::CallableOwnerId::Conformance(implementation.clone()), selector.clone(), side);
+        self.get(&id)
     }
 
     /// Resolves the declaration-owned signature consumed by one analyzed body.
@@ -614,24 +890,106 @@ impl CallableSignatureTable {
         self.get_for_body(callable).map(|signature| signature.callable.clone())
     }
 
-    pub fn len(&self) -> usize {
-        self.by_id.len()
+    /// Enumerates one source owner's signatures using the maintained module index.
+    pub fn iter_module<'a>(&'a self, module: &ModuleId) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> + 'a {
+        let module = module.clone();
+        let mut tables = Vec::new();
+        let mut current = Some(self);
+        while let Some(table) = current {
+            tables.push(table);
+            current = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(move |table| {
+            let module = module.clone();
+            let local = table
+                .module_callables
+                .get(&module)
+                .into_iter()
+                .flat_map(|ids| ids.iter())
+                .filter_map(move |id| table.by_id.get_key_value(id));
+            let frozen = table
+                .frozen
+                .iter()
+                .flat_map(|frozen| frozen.entries.iter())
+                .filter(move |signature| signature.callable.module() == &module)
+                .map(|signature| (&signature.callable, signature));
+            local.chain(frozen)
+        })
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.by_id.is_empty()
+    /// Enumerates signatures owned by a callable owner using the maintained owner index.
+    pub fn iter_owner<'a>(&'a self, owner: &CallableOwnerId) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> {
+        let owner = owner.clone();
+        let mut tables = Vec::new();
+        let mut current = Some(self);
+        while let Some(table) = current {
+            tables.push(table);
+            current = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(move |table| {
+            let owner = owner.clone();
+            let local = table
+                .owner_callables
+                .get(&owner)
+                .into_iter()
+                .flat_map(|ids| ids.iter())
+                .filter_map(move |id| table.by_id.get_key_value(id));
+            let frozen = table
+                .frozen
+                .iter()
+                .flat_map(|frozen| frozen.entries.iter())
+                .filter(move |signature| &signature.callable.owner == &owner)
+                .map(|signature| (&signature.callable, signature));
+            local.chain(frozen)
+        })
+    }
+
+    /// Enumerates signatures owned by a declaration using the maintained owner index.
+    pub fn iter_declaration_owner<'a>(&'a self, owner: &DeclarationId) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> {
+        let key = CallableOwnerId::Declaration(owner.clone());
+        let mut tables = Vec::new();
+        let mut current = Some(self);
+        while let Some(table) = current {
+            tables.push(table);
+            current = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(move |table| {
+            table
+                .owner_callables
+                .get(&key)
+                .into_iter()
+                .flat_map(|ids| ids.iter())
+                .filter_map(move |id| table.by_id.get_key_value(id))
+        })
+    }
+
+    pub fn iter_local(&self) -> impl Iterator<Item = (&CallableId, &CallableSemanticSignature)> {
+        self.by_id.iter().chain(
+            self.frozen
+                .iter()
+                .flat_map(|frozen| frozen.entries.iter().map(|signature| (&signature.callable, signature))),
+        )
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&CallableId, &CallableSemanticSignature)> {
-        self.by_id.iter()
+        let mut tables = Vec::new();
+        let mut current = Some(self);
+        while let Some(table) = current {
+            tables.push(table);
+            current = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(|table| table.iter_local())
     }
 }
 
 /// Identity-indexed table of field signatures.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FieldSignatureTable {
+    parent: Option<Arc<FieldSignatureTable>>,
+    frozen: Option<Arc<phalcom_type_meta::allocation::BudgetedSortedMap<FieldId, FieldSemanticSignature>>>,
     by_id: HashMap<FieldId, FieldSemanticSignature>,
     module_fields: HashMap<ModuleId, BTreeSet<FieldId>>,
+    owner_fields: HashMap<DeclarationId, BTreeSet<FieldId>>,
 }
 
 impl FieldSignatureTable {
@@ -639,7 +997,59 @@ impl FieldSignatureTable {
         Self::default()
     }
 
+    /// Creates an overlay table referencing an immutable parent authority.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            frozen: None,
+            by_id: HashMap::new(),
+            module_fields: HashMap::new(),
+            owner_fields: HashMap::new(),
+        }
+    }
+
+    pub fn parent(&self) -> Option<&Arc<Self>> {
+        self.parent.as_ref()
+    }
+
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        mut entries: Vec<(FieldId, FieldSemanticSignature)>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, FrozenFieldSignatureTableError> {
+        entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let frozen = phalcom_type_meta::allocation::BudgetedSortedMap::from_sorted_entries(entries).map_err(|error| match error {
+            phalcom_type_meta::allocation::SortedMapEntriesError::DuplicateKey => FrozenFieldSignatureTableError::DuplicateField,
+            phalcom_type_meta::allocation::SortedMapEntriesError::OutOfOrder => unreachable!("entries were sorted before frozen construction"),
+        })?;
+        Ok(Self {
+            parent: None,
+            frozen: Some(allocations.arc(frozen).map_err(FrozenFieldSignatureTableError::Allocation)?),
+            by_id: HashMap::new(),
+            module_fields: HashMap::new(),
+            owner_fields: HashMap::new(),
+        })
+    }
+
+    pub fn local_len(&self) -> usize {
+        self.by_id.len() + self.frozen.as_ref().map_or(0, |entries| entries.len())
+    }
+
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.local_len() == 0 && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
+    }
+
     pub fn insert(&mut self, sig: FieldSemanticSignature) {
+        debug_assert!(
+            self.parent.as_ref().map_or(true, |parent| parent.get(&sig.field).is_none())
+                && self.frozen.as_ref().is_none_or(|entries| !entries.contains_key(&sig.field)),
+            "local mutation cannot overwrite canonical parent field: {:?}",
+            sig.field
+        );
+        self.owner_fields.entry(sig.owner.clone()).or_default().insert(sig.field.clone());
         self.module_fields.entry(sig.field.owner.module.clone()).or_default().insert(sig.field.clone());
         self.by_id.insert(sig.field.clone(), sig);
     }
@@ -647,7 +1057,14 @@ impl FieldSignatureTable {
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
         if let Some(fields) = self.module_fields.remove(module) {
             for field in fields {
-                self.by_id.remove(&field);
+                if let Some(sig) = self.by_id.remove(&field) {
+                    if let Some(owner_entries) = self.owner_fields.get_mut(&sig.owner) {
+                        owner_entries.remove(&field);
+                        if owner_entries.is_empty() {
+                            self.owner_fields.remove(&sig.owner);
+                        }
+                    }
+                }
             }
         }
     }
@@ -658,6 +1075,12 @@ impl FieldSignatureTable {
         let Some(signature) = self.by_id.remove(field) else {
             return;
         };
+        if let Some(fields) = self.owner_fields.get_mut(&signature.owner) {
+            fields.remove(field);
+            if fields.is_empty() {
+                self.owner_fields.remove(&signature.owner);
+            }
+        }
         if let Some(fields) = self.module_fields.get_mut(&signature.owner.module) {
             fields.remove(field);
             if fields.is_empty() {
@@ -667,20 +1090,57 @@ impl FieldSignatureTable {
     }
 
     pub fn get(&self, field: &FieldId) -> Option<&FieldSemanticSignature> {
-        self.by_id.get(field)
+        self.by_id
+            .get(field)
+            .or_else(|| self.frozen.as_ref().and_then(|entries| entries.get(field)))
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(field)))
     }
 
-    pub fn len(&self) -> usize {
-        self.by_id.len()
+    /// Enumerates fields owned by a declaration using the maintained owner index.
+    pub fn iter_owner<'a>(&'a self, owner: &DeclarationId) -> impl Iterator<Item = (&'a FieldId, &'a FieldSemanticSignature)> + 'a {
+        let owner = owner.clone();
+        let mut tables = Vec::new();
+        let mut current = Some(self);
+        while let Some(table) = current {
+            tables.push(table);
+            current = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(move |table| {
+            let frozen_owner = owner.clone();
+            let frozen = table
+                .frozen
+                .iter()
+                .flat_map(|entries| entries.iter())
+                .filter(move |(_, signature)| signature.owner == frozen_owner);
+            let local = table
+                .owner_fields
+                .get(&owner)
+                .into_iter()
+                .flat_map(|ids| ids.iter())
+                .filter_map(move |id| table.by_id.get_key_value(id));
+            frozen.chain(local)
+        })
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.by_id.is_empty()
+    pub fn iter_local(&self) -> impl Iterator<Item = (&FieldId, &FieldSemanticSignature)> {
+        self.frozen.iter().flat_map(|entries| entries.iter()).chain(self.by_id.iter())
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&FieldId, &FieldSemanticSignature)> {
-        self.by_id.iter()
+        let mut tables = Vec::new();
+        let mut current = Some(self);
+        while let Some(table) = current {
+            tables.push(table);
+            current = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(|table| table.iter_local())
     }
+}
+
+#[derive(Debug)]
+pub(crate) enum FrozenFieldSignatureTableError {
+    Allocation(AllocationError),
+    DuplicateField,
 }
 
 #[cfg(test)]
@@ -783,6 +1243,39 @@ mod tests {
     }
 
     #[test]
+    fn conformance_witness_lookup_preserves_exact_owner_side_and_selector_after_edits() {
+        use crate::identity::{CallableOwnerId, ImplId, ImplLocalId};
+        let mut table = CallableSignatureTable::new();
+        let mut signature = native_contract_test_signature(TypeId(1), TypeId(2));
+        let implementation = ImplId::new(signature.owner.module.clone(), ImplLocalId(1));
+        let other = ImplId::new(signature.owner.module.clone(), ImplLocalId(2));
+        let selector = signature.selector.clone();
+        table.insert(signature.clone()); // Same selector on an inherent declaration is not a witness.
+        signature.callable = CallableId::new(CallableOwnerId::Conformance(implementation.clone()), selector.clone(), DispatchSide::Instance);
+        let id = signature.callable.clone();
+        table.insert(signature);
+        assert_eq!(
+            table
+                .get_conformance_witness(&implementation, DispatchSide::Instance, &selector)
+                .unwrap()
+                .callable,
+            id
+        );
+        assert!(table.get_conformance_witness(&other, DispatchSide::Instance, &selector).is_none());
+        assert!(table.get_conformance_witness(&implementation, DispatchSide::Class, &selector).is_none());
+        assert_eq!(table.iter_module(&implementation.module).count(), 2);
+        let retained = table.clone();
+        table.remove(&id);
+        assert_eq!(table.iter_module(&implementation.module).count(), 1);
+        assert!(table.get_conformance_witness(&implementation, DispatchSide::Instance, &selector).is_none());
+        assert!(retained.get_conformance_witness(&implementation, DispatchSide::Instance, &selector).is_some());
+        table = retained;
+        table.remove_module(&implementation.module);
+        assert_eq!(table.iter_module(&implementation.module).count(), 0);
+        assert!(table.get_conformance_witness(&implementation, DispatchSide::Instance, &selector).is_none());
+    }
+
+    #[test]
     fn native_contract_rejects_parameter_and_return_type_mismatches() {
         let source = native_contract_test_signature(TypeId(1), TypeId(2));
         let matching = native_contract_test_signature(TypeId(1), TypeId(2));
@@ -796,5 +1289,97 @@ mod tests {
 
         let return_mismatch = native_contract_test_signature(TypeId(1), TypeId(4));
         assert_eq!(source.native_contract_mismatch(&return_mismatch).as_deref(), Some("return type differs"));
+    }
+
+    #[test]
+    fn callable_owner_index_tracks_membership_removal_and_cloning() {
+        let mut table = CallableSignatureTable::new();
+        let sig1 = native_contract_test_signature(TypeId(1), TypeId(2));
+        let owner1 = sig1.owner.clone();
+        let id1 = sig1.callable.clone();
+
+        let owner2 = DeclarationId::new(owner1.module.clone(), "Other".into());
+        let selector2 = Selector::method("doWork", vec![]).unwrap();
+        let id2 = CallableId::new(owner2.clone(), selector2.clone(), DispatchSide::Instance);
+        let mut sig2 = sig1.clone();
+        sig2.callable = id2.clone();
+        sig2.owner = owner2.clone();
+        sig2.selector = selector2;
+
+        table.insert(sig1);
+        table.insert(sig2);
+
+        assert_eq!(table.iter_declaration_owner(&owner1).count(), 1);
+        assert_eq!(table.iter_declaration_owner(&owner2).count(), 1);
+
+        let cloned = table.clone();
+        assert_eq!(cloned.iter_declaration_owner(&owner1).count(), 1);
+        assert_eq!(cloned.iter_declaration_owner(&owner2).count(), 1);
+
+        table.remove(&id1);
+        assert_eq!(table.iter_declaration_owner(&owner1).count(), 0);
+        assert_eq!(table.iter_declaration_owner(&owner2).count(), 1);
+        assert_eq!(cloned.iter_declaration_owner(&owner1).count(), 1);
+
+        let mut table2 = cloned;
+        table2.remove_module(&owner1.module);
+        assert_eq!(table2.iter_declaration_owner(&owner1).count(), 0);
+        assert_eq!(table2.iter_declaration_owner(&owner2).count(), 0);
+    }
+
+    #[test]
+    fn field_owner_index_tracks_membership_removal_and_cloning() {
+        let mut table = FieldSignatureTable::new();
+        let module = ModuleId::universe_root();
+        let owner1 = DeclarationId::new(module.clone(), "Owner1".into());
+        let owner2 = DeclarationId::new(module.clone(), "Owner2".into());
+
+        let field1 = FieldId::new(owner1.clone(), "f1", DispatchSide::Instance);
+        let field2 = FieldId::new(owner1.clone(), "f2", DispatchSide::Instance);
+        let field3 = FieldId::new(owner2.clone(), "f3", DispatchSide::Instance);
+
+        table.insert(FieldSemanticSignature {
+            field: field1.clone(),
+            owner: owner1.clone(),
+            side: DispatchSide::Instance,
+            name: "f1".into(),
+            mutable: false,
+            declared_type: DeclaredTypeFact::known(TypeTerm::Canonical(TypeId(1)), DeclaredTypeBasis::DeclarationSemantics),
+            source: None,
+        });
+        table.insert(FieldSemanticSignature {
+            field: field2.clone(),
+            owner: owner1.clone(),
+            side: DispatchSide::Instance,
+            name: "f2".into(),
+            mutable: false,
+            declared_type: DeclaredTypeFact::known(TypeTerm::Canonical(TypeId(2)), DeclaredTypeBasis::DeclarationSemantics),
+            source: None,
+        });
+        table.insert(FieldSemanticSignature {
+            field: field3.clone(),
+            owner: owner2.clone(),
+            side: DispatchSide::Instance,
+            name: "f3".into(),
+            mutable: false,
+            declared_type: DeclaredTypeFact::known(TypeTerm::Canonical(TypeId(3)), DeclaredTypeBasis::DeclarationSemantics),
+            source: None,
+        });
+
+        assert_eq!(table.iter_owner(&owner1).count(), 2);
+        assert_eq!(table.iter_owner(&owner2).count(), 1);
+
+        let cloned = table.clone();
+        assert_eq!(cloned.iter_owner(&owner1).count(), 2);
+        assert_eq!(cloned.iter_owner(&owner2).count(), 1);
+
+        table.remove(&field1);
+        assert_eq!(table.iter_owner(&owner1).count(), 1);
+        assert_eq!(cloned.iter_owner(&owner1).count(), 2);
+
+        let mut table2 = cloned;
+        table2.remove_module(&module);
+        assert_eq!(table2.iter_owner(&owner1).count(), 0);
+        assert_eq!(table2.iter_owner(&owner2).count(), 0);
     }
 }

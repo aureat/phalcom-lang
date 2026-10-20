@@ -40,7 +40,7 @@ impl ModuleReflectionMetadata {
     pub fn from_snapshot(snapshot: &SemanticSnapshot) -> Self {
         let core_ids = phalcom_semantic::core_surface::CoreDeclarationIds::default();
         let mut enums = Vec::new();
-        for (owner, enum_info) in &snapshot.enum_semantics.enums {
+        for (owner, enum_info) in snapshot.enum_semantics.enums.iter() {
             let is_native = core_ids.is_core_adt(owner);
 
             let mut variants = Vec::new();

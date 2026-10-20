@@ -28,6 +28,23 @@ use phalcom_modules::{
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
+/// Read-only callable-analysis input accepted by phase-product projection.
+pub trait CallableAnalysisCollection {
+    fn for_each_analysis(&self, visitor: &mut dyn FnMut(&CallableAnalysis));
+}
+
+impl CallableAnalysisCollection for HashMap<CallableId, Arc<CallableAnalysis>> {
+    fn for_each_analysis(&self, visitor: &mut dyn FnMut(&CallableAnalysis)) {
+        self.values().for_each(|analysis| visitor(analysis));
+    }
+}
+
+impl CallableAnalysisCollection for crate::checker::CallableAnalysisTable {
+    fn for_each_analysis(&self, visitor: &mut dyn FnMut(&CallableAnalysis)) {
+        self.values().for_each(|analysis| visitor(analysis));
+    }
+}
+
 /// Collects root symbol names referenced by a [`TypeAnnotation`].
 pub fn collect_type_annotation_roots(annotation: &TypeAnnotation, roots: &mut Vec<String>) {
     match &annotation.expr {
@@ -526,10 +543,10 @@ fn add_conformance_type_owner_requirements(
     }
 }
 
-fn add_pattern_requirements(
+fn add_pattern_requirements<R, S, K>(
     importer: &ModuleId,
     range: phalcom_common::range::SourceRange,
-    pattern: &crate::match_semantics::PatternResolution,
+    pattern: &crate::match_semantics::PatternResolution<R, S, K>,
     prelude: &PreludeTypeMap,
     requirements: &mut Vec<RuntimeDependencyRequirement>,
     complete: &mut bool,
@@ -1432,7 +1449,7 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
     semantic_linked: &SemanticLinkedProgram,
     sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     source_index: &SourceSemanticIndex,
-    callable_analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
+    callable_analyses: &dyn CallableAnalysisCollection,
     attribute_analyses: &BTreeMap<crate::attribute_analysis::AttributeArgumentId, Arc<crate::attribute_analysis::AttributeArgumentAnalysis>>,
     type_store: Option<&TypeStore>,
     static_constants: Option<&StaticConstantTable>,
@@ -1479,16 +1496,7 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
         }
 
         // 2. Body-level uses: expressions, calls, and local type annotations.
-        let analyses = callable_analyses
-            .values()
-            .map(|analysis| (analysis.callable.module(), analysis.as_ref()))
-            .chain(
-                attribute_analyses
-                    .values()
-                    .filter(|product| product.id.context.is_emitted_in(execution_mode))
-                    .map(|product| (product.id.module(), product.analysis.as_ref())),
-            );
-        for (analysis_module, analysis) in analyses {
+        let mut process_analysis = |analysis_module: &ModuleId, analysis: &CallableAnalysis| {
             if analysis_module == module_id {
                 for (import_id, phase) in analysis.observed_import_phases.as_ref() {
                     observed_uses.entry(import_id.clone()).and_modify(|p| *p = p.join(*phase)).or_insert(*phase);
@@ -1506,8 +1514,10 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
                     if let Some(specialization) = expression.call_specialization.as_ref() {
                         push_callable_owner_requirement(module_id, specialization.callable.module(), expression.range, &mut generated_requirements);
                         if let Some(store) = type_store {
-                            for (_, ty) in specialization.bindings.iter() {
-                                if let Some(declaration) = store.nominal_origin_declaration(*ty) {
+                            for (_, argument) in specialization.bindings.iter() {
+                                if let crate::types::store::StaticArgument::Term(ty) = argument
+                                    && let Some(declaration) = store.nominal_origin_declaration(*ty)
+                                {
                                     push_callable_owner_requirement(module_id, &declaration.module, expression.range, &mut generated_requirements);
                                 }
                             }
@@ -1712,6 +1722,10 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
                     }
                 }
             }
+        };
+        callable_analyses.for_each_analysis(&mut |analysis| process_analysis(analysis.callable.module(), analysis));
+        for product in attribute_analyses.values().filter(|product| product.id.context.is_emitted_in(execution_mode)) {
+            process_analysis(product.id.module(), product.analysis.as_ref());
         }
 
         // 3. Module-level declarations: superclasses (Runtime + generated req),

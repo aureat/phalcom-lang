@@ -3,8 +3,8 @@ id: ARTF001.C1.P2.R3
 kind: implementation-plan
 program: ARTF001
 checkpoint: ARTF001.C1
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 branch: feat/artifact-universe-consolidation
 planning_revision: dc644bfb9fd20cf694eca48f0cedf817c7cc8f23
@@ -867,7 +867,9 @@ Rules:
 
 - `form`, `class_object_type`, and `kind` may be derived only if the derivation reproduces the exact canonical `TypeStore` identities and current kind construction.
 - `generic_binder_header` may be derived from a validated generic signature only if equality is proven.
-- intrinsic binding/runtime ownership may use `phalcom-native-meta` only when the declaration's exact stable identity is a trusted intrinsic catalog row.
+- `binding.runtime_owner` is carried by the three-case `IntrinsicRuntimeOwnerV1`; the shell's `intrinsic_type_owner` field is a redundant runtime-owner witness and must equal `binding.runtime_owner`. This witness never implies a type-member owner. The separate question of whether the Pack declaration should also have independent type-member authority is pending consultation in `CHECKPOINT.md`; do not implement that semantic change or map Pack to `TypePack` without the ruling.
+- Actual `intrinsic_static_domains` and `intrinsic_type_owners` are separate strictly sorted row families keyed by project-qualified `StableDeclarationRef`; the latter uses the exhaustive seven-case `IntrinsicTypeOwnerV1`.
+- Import resolves each actual projection row through the project-qualified `StableOwnerCatalog`, including owners with no declaration shell. Preserve each family independently, allow both projection rows for one owner, and reject duplicate rows within a family. Do not infer one actual owner family from the other, runtime ownership, or declaration names.
 - ordinary fallback is forbidden if the source generation used an intrinsic binding.
 - generic/applied supertype templates must not be collapsed to a bare superclass declaration.
 
@@ -911,6 +913,21 @@ struct ModuleExecutionAuthorityV1 {
 ```
 
 Use stable project/module/import identities.
+
+### Source-import binding ordinal contract
+
+V4's `binding: u32` is a module-relative flattened source-binding ordinal. Derive it from the ordered `ModuleWorldV2` import rows:
+
+1. Enumerate import rows in vector order. Each row index is its `ImportSiteLocalId`, including rows with no bindings.
+2. A module import contributes one binding with site-local ordinal `0`. A selective import or re-export contributes one binding per item, in item order, with the item's ordinal local to that site.
+3. Encode a binding as the checked prefix sum of the binding counts in earlier sites plus its site-local ordinal. Reject a module whose total cannot fit in `u32`.
+4. Decode by locating that ordinal in the same site ranges to recover the exact `SourceImportBindingId`.
+
+For `ModuleImportPhaseProduct`, the product's `StableModuleRef` scopes the ordinal. For callable observations, the stable callable owner supplies the importing module. Never use executable linked-read slots, local names, or spans as source-import identity.
+
+Every module must have one phase product, including modules with no imports. Its rows must contain exactly the dense ascending range of source bindings in that module. Callable observations are sparse: each ordinal must exist in the owner's module, be unique, and agree with the module product's observed flag and phase coverage. The exporter and importer must use this same derivation; a second binding table is not allowed.
+
+The portable dependency phase is an exact two-state mirror of the current native enum: `InterfaceOnly` maps to `InterfaceOnly`, and `Runtime` maps to `Runtime`. Preserve the native join rule, where `Runtime` dominates. Do not encode or reinterpret `Syntax` or `LoadTime`; neither is a current native phase. No ABI bump is needed while V4 remains unpublished. If a producer emits the unfinished enum first, introduce a new artifact version instead of reinterpreting emitted bytes.
 
 Represent all current native fields:
 
@@ -957,6 +974,8 @@ Do not encode raw process-local IDs.
 
 Use stable module + stable source-import binding identity consistent with `ModuleWorldV2` symbolic import rows.
 
+Use the source-import binding ordinal contract above for both module products and callable observations. A callable's stable owner determines the module scope; the `u32` is not a global or executable-slot identity.
+
 ## T1.5 Current callable fields intentionally derived after load
 
 Do not serialize:
@@ -995,6 +1014,13 @@ Add transport and hostile tests for:
 
 ```text
 declaration intrinsic binding round-trip
+all seven intrinsic type owners round-trip from standalone rows independently from runtime owners
+shell-less intrinsic static-domain and type-owner rows round-trip independently
+duplicate rows within either intrinsic projection family are rejected
+both intrinsic projection families may independently name the same declaration
+duplicate declaration-shell owners rejected
+shell intrinsic runtime-owner witness must match the binding
+Pack runtime owner does not create or imply a TypePack owner row
 generic applied supertype preservation
 alias kind/form/dependency preservation
 module import phase rows round-trip
@@ -1004,8 +1030,11 @@ invalid source-import owner rejected
 runtime requirement target/dependency mismatch rejected
 duplicate module execution owner rejected
 invalid coverage/phase discriminant rejected
+InterfaceOnly and Runtime preserve their exact current phase semantics
 old semantic schema rejected
 ```
+
+Include a mixed-import round trip with a module import, multiple selective items, multiple re-export items, and an empty-item import site. Assert the exact reconstructed `(ImportSiteLocalId, ImportBindingLocalId)` pairs in complete module products and sparse callable observations. Reject duplicate, missing, out-of-range, wrong-module, and phase-inconsistent rows, plus missing module products.
 
 ## T1 exit gate
 
@@ -2598,7 +2627,7 @@ The implementer must not close a gate by doing any of the following.
 
 Forbidden:
 
-- reintroducing P7's old `CanonicalUniverseFormalImage` as a competing live semantic engine;
+- keeping `CanonicalUniverseFormalImage` as a second live authority outside the bounded P7 lifecycle recovery. During that recovery, it is the sole loaded compiler-image authority; do not also publish a competing session-backed image. Any later move to ordinary `SemanticWorkspaceSession` publication happens after the P7 lifecycle works and in a separate slice;
 - creating an artifact-specific query database;
 - creating an artifact-specific type system;
 - creating an artifact-local `ProjectUniverse`;
@@ -2650,6 +2679,19 @@ Forbidden:
 # 13. Recommended implementation/commit sequence inside the single plan
 
 This remains one numbered plan. The following is a safe commit order.
+
+## 13.1 Continuation sequencing amendment — 2026-10-20
+
+The user-provided handoff and follow-up architecture consultation supersede the immediate loader direction recorded in the earlier P2.R3 core API consultation. That consultation remains part of the chronology, but its instruction to remove the P7 image route or move straight to ordinary session publication does not govern this recovery.
+
+Use this order before resuming the table below:
+
+1. Reach an integrated compileable state while preserving the P7 loader and staged work.
+2. Restore the P7 `CanonicalUniverseFormalImage` / `CanonicalCompilerImageView` lifecycle, including the loaded canonical reader, source-free completeness, module-query publication, dependency fingerprints, and publication census. Adapt the lifecycle to the current semantic products and V2/V4/V3 schemas, current query policy and owners, product references, portable fingerprint ABI v2, and current live fingerprints.
+3. Keep that image as the single loaded artifact compiler-image authority during recovery. Do not replace it with a `SemanticWorkspaceSession`, add a parallel sidecar, or combine image recovery with a session-boundary redesign.
+4. Once source-free build/encode/load works, integrate the interrupted T1 phase-product and declaration-owner changes, then resume the ordinary-session publication slices in this plan.
+
+This order preserves the plan's final current-main semantic authority and session-publication acceptance objective. The temporary image path is the handoff's required recovery boundary, not a second semantic engine. Tests remain unrun during the active handoff; focused compile checks are allowed and do not close T1 or P2.
 
 | Slice | Commit objective | Exit condition |
 |---|---|---|
@@ -2952,3 +2994,24 @@ current source-built canonical authority
 ```
 
 without redesigning the compiler's imported semantic architecture.
+
+# 20. Plan amendment — independent intrinsic projection rows (2026-10-20)
+
+- **Trigger:** Live `DeclarationTypeTable` evidence showed that type-only intrinsic static-domain registrations remove the declaration shell. The V2 exporter previously attached both static-domain and intrinsic type-owner authority only to declaration-shell rows, so these compiler-owned projections had no wire representation. No source-free derivation from the kind or runtime owner was established.
+- **Decision:** Add separately sorted, project-qualified `intrinsic_static_domains` and `intrinsic_type_owners` row families to `StructuralPrimaryContractsV2`, keyed by `StableDeclarationRef`. Remove actual static-domain and seven-case type-owner projections from `DeclarationShellV2`. Each family is imported independently through `StableOwnerCatalog`; neither is inferred from the other or from runtime ownership. A declaration may carry both rows, and may have no shell.
+- **Schema impact:** Keep structural schema V2 and enclosing semantic schema V4 because these schemas are unpublished on this branch. If evidence shows either schema has been emitted, stop and version the affected contract before accepting bytes.
+- **Implementation/verification impact:** T1 owns row validation, export/import, allocation charging, and schema constructor updates. No tests are run during this continuation per the active handoff; compile checks do not close T1 or P2.
+
+# 21. User clarification — shell intrinsic owner is redundant runtime authority (2026-10-20)
+
+- **Decision:** Retain `DeclarationShellV2.intrinsic_type_owner` as an `Option<IntrinsicRuntimeOwnerV1>` witness for compatibility with the current schema draft. It is redundant with `binding.runtime_owner`; validation requires exact equality. Its `Pack` case remains runtime-only and does not imply the independent seven-case `IntrinsicTypeOwnerV1::TypePack` row.
+- **Scope:** The seven-case intrinsic type-member authority remains represented only by standalone `intrinsic_type_owners` rows. Intrinsic static-domain authority remains represented only by standalone `intrinsic_static_domains` rows. These rows stay independent and may be shell-less.
+- **Schema impact:** V2/V4 remain unpublished on this branch, so no ABI bump is needed. If either schema has been emitted, version the affected structural and enclosing semantic artifact schemas before accepting bytes.
+- **Verification:** After the wire/export validation update, `cargo check -p phalcom-compiler-artifact --lib`, `cargo check -p phalcom-semantic --lib`, and `cargo check -p phalcom-core --lib` all passed. The semantic crate reported 68 warnings and core one unused-method warning. The handoff still prohibits running tests during this continuation; T1 and P2 remain open.
+
+# 22. Pending consultation — Pack type-member authority (2026-10-20)
+
+- **Trigger:** The user requests that Pack be modeled with semantic authority beyond its current runtime owner. This may change semantic ownership and projection dispatch, so it requires architecture guidance before implementation.
+- **Current contract:** The three-case shell field remains a redundant witness for `binding.runtime_owner`; actual type-member owners stay in independent project-qualified rows. The normative specifications distinguish first-class proper `Pack` from the kinded `TypePack` domain.
+- **Request:** Decide whether the Pack declaration should also own type-member authority, and if so whether it needs a distinct owner domain, which operations/result domains it owns, and how declaration registration, projection lookup, artifact rows/import/export, schema policy, and remaining P2 sequencing should change. The full request and source evidence are recorded in `CHECKPOINT.md`.
+- **Status:** Request sent to the available architecture adviser; response pending. Do not implement Pack ownership changes before the ruling. Continue only P2 work independent of this semantic boundary; P3 remains proposed.

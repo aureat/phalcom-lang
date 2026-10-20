@@ -1,6 +1,8 @@
 pub mod algebraic_declaration;
 pub(crate) mod algebraic_realization;
 pub mod analysis;
+pub mod analysis_map;
+pub mod analysis_set;
 pub mod annotation_elaboration;
 pub mod associated;
 pub mod binding;
@@ -48,7 +50,8 @@ pub use static_iteration::{
 };
 
 pub use analysis::{
-    AlgebraicBasisAxis, AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ContextualRealization,
+    AlgebraicBasisAxis, AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, CallableAnalysisTable,
+    ContextualRealization,
     ContextualRealizationOperation, ExpressionAnalysis, ExpressionAnalysisIndex, FlowStateSummary, ForIterationLaneResolution, ForIterationLaneResolutionIndex,
     ForIterationRequirementResolution, RealizationCapabilitySelection, RealizationCoefficientSource, RealizationEvaluationPlan, SequenceConstructionPlan,
     SequenceExpansionResolution, SequenceLiteralFamily, SequenceLiteralResolution, SequenceLiteralResolutionIndex,

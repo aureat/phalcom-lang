@@ -26,9 +26,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// The product may be shared between VMs because it contains no heap handles,
 /// runtime classes, closures, chunks, or mutable runtime registries.
 #[derive(Clone, Debug)]
-pub(crate) struct CanonicalUniverseProgram {
+pub struct CanonicalUniverseProgram {
     /// VM-independent linked and lowered module program.
     program: Arc<CompiledProgram>,
+    /// Canonical semantic authority shared with the persistent artifact producer.
+    formal_image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
     /// Canonical parsed source units used by each VM's local compiler.
     source_index: Arc<NativeSourceIndex>,
     /// Modules reachable from the canonical Universe root.
@@ -45,6 +47,31 @@ pub(crate) struct CanonicalUniverseProgram {
 impl CanonicalUniverseProgram {
     pub(crate) fn program(&self) -> &CompiledProgram {
         &self.program
+    }
+
+    pub(crate) fn formal_image(&self) -> &phalcom_semantic::canonical_image::CanonicalUniverseFormalImage {
+        &self.formal_image
+    }
+
+    /// Serialization boundary composing the canonical semantic image with its
+    /// retained runtime metadata and compatibility identity.
+    pub fn compiler_image_view(&self) -> Option<CanonicalCompilerImageView<'_>> {
+        let metadata = self.program.semantic_metadata.as_deref()?;
+        Some(CanonicalCompilerImageView {
+            formal: &self.formal_image,
+            metadata,
+            compatibility: CanonicalCompatibilityIdentity {
+                semantic_world: self.formal_image.world().clone(),
+                semantic_model_version: metadata.header.semantic_model_version,
+                native_surface_schema_version: metadata.header.native_surface_schema_version,
+                native_catalog_fingerprint: phalcom_native_surface::catalog_fingerprint().0,
+                metadata_schema_version: metadata.header.schema_version,
+                interface_fingerprint: metadata.header.interface_fingerprint.0,
+                source_fingerprint: metadata.header.source_fingerprint.0,
+                type_prefix_extent: self.formal_image.type_prefix().type_count(),
+                static_lineage_id: self.formal_image.static_lineage(),
+            },
+        })
     }
 
     pub(crate) fn source_index(&self) -> &NativeSourceIndex {
@@ -64,9 +91,39 @@ impl CanonicalUniverseProgram {
     }
 }
 
+/// Compatibility facts for the in-process canonical compiler image view.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CanonicalCompatibilityIdentity {
+    pub semantic_world: phalcom_semantic::canonical_image::CanonicalSemanticWorldId,
+    pub semantic_model_version: u32,
+    pub native_surface_schema_version: u32,
+    pub native_catalog_fingerprint: [u8; 16],
+    pub metadata_schema_version: u32,
+    pub interface_fingerprint: [u8; 16],
+    pub source_fingerprint: [u8; 16],
+    pub type_prefix_extent: usize,
+    pub static_lineage_id: phalcom_semantic::static_value::StaticValueStoreId,
+}
+
+/// Serialization-ready view over the canonical semantic image and metadata.
+#[derive(Clone, Debug)]
+pub struct CanonicalCompilerImageView<'a> {
+    pub formal: &'a phalcom_semantic::canonical_image::CanonicalUniverseFormalImage,
+    pub metadata: &'a phalcom_type_meta::SemanticMetadataBundle,
+    pub compatibility: CanonicalCompatibilityIdentity,
+}
+
+impl CanonicalCompilerImageView<'_> {
+    pub fn capabilities(&self) -> phalcom_semantic::canonical_image::CanonicalImageCapabilities {
+        let mut capabilities = self.formal.capabilities();
+        capabilities.runtime_metadata_composed = true;
+        capabilities
+    }
+}
+
 /// Failure while deriving the process-shared canonical compiler product.
 #[derive(Debug, Error)]
-pub(crate) enum CanonicalUniverseBuildError {
+pub enum CanonicalUniverseBuildError {
     /// Canonical source discovery or parsing failed.
     #[error("canonical Universe source index failed: {0}")]
     SourceIndex(String),
@@ -91,6 +148,9 @@ pub(crate) enum CanonicalUniverseBuildError {
     /// Canonical semantic analysis failed without publishing a snapshot.
     #[error("canonical Universe semantic analysis failed: {0}")]
     SemanticAnalysisFailed(#[from] phalcom_semantic::SemanticUpdateFailure),
+    /// Canonical formal-image acquisition failed.
+    #[error("canonical Universe formal image failed: {0}")]
+    FormalImage(String),
     /// A semantic match product lacks the proof required for executable lowering.
     #[error("canonical Universe semantic product is not executable: match in {module} ({callable:?}) at {range:?} is {reason}")]
     NonExecutableMatch {
@@ -146,7 +206,7 @@ pub(crate) static CANONICAL_SEMANTIC_ANALYSES: AtomicUsize = AtomicUsize::new(0)
 pub(crate) static CANONICAL_PROGRAM_PROJECTIONS: AtomicUsize = AtomicUsize::new(0);
 
 /// Returns the one immutable canonical Universe compiler product for this process.
-pub(crate) fn canonical_universe_program() -> Result<&'static CanonicalUniverseProgram, &'static CanonicalUniverseBuildError> {
+pub fn canonical_universe_program() -> Result<&'static CanonicalUniverseProgram, &'static CanonicalUniverseBuildError> {
     match CANONICAL_UNIVERSE_PROGRAM.get_or_init(build_canonical_universe_program) {
         Ok(program) => Ok(program),
         Err(error) => Err(error),
@@ -154,6 +214,9 @@ pub(crate) fn canonical_universe_program() -> Result<&'static CanonicalUniverseP
 }
 
 fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, CanonicalUniverseBuildError> {
+    if std::env::var_os("PHALCOM_DENY_SOURCE_BOOTSTRAP").is_some() {
+        panic!("Canonical universe program source bootstrap attempted while denied by PHALCOM_DENY_SOURCE_BOOTSTRAP");
+    }
     #[cfg(any(test, feature = "test-timings"))]
     crate::instrumentation::record_canonical_universe_product_build();
     #[cfg(test)]
@@ -204,21 +267,20 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
             .link_semantic(ModuleId::universe_root(), &resolved)
             .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?,
     );
-    let linked_for_semantics = symbolic.to_unfinalized_program();
     let sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>> =
         source_index.units.iter().map(|unit| (unit.id.clone(), unit.clone())).collect();
     #[cfg(test)]
     CANONICAL_SEMANTIC_ANALYSES.fetch_add(1, Ordering::Relaxed);
-    let semantic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        phalcom_semantic::try_analyze_workspace(
-            phalcom_semantic::SemanticWorkspaceInput::new(linked_for_semantics.clone(), sources.clone(), 0).with_semantic_linked(symbolic.clone()),
-        )
-    }))
-    .map_err(|_| CanonicalUniverseBuildError::SemanticAnalysisPanicked)?;
-    let semantic = semantic?;
+    let formal_image = phalcom_semantic::canonical_image::canonical_universe_formal_image()
+        .map_err(|error| match error {
+            phalcom_semantic::canonical_image::CanonicalImageError::SemanticUpdate(error) => CanonicalUniverseBuildError::SemanticAnalysisFailed(error),
+            phalcom_semantic::canonical_image::CanonicalImageError::BootstrapPanicked => CanonicalUniverseBuildError::SemanticAnalysisPanicked,
+            error => CanonicalUniverseBuildError::FormalImage(error.to_string()),
+        })?
+        .clone();
+    let semantic = formal_image.snapshot().clone();
 
     if let Some(diagnostic) = semantic
-        .snapshot
         .diagnostics
         .values()
         .flat_map(|diagnostics| diagnostics.iter())
@@ -226,12 +288,12 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     {
         return Err(CanonicalUniverseBuildError::NativeContracts(diagnostic.message.clone()));
     }
-    ensure_executable_match_coverage(&semantic.snapshot)?;
+    ensure_executable_match_coverage(&semantic)?;
 
     let runtime_modules = symbolic.modules.keys().cloned().collect();
-    let mut requirements = semantic.snapshot.generated_runtime_requirements.to_vec();
+    let mut requirements = semantic.generated_runtime_requirements.to_vec();
     requirements.extend(crate::modules::compile::runtime_metadata_type_requirements(
-        &semantic.snapshot,
+        &semantic,
         &sources,
         &runtime_modules,
     ));
@@ -240,7 +302,7 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
         linker
             .finalize_executable_with_availability(
                 (*symbolic).clone(),
-                &semantic.snapshot.import_phase_products,
+                &semantic.import_phase_products,
                 &requirements,
                 &native_floor_availability,
             )
@@ -252,7 +314,7 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
         project_universe,
         runtime_modules: linked.modules.keys().cloned().collect(),
         linked,
-        semantic: semantic.snapshot,
+        semantic,
         sources,
         entry: ModuleId::universe_root(),
     };
@@ -285,6 +347,7 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
 
     Ok(CanonicalUniverseProgram {
         program: Arc::new(program),
+        formal_image,
         source_index,
         root_reachable: Arc::from(root_reachable.into_boxed_slice()),
         bootstrap_order: Arc::from(bootstrap_order.into_boxed_slice()),

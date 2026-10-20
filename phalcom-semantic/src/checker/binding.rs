@@ -89,6 +89,40 @@ pub enum BindingConsistency {
     InternalFailure(Box<str>),
 }
 
+impl BindingConsistency {
+    pub(crate) fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(match self {
+            Self::Unconstrained => Self::Unconstrained,
+            Self::Validated => Self::Validated,
+            Self::Assumed { basis } => Self::Assumed {
+                basis: match basis {
+                    AssumptionBasis::MissingValueEvidence(reason) => AssumptionBasis::MissingValueEvidence(reason.clone_with_allocation_budget(allocations)?),
+                    AssumptionBasis::CallableParameterContract => AssumptionBasis::CallableParameterContract,
+                    AssumptionBasis::ContextualParameterContract => AssumptionBasis::ContextualParameterContract,
+                    AssumptionBasis::DerivedEvidence(origin) => AssumptionBasis::DerivedEvidence(*origin),
+                },
+            },
+            Self::Refuted { actual, expected, reason } => Self::Refuted {
+                actual: *actual,
+                expected: *expected,
+                reason: reason.clone(),
+            },
+            Self::DynamicBoundary { obligation } => Self::DynamicBoundary {
+                obligation: DynamicBoundaryObligation {
+                    reason: allocations.string(&obligation.reason)?,
+                },
+            },
+            Self::Blocked(reason) => Self::Blocked(reason.clone_with_allocation_budget(allocations)?),
+            Self::Cancelled => Self::Cancelled,
+            Self::BudgetExceeded(report) => Self::BudgetExceeded(report.clone()),
+            Self::InternalFailure(message) => Self::InternalFailure(allocations.boxed_str(message)?),
+        })
+    }
+}
+
 /// Result of pure contract reconciliation. No diagnostics or state mutation occur here.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BindingReconciliation {

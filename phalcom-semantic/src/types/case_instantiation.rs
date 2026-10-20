@@ -10,16 +10,17 @@ use std::collections::{BTreeMap, HashMap};
 
 /// One existential opening of one variant constructor.
 ///
-/// The product is deliberately query-local. Its rigids may be used by branch
-/// proof and payload analysis, but never become canonical `TypeId` metadata.
+/// The default representation is query-local. Callable publication rewrites it
+/// to `FrozenCaseInstantiation` with graph-owned ordinals and frozen local terms;
+/// neither representation inserts local rigids into canonical `TypeId` metadata.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CaseInstantiation {
+pub struct CaseInstantiation<R = RigidTypeVariableId, S = RigidScopeId, K = crate::field_key::FieldKey> {
     pub variant: VariantId,
-    pub scope: RigidScopeId,
-    pub local_rigids: BTreeMap<TypeParameterId, RigidTypeVariableId>,
-    pub payload_types: Box<[LocalType]>,
-    pub result_type: LocalType,
-    pub constraints: Box<[LocalConstraint]>,
+    pub scope: S,
+    pub local_rigids: crate::checker::analysis_map::AnalysisMap<TypeParameterId, R>,
+    pub payload_types: Box<[LocalType<R, K>]>,
+    pub result_type: LocalType<R, K>,
+    pub constraints: Box<[LocalConstraint<R, K>]>,
 }
 
 impl CaseInstantiation {
@@ -69,7 +70,7 @@ impl CaseInstantiation {
         Self {
             variant: variant.id.clone(),
             scope,
-            local_rigids,
+            local_rigids: local_rigids.into(),
             payload_types,
             result_type,
             constraints,

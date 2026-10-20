@@ -216,7 +216,6 @@ impl ImportedWitnessPreflightAuthority {
 pub(crate) fn reconstruct_witness_preflight(
     records: &[WitnessPlanV1],
     conformances: &ImportedConformanceAuthority,
-    prior_witnesses: &[ImportedWitnessPlanPreflight],
     traits: &ImportedTraitAuthority,
     callables: &ImportedCallableAuthority,
     types: &ReconstructedTypeGraph,
@@ -256,6 +255,7 @@ pub(crate) fn reconstruct_witness_preflight(
 fn reconstruct_plan(
     record: &WitnessPlanV1,
     conformances: &ImportedConformanceAuthority,
+    prior_witnesses: &[ImportedWitnessPlanPreflight],
     traits: &ImportedTraitAuthority,
     callables: &ImportedCallableAuthority,
     types: &ReconstructedTypeGraph,
@@ -568,7 +568,7 @@ fn reconstruct_effective_inherent_witness(
         return Err(invalid("effective inherent witness signature disagrees with its callable"));
     }
     if let Some(canonical) = callables.signature(&callable)
-        && canonical != &signature
+        && canonical.as_ref() != &signature
     {
         return Err(invalid("effective inherent witness signature differs from canonical callable authority"));
     }
@@ -654,13 +654,16 @@ fn reconstruct_inherent_domain(
             allocations,
         )?);
     }
+    let constraints = allocations
+        .boxed_slice(constraints)
+        .map_err(ArtifactError::Allocation)?;
     allocations
         .arc(InherentImplDomain {
             impl_id,
             target,
             head_type: mapped_type(domain.head_type, types, "conditional inherent head type")?,
             generic_signature,
-            constraints: allocations.boxed_slice(constraints).map_err(ArtifactError::Allocation)?,
+            constraints,
         })
         .map_err(ArtifactError::Allocation)
 }

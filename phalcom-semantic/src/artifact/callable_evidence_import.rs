@@ -14,7 +14,7 @@ use super::type_import::ReconstructedTypeGraph;
 use super::witness_import::ImportedWitnessPreflightAuthority;
 use crate::identity::{BodyId, CallableId};
 use phalcom_compiler_artifact::limits::ValidationLimits;
-use phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1;
+use phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
 
@@ -60,7 +60,7 @@ impl ImportedCallableConformanceEvidenceAuthority {
 /// Reconstructs every callable-local evidence graph using the same recursive
 /// P7 importer already shared by witness plans.
 pub(crate) fn reconstruct_callable_conformance_evidence(
-    records: &[CallableAnalysisRecordV1],
+    records: &[CallableAnalysisRecordV2],
     conformances: &ImportedConformanceAuthority,
     witnesses: &ImportedWitnessPreflightAuthority,
     traits: &ImportedTraitAuthority,

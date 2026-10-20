@@ -136,7 +136,8 @@ pub struct ImportResolutionTrace {
 pub struct ModuleResolver<'u, P: SourceProvider> {
     pub universe: &'u ProjectUniverse,
     pub source: &'u P,
-    universe_source: UniverseSourceProvider,
+    universe_source: Option<UniverseSourceProvider>,
+    external: Option<Arc<crate::canonical_products::CanonicalExternalModuleWorld>>,
     parsed_cache: HashMap<ModuleId, Result<Arc<ParsedModuleUnit>, ModuleLoadError>>,
     interface_cache: HashMap<ModuleId, Result<UnlinkedModuleInterface, ModuleLoadError>>,
 }
@@ -150,10 +151,61 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
         Self {
             universe,
             source,
-            universe_source,
+            universe_source: Some(universe_source),
+            external: None,
             parsed_cache: HashMap::new(),
             interface_cache: HashMap::new(),
         }
+    }
+
+    /// Resolves completed external modules without a canonical source provider.
+    pub fn with_external_modules(universe: &'u ProjectUniverse, source: &'u P, external: Arc<crate::canonical_products::CanonicalExternalModuleWorld>) -> Self {
+        Self {
+            universe,
+            source,
+            universe_source: None,
+            external: Some(external),
+            parsed_cache: HashMap::new(),
+            interface_cache: HashMap::new(),
+        }
+    }
+
+    fn universe_location(&self, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {
+        let id = ModuleId::universe(path.clone());
+        let (kind, source_id) = if let Some(external) = &self.external {
+            let interface = external
+                .interfaces()
+                .get(&id)
+                .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("external module {id} not found")))?;
+            (
+                interface.kind,
+                crate::SourceId(crate::identity::universe_module_uri(&id).expect("Universe identity has a logical URI").into()),
+            )
+        } else {
+            let provider = self
+                .universe_source
+                .as_ref()
+                .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("no canonical authority for {id}")))?;
+            let kind = provider
+                .kind(path)
+                .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Universe module {id} not found")))?;
+            let source_id = provider.source_id(&id).map_err(|error| match error {
+                ModuleLoadError::Resolution(r) => r,
+                other => ModuleResolutionError::ModuleNotFound(other.to_string()),
+            })?;
+            (kind, source_id)
+        };
+        Ok(SourceUnit {
+            id,
+            kind,
+            source: SourceLocation {
+                source_id,
+                display_path: PathBuf::from(format!(
+                    "<universe>/{}",
+                    path.components().iter().map(|c| c.as_str()).collect::<Vec<_>>().join("/")
+                )),
+            },
+        })
     }
 
     /// Resolves an AST `ImportPath` written inside the context of `importer`.
@@ -362,15 +414,10 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 let target_project_id = match target_root {
                     ImportRootTarget::Universe => {
                         self.validate_path_with_trace(ProjectIdentity::Universe, &target_path, &mut package_interfaces)?;
-                        let provider = &self.universe_source;
-                        let kind = provider
-                            .kind(&target_path)
-                            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Universe module universe.{target_path} not found")))?;
-                        let id = ModuleId::universe(target_path.clone());
-                        let source_id = provider.source_id(&id).map_err(|e| match e {
-                            ModuleLoadError::Resolution(r) => r,
-                            _ => ModuleResolutionError::ModuleNotFound(format!("{e}")),
-                        })?;
+                        let location = self.universe_location(&target_path)?;
+                        let id = location.id;
+                        let kind = location.kind;
+                        let source_id = location.source.source_id;
                         let uri_path = if target_path.is_root() {
                             String::new()
                         } else {
@@ -626,29 +673,8 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
     }
 
     fn locate_project_module(&self, project: ProjectIdentity, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {
-        let module_id = ModuleId { project, path: path.clone() };
         match project {
-            ProjectIdentity::Universe => {
-                let provider = &self.universe_source;
-                let kind = provider
-                    .kind(path)
-                    .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Universe module universe.{path} not found")))?;
-                let source_id = provider.source_id(&module_id).map_err(|error| match error {
-                    ModuleLoadError::Resolution(resolution) => resolution,
-                    other => ModuleResolutionError::ModuleNotFound(format!("{other}")),
-                })?;
-                Ok(SourceUnit {
-                    id: module_id,
-                    kind,
-                    source: SourceLocation {
-                        source_id,
-                        display_path: PathBuf::from(format!(
-                            "<universe>/{}",
-                            path.components().iter().map(|c| c.as_str()).collect::<Vec<_>>().join("/")
-                        )),
-                    },
-                })
-            }
+            ProjectIdentity::Universe => self.universe_location(path),
             ProjectIdentity::Resolved(project_id) => {
                 let project = self
                     .universe
@@ -669,7 +695,15 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
         }
 
         if module_id.project == ProjectIdentity::Universe {
-            let result = self.universe_source.load_parsed(module_id);
+            let result = self
+                .universe_source
+                .as_ref()
+                .ok_or_else(|| {
+                    ModuleLoadError::Resolution(ModuleResolutionError::ModuleNotFound(format!(
+                        "external module {module_id} has no source capability"
+                    )))
+                })?
+                .load_parsed(module_id);
             self.parsed_cache.insert(module_id.clone(), result.clone());
             return result;
         }
@@ -716,13 +750,24 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
             return res.clone();
         }
 
-        let parsed = self.load_parsed(module_id)?;
-
         if module_id.project == ProjectIdentity::Universe {
-            let result = crate::builtin_interface::BuiltinInterfaceBuilder::build_from_parsed(&self.universe_source, &parsed);
+            let result = if let Some(external) = &self.external {
+                external
+                    .interfaces()
+                    .get(module_id)
+                    .map(|interface| (**interface).clone())
+                    .ok_or_else(|| ModuleLoadError::Resolution(ModuleResolutionError::ModuleNotFound(format!("external module {module_id} not found"))))
+            } else {
+                crate::builtin_interface::BuiltinInterfaceBuilder::build(
+                    self.universe_source.as_ref().expect("source-backed resolver owns a provider"),
+                    module_id,
+                )
+            };
             self.interface_cache.insert(module_id.clone(), result.clone());
             return result;
         }
+
+        let parsed = self.load_parsed(module_id)?;
 
         let unlinked = match InterfaceBuilder::build(module_id.clone(), parsed.kind, &parsed.program) {
             Ok(u) => u,
@@ -738,5 +783,26 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
         self.interface_cache.insert(module_id.clone(), Ok(unlinked.clone()));
         Ok(unlinked)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ModuleResolver;
+    use crate::identity::{ModuleId, ModulePath};
+    use crate::project::ProjectUniverse;
+    use crate::source::FilesystemSourceProvider;
+
+    #[test]
+    fn canonical_interface_load_does_not_load_parsed_source_per_resolver() {
+        let universe = ProjectUniverse::new();
+        let source = FilesystemSourceProvider::new();
+        let module = ModuleId::universe(ModulePath::root());
+
+        for _ in 0..10 {
+            let mut resolver = ModuleResolver::new(&universe, &source);
+            resolver.load_interface(&module).expect("canonical Universe interface loads");
+            assert!(!resolver.parsed_cache.contains_key(&module));
+        }
     }
 }

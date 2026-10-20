@@ -785,7 +785,8 @@ fn compute_connected_components(
 #[derive(Debug)]
 pub struct WorkspaceModuleSession {
     universe: ProjectUniverse,
-    universe_source: crate::UniverseSourceProvider,
+    universe_source: Option<crate::UniverseSourceProvider>,
+    external: Option<Arc<crate::canonical_products::CanonicalExternalModuleWorld>>,
     provider: OverlaySourceProvider<FilesystemSourceProvider>,
     project_roots: BTreeMap<ProjectSourceIdentity, crate::identity::ResolvedProjectId>,
     /// Maps protocol/display source tokens to compiler-owned canonical IDs.
@@ -832,12 +833,24 @@ impl WorkspaceModuleSession {
         Self::build_with_universe_source_provider(universe_source)
     }
 
+    /// Creates a local source owner whose canonical imports are immutable leaves.
+    pub fn with_external_modules(external: Arc<crate::canonical_products::CanonicalExternalModuleWorld>) -> Self {
+        let mut session = Self::build_with_optional_universe_source_provider(None);
+        session.external = Some(external);
+        session
+    }
+
     fn build_with_universe_source_provider(universe_source: crate::UniverseSourceProvider) -> Self {
+        Self::build_with_optional_universe_source_provider(Some(universe_source))
+    }
+
+    fn build_with_optional_universe_source_provider(universe_source: Option<crate::UniverseSourceProvider>) -> Self {
         let universe = ProjectUniverse::new();
         let topology = Arc::new(ModuleTopology::from_parts(ResolverGeneration(0), &universe, &BTreeMap::new(), &BTreeMap::new()));
         Self {
             universe,
             universe_source,
+            external: None,
             provider: OverlaySourceProvider::new(FilesystemSourceProvider::new()),
             project_roots: BTreeMap::new(),
             source_identity_aliases: BTreeMap::new(),
@@ -2184,7 +2197,15 @@ impl WorkspaceModuleSession {
             .map(|(id, state)| (id.clone(), state.parsed.clone()))
             .collect::<BTreeMap<_, _>>();
 
-        let mut resolver = ModuleResolver::with_universe_source_provider(universe, provider, self.universe_source.clone());
+        let mut resolver = if let Some(external) = &self.external {
+            ModuleResolver::with_external_modules(universe, provider, external.clone())
+        } else {
+            ModuleResolver::with_universe_source_provider(
+                universe,
+                provider,
+                self.universe_source.clone().expect("source-backed module session owns a provider"),
+            )
+        };
         let mut queue = VecDeque::from_iter(sources_by_module.iter_states().map(|(id, _)| id.clone()));
         let mut new_discovered_sources = Vec::new();
         let mut visited_modules = BTreeSet::new();
@@ -2241,6 +2262,10 @@ impl WorkspaceModuleSession {
                     }
                 };
 
+                // Completed external modules are terminal for local discovery.
+                if self.external.as_ref().is_some_and(|image| image.linked().modules.contains_key(&target_id)) {
+                    continue;
+                }
                 // Transitive discovery
                 if !parsed_sources.contains_key(&target_id) {
                     match resolver.load_parsed(&target_id) {
@@ -2347,7 +2372,7 @@ impl WorkspaceModuleSession {
             (
                 Arc::new(LinkedProgram {
                     universe: Arc::new(universe.clone()),
-                    modules: BTreeMap::new(),
+                    modules: BTreeMap::new().into(),
                     graphs: crate::graph::ModuleGraphs::default(),
                     entry: ModuleId::universe_root(),
                     initialization_order: Vec::new(),
@@ -2369,7 +2394,10 @@ impl WorkspaceModuleSession {
                         .iter()
                         .filter_map(|id| interfaces.get(id).map(|(iface, _)| (id.clone(), (**iface).clone())))
                         .collect();
-                    let comp_linker = ModuleLinker::new(Arc::new(universe.clone()), comp_interfaces);
+                    let mut comp_linker = ModuleLinker::new(Arc::new(universe.clone()), comp_interfaces);
+                    if let Some(external) = &self.external {
+                        comp_linker = comp_linker.with_external_modules(external.clone());
+                    }
                     let component = comp_linker.link_component_interfaces_tolerant(entry.clone(), &resolved_imports);
 
                     let mut comp_modules = BTreeMap::new();
@@ -2446,7 +2474,7 @@ impl WorkspaceModuleSession {
             (
                 Arc::new(LinkedProgram {
                     universe: Arc::new(universe.clone()),
-                    modules,
+                    modules: modules.into(),
                     graphs,
                     entry,
                     initialization_order,

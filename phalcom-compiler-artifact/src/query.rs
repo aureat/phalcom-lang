@@ -4,7 +4,8 @@ use crate::codec::{BinaryReader, BinaryWriter};
 use crate::error::{ArtifactError, ValidationError};
 use crate::limits::ValidationLimits;
 use crate::module_world::{Decode, ModuleWorldV1, ModuleWorldV2, Wire};
-use crate::semantic::world::{SemanticWorldV3, SemanticWorldV4};
+use crate::semantic::aggregates::{DataInfoV1, EnumInfoV1, VariantInfoV1};
+use crate::semantic::world::{AssociatedSurfaceRecordV1, CallableDefinitionRecordV1, SemanticWorldV3, SemanticWorldV4, TypeMemberDeclarationRecordV1};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{
     StableAssociatedStaticDomainDeclarationRef, StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableFieldRef,
@@ -13,7 +14,6 @@ use phalcom_type_meta::identity::{
 
 pub const QUERY_IMAGE_SCHEMA_V2: u32 = 2;
 pub const QUERY_IMAGE_SCHEMA_V3: u32 = 3;
-
 
 /// QUERY_FINGERPRINT_ABI_V2 domains for portable structural query evidence.
 ///
@@ -388,7 +388,10 @@ impl Wire for PortableQueryOwnerKeyV1 {
                 selector.write(out)?;
                 side.write(out)?;
             }
-            Self::GenericConformance { implementation, context_ordinal } => {
+            Self::GenericConformance {
+                implementation,
+                context_ordinal,
+            } => {
                 out.write_u8(6);
                 implementation.write(out)?;
                 context_ordinal.write(out)?;
@@ -492,8 +495,7 @@ impl Wire for PortableQueryKeyV1 {
     fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
         input.nested(|input| {
             let kind_raw = input.reader.read_u16()?;
-            let kind = PortableQueryKindV1::from_raw(kind_raw)
-                .ok_or_else(|| ValidationError::ReferentialIntegrity("unknown query kind".into()))?;
+            let kind = PortableQueryKindV1::from_raw(kind_raw).ok_or_else(|| ValidationError::ReferentialIntegrity("unknown query kind".into()))?;
             let owner = PortableQueryOwnerKeyV1::read(input)?;
             Ok(Self { kind, owner })
         })
@@ -522,7 +524,6 @@ pub struct QueryImageV3 {
     pub dependency_evidence: Vec<DependencyEvidenceEntryV3>,
 }
 
-
 fn declaration_owner(owner: &PortableQueryOwnerKeyV1) -> Result<&StableDeclarationRef, ArtifactError> {
     match owner {
         PortableQueryOwnerKeyV1::Declaration(declaration) => Ok(declaration),
@@ -544,10 +545,7 @@ fn callable_owner(owner: &PortableQueryOwnerKeyV1) -> Result<&StableCallableRef,
     }
 }
 
-fn callable_definition_row_matches_owner(
-    row: &crate::semantic::world::CallableDefinitionRecordV1,
-    owner: &StableCallableRef,
-) -> bool {
+fn callable_definition_row_matches_owner(row: &CallableDefinitionRecordV1, owner: &StableCallableRef) -> bool {
     &row.callable == owner && &row.signature.callable == owner
 }
 
@@ -555,36 +553,27 @@ fn portable_callable_definition_digest64(
     domain: &str,
     row_index: usize,
     owner: &StableCallableRef,
-    world: &SemanticWorldV3,
+    rows: &[CallableDefinitionRecordV1],
 ) -> Result<u64, ArtifactError> {
     let mut out = BinaryWriter::digest(domain);
     out.write_u16(PortableQueryKindV1::CallableDefinition as u16);
-    let row = world
-        .callable_definitions
+    let row = rows
         .get(row_index)
         .ok_or_else(|| ValidationError::ReferentialIntegrity("callable-definition query product row is out of bounds".into()))?;
     if !callable_definition_row_matches_owner(row, owner) {
-        return Err(ValidationError::ReferentialIntegrity(
-            "callable-definition query product row owner differs from query owner".into(),
-        )
-        .into());
+        return Err(ValidationError::ReferentialIntegrity("callable-definition query product row owner differs from query owner".into()).into());
     }
     row.write(&mut out)?;
     let digest = out.into_digest();
-    Ok(u64::from_le_bytes(
-        digest.0[..8].try_into().expect("digest prefix is eight bytes"),
-    ))
+    Ok(u64::from_le_bytes(digest.0[..8].try_into().expect("digest prefix is eight bytes")))
 }
 
-fn type_member_row_matches_owner(
-    row: &crate::semantic::world::TypeMemberDeclarationRecordV1,
-    owner: &StableTypeMemberRef,
-) -> bool {
+fn type_member_row_matches_owner(row: &TypeMemberDeclarationRecordV1, owner: &StableTypeMemberRef) -> bool {
     if &row.owner != &owner.owner {
         return false;
     }
     match &row.selector {
-        crate::semantic::type_store::TypeMemberSelectorV1::Named { name } => name.as_ref() == owner.selector.as_ref(),
+        crate::semantic::type_store::TypeMemberSelectorV1::Named { name } => name.as_str() == owner.selector.as_ref(),
         crate::semantic::type_store::TypeMemberSelectorV1::Subscript => owner.selector.as_ref() == "[]",
     }
 }
@@ -593,12 +582,11 @@ fn portable_type_member_digest64(
     domain: &str,
     row_index: usize,
     owner: &StableTypeMemberRef,
-    world: &SemanticWorldV3,
+    rows: &[TypeMemberDeclarationRecordV1],
 ) -> Result<u64, ArtifactError> {
     let mut out = BinaryWriter::digest(domain);
     out.write_u16(PortableQueryKindV1::TypeMemberDeclaration as u16);
-    let row = world
-        .type_member_declarations
+    let row = rows
         .get(row_index)
         .ok_or_else(|| ValidationError::ReferentialIntegrity("type-member query product row is out of bounds".into()))?;
     if !type_member_row_matches_owner(row, owner) {
@@ -606,9 +594,61 @@ fn portable_type_member_digest64(
     }
     row.write(&mut out)?;
     let digest = out.into_digest();
-    Ok(u64::from_le_bytes(
-        digest.0[..8].try_into().expect("digest prefix is eight bytes"),
-    ))
+    Ok(u64::from_le_bytes(digest.0[..8].try_into().expect("digest prefix is eight bytes")))
+}
+
+/// The portable structural fingerprint ABI only covers these shared semantic
+/// row families. Read them directly from either world version so V4 import
+/// never needs to allocate a lossy V3 projection.
+trait StructuralWorldRows {
+    fn data_contracts(&self) -> &[DataInfoV1];
+    fn enum_contracts(&self) -> &[EnumInfoV1];
+    fn variant_contracts(&self) -> &[VariantInfoV1];
+    fn associated_surfaces(&self) -> &[AssociatedSurfaceRecordV1];
+    fn type_member_declarations(&self) -> &[TypeMemberDeclarationRecordV1];
+    fn callable_definitions(&self) -> &[CallableDefinitionRecordV1];
+}
+
+impl StructuralWorldRows for SemanticWorldV3 {
+    fn data_contracts(&self) -> &[DataInfoV1] {
+        &self.structural_contracts.data_contracts
+    }
+    fn enum_contracts(&self) -> &[EnumInfoV1] {
+        &self.structural_contracts.enum_contracts
+    }
+    fn variant_contracts(&self) -> &[VariantInfoV1] {
+        &self.structural_contracts.variant_contracts
+    }
+    fn associated_surfaces(&self) -> &[AssociatedSurfaceRecordV1] {
+        &self.associated_surfaces
+    }
+    fn type_member_declarations(&self) -> &[TypeMemberDeclarationRecordV1] {
+        &self.type_member_declarations
+    }
+    fn callable_definitions(&self) -> &[CallableDefinitionRecordV1] {
+        &self.callable_definitions
+    }
+}
+
+impl StructuralWorldRows for SemanticWorldV4 {
+    fn data_contracts(&self) -> &[DataInfoV1] {
+        &self.structural_contracts.data_contracts
+    }
+    fn enum_contracts(&self) -> &[EnumInfoV1] {
+        &self.structural_contracts.enum_contracts
+    }
+    fn variant_contracts(&self) -> &[VariantInfoV1] {
+        &self.structural_contracts.variant_contracts
+    }
+    fn associated_surfaces(&self) -> &[AssociatedSurfaceRecordV1] {
+        &self.associated_surfaces
+    }
+    fn type_member_declarations(&self) -> &[TypeMemberDeclarationRecordV1] {
+        &self.type_member_declarations
+    }
+    fn callable_definitions(&self) -> &[CallableDefinitionRecordV1] {
+        &self.callable_definitions
+    }
 }
 
 fn write_structural_product(
@@ -616,14 +656,13 @@ fn write_structural_product(
     kind: PortableQueryKindV1,
     row_index: usize,
     owner: &StableDeclarationRef,
-    world: &SemanticWorldV3,
+    world: &impl StructuralWorldRows,
 ) -> Result<(), ArtifactError> {
     out.write_u16(kind as u16);
     match kind {
         PortableQueryKindV1::DataDeclaration => {
             let row = world
-                .structural_contracts
-                .data_contracts
+                .data_contracts()
                 .get(row_index)
                 .ok_or_else(|| ValidationError::ReferentialIntegrity("data query product row is out of bounds".into()))?;
             if &row.owner != owner {
@@ -633,8 +672,7 @@ fn write_structural_product(
         }
         PortableQueryKindV1::EnumDeclaration => {
             let row = world
-                .structural_contracts
-                .enum_contracts
+                .enum_contracts()
                 .get(row_index)
                 .ok_or_else(|| ValidationError::ReferentialIntegrity("enum query product row is out of bounds".into()))?;
             if &row.owner != owner {
@@ -643,7 +681,7 @@ fn write_structural_product(
             row.write(out)?;
             out.write_u32(u32::try_from(row.variants.len()).map_err(|_| ValidationError::ReferentialIntegrity("enum variant count exceeds u32".into()))?);
             for variant in &row.variants {
-                let mut matches = world.structural_contracts.variant_contracts.iter().filter(|candidate| candidate.variant == *variant);
+                let mut matches = world.variant_contracts().iter().filter(|candidate| candidate.variant == *variant);
                 let variant_row = matches
                     .next()
                     .ok_or_else(|| ValidationError::ReferentialIntegrity("enum query product references a missing variant row".into()))?;
@@ -655,22 +693,16 @@ fn write_structural_product(
         }
         PortableQueryKindV1::AssociatedSurface => {
             let row = world
-                .associated_surfaces
+                .associated_surfaces()
                 .get(row_index)
                 .ok_or_else(|| ValidationError::ReferentialIntegrity("associated-surface query product row is out of bounds".into()))?;
             if &row.owner != owner {
-                return Err(ValidationError::ReferentialIntegrity(
-                    "associated-surface query product row owner differs from query owner".into(),
-                )
-                .into());
+                return Err(ValidationError::ReferentialIntegrity("associated-surface query product row owner differs from query owner".into()).into());
             }
             row.write(out)?;
         }
         _ => {
-            return Err(ValidationError::ReferentialIntegrity(
-                "portable structural fingerprint requested for unsupported query family".into(),
-            )
-            .into());
+            return Err(ValidationError::ReferentialIntegrity("portable structural fingerprint requested for unsupported query family".into()).into());
         }
     }
     Ok(())
@@ -681,14 +713,12 @@ fn portable_structural_digest64(
     kind: PortableQueryKindV1,
     row_index: usize,
     owner: &StableDeclarationRef,
-    world: &SemanticWorldV3,
+    world: &impl StructuralWorldRows,
 ) -> Result<u64, ArtifactError> {
     let mut out = BinaryWriter::digest(domain);
     write_structural_product(&mut out, kind, row_index, owner, world)?;
     let digest = out.into_digest();
-    Ok(u64::from_le_bytes(
-        digest.0[..8].try_into().expect("digest prefix is eight bytes"),
-    ))
+    Ok(u64::from_le_bytes(digest.0[..8].try_into().expect("digest prefix is eight bytes")))
 }
 
 /// Computes QUERY_FINGERPRINT_ABI_V2 evidence for structural query roots.
@@ -697,10 +727,16 @@ fn portable_structural_digest64(
 /// database must compute its own current-main input/product fingerprints after
 /// typed reconstruction; graph-local DB fingerprints are never compared to
 /// these wire fingerprints.
-pub fn portable_structural_root_fingerprints(
-    root: &QueryRootEntryV3,
-    world: &SemanticWorldV3,
-) -> Result<Option<(u64, u64)>, ArtifactError> {
+pub fn portable_structural_root_fingerprints(root: &QueryRootEntryV3, world: &SemanticWorldV3) -> Result<Option<(u64, u64)>, ArtifactError> {
+    portable_structural_root_fingerprints_for_world(root, world)
+}
+
+/// V4 counterpart to [`portable_structural_root_fingerprints`].
+pub fn portable_structural_root_fingerprints_v4(root: &QueryRootEntryV3, world: &SemanticWorldV4) -> Result<Option<(u64, u64)>, ArtifactError> {
+    portable_structural_root_fingerprints_for_world(root, world)
+}
+
+fn portable_structural_root_fingerprints_for_world(root: &QueryRootEntryV3, world: &impl StructuralWorldRows) -> Result<Option<(u64, u64)>, ArtifactError> {
     if !matches!(
         root.key.kind,
         PortableQueryKindV1::DataDeclaration
@@ -718,15 +754,15 @@ pub fn portable_structural_root_fingerprints(
     if root.key.kind == PortableQueryKindV1::TypeMemberDeclaration {
         let owner = type_member_owner(&root.key.owner)?;
         return Ok(Some((
-            portable_type_member_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, row_index, owner, world)?,
-            portable_type_member_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, row_index, owner, world)?,
+            portable_type_member_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, row_index, owner, world.type_member_declarations())?,
+            portable_type_member_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, row_index, owner, world.type_member_declarations())?,
         )));
     }
     if root.key.kind == PortableQueryKindV1::CallableDefinition {
         let owner = callable_owner(&root.key.owner)?;
         return Ok(Some((
-            portable_callable_definition_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, row_index, owner, world)?,
-            portable_callable_definition_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, row_index, owner, world)?,
+            portable_callable_definition_digest64(DOMAIN_STRUCTURAL_QUERY_INPUT_V2, row_index, owner, world.callable_definitions())?,
+            portable_callable_definition_digest64(DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2, row_index, owner, world.callable_definitions())?,
         )));
     }
     let owner = declaration_owner(&root.key.owner)?;
@@ -740,9 +776,18 @@ pub fn portable_structural_root_fingerprints(
 ///
 /// Dependency evidence has no row index, so the semantic row is selected by
 /// exact stable declaration owner. Duplicate/missing rows fail closed.
-pub fn portable_structural_dependency_product_fingerprint(
+pub fn portable_structural_dependency_product_fingerprint(key: &PortableQueryKeyV1, world: &SemanticWorldV3) -> Result<Option<u64>, ArtifactError> {
+    portable_structural_dependency_product_fingerprint_for_world(key, world)
+}
+
+/// V4 counterpart to [`portable_structural_dependency_product_fingerprint`].
+pub fn portable_structural_dependency_product_fingerprint_v4(key: &PortableQueryKeyV1, world: &SemanticWorldV4) -> Result<Option<u64>, ArtifactError> {
+    portable_structural_dependency_product_fingerprint_for_world(key, world)
+}
+
+fn portable_structural_dependency_product_fingerprint_for_world(
     key: &PortableQueryKeyV1,
-    world: &SemanticWorldV3,
+    world: &impl StructuralWorldRows,
 ) -> Result<Option<u64>, ArtifactError> {
     if !matches!(
         key.kind,
@@ -757,7 +802,7 @@ pub fn portable_structural_dependency_product_fingerprint(
     if key.kind == PortableQueryKindV1::TypeMemberDeclaration {
         let owner = type_member_owner(&key.owner)?;
         let mut matches = world
-            .type_member_declarations
+            .type_member_declarations()
             .iter()
             .enumerate()
             .filter(|(_, row)| type_member_row_matches_owner(row, owner));
@@ -765,22 +810,19 @@ pub fn portable_structural_dependency_product_fingerprint(
             .next()
             .ok_or_else(|| ValidationError::ReferentialIntegrity("type-member dependency evidence has no semantic product row".into()))?;
         if matches.next().is_some() {
-            return Err(ValidationError::ReferentialIntegrity(
-                "type-member dependency evidence semantic owner is ambiguous".into(),
-            )
-            .into());
+            return Err(ValidationError::ReferentialIntegrity("type-member dependency evidence semantic owner is ambiguous".into()).into());
         }
         return Ok(Some(portable_type_member_digest64(
             DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2,
             row_index,
             owner,
-            world,
+            world.type_member_declarations(),
         )?));
     }
     if key.kind == PortableQueryKindV1::CallableDefinition {
         let owner = callable_owner(&key.owner)?;
         let mut matches = world
-            .callable_definitions
+            .callable_definitions()
             .iter()
             .enumerate()
             .filter(|(_, row)| callable_definition_row_matches_owner(row, owner));
@@ -788,22 +830,19 @@ pub fn portable_structural_dependency_product_fingerprint(
             .next()
             .ok_or_else(|| ValidationError::ReferentialIntegrity("callable-definition dependency evidence has no semantic product row".into()))?;
         if matches.next().is_some() {
-            return Err(ValidationError::ReferentialIntegrity(
-                "callable-definition dependency evidence semantic owner is ambiguous".into(),
-            )
-            .into());
+            return Err(ValidationError::ReferentialIntegrity("callable-definition dependency evidence semantic owner is ambiguous".into()).into());
         }
         return Ok(Some(portable_callable_definition_digest64(
             DOMAIN_STRUCTURAL_QUERY_PRODUCT_V2,
             row_index,
             owner,
-            world,
+            world.callable_definitions(),
         )?));
     }
     let owner = declaration_owner(&key.owner)?;
     let row_index = match key.kind {
         PortableQueryKindV1::DataDeclaration => {
-            let mut matches = world.structural_contracts.data_contracts.iter().enumerate().filter(|(_, row)| &row.owner == owner);
+            let mut matches = world.data_contracts().iter().enumerate().filter(|(_, row)| &row.owner == owner);
             let (index, _) = matches
                 .next()
                 .ok_or_else(|| ValidationError::ReferentialIntegrity("data dependency evidence has no structural product row".into()))?;
@@ -813,7 +852,7 @@ pub fn portable_structural_dependency_product_fingerprint(
             index
         }
         PortableQueryKindV1::EnumDeclaration => {
-            let mut matches = world.structural_contracts.enum_contracts.iter().enumerate().filter(|(_, row)| &row.owner == owner);
+            let mut matches = world.enum_contracts().iter().enumerate().filter(|(_, row)| &row.owner == owner);
             let (index, _) = matches
                 .next()
                 .ok_or_else(|| ValidationError::ReferentialIntegrity("enum dependency evidence has no structural product row".into()))?;
@@ -823,15 +862,12 @@ pub fn portable_structural_dependency_product_fingerprint(
             index
         }
         PortableQueryKindV1::AssociatedSurface => {
-            let mut matches = world.associated_surfaces.iter().enumerate().filter(|(_, row)| &row.owner == owner);
+            let mut matches = world.associated_surfaces().iter().enumerate().filter(|(_, row)| &row.owner == owner);
             let (index, _) = matches
                 .next()
                 .ok_or_else(|| ValidationError::ReferentialIntegrity("associated-surface dependency evidence has no semantic product row".into()))?;
             if matches.next().is_some() {
-                return Err(ValidationError::ReferentialIntegrity(
-                    "associated-surface dependency evidence owner is ambiguous".into(),
-                )
-                .into());
+                return Err(ValidationError::ReferentialIntegrity("associated-surface dependency evidence owner is ambiguous".into()).into());
             }
             index
         }
@@ -870,12 +906,38 @@ impl QueryImageV3 {
                     | PortableQueryKindV1::CallableDefinition
             ) {
                 if evidence.key.owner != evidence.stable_aggregate_owner {
-                    return Err(ValidationError::ReferentialIntegrity(
-                        "structural dependency evidence key and aggregate owner differ".into(),
-                    )
-                    .into());
+                    return Err(ValidationError::ReferentialIntegrity("structural dependency evidence key and aggregate owner differ".into()).into());
                 }
                 evidence.product_fingerprint = portable_structural_dependency_product_fingerprint(&evidence.key, world)?
+                    .ok_or_else(|| ValidationError::ReferentialIntegrity("missing portable structural dependency fingerprint".into()))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Recomputes QUERY_FINGERPRINT_ABI_V2 evidence from current V4 semantic
+    /// rows. V4-only authority remains outside this structural fingerprint
+    /// contract.
+    pub fn refresh_portable_structural_fingerprints_v4(&mut self, world: &SemanticWorldV4) -> Result<(), ArtifactError> {
+        for root in &mut self.supported_roots {
+            if let Some((input, product)) = portable_structural_root_fingerprints_v4(root, world)? {
+                root.input_fingerprint = input;
+                root.product_fingerprint = product;
+            }
+        }
+        for evidence in &mut self.dependency_evidence {
+            if matches!(
+                evidence.key.kind,
+                PortableQueryKindV1::DataDeclaration
+                    | PortableQueryKindV1::EnumDeclaration
+                    | PortableQueryKindV1::AssociatedSurface
+                    | PortableQueryKindV1::TypeMemberDeclaration
+                    | PortableQueryKindV1::CallableDefinition
+            ) {
+                if evidence.key.owner != evidence.stable_aggregate_owner {
+                    return Err(ValidationError::ReferentialIntegrity("structural dependency evidence key and aggregate owner differ".into()).into());
+                }
+                evidence.product_fingerprint = portable_structural_dependency_product_fingerprint_v4(&evidence.key, world)?
                     .ok_or_else(|| ValidationError::ReferentialIntegrity("missing portable structural dependency fingerprint".into()))?;
             }
         }
@@ -918,12 +980,58 @@ impl QueryImageV3 {
                     | PortableQueryKindV1::CallableDefinition
             ) {
                 if evidence.key.owner != evidence.stable_aggregate_owner {
-                    return Err(ValidationError::ReferentialIntegrity(
-                        "structural dependency evidence key and aggregate owner differ".into(),
-                    )
-                    .into());
+                    return Err(ValidationError::ReferentialIntegrity("structural dependency evidence key and aggregate owner differ".into()).into());
                 }
                 let expected = portable_structural_dependency_product_fingerprint(&evidence.key, world)?
+                    .ok_or_else(|| ValidationError::ReferentialIntegrity("missing portable structural dependency fingerprint".into()))?;
+                if evidence.product_fingerprint != expected {
+                    return Err(ValidationError::ReferentialIntegrity(format!(
+                        "query dependency {:?} portable product fingerprint does not match its semantic product",
+                        evidence.key.kind
+                    ))
+                    .into());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Validates the existing structural fingerprint contract against a V4
+    /// semantic world. The covered row families are read directly from V4;
+    /// V4-only authority remains outside this V3-defined fingerprint ABI.
+    pub fn validate_portable_structural_fingerprints_v4(&self, world: &SemanticWorldV4) -> Result<(), ArtifactError> {
+        for root in &self.supported_roots {
+            if let Some((input, product)) = portable_structural_root_fingerprints_v4(root, world)? {
+                if root.input_fingerprint != input {
+                    return Err(ValidationError::ReferentialIntegrity(format!(
+                        "query root {:?} portable input fingerprint does not match its semantic product",
+                        root.key.kind
+                    ))
+                    .into());
+                }
+                if root.product_fingerprint != product {
+                    return Err(ValidationError::ReferentialIntegrity(format!(
+                        "query root {:?} portable product fingerprint does not match its semantic product",
+                        root.key.kind
+                    ))
+                    .into());
+                }
+            }
+        }
+
+        for evidence in &self.dependency_evidence {
+            if matches!(
+                evidence.key.kind,
+                PortableQueryKindV1::DataDeclaration
+                    | PortableQueryKindV1::EnumDeclaration
+                    | PortableQueryKindV1::AssociatedSurface
+                    | PortableQueryKindV1::TypeMemberDeclaration
+                    | PortableQueryKindV1::CallableDefinition
+            ) {
+                if evidence.key.owner != evidence.stable_aggregate_owner {
+                    return Err(ValidationError::ReferentialIntegrity("structural dependency evidence key and aggregate owner differ".into()).into());
+                }
+                let expected = portable_structural_dependency_product_fingerprint_v4(&evidence.key, world)?
                     .ok_or_else(|| ValidationError::ReferentialIntegrity("missing portable structural dependency fingerprint".into()))?;
                 if evidence.product_fingerprint != expected {
                     return Err(ValidationError::ReferentialIntegrity(format!(
@@ -1135,15 +1243,15 @@ impl QueryImageV3 {
             // Verify owner agreement for module-world products
             if root.product.kind.profile_support() == QueryProfileSupport::RepresentedByModuleWorld {
                 let module = &modules.modules[root.product.row_index as usize];
-                if root.key.owner.module_path() != module.identity.path.as_ref()
-                    || root.key.owner.project() != &module.identity.project
-                {
+                if root.key.owner != PortableQueryOwnerKeyV1::Module(module.identity.clone()) {
                     return Err(ValidationError::ReferentialIntegrity(format!(
                         "query root owner {:?} does not match referenced module {:?}",
                         root.key.owner, module.identity
                     ))
                     .into());
                 }
+            } else {
+                validate_v4_semantic_query_product_owner(root, world)?;
             }
         }
         Ok(())
@@ -1173,9 +1281,7 @@ impl QueryImageV3 {
             // Verify owner agreement for module-world products
             if root.product.kind.profile_support() == QueryProfileSupport::RepresentedByModuleWorld {
                 let module = &modules.modules[root.product.row_index as usize];
-                if root.key.owner.module_path() != module.identity.path.as_ref()
-                    || root.key.owner.project() != &module.identity.project
-                {
+                if root.key.owner.module_path() != module.identity.path.as_ref() || root.key.owner.project() != &module.identity.project {
                     return Err(ValidationError::ReferentialIntegrity(format!(
                         "query root owner {:?} does not match referenced module {:?}",
                         root.key.owner, module.identity
@@ -1186,6 +1292,53 @@ impl QueryImageV3 {
         }
         Ok(())
     }
+}
+
+fn validate_v4_semantic_query_product_owner(root: &QueryRootEntryV3, world: &SemanticWorldV4) -> Result<(), ArtifactError> {
+    use PortableQueryKindV1 as K;
+    use PortableQueryOwnerKeyV1 as O;
+
+    let index = root.product.row_index as usize;
+    let matches = match (root.product.kind, &root.key.owner) {
+        (K::DeclarationShell, O::Declaration(owner)) => world
+            .structural_contracts
+            .declaration_shells
+            .get(index)
+            .is_some_and(|row| &row.declaration == owner),
+        (K::CallableDefinition, O::Callable(owner)) => world.callable_definitions.get(index).is_some_and(|row| &row.callable == owner),
+        (K::CallableSignature, O::Callable(owner)) => world.callable_signatures.get(index).is_some_and(|row| &row.callable == owner),
+        (K::DeclarationSurface, O::Declaration(owner)) => world.dispatch_surfaces.get(index).is_some_and(|row| &row.declaration == owner),
+        (K::FieldSignature, O::Field(owner)) => world.dispatch_surfaces.get(index).is_some_and(|row| {
+            row.declaration == owner.owner
+                && row
+                    .fields
+                    .iter()
+                    .any(|field| field.name == owner.name && field.side == u8::from(owner.side == StableDispatchSide::Class))
+        }),
+        (K::TraitHeader | K::TraitSurface, O::Declaration(owner)) => world.trait_surfaces.get(index).is_some_and(|row| &row.declaration == owner),
+        (K::DataDeclaration, O::Declaration(owner)) => world.structural_contracts.data_contracts.get(index).is_some_and(|row| &row.owner == owner),
+        (K::EnumDeclaration, O::Declaration(owner)) => world.structural_contracts.enum_contracts.get(index).is_some_and(|row| &row.owner == owner),
+        (K::AssociatedSurface, O::Declaration(owner)) => world.associated_surfaces.get(index).is_some_and(|row| &row.owner == owner),
+        (K::TypeMemberDeclaration, O::TypeMember(owner)) => world.type_member_declarations.get(index).is_some_and(|row| {
+            row.owner == owner.owner
+                && match &row.selector {
+                    crate::semantic::type_store::TypeMemberSelectorV1::Named { name } => name.as_str() == owner.selector.as_ref(),
+                    crate::semantic::type_store::TypeMemberSelectorV1::Subscript => owner.selector.as_ref() == "[]",
+                }
+        }),
+        (K::ModuleStaticBindingCatalog | K::ModuleStaticBindings, O::Module(owner)) => {
+            world.module_static_bindings.get(index).is_some_and(|row| &row.module == owner)
+        }
+        _ => false,
+    };
+    if !matches {
+        return Err(ValidationError::ReferentialIntegrity(format!(
+            "query root owner {:?} does not match its typed {:?} product row {}",
+            root.key.owner, root.product.kind, root.product.row_index
+        ))
+        .into());
+    }
+    Ok(())
 }
 
 impl QueryImageV2 {

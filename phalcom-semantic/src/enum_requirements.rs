@@ -4,7 +4,9 @@ use crate::diagnostic::SemanticDiagnostic;
 use crate::identity::{CallableId, DeclarationId, SemanticSourceSpan, VariantId};
 use crate::signature::CallableSemanticSignature;
 use phalcom_common::selector::Selector;
-use std::collections::HashMap;
+use phalcom_type_meta::allocation::BudgetedSortedMap;
+use std::collections::{BTreeMap, HashMap};
+use std::ops::Deref;
 use std::sync::Arc;
 
 /// Unique identifier for a closed-enum method requirement.
@@ -17,6 +19,16 @@ pub struct EnumRequirementId {
 impl EnumRequirementId {
     pub fn new(owner: DeclarationId, selector: Selector) -> Self {
         Self { owner, selector }
+    }
+
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(Self {
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            selector: crate::traits::clone_selector_with_allocation_budget(&self.selector, allocations)?,
+        })
     }
 }
 
@@ -45,26 +57,167 @@ pub struct CaseRequirementResult {
     pub status: CaseRequirementStatus,
 }
 
+/// Shared immutable enum rows with a common slice read interface.
+///
+/// Source-built snapshots retain their ordinary `Arc<[T]>` backing. Artifact
+/// loads retain a budgeted `Arc<Vec<T>>`, since the pinned standard library
+/// does not expose a fallible `Arc<[T]>` slice constructor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EnumRequirementRows<T> {
+    Shared(Arc<[T]>),
+    Budgeted(Arc<Vec<T>>),
+}
+
+impl<T> EnumRequirementRows<T> {
+    pub fn from_shared(rows: Arc<[T]>) -> Self {
+        Self::Shared(rows)
+    }
+
+    pub fn from_budgeted(rows: Arc<Vec<T>>) -> Self {
+        Self::Budgeted(rows)
+    }
+}
+
+impl<T> AsRef<[T]> for EnumRequirementRows<T> {
+    fn as_ref(&self) -> &[T] {
+        self
+    }
+}
+
+impl<T> Deref for EnumRequirementRows<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Shared(rows) => rows,
+            Self::Budgeted(rows) => rows,
+        }
+    }
+}
+
+/// Source-built or frozen canonical owner map for enum requirement products.
+/// Artifact loads use the frozen sorted-vector backing; source analysis keeps
+/// its local ordered map and parent overlay behavior.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnumRequirementOwnerMap<V> {
+    parent: Option<Arc<Self>>,
+    frozen: Option<Arc<BudgetedSortedMap<DeclarationId, V>>>,
+    local: BTreeMap<DeclarationId, V>,
+}
+
+impl<V> Default for EnumRequirementOwnerMap<V> {
+    fn default() -> Self {
+        Self {
+            parent: None,
+            frozen: None,
+            local: BTreeMap::new(),
+        }
+    }
+}
+
+impl<V> EnumRequirementOwnerMap<V> {
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            frozen: None,
+            local: BTreeMap::new(),
+        }
+    }
+
+    /// Adopts an already budgeted immutable map without converting its storage.
+    pub fn from_frozen(frozen: Arc<BudgetedSortedMap<DeclarationId, V>>) -> Self {
+        Self {
+            parent: None,
+            frozen: Some(frozen),
+            local: BTreeMap::new(),
+        }
+    }
+
+    pub fn get(&self, owner: &DeclarationId) -> Option<&V> {
+        self.local
+            .get(owner)
+            .or_else(|| self.frozen.as_ref().and_then(|frozen| frozen.get(owner)))
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(owner)))
+    }
+
+    pub fn contains_key(&self, owner: &DeclarationId) -> bool {
+        self.get(owner).is_some()
+    }
+
+    pub fn len(&self) -> usize {
+        self.local.len()
+            + self
+                .frozen
+                .as_ref()
+                .map_or_else(|| self.parent.as_ref().map_or(0, |parent| parent.len()), |frozen| frozen.len())
+    }
+
+    pub fn insert(&mut self, owner: DeclarationId, value: V) -> Option<V> {
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.contains_key(&owner)) && !self.frozen.as_ref().is_some_and(|frozen| frozen.contains_key(&owner)),
+            "cannot overwrite a canonical enum-requirement owner"
+        );
+        self.local.insert(owner, value)
+    }
+
+    pub fn retain(&mut self, predicate: impl FnMut(&DeclarationId, &mut V) -> bool) {
+        self.local.retain(predicate);
+    }
+
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&DeclarationId, &V)> + '_> {
+        if let Some(parent) = &self.parent {
+            Box::new(parent.iter().chain(self.local.iter()))
+        } else if let Some(frozen) = &self.frozen {
+            Box::new(frozen.iter())
+        } else {
+            Box::new(self.local.iter())
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.local.is_empty() && self.frozen.as_ref().is_none_or(|frozen| frozen.is_empty()) && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
+    }
+}
+
 /// Snapshot-level table of closed-enum requirements and case statuses.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct EnumRequirementTable {
-    pub requirements: HashMap<DeclarationId, Arc<[EnumRequirement]>>,
-    pub case_statuses: HashMap<DeclarationId, Arc<[CaseRequirementResult]>>,
+    pub requirements: Arc<EnumRequirementOwnerMap<EnumRequirementRows<EnumRequirement>>>,
+    pub case_statuses: Arc<EnumRequirementOwnerMap<EnumRequirementRows<CaseRequirementResult>>>,
 }
 
 impl EnumRequirementTable {
+    /// Shares canonical entries and starts with empty local contributions.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            requirements: Arc::new(EnumRequirementOwnerMap::with_parent(parent.requirements.clone())),
+            case_statuses: Arc::new(EnumRequirementOwnerMap::with_parent(parent.case_statuses.clone())),
+        }
+    }
+
+    pub fn from_frozen(
+        requirements: Arc<BudgetedSortedMap<DeclarationId, EnumRequirementRows<EnumRequirement>>>,
+        case_statuses: Arc<BudgetedSortedMap<DeclarationId, EnumRequirementRows<CaseRequirementResult>>>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(Self {
+            requirements: allocations.arc(EnumRequirementOwnerMap::from_frozen(requirements))?,
+            case_statuses: allocations.arc(EnumRequirementOwnerMap::from_frozen(case_statuses))?,
+        })
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn insert(&mut self, owner: DeclarationId, requirements: Arc<[EnumRequirement]>, statuses: Arc<[CaseRequirementResult]>) {
-        self.requirements.insert(owner.clone(), requirements);
-        self.case_statuses.insert(owner, statuses);
+        Arc::make_mut(&mut self.requirements).insert(owner.clone(), EnumRequirementRows::from_shared(requirements));
+        Arc::make_mut(&mut self.case_statuses).insert(owner, EnumRequirementRows::from_shared(statuses));
     }
 
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
-        self.requirements.retain(|owner, _| &owner.module != module);
-        self.case_statuses.retain(|owner, _| &owner.module != module);
+        Arc::make_mut(&mut self.requirements).retain(|owner, _| &owner.module != module);
+        Arc::make_mut(&mut self.case_statuses).retain(|owner, _| &owner.module != module);
     }
 }
 

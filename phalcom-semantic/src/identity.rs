@@ -4,6 +4,7 @@ pub use phalcom_modules::{
     DeclarationId, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectRevisionFingerprint, ProjectSourceIdentity, ResolvedProjectId,
     StableModuleKey, StableProjectKey, SyntheticProjectId,
 };
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 
 /// Stable source identity for an associated static type-data declaration.
 ///
@@ -178,6 +179,29 @@ impl VariantId {
             phalcom_common::selector::SelectorBase::Subscript => None,
         }
     }
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let owner = self.owner.clone_with_allocation_budget(allocations)?;
+        let base = match &self.selector.base {
+            phalcom_common::selector::SelectorBase::Named(name) => phalcom_common::selector::SelectorBase::Named(allocations.string(name)?),
+            phalcom_common::selector::SelectorBase::Subscript => phalcom_common::selector::SelectorBase::Subscript,
+        };
+        let mut slots_vec = allocations.vector(self.selector.slots.len())?;
+        for slot in self.selector.slots.iter() {
+            slots_vec.push(match slot {
+                phalcom_common::selector::SelectorSlot::Positional => phalcom_common::selector::SelectorSlot::Positional,
+                phalcom_common::selector::SelectorSlot::Label(label) => phalcom_common::selector::SelectorSlot::Label(allocations.string(label)?),
+            });
+        }
+        let slots = allocations.boxed_slice(slots_vec)?;
+        Ok(Self {
+            owner,
+            selector: phalcom_common::selector::Selector {
+                base,
+                kind: self.selector.kind,
+                slots,
+            },
+        })
+    }
 }
 
 /// Stable variant family identity (grouping overloaded variants sharing a base name).
@@ -227,6 +251,13 @@ impl VariantFieldId {
     pub fn new(variant: VariantId, index: u32) -> Self {
         Self { variant, index }
     }
+
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            variant: self.variant.clone_with_allocation_budget(allocations)?,
+            index: self.index,
+        })
+    }
 }
 
 /// Variant constructor identity.
@@ -252,6 +283,13 @@ impl DataComponentId {
     pub fn new(owner: DeclarationId, index: u32) -> Self {
         Self { owner, index }
     }
+
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            index: self.index,
+        })
+    }
 }
 
 /// Canonical data constructor identity.
@@ -263,6 +301,12 @@ pub struct DataConstructorId {
 impl DataConstructorId {
     pub fn new(owner: DeclarationId) -> Self {
         Self { owner }
+    }
+
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+        })
     }
 }
 
@@ -281,6 +325,13 @@ impl ImplId {
     pub fn new(module: ModuleId, local: ImplLocalId) -> Self {
         Self { module, local }
     }
+
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            module: self.module.clone_with_allocation_budget(allocations)?,
+            local: self.local,
+        })
+    }
 }
 
 /// Owner identity of a callable member.
@@ -296,6 +347,14 @@ pub enum CallableOwnerId {
 }
 
 impl CallableOwnerId {
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(match self {
+            Self::Declaration(declaration) => Self::Declaration(declaration.clone_with_allocation_budget(allocations)?),
+            Self::Variant(variant) => Self::Variant(variant.clone_with_allocation_budget(allocations)?),
+            Self::Conformance(implementation) => Self::Conformance(implementation.clone_with_allocation_budget(allocations)?),
+        })
+    }
+
     pub fn declaration(&self) -> &DeclarationId {
         match self {
             Self::Declaration(decl) => decl,
@@ -396,6 +455,30 @@ impl CallableId {
             selector,
             side,
         }
+    }
+
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let owner = self.owner.clone_with_allocation_budget(allocations)?;
+        let base = match &self.selector.base {
+            phalcom_common::selector::SelectorBase::Named(name) => phalcom_common::selector::SelectorBase::Named(allocations.string(name)?),
+            phalcom_common::selector::SelectorBase::Subscript => phalcom_common::selector::SelectorBase::Subscript,
+        };
+        let mut slots = allocations.vector(self.selector.slots.len())?;
+        for slot in self.selector.slots.iter() {
+            slots.push(match slot {
+                phalcom_common::selector::SelectorSlot::Positional => phalcom_common::selector::SelectorSlot::Positional,
+                phalcom_common::selector::SelectorSlot::Label(label) => phalcom_common::selector::SelectorSlot::Label(allocations.string(label)?),
+            });
+        }
+        Ok(Self {
+            owner,
+            selector: Selector {
+                base,
+                kind: self.selector.kind,
+                slots: allocations.boxed_slice(slots)?,
+            },
+            side: self.side,
+        })
     }
 
     pub fn method(owner: DeclarationId, selector: Selector, side: DispatchSide) -> Self {
@@ -503,6 +586,13 @@ impl CallableParameterId {
     pub fn new(callable: CallableId, index: u32) -> Self {
         Self { callable, index }
     }
+
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            callable: self.callable.clone_with_allocation_budget(allocations)?,
+            index: self.index,
+        })
+    }
 }
 
 /// Canonical field identity.
@@ -520,6 +610,14 @@ impl FieldId {
             name: name.into(),
             side,
         }
+    }
+
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        Ok(Self {
+            owner: self.owner.clone_with_allocation_budget(allocations)?,
+            name: allocations.boxed_str(&self.name)?,
+            side: self.side,
+        })
     }
 }
 

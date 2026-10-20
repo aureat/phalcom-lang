@@ -161,6 +161,8 @@ pub fn normalize_native_type(
     universe_resolver: &dyn Fn(UniverseKey) -> DeclarationId,
     spec: &TypeExprSpec,
 ) -> TypeKnowledge {
+    #[cfg(feature = "perf-observability")]
+    telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::TypeNormalizationCalls, 1);
     match resolve_native_type_form(store, declarations, parameters, universe_resolver, spec) {
         Ok(form) if store.is_proper_type(form) => TypeKnowledge::established(form, EvidenceOrigin::NativeSignature),
         _ => TypeKnowledge::Unknown(UnknownReason::OpaqueNative),

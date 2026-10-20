@@ -41,7 +41,7 @@ fn metadata_round_trip_preserves_large_static_integer_type_identity() {
     let mut exporter = phalcom_semantic::metadata::MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let positive_id = exporter.export_type_form(positive).unwrap();
     let negative_id = exporter.export_type_form(negative).unwrap();
-    let bundle = exporter.build_bundle(&[]).unwrap();
+    let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
 
     let json = encode_metadata_json(&bundle).unwrap();
     let decoded = decode_metadata_json(&json, &Default::default()).unwrap();
@@ -168,7 +168,7 @@ fn exact_integer_fingerprints_are_sign_sensitive_width_sensitive_and_store_indep
         let applications = terms.map(|term| store.apply_static_form(constructor, &[StaticArgument::Term(term)]).unwrap());
         let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
         let nodes = applications.map(|application| exporter.export_type_form(application).unwrap());
-        let bundle = exporter.build_bundle(&[]).unwrap();
+        let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
         nodes.map(|node| bundle.types[node.0 as usize].structural_fingerprint)
     };
     let fingerprints = build(false);
@@ -203,7 +203,7 @@ fn type_member_compatibility_inputs_canonicalize_exact_integers_and_survive_meta
         assert_eq!(TypeSubstitution::new().apply(&mut store, compatibility), canonical);
         let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
         let node = exporter.export_type_form(compatibility).unwrap();
-        let mut bundle = exporter.build_bundle(&[]).unwrap();
+        let mut bundle = exporter.build_complete_test_bundle(&[]).unwrap();
         let TypeNode::TypeMemberProjection(projected) = &bundle.types[node.0 as usize].form else {
             panic!("projection expected");
         };

@@ -30,9 +30,11 @@ fn test_expr_id(local: u32) -> ExpressionId {
 fn mock_callable(id: CallableId, expressions: BTreeMap<ExpressionId, ExpressionAnalysis>, dependencies: Vec<CallableId>) -> CallableAnalysis {
     CallableAnalysis {
         callable: id,
+        body_source_owner: None,
         body_range: RANGE,
         expressions,
         bindings: BTreeMap::new(),
+        binding_origins: BTreeMap::new(),
         for_iteration_lanes: Arc::new(BTreeMap::new()),
         positional_expansions: Arc::new(BTreeMap::new()),
         known_invalid_positional_expansions: Arc::new(BTreeMap::new()),
@@ -41,7 +43,8 @@ fn mock_callable(id: CallableId, expressions: BTreeMap<ExpressionId, ExpressionA
         callable_reference_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),
         match_resolutions: Arc::new(BTreeMap::new()),
-        pattern_site_resolutions: Arc::new(BTreeMap::new()),
+        pattern_site_resolutions: Arc::new(Default::default()),
+        local_proof_graph: Arc::new(Default::default()),
         flow_graph: Arc::new(phalcom_semantic::checker::flow::graph::FlowGraph::default()),
         entry_flow: phalcom_semantic::checker::FlowStateSummary::default(),
         exits: phalcom_semantic::checker::BodyExitFacts::default(),
@@ -138,23 +141,23 @@ fn test_interprocedural_pure_propagation() {
 #[test]
 fn test_cfg_acyclicity_termination() {
     let mut acyclic_graph = FlowGraph::new();
-    let entry = acyclic_graph.add_node(FlowNodeKind::Entry, RANGE);
-    let branch = acyclic_graph.add_node(FlowNodeKind::BranchCondition, RANGE);
-    let join = acyclic_graph.add_node(FlowNodeKind::Join, RANGE);
-    let exit = acyclic_graph.add_node(FlowNodeKind::Exit, RANGE);
+    let entry = acyclic_graph.add_node(FlowNodeKind::Entry, RANGE).unwrap();
+    let branch = acyclic_graph.add_node(FlowNodeKind::BranchCondition, RANGE).unwrap();
+    let join = acyclic_graph.add_node(FlowNodeKind::Join, RANGE).unwrap();
+    let exit = acyclic_graph.add_node(FlowNodeKind::Exit, RANGE).unwrap();
 
-    acyclic_graph.entry = Some(entry);
-    acyclic_graph.exits.push(exit);
-    acyclic_graph.add_edge(entry, branch, None);
-    acyclic_graph.add_edge(branch, join, None);
-    acyclic_graph.add_edge(join, exit, None);
+    acyclic_graph.try_set_entry(Some(entry)).unwrap();
+    acyclic_graph.try_push_exit(exit).unwrap();
+    acyclic_graph.add_edge(entry, branch, None).unwrap();
+    acyclic_graph.add_edge(branch, join, None).unwrap();
+    acyclic_graph.add_edge(join, exit, None).unwrap();
 
     assert_eq!(check_cfg_acyclicity(&acyclic_graph), Some(TerminationEvidence::AcyclicCfg));
 
     let mut cyclic_graph = FlowGraph::new();
-    let loop_header = cyclic_graph.add_node(FlowNodeKind::LoopHeader, RANGE);
-    cyclic_graph.entry = Some(loop_header);
-    cyclic_graph.exits.push(exit);
+    let loop_header = cyclic_graph.add_node(FlowNodeKind::LoopHeader, RANGE).unwrap();
+    cyclic_graph.try_set_entry(Some(loop_header)).unwrap();
+    cyclic_graph.try_push_exit(exit).unwrap();
 
     assert_eq!(check_cfg_acyclicity(&cyclic_graph), None);
 }
@@ -163,11 +166,11 @@ fn test_cfg_acyclicity_termination() {
 fn test_termination_analysis_callable() {
     let cid = make_callable_id("straight_line");
     let mut graph = FlowGraph::new();
-    let entry = graph.add_node(FlowNodeKind::Entry, RANGE);
-    let exit = graph.add_node(FlowNodeKind::Exit, RANGE);
-    graph.entry = Some(entry);
-    graph.exits.push(exit);
-    graph.add_edge(entry, exit, None);
+    let entry = graph.add_node(FlowNodeKind::Entry, RANGE).unwrap();
+    let exit = graph.add_node(FlowNodeKind::Exit, RANGE).unwrap();
+    graph.try_set_entry(Some(entry)).unwrap();
+    graph.try_push_exit(exit).unwrap();
+    graph.add_edge(entry, exit, None).unwrap();
 
     let analysis = mock_callable(cid.clone(), BTreeMap::new(), vec![]);
     let term = analyze_callable_termination(Some(&graph), &analysis, None);

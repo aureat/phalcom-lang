@@ -1,6 +1,7 @@
 //! Associated resolution and family application models (Part 3).
 
 use crate::associated::{AssociatedFamilyKind, AssociatedMemberId};
+use crate::checker::analysis_map::AnalysisMap;
 use crate::checker::context::CheckingContext;
 use crate::checker::expected::ExpectedType;
 use crate::checker::inference::{ConstraintOrigin, InferenceCoordinator, InferenceOutcome, InferenceRelation, InferenceTerm};
@@ -16,7 +17,7 @@ use crate::types::relation::is_subtype;
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorPattern, SelectorSlot};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 /// A specialized member belonging to an associated family or lookup outcome.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -110,6 +111,18 @@ pub enum BehavioralFamilySpec {
     Pattern(SelectorPattern),
 }
 
+impl BehavioralFamilySpec {
+    pub(crate) fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(match self {
+            Self::Exact(selector) => Self::Exact(crate::traits::clone_selector_with_allocation_budget(selector, allocations)?),
+            Self::Pattern(pattern) => Self::Pattern(crate::traits::clone_selector_pattern_with_allocation_budget(pattern, allocations)?),
+        })
+    }
+}
+
 /// One statically known ordinary behavior candidate retained by a bound
 /// family. Runtime still dispatches on the captured receiver.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -168,13 +181,13 @@ pub struct FamilyApplicationCandidate {
 }
 
 /// Body-local index of associated syntax resolutions.
-pub type AssociatedResolutionIndex = BTreeMap<ExpressionId, AssociatedResolution>;
+pub type AssociatedResolutionIndex = AnalysisMap<ExpressionId, AssociatedResolution>;
 
 /// Body-local index of prefix-`&` callable-reference resolutions.
-pub type CallableReferenceResolutionIndex = BTreeMap<ExpressionId, CallableReferenceResolution>;
+pub type CallableReferenceResolutionIndex = AnalysisMap<ExpressionId, CallableReferenceResolution>;
 
 /// Body-local index of ordinary family value application resolutions.
-pub type FamilyApplicationResolutionIndex = BTreeMap<ExpressionId, FamilyApplicationResolution>;
+pub type FamilyApplicationResolutionIndex = AnalysisMap<ExpressionId, FamilyApplicationResolution>;
 
 /// Failure after a diagnostic has been emitted for an associated lookup.
 /// Keeping this as a concrete error preserves the fail-closed API without
@@ -892,7 +905,7 @@ pub fn check_reification_underconstrained(
                     for (v, e) in val_args.iter().zip(exp_args.iter()) {
                         if let (Some(v), Some(e)) = (v.as_type_id(), e.as_type_id()) {
                             if let TypeData::Parameter(param_id) = ctx.store.get(v) {
-                                env.bind_param(*param_id, e);
+                                env.bind_param(*param_id, e).expect("associated owner environment is source mutable");
                             }
                         }
                     }
@@ -900,7 +913,7 @@ pub fn check_reification_underconstrained(
             }
             for (vp, ep) in val_call.parameters.iter().zip(exp_call.parameters.iter()) {
                 if let TypeData::Parameter(param_id) = ctx.store.get(vp.ty) {
-                    env.bind_param(*param_id, ep.ty);
+                    env.bind_param(*param_id, ep.ty).expect("associated owner environment is source mutable");
                 }
             }
             resolved_type = TypeView::new(value_type, env).materialize(ctx.store);
@@ -932,7 +945,7 @@ pub fn check_reification_underconstrained(
                         for (v, e) in val_args.iter().zip(exp_args.iter()) {
                             if let (Some(v), Some(e)) = (v.as_type_id(), e.as_type_id()) {
                                 if let TypeData::Parameter(param_id) = ctx.store.get(v) {
-                                    env.bind_param(*param_id, e);
+                                    env.bind_param(*param_id, e).expect("associated owner environment is source mutable");
                                 }
                             }
                         }

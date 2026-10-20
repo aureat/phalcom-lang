@@ -1,0 +1,26 @@
+# BASELINE_HEAD=b00d75b3ac9f50d37cf9abfddfde00917e099031
+# BRANCH=perf/universe-characterization
+SAMPLE,tier.kernel,0,constructor_total,13871042
+SAMPLE,tier.native,0,constructor_total,76058375
+
+thread 'main' (29577528) panicked at phalcom-core/src/vm/bootstrap.rs:170:127:
+canonical Universe compiler product failed: canonical Universe source index failed: intrinsic runtime data ProductKind is not a canonical Tuple/Record/Pack source declaration
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+        0.10 real         0.06 user         0.01 sys
+            30965760  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1572  page reclaims
+                 587  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                 397  involuntary context switches
+           731844217  instructions retired
+           250363387  cycles elapsed
+            22020480  peak memory footprint

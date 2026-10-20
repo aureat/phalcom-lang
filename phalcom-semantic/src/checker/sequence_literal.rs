@@ -270,7 +270,9 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
                             let (resolution, _) = super::iteration::resolve_positional_expansion(ctx, typed.expression_id, source_ty, *range);
                             if let Some(resolution) = resolution {
                                 items.push(resolution.item_type);
-                                ctx.positional_expansions.insert(resolution.source_expression, resolution);
+                                ctx.positional_expansions
+                                    .insert_source(resolution.source_expression, resolution)
+                                    .expect("checking context positional expansions are source mutable");
                             } else if let Some(arguments) = canonical_collection_arguments(ctx.store, source_ty, &ctx.core_ids.array, 1)
                                 .or_else(|| canonical_collection_arguments(ctx.store, source_ty, &ctx.core_ids.list, 1))
                             {
@@ -508,7 +510,7 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
                             element_count: literal.elements.len(),
                         }
                     },
-                    exact_expansions,
+                    exact_expansions: exact_expansions.into(),
                 },
                 result.publication_dependencies.clone(),
             );

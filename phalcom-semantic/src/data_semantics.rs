@@ -7,7 +7,6 @@ use crate::types::parameter::GenericSignature;
 use crate::types::row::RecordRowTail;
 use crate::types::store::{StaticArgument, TypeData, TypeStore};
 use phalcom_common::modifier::Visibility;
-use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -520,16 +519,41 @@ fn append_record_component(
 /// Table of all published data declarations in a snapshot.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DataSemanticTable {
-    pub data_decls: HashMap<DeclarationId, Arc<DataInfo>>,
+    pub data_decls: Arc<crate::parent_map::ParentMap<DeclarationId, Arc<DataInfo>>>,
+    module_data: std::collections::HashMap<phalcom_modules::identity::ModuleId, std::collections::BTreeSet<DeclarationId>>,
+    parent: Option<Arc<Self>>,
 }
 
 impl DataSemanticTable {
+    /// Shares canonical entries and starts with empty local contributions.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            data_decls: Arc::new(crate::parent_map::ParentMap::with_parent(parent.data_decls.clone())),
+            module_data: std::collections::HashMap::new(),
+            parent: Some(parent),
+        }
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
 
+    pub(crate) fn from_frozen_entries_with_allocation_budget(
+        entries: Vec<(DeclarationId, Arc<DataInfo>)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, crate::parent_map::FrozenParentMapError> {
+        let data_decls = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(entries, allocations)?;
+        let data_decls = allocations.arc(data_decls).map_err(crate::parent_map::FrozenParentMapError::Allocation)?;
+        Ok(Self {
+            data_decls,
+            module_data: std::collections::HashMap::new(),
+            parent: None,
+        })
+    }
+
     pub fn insert_data(&mut self, info: Arc<DataInfo>) {
-        self.data_decls.insert(info.owner.clone(), info);
+        self.module_data.entry(info.owner.module.clone()).or_default().insert(info.owner.clone());
+        Arc::make_mut(&mut self.data_decls).insert(info.owner.clone(), info);
     }
 
     pub fn get(&self, owner: &DeclarationId) -> Option<&Arc<DataInfo>> {
@@ -541,6 +565,21 @@ impl DataSemanticTable {
     }
 
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
-        self.data_decls.retain(|owner, _| &owner.module != module);
+        self.module_data.remove(module);
+        Arc::make_mut(&mut self.data_decls).retain(|owner, _| &owner.module != module);
+    }
+
+    /// Iterates data declarations belonging to the specified module without full-table scanning.
+    pub fn iter_module<'a>(&'a self, module: &'a phalcom_modules::identity::ModuleId) -> Box<dyn Iterator<Item = (&'a DeclarationId, &'a Arc<DataInfo>)> + 'a> {
+        let local_iter = self
+            .module_data
+            .get(module)
+            .into_iter()
+            .flat_map(move |ids| ids.iter().filter_map(move |id| self.data_decls.get(id).map(|info| (id, info))));
+        let frozen_iter = self.data_decls.iter_frozen().filter(move |(owner, _)| &owner.module == module);
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter_module(module).chain(frozen_iter).chain(local_iter)),
+            None => Box::new(frozen_iter.chain(local_iter)),
+        }
     }
 }

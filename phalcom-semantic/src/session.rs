@@ -123,6 +123,14 @@ fn build_canonical_universe_linked_program(provider: &phalcom_modules::UniverseS
     )
 }
 
+fn canonical_linked_program_for_session(db: &SemanticDb, provider: &phalcom_modules::UniverseSourceProvider) -> Arc<LinkedProgram> {
+    if let Some(image) = db.canonical_image() {
+        Arc::clone(image.linked())
+    } else {
+        canonical_universe_linked_program(provider)
+    }
+}
+
 /// Performance and recomputation metrics for one semantic workspace update.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SemanticUpdateStats {
@@ -760,6 +768,78 @@ impl SemanticWorkspaceSession {
     /// Creates a new workspace session for a specific workspace ID.
     pub fn with_workspace(workspace: WorkspaceId) -> Self {
         crate::canonical_baseline::canonical_universe_semantic_baseline().instantiate(workspace)
+    }
+
+    /// Creates an ordinary local workspace session over an immutable loaded
+    /// canonical compiler image. The image snapshot remains the canonical base;
+    /// local updates publish through this session's normal database overlay.
+    pub fn from_image(workspace: WorkspaceId, image: Arc<crate::canonical_image::CanonicalUniverseFormalImage>) -> Self {
+        let snapshot = image.snapshot();
+        let provider = phalcom_modules::UniverseSourceProvider::new();
+        let base_type_member_declarations = snapshot
+            .type_member_declarations
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let canonical_native_diagnostics = snapshot
+            .diagnostics
+            .iter()
+            .filter(|(module, _)| module.project.is_universe())
+            .map(|(module, diagnostics)| (module.clone(), diagnostics.to_vec()))
+            .collect();
+        let snapshot = snapshot.clone();
+        Self {
+            workspace,
+            module_session: WorkspaceModuleSession::with_external_modules(image.modules().clone()),
+            universe_source_provider: provider,
+            db: SemanticDb::with_canonical_image(workspace, image),
+            store: snapshot.store.clone(),
+            static_values: snapshot.static_values.clone(),
+            base_declarations: (*snapshot.declarations).clone(),
+            base_hierarchy: (*snapshot.hierarchy).clone(),
+            base_dispatch: (*snapshot.dispatch).clone(),
+            base_callable_signatures: (*snapshot.callable_signatures).clone(),
+            base_data_semantics: (*snapshot.data_semantics).clone(),
+            // The image query table supplies immutable declaration products
+            // directly; local session state must not duplicate those roots.
+            base_data_products: Vec::new(),
+            base_enum_semantics: (*snapshot.enum_semantics).clone(),
+            base_enum_products: Vec::new(),
+            base_associated_surfaces: (*snapshot.associated_surfaces).clone(),
+            base_associated_surface_products: Vec::new(),
+            base_type_member_declarations,
+            base_type_member_products: Vec::new(),
+            base_enum_requirements: (*snapshot.enum_requirements).clone(),
+            base_enum_requirement_products: Vec::new(),
+            sources: BTreeMap::new(),
+            source_fingerprints: BTreeMap::new(),
+            field_lifecycle_fingerprints: BTreeMap::new(),
+            default_field_lifecycle: crate::checker::field_lifecycle::FieldLifecycleTable::default(),
+            semantic_structure_shards: BTreeMap::new(),
+            generic_header_dependencies: BTreeMap::new(),
+            generic_header_reverse_dependencies: BTreeMap::new(),
+            declaration_signature_dependencies: BTreeMap::new(),
+            declaration_signature_reverse_dependencies: BTreeMap::new(),
+            declaration_signature_fingerprints: BTreeMap::new(),
+            inherent_impl_surface_owners: BTreeMap::new(),
+            alias_sources: BTreeMap::new(),
+            alias_dependencies: BTreeMap::new(),
+            alias_reverse_dependencies: BTreeMap::new(),
+            alias_contract_dependencies: BTreeMap::new(),
+            alias_contract_reverse_dependencies: BTreeMap::new(),
+            alias_forms: Arc::new(BTreeMap::new()),
+            module_diagnostics: BTreeMap::new(),
+            canonical_native_diagnostics,
+            semantic_diagnostic_contributions: BTreeMap::new(),
+            last_snapshot: Some(snapshot.clone()),
+            last_known_good: Some(snapshot),
+            pending_semantic_delta: None,
+            requested_deep_modules: None,
+            #[cfg(test)]
+            test_publication_failpoint: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            test_candidate_type_parameter: std::sync::Mutex::new(None),
+        }
     }
 
     /// Builds a semantic session with an explicit canonical Universe source provider.
@@ -1549,7 +1629,7 @@ impl SemanticWorkspaceSession {
         ] {
             signature_known_declarations.insert(crate::checker::proof_predicate::proof_predicate_declaration(kind));
         }
-        let canonical_linked = canonical_universe_linked_program(&self.universe_source_provider);
+        let canonical_linked = canonical_linked_program_for_session(&self.db, &self.universe_source_provider);
         let signature_resolver = LinkedTypeResolver::with_retained_alias_forms(
             input.linked.clone(),
             signature_known_declarations,
@@ -2186,6 +2266,9 @@ impl SemanticWorkspaceSession {
         if !removed_modules.is_empty() {
             for module in &removed_modules {
                 alias_sources.retain(|declaration, _| &declaration.module != module);
+                if module.project.is_universe() && self.db.canonical_image().is_some() {
+                    continue;
+                }
                 let Ok(source) = self.universe_source_provider.load_parsed(module) else {
                     continue;
                 };
@@ -2321,7 +2404,7 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        let canonical_linked = canonical_universe_linked_program(&self.universe_source_provider);
+        let canonical_linked = canonical_linked_program_for_session(&self.db, &self.universe_source_provider);
         let resolver = LinkedTypeResolver::with_retained_alias_forms(
             input.linked.clone(),
             known_declarations.clone(),
@@ -2494,7 +2577,12 @@ impl SemanticWorkspaceSession {
             .as_ref()
             .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
         let mut type_member_declarations_table = previous_snapshot.as_ref().map_or_else(
-            || self.base_type_member_declarations.clone(),
+            || {
+                self.base_type_member_declarations
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect()
+            },
             |snapshot| (*snapshot.type_member_declarations).clone(),
         );
         for module in structural_recomputed_modules.iter().chain(removed_modules.iter()) {
@@ -2607,7 +2695,7 @@ impl SemanticWorkspaceSession {
         let static_case_sources = collect_static_case_sources(&self.semantic_structure_shards, &resolver, &static_case_catalogs);
         let mut static_case_signatures_table = previous_snapshot
             .as_ref()
-            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.static_case_signatures).clone());
+            .map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| (*snapshot.static_case_signatures).clone());
         for case in &signature_case_work {
             static_case_signatures_table.remove(case);
         }
@@ -4051,7 +4139,7 @@ impl SemanticWorkspaceSession {
             .map_or_else(|| self.base_callable_signatures.clone(), |snapshot| (*snapshot.callable_signatures).clone());
         let mut callable_definitions = previous_snapshot
             .as_ref()
-            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.callable_definitions).clone());
+            .map_or_else(crate::parent_map::ParentMap::default, |snapshot| (*snapshot.callable_definitions).clone());
         let mut field_signatures = previous_snapshot
             .as_ref()
             .map_or_else(FieldSignatureTable::new, |snapshot| (*snapshot.field_signatures).clone());
@@ -4734,9 +4822,9 @@ impl SemanticWorkspaceSession {
         let mut enum_requirements_table = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_enum_requirements.clone(), |snapshot| (*snapshot.enum_requirements).clone());
-        let mut associated_static_domains_table = previous_snapshot
-            .as_ref()
-            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.associated_static_domains).clone());
+        let mut associated_static_domains_table = previous_snapshot.as_ref().map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| {
+            (*snapshot.associated_static_domains).clone()
+        });
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             data_semantics.remove_module(module);
             enum_semantics.remove_module(module);
@@ -4808,7 +4896,7 @@ impl SemanticWorkspaceSession {
 
                         enum_semantics.insert_enum(enum_product.info.clone());
                         for v in enum_product.variants.iter() {
-                            enum_semantics.insert_variant(Arc::new(v.clone()));
+                            enum_semantics.insert_variant(v.clone());
                         }
 
                         let arc_enum_product = Arc::new(enum_product);
@@ -5103,6 +5191,7 @@ impl SemanticWorkspaceSession {
                                             origin: crate::impls::CallableDefinitionOrigin::ConformanceWitness(contribution.impl_id.clone()),
                                             source_member_index,
                                             signature: signature.clone(),
+                                            body_provenance: crate::impls::CallableDefinitionBodyProvenance::SourceBody,
                                             inherent_body_context: None,
                                         };
                                         callable_definitions.insert(callable.clone(), definition.clone());
@@ -5248,6 +5337,7 @@ impl SemanticWorkspaceSession {
                                         origin: crate::impls::CallableDefinitionOrigin::ConformanceWitness(rule_head.impl_id.clone()),
                                         source_member_index,
                                         signature: signature.clone(),
+                                        body_provenance: crate::impls::CallableDefinitionBodyProvenance::SourceBody,
                                         inherent_body_context: None,
                                     };
                                     callable_definitions.insert(callable.clone(), definition.clone());
@@ -5558,6 +5648,7 @@ impl SemanticWorkspaceSession {
                                     origin: crate::impls::CallableDefinitionOrigin::InherentImpl(contrib.id.clone()),
                                     source_member_index: member.source_member,
                                     signature: member.signature.clone(),
+                                    body_provenance: crate::impls::CallableDefinitionBodyProvenance::SourceBody,
                                     inherent_body_context: Some(crate::impls::InherentBodyContext {
                                         generic_signature: contrib.generic_signature.clone(),
                                         covering: contrib.covering.clone(),
@@ -7355,7 +7446,7 @@ impl SemanticWorkspaceSession {
                     )),
                 ))
             })
-            .collect::<BTreeMap<_, _>>();
+            .collect::<crate::parent_map::ParentMap<_, _>>();
         if let Some(semantic_linked) = input.semantic_linked.as_ref() {
             for (module_id, sem_mod) in &semantic_linked.modules {
                 let imported_facts = sem_mod
@@ -7397,7 +7488,11 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        for (module_id, bindings) in module_static_bindings.clone() {
+        for (module_id, bindings) in module_static_bindings
+            .iter()
+            .map(|(module, bindings)| (module.clone(), bindings.clone()))
+            .collect::<Vec<_>>()
+        {
             let bindings = match crate::db::query::query_module_static_bindings(&mut self.db, bindings) {
                 QueryOutcome::Ready(product) => product,
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -7655,6 +7750,7 @@ impl SemanticWorkspaceSession {
         let (mut source_index, presentation_sources) = build_source_semantic_index(SourceSemanticIndexInputs {
             sources: &input.sources,
             universe_source_provider: &self.universe_source_provider,
+            include_canonical_presentation_sources: self.db.canonical_image().is_none(),
             callable_analyses: &callable_analyses,
             import_products: &input.import_products,
             require_canonical_import_products: input.require_canonical_import_products,
@@ -7862,7 +7958,7 @@ impl SemanticWorkspaceSession {
                     )),
                 ))
             })
-            .collect::<BTreeMap<_, _>>();
+            .collect::<crate::parent_map::ParentMap<_, _>>();
         if let Some(semantic_linked) = input.semantic_linked.as_ref() {
             for (module_id, sem_mod) in &semantic_linked.modules {
                 let imported_facts = sem_mod
@@ -7904,7 +8000,11 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        for (module_id, module_bindings) in module_static_bindings.clone() {
+        for (module_id, module_bindings) in module_static_bindings
+            .iter()
+            .map(|(module, bindings)| (module.clone(), bindings.clone()))
+            .collect::<Vec<_>>()
+        {
             let module_bindings = match crate::db::query::query_module_static_bindings(&mut self.db, module_bindings) {
                 QueryOutcome::Ready(product) => product,
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -8336,12 +8436,14 @@ impl SemanticWorkspaceSession {
                     );
                     let mut diags = checked.diagnostics.to_vec();
                     diags.push(cycle_diag);
+                    let authority = crate::static_constant::StaticConstantAuthority::from_checked(&checked);
 
                     let product = Arc::new(crate::static_constant::StaticConstantProduct {
                         id: id.clone(),
                         declaration_range: decl.declaration_range,
                         initializer_range: decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
                         checked: Some(checked),
+                        authority: Some(authority),
                         outcome: crate::static_eval::StaticEvalOutcome::Recursive(crate::static_eval::StaticCycle::empty()),
                         residuals: None,
                         value: None,
@@ -8589,6 +8691,7 @@ impl SemanticWorkspaceSession {
                         declaration_range: decl.declaration_range,
                         initializer_range: decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
                         checked: Some(checked.clone()),
+                        authority: Some(crate::static_constant::StaticConstantAuthority::from_checked(&checked)),
                         outcome,
                         residuals,
                         value,
@@ -8739,14 +8842,14 @@ impl SemanticWorkspaceSession {
             input.generation,
             self.store.clone(),
             Arc::new(retained_sources.clone()),
-            Arc::new(dispatch.surfaces().clone()),
+            dispatch.surfaces().clone(),
             Arc::new(dispatch),
             Arc::new(callable_signatures),
             Arc::new(declarations),
             Arc::new(hierarchy),
             Arc::new(diagnostics_map),
             Arc::new(semantic_graph),
-            Arc::new(callable_analyses),
+            callable_analyses,
         );
 
         snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
@@ -8765,7 +8868,7 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_associated_surfaces(Arc::new(associated_surfaces_table));
         snapshot_obj = snapshot_obj.with_type_member_declarations(Arc::new(type_member_declarations_table));
         snapshot_obj = snapshot_obj.with_associated_static_domains(Arc::new(associated_static_domains_table));
-        snapshot_obj = snapshot_obj.with_static_case_catalogs(Arc::new(static_case_catalogs));
+        snapshot_obj = snapshot_obj.with_static_case_catalogs(Arc::new(crate::ordered_map::OrderedMap::from(static_case_catalogs)));
         snapshot_obj = snapshot_obj.with_static_case_signatures(Arc::new(static_case_signatures_table));
         snapshot_obj = snapshot_obj.with_type_aliases(Arc::new(type_aliases));
         snapshot_obj = snapshot_obj.with_static_definitions(Arc::new(static_definitions_table));
@@ -8789,7 +8892,7 @@ impl SemanticWorkspaceSession {
                     semantic_linked,
                     &input.sources,
                     snapshot_obj.source_index.as_ref(),
-                    &snapshot_obj.callable_analyses,
+                    snapshot_obj.callable_analyses.as_ref(),
                     &attribute_analyses,
                     Some(snapshot_obj.store.as_ref()),
                     Some(&snapshot_obj.static_constants),
@@ -10617,7 +10720,7 @@ fn publish_type_member_owner(
     store: &mut TypeStore,
     resolver: &LinkedTypeResolver,
     surfaces: &crate::associated::AssociatedFamilyTable,
-    members: &mut BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    members: &mut crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
     declarations: &DeclarationTypeTable,
     id: &crate::types::type_member::TypeMemberDeclarationId,
     module: &ModuleId,
@@ -10655,8 +10758,8 @@ fn service_type_member_demands(
     type_aliases: &TypeAliasTable,
     declarations: &DeclarationTypeTable,
     surfaces: &crate::associated::AssociatedFamilyTable,
-    members: &mut BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
-    static_case_signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
+    members: &mut crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    static_case_signatures: &crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
     cycle_members: &BTreeSet<crate::types::type_member::TypeMemberDeclarationId>,
     member_definitions: &BTreeMap<crate::types::type_member::TypeMemberDeclarationId, (ModuleId, &phalcom_ast::ast::TypeMemberDef)>,
     sources: &BTreeMap<ModuleId, Arc<crate::source::ParsedModuleUnit>>,
@@ -11040,6 +11143,7 @@ fn semantic_target_for_linked_symbol(symbol: &SymbolId, nominal_declarations: &H
 struct SourceSemanticIndexInputs<'a> {
     sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     universe_source_provider: &'a phalcom_modules::UniverseSourceProvider,
+    include_canonical_presentation_sources: bool,
     callable_analyses: &'a HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
     import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
     require_canonical_import_products: bool,
@@ -11059,6 +11163,7 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
     let SourceSemanticIndexInputs {
         sources,
         universe_source_provider,
+        include_canonical_presentation_sources,
         callable_analyses,
         import_products,
         require_canonical_import_products,
@@ -11081,19 +11186,23 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
     // the persistent source-index contract.
     let mut presentation_sources = BTreeMap::new();
     let provider = universe_source_provider;
-    let presentation_modules = provider
-        .nodes()
-        .iter()
-        .map(|node| {
-            let path = phalcom_modules::ModulePath::from_components(
-                node.path
-                    .iter()
-                    .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
-                    .collect::<Vec<_>>(),
-            );
-            ModuleId::universe(path)
-        })
-        .collect::<BTreeSet<_>>();
+    let presentation_modules = if include_canonical_presentation_sources {
+        provider
+            .nodes()
+            .iter()
+            .map(|node| {
+                let path = phalcom_modules::ModulePath::from_components(
+                    node.path
+                        .iter()
+                        .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                        .collect::<Vec<_>>(),
+                );
+                ModuleId::universe(path)
+            })
+            .collect::<BTreeSet<_>>()
+    } else {
+        BTreeSet::new()
+    };
     let mut index_sources = BTreeMap::new();
     if previous.is_none() {
         index_sources.extend(sources.iter().map(|(module, source)| (module.clone(), source.clone())));
@@ -12111,7 +12220,7 @@ fn source_body_for_callable<'a>(
 }
 
 struct DownstreamCallableBodyState<'a> {
-    definitions: &'a BTreeMap<CallableId, crate::impls::EffectiveCallableDefinition>,
+    definitions: &'a crate::parent_map::ParentMap<CallableId, crate::impls::EffectiveCallableDefinition>,
     store: &'a mut TypeStore,
     hierarchy: &'a MapTypeHierarchy,
     dispatch: &'a mut SurfaceDispatchResolver,
@@ -12275,7 +12384,7 @@ struct InferredCallableRefreshInputs<'a> {
     callable_signatures: &'a mut CallableSignatureTable,
     constructor_initializations: &'a ConstructorInitializationTable,
     callable_analyses: &'a mut HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
-    previous_callable_analyses: Option<&'a HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    previous_callable_analyses: Option<&'a crate::checker::CallableAnalysisTable>,
     field_signatures: &'a FieldSignatureTable,
     field_lifecycle: &'a crate::checker::field_lifecycle::FieldLifecycleTable,
     enum_semantics: &'a EnumSemanticTable,
@@ -12750,8 +12859,10 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                         Some(previous) if previous.dependency_fingerprint == analysis.dependency_fingerprint => previous.clone(),
                         _ => Arc::new(analysis),
                     };
+                    let dependencies = crate::db::query::callable_body_dependency_edges(db, &callable, &replacement, Some(conformance_semantics))
+                        .map_err(QueryOutcome::Failed)?;
                     callable_analyses.insert(callable.clone(), replacement.clone());
-                    db.update_callable_body_product(&callable, replacement);
+                    db.update_callable_body_product(&callable, replacement, dependencies);
                     callable_dispositions.insert(callable.clone(), CallableRevisionDisposition::Recomputed);
                     recomputed_in_this_iteration.insert(callable);
                 }
@@ -12781,7 +12892,7 @@ fn publish_conformance_witness_plans(
     declarations: &DeclarationTypeTable,
     conformance_index: &crate::impls::ConformanceIndex,
     callable_signatures: &crate::signature::CallableSignatureTable,
-    conformance_witness_plans: &mut BTreeMap<crate::identity::ImplId, Arc<crate::impls::ConformanceWitnessPlan>>,
+    conformance_witness_plans: &mut crate::impls::ConformanceWitnessPlans,
     conformance_witness_bodies: &BTreeSet<CallableId>,
     conformance_witness_visibilities: &BTreeMap<CallableId, crate::surface::MemberVisibility>,
     conformance_invalid_witnesses: &BTreeMap<crate::identity::ImplId, BTreeSet<crate::traits::TraitRequirementId>>,

@@ -922,16 +922,16 @@ fn hash_flow_edge_kind(kind: FlowEdgeKind, hasher: &mut impl Hasher) {
 }
 
 fn hash_flow_graph_semantics(graph: &FlowGraph, hasher: &mut impl Hasher) {
-    graph.nodes.len().hash(hasher);
-    for (id, node) in &graph.nodes {
+    graph.node_count().hash(hasher);
+    for (id, node) in graph.node_entries() {
         id.hash(hasher);
         node.id.hash(hasher);
         hash_flow_node_kind(&node.kind, hasher);
         node.predecessors.hash(hasher);
         node.successors.hash(hasher);
     }
-    graph.edges.len().hash(hasher);
-    for (id, edge) in &graph.edges {
+    graph.edge_count().hash(hasher);
+    for (id, edge) in graph.edge_entries() {
         id.hash(hasher);
         edge.id.hash(hasher);
         edge.source.hash(hasher);
@@ -939,8 +939,8 @@ fn hash_flow_graph_semantics(graph: &FlowGraph, hasher: &mut impl Hasher) {
         hash_flow_edge_kind(edge.kind, hasher);
         edge.predicate.hash(hasher);
     }
-    graph.entry.hash(hasher);
-    graph.exits.hash(hasher);
+    graph.entry().hash(hasher);
+    graph.exits().hash(hasher);
 }
 
 fn hash_field_validity(validity: &crate::checker::flow::FieldContractValidity, hasher: &mut impl Hasher) {
@@ -2191,7 +2191,7 @@ fn hash_requirement_selection(selection: &crate::impls::RequirementSelectionTemp
     }
 }
 
-fn hash_match_resolutions(resolutions: &crate::match_semantics::MatchResolutionIndex, hasher: &mut impl Hasher) {
+fn hash_match_resolutions<R: Hash, S: Hash, K: Hash>(resolutions: &crate::match_semantics::MatchResolutionIndex<R, S, K>, hasher: &mut impl Hasher) {
     resolutions.len().hash(hasher);
     for (expr_id, resolution) in resolutions.iter() {
         expr_id.hash(hasher);
@@ -2199,7 +2199,7 @@ fn hash_match_resolutions(resolutions: &crate::match_semantics::MatchResolutionI
     }
 }
 
-fn hash_match_resolution(res: &crate::match_semantics::MatchResolution, hasher: &mut impl Hasher) {
+fn hash_match_resolution<R: Hash, S: Hash, K: Hash>(res: &crate::match_semantics::MatchResolution<R, S, K>, hasher: &mut impl Hasher) {
     res.expression.hash(hasher);
     hash_type_knowledge(&res.scrutinee, false, hasher);
     hash_pattern_space_summary(&res.initial_space, hasher);
@@ -2211,7 +2211,7 @@ fn hash_match_resolution(res: &crate::match_semantics::MatchResolution, hasher: 
     hash_exhaustiveness_result(&res.exhaustiveness, hasher);
 }
 
-fn hash_match_arm_resolution(arm: &crate::match_semantics::MatchArmResolution, hasher: &mut impl Hasher) {
+fn hash_match_arm_resolution<R: Hash, S: Hash, K: Hash>(arm: &crate::match_semantics::MatchArmResolution<R, S, K>, hasher: &mut impl Hasher) {
     arm.arm_index.hash(hasher);
     hash_pattern_resolution(&arm.pattern, hasher);
     hash_pattern_space_summary(&arm.reachable_space, hasher);
@@ -2232,7 +2232,7 @@ fn hash_match_arm_resolution(arm: &crate::match_semantics::MatchArmResolution, h
     hash_type_knowledge(&arm.branch_result, false, hasher);
 }
 
-fn hash_pattern_site_resolutions(resolutions: &crate::match_semantics::PatternSiteResolutionIndex, hasher: &mut impl Hasher) {
+fn hash_pattern_site_resolutions<R: Hash, S: Hash, K: Hash>(resolutions: &crate::match_semantics::PatternSiteResolutionIndex<R, S, K>, hasher: &mut impl Hasher) {
     resolutions.len().hash(hasher);
     for (key, resolution) in resolutions.iter() {
         match key.kind {
@@ -2245,7 +2245,7 @@ fn hash_pattern_site_resolutions(resolutions: &crate::match_semantics::PatternSi
     }
 }
 
-fn hash_pattern_site_resolution(res: &crate::match_semantics::PatternSiteResolution, hasher: &mut impl Hasher) {
+fn hash_pattern_site_resolution<R: Hash, S: Hash, K: Hash>(res: &crate::match_semantics::PatternSiteResolution<R, S, K>, hasher: &mut impl Hasher) {
     match res.kind {
         crate::match_semantics::PatternSiteKind::IfLet => 0u8.hash(hasher),
         crate::match_semantics::PatternSiteKind::WhileLet => 1u8.hash(hasher),
@@ -2268,7 +2268,7 @@ fn hash_pattern_site_resolution(res: &crate::match_semantics::PatternSiteResolut
     }
 }
 
-fn hash_pattern_resolution(pat: &crate::match_semantics::PatternResolution, hasher: &mut impl Hasher) {
+fn hash_pattern_resolution<R: Hash, S: Hash, K: Hash>(pat: &crate::match_semantics::PatternResolution<R, S, K>, hasher: &mut impl Hasher) {
     match pat {
         crate::match_semantics::PatternResolution::Wildcard => 0u8.hash(hasher),
         crate::match_semantics::PatternResolution::Binding { binding, name, knowledge } => {
@@ -2399,7 +2399,7 @@ fn hash_pattern_space_summary(space: &crate::match_semantics::PatternSpaceSummar
     }
 }
 
-fn hash_branch_proof_environment(proof: &crate::match_semantics::BranchProofEnvironment, hasher: &mut impl Hasher) {
+fn hash_branch_proof_environment<R: Hash, K: Hash>(proof: &crate::match_semantics::BranchProofEnvironment<R, K>, hasher: &mut impl Hasher) {
     proof.bindings.len().hash(hasher);
     for (param, ty) in &proof.bindings {
         param.hash(hasher);
@@ -3024,6 +3024,10 @@ pub fn static_definition_product_fingerprint(product: &crate::static_definition:
             2u8.hash(&mut hasher);
             hash_debug_without_source_ranges(block, &mut hasher);
         }
+        crate::static_definition::StaticDefinitionBodyRepr::Operational(program) => {
+            3u8.hash(&mut hasher);
+            hash_canonical_static_program(program, &mut hasher);
+        }
     }
     match product.checked_body.as_ref() {
         Some(body) => {
@@ -3033,6 +3037,48 @@ pub fn static_definition_product_fingerprint(product: &crate::static_definition:
         None => 0u8.hash(&mut hasher),
     }
     finish_product(hasher)
+}
+
+fn hash_canonical_static_program(program: &crate::static_definition::CanonicalStaticProgram, hasher: &mut impl Hasher) {
+    program.owner.hash(hasher);
+    program.parameter_count.hash(hasher);
+    program.local_count.hash(hasher);
+    format!("{:?}", program.root).hash(hasher);
+    program.result.hash(hasher);
+    program.kinded_parameters.hash(hasher);
+    program.static_constant_reads.hash(hasher);
+    program.module_binding_fingerprint.hash(hasher);
+    for dependency in program.dependencies.iter() {
+        format!("{dependency:?}").hash(hasher);
+    }
+    program.applications.len().hash(hasher);
+    for application in program.applications.iter() {
+        application.id.ordinal.hash(hasher);
+        application.target.hash(hasher);
+        format!("{:?}", application.signature).hash(hasher);
+        application.arguments.len().hash(hasher);
+        for argument in application.arguments.iter() {
+            match argument {
+                crate::static_definition::CanonicalStaticApplicationArgument::KindedTerm { parameter_index, term } => {
+                    0u8.hash(hasher);
+                    parameter_index.hash(hasher);
+                    term.hash(hasher);
+                }
+                crate::static_definition::CanonicalStaticApplicationArgument::KindedExpression {
+                    parameter_index,
+                    application_ordinal,
+                } => {
+                    1u8.hash(hasher);
+                    parameter_index.hash(hasher);
+                    application_ordinal.hash(hasher);
+                }
+                crate::static_definition::CanonicalStaticApplicationArgument::Value { parameter_index } => {
+                    2u8.hash(hasher);
+                    parameter_index.hash(hasher);
+                }
+            }
+        }
+    }
 }
 
 fn hash_module_static_binding_index(index: &crate::module_bindings::ModuleStaticBindingIndex, hasher: &mut impl Hasher) {

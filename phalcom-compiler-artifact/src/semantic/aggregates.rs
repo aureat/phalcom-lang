@@ -44,6 +44,16 @@ tagged!(IntrinsicRuntimeOwnerV1 {
     2 => Pack,
 });
 
+tagged!(IntrinsicTypeOwnerV1 {
+    0 => Tuple,
+    1 => Record,
+    2 => TypePack,
+    3 => LabeledTypePack,
+    4 => CompleteTypePack,
+    5 => RecordRow,
+    6 => UnorderedShape,
+});
+
 record!(DeclarationTypeBindingV1 {
     semantic_form: DeclarationSemanticFormV1,
     runtime_owner: Option<IntrinsicRuntimeOwnerV1>,
@@ -64,8 +74,17 @@ record!(DeclarationShellV2 {
     parameters: Vec<ArtifactTypeParameterId>,
     generic_signature: Option<GenericSignatureV1>,
     supertype_template: Option<GenericSupertypeTemplateV1>,
-    intrinsic_static_domain: Option<ArtifactKindId>,
     intrinsic_type_owner: Option<IntrinsicRuntimeOwnerV1>,
+});
+
+record!(IntrinsicStaticDomainRecordV1 {
+    declaration: StableDeclarationRef,
+    kind: ArtifactKindId,
+});
+
+record!(IntrinsicTypeOwnerRecordV1 {
+    declaration: StableDeclarationRef,
+    owner: IntrinsicTypeOwnerV1,
 });
 
 record!(HierarchyEdgeRecordV1 {
@@ -437,6 +456,8 @@ pub const STRUCTURAL_PRIMARY_CONTRACTS_SCHEMA_V2: u32 = 2;
 
 record!(StructuralPrimaryContractsV2 {
     declaration_shells: Vec<DeclarationShellV2>,
+    intrinsic_static_domains: Vec<IntrinsicStaticDomainRecordV1>,
+    intrinsic_type_owners: Vec<IntrinsicTypeOwnerRecordV1>,
     hierarchy_edges: Vec<HierarchyEdgeRecordV1>,
     type_aliases: Vec<TypeAliasRecordV1>,
     generic_signatures: Vec<GenericSignatureV1>,
@@ -497,7 +518,9 @@ impl StructuralPrimaryContractsV2 {
         let total = self
             .declaration_shells
             .len()
-            .checked_add(self.hierarchy_edges.len())
+            .checked_add(self.intrinsic_static_domains.len())
+            .and_then(|n| n.checked_add(self.intrinsic_type_owners.len()))
+            .and_then(|n| n.checked_add(self.hierarchy_edges.len()))
             .and_then(|n| n.checked_add(self.type_aliases.len()))
             .and_then(|n| n.checked_add(self.generic_signatures.len()))
             .and_then(|n| n.checked_add(self.data_contracts.len()))
@@ -510,12 +533,38 @@ impl StructuralPrimaryContractsV2 {
         for shell in &self.declaration_shells {
             validate_owner(&shell.declaration, limits)?;
             validate_index_list(&shell.parameters, limits)?;
+            if shell.intrinsic_type_owner != shell.binding.runtime_owner {
+                return Err(invalid("declaration shell intrinsic runtime owner disagrees with its binding"));
+            }
             if let Some(signature) = &shell.generic_signature {
                 validate_signature(signature, limits)?;
             }
             if let Some(template) = &shell.supertype_template {
                 validate_owner(&template.declaration, limits)?;
             }
+        }
+        if self.declaration_shells.windows(2).any(|pair| pair[0].declaration >= pair[1].declaration) {
+            return Err(invalid("declaration shells must be unique and sorted by owner"));
+        }
+        for record in &self.intrinsic_static_domains {
+            validate_owner(&record.declaration, limits)?;
+        }
+        if self
+            .intrinsic_static_domains
+            .windows(2)
+            .any(|pair| pair[0].declaration >= pair[1].declaration)
+        {
+            return Err(invalid("intrinsic static domains must be unique and sorted by owner"));
+        }
+        for record in &self.intrinsic_type_owners {
+            validate_owner(&record.declaration, limits)?;
+        }
+        if self
+            .intrinsic_type_owners
+            .windows(2)
+            .any(|pair| pair[0].declaration >= pair[1].declaration)
+        {
+            return Err(invalid("intrinsic type owners must be unique and sorted by owner"));
         }
         for hierarchy in &self.hierarchy_edges {
             validate_owner(&hierarchy.declaration, limits)?;
@@ -653,7 +702,6 @@ impl From<StructuralPrimaryContractsV1> for StructuralPrimaryContractsV2 {
                 parameters: s.parameters,
                 generic_signature: None,
                 supertype_template: None,
-                intrinsic_static_domain: None,
                 intrinsic_type_owner: None,
             })
             .collect();
@@ -668,6 +716,8 @@ impl From<StructuralPrimaryContractsV1> for StructuralPrimaryContractsV2 {
             .collect();
         Self {
             declaration_shells,
+            intrinsic_static_domains: Vec::new(),
+            intrinsic_type_owners: Vec::new(),
             hierarchy_edges,
             type_aliases: Vec::new(),
             generic_signatures: v1.generic_signatures,

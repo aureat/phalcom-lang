@@ -111,7 +111,9 @@ type Second<T> = First<T>;
             .any(|diagnostic| diagnostic.message.contains("Missing"))
     );
     assert!(!fixture.diagnostics(DiagnosticCode::TypeAliasCycle).is_empty());
-    assert!(fixture.analysis.snapshot.type_aliases.iter().next().is_none());
+    for name in ["Broken", "First", "Second"] {
+        assert!(!fixture.analysis.snapshot.type_aliases.contains_key(&fixture.decl(name)));
+    }
     assert!(fixture.analysis.snapshot.declarations.get(&fixture.decl("Broken")).is_none());
     assert!(fixture.analysis.snapshot.declarations.get(&fixture.decl("First")).is_none());
     assert!(fixture.analysis.snapshot.declarations.get(&fixture.decl("Second")).is_none());

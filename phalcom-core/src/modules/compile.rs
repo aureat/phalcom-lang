@@ -567,7 +567,13 @@ pub(super) fn runtime_metadata_type_requirements(
             for expression in analysis.expressions.values() {
                 let range = expression.range;
                 if let Some(specialization) = expression.call_specialization.as_ref() {
-                    roots.extend(specialization.bindings.iter().map(|(_, ty)| (module.clone(), range, *ty)));
+                    roots.extend(
+                        specialization
+                            .bindings
+                            .iter()
+                            .filter_map(|(_, argument)| argument.as_type_id())
+                            .map(|ty| (module.clone(), range, ty)),
+                    );
                     for conformance in specialization.conformances.iter() {
                         if let phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence } = &conformance.source {
                             roots.extend(evidence.impl_bindings.bindings().values().copied().map(|ty| (module.clone(), range, ty)));
@@ -1094,6 +1100,7 @@ fn link_analyze_finalize(
     sources: &BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
     runtime_modules: &BTreeSet<ModuleId>,
     settings: SemanticAnalysisSettings<'_>,
+    availability: Option<&phalcom_modules::AvailabilityContract>,
 ) -> Result<(Arc<ExecutableLinkedProgram>, Arc<phalcom_semantic::SemanticSnapshot>), ProgramCompileError> {
     let SemanticAnalysisSettings {
         generation,
@@ -1123,7 +1130,7 @@ fn link_analyze_finalize(
         .map_err(phalcom_semantic::SemanticUpdateFailure::from)?
         .snapshot;
 
-    let executable = finalize_analyzed_link(linker, semantic.as_ref(), &snapshot, sources, runtime_modules)?;
+    let executable = finalize_analyzed_link_with_availability(linker, semantic.as_ref(), &snapshot, sources, runtime_modules, availability)?;
     Ok((executable, snapshot))
 }
 
@@ -1135,6 +1142,17 @@ pub(super) fn finalize_analyzed_link(
     snapshot: &phalcom_semantic::SemanticSnapshot,
     sources: &BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
     runtime_modules: &BTreeSet<ModuleId>,
+) -> Result<Arc<ExecutableLinkedProgram>, ProgramCompileError> {
+    finalize_analyzed_link_with_availability(linker, semantic, snapshot, sources, runtime_modules, None)
+}
+
+fn finalize_analyzed_link_with_availability(
+    linker: &ModuleLinker,
+    semantic: &phalcom_modules::SemanticLinkedProgram,
+    snapshot: &phalcom_semantic::SemanticSnapshot,
+    sources: &BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    runtime_modules: &BTreeSet<ModuleId>,
+    availability: Option<&phalcom_modules::AvailabilityContract>,
 ) -> Result<Arc<ExecutableLinkedProgram>, ProgramCompileError> {
     // Semantic snapshots also cover source-backed Universe support modules.
     // Those modules are already initialized by the VM and are not part of this
@@ -1150,12 +1168,18 @@ pub(super) fn finalize_analyzed_link(
         .collect::<Vec<_>>();
     generated_requirements.extend(runtime_metadata_type_requirements(snapshot, sources, runtime_modules));
 
-    let canonical = crate::modules::canonical_universe_program().map_err(|error| ProgramCompileError::AvailabilityContract(error.to_string()))?;
+    let canonical_availability = if let Some(availability) = availability {
+        availability
+    } else {
+        &crate::modules::canonical_universe_program()
+            .map_err(|error| ProgramCompileError::AvailabilityContract(error.to_string()))?
+            .availability_after_bootstrap()
+    };
     let executable = linker.finalize_executable_with_availability(
         semantic.clone(),
         &snapshot.import_phase_products,
         &generated_requirements,
-        canonical.availability_after_bootstrap(),
+        canonical_availability,
     )?;
     Ok(Arc::new(executable))
 }
@@ -1383,6 +1407,7 @@ impl ProgramAnalyzer {
                         compile_mode,
                         session: semantic_session,
                     },
+                    None,
                 )?;
 
                 Ok(AnalyzedProgram {
@@ -1507,6 +1532,7 @@ impl ProgramAnalyzer {
                 compile_mode,
                 session: semantic_session,
             },
+            None,
         )?;
 
         Ok(AnalyzedProgram {
@@ -1595,6 +1621,7 @@ impl ProgramAnalyzer {
                 compile_mode,
                 session: semantic_session,
             },
+            None,
         )?;
 
         Ok(AnalyzedProgram {
@@ -1611,18 +1638,279 @@ impl ProgramAnalyzer {
             entry,
         })
     }
+
+    /// Analyzes an entry using an already loaded canonical compiler image.
+    /// This path never asks the source-backed canonical Universe provider for
+    /// interfaces or semantic products.
+    pub fn analyze_entry_selection_with_image(
+        entry: EntrySelection,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        match entry {
+            EntrySelection::ModuleId(entry_id) => Err(ProgramCompileError::Io(format!(
+                "EntrySelection::ModuleId({entry_id}) cannot be analyzed without an existing linked project universe"
+            ))),
+            EntrySelection::Project(root_dir) => {
+                let manifest_path = if root_dir.ends_with("project.toml") {
+                    root_dir
+                } else {
+                    root_dir.join("project.toml")
+                };
+                if !manifest_path.exists() {
+                    return Err(ProgramCompileError::Io(format!("project manifest not found at {}", manifest_path.display())));
+                }
+                let mut universe = ProjectUniverse::new();
+                let root_id = universe.load_root(&manifest_path)?;
+                let project = universe
+                    .get_project(root_id)
+                    .ok_or_else(|| ProgramCompileError::Io(format!("project {root_id:?} not found")))?;
+                let entry_path = project
+                    .entry
+                    .clone()
+                    .ok_or_else(|| ProgramCompileError::ProjectNotExecutable(manifest_path.display().to_string()))?;
+                let entry_id = ModuleId {
+                    project: root_id.into(),
+                    path: entry_path,
+                };
+                Self::discover_and_analyze_with_image(Arc::new(universe), entry_id, image)
+            }
+            EntrySelection::Package(pkg_dir) => {
+                let canonical_pkg = pkg_dir
+                    .canonicalize()
+                    .map_err(|error| ProgramCompileError::Io(format!("{}: {error}", pkg_dir.display())))?;
+                if !canonical_pkg.join("package.ph").is_file() {
+                    return Err(ProgramCompileError::Project(ProjectError::MissingRootPackage(canonical_pkg)));
+                }
+                if !canonical_pkg.join("main.ph").is_file() {
+                    return Err(ProgramCompileError::PackageNotExecutable(canonical_pkg.display().to_string()));
+                }
+                let mut universe = ProjectUniverse::new();
+                let root_id = universe.load_standalone_package(&canonical_pkg, Some("main"))?;
+                let entry_id = ModuleId {
+                    project: root_id.into(),
+                    path: ModulePath::from_components(vec![
+                        ModuleComponent::from_identifier("main").map_err(|error| ProgramCompileError::Io(error.to_string()))?,
+                    ]),
+                };
+                Self::discover_and_analyze_with_image(Arc::new(universe), entry_id, image)
+            }
+            EntrySelection::Module(file_path) => {
+                let canonical = file_path
+                    .canonicalize()
+                    .map_err(|error| ProgramCompileError::Io(format!("{}: {error}", file_path.display())))?;
+                let mut universe = ProjectUniverse::new();
+                match classify_entry_ownership(&canonical, &mut universe)? {
+                    EntryOwnership::ProjectOwned { project: root_id } => {
+                        let project = universe.get_project(root_id).expect("classified project remains registered");
+                        let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
+                            ProgramCompileError::Io(format!("file {} not under source root {}", file_path.display(), project.source_root.display()))
+                        })?;
+                        let entry_id = ModuleId {
+                            project: root_id.into(),
+                            path: relative_path_to_module_path(rel_path)?,
+                        };
+                        Self::discover_and_analyze_with_image(Arc::new(universe), entry_id, image)
+                    }
+                    EntryOwnership::StandalonePackageOwned { package_root } => {
+                        let root_id = universe.load_standalone_package(&package_root, None)?;
+                        let project = universe.get_project(root_id).expect("loaded package remains registered");
+                        let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
+                            ProgramCompileError::Io(format!("file {} not under package root {}", file_path.display(), project.source_root.display()))
+                        })?;
+                        let entry_id = ModuleId {
+                            project: root_id.into(),
+                            path: relative_path_to_module_path(rel_path)?,
+                        };
+                        Self::discover_and_analyze_with_image(Arc::new(universe), entry_id, image)
+                    }
+                    EntryOwnership::StandaloneModule { file } => Self::analyze_standalone_module_with_image(file, image),
+                    EntryOwnership::Inline { .. } => Self::analyze_standalone_module_with_image(file_path, image),
+                }
+            }
+            EntrySelection::Inline(source_text) => Self::analyze_inline_with_image(source_text, image),
+        }
+    }
+
+    fn discover_and_analyze_with_image(
+        universe: Arc<ProjectUniverse>,
+        entry: ModuleId,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        let mut pending = vec![entry.clone()];
+        if let Some(project_id) = entry.project.as_resolved() {
+            pending.push(ModuleId::resolved(project_id, ModulePath::root()));
+        }
+        Self::discover_image_closure(universe, entry, image, BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), pending, None)
+    }
+
+    fn analyze_standalone_module_with_image(
+        file_path: PathBuf,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        let canonical = file_path
+            .canonicalize()
+            .map_err(|error| ProgramCompileError::Io(format!("{}: {error}", file_path.display())))?;
+        if !canonical.is_file() {
+            return Err(ProgramCompileError::Io(format!("{} is not a module file", canonical.display())));
+        }
+        let source_text: Arc<str> =
+            Arc::from(std::fs::read_to_string(&canonical).map_err(|error| ProgramCompileError::Io(format!("{}: {error}", canonical.display())))?);
+        let parsed = phalcom_ast::parse(&source_text, 0);
+        if let Some(error) = parsed.errors.first() {
+            return Err(ProgramCompileError::Parse(error.clone()));
+        }
+        validate_standalone_image_imports(&parsed.program)?;
+
+        let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
+        let entry = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+        let universe = Arc::new(ProjectUniverse::new());
+        let interface = InterfaceBuilder::build(entry.clone(), ModuleKind::Module, &parsed.program)?;
+        let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
+            entry.clone(),
+            ModuleKind::Module,
+            Some(SourceLocation {
+                source_id: SourceId(canonical.to_string_lossy().into()),
+                display_path: canonical,
+            }),
+            source_text,
+            Arc::new(parsed.program),
+        ));
+        Self::discover_image_closure(
+            universe,
+            entry.clone(),
+            image,
+            BTreeMap::from([(entry.clone(), interface)]),
+            BTreeMap::from([(entry.clone(), parsed_unit)]),
+            BTreeMap::new(),
+            [entry.clone()],
+            Some(entry),
+        )
+    }
+
+    fn analyze_inline_with_image(
+        source_text: Arc<str>,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        let parsed = phalcom_ast::parse(&source_text, 0);
+        if let Some(error) = parsed.errors.first() {
+            return Err(ProgramCompileError::Parse(error.clone()));
+        }
+        if let Some(dependency) = parsed.program.preamble.dependencies.first() {
+            let import_name = match dependency {
+                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(module)) => module.path.to_string(),
+                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(selective)) => selective.path.to_string(),
+                phalcom_ast::ast::DependencyDecl::ReExport(reexport) => reexport.path.to_string(),
+                phalcom_ast::ast::DependencyDecl::Expose(expose) => expose.child.name.clone(),
+            };
+            return Err(ProgramCompileError::ReplImportRequiresProjectContext {
+                import_name: import_name.into(),
+            });
+        }
+        let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
+        let entry = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+        let universe = Arc::new(ProjectUniverse::new());
+        let interface = InterfaceBuilder::build(entry.clone(), ModuleKind::Module, &parsed.program)?;
+        let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
+            entry.clone(),
+            ModuleKind::Module,
+            None,
+            source_text,
+            Arc::new(parsed.program),
+        ));
+        Self::discover_image_closure(
+            universe,
+            entry.clone(),
+            image,
+            BTreeMap::from([(entry.clone(), interface)]),
+            BTreeMap::from([(entry.clone(), parsed_unit)]),
+            BTreeMap::new(),
+            [entry],
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn discover_image_closure(
+        universe: Arc<ProjectUniverse>,
+        entry: ModuleId,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+        interfaces: BTreeMap<ModuleId, phalcom_modules::UnlinkedModuleInterface>,
+        sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+        resolved: BTreeMap<(ModuleId, String), ModuleId>,
+        pending: impl IntoIterator<Item = ModuleId>,
+        standalone_entry: Option<ModuleId>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        let provider = FilesystemSourceProvider::new();
+        let mut resolver = ModuleResolver::with_external_modules(&universe, &provider, image.modules().clone());
+        let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, pending, standalone_entry.as_ref())?;
+        let runtime_modules = discovered
+            .interfaces
+            .keys()
+            .filter(|module| !module.project.is_universe())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let linker = ModuleLinker::new(universe.clone(), discovered.interfaces.clone()).with_external_modules(image.modules().clone());
+        let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::from_image(phalcom_semantic::identity::WorkspaceId(1), image);
+        // The imported image does not transport claims about which source
+        // initializers already ran. Empty availability evidence is conservative
+        // and avoids consulting the source-backed canonical compiler singleton.
+        let availability = phalcom_modules::AvailabilityContract::default();
+        let (linked, semantic) = link_analyze_finalize(
+            &linker,
+            entry.clone(),
+            &discovered.resolved,
+            &discovered.sources,
+            &runtime_modules,
+            SemanticAnalysisSettings {
+                generation: 0,
+                compile_mode: CompileMode::Debug,
+                session: Some(&mut semantic_session),
+            },
+            Some(&availability),
+        )?;
+        Ok(AnalyzedProgram {
+            compile_mode: CompileMode::Debug,
+            project_universe: universe,
+            linked,
+            semantic,
+            sources: discovered.sources,
+            runtime_modules,
+            entry,
+        })
+    }
 }
 
 /// Compiler facade over an analyzed semantic program.
 pub struct ProgramCompiler;
 
+/// Runtime metadata retention, independent of semantic publication products.
+#[derive(Clone, Debug)]
+pub struct ProgramCompilationOptions {
+    /// Requested retention profile for the emitted metadata bundle.
+    pub metadata_profile: phalcom_type_meta::header::MetadataProfile,
+}
+
+impl Default for ProgramCompilationOptions {
+    fn default() -> Self {
+        Self {
+            metadata_profile: phalcom_type_meta::header::MetadataProfile::RuntimePublic,
+        }
+    }
+}
+
 impl ProgramCompiler {
     /// Compiles an analyzed program into a fully linked `CompiledProgram`.
     pub fn compile_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
+        Self::compile_analyzed_with_options(analyzed, &ProgramCompilationOptions::default())
+    }
+
+    /// Compiles with an explicit metadata profile while retaining the analysis's
+    /// independently selected semantic products.
+    pub fn compile_analyzed_with_options(analyzed: &AnalyzedProgram, options: &ProgramCompilationOptions) -> Result<CompiledProgram, ProgramCompileError> {
         if analyzed.semantic.has_errors() {
             return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics::from_snapshot(&analyzed.semantic)));
         }
-        Self::project_analyzed(analyzed)
+        Self::project_analyzed(analyzed, options)
     }
 
     /// Compiles the canonical source-complete Universe projection.
@@ -1631,10 +1919,10 @@ impl ProgramCompiler {
     /// even when semantic diagnostics change. Ordinary user/project compilation
     /// continues to reject semantic errors through [`Self::compile_analyzed`].
     pub(crate) fn compile_analyzed_for_canonical_bootstrap(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
-        Self::project_analyzed(analyzed)
+        Self::project_analyzed(analyzed, &ProgramCompilationOptions::default())
     }
 
-    fn project_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
+    fn project_analyzed(analyzed: &AnalyzedProgram, options: &ProgramCompilationOptions) -> Result<CompiledProgram, ProgramCompileError> {
         let mut runtime_root_specs = Vec::<(ModuleId, SourceRange, phalcom_semantic::types::id::TypeId, String)>::new();
         let mut runtime_call_root_specs = Vec::<(
             ModuleId,
@@ -1670,9 +1958,19 @@ impl ProgramCompiler {
                         .or_else(|| capability.map(|capability| &capability.selection.callable))
                         .expect("a specialization or conditional capability was checked above");
                     if let Some(specialization) = specialization {
-                        for (parameter, ty) in
-                            close_covering_body_bindings(&analyzed.semantic, &specialization.callable, specialization.bindings.iter().copied())?
-                        {
+                        let type_bindings = specialization
+                            .bindings
+                            .iter()
+                            .map(|&(parameter, argument)| {
+                                argument.as_type_id().map(|ty| (parameter, ty)).ok_or_else(|| {
+                                    ProgramCompileError::GenericEvidenceLayout(format!(
+                                        "runtime callable {:?} has a non-type static argument for parameter {parameter:?}",
+                                        specialization.callable
+                                    ))
+                                })
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        for (parameter, ty) in close_covering_body_bindings(&analyzed.semantic, &specialization.callable, type_bindings.into_iter())? {
                             runtime_call_root_specs.push((
                                 id.clone(),
                                 expression.range,
@@ -1876,7 +2174,7 @@ impl ProgramCompiler {
             Some(analyzed.semantic.declarations()),
             Some(analyzed.semantic.callable_signatures().as_ref()),
             None,
-            phalcom_type_meta::header::MetadataProfile::RuntimePublic,
+            options.metadata_profile,
         )
         .with_project_universe(&analyzed.project_universe)
         .with_algebraic_semantics(&analyzed.semantic.data_semantics, &analyzed.semantic.enum_semantics)
@@ -2226,7 +2524,13 @@ impl ProgramCompiler {
                 let mut slots: Vec<Option<crate::typing::RuntimeConformanceSlotRecipe>> = vec![None; layout_len];
                 let mut callee_instantiation = phalcom_semantic::types::instantiation::GenericInstantiation::default();
                 if let Some(specialization) = specialization {
-                    for &(parameter, ty) in specialization.bindings.iter() {
+                    for &(parameter, argument) in specialization.bindings.iter() {
+                        let ty = argument.as_type_id().ok_or_else(|| {
+                            ProgramCompileError::GenericEvidenceLayout(format!(
+                                "runtime callable {:?} has a non-type static argument for parameter {parameter:?}",
+                                specialization.callable
+                            ))
+                        })?;
                         callee_instantiation.bind_type(parameter, ty);
                     }
                 }
@@ -2716,6 +3020,27 @@ impl ProgramCompiler {
         let analyzed = ProgramAnalyzer::analyze_entry_selection_with_mode(entry, compile_mode)?;
         Self::compile_analyzed(&analyzed)
     }
+
+    /// Compiles an entry against an explicit loaded canonical image without
+    /// acquiring canonical Universe source (`P7.T12`).
+    pub fn compile_entry_selection_with_image(
+        entry: EntrySelection,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+    ) -> Result<CompiledProgram, ProgramCompileError> {
+        Self::compile_entry_selection_with_options_and_image(entry, image, &ProgramCompilationOptions::default())
+    }
+
+    /// Compiles an entry against a loaded canonical image with explicit
+    /// runtime metadata retention options.
+    pub fn compile_entry_selection_with_options_and_image(
+        entry: EntrySelection,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+        options: &ProgramCompilationOptions,
+    ) -> Result<CompiledProgram, ProgramCompileError> {
+        phalcom_semantic::prelude::PreludeTypeMap::initialize_from_snapshot(image.snapshot());
+        let analyzed = ProgramAnalyzer::analyze_entry_selection_with_image(entry, image)?;
+        Self::compile_analyzed_with_options(&analyzed, options)
+    }
 }
 
 fn relative_path_to_module_path(rel_path: &Path) -> Result<ModulePath, ProgramCompileError> {
@@ -2735,6 +3060,27 @@ fn relative_path_to_module_path(rel_path: &Path) -> Result<ModulePath, ProgramCo
         components.push(ModuleComponent::from_kebab(file_stem).map_err(|e| ProgramCompileError::Io(e.to_string()))?);
     }
     Ok(ModulePath::from_components(components))
+}
+
+fn validate_standalone_image_imports(program: &phalcom_ast::ast::Program) -> Result<(), ProgramCompileError> {
+    for dependency in &program.preamble.dependencies {
+        let path = match dependency {
+            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(module)) => &module.path,
+            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(selective)) => &selective.path,
+            phalcom_ast::ast::DependencyDecl::ReExport(reexport) => &reexport.path,
+            phalcom_ast::ast::DependencyDecl::Expose(expose) => {
+                return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
+                    import_name: expose.child.name.clone().into(),
+                });
+            }
+        };
+        if !matches!(&path.root, phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "universe") {
+            return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
+                import_name: path.to_string().into(),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn compile_module(

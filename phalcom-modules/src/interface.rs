@@ -1,3 +1,4 @@
+use crate::authority::{ModuleAuthorityBuildError, ModuleAuthorityMap, ModuleAuthoritySet};
 use crate::dunder::{DunderPolicy, DunderRole};
 use crate::error::InterfaceError;
 use crate::identity::{ModuleComponent, ModuleId};
@@ -5,7 +6,9 @@ use crate::metadata::ModuleMetadata;
 use crate::source::ModuleKind;
 use phalcom_ast::ast::{BindingKind, DependencyDecl, ImportDecl, ImportPath, ModuleImportDecl, Pattern, Program, ReExportDecl, SelectiveImportDecl, Statement};
 use phalcom_common::range::SourceRange;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 /// Canonical semantics of a top-level module binding.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -90,16 +93,55 @@ pub struct LinkedModuleInterface {
     /// Source kind retained for compile/materialization policy.
     pub kind: ModuleKind,
     /// Canonical public exports.
-    pub exports: BTreeMap<Box<str>, LinkedExport>,
+    pub exports: ModuleAuthorityMap<Box<str>, LinkedExport>,
     /// Module metadata retained from source.
     pub metadata: ModuleMetadata,
 }
 
 impl LinkedModuleInterface {
+    /// Clones the interface with budgeted owned identities and metadata.
+    /// Frozen exports share their immutable canonical backing; source exports
+    /// are copied into a budgeted frozen map.
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let exports = if let Some(frozen) = self.exports.as_frozen() {
+            ModuleAuthorityMap::Frozen(Arc::clone(frozen))
+        } else {
+            let mut entries = allocations.vector(self.exports.len())?;
+            for (name, export) in self.exports.iter() {
+                entries.push((allocations.boxed_str(name)?, clone_linked_export_with_allocation_budget(export, allocations)?));
+            }
+            ModuleAuthorityMap::from_budgeted_entries(entries, allocations).map_err(|error| match error {
+                ModuleAuthorityBuildError::Allocation(error) => error,
+                ModuleAuthorityBuildError::Entries(_) | ModuleAuthorityBuildError::SetEntries(_) => AllocationError::Failed,
+            })?
+        };
+        Ok(Self {
+            module: self.module.clone_with_allocation_budget(allocations)?,
+            kind: self.kind,
+            exports,
+            metadata: self.metadata.clone_with_allocation_budget(allocations)?,
+        })
+    }
+
     /// Computes the semantic product fingerprint for this linked module interface.
     pub fn fingerprint(&self) -> crate::fingerprint::LinkedInterfaceFingerprint {
         crate::fingerprint::linked_interface_fingerprint(self)
     }
+}
+
+fn clone_linked_export_with_allocation_budget(export: &LinkedExport, allocations: &mut AllocationBudget) -> Result<LinkedExport, AllocationError> {
+    let target = match &export.target {
+        LinkedExportTarget::Binding(symbol) => LinkedExportTarget::Binding(crate::linker::SymbolId {
+            module: symbol.module.clone_with_allocation_budget(allocations)?,
+            name: allocations.boxed_str(&symbol.name)?,
+        }),
+        LinkedExportTarget::Module(module) => LinkedExportTarget::Module(module.clone_with_allocation_budget(allocations)?),
+    };
+    Ok(LinkedExport {
+        public_name: allocations.boxed_str(&export.public_name)?,
+        target,
+        range: export.range,
+    })
 }
 
 /// Surface representation of an imported binding.
@@ -135,10 +177,10 @@ impl ImportSurface {
 pub struct UnlinkedModuleInterface {
     pub id: ModuleId,
     pub kind: ModuleKind,
-    pub declarations: BTreeMap<String, DeclarationSurface>,
-    pub exports: BTreeMap<String, ExportSurface>,
+    pub declarations: ModuleAuthorityMap<String, DeclarationSurface>,
+    pub exports: ModuleAuthorityMap<String, ExportSurface>,
     pub imports: Vec<ImportSurface>,
-    pub exposed_children: BTreeSet<ModuleComponent>,
+    pub exposed_children: ModuleAuthoritySet<ModuleComponent>,
     pub metadata: ModuleMetadata,
 }
 
@@ -162,7 +204,7 @@ impl UnlinkedModuleInterface {
 /// Path exposure surface of a package.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PackagePathSurface {
-    pub exposed_children: BTreeSet<ModuleComponent>,
+    pub exposed_children: ModuleAuthoritySet<ModuleComponent>,
 }
 
 /// Unified namespace binding record used during source-local interface validation.
@@ -378,10 +420,10 @@ impl InterfaceBuilder {
         Ok(UnlinkedModuleInterface {
             id,
             kind,
-            declarations,
-            exports,
+            declarations: declarations.into(),
+            exports: exports.into(),
             imports,
-            exposed_children,
+            exposed_children: exposed_children.into(),
             metadata,
         })
     }

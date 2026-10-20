@@ -7,6 +7,7 @@ use crate::data_semantics::{
     DataProductExpansionSemantic, DataProductShapeTemplate, DataSemanticTable, DataShape,
 };
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
+use crate::declarations::{IntrinsicRuntimeOwner, IntrinsicTypeOwner};
 use crate::enum_semantics::{
     AlgebraicCasePayloadKind, EnumInfo, EnumSemanticTable, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo,
     VariantShape, VariantVisibility,
@@ -40,16 +41,41 @@ pub struct ImportedSemanticAggregates {
     pub data_semantics: Arc<DataSemanticTable>,
     /// Current-main enum roots and variant declarations.
     pub enum_semantics: Arc<EnumSemanticTable>,
+    /// Independent declaration runtime and intrinsic type-owner projections.
+    pub declaration_owner_authority: Arc<[ImportedDeclarationOwnerAuthority]>,
+    /// Intrinsic static-domain projections, including owners without declaration shells.
+    pub intrinsic_static_domains: Arc<[(DeclarationId, crate::types::id::KindId)]>,
+}
+
+/// Runtime and intrinsic type-owner projections reconstructed independently.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportedDeclarationOwnerAuthority {
+    pub declaration: DeclarationId,
+    pub runtime_owner: Option<IntrinsicRuntimeOwner>,
+    pub intrinsic_type_owner: Option<IntrinsicTypeOwner>,
 }
 
 pub(crate) fn reconstruct_structural_aggregates(
-    contracts: &wire::StructuralPrimaryContractsV1,
+    contracts: &wire::StructuralPrimaryContractsV2,
     types: &super::type_import::ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedSemanticAggregates, ArtifactError> {
     contracts.validate_with_allocation_budget(limits, allocations)?;
+    let declaration_owner_authority = reconstruct_declaration_owner_authority(contracts, owners, allocations)?;
+    let mut intrinsic_static_domains = allocations
+        .vector(contracts.intrinsic_static_domains.len())
+        .map_err(ArtifactError::Allocation)?;
+    for record in &contracts.intrinsic_static_domains {
+        let declaration = owners.declaration_with_allocation_budget(&record.declaration, allocations)?;
+        let kind = types
+            .kinds
+            .get(record.kind.0 as usize)
+            .copied()
+            .ok_or_else(|| referential("intrinsic static-domain kind is absent from the type graph"))?;
+        intrinsic_static_domains.push((declaration, kind));
+    }
     let mut data_semantics = DataSemanticTable::new();
     for row in &contracts.data_contracts {
         let info = reconstruct_data_info(row, types, owners, allocations)?;
@@ -78,7 +104,76 @@ pub(crate) fn reconstruct_structural_aggregates(
     Ok(ImportedSemanticAggregates {
         data_semantics: Arc::new(data_semantics),
         enum_semantics: Arc::new(enum_semantics),
+        declaration_owner_authority,
+        intrinsic_static_domains: allocations.arc_slice(intrinsic_static_domains).map_err(ArtifactError::Allocation)?,
     })
+}
+
+fn reconstruct_declaration_owner_authority(
+    contracts: &wire::StructuralPrimaryContractsV2,
+    owners: &StableOwnerCatalog<'_>,
+    allocations: &mut AllocationBudget,
+) -> Result<Arc<[ImportedDeclarationOwnerAuthority]>, ArtifactError> {
+    let row_count = contracts
+        .declaration_shells
+        .len()
+        .checked_add(contracts.intrinsic_type_owners.len())
+        .ok_or_else(|| referential("intrinsic owner row count overflow"))?;
+    let mut authority = allocations.vector(row_count).map_err(ArtifactError::Allocation)?;
+    for shell in &contracts.declaration_shells {
+        let declaration = owners.declaration_with_allocation_budget(&shell.declaration, allocations)?;
+        authority.push(ImportedDeclarationOwnerAuthority {
+            declaration,
+            runtime_owner: shell.binding.runtime_owner.clone().map(import_intrinsic_runtime_owner),
+            intrinsic_type_owner: None,
+        });
+    }
+    for record in &contracts.intrinsic_type_owners {
+        authority.push(ImportedDeclarationOwnerAuthority {
+            declaration: owners.declaration_with_allocation_budget(&record.declaration, allocations)?,
+            runtime_owner: None,
+            intrinsic_type_owner: Some(import_intrinsic_type_owner(record.owner.clone())),
+        });
+    }
+    authority.sort_unstable_by(|left, right| left.declaration.cmp(&right.declaration));
+    let mut merged = allocations.vector(row_count).map_err(ArtifactError::Allocation)?;
+    for row in authority {
+        if let Some(previous) = merged.last_mut() {
+            let previous: &mut ImportedDeclarationOwnerAuthority = previous;
+            if previous.declaration == row.declaration {
+                if previous.runtime_owner.is_some() && row.runtime_owner.is_some()
+                    || previous.intrinsic_type_owner.is_some() && row.intrinsic_type_owner.is_some()
+                {
+                    return Err(referential("intrinsic declaration owner projection is duplicated after relocation"));
+                }
+                previous.runtime_owner = previous.runtime_owner.or(row.runtime_owner);
+                previous.intrinsic_type_owner = previous.intrinsic_type_owner.or(row.intrinsic_type_owner);
+                continue;
+            }
+        }
+        merged.push(row);
+    }
+    allocations.arc_slice(merged).map_err(ArtifactError::Allocation)
+}
+
+fn import_intrinsic_runtime_owner(owner: wire::IntrinsicRuntimeOwnerV1) -> IntrinsicRuntimeOwner {
+    match owner {
+        wire::IntrinsicRuntimeOwnerV1::Tuple => IntrinsicRuntimeOwner::Tuple,
+        wire::IntrinsicRuntimeOwnerV1::Record => IntrinsicRuntimeOwner::Record,
+        wire::IntrinsicRuntimeOwnerV1::Pack => IntrinsicRuntimeOwner::Pack,
+    }
+}
+
+fn import_intrinsic_type_owner(owner: wire::IntrinsicTypeOwnerV1) -> IntrinsicTypeOwner {
+    match owner {
+        wire::IntrinsicTypeOwnerV1::Tuple => IntrinsicTypeOwner::Tuple,
+        wire::IntrinsicTypeOwnerV1::Record => IntrinsicTypeOwner::Record,
+        wire::IntrinsicTypeOwnerV1::TypePack => IntrinsicTypeOwner::TypePack,
+        wire::IntrinsicTypeOwnerV1::LabeledTypePack => IntrinsicTypeOwner::LabeledTypePack,
+        wire::IntrinsicTypeOwnerV1::CompleteTypePack => IntrinsicTypeOwner::CompleteTypePack,
+        wire::IntrinsicTypeOwnerV1::RecordRow => IntrinsicTypeOwner::RecordRow,
+        wire::IntrinsicTypeOwnerV1::UnorderedShape => IntrinsicTypeOwner::UnorderedShape,
+    }
 }
 
 fn reconstruct_data_info(
@@ -486,9 +581,7 @@ pub(crate) fn reconstruct_signature(
     for shape in &row.parameter_kind_shapes {
         parameter_kind_shapes.push(allocations.boxed_str(shape).map_err(ArtifactError::Allocation)?);
     }
-    let mut constraint_shapes = allocations
-        .vector::<Box<str>>(row.constraint_shapes.len())
-        .map_err(ArtifactError::Allocation)?;
+    let mut constraint_shapes = allocations.vector::<Box<str>>(row.constraint_shapes.len()).map_err(ArtifactError::Allocation)?;
     for shape in &row.constraint_shapes {
         constraint_shapes.push(allocations.boxed_str(shape).map_err(ArtifactError::Allocation)?);
     }
@@ -557,7 +650,11 @@ pub(crate) fn reconstruct_constraint(
     })
 }
 
-pub(crate) fn reconstruct_term(row: &TypeTermV1, types: &super::type_import::ReconstructedTypeGraph, owners: &StableOwnerCatalog<'_>) -> Result<TypeTerm, ArtifactError> {
+pub(crate) fn reconstruct_term(
+    row: &TypeTermV1,
+    types: &super::type_import::ReconstructedTypeGraph,
+    owners: &StableOwnerCatalog<'_>,
+) -> Result<TypeTerm, ArtifactError> {
     Ok(match row {
         TypeTermV1::Canonical { ty } => TypeTerm::Canonical(type_id(*ty, types)?),
         TypeTermV1::SelfType { term } => TypeTerm::SelfType(SelfTypeTerm {
@@ -588,9 +685,7 @@ pub(crate) fn reconstruct_declared_type(
             UnknownReasonV1::NoTypeEvidence => UnknownReason::NoTypeEvidence,
             UnknownReasonV1::MissingInitializer => UnknownReason::MissingInitializer,
             UnknownReasonV1::UnannotatedDeclaration => UnknownReason::UnannotatedDeclaration,
-            UnknownReasonV1::UnresolvedName { name } => {
-                UnknownReason::UnresolvedName(allocations.boxed_str(name).map_err(ArtifactError::Allocation)?)
-            },
+            UnknownReasonV1::UnresolvedName { name } => UnknownReason::UnresolvedName(allocations.boxed_str(name).map_err(ArtifactError::Allocation)?),
             UnknownReasonV1::DynamicMessageSend => UnknownReason::DynamicMessageSend,
             UnknownReasonV1::OpaqueNative => UnknownReason::OpaqueNative,
             UnknownReasonV1::RecursiveFixpoint => UnknownReason::RecursiveFixpoint,

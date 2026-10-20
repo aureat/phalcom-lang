@@ -7,6 +7,7 @@
 
 use crate::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::parameter::TypeTerm;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum DeclaredTypeState {
@@ -35,6 +36,21 @@ pub struct DeclaredTypeFact {
 }
 
 impl DeclaredTypeFact {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let state = match &self.state {
+            DeclaredTypeState::Known(TypeTerm::Canonical(ty)) => DeclaredTypeState::Known(TypeTerm::Canonical(*ty)),
+            DeclaredTypeState::Known(TypeTerm::SelfType(term)) => DeclaredTypeState::Known(TypeTerm::SelfType(crate::types::parameter::SelfTypeTerm {
+                owner: term.owner.clone_with_allocation_budget(allocations)?,
+                side: term.side,
+                role: term.role,
+            })),
+            DeclaredTypeState::Known(TypeTerm::Infer(variable)) => DeclaredTypeState::Known(TypeTerm::Infer(*variable)),
+            DeclaredTypeState::Dynamic(reason) => DeclaredTypeState::Dynamic(reason.clone()),
+            DeclaredTypeState::Unknown(reason) => DeclaredTypeState::Unknown(reason.clone_with_allocation_budget(allocations)?),
+        };
+        Ok(Self { state, basis: self.basis })
+    }
+
     pub fn unknown(reason: UnknownReason) -> Self {
         Self {
             state: DeclaredTypeState::Unknown(reason),
@@ -115,5 +131,23 @@ impl DeclaredTypeFact {
             DeclaredTypeState::Dynamic(reason) => TypeKnowledge::Dynamic(reason.clone()),
             DeclaredTypeState::Unknown(reason) => TypeKnowledge::Unknown(reason.clone()),
         }
+    }
+
+    pub(crate) fn to_knowledge_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<TypeKnowledge, AllocationError> {
+        Ok(match &self.state {
+            DeclaredTypeState::Known(TypeTerm::Canonical(ty)) => match self.basis {
+                DeclaredTypeBasis::SourceAnnotation => TypeKnowledge::assumed(*ty, EvidenceOrigin::DeveloperAnnotation),
+                DeclaredTypeBasis::NativeSignature => TypeKnowledge::established(*ty, EvidenceOrigin::NativeSignature),
+                DeclaredTypeBasis::DeclarationSemantics => TypeKnowledge::established(*ty, EvidenceOrigin::DeclarationSemantics),
+                DeclaredTypeBasis::ConstructorSemantics => TypeKnowledge::established(*ty, EvidenceOrigin::ConstructorSemantics),
+                DeclaredTypeBasis::BodyInference | DeclaredTypeBasis::InitializerInference => TypeKnowledge::established(*ty, EvidenceOrigin::Flow),
+                DeclaredTypeBasis::ContextualTyping => TypeKnowledge::assumed(*ty, EvidenceOrigin::ContextualDerivation),
+                DeclaredTypeBasis::PatternDecomposition => TypeKnowledge::established(*ty, EvidenceOrigin::PatternDecomposition),
+                DeclaredTypeBasis::Unspecified => TypeKnowledge::assumed(*ty, EvidenceOrigin::CallableSignature),
+            },
+            DeclaredTypeState::Known(TypeTerm::SelfType(_) | TypeTerm::Infer(_)) => TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable),
+            DeclaredTypeState::Dynamic(reason) => TypeKnowledge::Dynamic(reason.clone()),
+            DeclaredTypeState::Unknown(reason) => TypeKnowledge::Unknown(reason.clone_with_allocation_budget(allocations)?),
+        })
     }
 }

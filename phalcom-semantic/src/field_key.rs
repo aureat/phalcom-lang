@@ -158,3 +158,26 @@ impl From<i64> for FieldKey {
         Self::Int(StaticInt::Small(value))
     }
 }
+
+impl From<&phalcom_type_meta::field_key::FieldKeyRef> for FieldKey {
+    fn from(key: &phalcom_type_meta::field_key::FieldKeyRef) -> Self {
+        use phalcom_type_meta::field_key::FieldKeyRef;
+        match key {
+            FieldKeyRef::Symbol(value) => Self::symbol(value.as_ref()),
+            FieldKeyRef::String(value) => Self::string(value.as_ref()),
+            FieldKeyRef::Int(value) => Self::int(value.clone()),
+            FieldKeyRef::Bool(value) => Self::bool(*value),
+        }
+    }
+}
+
+impl From<&FieldKey> for phalcom_type_meta::field_key::FieldKeyRef {
+    fn from(key: &FieldKey) -> Self {
+        match key {
+            FieldKey::Symbol(value) => Self::Symbol(value.as_ref().into()),
+            FieldKey::String(value) => Self::String(value.as_ref().into()),
+            FieldKey::Int(value) => Self::Int(value.clone()),
+            FieldKey::Bool(value) => Self::Bool(*value),
+        }
+    }
+}

@@ -14,7 +14,7 @@ pub(crate) mod static_fingerprint;
 
 pub use budget::{BudgetKind, BudgetReport, CancellationToken, QueryBudget};
 pub use dependency::{DependencyEdge, DependencyIndex, DependencyRecorder};
-pub use key::{InputFingerprint, ProductFingerprint, QueryKey};
+pub use key::{InputFingerprint, ProductFingerprint, QueryKey, QueryKind};
 pub use metrics::QueryMetrics;
 pub use product::SemanticProduct;
 pub use query::{
@@ -29,11 +29,41 @@ pub use state::{PublishError, QueryOutcome, QueryState, QueryValue};
 use crate::identity::{ModuleId, SemanticRevision, WorkspaceId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+#[cfg(feature = "perf-observability")]
+use std::time::Instant;
+
+#[derive(Clone, Copy)]
+enum QueryLifecycleEvent {
+    Request,
+    DirectReuse,
+    RevalidatedReuse,
+    Recomputed,
+    Invalidated,
+    Blocked,
+    Cancelled,
+    BudgetExceeded,
+    Failed,
+}
+
+#[cfg(feature = "perf-observability")]
+fn record_semantic_db_counter(counter: telos_observability::PerfCounter, amount: usize) {
+    telos_observability::PerfContext::current_thread().record_counter(counter, amount as u64);
+}
+
+/// Authority/lifetime domain of a typed query read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SemanticProductOrigin {
+    /// Immutable closed canonical world, accessible through its separate reader.
+    Canonical(crate::canonical_image::CanonicalSemanticWorldId),
+    /// Mutable workspace database; ordinary revision validation still applies.
+    Workspace(WorkspaceId),
+}
 
 /// Compiler-owned staged semantic database for incremental analysis.
 #[derive(Debug)]
 pub struct SemanticDb {
     workspace: WorkspaceId,
+    canonical: Option<Arc<crate::canonical_image::CanonicalUniverseFormalImage>>,
     revision: SemanticRevision,
     query_states: BTreeMap<QueryKey, QueryState>,
     query_keys_by_module: BTreeMap<ModuleId, BTreeSet<QueryKey>>,
@@ -45,6 +75,8 @@ pub struct SemanticDb {
     revision_recomputed: BTreeSet<QueryKey>,
     revision_revalidated: BTreeSet<QueryKey>,
     transaction: Option<SemanticDbUndoJournal>,
+    #[cfg(feature = "perf-observability")]
+    query_recompute_started: BTreeMap<QueryKey, Instant>,
 }
 
 #[derive(Debug)]
@@ -61,6 +93,18 @@ struct SemanticDbUndoJournal {
 
 impl SemanticDbUndoJournal {
     fn new(db: &mut SemanticDb) -> Self {
+        #[cfg(feature = "perf-observability")]
+        let scheduler = {
+            use telos_observability::{PerfContext, PerfCounter, PerfOutcome, PerfPhase};
+            let context = PerfContext::current_thread();
+            let span = context.span(PerfPhase::SemanticDbSchedulerSnapshot);
+            let scheduler = db.scheduler.clone();
+            span.finish(PerfOutcome::Success);
+            context.record_counter(PerfCounter::SemanticDbSchedulerSnapshotEntries, scheduler.len() as u64);
+            scheduler
+        };
+        #[cfg(not(feature = "perf-observability"))]
+        let scheduler = db.scheduler.clone();
         Self {
             revision: db.revision,
             revision_recomputed: std::mem::take(&mut db.revision_recomputed),
@@ -69,7 +113,7 @@ impl SemanticDbUndoJournal {
             query_keys_by_module: BTreeMap::new(),
             products: BTreeMap::new(),
             last_known_good: BTreeMap::new(),
-            scheduler: db.scheduler.clone(),
+            scheduler,
         }
     }
 }
@@ -83,6 +127,7 @@ impl Default for SemanticDb {
 impl SemanticDb {
     pub fn new() -> Self {
         Self {
+            canonical: None,
             workspace: WorkspaceId::from_raw(1),
             revision: SemanticRevision::from_raw(1),
             query_states: BTreeMap::new(),
@@ -95,12 +140,15 @@ impl SemanticDb {
             revision_recomputed: BTreeSet::new(),
             revision_revalidated: BTreeSet::new(),
             transaction: None,
+            #[cfg(feature = "perf-observability")]
+            query_recompute_started: BTreeMap::new(),
         }
     }
 
     pub fn with_workspace(workspace: WorkspaceId) -> Self {
         Self {
             workspace,
+            canonical: None,
             revision: SemanticRevision::from_raw(1),
             query_states: BTreeMap::new(),
             query_keys_by_module: BTreeMap::new(),
@@ -112,7 +160,50 @@ impl SemanticDb {
             revision_recomputed: BTreeSet::new(),
             revision_revalidated: BTreeSet::new(),
             transaction: None,
+            #[cfg(feature = "perf-observability")]
+            query_recompute_started: BTreeMap::new(),
         }
+    }
+
+    /// Creates a local database over an immutable semantic world. Consumers must
+    /// use the image's final arenas (or validated extensions), never foundation IDs.
+    /// No canonical query is copied into local state, journals, or scheduler queues.
+    pub fn with_canonical_image(workspace: WorkspaceId, image: Arc<crate::canonical_image::CanonicalUniverseFormalImage>) -> Self {
+        let mut db = Self::with_workspace(workspace);
+        db.canonical = Some(image);
+        db
+    }
+
+    pub fn canonical_image(&self) -> Option<&Arc<crate::canonical_image::CanonicalUniverseFormalImage>> {
+        self.canonical.as_ref()
+    }
+
+    fn canonical_entry(&self, key: &QueryKey) -> Option<&crate::canonical_image::CanonicalQueryEntry> {
+        self.canonical.as_ref()?.query_image().entry(key)
+    }
+
+    /// Canonical dependencies are immutable leaves; local dependencies need
+    /// current-revision validation even when their fingerprint did not change.
+    pub fn is_current(&self, key: &QueryKey) -> bool {
+        if let Some(state) = self.query_states.get(key) {
+            return state.is_ready() && state.validated_revision() == Some(self.revision);
+        }
+        self.canonical_entry(key).is_some()
+    }
+
+    /// Current dependency evidence from a local query or exact immutable image product.
+    /// This does not make aggregate-only products reusable database queries.
+    pub fn dependency_fingerprint(&self, key: &QueryKey) -> Option<ProductFingerprint> {
+        if let Some(state) = self.query_states.get(key) {
+            return (state.is_ready() && state.validated_revision() == Some(self.revision))
+                .then(|| state.product_fingerprint())
+                .flatten();
+        }
+        self.canonical.as_ref()?.dependency_fingerprint(key)
+    }
+
+    fn dependency_matches(&self, edge: &DependencyEdge) -> bool {
+        self.dependency_fingerprint(&edge.dependency) == Some(edge.observed_fingerprint)
     }
 
     pub fn workspace(&self) -> WorkspaceId {
@@ -128,6 +219,11 @@ impl SemanticDb {
         assert!(self.transaction.is_none(), "semantic database transactions cannot nest");
         self.index.begin_transaction();
         self.transaction = Some(SemanticDbUndoJournal::new(self));
+    }
+
+    /// Whether a publication transaction is still open (freeze must reject it).
+    pub(crate) fn has_open_transaction(&self) -> bool {
+        self.transaction.is_some()
     }
 
     /// Keeps the current database roots and discards their undo journal.
@@ -176,6 +272,8 @@ impl SemanticDb {
         }
         let old = self.query_states.get(key).cloned();
         self.transaction.as_mut().expect("transaction checked").query_states.insert(key.clone(), old);
+        #[cfg(feature = "perf-observability")]
+        record_semantic_db_counter(telos_observability::PerfCounter::SemanticDbUndoQueryStateEntries, 1);
     }
 
     fn remember_query_products(&mut self, key: &QueryKey) {
@@ -184,6 +282,8 @@ impl SemanticDb {
         }
         let old = self.products.get(key).cloned();
         self.transaction.as_mut().expect("transaction checked").products.insert(key.clone(), old);
+        #[cfg(feature = "perf-observability")]
+        record_semantic_db_counter(telos_observability::PerfCounter::SemanticDbUndoProductEntries, 1);
     }
 
     fn remember_last_known_good(&mut self, key: &QueryKey) {
@@ -196,6 +296,8 @@ impl SemanticDb {
         }
         let old = self.last_known_good.get(key).cloned();
         self.transaction.as_mut().expect("transaction checked").last_known_good.insert(key.clone(), old);
+        #[cfg(feature = "perf-observability")]
+        record_semantic_db_counter(telos_observability::PerfCounter::SemanticDbUndoLastKnownGoodEntries, 1);
     }
 
     fn remember_module_query_keys(&mut self, module: &ModuleId) {
@@ -212,6 +314,8 @@ impl SemanticDb {
             .expect("transaction checked")
             .query_keys_by_module
             .insert(module.clone(), old);
+        #[cfg(feature = "perf-observability")]
+        record_semantic_db_counter(telos_observability::PerfCounter::SemanticDbUndoModuleKeyEntries, 1);
     }
 
     pub fn begin_revision(&mut self) -> SemanticRevision {
@@ -246,6 +350,67 @@ impl SemanticDb {
         &self.metrics
     }
 
+    fn record_query_event(&self, key: &QueryKey, event: QueryLifecycleEvent, duration_ns: Option<u64>) {
+        #[cfg(feature = "perf-observability")]
+        {
+            use telos_observability::{PerfAttribution, PerfContext, PerfQueryEvent, PerfScope};
+            let context = PerfContext::current_thread();
+            let context = if let Some(module) = query_key_module(key) {
+                context.with_attribution(PerfAttribution::module(PerfScope::Workspace, format!("{module:?}")))
+            } else {
+                context.with_attribution(PerfAttribution::entity(PerfScope::Workspace, None, format!("{key:?}")))
+            };
+            let event = match event {
+                QueryLifecycleEvent::Request => PerfQueryEvent::Request,
+                QueryLifecycleEvent::DirectReuse => PerfQueryEvent::DirectReuse,
+                QueryLifecycleEvent::RevalidatedReuse => PerfQueryEvent::RevalidatedReuse,
+                QueryLifecycleEvent::Recomputed => PerfQueryEvent::Recomputed,
+                QueryLifecycleEvent::Invalidated => PerfQueryEvent::Invalidated,
+                QueryLifecycleEvent::Blocked => PerfQueryEvent::Blocked,
+                QueryLifecycleEvent::Cancelled => PerfQueryEvent::Cancelled,
+                QueryLifecycleEvent::BudgetExceeded => PerfQueryEvent::BudgetExceeded,
+                QueryLifecycleEvent::Failed => PerfQueryEvent::Failed,
+            };
+            context.record_query_event(key.kind().as_str(), event, duration_ns);
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        let _ = (key, event, duration_ns);
+    }
+
+    /// Marks the beginning of query computation after reuse validation failed.
+    pub(crate) fn record_query_recompute_start(&mut self, key: &QueryKey) {
+        #[cfg(feature = "perf-observability")]
+        self.query_recompute_started.insert(key.clone(), Instant::now());
+        #[cfg(not(feature = "perf-observability"))]
+        let _ = key;
+    }
+
+    fn record_query_recompute_finish(&mut self, key: &QueryKey, event: QueryLifecycleEvent) {
+        self.metrics.record_miss();
+        #[cfg(feature = "perf-observability")]
+        {
+            let started = self.query_recompute_started.remove(key);
+            let elapsed = started.map(|started| u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX));
+            self.record_query_event(key, event, elapsed);
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        let _ = (key, event);
+    }
+
+    /// Local mutable state only; canonical readers never synthesize a Ready row.
+    pub fn local_query_state(&self, key: &QueryKey) -> Option<&QueryState> {
+        self.query_states.get(key)
+    }
+
+    /// Origin of a typed product. Local origin does not assert revision currentness.
+    pub fn product_origin(&self, key: &QueryKey) -> Option<SemanticProductOrigin> {
+        if self.query_states.contains_key(key) {
+            return self.product(key).map(|_| SemanticProductOrigin::Workspace(self.workspace));
+        }
+        self.canonical_entry(key)
+            .map(|_| SemanticProductOrigin::Canonical(self.canonical.as_ref().unwrap().world().clone()))
+    }
+
     pub fn query_state(&self, key: &QueryKey) -> Option<&QueryState> {
         self.query_states.get(key)
     }
@@ -266,8 +431,13 @@ impl SemanticDb {
 
     /// Returns the typed product published for a ready query.
     pub fn product(&self, key: &QueryKey) -> Option<&Arc<SemanticProduct>> {
-        let state = self.query_states.get(key)?;
-        if state.is_ready() { self.products.get(key) } else { None }
+        if let Some(state) = self.query_states.get(key) {
+            return if state.is_ready() { self.products.get(key) } else { None };
+        }
+        let entry = self.canonical_entry(key)?;
+        #[cfg(feature = "perf-observability")]
+        record_semantic_db_counter(telos_observability::PerfCounter::CanonicalQueryImmutableHits, 1);
+        Some(&entry.product)
     }
 
     /// Returns the last typed product that reached `Ready` for this key.
@@ -281,6 +451,17 @@ impl SemanticDb {
     }
 
     pub fn set_state(&mut self, key: QueryKey, state: QueryState) {
+        assert!(self.canonical_entry(&key).is_none(), "cannot mutate an immutable canonical query");
+        let terminal_event = match &state {
+            QueryState::Blocked { .. } => Some(QueryLifecycleEvent::Blocked),
+            QueryState::Cancelled { .. } => Some(QueryLifecycleEvent::Cancelled),
+            QueryState::BudgetExceeded { .. } => Some(QueryLifecycleEvent::BudgetExceeded),
+            QueryState::Failed { .. } => Some(QueryLifecycleEvent::Failed),
+            _ => None,
+        };
+        if let Some(event) = terminal_event {
+            self.record_query_recompute_finish(&key, event);
+        }
         self.remember_query_state(&key);
         self.remember_query_products(&key);
         self.index_query_key(&key);
@@ -292,7 +473,10 @@ impl SemanticDb {
 
     /// Returns the recorded product fingerprint for a query if it is in the `Ready` state.
     pub fn ready_product_fingerprint(&self, key: &QueryKey) -> Option<ProductFingerprint> {
-        self.query_states.get(key).and_then(|s| s.product_fingerprint())
+        if let Some(state) = self.query_states.get(key) {
+            return state.product_fingerprint();
+        }
+        self.canonical_entry(key).map(|entry| entry.product_fingerprint)
     }
 
     /// Checks whether a stored query product is eligible for reuse.
@@ -304,7 +488,7 @@ impl SemanticDb {
     /// product fingerprint is unchanged.
     pub fn is_reusable(&self, key: &QueryKey, input_fingerprint: InputFingerprint) -> bool {
         let Some(state) = self.query_states.get(key) else {
-            return false;
+            return self.canonical_entry(key).is_some_and(|entry| entry.input_fingerprint == input_fingerprint);
         };
         let QueryState::Ready {
             input_fingerprint: stored_input_fp,
@@ -321,18 +505,7 @@ impl SemanticDb {
             return true;
         };
         for edge in deps {
-            let Some(dep_state) = self.query_states.get(&edge.dependency) else {
-                return false;
-            };
-            let QueryState::Ready {
-                validated_revision,
-                product_fingerprint: dep_prod_fp,
-                ..
-            } = dep_state
-            else {
-                return false;
-            };
-            if *validated_revision != self.revision || *dep_prod_fp != edge.observed_fingerprint {
+            if !self.dependency_matches(edge) {
                 return false;
             }
         }
@@ -344,10 +517,17 @@ impl SemanticDb {
     /// This advances only the query's validation revision. The original
     /// computation revision and product fingerprint remain unchanged.
     pub fn validate_reuse(&mut self, key: &QueryKey, input_fingerprint: InputFingerprint) -> bool {
+        self.record_query_event(key, QueryLifecycleEvent::Request, None);
+        let was_current = self.query_states.get(key).and_then(QueryState::validated_revision) == Some(self.revision);
         if !self.is_reusable(key, input_fingerprint) {
             return false;
         }
 
+        if !self.query_states.contains_key(key) {
+            #[cfg(feature = "perf-observability")]
+            record_semantic_db_counter(telos_observability::PerfCounter::CanonicalQueryImmutableHits, 1);
+            return true;
+        }
         self.remember_query_state(key);
         let current_revision = self.revision;
         let Some(QueryState::Ready { validated_revision, .. }) = self.query_states.get_mut(key) else {
@@ -355,29 +535,32 @@ impl SemanticDb {
         };
         *validated_revision = current_revision;
         self.revision_revalidated.insert(key.clone());
+        self.record_query_event(
+            key,
+            if was_current {
+                QueryLifecycleEvent::DirectReuse
+            } else {
+                QueryLifecycleEvent::RevalidatedReuse
+            },
+            None,
+        );
         true
     }
 
     /// Marks a ready product current after its exact dependencies have already
     /// been revalidated by the caller and confirmed matching observed fingerprints.
     pub fn validate_ready(&mut self, key: &QueryKey) -> bool {
+        self.record_query_event(key, QueryLifecycleEvent::Request, None);
+        let was_current = self.query_states.get(key).and_then(QueryState::validated_revision) == Some(self.revision);
         if let Some(deps) = self.index.dependencies_of(key) {
             for edge in deps {
-                let Some(dep_state) = self.query_states.get(&edge.dependency) else {
-                    return false;
-                };
-                let QueryState::Ready {
-                    validated_revision,
-                    product_fingerprint: dep_prod_fp,
-                    ..
-                } = dep_state
-                else {
-                    return false;
-                };
-                if *validated_revision != self.revision || *dep_prod_fp != edge.observed_fingerprint {
+                if !self.dependency_matches(edge) {
                     return false;
                 }
             }
+        }
+        if !self.query_states.contains_key(key) {
+            return self.canonical_entry(key).is_some();
         }
 
         self.remember_query_state(key);
@@ -387,6 +570,15 @@ impl SemanticDb {
         };
         *validated_revision = current_revision;
         self.revision_revalidated.insert(key.clone());
+        self.record_query_event(
+            key,
+            if was_current {
+                QueryLifecycleEvent::DirectReuse
+            } else {
+                QueryLifecycleEvent::RevalidatedReuse
+            },
+            None,
+        );
         true
     }
 
@@ -397,6 +589,12 @@ impl SemanticDb {
     /// stale transitive state merely because an old product fingerprint is still
     /// present in the cache.
     pub fn record_dependency(&self, recorder: &mut DependencyRecorder, dependency: QueryKey) -> Result<(), String> {
+        if !self.query_states.contains_key(&dependency) {
+            if let Some(fingerprint) = self.canonical.as_ref().and_then(|image| image.dependency_fingerprint(&dependency)) {
+                recorder.record(dependency, fingerprint);
+                return Ok(());
+            }
+        }
         let Some(state) = self.query_states.get(&dependency) else {
             return Err(format!("query dependency {:?} is not Ready", dependency));
         };
@@ -429,6 +627,9 @@ impl SemanticDb {
         value: QueryValue,
         dependencies: impl IntoIterator<Item = DependencyEdge>,
     ) -> Result<(), PublishError> {
+        if self.canonical_entry(&key).is_some() {
+            return Err(PublishError::immutable(self.revision));
+        }
         if revision != self.revision {
             return Err(PublishError::stale(self.revision, revision));
         }
@@ -436,7 +637,11 @@ impl SemanticDb {
         self.remember_query_state(&key);
         self.remember_query_products(&key);
         self.index_query_key(&key);
-        self.index.replace_dependencies(key.clone(), dependencies);
+        let immutable = self.canonical.as_ref();
+        let local_states = &self.query_states;
+        self.index.replace_dependencies_with_leaves(key.clone(), dependencies, |dependency| {
+            !local_states.contains_key(dependency) && immutable.is_some_and(|image| image.dependency_fingerprint(dependency).is_some())
+        });
         self.query_states.insert(
             key.clone(),
             QueryState::Ready {
@@ -448,7 +653,7 @@ impl SemanticDb {
             },
         );
         self.products.remove(&key);
-        self.metrics.record_hit();
+        self.record_query_recompute_finish(&key, QueryLifecycleEvent::Recomputed);
         self.revision_recomputed.insert(key);
         Ok(())
     }
@@ -464,6 +669,9 @@ impl SemanticDb {
     ///
     /// The last-known-good product is also preserved for cancellation/failure fallback.
     pub fn discard_for_recompute(&mut self, key: &QueryKey) -> bool {
+        if self.canonical_entry(key).is_some() {
+            return false;
+        }
         self.remember_query_state(key);
         self.remember_query_products(key);
         let had_state = self.query_states.remove(key).is_some();
@@ -471,6 +679,7 @@ impl SemanticDb {
         self.index.remove_dependencies(key);
         if had_state || had_product {
             self.metrics.record_invalidation();
+            self.record_query_event(key, QueryLifecycleEvent::Invalidated, None);
             true
         } else {
             false
@@ -498,11 +707,21 @@ impl SemanticDb {
         Ok(())
     }
 
-    pub fn update_callable_body_product(&mut self, callable: &crate::identity::CallableId, analysis: Arc<crate::checker::CallableAnalysis>) {
+    pub fn update_callable_body_product(
+        &mut self,
+        callable: &crate::identity::CallableId,
+        analysis: Arc<crate::checker::CallableAnalysis>,
+        dependencies: Vec<crate::db::DependencyEdge>,
+    ) {
         let key = QueryKey::CallableBody(callable.clone());
         self.remember_query_state(&key);
         self.remember_query_products(&key);
         self.remember_last_known_good(&key);
+        let canonical_image = self.canonical.clone();
+        let local_states = &self.query_states;
+        self.index.replace_dependencies_with_leaves(key.clone(), dependencies, |dependency| {
+            !local_states.contains_key(dependency) && canonical_image.as_ref().is_some_and(|image| image.dependency_fingerprint(dependency).is_some())
+        });
         let fp = analysis.dependency_fingerprint;
         let query_value = crate::db::product::SemanticProduct::CallableBody(analysis.clone()).to_query_value();
         if let Some(QueryState::Ready {
@@ -518,6 +737,7 @@ impl SemanticDb {
     }
 
     pub fn invalidate(&mut self, seeds: impl IntoIterator<Item = QueryKey>) -> BTreeSet<QueryKey> {
+        let seeds = seeds.into_iter().filter(|key| self.canonical_entry(key).is_none());
         let closure = self.index.reverse_closure(seeds);
         for key in &closure {
             self.remember_query_state(key);
@@ -526,6 +746,7 @@ impl SemanticDb {
             self.products.remove(key);
             self.index.remove_dependencies(key);
             self.metrics.record_invalidation();
+            self.record_query_event(key, QueryLifecycleEvent::Invalidated, None);
         }
         closure
     }
@@ -533,7 +754,7 @@ impl SemanticDb {
     /// Invalidates only supplied query roots, preserving cached dependents until
     /// the refreshed root product proves whether their fingerprints changed.
     pub fn invalidate_roots(&mut self, roots: impl IntoIterator<Item = QueryKey>) -> BTreeSet<QueryKey> {
-        let roots: BTreeSet<_> = roots.into_iter().collect();
+        let roots: BTreeSet<_> = roots.into_iter().filter(|key| self.canonical_entry(key).is_none()).collect();
         for key in &roots {
             self.remember_query_state(key);
             self.remember_query_products(key);
@@ -541,6 +762,7 @@ impl SemanticDb {
             self.products.remove(key);
             self.index.remove_dependencies(key);
             self.metrics.record_invalidation();
+            self.record_query_event(key, QueryLifecycleEvent::Invalidated, None);
         }
         roots
     }
@@ -550,6 +772,9 @@ impl SemanticDb {
     /// Unlike ordinary invalidation, retirement also drops the last-known-good
     /// product so a later re-addition cannot reuse a prior incarnation.
     pub fn retire_query(&mut self, key: &QueryKey) -> usize {
+        if self.canonical_entry(key).is_some() {
+            return 0;
+        }
         let dependents = self.index.reverse_closure([key.clone()]);
         let mut retired = 0;
         for dependent in dependents.iter().filter(|dependent| *dependent != key) {
@@ -559,6 +784,7 @@ impl SemanticDb {
             retired += usize::from(self.products.remove(dependent).is_some());
             self.index.remove_dependencies(dependent);
             self.metrics.record_invalidation();
+            self.record_query_event(dependent, QueryLifecycleEvent::Invalidated, None);
         }
         self.remember_query_state(key);
         self.remember_query_products(key);
@@ -566,6 +792,9 @@ impl SemanticDb {
         retired += usize::from(self.query_states.remove(key).is_some());
         retired += usize::from(self.products.remove(key).is_some());
         retired += usize::from(self.last_known_good.remove(key).is_some());
+        if retired > 0 {
+            self.record_query_event(key, QueryLifecycleEvent::Invalidated, None);
+        }
         if let Some(module) = query_key_module(key) {
             self.remember_module_query_keys(module);
             if let Some(module_keys) = self.query_keys_by_module.get_mut(module) {
@@ -603,6 +832,7 @@ impl SemanticDb {
             purged += usize::from(self.query_states.remove(key).is_some());
             purged += usize::from(self.products.remove(key).is_some());
             purged += usize::from(self.last_known_good.remove(key).is_some());
+            self.record_query_event(key, QueryLifecycleEvent::Invalidated, None);
         }
         self.remember_module_query_keys(module);
         self.query_keys_by_module.remove(module);
@@ -631,7 +861,7 @@ fn restore_query_products(current: &mut BTreeMap<QueryKey, Arc<SemanticProduct>>
     }
 }
 
-fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
+pub(crate) fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
     match key {
         QueryKey::ParsedModule(module)
         | QueryKey::UnlinkedInterface(module)

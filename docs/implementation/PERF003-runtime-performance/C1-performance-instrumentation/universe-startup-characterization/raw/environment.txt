@@ -1,0 +1,13 @@
+2026-10-12 22:09:48 +03
+/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization
+b00d75b3ac9f50d37cf9abfddfde00917e099031
+perf/universe-characterization
+?? docs/implementation/PERF003-runtime-performance/C1-performance-instrumentation/universe-startup-characterization/
+?? phalcom-core/examples/
+rustc 1.99.0-nightly (af3d95584 2026-07-09)
+cargo 1.99.0-nightly (59800466c 2026-07-07)
+Python 3.14.6
+Darwin Altuns-MacBook-Pro-5.local 25.5.0 Darwin Kernel Version 25.5.0: Mon Apr 27 20:38:56 PDT 2026; root:xnu-12377.121.6~2/RELEASE_ARM64_T6000 arm64
+ProductName:		macOS
+ProductVersion:		26.5
+BuildVersion:		25F71

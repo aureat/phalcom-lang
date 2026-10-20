@@ -356,9 +356,9 @@ impl Fixture {
     }
 
     pub fn assert_continue_edges_target_loop_headers(&self, callable: &CallableAnalysis) {
-        for edge in callable.flow_graph.edges.values() {
+        for edge in callable.flow_graph.edges() {
             if matches!(edge.kind, phalcom_semantic::checker::flow::graph::FlowEdgeKind::Continue) {
-                let target = callable.flow_graph.nodes.get(&edge.target).expect("target node exists");
+                let target = callable.flow_graph.node(&edge.target).expect("target node exists");
                 assert!(
                     matches!(target.kind, phalcom_semantic::checker::flow::graph::FlowNodeKind::LoopHeader),
                     "continue edge must target a LoopHeader, got: {:?}",

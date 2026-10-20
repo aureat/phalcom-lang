@@ -173,7 +173,7 @@ impl QueryKey {
 /// fingerprint or dependency freshness and must not publish a Ready product.
 pub(crate) fn validate_structural_root_row_ownership(
     image: &QueryImageV3,
-    world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV3,
+    world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
 ) -> Result<(), ArtifactError> {
     use phalcom_compiler_artifact::query::PortableQueryKindV1 as K;
     for root in &image.supported_roots {

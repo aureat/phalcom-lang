@@ -1175,6 +1175,7 @@ dependencies = [
  "num-traits",
  "phalcom-ast",
  "phalcom-common",
+ "phalcom-compiler-artifact",
  "phalcom-diagnostics",
  "phalcom-modules",
  "phalcom-native-macros",
@@ -1186,6 +1187,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slotmap",
+ "telos-observability",
  "tempfile",
  "thiserror",
  "tracing",
@@ -1310,6 +1312,7 @@ dependencies = [
  "phalcom-type-meta",
  "serde",
  "serde_json",
+ "telos-observability",
  "tempfile",
  "thiserror",
 ]
@@ -1830,6 +1833,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
+]
+
+[[package]]
+name = "telos-observability"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

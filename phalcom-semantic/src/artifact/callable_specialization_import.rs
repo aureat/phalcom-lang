@@ -13,7 +13,7 @@ use crate::identity::{BodyId, CallableId, ExpressionId, LocalExpressionId};
 use crate::types::id::TypeParameterId;
 use crate::types::store::StaticArgument;
 use phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1;
-use phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1;
+use phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
 
@@ -72,7 +72,7 @@ impl ImportedCallableSpecializationAuthority {
 }
 
 pub(crate) fn reconstruct_callable_specializations(
-    records: &[CallableAnalysisRecordV1],
+    records: &[CallableAnalysisRecordV2],
     callables: &ImportedCallableAuthority,
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,

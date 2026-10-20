@@ -247,7 +247,9 @@ fn alias_cycles_are_rejected_before_publication() {
             .all_diagnostics()
             .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeAliasCycle)
     );
-    assert!(analysis.snapshot.type_aliases.iter().next().is_none());
+    for name in ["First", "Second"] {
+        assert!(!analysis.snapshot.type_aliases.contains_key(&DeclarationId::new(module.clone(), name.into())));
+    }
     assert!(
         analysis
             .snapshot
@@ -395,7 +397,8 @@ fn imported_alias_cycle_is_rejected_before_publication() {
             .all_diagnostics()
             .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeAliasCycle)
     );
-    assert!(analysis.snapshot.type_aliases.iter().next().is_none());
+    assert!(!analysis.snapshot.type_aliases.contains_key(&DeclarationId::new(module_a.clone(), "A".into())));
+    assert!(!analysis.snapshot.type_aliases.contains_key(&DeclarationId::new(module_b.clone(), "B".into())));
     assert!(analysis.snapshot.declarations.get(&DeclarationId::new(module_a, "A".into())).is_none());
     assert!(analysis.snapshot.declarations.get(&DeclarationId::new(module_b, "B".into())).is_none());
 }
@@ -1085,7 +1088,7 @@ fn workspace_generic_class_and_callable_signature_publication() {
         .form(&phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int))
         .expect("Int declaration form");
     let mut environment = TypeEnvironment::new();
-    environment.bind_param(box_parameter, int);
+    environment.bind_param(box_parameter, int).unwrap();
     let mut store = (*analysis.snapshot.store).clone();
     let specialized = TypeView::new(template.supertype, environment).materialize(&mut store);
     let TypeData::Applied { arguments, .. } = store.get(specialized) else {
@@ -1284,4 +1287,41 @@ fn workspace_constructor_and_cross_module_dispatch_inference() {
         Some(shipment_form),
         "shipment must be formally known as Shipment"
     );
+}
+
+#[test]
+fn alias_cycle_quarantine_preserves_unaffected_products_and_removes_retained_forms() {
+    let image = phalcom_semantic::canonical_image::canonical_universe_formal_image().unwrap();
+    let (canonical_id, canonical_alias) = image.snapshot().type_aliases.iter().next().expect("canonical alias");
+    let source = batch_source("/tmp/phalcom-alias-quarantine.ph");
+    let mut session = SemanticWorkspaceSession::new();
+    let mut update = |text: &str, revision| {
+        session
+            .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+                source: source.clone(),
+                text: Arc::from(text),
+                revision: SourceRevision(revision),
+                recovered_program: None,
+            }])
+            .expect("alias revision")
+    };
+    let first = update("type First = Int\ntype Second = First\ntype Dependent = Second\ntype Valid = String\n", 1);
+    let module = first.snapshot.module_for_source(&source.source_id).unwrap().clone();
+    let id = |name: &str| DeclarationId::new(module.clone(), name.into());
+    assert!(first.snapshot.type_aliases.contains_key(&id("Dependent")));
+    let invalid = update("type First = Second\ntype Second = First\ntype Dependent = Second\ntype Valid = String\n", 2);
+    for name in ["First", "Second", "Dependent"] {
+        assert!(!invalid.snapshot.type_aliases.contains_key(&id(name)));
+        assert!(invalid.snapshot.declarations.get(&id(name)).is_none());
+    }
+    assert!(invalid.snapshot.type_aliases.contains_key(&id("Valid")));
+    assert_eq!(invalid.snapshot.type_aliases.get(canonical_id), Some(canonical_alias));
+    assert!(
+        invalid
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeAliasCycle)
+    );
+    let recovered = update("type First = Int\ntype Second = First\ntype Dependent = Second\ntype Valid = String\n", 3);
+    assert!(recovered.snapshot.type_aliases.contains_key(&id("Dependent")));
 }

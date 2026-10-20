@@ -11,7 +11,7 @@ use crate::metadata::{METADATA_SECTION_SCHEMA_V1, MetadataSectionV1};
 use crate::module_world::{MODULE_WORLD_SCHEMA_V2, ModuleWorldV2};
 use crate::query::{QUERY_IMAGE_SCHEMA_V3, QueryImageV3};
 use crate::section::{SectionFlags, SectionKind};
-use crate::semantic::world::{SEMANTIC_WORLD_SCHEMA_V4, SemanticWorldV4};
+use crate::semantic::world::{DependencyPhaseV1, RuntimeRequirementTargetV1, SEMANTIC_WORLD_SCHEMA_V4, SemanticWorldV4};
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
 
@@ -146,6 +146,109 @@ impl CompilerArtifactPayload {
             validate_project(&m.identity.project)?;
         }
 
+        // 2a. Module execution authority is keyed by the source-import rows in
+        // MODULE_WORLD. These ordinals are dense and module-relative; they are
+        // not executable read slots.
+        let execution = &self.semantic_world.module_execution_authority;
+        if execution.import_phase_products.len() != self.module_world.modules.len() {
+            return Err(ValidationError::ReferentialIntegrity("module execution authority must contain one phase product for every module".into()).into());
+        }
+        for module in &self.module_world.modules {
+            let product = execution
+                .import_phase_products
+                .iter()
+                .find(|product| product.module == module.identity)
+                .ok_or_else(|| {
+                    ArtifactError::Validation(ValidationError::ReferentialIntegrity(format!(
+                        "missing module import phase product for {:?}",
+                        module.identity
+                    )))
+                })?;
+            let expected_binding_count = self
+                .module_world
+                .source_import_binding_count(&module.identity)?
+                .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("module disappeared from module world".into())))?;
+            if u32::try_from(product.bindings.len()).ok() != Some(expected_binding_count) {
+                return Err(ValidationError::ReferentialIntegrity(format!(
+                    "module import phase binding count disagrees with source import rows for {:?}",
+                    module.identity
+                ))
+                .into());
+            }
+            for (ordinal, binding) in product.bindings.iter().enumerate() {
+                if usize::try_from(binding.binding).ok() != Some(ordinal) {
+                    return Err(ValidationError::ReferentialIntegrity(format!(
+                        "module import phase bindings are not the dense source ordinal range for {:?}",
+                        module.identity
+                    ))
+                    .into());
+                }
+            }
+        }
+
+        for analysis in &self.semantic_world.callable_analyses {
+            let callable_module = match &analysis.callable.owner {
+                phalcom_type_meta::identity::StableCallableOwnerRef::Declaration(owner) => &owner.module,
+                phalcom_type_meta::identity::StableCallableOwnerRef::Variant(owner) => &owner.owner.module,
+                phalcom_type_meta::identity::StableCallableOwnerRef::Conformance(owner) => &owner.module,
+            };
+            validate_module(callable_module)?;
+            let product = execution
+                .import_phase_products
+                .iter()
+                .find(|product| product.module == *callable_module)
+                .ok_or_else(|| {
+                    ArtifactError::Validation(ValidationError::ReferentialIntegrity(format!(
+                        "callable phase evidence has no module product for {:?}",
+                        callable_module
+                    )))
+                })?;
+            for observed in &analysis.observed_import_phases {
+                let summary = product
+                    .bindings
+                    .get(
+                        usize::try_from(observed.binding)
+                            .map_err(|_| ArtifactError::Validation(ValidationError::ReferentialIntegrity("callable import binding ordinal overflow".into())))?,
+                    )
+                    .filter(|summary| summary.binding == observed.binding)
+                    .ok_or_else(|| {
+                        ArtifactError::Validation(ValidationError::ReferentialIntegrity(format!(
+                            "callable import phase references absent source binding {} in {:?}",
+                            observed.binding, callable_module
+                        )))
+                    })?;
+                if !summary.summary.observed {
+                    return Err(ValidationError::ReferentialIntegrity(format!(
+                        "callable import phase references an unobserved module binding {} in {:?}",
+                        observed.binding, callable_module
+                    ))
+                    .into());
+                }
+                if observed.phase == DependencyPhaseV1::Runtime && summary.summary.phase != DependencyPhaseV1::Runtime {
+                    return Err(ValidationError::ReferentialIntegrity(format!(
+                        "module import phase does not cover callable runtime observation {} in {:?}",
+                        observed.binding, callable_module
+                    ))
+                    .into());
+                }
+            }
+        }
+
+        for requirement in &execution.runtime_requirements {
+            validate_module(&requirement.importer)?;
+            validate_module(&requirement.dependency)?;
+            validate_module(&requirement.provenance.consumer)?;
+            match &requirement.provenance.target {
+                RuntimeRequirementTargetV1::Module { module } | RuntimeRequirementTargetV1::Binding { module, .. } => validate_module(module)?,
+            }
+            if let Some(target) = &requirement.read_target {
+                match target {
+                    crate::semantic::world::LinkedReadSpecV1::Module { module } => validate_module(module)?,
+                    crate::semantic::world::LinkedReadSpecV1::Binding { symbol } => validate_module(&symbol.module)?,
+                }
+            }
+        }
+
         // 3. Verify static definitions and static constants in semantic_world
         for decl in &self.semantic_world.static_definitions {
             validate_module(&decl.id.module)?;
@@ -174,7 +277,7 @@ impl CompilerArtifactPayload {
 
         // 5. Verify product references and portable QUERY_FINGERPRINT_ABI_V2 evidence.
         self.query_image.validate_product_references(&self.module_world, &self.semantic_world)?;
-        self.query_image.validate_portable_structural_fingerprints(&self.semantic_world)?;
+        self.query_image.validate_portable_structural_fingerprints_v4(&self.semantic_world)?;
 
         Ok(())
     }

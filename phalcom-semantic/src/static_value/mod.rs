@@ -1,7 +1,12 @@
 //! Snapshot-safe semantic values used by compile-time evaluation.
 
+mod artifact;
 mod store;
 
+pub use artifact::{
+    BudgetedDeclarationResolver, BudgetedVariantResolver, StaticExportContext, StaticRelocation, import_static_value_graph,
+    import_static_value_graph_with_allocation_budget,
+};
 pub use store::{
     StaticDataValue, StaticDataValueId, StaticFloat, StaticInt, StaticPackBacking, StaticPackBackingId, StaticPackData, StaticPackId, StaticRecordField,
     StaticRecordId, StaticSequenceData, StaticSequenceFamily, StaticSequenceId, StaticStringId, StaticSymbolId, StaticTupleId, StaticValueData, StaticValueId,

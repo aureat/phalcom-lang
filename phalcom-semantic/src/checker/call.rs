@@ -786,7 +786,9 @@ fn analyze_application_argument_owned(
         if let TypeKnowledge::Known(evidence) = &typed.knowledge {
             let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), range);
             if let Some(resolution) = resolution {
-                ctx.positional_expansions.insert(resolution.source_expression, resolution);
+                ctx.positional_expansions
+                    .insert_source(resolution.source_expression, resolution)
+                    .expect("checking context positional expansions are source mutable");
             } else {
                 crate::checker::iteration::record_known_invalid_positional_expansion(ctx, typed.expression_id, evidence.ty(), range);
             }
@@ -3190,6 +3192,11 @@ fn record_generic_return_materialization_failure(ctx: &mut CheckingContext<'_>, 
         return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
     }
     match error {
+        TypeMaterializationError::DynamicBoundary(_) => {
+            let reason = DynamicReason::ExplicitEscape;
+            ctx.record_call_status(AnalysisStatus::DynamicBoundary(reason.clone()));
+            return TypeKnowledge::Dynamic(reason);
+        }
         TypeMaterializationError::UnresolvedRowParameter(parameter) => record_blocked_row_diagnostic(
             ctx,
             DiagnosticCode::RecordRowInferenceUnderconstrained,
@@ -3693,12 +3700,16 @@ fn apply_generic_callable(
 fn discharge_generic_conformance_obligations(
     ctx: &mut CheckingContext<'_>,
     domains: &GenericApplicationDomains<'_>,
-    bindings: &std::collections::BTreeMap<TypeParameterId, TypeId>,
+    bindings: &std::collections::BTreeMap<TypeParameterId, crate::types::store::StaticArgument>,
     call_range: SourceRange,
 ) -> Option<Box<[crate::checker::analysis::GenericCallConformanceBinding]>> {
     let mut instantiation = crate::types::instantiation::GenericInstantiation::default();
-    for (&param, &ty) in bindings {
-        instantiation.bind_type(param, ty);
+    for (&param, &argument) in bindings {
+        match argument {
+            crate::types::store::StaticArgument::Term(ty) => instantiation.bind_type(param, ty),
+            crate::types::store::StaticArgument::RecordRow(row) => instantiation.bind_row(param, row),
+            crate::types::store::StaticArgument::DynamicType => instantiation.bind_dynamic(param),
+        }
     }
 
     discharge_generic_obligations_with_instantiation(ctx, domains, &instantiation, call_range)
@@ -3715,6 +3726,19 @@ fn discharge_generic_obligations_with_instantiation(
 
     for signature in domains.signatures() {
         for constraint in signature.constraints.iter() {
+            if generic_constraint_depends_on_dynamic(ctx.store, constraint, instantiation) {
+                failed = true;
+                let diagnostic = SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::GenericConstraintUnsatisfied,
+                    "generic constraint cannot be proven for an explicit Dynamic argument",
+                    call_range,
+                );
+                if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
+                    ctx.record_call_status(AnalysisStatus::Invalid(cause));
+                }
+                continue;
+            }
             match constraint {
                 GenericConstraint::Conforms { subject, trait_ref } => {
                     let instantiated_subject = match subject {
@@ -3943,6 +3967,22 @@ fn discharge_generic_obligations_with_instantiation(
     if failed { None } else { Some(conformances.into_boxed_slice()) }
 }
 
+fn generic_constraint_depends_on_dynamic(
+    store: &TypeStore,
+    constraint: &GenericConstraint,
+    instantiation: &crate::types::instantiation::GenericInstantiation,
+) -> bool {
+    let term_depends = |term: &TypeTerm| match term {
+        TypeTerm::Canonical(ty) => instantiation.dynamic_bindings().any(|parameter| store.contains_type_parameter(*ty, parameter)),
+        TypeTerm::SelfType(_) | TypeTerm::Infer(_) => false,
+    };
+    let type_depends = |ty| instantiation.dynamic_bindings().any(|parameter| store.contains_type_parameter(ty, parameter));
+    match constraint {
+        GenericConstraint::Conforms { subject, trait_ref } => term_depends(subject) || trait_ref.arguments.iter().copied().any(type_depends),
+        GenericConstraint::Equivalent { left, right } | GenericConstraint::Subtype { lower: left, upper: right } => term_depends(left) || term_depends(right),
+    }
+}
+
 fn exact_conformance_arguments(
     store: &crate::types::store::TypeStore,
     domains: &GenericApplicationDomains<'_>,
@@ -4003,7 +4043,7 @@ fn publish_call_specialization(
     };
     let mut bindings = std::collections::BTreeMap::new();
     for &(parameter, ty) in fixed_generics {
-        bindings.insert(parameter, ty);
+        bindings.insert(parameter, crate::types::store::StaticArgument::Term(ty));
     }
     for parameter in domains.signatures().flat_map(|signature| signature.parameters.iter()).copied() {
         if ctx.store.type_parameter(parameter).kind == crate::types::id::KindId::RECORD_ROW {
@@ -4016,9 +4056,13 @@ fn publish_call_specialization(
         let Some(ty) = ty else {
             return;
         };
-        bindings.insert(parameter, ty);
+        bindings.insert(parameter, crate::types::store::StaticArgument::Term(ty));
     }
-    bindings.extend(exact_conformance_arguments(ctx.store, domains, exact_argument_bindings));
+    bindings.extend(
+        exact_conformance_arguments(ctx.store, domains, exact_argument_bindings)
+            .into_iter()
+            .map(|(parameter, ty)| (parameter, crate::types::store::StaticArgument::Term(ty))),
+    );
 
     let Some(conformances) = discharge_generic_conformance_obligations(ctx, domains, &bindings, call_range) else {
         return;
@@ -4044,7 +4088,7 @@ fn publish_call_specialization(
             .parameters
             .iter()
             .zip(selected.parameters.iter())
-            .filter_map(|(&source, &target)| bindings.get(&source).copied().map(|ty| (source, target, ty)))
+            .filter_map(|(&source, &target)| bindings.get(&source).copied().map(|argument| (source, target, argument)))
             .collect::<Vec<_>>();
         for (source, _, _) in &renamed {
             bindings.remove(source);
@@ -4107,11 +4151,21 @@ fn finalize_owner_call_specialization(ctx: &mut CheckingContext<'_>, target: &Ca
         .map(|specialization| specialization.bindings.into_vec().into_iter().collect::<std::collections::BTreeMap<_, _>>())
         .unwrap_or_default();
     for &parameter in owner.parameters.iter() {
-        let Some(ty) = target.specialization.as_ref().and_then(|dispatch| dispatch.environment.get_param(parameter)) else {
+        let Some(argument) = target.specialization.as_ref().and_then(|dispatch| dispatch.environment.argument(parameter)) else {
             ctx.publish_analysis_incident("receiver specialization is missing a required owner binding");
             return;
         };
-        if bindings.insert(parameter, ty).is_some_and(|previous| previous != ty) {
+        let parameter_kind = ctx.store.type_parameter(parameter).kind;
+        let category_matches = match argument {
+            crate::types::store::StaticArgument::Term(ty) => ctx.store.kind_of(ty) == parameter_kind,
+            crate::types::store::StaticArgument::RecordRow(_) => parameter_kind == KindId::RECORD_ROW,
+            crate::types::store::StaticArgument::DynamicType => parameter_kind == KindId::TYPE,
+        };
+        if !category_matches {
+            ctx.publish_analysis_incident("receiver specialization argument category does not match its owner parameter kind");
+            return;
+        }
+        if bindings.insert(parameter, argument).is_some_and(|previous| previous != argument) {
             ctx.publish_analysis_incident("receiver and callable specialization disagree on an owner binding");
             return;
         }

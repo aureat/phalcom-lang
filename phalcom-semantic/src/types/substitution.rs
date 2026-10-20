@@ -8,13 +8,15 @@ use super::store::{
     AnonymousTupleRemainder, CallableParameterType, CallableType, PackFormationError, StaticDataFormationError, TupleTypeElement, TypeData, TypeStore,
 };
 use super::type_lambda::TypeLambdaArena;
+use crate::checker::analysis_map::{AnalysisMap, AnalysisMapBuildError, FrozenAnalysisMapMutation};
 use crate::declarations::DeclarationTypeTable;
+use phalcom_type_meta::allocation::AllocationBudget;
 use std::collections::HashMap;
 
 /// A map of type parameter replacements (`T -> Type`).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TypeSubstitution {
-    bindings: HashMap<TypeParameterId, TypeId>,
+    bindings: AnalysisMap<TypeParameterId, TypeId>,
 }
 
 /// Errors made explicit when C2 pack terms are re-canonicalized after substitution.
@@ -34,15 +36,32 @@ impl TypeSubstitution {
     }
 
     pub fn from_bindings(bindings: HashMap<TypeParameterId, TypeId>) -> Self {
-        Self { bindings }
+        Self { bindings: bindings.into() }
     }
 
-    pub fn bindings(&self) -> &HashMap<TypeParameterId, TypeId> {
+    /// Constructs an imported substitution directly from an allocation-budgeted,
+    /// strictly ordered entry buffer.
+    pub(crate) fn from_budgeted_entries(entries: Vec<(TypeParameterId, TypeId)>, allocations: &mut AllocationBudget) -> Result<Self, AnalysisMapBuildError> {
+        Ok(Self {
+            bindings: AnalysisMap::from_budgeted_entries(entries, allocations)?,
+        })
+    }
+
+    /// Reads bindings without exposing whether they use source or frozen storage.
+    pub fn bindings(&self) -> &AnalysisMap<TypeParameterId, TypeId> {
         &self.bindings
     }
 
+    /// Mutates source-side substitutions. Imported frozen substitutions reject
+    /// writes with a typed error.
+    pub fn bind_source(&mut self, param: TypeParameterId, ty: TypeId) -> Result<(), FrozenAnalysisMapMutation> {
+        self.bindings.insert_source(param, ty).map(|_| ())
+    }
+
+    /// Preserves the source-checker construction API. This is intentionally
+    /// fail-loud if called on an imported frozen substitution.
     pub fn bind(&mut self, param: TypeParameterId, ty: TypeId) {
-        self.bindings.insert(param, ty);
+        self.bind_source(param, ty).expect("type substitution is source mutable");
     }
 
     pub fn get(&self, param: TypeParameterId) -> Option<TypeId> {
@@ -478,6 +497,73 @@ impl TypeSubstitution {
             TypeData::ConstInt(_) => ty,
             TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::StaticDomainForm { .. } | TypeData::ClassObject { .. } => ty,
         }
+    }
+}
+
+#[cfg(test)]
+mod analysis_map_tests {
+    use super::TypeSubstitution;
+    use crate::types::id::{TypeId, TypeParameterId};
+    use phalcom_type_meta::allocation::AllocationBudget;
+    use std::collections::HashMap;
+
+    #[test]
+    fn source_and_frozen_substitutions_have_equal_ordered_reads() {
+        let source = TypeSubstitution::from_bindings(HashMap::from([(TypeParameterId(9), TypeId(90)), (TypeParameterId(2), TypeId(20))]));
+        let mut allocations = AllocationBudget::new(1024);
+        let mut entries = allocations.vector(2).expect("entry buffer is charged");
+        entries.push((TypeParameterId(2), TypeId(20)));
+        entries.push((TypeParameterId(9), TypeId(90)));
+        let frozen = TypeSubstitution::from_budgeted_entries(entries, &mut allocations).expect("canonical frozen substitution");
+
+        assert_eq!(source, frozen);
+        assert_eq!(frozen.get(TypeParameterId(2)), Some(TypeId(20)));
+        assert_eq!(
+            frozen.bindings().iter().map(|(parameter, ty)| (*parameter, *ty)).collect::<Vec<_>>(),
+            [(TypeParameterId(2), TypeId(20)), (TypeParameterId(9), TypeId(90))]
+        );
+    }
+
+    #[test]
+    fn frozen_substitution_rejects_mutation_and_clone_shares_semantics() {
+        let mut allocations = AllocationBudget::new(1024);
+        let mut entries = allocations.vector(1).expect("entry buffer is charged");
+        entries.push((TypeParameterId(3), TypeId(30)));
+        let mut frozen = TypeSubstitution::from_budgeted_entries(entries, &mut allocations).expect("canonical frozen substitution");
+        let clone = frozen.clone();
+
+        assert!(frozen.bind_source(TypeParameterId(4), TypeId(40)).is_err());
+        assert_eq!(frozen, clone);
+    }
+
+    #[test]
+    fn frozen_substitution_obeys_exact_budget_and_failed_child_rollback() {
+        let make_entries = |budget: &mut AllocationBudget| {
+            let mut entries = budget.vector(2).expect("entry buffer fits");
+            entries.push((TypeParameterId(1), TypeId(10)));
+            entries.push((TypeParameterId(4), TypeId(40)));
+            entries
+        };
+
+        let mut measured = AllocationBudget::new(4096);
+        TypeSubstitution::from_budgeted_entries(make_entries(&mut measured), &mut measured).expect("measurement import succeeds");
+        let exact_budget = measured.requested();
+
+        let mut exact = AllocationBudget::new(exact_budget);
+        TypeSubstitution::from_budgeted_entries(make_entries(&mut exact), &mut exact).expect("exact budget succeeds");
+        assert_eq!(exact.requested(), exact_budget);
+
+        let mut short = AllocationBudget::new(exact_budget - 1);
+        let error = TypeSubstitution::from_budgeted_entries(make_entries(&mut short), &mut short).unwrap_err();
+        assert!(matches!(error, super::AnalysisMapBuildError::Allocation(_)));
+
+        let parent = AllocationBudget::new(4096);
+        let before = parent.requested();
+        let mut child = parent.child(exact_budget - 1);
+        let error = TypeSubstitution::from_budgeted_entries(make_entries(&mut child), &mut child).unwrap_err();
+        assert!(matches!(error, super::AnalysisMapBuildError::Allocation(_)));
+        drop(child);
+        assert_eq!(parent.requested(), before, "failed uncommitted child leaves parent ledger unchanged");
     }
 }
 

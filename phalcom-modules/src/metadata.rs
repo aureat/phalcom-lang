@@ -4,6 +4,7 @@ use crate::error::InterfaceError;
 use crate::source::ModuleKind;
 use phalcom_ast::ast::{MetadataLiteral, ModuleMetadataAttribute as AstModuleMetadataAttribute};
 use phalcom_common::range::SourceRange;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::fmt;
 
 /// Semantic target of a module/package header attribute.
@@ -40,6 +41,49 @@ pub struct ModuleMetadata {
 }
 
 impl ModuleMetadata {
+    /// Clones retained metadata while charging its owned vectors and strings.
+    pub fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        fn clone_literal(value: &MetadataLiteral, allocations: &mut AllocationBudget) -> Result<MetadataLiteral, AllocationError> {
+            Ok(match value {
+                MetadataLiteral::Unit => MetadataLiteral::Unit,
+                MetadataLiteral::Bool(value) => MetadataLiteral::Bool(*value),
+                MetadataLiteral::Int(value) => MetadataLiteral::Int(allocations.string(value)?),
+                MetadataLiteral::Float(value) => MetadataLiteral::Float(*value),
+                MetadataLiteral::String(value) => MetadataLiteral::String(allocations.string(value)?),
+                MetadataLiteral::Symbol(value) => MetadataLiteral::Symbol(allocations.string(value)?),
+                MetadataLiteral::Tuple(values) => {
+                    let mut cloned = allocations.vector(values.len())?;
+                    for value in values {
+                        cloned.push(clone_literal(value, allocations)?);
+                    }
+                    MetadataLiteral::Tuple(cloned)
+                }
+                MetadataLiteral::Record(values) => {
+                    let mut cloned = allocations.vector(values.len())?;
+                    for (name, value) in values {
+                        cloned.push((allocations.string(name)?, clone_literal(value, allocations)?));
+                    }
+                    MetadataLiteral::Record(cloned)
+                }
+            })
+        }
+
+        let mut attributes = allocations.vector(self.attributes.len())?;
+        for attribute in &self.attributes {
+            let mut arguments = allocations.vector(attribute.arguments.len())?;
+            for argument in &attribute.arguments {
+                arguments.push(clone_literal(argument, allocations)?);
+            }
+            attributes.push(ModuleMetadataAttribute {
+                target: attribute.target,
+                name: allocations.string(&attribute.name)?,
+                arguments,
+                range: attribute.range,
+            });
+        }
+        Ok(Self { attributes })
+    }
+
     /// Validates and constructs `ModuleMetadata` from AST attributes for the given file kind.
     pub fn from_ast(ast_attrs: &[AstModuleMetadataAttribute], kind: ModuleKind) -> Result<Self, InterfaceError> {
         let target = match kind {

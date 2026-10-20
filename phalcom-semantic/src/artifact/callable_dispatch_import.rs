@@ -11,7 +11,7 @@ use super::type_import::ReconstructedTypeGraph;
 use super::witness_import::ImportedInherentSpecialization;
 use crate::dispatch::ConditionalDispatchSelection;
 use crate::identity::{BodyId, CallableId, ExpressionId, LocalExpressionId};
-use phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV1;
+use phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
 
@@ -66,7 +66,7 @@ impl ImportedCallableConditionalDispatchAuthority {
 }
 
 pub(crate) fn reconstruct_callable_conditional_dispatch(
-    records: &[CallableAnalysisRecordV1],
+    records: &[CallableAnalysisRecordV2],
     callables: &ImportedCallableAuthority,
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,

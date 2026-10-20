@@ -3,7 +3,7 @@
 use crate::data_semantics::DataInfo;
 use crate::enum_semantics::VariantInfo;
 use crate::field_key::FieldKey;
-use crate::identity::{DataComponentId, DataConstructorId, DeclarationId, VariantId};
+use crate::identity::{DataComponentId, DataConstructorId, VariantId};
 pub use crate::scalar::StaticInt;
 use crate::static_domain::StaticValueDomain;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
@@ -14,7 +14,53 @@ use crate::types::store::{TupleTypeElement, TypeData, TypeStore};
 use im::{HashMap, Vector};
 use num_bigint::BigInt;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Lazily allocated persistent-map overlay. Frozen artifact stores begin with
+/// no local interner roots; the first session-local insertion creates only the
+/// affected map.
+#[derive(Clone)]
+struct LazyHashMap<K, V>(Option<HashMap<K, V>>);
+
+impl<K, V> std::fmt::Debug for LazyHashMap<K, V> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("LazyHashMap(..)")
+    }
+}
+
+impl<K, V> Default for LazyHashMap<K, V> {
+    fn default() -> Self {
+        Self(None)
+    }
+}
+
+impl<K, V> LazyHashMap<K, V> {
+    fn get<Q: ?Sized>(&self, key: &Q) -> Option<&V>
+    where
+        K: std::borrow::Borrow<Q> + Hash + Eq,
+        Q: Hash + Eq,
+    {
+        self.0.as_ref().and_then(|map| map.get(key))
+    }
+
+    fn insert(&mut self, key: K, value: V) -> Option<V>
+    where
+        K: Hash + Eq + Clone,
+        V: Clone,
+    {
+        self.0.get_or_insert_with(HashMap::new).insert(key, value)
+    }
+
+    #[cfg(test)]
+    fn ptr_eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Some(left), Some(right)) => left.ptr_eq(right),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
 
 static NEXT_STATIC_VALUE_STORE_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -31,9 +77,14 @@ impl StaticValueStoreId {
 
 /// Index of a value within its allocating [`StaticValueStore`].
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct StaticValueId(u32);
+pub struct StaticValueId(pub u32);
 
 impl StaticValueId {
+    /// Creates a store-local index from raw value.
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
     /// Returns this value's store-local index.
     pub const fn raw(self) -> u32 {
         self.0
@@ -43,11 +94,16 @@ impl StaticValueId {
 /// Reference that remains meaningful across clones of one static-value store.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticValueRef {
-    store: StaticValueStoreId,
-    value: StaticValueId,
+    pub(crate) store: StaticValueStoreId,
+    pub(crate) value: StaticValueId,
 }
 
 impl StaticValueRef {
+    /// Creates a new static value reference.
+    pub const fn new(store: StaticValueStoreId, value: StaticValueId) -> Self {
+        Self { store, value }
+    }
+
     /// Returns the store lineage that owns this reference.
     pub const fn store_id(self) -> StaticValueStoreId {
         self.store
@@ -61,7 +117,7 @@ impl StaticValueRef {
 
 /// Store-local identity for interned UTF-8 string contents.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct StaticStringId(u32);
+pub struct StaticStringId(pub u32);
 
 impl StaticStringId {
     /// Returns the store-local string index.
@@ -72,7 +128,7 @@ impl StaticStringId {
 
 /// Store-local identity for an interned symbol spelling.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct StaticSymbolId(u32);
+pub struct StaticSymbolId(pub u32);
 
 impl StaticSymbolId {
     /// Returns the store-local symbol index.
@@ -84,7 +140,7 @@ impl StaticSymbolId {
 macro_rules! structural_id {
     ($name:ident) => {
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        pub struct $name(u32);
+        pub struct $name(pub u32);
         impl $name {
             /// Returns this store-local structural node index.
             pub const fn raw(self) -> u32 {
@@ -102,14 +158,14 @@ structural_id!(StaticVariantValueId);
 structural_id!(StaticPackBackingId);
 structural_id!(StaticPackId);
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticPackBacking {
     pub positionals: Box<[StaticValueRef]>,
     pub labels: Box<[StaticSymbolId]>,
     pub labeled_values: Box<[StaticValueRef]>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticPackData {
     pub backing: StaticPackBackingId,
     pub positional_start: u32,
@@ -118,25 +174,25 @@ pub struct StaticPackData {
     pub labeled_len: u32,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticRecordField {
     pub key: FieldKey,
     pub value: StaticValueRef,
 }
 
 /// Canonical family retained from a checked homogeneous sequence result type.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StaticSequenceFamily {
     Array,
     Vector,
 }
 
 /// Immutable homogeneous sequence value with its already-checked ordinary type.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticSequenceData {
-    family: StaticSequenceFamily,
-    result_type: TypeId,
-    elements: Box<[StaticValueRef]>,
+    pub family: StaticSequenceFamily,
+    pub result_type: TypeId,
+    pub elements: Box<[StaticValueRef]>,
 }
 
 impl StaticSequenceData {
@@ -156,7 +212,7 @@ impl StaticSequenceData {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticDataValue {
     pub owner: crate::identity::DeclarationId,
     pub constructor: DataConstructorId,
@@ -164,7 +220,7 @@ pub struct StaticDataValue {
     pub components: Box<[(DataComponentId, StaticValueRef)]>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticVariantValue {
     pub variant: VariantId,
     pub result_type: TypeId,
@@ -175,7 +231,7 @@ pub struct StaticVariantValue {
 ///
 /// Equality and hashing on this wrapper describe representation identity.
 /// Use [`static_float_eq`] and [`static_float_hash`] for Telos Float semantics.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticFloat {
     bits: u64,
 }
@@ -203,7 +259,7 @@ impl StaticFloat {
 }
 
 /// Canonical semantic value node. Float `Eq`/`Hash` here preserve representation bits.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StaticValueData {
     /// The sole unit value.
     Unit,
@@ -299,6 +355,90 @@ pub enum StaticValueStoreError {
     SequenceExtentMismatch { extent: StaticInt, actual: usize },
 }
 
+/// Frozen immutable prefix for StaticValueStore loaded from a compiler artifact.
+#[derive(Debug)]
+pub struct FrozenStaticValuePrefix {
+    pub id: StaticValueStoreId,
+    pub values: Box<[StaticValueData]>,
+    pub value_to_id: Box<[StaticValueId]>,
+    pub strings: Box<[Box<str>]>,
+    pub string_to_id: Box<[StaticStringId]>,
+    pub symbols: Box<[Box<str>]>,
+    pub symbol_to_id: Box<[StaticSymbolId]>,
+    pub tuples: Box<[Box<[StaticValueRef]>]>,
+    pub tuple_to_id: Box<[StaticTupleId]>,
+    pub sequences: Box<[StaticSequenceData]>,
+    pub sequence_to_id: Box<[StaticSequenceId]>,
+    pub records: Box<[Box<[StaticRecordField]>]>,
+    pub record_to_id: Box<[StaticRecordId]>,
+    pub data_values: Box<[StaticDataValue]>,
+    pub data_value_to_id: Box<[StaticDataValueId]>,
+    pub variant_values: Box<[StaticVariantValue]>,
+    pub variant_value_to_id: Box<[StaticVariantValueId]>,
+    pub pack_backings: Box<[StaticPackBacking]>,
+    pub pack_backing_to_id: Box<[StaticPackBackingId]>,
+    pub packs: Box<[StaticPackData]>,
+    pub pack_to_id: Box<[StaticPackId]>,
+}
+
+impl FrozenStaticValuePrefix {
+    pub fn find_value(&self, data: &StaticValueData) -> Option<StaticValueId> {
+        let idx = self.value_to_id.binary_search_by(|&id| self.values[id.0 as usize].cmp(data)).ok()?;
+        Some(self.value_to_id[idx])
+    }
+
+    pub fn find_string(&self, data: &str) -> Option<StaticStringId> {
+        let idx = self.string_to_id.binary_search_by(|&id| self.strings[id.0 as usize].as_ref().cmp(data)).ok()?;
+        Some(self.string_to_id[idx])
+    }
+
+    pub fn find_symbol(&self, data: &str) -> Option<StaticSymbolId> {
+        let idx = self.symbol_to_id.binary_search_by(|&id| self.symbols[id.0 as usize].as_ref().cmp(data)).ok()?;
+        Some(self.symbol_to_id[idx])
+    }
+
+    pub fn find_tuple(&self, data: &[StaticValueRef]) -> Option<StaticTupleId> {
+        let idx = self.tuple_to_id.binary_search_by(|&id| self.tuples[id.0 as usize].as_ref().cmp(data)).ok()?;
+        Some(self.tuple_to_id[idx])
+    }
+
+    pub fn find_sequence(&self, data: &StaticSequenceData) -> Option<StaticSequenceId> {
+        let idx = self.sequence_to_id.binary_search_by(|&id| self.sequences[id.0 as usize].cmp(data)).ok()?;
+        Some(self.sequence_to_id[idx])
+    }
+
+    pub fn find_record(&self, data: &[StaticRecordField]) -> Option<StaticRecordId> {
+        let idx = self.record_to_id.binary_search_by(|&id| self.records[id.0 as usize].as_ref().cmp(data)).ok()?;
+        Some(self.record_to_id[idx])
+    }
+
+    pub fn find_data_value(&self, data: &StaticDataValue) -> Option<StaticDataValueId> {
+        let idx = self.data_value_to_id.binary_search_by(|&id| self.data_values[id.0 as usize].cmp(data)).ok()?;
+        Some(self.data_value_to_id[idx])
+    }
+
+    pub fn find_variant_value(&self, data: &StaticVariantValue) -> Option<StaticVariantValueId> {
+        let idx = self
+            .variant_value_to_id
+            .binary_search_by(|&id| self.variant_values[id.0 as usize].cmp(data))
+            .ok()?;
+        Some(self.variant_value_to_id[idx])
+    }
+
+    pub fn find_pack_backing(&self, data: &StaticPackBacking) -> Option<StaticPackBackingId> {
+        let idx = self
+            .pack_backing_to_id
+            .binary_search_by(|&id| self.pack_backings[id.0 as usize].cmp(data))
+            .ok()?;
+        Some(self.pack_backing_to_id[idx])
+    }
+
+    pub fn find_pack(&self, data: &StaticPackData) -> Option<StaticPackId> {
+        let idx = self.pack_to_id.binary_search_by(|&id| self.packs[id.0 as usize].cmp(data)).ok()?;
+        Some(self.pack_to_id[idx])
+    }
+}
+
 /// Append-only canonical arena for semantic compile-time values.
 ///
 /// Cloning the store preserves its identity and all existing indices, matching
@@ -306,26 +446,27 @@ pub enum StaticValueStoreError {
 #[derive(Clone, Debug)]
 pub struct StaticValueStore {
     id: StaticValueStoreId,
+    frozen: Option<Arc<FrozenStaticValuePrefix>>,
     values: Vector<StaticValueData>,
-    interner: HashMap<StaticValueData, StaticValueId>,
+    interner: LazyHashMap<StaticValueData, StaticValueId>,
     strings: Vector<Box<str>>,
-    string_ids: HashMap<Box<str>, StaticStringId>,
+    string_ids: LazyHashMap<Box<str>, StaticStringId>,
     symbols: Vector<Box<str>>,
-    symbol_ids: HashMap<Box<str>, StaticSymbolId>,
+    symbol_ids: LazyHashMap<Box<str>, StaticSymbolId>,
     tuples: Vector<Box<[StaticValueRef]>>,
-    tuple_ids: HashMap<Box<[StaticValueRef]>, StaticTupleId>,
+    tuple_ids: LazyHashMap<Box<[StaticValueRef]>, StaticTupleId>,
     sequences: Vector<StaticSequenceData>,
-    sequence_ids: HashMap<StaticSequenceData, StaticSequenceId>,
+    sequence_ids: LazyHashMap<StaticSequenceData, StaticSequenceId>,
     records: Vector<Box<[StaticRecordField]>>,
-    record_ids: HashMap<Box<[StaticRecordField]>, StaticRecordId>,
+    record_ids: LazyHashMap<Box<[StaticRecordField]>, StaticRecordId>,
     data_values: Vector<StaticDataValue>,
-    data_value_ids: HashMap<StaticDataValue, StaticDataValueId>,
+    data_value_ids: LazyHashMap<StaticDataValue, StaticDataValueId>,
     variant_values: Vector<StaticVariantValue>,
-    variant_value_ids: HashMap<StaticVariantValue, StaticVariantValueId>,
+    variant_value_ids: LazyHashMap<StaticVariantValue, StaticVariantValueId>,
     pack_backings: Vector<StaticPackBacking>,
-    pack_backing_ids: HashMap<StaticPackBacking, StaticPackBackingId>,
+    pack_backing_ids: LazyHashMap<StaticPackBacking, StaticPackBackingId>,
     packs: Vector<StaticPackData>,
-    pack_ids: HashMap<StaticPackData, StaticPackId>,
+    pack_ids: LazyHashMap<StaticPackData, StaticPackId>,
 }
 
 impl Default for StaticValueStore {
@@ -335,31 +476,99 @@ impl Default for StaticValueStore {
 }
 
 impl StaticValueStore {
+    pub fn fresh_id() -> StaticValueStoreId {
+        StaticValueStoreId(NEXT_STATIC_VALUE_STORE_ID.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// Validates all indices of a retained immutable root in this lineage.
+    /// Equal store IDs alone do not prove that two independently extended forks
+    /// contain the same values at a canonical index.
+    pub fn extends_canonical_prefix(&self, prefix: &Self) -> bool {
+        (self.id == prefix.id || self.frozen.as_ref().map_or(false, |f| f.id == prefix.id))
+            && self.value_count() >= prefix.value_count()
+            && (0..prefix.value_count()).all(|i| self.get_value(StaticValueId(i as u32)) == prefix.get_value(StaticValueId(i as u32)))
+            && self.string_count() >= prefix.string_count()
+            && (0..prefix.string_count()).all(|i| self.get_string(StaticStringId(i as u32)) == prefix.get_string(StaticStringId(i as u32)))
+            && self.symbol_count() >= prefix.symbol_count()
+            && (0..prefix.symbol_count()).all(|i| self.get_symbol(StaticSymbolId(i as u32)) == prefix.get_symbol(StaticSymbolId(i as u32)))
+            && self.tuple_count() >= prefix.tuple_count()
+            && (0..prefix.tuple_count()).all(|i| self.get_tuple(StaticTupleId(i as u32)) == prefix.get_tuple(StaticTupleId(i as u32)))
+            && self.sequence_count() >= prefix.sequence_count()
+            && (0..prefix.sequence_count()).all(|i| self.get_sequence(StaticSequenceId(i as u32)) == prefix.get_sequence(StaticSequenceId(i as u32)))
+            && self.record_count() >= prefix.record_count()
+            && (0..prefix.record_count()).all(|i| self.get_record(StaticRecordId(i as u32)) == prefix.get_record(StaticRecordId(i as u32)))
+            && self.data_value_count() >= prefix.data_value_count()
+            && (0..prefix.data_value_count()).all(|i| self.get_data(StaticDataValueId(i as u32)) == prefix.get_data(StaticDataValueId(i as u32)))
+            && self.variant_value_count() >= prefix.variant_value_count()
+            && (0..prefix.variant_value_count()).all(|i| self.get_variant(StaticVariantValueId(i as u32)) == prefix.get_variant(StaticVariantValueId(i as u32)))
+            && self.pack_backing_count() >= prefix.pack_backing_count()
+            && (0..prefix.pack_backing_count())
+                .all(|i| self.get_pack_backing(StaticPackBackingId(i as u32)) == prefix.get_pack_backing(StaticPackBackingId(i as u32)))
+            && self.pack_count() >= prefix.pack_count()
+            && (0..prefix.pack_count()).all(|i| self.get_pack_data(StaticPackId(i as u32)) == prefix.get_pack_data(StaticPackId(i as u32)))
+    }
+
     /// Creates a fresh store lineage.
     pub fn new() -> Self {
         Self {
-            id: StaticValueStoreId(NEXT_STATIC_VALUE_STORE_ID.fetch_add(1, Ordering::Relaxed)),
+            id: Self::fresh_id(),
+            frozen: None,
             values: Vector::new(),
-            interner: HashMap::new(),
+            interner: LazyHashMap::default(),
             strings: Vector::new(),
-            string_ids: HashMap::new(),
+            string_ids: LazyHashMap::default(),
             symbols: Vector::new(),
-            symbol_ids: HashMap::new(),
+            symbol_ids: LazyHashMap::default(),
             tuples: Vector::new(),
-            tuple_ids: HashMap::new(),
+            tuple_ids: LazyHashMap::default(),
             sequences: Vector::new(),
-            sequence_ids: HashMap::new(),
+            sequence_ids: LazyHashMap::default(),
             records: Vector::new(),
-            record_ids: HashMap::new(),
+            record_ids: LazyHashMap::default(),
             data_values: Vector::new(),
-            data_value_ids: HashMap::new(),
+            data_value_ids: LazyHashMap::default(),
             variant_values: Vector::new(),
-            variant_value_ids: HashMap::new(),
+            variant_value_ids: LazyHashMap::default(),
             pack_backings: Vector::new(),
-            pack_backing_ids: HashMap::new(),
+            pack_backing_ids: LazyHashMap::default(),
             packs: Vector::new(),
-            pack_ids: HashMap::new(),
+            pack_ids: LazyHashMap::default(),
         }
+    }
+
+    /// Initializes a store from a frozen immutable prefix.
+    pub fn from_frozen(prefix: Arc<FrozenStaticValuePrefix>) -> Self {
+        Self {
+            id: prefix.id,
+            frozen: Some(prefix),
+            values: Vector::new(),
+            interner: LazyHashMap::default(),
+            strings: Vector::new(),
+            string_ids: LazyHashMap::default(),
+            symbols: Vector::new(),
+            symbol_ids: LazyHashMap::default(),
+            tuples: Vector::new(),
+            tuple_ids: LazyHashMap::default(),
+            sequences: Vector::new(),
+            sequence_ids: LazyHashMap::default(),
+            records: Vector::new(),
+            record_ids: LazyHashMap::default(),
+            data_values: Vector::new(),
+            data_value_ids: LazyHashMap::default(),
+            variant_values: Vector::new(),
+            variant_value_ids: LazyHashMap::default(),
+            pack_backings: Vector::new(),
+            pack_backing_ids: LazyHashMap::default(),
+            packs: Vector::new(),
+            pack_ids: LazyHashMap::default(),
+        }
+    }
+
+    /// Create a fork from a canonical prefix.
+    pub fn fork_from_baseline(&self) -> Self {
+        let mut fork = self.clone();
+        fork.id = Self::fresh_id();
+        fork
     }
 
     /// Returns this store's lineage identity.
@@ -367,14 +576,74 @@ impl StaticValueStore {
         self.id
     }
 
+    #[inline]
+    pub fn value_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.values.len());
+        frozen_len + self.values.len()
+    }
+
+    #[inline]
+    pub fn string_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.strings.len());
+        frozen_len + self.strings.len()
+    }
+
+    #[inline]
+    pub fn symbol_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.symbols.len());
+        frozen_len + self.symbols.len()
+    }
+
+    #[inline]
+    pub fn tuple_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.tuples.len());
+        frozen_len + self.tuples.len()
+    }
+
+    #[inline]
+    pub fn sequence_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.sequences.len());
+        frozen_len + self.sequences.len()
+    }
+
+    #[inline]
+    pub fn record_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.records.len());
+        frozen_len + self.records.len()
+    }
+
+    #[inline]
+    pub fn data_value_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.data_values.len());
+        frozen_len + self.data_values.len()
+    }
+
+    #[inline]
+    pub fn variant_value_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.variant_values.len());
+        frozen_len + self.variant_values.len()
+    }
+
+    #[inline]
+    pub fn pack_backing_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.pack_backings.len());
+        frozen_len + self.pack_backings.len()
+    }
+
+    #[inline]
+    pub fn pack_count(&self) -> usize {
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.packs.len());
+        frozen_len + self.packs.len()
+    }
+
     /// Returns the number of interned value nodes.
     pub fn len(&self) -> usize {
-        self.values.len()
+        self.value_count()
     }
 
     /// Returns whether this store has no interned value nodes.
     pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
+        self.value_count() == 0
     }
 
     /// Interns and returns the unit value.
@@ -405,10 +674,13 @@ impl StaticValueStore {
     /// Interns UTF-8 string contents by value.
     pub fn intern_string(&mut self, value: impl AsRef<str>) -> StaticValueRef {
         let text = value.as_ref();
-        let id = if let Some(id) = self.string_ids.get(text) {
-            *id
+        let id = if let Some(&id) = self.string_ids.get(text) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_string(text)) {
+            id
         } else {
-            let id = StaticStringId(self.strings.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.strings.len());
+            let id = StaticStringId((frozen_len + self.strings.len()) as u32);
             let text: Box<str> = text.into();
             self.strings.push_back(text.clone());
             self.string_ids.insert(text, id);
@@ -420,10 +692,13 @@ impl StaticValueStore {
     /// Interns a symbol spelling and returns its store-local `StaticSymbolId`.
     pub fn intern_symbol_id(&mut self, spelling: impl AsRef<str>) -> StaticSymbolId {
         let text = spelling.as_ref();
-        if let Some(id) = self.symbol_ids.get(text) {
-            *id
+        if let Some(&id) = self.symbol_ids.get(text) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_symbol(text)) {
+            id
         } else {
-            let id = StaticSymbolId(self.symbols.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.symbols.len());
+            let id = StaticSymbolId((frozen_len + self.symbols.len()) as u32);
             let text: Box<str> = text.into();
             self.symbols.push_back(text.clone());
             self.symbol_ids.insert(text, id);
@@ -445,10 +720,13 @@ impl StaticValueStore {
         }
         self.check_children(elements.iter().copied())?;
         let elements = elements.into_boxed_slice();
-        let id = if let Some(id) = self.tuple_ids.get(elements.as_ref()) {
-            *id
+        let id = if let Some(&id) = self.tuple_ids.get(elements.as_ref()) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_tuple(&elements)) {
+            id
         } else {
-            let id = StaticTupleId(self.tuples.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.tuples.len());
+            let id = StaticTupleId((frozen_len + self.tuples.len()) as u32);
             self.tuples.push_back(elements.clone());
             self.tuple_ids.insert(elements, id);
             id
@@ -543,10 +821,13 @@ impl StaticValueStore {
             result_type,
             elements: elements.into_boxed_slice(),
         };
-        let id = if let Some(id) = self.sequence_ids.get(&node) {
-            *id
+        let id = if let Some(&id) = self.sequence_ids.get(&node) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_sequence(&node)) {
+            id
         } else {
-            let id = StaticSequenceId(self.sequences.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.sequences.len());
+            let id = StaticSequenceId((frozen_len + self.sequences.len()) as u32);
             self.sequences.push_back(node.clone());
             self.sequence_ids.insert(node, id);
             id
@@ -556,30 +837,79 @@ impl StaticValueStore {
 
     /// Looks up immutable homogeneous sequence data.
     pub fn get_sequence(&self, id: StaticSequenceId) -> Result<&StaticSequenceData, StaticValueStoreError> {
-        self.sequences.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))
+        let index = id.0 as usize;
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.sequences.len() {
+                return Ok(&frozen.sequences[index]);
+            }
+            self.sequences
+                .get(index - frozen.sequences.len())
+                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+        } else {
+            self.sequences.get(index).ok_or(StaticValueStoreError::UnknownValue(id.0))
+        }
     }
 
     /// Looks up the ordered children of an immutable positional tuple.
     pub fn get_tuple(&self, id: StaticTupleId) -> Result<&[StaticValueRef], StaticValueStoreError> {
-        self.tuples.get(id.0 as usize).map(Box::as_ref).ok_or(StaticValueStoreError::UnknownValue(id.0))
+        let index = id.0 as usize;
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.tuples.len() {
+                return Ok(&frozen.tuples[index]);
+            }
+            self.tuples
+                .get(index - frozen.tuples.len())
+                .map(Box::as_ref)
+                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+        } else {
+            self.tuples.get(index).map(Box::as_ref).ok_or(StaticValueStoreError::UnknownValue(id.0))
+        }
     }
 
     /// Looks up the ordered fields of an immutable record.
     pub fn get_record(&self, id: StaticRecordId) -> Result<&[StaticRecordField], StaticValueStoreError> {
-        self.records
-            .get(id.0 as usize)
-            .map(Box::as_ref)
-            .ok_or(StaticValueStoreError::UnknownValue(id.0))
+        let index = id.0 as usize;
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.records.len() {
+                return Ok(&frozen.records[index]);
+            }
+            self.records
+                .get(index - frozen.records.len())
+                .map(Box::as_ref)
+                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+        } else {
+            self.records.get(index).map(Box::as_ref).ok_or(StaticValueStoreError::UnknownValue(id.0))
+        }
     }
 
     /// Looks up the components and metadata of an interned data value.
     pub fn get_data(&self, id: StaticDataValueId) -> Result<&StaticDataValue, StaticValueStoreError> {
-        self.data_values.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))
+        let index = id.0 as usize;
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.data_values.len() {
+                return Ok(&frozen.data_values[index]);
+            }
+            self.data_values
+                .get(index - frozen.data_values.len())
+                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+        } else {
+            self.data_values.get(index).ok_or(StaticValueStoreError::UnknownValue(id.0))
+        }
     }
 
     /// Looks up the fields and metadata of an interned variant value.
     pub fn get_variant(&self, id: StaticVariantValueId) -> Result<&StaticVariantValue, StaticValueStoreError> {
-        self.variant_values.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))
+        let index = id.0 as usize;
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.variant_values.len() {
+                return Ok(&frozen.variant_values[index]);
+            }
+            self.variant_values
+                .get(index - frozen.variant_values.len())
+                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+        } else {
+            self.variant_values.get(index).ok_or(StaticValueStoreError::UnknownValue(id.0))
+        }
     }
 
     /// Interns a closed Record with canonical FieldKey ordering and exact duplicate rejection.
@@ -593,10 +923,13 @@ impl StaticValueStore {
             }
         }
         let fields = fields.into_boxed_slice();
-        let id = if let Some(id) = self.record_ids.get(fields.as_ref()) {
-            *id
+        let id = if let Some(&id) = self.record_ids.get(fields.as_ref()) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_record(&fields)) {
+            id
         } else {
-            let id = StaticRecordId(self.records.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.records.len());
+            let id = StaticRecordId((frozen_len + self.records.len()) as u32);
             self.records.push_back(fields.clone());
             self.record_ids.insert(fields, id);
             id
@@ -633,10 +966,13 @@ impl StaticValueStore {
             labeled_values: labeled_values.into_boxed_slice(),
         };
 
-        let backing_id = if let Some(id) = self.pack_backing_ids.get(&backing_node) {
-            *id
+        let backing_id = if let Some(&id) = self.pack_backing_ids.get(&backing_node) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_pack_backing(&backing_node)) {
+            id
         } else {
-            let id = StaticPackBackingId(self.pack_backings.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.pack_backings.len());
+            let id = StaticPackBackingId((frozen_len + self.pack_backings.len()) as u32);
             self.pack_backings.push_back(backing_node.clone());
             self.pack_backing_ids.insert(backing_node, id);
             id
@@ -650,10 +986,13 @@ impl StaticValueStore {
             labeled_len: lab_len,
         };
 
-        let pack_id = if let Some(id) = self.pack_ids.get(&pack_data) {
-            *id
+        let pack_id = if let Some(&id) = self.pack_ids.get(&pack_data) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_pack(&pack_data)) {
+            id
         } else {
-            let id = StaticPackId(self.packs.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.packs.len());
+            let id = StaticPackId((frozen_len + self.packs.len()) as u32);
             self.packs.push_back(pack_data);
             self.pack_ids.insert(pack_data, id);
             id
@@ -675,7 +1014,7 @@ impl StaticValueStore {
             StaticValueData::Pack(id) => id,
             _ => return Err(StaticValueStoreError::InvalidPackSliceRange),
         };
-        let pack_data = *self.packs.get(pack_id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(pack_id.0))?;
+        let pack_data = *self.get_pack_data(pack_id)?;
 
         if pos_offset.checked_add(pos_len).ok_or(StaticValueStoreError::InvalidPackSliceRange)? > pack_data.positional_len
             || lab_offset.checked_add(lab_len).ok_or(StaticValueStoreError::InvalidPackSliceRange)? > pack_data.labeled_len
@@ -694,10 +1033,13 @@ impl StaticValueStore {
             labeled_len: lab_len,
         };
 
-        let id = if let Some(id) = self.pack_ids.get(&new_pack_data) {
-            *id
+        let id = if let Some(&id) = self.pack_ids.get(&new_pack_data) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_pack(&new_pack_data)) {
+            id
         } else {
-            let id = StaticPackId(self.packs.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.packs.len());
+            let id = StaticPackId((frozen_len + self.packs.len()) as u32);
             self.packs.push_back(new_pack_data);
             self.pack_ids.insert(new_pack_data, id);
             id
@@ -706,13 +1048,38 @@ impl StaticValueStore {
         Ok(self.intern(StaticValueData::Pack(id)))
     }
 
+    /// Looks up a pack's backing.
+    pub fn get_pack_backing(&self, id: StaticPackBackingId) -> Result<&StaticPackBacking, StaticValueStoreError> {
+        let index = id.0 as usize;
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.pack_backings.len() {
+                return Ok(&frozen.pack_backings[index]);
+            }
+            self.pack_backings
+                .get(index - frozen.pack_backings.len())
+                .ok_or(StaticValueStoreError::UnknownValue(id.0))
+        } else {
+            self.pack_backings.get(index).ok_or(StaticValueStoreError::UnknownValue(id.0))
+        }
+    }
+
+    /// Looks up a pack's slice descriptor.
+    pub fn get_pack_data(&self, id: StaticPackId) -> Result<&StaticPackData, StaticValueStoreError> {
+        let index = id.0 as usize;
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.packs.len() {
+                return Ok(&frozen.packs[index]);
+            }
+            self.packs.get(index - frozen.packs.len()).ok_or(StaticValueStoreError::UnknownValue(id.0))
+        } else {
+            self.packs.get(index).ok_or(StaticValueStoreError::UnknownValue(id.0))
+        }
+    }
+
     /// Looks up a pack's slice descriptor and backing.
     pub fn get_pack(&self, id: StaticPackId) -> Result<(&StaticPackData, &StaticPackBacking), StaticValueStoreError> {
-        let pack_data = self.packs.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?;
-        let backing = self
-            .pack_backings
-            .get(pack_data.backing.0 as usize)
-            .ok_or(StaticValueStoreError::UnknownValue(pack_data.backing.0))?;
+        let pack_data = self.get_pack_data(id)?;
+        let backing = self.get_pack_backing(pack_data.backing)?;
         Ok((pack_data, backing))
     }
 
@@ -796,10 +1163,13 @@ impl StaticValueStore {
             result_type,
             components: ordered.into_boxed_slice(),
         };
-        let id = if let Some(id) = self.data_value_ids.get(&node) {
-            *id
+        let id = if let Some(&id) = self.data_value_ids.get(&node) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_data_value(&node)) {
+            id
         } else {
-            let id = StaticDataValueId(self.data_values.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.data_values.len());
+            let id = StaticDataValueId((frozen_len + self.data_values.len()) as u32);
             self.data_values.push_back(node.clone());
             self.data_value_ids.insert(node, id);
             id
@@ -844,10 +1214,13 @@ impl StaticValueStore {
             result_type,
             fields: ordered.into_boxed_slice(),
         };
-        let id = if let Some(id) = self.variant_value_ids.get(&node) {
-            *id
+        let id = if let Some(&id) = self.variant_value_ids.get(&node) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_variant_value(&node)) {
+            id
         } else {
-            let id = StaticVariantValueId(self.variant_values.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.variant_values.len());
+            let id = StaticVariantValueId((frozen_len + self.variant_values.len()) as u32);
             self.variant_values.push_back(node.clone());
             self.variant_value_ids.insert(node, id);
             id
@@ -858,7 +1231,7 @@ impl StaticValueStore {
     /// Interns a data value reconstructed from durable metadata without re-checking declaration tables.
     pub fn intern_data_reconstructed(
         &mut self,
-        owner: DeclarationId,
+        owner: crate::identity::DeclarationId,
         constructor: crate::identity::DataConstructorId,
         result_type: TypeId,
         components: Vec<(crate::identity::DataComponentId, StaticValueRef)>,
@@ -870,10 +1243,13 @@ impl StaticValueStore {
             result_type,
             components: components.into_boxed_slice(),
         };
-        let id = if let Some(id) = self.data_value_ids.get(&node) {
-            *id
+        let id = if let Some(&id) = self.data_value_ids.get(&node) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_data_value(&node)) {
+            id
         } else {
-            let id = StaticDataValueId(self.data_values.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.data_values.len());
+            let id = StaticDataValueId((frozen_len + self.data_values.len()) as u32);
             self.data_values.push_back(node.clone());
             self.data_value_ids.insert(node, id);
             id
@@ -894,10 +1270,13 @@ impl StaticValueStore {
             result_type,
             fields: fields.into_boxed_slice(),
         };
-        let id = if let Some(id) = self.variant_value_ids.get(&node) {
-            *id
+        let id = if let Some(&id) = self.variant_value_ids.get(&node) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_variant_value(&node)) {
+            id
         } else {
-            let id = StaticVariantValueId(self.variant_values.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.variant_values.len());
+            let id = StaticVariantValueId((frozen_len + self.variant_values.len()) as u32);
             self.variant_values.push_back(node.clone());
             self.variant_value_ids.insert(node, id);
             id
@@ -928,7 +1307,7 @@ impl StaticValueStore {
                 ty
             }
             StaticValueData::Tuple(id) => {
-                let children = self.tuples.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
+                let children = self.get_tuple(id)?.to_vec();
                 let elements = children
                     .iter()
                     .map(|child| self.static_value_type(*child, types, data, enums).map(TupleTypeElement::unlabeled))
@@ -947,7 +1326,7 @@ impl StaticValueStore {
                 sequence.result_type
             }
             StaticValueData::Record(id) => {
-                let fields = self.records.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
+                let fields = self.get_record(id)?.to_vec();
                 let fields = fields
                     .iter()
                     .map(|field| {
@@ -960,7 +1339,7 @@ impl StaticValueStore {
                     .map_err(|_| StaticValueStoreError::InvalidRecordType)?
             }
             StaticValueData::Data(id) => {
-                let node = self.data_values.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?;
+                let node = self.get_data(id)?;
                 let info = data.data_info(&node.owner).ok_or(StaticValueStoreError::InvalidDataIdentity)?;
                 if info.owner != node.owner
                     || info.constructor.constructor != node.constructor
@@ -977,7 +1356,7 @@ impl StaticValueStore {
                 node.result_type
             }
             StaticValueData::Variant(id) => {
-                let node = self.variant_values.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?;
+                let node = self.get_variant(id)?;
                 let info = enums.variant_info(&node.variant).ok_or(StaticValueStoreError::InvalidVariantPayload)?;
                 if info.id != node.variant
                     || info.fields.len() != node.fields.len()
@@ -1029,19 +1408,46 @@ impl StaticValueStore {
     /// Looks up a value, rejecting refs from another store lineage.
     pub fn get(&self, reference: StaticValueRef) -> Result<&StaticValueData, StaticValueStoreError> {
         self.check_store(reference)?;
-        self.values
-            .get(reference.value.0 as usize)
-            .ok_or(StaticValueStoreError::UnknownValue(reference.value.0))
+        self.get_value(reference.value).ok_or(StaticValueStoreError::UnknownValue(reference.value.0))
+    }
+
+    /// Looks up value data by id.
+    pub fn get_value(&self, id: StaticValueId) -> Option<&StaticValueData> {
+        let index = id.0 as usize;
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.values.len() {
+                return Some(&frozen.values[index]);
+            }
+            self.values.get(index - frozen.values.len())
+        } else {
+            self.values.get(index)
+        }
     }
 
     /// Looks up interned string contents by id.
     pub fn get_string(&self, id: StaticStringId) -> Option<&str> {
-        self.strings.get(id.0 as usize).map(|s| s.as_ref())
+        let index = id.0 as usize;
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.strings.len() {
+                return Some(&frozen.strings[index]);
+            }
+            self.strings.get(index - frozen.strings.len()).map(|s| s.as_ref())
+        } else {
+            self.strings.get(index).map(|s| s.as_ref())
+        }
     }
 
     /// Looks up interned symbol spelling by id.
     pub fn get_symbol(&self, id: StaticSymbolId) -> Option<&str> {
-        self.symbols.get(id.0 as usize).map(|s| s.as_ref())
+        let index = id.0 as usize;
+        if let Some(frozen) = &self.frozen {
+            if index < frozen.symbols.len() {
+                return Some(&frozen.symbols[index]);
+            }
+            self.symbols.get(index - frozen.symbols.len()).map(|s| s.as_ref())
+        } else {
+            self.symbols.get(index).map(|s| s.as_ref())
+        }
     }
 
     /// Converts a reduced static value into an owned canonical Record key.
@@ -1093,12 +1499,12 @@ impl StaticValueStore {
             (StaticValueData::Char(a), StaticValueData::Char(b)) => a == b,
             (StaticValueData::Int(a), StaticValueData::Int(b)) => a.to_bigint() == b.to_bigint(),
             (StaticValueData::Float(a), StaticValueData::Float(b)) => static_float_eq(a, b),
-            (StaticValueData::String(a), StaticValueData::String(b)) => self.strings.get(a.0 as usize) == self.strings.get(b.0 as usize),
-            (StaticValueData::Symbol(a), StaticValueData::Symbol(b)) => self.symbols.get(a.0 as usize) == self.symbols.get(b.0 as usize),
+            (StaticValueData::String(a), StaticValueData::String(b)) => self.get_string(*a) == self.get_string(*b),
+            (StaticValueData::Symbol(a), StaticValueData::Symbol(b)) => self.get_symbol(*a) == self.get_symbol(*b),
             (StaticValueData::Type(a), StaticValueData::Type(b)) | (StaticValueData::StaticTerm(a), StaticValueData::StaticTerm(b)) => a == b,
             (StaticValueData::Tuple(a), StaticValueData::Tuple(b)) => {
-                let left = self.tuples.get(a.0 as usize).ok_or(StaticValueStoreError::UnknownValue(a.0))?;
-                let right = self.tuples.get(b.0 as usize).ok_or(StaticValueStoreError::UnknownValue(b.0))?;
+                let left = self.get_tuple(*a)?;
+                let right = self.get_tuple(*b)?;
                 left.len() == right.len()
                     && left
                         .iter()
@@ -1117,16 +1523,16 @@ impl StaticValueStore {
                         .try_fold(true, |same, (a, b)| Ok::<_, StaticValueStoreError>(same && self.semantic_eq(*a, *b)?))?
             }
             (StaticValueData::Record(a), StaticValueData::Record(b)) => {
-                let left = self.records.get(a.0 as usize).ok_or(StaticValueStoreError::UnknownValue(a.0))?;
-                let right = self.records.get(b.0 as usize).ok_or(StaticValueStoreError::UnknownValue(b.0))?;
+                let left = self.get_record(*a)?;
+                let right = self.get_record(*b)?;
                 left.len() == right.len()
                     && left.iter().zip(right.iter()).try_fold(true, |same, (a, b)| {
                         Ok::<_, StaticValueStoreError>(same && a.key == b.key && self.semantic_eq(a.value, b.value)?)
                     })?
             }
             (StaticValueData::Data(a), StaticValueData::Data(b)) => {
-                let a = self.data_values.get(a.0 as usize).ok_or(StaticValueStoreError::UnknownValue(a.0))?;
-                let b = self.data_values.get(b.0 as usize).ok_or(StaticValueStoreError::UnknownValue(b.0))?;
+                let a = self.get_data(*a)?;
+                let b = self.get_data(*b)?;
                 a.owner == b.owner
                     && a.constructor == b.constructor
                     && a.result_type == b.result_type
@@ -1136,8 +1542,8 @@ impl StaticValueStore {
                     })?
             }
             (StaticValueData::Variant(a), StaticValueData::Variant(b)) => {
-                let a = self.variant_values.get(a.0 as usize).ok_or(StaticValueStoreError::UnknownValue(a.0))?;
-                let b = self.variant_values.get(b.0 as usize).ok_or(StaticValueStoreError::UnknownValue(b.0))?;
+                let a = self.get_variant(*a)?;
+                let b = self.get_variant(*b)?;
                 a.variant == b.variant
                     && a.result_type == b.result_type
                     && a.fields.len() == b.fields.len()
@@ -1198,11 +1604,13 @@ impl StaticValueStore {
             }
             StaticValueData::String(id) => {
                 hash.byte(4);
-                hash.bytes(self.strings[id.0 as usize].as_bytes());
+                let s = self.get_string(*id).ok_or(StaticValueStoreError::UnknownValue(id.0))?;
+                hash.bytes(s.as_bytes());
             }
             StaticValueData::Symbol(id) => {
                 hash.byte(5);
-                hash.bytes(self.symbols[id.0 as usize].as_bytes());
+                let s = self.get_symbol(*id).ok_or(StaticValueStoreError::UnknownValue(id.0))?;
+                hash.bytes(s.as_bytes());
             }
             StaticValueData::Type(ty) => {
                 hash.byte(6);
@@ -1214,7 +1622,7 @@ impl StaticValueStore {
             }
             StaticValueData::Tuple(id) => {
                 hash.byte(8);
-                let children = self.tuples.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
+                let children = self.get_tuple(*id)?;
                 hash.u64(children.len() as u64);
                 for child in children.iter() {
                     hash.u64(self.content_fingerprint(*child)?);
@@ -1231,7 +1639,7 @@ impl StaticValueStore {
             }
             StaticValueData::Record(id) => {
                 hash.byte(9);
-                let fields = self.records.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
+                let fields = self.get_record(*id)?;
                 hash.u64(fields.len() as u64);
                 for field in fields.iter() {
                     hash.bytes(&field.key.stable_fingerprint_bytes());
@@ -1240,7 +1648,7 @@ impl StaticValueStore {
             }
             StaticValueData::Data(id) => {
                 hash.byte(10);
-                let node = self.data_values.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
+                let node = self.get_data(*id)?;
                 node.owner.hash(&mut hash);
                 node.constructor.hash(&mut hash);
                 hash.u32(node.result_type.0);
@@ -1251,7 +1659,7 @@ impl StaticValueStore {
             }
             StaticValueData::Variant(id) => {
                 hash.byte(11);
-                let node = self.variant_values.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
+                let node = self.get_variant(*id)?;
                 node.variant.hash(&mut hash);
                 hash.u32(node.result_type.0);
                 for (field, value) in node.fields.iter() {
@@ -1302,11 +1710,13 @@ impl StaticValueStore {
             }
             StaticValueData::String(id) => {
                 hash.byte(4);
-                hash.bytes(self.strings[id.0 as usize].as_bytes());
+                let s = self.get_string(*id).ok_or(StaticValueStoreError::UnknownValue(id.0))?;
+                hash.bytes(s.as_bytes());
             }
             StaticValueData::Symbol(id) => {
                 hash.byte(5);
-                hash.bytes(self.symbols[id.0 as usize].as_bytes());
+                let s = self.get_symbol(*id).ok_or(StaticValueStoreError::UnknownValue(id.0))?;
+                hash.bytes(s.as_bytes());
             }
             StaticValueData::Type(ty) => {
                 hash.byte(6);
@@ -1318,7 +1728,7 @@ impl StaticValueStore {
             }
             StaticValueData::Tuple(id) => {
                 hash.byte(8);
-                let children = self.tuples.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
+                let children = self.get_tuple(*id)?;
                 hash.u64(children.len() as u64);
                 for child in children.iter() {
                     hash.u64(self.semantic_hash(*child)?);
@@ -1335,7 +1745,7 @@ impl StaticValueStore {
             }
             StaticValueData::Record(id) => {
                 hash.byte(9);
-                let fields = self.records.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
+                let fields = self.get_record(*id)?;
                 hash.u64(fields.len() as u64);
                 for field in fields.iter() {
                     hash.bytes(&field.key.stable_fingerprint_bytes());
@@ -1344,7 +1754,7 @@ impl StaticValueStore {
             }
             StaticValueData::Data(id) => {
                 hash.byte(10);
-                let node = self.data_values.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
+                let node = self.get_data(*id)?;
                 node.owner.hash(&mut hash);
                 node.constructor.hash(&mut hash);
                 hash.u32(node.result_type.0);
@@ -1355,7 +1765,7 @@ impl StaticValueStore {
             }
             StaticValueData::Variant(id) => {
                 hash.byte(11);
-                let node = self.variant_values.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
+                let node = self.get_variant(*id)?;
                 node.variant.hash(&mut hash);
                 hash.u32(node.result_type.0);
                 for (field, value) in node.fields.iter() {
@@ -1402,10 +1812,13 @@ impl StaticValueStore {
     }
 
     fn intern(&mut self, data: StaticValueData) -> StaticValueRef {
-        let id = if let Some(id) = self.interner.get(&data) {
-            *id
+        let id = if let Some(&id) = self.interner.get(&data) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_value(&data)) {
+            id
         } else {
-            let id = StaticValueId(self.values.len() as u32);
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.values.len());
+            let id = StaticValueId((frozen_len + self.values.len()) as u32);
             self.values.push_back(data.clone());
             self.interner.insert(data, id);
             id
@@ -1414,13 +1827,18 @@ impl StaticValueStore {
     }
 
     fn check_store(&self, reference: StaticValueRef) -> Result<(), StaticValueStoreError> {
-        if reference.store != self.id {
-            return Err(StaticValueStoreError::StoreMismatch {
-                expected: self.id,
-                actual: reference.store,
-            });
+        if reference.store == self.id {
+            return Ok(());
         }
-        Ok(())
+        if let Some(frozen) = &self.frozen {
+            if reference.store == frozen.id && (reference.value.0 as usize) < frozen.values.len() {
+                return Ok(());
+            }
+        }
+        Err(StaticValueStoreError::StoreMismatch {
+            expected: self.id,
+            actual: reference.store,
+        })
     }
 
     fn check_children(&self, children: impl IntoIterator<Item = StaticValueRef>) -> Result<(), StaticValueStoreError> {

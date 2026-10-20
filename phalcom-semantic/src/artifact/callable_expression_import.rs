@@ -23,7 +23,7 @@ use crate::types::evidence::{DynamicReason, TypeKnowledge};
 use phalcom_common::range::SourceRange;
 use phalcom_compiler_artifact::semantic::aggregates::DynamicReasonV1;
 use phalcom_compiler_artifact::semantic::world::{
-    CallableAnalysisRecordV1, CallableBindingReadSafetyV1, CallableCausalInvalidityV1,
+    CallableAnalysisRecordV2, CallableBindingReadSafetyV1, CallableCausalInvalidityV1,
     CallableExpressionRowV1, CallableExpressionStatusV1, CallableSuppressionCauseV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
@@ -118,7 +118,7 @@ impl ImportedCallableExpressionAuthority {
 }
 
 pub(crate) fn reconstruct_callable_expression_bases(
-    records: &[CallableAnalysisRecordV1],
+    records: &[CallableAnalysisRecordV2],
     bindings: &ImportedCallableBindingAuthority,
     static_definitions: &ImportedStaticDefinitionAuthority,
     types: &ReconstructedTypeGraph,

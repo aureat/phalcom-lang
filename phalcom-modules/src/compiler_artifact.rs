@@ -879,10 +879,10 @@ fn load_module_world_inner(
         let interface = UnlinkedModuleInterface {
             id: id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
             kind,
-            declarations,
-            exports,
+            declarations: declarations.into(),
+            exports: exports.into(),
             imports,
-            exposed_children: exposed_children.clone(),
+            exposed_children: exposed_children.clone().into(),
             metadata: unlinked_metadata,
         };
         if interface.fingerprint().raw() != payload.interface_fingerprint {
@@ -920,7 +920,7 @@ fn load_module_world_inner(
         let linked_interface = LinkedModuleInterface {
             module: id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
             kind,
-            exports: linked_exports,
+            exports: linked_exports.into(),
             metadata: linked_metadata,
         };
         if linked_interface.fingerprint().raw() != payload.linked_interface_fingerprint {
@@ -958,8 +958,8 @@ fn load_module_world_inner(
         let linked_module = LinkedModule {
             interface: linked_interface,
             bindings: ModuleBindingLayout {
-                local_globals: globals,
-                imports: import_bindings,
+                local_globals: globals.into(),
+                imports: import_bindings.into(),
             },
             linked_reads,
             runtime_dependencies,
@@ -1186,11 +1186,22 @@ fn load_module_world_inner(
 
     // Ordering evidence above proves the eager subgraph; validate all modules too.
     validate_runtime_dag(&graphs.runtime, &ids, allocations)?;
+    let nodes = nodes.into();
+    let children = children
+        .into_iter()
+        .map(|(module, children)| (module, crate::authority::ModuleAuthoritySet::from(children)))
+        .collect::<BTreeMap<_, _>>()
+        .into();
+    let exposed = exposed
+        .into_iter()
+        .map(|(module, children)| (module, crate::authority::ModuleAuthoritySet::from(children)))
+        .collect::<BTreeMap<_, _>>()
+        .into();
     let topology = ModuleTopology {
         generation: ResolverGeneration(0),
         fingerprint: ModuleTopology::fingerprint_for_parts(&universe, &nodes, &exposed),
         nodes,
-        source_modules: BTreeMap::new(),
+        source_modules: BTreeMap::new().into(),
         children,
         exposed_children: exposed,
     };
@@ -1198,7 +1209,7 @@ fn load_module_world_inner(
     let linked = allocations
         .arc(LinkedProgram {
             universe,
-            modules,
+            modules: modules.into(),
             graphs,
             entry,
             initialization_order,

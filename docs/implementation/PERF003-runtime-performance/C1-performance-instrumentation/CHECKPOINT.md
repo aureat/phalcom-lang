@@ -5,10 +5,10 @@ kind: optimization
 status: IN_PROGRESS
 completion: PARTIAL
 verification: BASELINE_BLOCKED
-active_plan: PERF003.C1.P1
+active_plan: PERF003.C1.P5
 latest_completed_plan: null
-next_plan: PERF003.C1.P1
-prepared_against_revision: 5a5bf8b2
+next_plan: PERF003.C1.P5
+prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
 ---
 
 # PERF003.C1 — Test-Execution Performance
@@ -21,19 +21,47 @@ checkpoint: PERF003.C1
 status: IN_PROGRESS
 completion: PARTIAL
 verification: BASELINE_BLOCKED
-active_plan: PERF003.C1.P1
+active_plan: PERF003.C1.P5
 latest_completed_plan: null
-next_plan: PERF003.C1.P1
+next_plan: PERF003.C1.P5
 next_action: >
-  T0–T6 implementation slices are present. T1 has connected feature-gated
-  counters and timing; T5 now uses stable module/source identities with a
-  module-layer replacement mutation and passes isolation/parity tests plus the
-  classes corpus; the rechecked blocks failure matches its prior disposition.
-  T6 focused tier checks pass, but the full core gate failed broadly. The full
-  semantic gate reports 37 clean-predecessor baseline failures and six
-  additional pack/static-alias failures outside PERF003 scope. T7 is stopped
-  pending an architecture amendment for a frozen runtime image. Keep T8 pending
-  until that amendment and its acceptance evidence exist.
+  P5 T0 synchronization and source re-audit are complete. T1's run-scoped
+  observability crate and T2 feature propagation are implemented and compile
+  checked; T1's round-trip tests remain outstanding. T3 emits a versioned partial
+  cold VM profile, with full VM startup still blocked at ProductKind source
+  indexing. T4 baseline-phase spans and source counters are implemented and a
+  direct cold semantic-baseline profile completed successfully. T5 semantic
+  update spans and committed `SemanticUpdateStats` counters are implemented and
+  build-checked; ordinary and canonical source-backed update profiles both
+  completed. T6 adds exhaustive `QueryKind` classification and report-level
+  query lifecycle metrics; default/feature builds and ordinary/canonical update
+  profiles pass, while deterministic lifecycle tests remain outstanding. T7
+  adds callable-body pass and reverse-closure traversal counters with a
+  canonical profile. T8 adds persistent-root fork sizes, logical post-fork
+  mutation counts, snapshot materialization attempts, publication outcomes,
+  and undo-journal categories; its ordinary update profile completed. T9 adds
+  traversal, relation, inference, and conformance search counters plus bounded
+  Detailed-mode distributions; its canonical profile completed. T10 adds the
+  compiler projection phase model and projection counters; the inline profile
+  reaches runtime-root discovery, then metadata export hits the existing Record
+  remainder limitation. T11 adds metadata phase spans and work counters; the
+  inline profile locates the failure in alias export after declaration export.
+  T12's feature-gated profile capture/attach/show/compare commands, sidecar
+  storage, bounded summaries, and derived ratios are implemented and build-
+  checked. Two independently captured B2 profiles were shown and compared as
+  structurally compatible; this verifies the CLI path but is only one pair of
+  timing samples. T13 adds a
+  fresh-process runner, typed lifecycle metadata, and initial B1–B6 workloads;
+  B7–B8 remain unimplemented, B6 needs size acceptance, and B1/B4 are
+  baseline-blocked. T14 has a five-mode B2 diagnostic matrix with five
+  successful samples per mode, recorded in the overhead report and raw sample
+  directory; required tiny, medium, and warm-incremental coverage is still
+  missing. Next, implement B7/B8, confirm B6 workload size, and extend the
+  feature-disabled reference to the required compatible workloads before
+  collecting the acceptance matrix. Preserve P1's
+  separate T7 frozen-runtime-image
+  architecture stop and do not resume P1 T8 runtime-image measurement until its
+  amendment and acceptance evidence exist.
 ```
 
 This record is the single durable state authority for `PERF003.C1`.
@@ -86,7 +114,8 @@ After:
 
 | Plan | Title | Status | Completion | Verification | Notes |
 |---|---|---|---|---|---|
-| `PERF003.C1.P1` | Test-execution performance: instrumentation, semantic baseline reuse, compilation session reuse, bootstrapped runtime image | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Active; T0 complete; T1 instrumentation focused-tested; T2–T4 focused evidence inherited but G1 is baseline-blocked; T5 implementation, isolation/parity, classes, and timing comparison pass with the same recorded blocks baseline failure; T6 focused tier checks pass but the full core gate has 113 unresolved failures; T7 stopped for architecture amendment; T8 pending |
+| `PERF003.C1.P1` | Test-execution performance: instrumentation, semantic baseline reuse, compilation session reuse, bootstrapped runtime image | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Existing plan retained; T0–T6 evidence and failures remain recorded; T7 is stopped for the separate frozen-runtime-image architecture amendment; T8 is pending |
+| `PERF003.C1.P5` | Compiler & Semantic Performance Observability | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | New follow-up plan, not a replacement or amendment to P1; T0–T13 implementation is in place; T1 report round-trip and T6 query lifecycle tests remain outstanding; T3 full VM startup and T10 downstream compiler projection remain baseline-blocked; T4 cold semantic-baseline, T5 ordinary/canonical update, and T6 ordinary/canonical query-metrics profiles succeed; T7 canonical graph/body-pass, T8 TypeStore/journal, and T9 search-volume profiles succeed; T10/T11 inline projection profiles reach declaration export and identify the baseline alias export failure; T12 capture/show/compare path exercised on two B2 samples; T13 incomplete and unverified; T14 five-mode B2 diagnostic matrix completed, full acceptance workloads absent |
 
 ---
 
@@ -101,6 +130,103 @@ After:
 ---
 
 ## 4. Verification evidence
+
+- P5 T0 repository synchronization: `main` and `origin/main` both resolve to
+  `e2ae4a0fd360e4075ce8ad229a3e39e1531fb771`. The dedicated
+  `perf/universe-characterization` worktree includes that main revision via
+  merge commit `303222c3b027c34ddacd4749f056e1095aabfa81`; the main worktree's
+  uncommitted state was not copied or changed. P5 evidence names both the
+  `BASELINE_HEAD` (the exact main revision) and the execution-tree HEAD when
+  they differ.
+- P5 T0 source audit: `TypeStore` uses `im::HashMap` and `im::Vector`; its
+  derived clone shares persistent collection structure, while
+  `fork_from_baseline()` assigns a fresh `TypeStoreId`. This is a persistent
+  root fork, not a full node copy. `SemanticUpdateStats` reports eight whole
+  snapshot-map materializations and zero TypeStore snapshot deep copies at the
+  current publication seam.
+- P5 T0 publication audit: `SemanticWorkspaceSession` wraps each update in a
+  `SemanticDb` transaction. The undo journal snapshots revision-local event
+  sets and the scheduler, then lazily records prior per-key query state,
+  product, last-known-good, and module-key roots as mutations occur. Successful
+  updates commit; failed/cancelled attempts roll back the database and restore
+  the prior store/static values/semantic shards. P5 must report attempted work
+  separately from committed publication work.
+- P5 T0 execution evidence was gathered on worktree HEAD
+  `303222c3b027c34ddacd4749f056e1095aabfa81` with pinned toolchain
+  `nightly-2026-07-10`: the focused `corpus::booleans` test selected one test
+  and failed during metadata export because a Record remainder is outside the
+  legacy Symbol key domain; the feature-gated tier example completed kernel and
+  native controls, then `VM::new()` failed because intrinsic runtime ProductKind
+  lacks a canonical Tuple/Record/Pack source declaration. These failures block
+  canonical compile/full-VM characterization and remain outside P5's authority.
+- P5 T1/T2 builds: `cargo +nightly-2026-07-10 check -p telos-observability`,
+  semantic all-targets default and `perf-observability`, and core all-targets
+  default, `perf-observability`, and `test-timings` all passed. The required
+  report round-trip tests were not added or run, so T1's full gate is not claimed.
+- P5 T3 coarse cold profile: the feature-gated `perf_observability_profile`
+  example emitted schema-v1 JSON with the hierarchy
+  `vm.bootstrap -> canonical_universe.total -> canonical_universe.build` and
+  `bootstrap_error` outcomes. It records `BASELINE_HEAD=e2ae4a0f...`, execution
+  tree `303222c3...`, dirty state, and one canonical build attempt. The run then
+  failed at the recorded ProductKind source-index baseline blocker; the exact
+  partial report is in `samples/PERF003.C1.P5-T3-process-cold-partial.json`.
+- P5 T4 semantic-baseline instrumentation: default and
+  `perf-observability` all-target semantic builds passed. The direct semantic
+  baseline workload emitted a successful schema-v1 profile at
+  `samples/PERF003.C1.P5-T4-semantic-baseline.json`, independently of full VM
+  startup. This single instrumented run measured 265.585 ms total; class
+  surfaces 73.193 ms, linked-world setup 56.414 ms, native surfaces 17.114 ms,
+  callable-signature processing 11.229 ms, and inherent-impl construction
+  9.853 ms. It counted 888 module scan visits, 5,352 top-level statement visits,
+  315 declaration headers, 231 class declarations, 21 traits, 50 data
+  declarations (17 enums), 45 inherent impls, 2,444 processed callable
+  signatures, 53 associated products, and 17 type members. Counts are
+  instrumentation-work counts; callable-signature counts include products
+  processed at multiple baseline seams and are not a unique final-table size.
+  No tests were added or run in this implementation slice.
+- P5 T5 semantic-update instrumentation: default and `perf-observability`
+  semantic all-target builds passed. The profile example supports ordinary and
+  canonical source-backed updates. The canonical update profile completed at
+  `samples/PERF003.C1.P5-T5-canonical-semantic-update.json`, with 69.161 s in
+  `semantic.update.total` and 69.710 s process elapsed. It counted 148 modules,
+  1,747 callable signatures and 1,238 callable bodies recomputed, 9,318 query
+  products recomputed, eight whole-map snapshot materializations, and one
+  committed update. Its largest measured update phases were final callable
+  body revalidation (25.798 s), callable signatures (18.388 s), declaration
+  surfaces (6.083 s), and initial callable bodies (4.568 s). The ordinary
+  one-module profile is at `samples/PERF003.C1.P5-T5-semantic-update.json`; its
+  update span measured 2.327 s with 2,650 recomputed query products. Both
+  reports identify `BASELINE_HEAD=e2ae4a0fd360e4075ce8ad229a3e39e1531fb771`
+  and execution-tree HEAD `303222c3b027c34ddacd4749f056e1095aabfa81`. These
+  are single instrumented development-profile samples, not comparative
+  benchmarks. No tests were added or run; T1's report round-trip gate remains
+  outstanding.
+- P5 T6 query instrumentation: `QueryKey::kind()` exhaustively classifies every
+  current key. Query lifecycle aggregates are emitted in schema-v2 reports and
+  schema-v1 reports remain readable. Default and `perf-observability` semantic
+  all-target checks passed; the core profile example compiled with the feature.
+  The ordinary profile at
+  `samples/PERF003.C1.P5-T6-semantic-update.json` reports 2,774 requests, 115
+  direct reuses, 2,659 recomputations, and 9 invalidations. The canonical profile
+  at `samples/PERF003.C1.P5-T6-canonical-semantic-update.json` reports 82,838
+  requests, 70,918 direct reuses, 12,797 recomputations, and 3,371 invalidations;
+  its enclosing update committed, with one failed advisory-callable query whose
+  reason is unavailable in the report. Per-kind durations are inclusive and
+  overlap for nested queries. These are single instrumentation samples, not
+  comparative benchmarks. No tests were added or run; the T6 deterministic
+  lifecycle-test gate remains outstanding.
+- P5 T7 body-multiplicity and graph-traversal instrumentation: added counters
+  for initial, downstream, cycle, conformance, module-fact, and final inferred
+  body-analysis passes, plus reverse-closure seed entries, unique nodes, and
+  examined reverse edges. Default/feature semantic checks and the feature-enabled
+  core profile-example check passed. The source-backed canonical profile at
+  `samples/PERF003.C1.P5-T7-canonical-semantic-update.json` recorded 1,238
+  initial-pass queries, 6 conformance-change queries, 1,035 module-fact queries,
+  and 7,527 final inferred-result analyses. Its reverse closures contained
+  1,957 seed entries, 3,393 unique nodes visited, and 7,889 edges examined; the
+  update committed. Downstream and cycle query counters were zero because this
+  was a first-session workload without an edited follow-up revision. This is a
+  single sample, not a comparative benchmark. No tests were added or run.
 
 - T0.1 verified: `scripts/test.sh lang blocks -- --exact` runs `language-corpus` target correctly.
 - T0.2 verified: `corpus::blocks` failure identified as `blocks/blocks_argument_to_method.ph` with `[1, 2, 3, 4] does not understand 'fold(initial,using)'`.
@@ -146,8 +272,9 @@ The architect's attached audit and implementer instructions are adopted as execu
 
 ## 7. Next action
 
-Await the T7 architecture amendment and update the plan/checkpoint before any
-runtime-image implementation. T6's direct-constructor audit is recorded, but
-its required broad gate remains baseline-blocked; G1 is also baseline-blocked.
-T8 remains pending because warm runtime-image behavior and its counters are not
-available.
+Complete B7/B8 and confirm B6 workload size; run the five-mode observer matrix
+on compatible workloads. Keep P1 T7/T8 on their separate architecture-
+amendment path; P5's instrumentation of existing bootstrap paths does not
+authorize a frozen runtime image. Do not claim successful canonical compile or
+full-VM benchmarks until the recorded baseline correctness failures are
+resolved by their owning work.

@@ -1,6 +1,7 @@
 //! Conversions from semantic/module identities to durable metadata stable identities.
 
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, FieldId};
+use phalcom_common::selector::Selector;
 use phalcom_modules::{ModuleId, ProjectIdentity, ProjectUniverse};
 use phalcom_type_meta::fingerprint::{Fingerprint128, FingerprintBuilder};
 use phalcom_type_meta::identity::{
@@ -238,6 +239,75 @@ pub fn to_stable_data_component(comp: &crate::identity::DataComponentId) -> phal
         owner: to_stable_declaration(&comp.owner),
         index: comp.index,
     }
+}
+
+/// Converts only the canonical built-in Universe project reference.
+///
+/// Artifact imports for persistent or package projects must use
+/// `artifact::identity::StableOwnerCatalog`; this narrow helper exists for
+/// legacy Universe-only codecs and fails closed for every other project kind.
+pub fn from_stable_project(project: &StableProjectRef) -> Result<ProjectIdentity, String> {
+    match project {
+        StableProjectRef::Builtin { namespace, version } if namespace.as_ref() == "universe" && version.as_ref() == "0.1.0" => Ok(ProjectIdentity::Universe),
+        _ => Err("stable project requires an exact StableOwnerCatalog binding".into()),
+    }
+}
+
+/// Converts a module only when its project is the canonical built-in Universe.
+pub fn from_stable_module(module: &StableModuleRef) -> Result<ModuleId, String> {
+    let project = from_stable_project(&module.project)?;
+    let components = module
+        .path
+        .iter()
+        .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).map_err(|_| "invalid stable module path component".to_owned()))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ModuleId {
+        project,
+        path: phalcom_modules::ModulePath::from_components(components),
+    })
+}
+
+/// Converts a declaration only when its module belongs to the built-in Universe.
+pub fn from_stable_declaration(declaration: &StableDeclarationRef) -> Result<DeclarationId, String> {
+    if declaration.path.len() != 1 {
+        return Err("stable declaration path must contain one component".into());
+    }
+    Ok(DeclarationId::new(from_stable_module(&declaration.module)?, declaration.path[0].clone()))
+}
+
+pub fn from_stable_dispatch_side(side: StableDispatchSide) -> DispatchSide {
+    match side {
+        StableDispatchSide::Instance => DispatchSide::Instance,
+        StableDispatchSide::Class => DispatchSide::Class,
+    }
+}
+
+pub fn from_stable_variant(variant: &StableVariantRef) -> Result<crate::identity::VariantId, String> {
+    let selector = Selector::decode(&variant.selector);
+    if selector.encode() != variant.selector.as_ref() {
+        return Err("stable variant selector is not canonical".into());
+    }
+    Ok(crate::identity::VariantId::new(from_stable_declaration(&variant.owner)?, selector))
+}
+
+pub fn from_stable_impl(implementation: &StableImplRef) -> Result<crate::identity::ImplId, String> {
+    Ok(crate::identity::ImplId::new(
+        from_stable_module(&implementation.module)?,
+        crate::identity::ImplLocalId(implementation.local_id),
+    ))
+}
+
+pub fn from_stable_callable(callable: &StableCallableRef) -> Result<CallableId, String> {
+    let owner = match &callable.owner {
+        StableCallableOwnerRef::Declaration(declaration) => CallableOwnerId::Declaration(from_stable_declaration(declaration)?),
+        StableCallableOwnerRef::Variant(variant) => CallableOwnerId::Variant(from_stable_variant(variant)?),
+        StableCallableOwnerRef::Conformance(implementation) => CallableOwnerId::Conformance(from_stable_impl(implementation)?),
+    };
+    let selector = Selector::decode(&callable.selector);
+    if selector.encode() != callable.selector.as_ref() {
+        return Err("stable callable selector is not canonical".into());
+    }
+    Ok(CallableId::new(owner, selector, from_stable_dispatch_side(callable.side)))
 }
 
 pub fn to_field_key_ref(key: &crate::field_key::FieldKey) -> phalcom_type_meta::field_key::FieldKeyRef {

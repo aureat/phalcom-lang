@@ -525,6 +525,7 @@ impl StaticConstantDemandDriver<'_> {
             declaration_range: binding.range,
             initializer_range: initializer.range(),
             checked: Some(checked.clone()),
+            authority: Some(crate::static_constant::StaticConstantAuthority::from_checked(&checked)),
             outcome,
             residuals,
             value,
@@ -641,11 +642,14 @@ impl StaticConstantDemandDriver<'_> {
                 format!("static constant `{}` participates in a cycle through computed Record-key demand", id.name()),
                 seed.declaration_range,
             ));
+            let checked = Arc::new(checked);
+            let authority = crate::static_constant::StaticConstantAuthority::from_checked(&checked);
             let product = Arc::new(StaticConstantProduct {
                 id: id.clone(),
                 declaration_range: seed.declaration_range,
                 initializer_range: seed.initializer_range.unwrap_or_else(|| initializer.range()),
-                checked: Some(Arc::new(checked)),
+                checked: Some(checked),
+                authority: Some(authority),
                 outcome: crate::static_eval::StaticEvalOutcome::Recursive(crate::static_eval::StaticCycle::empty()),
                 residuals: None,
                 value: None,

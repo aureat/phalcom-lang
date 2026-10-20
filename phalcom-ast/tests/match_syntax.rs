@@ -311,3 +311,40 @@ fn review_ast_03_source_ranges_cover_gap_and_label_tokens() {
     assert_eq!(suffix[0].label.as_deref(), Some("named"));
     assert!(suffix[0].label_range.expect("label range").start < suffix[0].label_range.expect("label range").end);
 }
+
+#[test]
+fn match_arm_return_and_throw_statements_are_wrapped_in_lexical_blocks() {
+    let source = "match x {\n  A => return 42\n  B => throw Error.new(\"boom\")\n  C => 100\n}";
+    let program = parse_source(source, 0).expect("match with return and throw arms should parse");
+    let Statement::Expr {
+        expr: Expr::Match(match_expr), ..
+    } = &program.statements[0]
+    else {
+        panic!("expected match expression");
+    };
+    assert_eq!(match_expr.arms.len(), 3);
+
+    // Arm 0: A => return 42 -> wrapped in MatchArmBody::Block with Statement::Return
+    let arm0 = &match_expr.arms[0];
+    let MatchArmBody::Block(ref block0) = arm0.branch else {
+        panic!("expected MatchArmBody::Block for return arm, got {:?}", arm0.branch);
+    };
+    assert_eq!(block0.body.len(), 1);
+    assert!(matches!(&block0.body[0], Statement::Return(ret) if ret.value.is_some()));
+
+    // Arm 1: B => throw Error.new("boom") -> wrapped in MatchArmBody::Block with Statement::Throw
+    let arm1 = &match_expr.arms[1];
+    let MatchArmBody::Block(ref block1) = arm1.branch else {
+        panic!("expected MatchArmBody::Block for throw arm, got {:?}", arm1.branch);
+    };
+    assert_eq!(block1.body.len(), 1);
+    assert!(matches!(&block1.body[0], Statement::Throw { .. }));
+
+    // Arm 2: C => 100 -> unchanged MatchArmBody::Expression
+    let arm2 = &match_expr.arms[2];
+    assert!(
+        matches!(&arm2.branch, MatchArmBody::Expression(expr) if matches!(**expr, Expr::Int { .. })),
+        "expected MatchArmBody::Expression for normal expression arm, got {:?}",
+        arm2.branch
+    );
+}

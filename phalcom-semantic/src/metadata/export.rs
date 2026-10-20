@@ -8,6 +8,7 @@ use crate::declarations::DeclarationTypeTable;
 use crate::enum_semantics::EnumSemanticTable;
 use crate::field_key::{FieldKey, FieldKeyKind};
 use crate::identity::{AssociatedStaticDomainDeclarationId, CallableOwnerId, DispatchSide};
+use crate::ordered_map::OrderedMap;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::type_alias::TypeAliasTable;
 use crate::types::id::{AlgebraicStaticConstructorId, KindId, RecordRowId, ScopedTypeId, StaticDomainId, TypeId, TypeParameterId};
@@ -173,7 +174,7 @@ pub struct MetadataExporter<'a> {
     algebraic_data: Option<&'a DataSemanticTable>,
     algebraic_enums: Option<&'a EnumSemanticTable>,
     associated_static_domains:
-        Option<&'a BTreeMap<AssociatedStaticDomainDeclarationId, std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
+        Option<&'a OrderedMap<AssociatedStaticDomainDeclarationId, std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
     aliases: Option<&'a TypeAliasTable>,
     callables: Option<&'a CallableSignatureTable>,
     fields: Option<&'a FieldSignatureTable>,
@@ -356,7 +357,7 @@ impl<'a> MetadataExporter<'a> {
     /// membership authority.
     pub fn with_associated_static_domains(
         mut self,
-        domains: &'a BTreeMap<AssociatedStaticDomainDeclarationId, std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>,
+        domains: &'a OrderedMap<AssociatedStaticDomainDeclarationId, std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>,
     ) -> Self {
         self.associated_static_domains = Some(domains);
         self

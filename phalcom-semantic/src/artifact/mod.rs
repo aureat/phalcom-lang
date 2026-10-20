@@ -2,6 +2,16 @@
 //!
 //! (ARTF001.C1.P2)
 
+// Certified-P7 portable producer/importer pipeline. The in-progress current-main
+// importer below remains available as an adaptation source until the P7 path
+// has recovered current-schema parity.
+pub mod export;
+pub mod import;
+pub mod operational;
+pub mod query;
+pub mod roots;
+pub mod validate;
+
 mod associated_import;
 mod callable_binding_import;
 mod callable_dispatch_import;
@@ -91,7 +101,7 @@ use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSecti
 use phalcom_compiler_artifact::module_world::ModuleWorldV2;
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
 use phalcom_compiler_artifact::query::QueryImageV3;
-use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
+use phalcom_compiler_artifact::semantic::world::SemanticWorldV4;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_modules::canonical_products::CanonicalExternalModuleWorld;
 use phalcom_modules::compiler_artifact::{load_module_world_with_allocation_budget, load_module_world_with_project_catalog_and_allocation_budget};
@@ -105,7 +115,7 @@ use std::sync::Arc;
 pub struct CompilerArtifactImage {
     pub header: TeloscHeaderV2,
     pub module_world: ModuleWorldV2,
-    pub semantic_world: SemanticWorldV3,
+    pub semantic_world: SemanticWorldV4,
     pub query_image: QueryImageV3,
     pub metadata: MetadataSectionV1,
 }
@@ -207,7 +217,7 @@ pub struct ImportedCompilerImage {
     /// Reconstructed, canonical-fingerprint-validated reusable query products.
     /// T4 installs these into the imported generation's one SemanticDb.
     pub query_products: Arc<ImportedQueryProducts>,
-    pub semantic_world: SemanticWorldV3,
+    pub semantic_world: SemanticWorldV4,
     pub query_image: QueryImageV3,
 }
 
@@ -257,7 +267,7 @@ pub struct ArtifactImportTransaction<'a> {
     pub staged_derived_conformance_authority: Option<Arc<ImportedDerivedConformanceAuthority>>,
     pub staged_enum_requirement_authority: Option<Arc<ImportedEnumRequirementAuthority>>,
     pub staged_query_products: Option<Arc<ImportedQueryProducts>>,
-    pub staged_semantic_world: Option<SemanticWorldV3>,
+    pub staged_semantic_world: Option<SemanticWorldV4>,
     pub staged_query_image: Option<QueryImageV3>,
     project_catalog: Option<Arc<ProjectUniverse>>,
     trusted_package_resolver: Option<&'a dyn TrustedPackageResolver>,
@@ -427,8 +437,8 @@ impl<'a> ArtifactImportTransaction<'a> {
         self.staged_static_values = Some(child.arc(static_values).map_err(ArtifactError::Allocation)?);
         self.staged_static_constant_authority =
             Some(child.arc(static_constant_authority).map_err(ArtifactError::Allocation)?);
-        self.staged_static_definition_authority =
-            Some(child.arc(static_definition_authority).map_err(ArtifactError::Allocation)?);
+        let static_definition_authority = child.arc(static_definition_authority).map_err(ArtifactError::Allocation)?;
+        self.staged_static_definition_authority = Some(static_definition_authority.clone());
         let semantic_aggregates =
             semantic_import::reconstruct_structural_aggregates(&payload.semantic_world.structural_contracts, &reconstructed, &owners, &self.limits, child)?;
         let associated_authority =

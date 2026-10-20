@@ -30,13 +30,14 @@ use crate::traits::{
 use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::parameter::{GenericConstraint, GenericSignature, TypeParameterOwner};
 use phalcom_compiler_artifact::semantic::type_store::ParameterOwnerV1;
+use phalcom_compiler_artifact::semantic::aggregates::TraitRefV1;
 use phalcom_compiler_artifact::semantic::world::{
     CallableCompilerDerivedConformanceEvidenceV1, CallableCompilerDerivedConformanceKindV1,
     CallableConformanceEvidenceNodeV1, CallableDerivedConformanceEvidenceV1,
     CallableDerivedConformanceOriginV1, CallableDerivedConformanceRuleV1,
     CallableExactConformanceEvidenceV1,
     CallableNestedGenericEvidenceV1, CallableOrderedProductFormV1,
-    CallableStructuralClassificationV1, CallableUnorderedProductFormV1, TraitRefV1,
+    CallableStructuralClassificationV1, CallableUnorderedProductFormV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_type_meta::allocation::AllocationBudget;

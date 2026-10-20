@@ -1,0 +1,784 @@
+diff --git a/phalcom-semantic/src/types/artifact.rs b/phalcom-semantic/src/types/artifact.rs
+--- a/phalcom-semantic/src/types/artifact.rs
++++ b/phalcom-semantic/src/types/artifact.rs
+@@ -830,7 +830,158 @@
+     for value in store.types.iter() {
+         if let TypeData::Lambda(lambda) = value {
+             validator.lambda(*lambda, &[], 0)?;
+         }
+     }
+     Ok(())
+ }
++
++/// Canonical root family ordering tag for deterministic shared type-graph projection (`P7.T0/T5`).
++#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
++#[repr(u16)]
++pub enum CanonicalTypeRootFamilyTag {
++    DeclarationShell = 1,
++    HierarchyAndAlias = 2,
++    GenericSignature = 3,
++    ConstructorContract = 4,
++    DataContract = 5,
++    EnumContract = 6,
++    VariantContract = 7,
++    CurrentParameterSlot = 8,
++    CallableSignature = 9,
++    SurfaceAndDispatch = 10,
++    TraitAndConformance = 11,
++    TypeMemberAndDomain = 12,
++    StaticDefAndBinding = 13,
++    CallableAnalysis = 14,
++    SelectedQueryRoot = 15,
++}
++
++/// Stable ordering key for canonical type roots (`P7.T0/T5`).
++#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
++pub struct CanonicalTypeRootKey {
++    pub family: CanonicalTypeRootFamilyTag,
++    pub owner_key: Box<str>,
++    pub subkey: u32,
++}
++
++/// Shared guarded type-graph export context with lineage verification (`P7.T0/T5`).
++pub struct TypeExportContext {
++    store_id: TypeStoreId,
++    closed: bool,
++    roots: BTreeMap<CanonicalTypeRootKey, TypeId>,
++    ids: Option<ExportIds>,
++}
++
++impl TypeExportContext {
++    pub fn new(store: &TypeStore) -> Self {
++        Self {
++            store_id: store.id(),
++            closed: false,
++            roots: BTreeMap::new(),
++            ids: None,
++        }
++    }
++
++    pub const fn store_id(&self) -> TypeStoreId {
++        self.store_id
++    }
++
++    pub const fn is_closed(&self) -> bool {
++        self.closed
++    }
++
++    pub fn verify_store(&self, store: &TypeStore) -> Result<(), ArtifactError> {
++        if store.id() != self.store_id {
++            return Err(invalid("foreign TypeStore lineage in TypeExportContext"));
++        }
++        Ok(())
++    }
++
++    pub fn register_root(
++        &mut self,
++        store: &TypeStore,
++        key: CanonicalTypeRootKey,
++        ty: TypeId,
++    ) -> Result<(), ArtifactError> {
++        self.verify_store(store)?;
++        if self.closed {
++            return Err(invalid("cannot register root after TypeExportContext is closed"));
++        }
++        if ty.index() >= store.len() {
++            return Err(invalid("registered canonical root TypeId out of bounds"));
++        }
++        self.roots.insert(key, ty);
++        Ok(())
++    }
++
++    pub fn close_and_project(
++        &mut self,
++        store: &TypeStore,
++        limits: &ValidationLimits,
++    ) -> Result<TypeGraphV1, ArtifactError> {
++        self.verify_store(store)?;
++        if self.closed {
++            return Err(invalid("TypeExportContext is already closed"));
++        }
++        let graph = store.project_artifact(limits)?;
++        self.ids = Some(ExportIds::new(store)?);
++        self.closed = true;
++        Ok(graph)
++    }
++
++    fn closed_ids(&self, store: &TypeStore) -> Result<&ExportIds, ArtifactError> {
++        self.verify_store(store)?;
++        self.ids
++            .as_ref()
++            .ok_or_else(|| invalid("TypeExportContext must be closed before projecting section references"))
++    }
++
++    pub fn export_type(&self, store: &TypeStore, ty: TypeId) -> Result<ArtifactTypeId, ArtifactError> {
++        self.closed_ids(store)?.ty(ty)
++    }
++
++    pub fn export_kind(&self, store: &TypeStore, kind: KindId) -> Result<ArtifactKindId, ArtifactError> {
++        self.closed_ids(store)?.kind(kind)
++    }
++
++    pub fn export_parameter(&self, store: &TypeStore, parameter: TypeParameterId) -> Result<ArtifactTypeParameterId, ArtifactError> {
++        self.closed_ids(store)?.parameter(parameter)
++    }
++
++    pub fn export_row(&self, store: &TypeStore, row: RecordRowId) -> Result<ArtifactRecordRowId, ArtifactError> {
++        self.closed_ids(store)?.row(row)
++    }
++
++    pub fn export_family(&self, store: &TypeStore, family: FamilyTypeId) -> Result<ArtifactFamilyTypeId, ArtifactError> {
++        self.closed_ids(store)?.family(family)
++    }
++
++    pub fn export_variant(&self, store: &TypeStore, variant: VariantTypeId) -> Result<ArtifactVariantTypeId, ArtifactError> {
++        self.closed_ids(store)?.variant(variant)
++    }
++
++    pub fn export_domain(&self, store: &TypeStore, domain: StaticDomainId) -> Result<ArtifactStaticDomainId, ArtifactError> {
++        self.closed_ids(store)?.domain(domain)
++    }
++
++    pub fn export_constructor(&self, store: &TypeStore, constructor: AlgebraicStaticConstructorId) -> Result<ArtifactStaticConstructorId, ArtifactError> {
++        self.closed_ids(store)?.constructor(constructor)
++    }
++
++    pub fn export_scoped(&self, store: &TypeStore, scoped: ScopedTypeId) -> Result<ArtifactScopedTypeId, ArtifactError> {
++        self.closed_ids(store)?.scoped(scoped)
++    }
++
++    pub fn export_lambda(&self, store: &TypeStore, lambda: TypeLambdaId) -> Result<ArtifactTypeLambdaId, ArtifactError> {
++        self.closed_ids(store)?.lambda(lambda)
++    }
++}
++
++impl TypeRelocation {
++    pub fn verify_store(&self, store: &TypeStore) -> Result<(), ArtifactError> {
++        if store.id() != self.store_id {
++            return Err(invalid("foreign TypeStore lineage for TypeRelocation"));
++        }
++        Ok(())
++    }
++}
+diff --git a/phalcom-semantic/src/static_value/store.rs b/phalcom-semantic/src/static_value/store.rs
+--- a/phalcom-semantic/src/static_value/store.rs
++++ b/phalcom-semantic/src/static_value/store.rs
+@@ -1462,8 +1462,96 @@
+ impl Hasher for StableFnv64 {
+     fn finish(&self) -> u64 {
+         self.0
+     }
+     fn write(&mut self, bytes: &[u8]) {
+         self.bytes(bytes);
+     }
+ }
++
++impl StaticValueStore {
++    /// Iterates all interned value nodes in store index order for artifact export (`P7.T6`).
++    pub fn iter_indexed_values(&self) -> impl Iterator<Item = (StaticValueId, &StaticValueData)> {
++        self.values
++            .iter()
++            .enumerate()
++            .map(|(idx, data)| (StaticValueId(idx as u32), data))
++    }
++
++    /// Returns a store-qualified reference for a valid local value index (`P7.T6`).
++    pub fn ref_for_id(&self, id: StaticValueId) -> Result<StaticValueRef, StaticValueStoreError> {
++        if (id.0 as usize) >= self.values.len() {
++            return Err(StaticValueStoreError::UnknownValue(id.0));
++        }
++        Ok(StaticValueRef { store: self.id, value: id })
++    }
++
++    /// Interns a shared pack backing without flattening slices (`P7.T6`).
++    pub fn intern_pack_backing_raw(
++        &mut self,
++        positionals: Vec<StaticValueRef>,
++        labeled: Vec<(StaticSymbolId, StaticValueRef)>,
++    ) -> Result<StaticPackBackingId, StaticValueStoreError> {
++        self.check_children(positionals.iter().copied().chain(labeled.iter().map(|(_, v)| *v)))?;
++        let mut seen_labels = std::collections::HashSet::new();
++        for (sym_id, _) in &labeled {
++            let spelling = self.get_symbol(*sym_id).ok_or(StaticValueStoreError::UnknownValue(sym_id.0))?;
++            if !seen_labels.insert(spelling.to_string()) {
++                return Err(StaticValueStoreError::DuplicatePackLabel(spelling.into()));
++            }
++        }
++        let (labels, labeled_values): (Vec<_>, Vec<_>) = labeled.into_iter().unzip();
++        let backing_node = StaticPackBacking {
++            positionals: positionals.into_boxed_slice(),
++            labels: labels.into_boxed_slice(),
++            labeled_values: labeled_values.into_boxed_slice(),
++        };
++        if let Some(&id) = self.pack_backing_ids.get(&backing_node) {
++            Ok(id)
++        } else {
++            let id = StaticPackBackingId(self.pack_backings.len() as u32);
++            self.pack_backings.push_back(backing_node.clone());
++            self.pack_backing_ids.insert(backing_node, id);
++            Ok(id)
++        }
++    }
++
++    /// Interns a pack slice directly over a relocated `StaticPackBackingId` (`P7.T6`).
++    pub fn intern_pack_from_backing(
++        &mut self,
++        backing: StaticPackBackingId,
++        positional_start: u32,
++        positional_len: u32,
++        labeled_start: u32,
++        labeled_len: u32,
++    ) -> Result<StaticValueRef, StaticValueStoreError> {
++        let backing_node = self
++            .pack_backings
++            .get(backing.0 as usize)
++            .ok_or(StaticValueStoreError::UnknownValue(backing.0))?;
++        let pos_end = positional_start
++            .checked_add(positional_len)
++            .ok_or(StaticValueStoreError::InvalidPackSliceRange)? as usize;
++        let lab_end = labeled_start
++            .checked_add(labeled_len)
++            .ok_or(StaticValueStoreError::InvalidPackSliceRange)? as usize;
++        if pos_end > backing_node.positionals.len() || lab_end > backing_node.labels.len() {
++            return Err(StaticValueStoreError::InvalidPackSliceRange);
++        }
++        let pack_data = StaticPackData {
++            backing,
++            positional_start,
++            positional_len,
++            labeled_start,
++            labeled_len,
++        };
++        let pack_id = if let Some(&id) = self.pack_ids.get(&pack_data) {
++            id
++        } else {
++            let id = StaticPackId(self.packs.len() as u32);
++            self.packs.push_back(pack_data);
++            self.pack_ids.insert(pack_data, id);
++            id
++        };
++        Ok(self.intern(StaticValueData::Pack(pack_id)))
++    }
++}
+diff --git a/phalcom-semantic/src/snapshot.rs b/phalcom-semantic/src/snapshot.rs
+--- a/phalcom-semantic/src/snapshot.rs
++++ b/phalcom-semantic/src/snapshot.rs
+@@ -665,4 +665,26 @@
+     pub fn diagnostics_for(&self, module: &ModuleId) -> Option<&[SemanticDiagnostic]> {
+         self.diagnostics.get(module).map(|d| d.as_ref())
+     }
++
++    /// Returns the derived module-to-callable-definitions index (`P7.T8`).
++    pub fn callable_definitions_by_module(&self) -> &Arc<BTreeMap<ModuleId, Box<[crate::identity::CallableId]>>> {
++        &self.callable_definitions_by_module
++    }
++
++    /// Checks structural completeness for a source-free loaded artifact snapshot (`P7.T7.B/T8`).
++    pub fn is_source_free_artifact_complete(&self) -> bool {
++        self.status.is_complete()
++            && self.sources.is_empty()
++            && self.presentation_sources.is_empty()
++            && !self.callable_analyses.is_empty()
++            && !self.callable_signatures.is_empty()
++            && self.trait_surfaces.iter().next().is_some()
++            && self.declarations.iter().next().is_some()
++            && !self.hierarchy.superclasses.is_empty()
++            && !self.dispatch.surfaces().is_empty()
++            && !self.data_semantics.data_decls.is_empty()
++            && !self.enum_semantics.enums.is_empty()
++            && self.type_aliases.iter().next().is_some()
++            && self.conformance_index.iter().next().is_some()
++    }
+ }
+diff --git a/phalcom-semantic/src/canonical_image.rs b/phalcom-semantic/src/canonical_image.rs
+--- a/phalcom-semantic/src/canonical_image.rs
++++ b/phalcom-semantic/src/canonical_image.rs
+@@ -502,14 +502,136 @@
+     pub fn capabilities(&self) -> CanonicalImageCapabilities {
+         CanonicalImageCapabilities {
+             module_count: self.modules.linked().modules.len(),
+             frozen_query_count: self.queries.len(),
+             canonical_type_count: self.type_prefix.types,
+             runtime_metadata_composed: false,
+-            portable_artifact_available: false,
++            portable_artifact_available: matches!(self.world.provenance, CanonicalWorldProvenance::Artifact { .. }),
+         }
+     }
+     /// Reader using the image's own validated arenas.
+     pub fn reader(&self) -> Result<CanonicalQueryReader<'_>, CanonicalImageError> {
+         self.queries.reader(&self.world, &self.snapshot.store, &self.snapshot.static_values)
+     }
++
++    /// Atomically constructs a source-free `CanonicalUniverseFormalImage` from validated loaded artifact parts (`P7.T9/T12`).
++    pub fn from_loaded_artifact(
++        world: CanonicalSemanticWorldId,
++        modules: Arc<CanonicalExternalModuleWorld>,
++        snapshot: Arc<SemanticSnapshot>,
++        queries: Arc<CanonicalSemanticQueryImage>,
++        dependency_fingerprints: BTreeMap<QueryKey, ProductFingerprint>,
++    ) -> Result<Arc<Self>, CanonicalImageError> {
++        if !matches!(world.provenance, CanonicalWorldProvenance::Artifact { .. }) {
++            return Err(CanonicalImageError::ForeignSemanticWorld);
++        }
++        if !snapshot.is_source_free_artifact_complete() {
++            return Err(CanonicalImageError::IncompletePublication(
++                "loaded artifact snapshot failed source-free completeness check".into(),
++            ));
++        }
++        if !snapshot.advisory.modules.is_empty() || !snapshot.advisory.callables.is_empty() {
++            return Err(CanonicalImageError::IncompletePublication(
++                "suppressed advisory products present in loaded compiler image".into(),
++            ));
++        }
++        queries.reader(&world, &snapshot.store, &snapshot.static_values)?;
++        for (key, fp) in &dependency_fingerprints {
++            if let Some(expected) = aggregate_structural_fingerprint(&snapshot, key) {
++                if expected != *fp {
++                    return Err(CanonicalImageError::IncompletePublication(format!(
++                        "loaded dependency fingerprint disagrees with relocated aggregate: {key:?}"
++                    )));
++                }
++            }
++            if queries.entry(key).is_some_and(|entry| entry.product_fingerprint != *fp) {
++                return Err(CanonicalImageError::IncompletePublication(format!(
++                    "loaded query entry disagrees with dependency fingerprint: {key:?}"
++                )));
++            }
++        }
++        let type_prefix = CanonicalTypePrefixId {
++            store: snapshot.store.id(),
++            types: snapshot.store.len(),
++        };
++        Ok(Arc::new(Self {
++            world,
++            modules,
++            build_sources: BTreeMap::new(),
++            presentation_provider: None,
++            snapshot,
++            queries,
++            dependency_fingerprints,
++            type_prefix,
++        }))
++    }
++}
++
++impl CanonicalSemanticQueryImage {
++    /// Constructs an immutable query image from validated artifact entries without a mutable `SemanticDb` (`P7.T9`).
++    pub fn from_loaded_artifact_entries(
++        world: CanonicalSemanticWorldId,
++        entries: BTreeMap<QueryKey, CanonicalQueryEntry>,
++        store: Arc<TypeStore>,
++        static_values: Arc<StaticValueStore>,
++    ) -> Result<Self, CanonicalImageError> {
++        let mut census = CanonicalQueryCensus {
++            total_rows_examined: entries.len(),
++            ..CanonicalQueryCensus::default()
++        };
++        for (key, entry) in &entries {
++            if matches!(key, QueryKey::ParsedModule(_))
++                || canonical_query_persistence(key.kind()) != CanonicalQueryPersistence::EligibleStructural
++            {
++                return Err(CanonicalImageError::IncompletePublication(format!(
++                    "unsupported or source-dependent query in artifact image: {key:?}"
++                )));
++            }
++            for edge in entry.dependencies.iter() {
++                if &edge.dependent != key {
++                    return Err(CanonicalImageError::IncompletePublication(format!(
++                        "malformed dependency edge dependent for {key:?}"
++                    )));
++                }
++                let Some(dep_entry) = entries.get(&edge.dependency) else {
++                    return Err(CanonicalImageError::IncompletePublication(format!(
++                        "unclosed query dependency {:?} -> {:?}",
++                        key, edge.dependency
++                    )));
++                };
++                if dep_entry.product_fingerprint != edge.observed_fingerprint {
++                    return Err(CanonicalImageError::IncompletePublication(format!(
++                        "stale observed dependency fingerprint on {:?} -> {:?}",
++                        key, edge.dependency
++                    )));
++                }
++            }
++            *census.retained_by_kind.entry(key.kind()).or_default() += 1;
++        }
++        let mut pending: BTreeSet<_> = entries.keys().cloned().collect();
++        loop {
++            let leaves = pending
++                .iter()
++                .filter(|key| entries[*key].dependencies.iter().all(|edge| !pending.contains(&edge.dependency)))
++                .cloned()
++                .collect::<Vec<_>>();
++            if leaves.is_empty() {
++                break;
++            }
++            for key in leaves {
++                pending.remove(&key);
++            }
++        }
++        if !pending.is_empty() {
++            return Err(CanonicalImageError::IncompletePublication(
++                "cyclic query dependency graph in loaded artifact".into(),
++            ));
++        }
++        Ok(Self {
++            world,
++            entries,
++            census,
++            store,
++            static_values,
++        })
++    }
+ }
+diff --git a/phalcom-core/src/modules/compile.rs b/phalcom-core/src/modules/compile.rs
+--- a/phalcom-core/src/modules/compile.rs
++++ b/phalcom-core/src/modules/compile.rs
+@@ -727,12 +727,347 @@
+     /// Compiles an entry selection by analyzing it first and compiling the analyzed result.
+     pub fn compile_entry_selection(entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
+         crate::perf_span_result!(
+             telos_observability::PerfPhase::Compilation,
+             || {
+                 let analyzed = ProgramAnalyzer::analyze_entry_selection(entry)?;
+                 Self::compile_analyzed(&analyzed)
+             },
+             classify_program_compile_error,
+         )
+     }
++
++    /// Compiles an entry selection against an explicit loaded `CanonicalUniverseFormalImage` without source acquisition (`P7.T12`).
++    pub fn compile_entry_selection_with_image(
++        entry: EntrySelection,
++        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
++    ) -> Result<CompiledProgram, ProgramCompileError> {
++        Self::compile_entry_selection_with_options_and_image(entry, image, &ProgramCompilationOptions::default())
++    }
++
++    /// Compiles an entry selection with explicit options and a loaded `CanonicalUniverseFormalImage` (`P7.T12`).
++    pub fn compile_entry_selection_with_options_and_image(
++        entry: EntrySelection,
++        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
++        options: &ProgramCompilationOptions,
++    ) -> Result<CompiledProgram, ProgramCompileError> {
++        crate::perf_span_result!(
++            telos_observability::PerfPhase::Compilation,
++            || {
++                let analyzed = ProgramAnalyzer::analyze_entry_selection_with_image(entry, image)?;
++                Self::compile_analyzed_with_options(&analyzed, options)
++            },
++            classify_program_compile_error,
++        )
++    }
++}
++
++impl ProgramAnalyzer {
++    /// Analyzes an entry selection using an explicitly supplied `CanonicalUniverseFormalImage` (`P7.T12`).
++    /// Never invokes source-backed `OnceLock` Universe initialization.
++    pub fn analyze_entry_selection_with_image(
++        entry: EntrySelection,
++        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
++    ) -> Result<AnalyzedProgram, ProgramCompileError> {
++        crate::perf_span_result!(
++            telos_observability::PerfPhase::SourceDiscovery,
++            || match entry {
++                EntrySelection::ModuleId(entry_id) => Err(ProgramCompileError::Io(format!(
++                    "EntrySelection::ModuleId({entry_id}) cannot be analyzed without an existing linked project universe"
++                ))),
++                EntrySelection::Project(root_dir) => {
++                    let manifest_path = if root_dir.ends_with("project.toml") {
++                        root_dir
++                    } else {
++                        root_dir.join("project.toml")
++                    };
++                    if !manifest_path.exists() {
++                        return Err(ProgramCompileError::Io(format!("project manifest not found at {}", manifest_path.display())));
++                    }
++                    let mut universe = ProjectUniverse::new();
++                    let root_id = universe.load_root(&manifest_path)?;
++                    let project = universe
++                        .get_project(root_id)
++                        .ok_or_else(|| ProgramCompileError::Io(format!("project {root_id:?} not found")))?;
++                    let entry_path = project
++                        .entry
++                        .clone()
++                        .ok_or_else(|| ProgramCompileError::ProjectNotExecutable(manifest_path.display().to_string()))?;
++                    let entry_id = ModuleId {
++                        project: root_id.into(),
++                        path: entry_path,
++                    };
++                    let provider = FilesystemSourceProvider::new();
++                    Self::discover_and_analyze_with_image(Arc::new(universe), provider, entry_id, image)
++                }
++                EntrySelection::Package(pkg_dir) => {
++                    let canonical_pkg = pkg_dir
++                        .canonicalize()
++                        .map_err(|e| ProgramCompileError::Io(format!("{}: {e}", pkg_dir.display())))?;
++                    let pkg_file = canonical_pkg.join("package.ph");
++                    if !pkg_file.is_file() {
++                        return Err(ProgramCompileError::Project(ProjectError::MissingRootPackage(canonical_pkg)));
++                    }
++                    let main_file = canonical_pkg.join("main.ph");
++                    if !main_file.is_file() {
++                        return Err(ProgramCompileError::PackageNotExecutable(canonical_pkg.display().to_string()));
++                    }
++                    let mut universe = ProjectUniverse::new();
++                    let root_id = universe.load_standalone_package(&canonical_pkg, Some("main"))?;
++                    let entry_id = ModuleId {
++                        project: root_id.into(),
++                        path: ModulePath::from_components(vec![
++                            ModuleComponent::from_identifier("main").map_err(|e| ProgramCompileError::Io(e.to_string()))?,
++                        ]),
++                    };
++                    let provider = FilesystemSourceProvider::new();
++                    Self::discover_and_analyze_with_image(Arc::new(universe), provider, entry_id, image)
++                }
++                EntrySelection::Module(file_path) => {
++                    let canonical = file_path
++                        .canonicalize()
++                        .map_err(|e| ProgramCompileError::Io(format!("{}: {}", file_path.display(), e)))?;
++                    let mut universe = ProjectUniverse::new();
++                    let ownership = classify_entry_ownership(&canonical, &mut universe)?;
++                    match ownership {
++                        EntryOwnership::ProjectOwned { project: root_id } => {
++                            let project = universe.get_project(root_id).unwrap();
++                            let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
++                                ProgramCompileError::Io(format!("file {} not under source root {}", file_path.display(), project.source_root.display()))
++                            })?;
++                            let module_path = relative_path_to_module_path(rel_path)?;
++                            let entry_id = ModuleId {
++                                project: root_id.into(),
++                                path: module_path,
++                            };
++                            let provider = FilesystemSourceProvider::new();
++                            Self::discover_and_analyze_with_image(Arc::new(universe), provider, entry_id, image)
++                        }
++                        EntryOwnership::StandalonePackageOwned { package_root } => {
++                            let root_id = universe.load_standalone_package(&package_root, None)?;
++                            let project = universe.get_project(root_id).unwrap();
++                            let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
++                                ProgramCompileError::Io(format!("file {} not under package root {}", file_path.display(), project.source_root.display()))
++                            })?;
++                            let module_path = relative_path_to_module_path(rel_path)?;
++                            let entry_id = ModuleId {
++                                project: root_id.into(),
++                                path: module_path,
++                            };
++                            let provider = FilesystemSourceProvider::new();
++                            Self::discover_and_analyze_with_image(Arc::new(universe), provider, entry_id, image)
++                        }
++                        EntryOwnership::StandaloneModule { file } => Self::analyze_standalone_module_with_image(file, image),
++                        EntryOwnership::Inline { .. } => Self::analyze_standalone_module_with_image(file_path, image),
++                    }
++                }
++                EntrySelection::Inline(source_text) => {
++                    let parsed = phalcom_ast::parse(&source_text, 0);
++                    if let Some(error) = parsed.errors.first() {
++                        return Err(ProgramCompileError::Parse(error.clone()));
++                    }
++                    if !parsed.program.preamble.dependencies.is_empty() {
++                        let dep = &parsed.program.preamble.dependencies[0];
++                        let import_name = match dep {
++                            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(m)) => m.path.to_string(),
++                            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(s)) => s.path.to_string(),
++                            phalcom_ast::ast::DependencyDecl::ReExport(r) => r.path.to_string(),
++                            phalcom_ast::ast::DependencyDecl::Expose(e) => e.child.name.clone(),
++                        };
++                        return Err(ProgramCompileError::ReplImportRequiresProjectContext {
++                            import_name: import_name.into(),
++                        });
++                    }
++                    let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
++                    let entry_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
++                    let universe = Arc::new(ProjectUniverse::new());
++                    let interface = InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program)?;
++                    let mut interfaces = BTreeMap::new();
++                    interfaces.insert(entry_id.clone(), interface);
++                    let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
++                        entry_id.clone(),
++                        ModuleKind::Module,
++                        None,
++                        source_text,
++                        Arc::new(parsed.program),
++                    ));
++                    let mut sources = BTreeMap::new();
++                    sources.insert(entry_id.clone(), parsed_unit);
++                    let resolved = BTreeMap::new();
++                    let linked = Arc::new(
++                        ModuleLinker::new(universe.clone(), interfaces.clone())
++                            .with_external_modules(image.modules().clone())
++                            .link_all(entry_id.clone(), &resolved)?,
++                    );
++                    let semantic_input = phalcom_semantic::SemanticWorkspaceInput::from_interfaces(
++                        linked.clone(),
++                        sources.clone(),
++                        interfaces
++                            .iter()
++                            .map(|(module, interface)| (module.clone(), Arc::new(interface.clone())))
++                            .collect(),
++                        0,
++                    )
++                    .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
++                    let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::from_image(image)
++                        .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
++                    let analysis = semantic_session
++                        .update_with_budget_and_cancel(
++                            semantic_input,
++                            phalcom_semantic::db::QueryBudget::default(),
++                            &phalcom_semantic::db::CancellationToken::new(),
++                        )
++                        .map_err(phalcom_semantic::SemanticUpdateFailure::from)?
++                        .snapshot;
++                    Ok(AnalyzedProgram {
++                        project_universe: universe,
++                        linked,
++                        semantic: analysis,
++                        sources,
++                        runtime_modules: BTreeSet::from([entry_id.clone()]),
++                        entry: entry_id,
++                    })
++                }
++            },
++            classify_program_compile_error,
++        )
++    }
++
++    fn analyze_standalone_module_with_image(
++        file_path: PathBuf,
++        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
++    ) -> Result<AnalyzedProgram, ProgramCompileError> {
++        let canonical = file_path
++            .canonicalize()
++            .map_err(|e| ProgramCompileError::Io(format!("{}: {e}", file_path.display())))?;
++        if !canonical.is_file() {
++            return Err(ProgramCompileError::Io(format!("{} is not a module file", canonical.display())));
++        }
++        let source_text: Arc<str> =
++            Arc::from(std::fs::read_to_string(&canonical).map_err(|e| ProgramCompileError::Io(format!("{}: {e}", canonical.display())))?);
++        let parsed = phalcom_ast::parse(&source_text, 0);
++        if let Some(error) = parsed.errors.first() {
++            return Err(ProgramCompileError::Parse(error.clone()));
++        }
++        let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
++        let entry_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
++        let universe = Arc::new(ProjectUniverse::new());
++        let interface = InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program)?;
++        let interfaces = BTreeMap::from([(entry_id.clone(), interface)]);
++        let mut sources = BTreeMap::new();
++        let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
++            entry_id.clone(),
++            ModuleKind::Module,
++            Some(SourceLocation {
++                source_id: SourceId(canonical.to_string_lossy().into()),
++                display_path: canonical.clone(),
++            }),
++            source_text,
++            Arc::new(parsed.program.clone()),
++        ));
++        sources.insert(entry_id.clone(), parsed_unit);
++        for dependency in &parsed.program.preamble.dependencies {
++            let path = match dependency {
++                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(decl)) => &decl.path,
++                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(decl)) => &decl.path,
++                phalcom_ast::ast::DependencyDecl::ReExport(decl) => &decl.path,
++                phalcom_ast::ast::DependencyDecl::Expose(decl) => {
++                    return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
++                        import_name: decl.child.name.clone().into(),
++                    });
++                }
++            };
++            if !matches!(&path.root, phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "universe") {
++                return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
++                    import_name: path.to_string().into(),
++                });
++            }
++        }
++        let provider = FilesystemSourceProvider::new();
++        let mut resolver = ModuleResolver::new(&universe, &provider);
++        let resolved = BTreeMap::new();
++        let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, [entry_id.clone()], Some(&entry_id))?;
++        let linked = Arc::new(
++            ModuleLinker::new(universe.clone(), discovered.interfaces.clone())
++                .with_external_modules(image.modules().clone())
++                .link_all(entry_id.clone(), &discovered.resolved)?,
++        );
++        let semantic_input = phalcom_semantic::SemanticWorkspaceInput::from_interfaces(
++            linked.clone(),
++            discovered.sources.clone(),
++            discovered
++                .interfaces
++                .iter()
++                .map(|(module, interface)| (module.clone(), Arc::new(interface.clone())))
++                .collect(),
++            0,
++        )
++        .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
++        let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::from_image(image)
++            .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
++        let analysis = semantic_session
++            .update_with_budget_and_cancel(
++                semantic_input,
++                phalcom_semantic::db::QueryBudget::default(),
++                &phalcom_semantic::db::CancellationToken::new(),
++            )
++            .map_err(phalcom_semantic::SemanticUpdateFailure::from)?
++            .snapshot;
++        Ok(AnalyzedProgram {
++            project_universe: universe,
++            linked,
++            semantic: analysis,
++            sources: discovered.sources,
++            runtime_modules: BTreeSet::from([entry_id.clone()]),
++            entry: entry_id,
++        })
++    }
++
++    fn discover_and_analyze_with_image(
++        universe: Arc<ProjectUniverse>,
++        source_provider: FilesystemSourceProvider,
++        entry: ModuleId,
++        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
++    ) -> Result<AnalyzedProgram, ProgramCompileError> {
++        let mut resolver = ModuleResolver::new(&universe, &source_provider);
++        let interfaces = BTreeMap::new();
++        let sources = BTreeMap::new();
++        let resolved = BTreeMap::new();
++        let mut pending = vec![entry.clone()];
++        if let Some(project_id) = entry.project.as_resolved() {
++            let root_id = ModuleId::resolved(project_id, ModulePath::root());
++            pending.push(root_id);
++        }
++        let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, pending, None)?;
++        let linker = ModuleLinker::new(universe.clone(), discovered.interfaces.clone()).with_external_modules(image.modules().clone());
++        let linked = Arc::new(linker.link_all(entry.clone(), &discovered.resolved)?);
++        let semantic_input = phalcom_semantic::SemanticWorkspaceInput::from_interfaces(
++            linked.clone(),
++            discovered.sources.clone(),
++            discovered
++                .interfaces
++                .iter()
++                .map(|(module, interface)| (module.clone(), Arc::new(interface.clone())))
++                .collect(),
++            0,
++        )
++        .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
++        let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::from_image(image)
++            .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
++        let analysis = semantic_session
++            .update_with_budget_and_cancel(
++                semantic_input,
++                phalcom_semantic::db::QueryBudget::default(),
++                &phalcom_semantic::db::CancellationToken::new(),
++            )
++            .map_err(phalcom_semantic::SemanticUpdateFailure::from)?
++            .snapshot;
++        Ok(AnalyzedProgram {
++            project_universe: universe,
++            runtime_modules: linked.modules.keys().filter(|id| !id.project.is_universe()).cloned().collect(),
++            linked,
++            semantic: analysis,
++            sources: discovered.sources,
++            entry,
++        })
++    }
+ }

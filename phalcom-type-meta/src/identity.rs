@@ -102,9 +102,9 @@ impl StableCallableOwnerRef {
     /// Returns the enclosing nominal declaration, when ownership provides one.
     pub fn enclosing_declaration(&self) -> Option<&StableDeclarationRef> {
         match self {
-            Self::Declaration(owner) => Some(owner),
-            Self::Variant(owner) => Some(&owner.owner),
-            Self::Conformance(_) => None,
+            Self::Declaration(owner) if !owner.is_synthetic_main() => Some(owner),
+            Self::Variant(owner) if !owner.owner.is_synthetic_main() => Some(&owner.owner),
+            _ => None,
         }
     }
 }

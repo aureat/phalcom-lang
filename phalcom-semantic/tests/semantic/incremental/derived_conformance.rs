@@ -56,9 +56,12 @@ let result = Worker.new().apply(Input.new())
                 };
                 let generics = snapshot.callable_signatures.get(&specialization.callable).unwrap().generics.as_ref().unwrap();
                 assert_eq!(specialization.bindings[0].0, generics.parameters[0]);
+                let phalcom_semantic::types::store::StaticArgument::Term(bound_type) = specialization.bindings[0].1 else {
+                    panic!("derived conformance subject must remain a proper type term")
+                };
                 assert_eq!(
                     specialization.conformances[0].callee_conformance.subject,
-                    phalcom_semantic::types::parameter::TypeTerm::Canonical(specialization.bindings[0].1)
+                    phalcom_semantic::types::parameter::TypeTerm::Canonical(bound_type)
                 );
                 let phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { evidence } = &specialization.conformances[0].source else {
                     panic!("exact Input proof")
@@ -721,8 +724,10 @@ export Stream
 
     let provider_module = out_a.snapshot.module_for_display_path(&provider_path).expect("provider module").clone();
     let stream_decl = DeclarationId::new(provider_module, "Stream".into());
-    let rule_a = &out_a.snapshot.derived_conformance_rules.rules_for_trait(&stream_decl)[0];
-    let rule_b = &out_b.snapshot.derived_conformance_rules.rules_for_trait(&stream_decl)[0];
+    let rules_a = out_a.snapshot.derived_conformance_rules.rules_for_trait(&stream_decl);
+    let rules_b = out_b.snapshot.derived_conformance_rules.rules_for_trait(&stream_decl);
+    let rule_a = &rules_a[0];
+    let rule_b = &rules_b[0];
 
     assert_eq!(
         rule_a.fingerprint, rule_b.fingerprint,

@@ -85,6 +85,61 @@ pub enum SemanticDenotation {
     BehavioralFamily(Box<BehavioralFamilyDenotation>),
 }
 
+impl SemanticDenotation {
+    pub(crate) fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, phalcom_type_meta::allocation::AllocationError> {
+        Ok(match self {
+            Self::TypeForm(id) => Self::TypeForm(*id),
+            Self::Kind(id) => Self::Kind(*id),
+            Self::StaticDomain(id) => Self::StaticDomain(*id),
+            Self::StaticTerm(id) => Self::StaticTerm(*id),
+            Self::StaticApplication(id) => Self::StaticApplication(id.clone_with_allocation_budget(allocations)?),
+            Self::AssociatedValue(box_val) => {
+                let cloned_val = match box_val.as_ref() {
+                    AssociatedValueDenotation::Exact {
+                        owner_form,
+                        lookup_owner,
+                        member,
+                        target,
+                    } => {
+                        let target_box = allocations.boxed(target.as_ref().clone())?;
+                        AssociatedValueDenotation::Exact {
+                            owner_form: *owner_form,
+                            lookup_owner: lookup_owner.clone_with_allocation_budget(allocations)?,
+                            member: member.clone(),
+                            target: target_box,
+                        }
+                    }
+                    AssociatedValueDenotation::Family {
+                        owner_form,
+                        lookup_owner,
+                        family,
+                        members,
+                    } => AssociatedValueDenotation::Family {
+                        owner_form: *owner_form,
+                        lookup_owner: lookup_owner.clone_with_allocation_budget(allocations)?,
+                        family: family.clone(),
+                        members: members.clone(),
+                    },
+                };
+                Self::AssociatedValue(allocations.boxed(cloned_val)?)
+            }
+            Self::BehavioralFamily(box_fam) => {
+                let fam = box_fam.as_ref();
+                let cloned_fam = BehavioralFamilyDenotation {
+                    receiver_type: fam.receiver_type,
+                    receiver_application: fam.receiver_application,
+                    spec: fam.spec.clone_with_allocation_budget(allocations)?,
+                    members: fam.members.clone(),
+                };
+                Self::BehavioralFamily(allocations.boxed(cloned_fam)?)
+            }
+        })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValueSemanticFact {
     pub knowledge: TypeKnowledge,

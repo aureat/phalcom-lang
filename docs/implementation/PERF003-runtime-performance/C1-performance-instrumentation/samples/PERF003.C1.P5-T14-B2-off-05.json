@@ -1,0 +1,19 @@
+{
+  "schema_version": 3,
+  "metadata": {
+    "run_id": "perf-profile-10438-1791851201354523000",
+    "started_unix_ns": 1791851201354530000,
+    "observability_level": "off",
+    "lifecycle": "process_cold",
+    "baseline_head": "e2ae4a0fd360e4075ce8ad229a3e39e1531fb771",
+    "execution_tree_head": "cde1062260a74dc97a43344b1b29466c8529bfee",
+    "source_revision": "cde1062260a74dc97a43344b1b29466c8529bfee",
+    "branch": "perf/universe-characterization",
+    "dirty": false,
+    "toolchain": "nightly-2026-07-10-aarch64-apple-darwin",
+    "workload": "canonical_semantic_baseline"
+  },
+  "elapsed_ns": 49553000,
+  "spans": [],
+  "counters": {}
+}

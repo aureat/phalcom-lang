@@ -1,0 +1,8 @@
+   Compiling phalcom-modules v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-modules)
+    Finished `test` profile [unoptimized] target(s) in 1.00s
+     Running unittests src/lib.rs (target/debug/deps/phalcom_modules-1720c268b07a24e2)
+
+running 1 test
+test compiler_artifact::allocation_materialization_tests::module_world_rejects_invalid_and_duplicate_module_import_identities ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s

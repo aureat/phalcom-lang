@@ -20,9 +20,9 @@ use crate::enum_semantics::VariantInfo;
 use crate::identity::DeclarationId;
 use phalcom_compiler_artifact::query::{
     DependencyEvidenceEntryV3, PortableQueryKindV1 as Kind, QueryImageV3, QueryRootEntryV3,
-    portable_structural_dependency_product_fingerprint, portable_structural_root_fingerprints,
+    portable_structural_dependency_product_fingerprint_v4, portable_structural_root_fingerprints_v4,
 };
-use phalcom_compiler_artifact::semantic::world::SemanticWorldV3;
+use phalcom_compiler_artifact::semantic::world::SemanticWorldV4;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_type_meta::allocation::AllocationBudget;
 use std::sync::Arc;
@@ -117,7 +117,7 @@ pub(crate) fn reconstruct_structural_query_products(
     associated: &super::associated_import::ImportedAssociatedAuthority,
     callables: &super::callable_import::ImportedCallableAuthority,
     owners: &StableOwnerCatalog<'_>,
-    world: &SemanticWorldV3,
+    world: &SemanticWorldV4,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedQueryProducts, ArtifactError> {
     let root_count = image
@@ -206,7 +206,7 @@ fn reconstruct_data_root(
     root: &QueryRootEntryV3,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
     owners: &StableOwnerCatalog<'_>,
-    world: &SemanticWorldV3,
+    world: &SemanticWorldV4,
     diagnostics: Arc<[SemanticDiagnostic]>,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
@@ -226,7 +226,7 @@ fn reconstruct_enum_root(
     root: &QueryRootEntryV3,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
     owners: &StableOwnerCatalog<'_>,
-    world: &SemanticWorldV3,
+    world: &SemanticWorldV4,
     diagnostics: Arc<[SemanticDiagnostic]>,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
@@ -246,7 +246,7 @@ fn reconstruct_data_evidence(
     evidence: &DependencyEvidenceEntryV3,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
     owners: &StableOwnerCatalog<'_>,
-    world: &SemanticWorldV3,
+    world: &SemanticWorldV4,
     diagnostics: Arc<[SemanticDiagnostic]>,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
@@ -266,7 +266,7 @@ fn reconstruct_enum_evidence(
     evidence: &DependencyEvidenceEntryV3,
     aggregates: &super::semantic_import::ImportedSemanticAggregates,
     owners: &StableOwnerCatalog<'_>,
-    world: &SemanticWorldV3,
+    world: &SemanticWorldV4,
     diagnostics: Arc<[SemanticDiagnostic]>,
     allocations: &mut AllocationBudget,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
@@ -286,7 +286,7 @@ fn reconstruct_associated_surface_root(
     root: &QueryRootEntryV3,
     associated: &super::associated_import::ImportedAssociatedAuthority,
     owners: &StableOwnerCatalog<'_>,
-    world: &SemanticWorldV3,
+    world: &SemanticWorldV4,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_zero_dependency_contract(root)?;
     validate_portable_root_fingerprints(root, world)?;
@@ -312,7 +312,7 @@ fn reconstruct_associated_surface_evidence(
     evidence: &DependencyEvidenceEntryV3,
     associated: &super::associated_import::ImportedAssociatedAuthority,
     owners: &StableOwnerCatalog<'_>,
-    world: &SemanticWorldV3,
+    world: &SemanticWorldV4,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_exact_structural_aggregate_owner(evidence)?;
     validate_portable_evidence_fingerprint(evidence, world)?;
@@ -338,7 +338,7 @@ fn reconstruct_type_member_root(
     root: &QueryRootEntryV3,
     associated: &super::associated_import::ImportedAssociatedAuthority,
     owners: &StableOwnerCatalog<'_>,
-    world: &SemanticWorldV3,
+    world: &SemanticWorldV4,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_zero_dependency_contract(root)?;
     validate_portable_root_fingerprints(root, world)?;
@@ -364,7 +364,7 @@ fn reconstruct_type_member_evidence(
     evidence: &DependencyEvidenceEntryV3,
     associated: &super::associated_import::ImportedAssociatedAuthority,
     owners: &StableOwnerCatalog<'_>,
-    world: &SemanticWorldV3,
+    world: &SemanticWorldV4,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_exact_structural_aggregate_owner(evidence)?;
     validate_portable_evidence_fingerprint(evidence, world)?;
@@ -390,7 +390,7 @@ fn reconstruct_callable_definition_root(
     root: &QueryRootEntryV3,
     callables: &super::callable_import::ImportedCallableAuthority,
     owners: &StableOwnerCatalog<'_>,
-    world: &SemanticWorldV3,
+    world: &SemanticWorldV4,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_zero_dependency_contract(root)?;
     validate_portable_root_fingerprints(root, world)?;
@@ -416,7 +416,7 @@ fn reconstruct_callable_definition_evidence(
     evidence: &DependencyEvidenceEntryV3,
     callables: &super::callable_import::ImportedCallableAuthority,
     owners: &StableOwnerCatalog<'_>,
-    world: &SemanticWorldV3,
+    world: &SemanticWorldV4,
 ) -> Result<ImportedReadyQueryProduct, ArtifactError> {
     require_exact_structural_aggregate_owner(evidence)?;
     validate_portable_evidence_fingerprint(evidence, world)?;
@@ -533,8 +533,8 @@ fn require_exact_structural_aggregate_owner(evidence: &DependencyEvidenceEntryV3
     Ok(())
 }
 
-fn validate_portable_root_fingerprints(root: &QueryRootEntryV3, world: &SemanticWorldV3) -> Result<(), ArtifactError> {
-    let Some((input, product)) = portable_structural_root_fingerprints(root, world)? else {
+fn validate_portable_root_fingerprints(root: &QueryRootEntryV3, world: &SemanticWorldV4) -> Result<(), ArtifactError> {
+    let Some((input, product)) = portable_structural_root_fingerprints_v4(root, world)? else {
         return Err(invalid("portable structural fingerprint requested for a non-structural query root"));
     };
     if root.input_fingerprint != input {
@@ -552,8 +552,8 @@ fn validate_portable_root_fingerprints(root: &QueryRootEntryV3, world: &Semantic
     Ok(())
 }
 
-fn validate_portable_evidence_fingerprint(evidence: &DependencyEvidenceEntryV3, world: &SemanticWorldV3) -> Result<(), ArtifactError> {
-    let Some(product) = portable_structural_dependency_product_fingerprint(&evidence.key, world)? else {
+fn validate_portable_evidence_fingerprint(evidence: &DependencyEvidenceEntryV3, world: &SemanticWorldV4) -> Result<(), ArtifactError> {
+    let Some(product) = portable_structural_dependency_product_fingerprint_v4(&evidence.key, world)? else {
         return Err(invalid("portable structural dependency fingerprint requested for a non-structural query key"));
     };
     if evidence.product_fingerprint != product {

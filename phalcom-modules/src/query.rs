@@ -6,6 +6,8 @@
 //! through this view; LSP consumers can then query those products without
 //! reconstructing module meaning.
 
+use crate::authority::{ModuleAuthorityMapRef, ReverseImportsRef};
+use crate::canonical_products::CanonicalExternalModuleWorld;
 use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, SourceId, SourceLocation};
 use crate::interface::{LinkedExport, LinkedModuleInterface, UnlinkedModuleInterface};
 use crate::project::ProjectUniverse;
@@ -43,14 +45,15 @@ pub enum RelativeQueryError {
 /// Immutable view of one canonical module-resolution generation.
 pub struct ModuleQueryFacade<'a> {
     universe: &'a ProjectUniverse,
-    unlinked: &'a BTreeMap<ModuleId, UnlinkedModuleInterface>,
-    linked: &'a BTreeMap<ModuleId, LinkedModuleInterface>,
-    resolved_imports: &'a BTreeMap<(ModuleId, String), ModuleId>,
-    sources: &'a BTreeMap<ModuleId, SourceLocation>,
-    source_modules: &'a BTreeMap<SourceId, ModuleId>,
-    display_path_modules: &'a BTreeMap<std::path::PathBuf, ModuleId>,
+    unlinked: Option<ModuleAuthorityMapRef<'a, ModuleId, UnlinkedModuleInterface>>,
+    linked: Option<ModuleAuthorityMapRef<'a, ModuleId, LinkedModuleInterface>>,
+    external_modules: Option<&'a CanonicalExternalModuleWorld>,
+    resolved_imports: ModuleAuthorityMapRef<'a, (ModuleId, String), ModuleId>,
+    sources: ModuleAuthorityMapRef<'a, ModuleId, SourceLocation>,
+    source_modules: ModuleAuthorityMapRef<'a, SourceId, ModuleId>,
+    display_path_modules: ModuleAuthorityMapRef<'a, std::path::PathBuf, ModuleId>,
     topology: Option<&'a crate::topology::ModuleTopology>,
-    reverse_imports: Option<&'a BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
+    reverse_imports: Option<ReverseImportsRef<'a>>,
     fallback_scans: Option<&'a AtomicU64>,
 }
 
@@ -58,25 +61,65 @@ impl<'a> ModuleQueryFacade<'a> {
     /// Creates a query view over already-produced canonical module products.
     pub fn new(
         universe: &'a ProjectUniverse,
-        unlinked: &'a BTreeMap<ModuleId, UnlinkedModuleInterface>,
-        linked: &'a BTreeMap<ModuleId, LinkedModuleInterface>,
-        resolved_imports: &'a BTreeMap<(ModuleId, String), ModuleId>,
-        sources: &'a BTreeMap<ModuleId, SourceLocation>,
-        source_modules: &'a BTreeMap<SourceId, ModuleId>,
-        display_path_modules: &'a BTreeMap<std::path::PathBuf, ModuleId>,
+        unlinked: impl Into<ModuleAuthorityMapRef<'a, ModuleId, UnlinkedModuleInterface>>,
+        linked: impl Into<ModuleAuthorityMapRef<'a, ModuleId, LinkedModuleInterface>>,
+        resolved_imports: impl Into<ModuleAuthorityMapRef<'a, (ModuleId, String), ModuleId>>,
+        sources: impl Into<ModuleAuthorityMapRef<'a, ModuleId, SourceLocation>>,
+        source_modules: impl Into<ModuleAuthorityMapRef<'a, SourceId, ModuleId>>,
+        display_path_modules: impl Into<ModuleAuthorityMapRef<'a, std::path::PathBuf, ModuleId>>,
     ) -> Self {
         Self {
             universe,
-            unlinked,
-            linked,
-            resolved_imports,
-            sources,
-            source_modules,
-            display_path_modules,
+            unlinked: Some(unlinked.into()),
+            linked: Some(linked.into()),
+            external_modules: None,
+            resolved_imports: resolved_imports.into(),
+            sources: sources.into(),
+            source_modules: source_modules.into(),
+            display_path_modules: display_path_modules.into(),
             topology: None,
             reverse_imports: None,
             fallback_scans: None,
         }
+    }
+
+    /// Creates a query view over the canonical loaded module owner without
+    /// materializing source-shaped interface maps.
+    pub fn new_with_external_modules(
+        universe: &'a ProjectUniverse,
+        external_modules: &'a CanonicalExternalModuleWorld,
+        resolved_imports: impl Into<ModuleAuthorityMapRef<'a, (ModuleId, String), ModuleId>>,
+        sources: impl Into<ModuleAuthorityMapRef<'a, ModuleId, SourceLocation>>,
+        source_modules: impl Into<ModuleAuthorityMapRef<'a, SourceId, ModuleId>>,
+        display_path_modules: impl Into<ModuleAuthorityMapRef<'a, std::path::PathBuf, ModuleId>>,
+    ) -> Self {
+        Self {
+            universe,
+            unlinked: None,
+            linked: None,
+            external_modules: Some(external_modules),
+            resolved_imports: resolved_imports.into(),
+            sources: sources.into(),
+            source_modules: source_modules.into(),
+            display_path_modules: display_path_modules.into(),
+            topology: None,
+            reverse_imports: None,
+            fallback_scans: None,
+        }
+    }
+
+    fn unlinked_interface(&self, module: &ModuleId) -> Option<&UnlinkedModuleInterface> {
+        if let Some(external_modules) = self.external_modules {
+            return external_modules.interfaces().get(module).map(std::sync::Arc::as_ref);
+        }
+        self.unlinked.as_ref()?.get(module)
+    }
+
+    fn linked_interface(&self, module: &ModuleId) -> Option<&LinkedModuleInterface> {
+        if let Some(external_modules) = self.external_modules {
+            return external_modules.linked().modules.get(module).map(|linked| &linked.interface);
+        }
+        self.linked.as_ref()?.get(module)
     }
 
     /// Attaches an indexed module topology to accelerate child, exposure, and source queries.
@@ -86,8 +129,8 @@ impl<'a> ModuleQueryFacade<'a> {
     }
 
     /// Attaches a precomputed reverse import map to accelerate reverse importer queries.
-    pub fn with_reverse_imports(mut self, reverse_imports: &'a BTreeMap<ModuleId, BTreeSet<ModuleId>>) -> Self {
-        self.reverse_imports = Some(reverse_imports);
+    pub fn with_reverse_imports(mut self, reverse_imports: impl Into<ReverseImportsRef<'a>>) -> Self {
+        self.reverse_imports = Some(reverse_imports.into());
         self
     }
 
@@ -118,7 +161,7 @@ impl<'a> ModuleQueryFacade<'a> {
             return topology.owning_package(module);
         }
         self.record_fallback_scan();
-        if let Some(iface) = self.unlinked.get(module) {
+        if let Some(iface) = self.unlinked_interface(module) {
             if iface.kind == crate::source::ModuleKind::Package {
                 return module.clone();
             }
@@ -129,7 +172,7 @@ impl<'a> ModuleQueryFacade<'a> {
                 project: module.project,
                 path: p.clone(),
             };
-            if let Some(iface) = self.unlinked.get(&candidate) {
+            if let Some(iface) = self.unlinked_interface(&candidate) {
                 if iface.kind == crate::source::ModuleKind::Package {
                     return candidate;
                 }
@@ -192,7 +235,17 @@ impl<'a> ModuleQueryFacade<'a> {
 
         self.record_fallback_scan();
         let mut children = BTreeSet::new();
-        for candidate in self.linked.keys().chain(self.unlinked.keys()) {
+        let candidates: Box<dyn Iterator<Item = &ModuleId> + '_> = if let Some(external_modules) = self.external_modules {
+            Box::new(external_modules.interfaces().keys())
+        } else {
+            Box::new(
+                self.linked
+                    .expect("source module query view has linked interfaces")
+                    .keys()
+                    .chain(self.unlinked.expect("source module query view has unlinked interfaces").keys()),
+            )
+        };
+        for candidate in candidates {
             if candidate.project == project {
                 let components = candidate.path.components();
                 if components.len() == prefix.components().len() + 1 && &components[..prefix.components().len()] == prefix.components() {
@@ -248,7 +301,7 @@ impl<'a> ModuleQueryFacade<'a> {
                 project: target_project,
                 path: current_pkg_path.clone(),
             };
-            let Some(iface) = self.unlinked.get(&parent_id) else {
+            let Some(iface) = self.unlinked_interface(&parent_id) else {
                 return Vec::new();
             };
             if !iface.exposed_children.contains(comp) {
@@ -261,7 +314,7 @@ impl<'a> ModuleQueryFacade<'a> {
             project: target_project,
             path: prefix.clone(),
         };
-        let Some(current_iface) = self.unlinked.get(&current_parent_id) else {
+        let Some(current_iface) = self.unlinked_interface(&current_parent_id) else {
             return Vec::new();
         };
 
@@ -281,7 +334,7 @@ impl<'a> ModuleQueryFacade<'a> {
         if dots == 0 {
             return Err(RelativeQueryError::InvalidDots);
         }
-        let Some(iface) = self.unlinked.get(importer) else {
+        let Some(iface) = self.unlinked_interface(importer) else {
             return Err(RelativeQueryError::ImporterInterfaceMissing(importer.clone()));
         };
 
@@ -319,8 +372,8 @@ impl<'a> ModuleQueryFacade<'a> {
     }
 
     /// Returns linked public exports for a module.
-    pub fn public_exports(&self, module: &ModuleId) -> Option<&BTreeMap<Box<str>, LinkedExport>> {
-        self.linked.get(module).map(|interface| &interface.exports)
+    pub fn public_exports(&self, module: &ModuleId) -> Option<ModuleAuthorityMapRef<'_, Box<str>, LinkedExport>> {
+        self.linked_interface(module).map(|interface| ModuleAuthorityMapRef::from(&interface.exports))
     }
 
     /// Returns a previously computed canonical resolution for an import path.

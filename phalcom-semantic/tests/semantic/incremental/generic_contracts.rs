@@ -7,9 +7,10 @@ use phalcom_semantic::checker::analysis::{AnalysisStatus, ExpressionAnalysis};
 use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
-use phalcom_semantic::match_semantics::{MatchResolution, PatternResolution, PatternUsefulness};
+use phalcom_semantic::match_semantics::{PatternResolution, PatternUsefulness};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::snapshot::SemanticSnapshot;
+use phalcom_semantic::types::proof::FrozenMatchResolution;
 use std::sync::Arc;
 
 fn module(raw: u32) -> ModuleId {
@@ -67,7 +68,7 @@ fn expression<'a>(snapshot: &'a SemanticSnapshot, module: &ModuleId, callable: &
         .unwrap_or_else(|| panic!("missing expression containing {needle:?}"))
 }
 
-fn first_match<'a>(snapshot: &'a SemanticSnapshot, callable: &CallableId) -> &'a MatchResolution {
+fn first_match<'a>(snapshot: &'a SemanticSnapshot, callable: &CallableId) -> &'a FrozenMatchResolution {
     snapshot
         .callable_analyses
         .get(callable)

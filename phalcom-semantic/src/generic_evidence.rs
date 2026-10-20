@@ -1,9 +1,10 @@
 //! Canonical generic conformance evidence, lexical evidence environments,
 //! deterministic evidence layout, and direct proof queries.
 
+use crate::checker::analysis_map::AnalysisMap;
 use crate::declarations::DeclarationTypeTable;
 use crate::identity::ImplId;
-use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan};
+use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution};
 use crate::traits::{TraitRef, TraitRequirementId, TraitSurfaceTable};
 use crate::types::evidence::UnknownReason;
 use crate::types::id::TypeId;
@@ -72,14 +73,14 @@ impl DerivedConformanceEvidence {
         }
     }
 
-    pub fn requirements(&self) -> &BTreeMap<crate::traits::TraitRequirementId, crate::impls::RequirementSelectionTemplate> {
+    pub fn requirements(&self) -> &AnalysisMap<crate::traits::TraitRequirementId, crate::impls::RequirementSelectionTemplate> {
         match &self.origin {
             DerivedConformanceOrigin::ConditionalSource { exact_source } => &exact_source.requirements,
             DerivedConformanceOrigin::GuardedRule { rule, .. } => &rule.requirements,
         }
     }
 
-    pub fn requirement_views(&self) -> &BTreeMap<crate::traits::TraitRequirementId, crate::traits::InstantiatedTraitRequirement> {
+    pub fn requirement_views(&self) -> &AnalysisMap<crate::traits::TraitRequirementId, crate::traits::InstantiatedTraitRequirement> {
         match &self.origin {
             DerivedConformanceOrigin::ConditionalSource { exact_source } => &exact_source.requirement_views,
             DerivedConformanceOrigin::GuardedRule { rule, .. } => &rule.requirement_views,
@@ -560,7 +561,7 @@ pub struct StructuralConformanceContext<'a> {
 pub struct ConformanceProofContext<'a> {
     pub lexical_evidence: Option<&'a GenericEvidenceEnvironment>,
     pub conformance_index: Option<&'a ConformanceIndex>,
-    pub witness_plans: Option<&'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
+    pub witness_plans: Option<&'a crate::impls::ConformanceWitnessPlans>,
     pub trait_surfaces: Option<&'a TraitSurfaceTable>,
     pub derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>,
     pub declarations: Option<&'a DeclarationTypeTable>,
@@ -577,7 +578,7 @@ impl<'a> ConformanceProofContext<'a> {
     pub fn new(
         lexical_evidence: Option<&'a GenericEvidenceEnvironment>,
         conformance_index: Option<&'a ConformanceIndex>,
-        witness_plans: Option<&'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
+        witness_plans: Option<&'a crate::impls::ConformanceWitnessPlans>,
         trait_surfaces: Option<&'a TraitSurfaceTable>,
         declarations: Option<&'a DeclarationTypeTable>,
         hierarchy: Option<&'a dyn TypeHierarchy>,
@@ -898,7 +899,7 @@ fn complete_exact_conformance_evidence(evidence: Arc<ConformanceEvidence>, conte
         Err(proof) => return proof,
     };
     let mut completed = (*evidence).clone();
-    completed.trait_header_conformance_proofs = Some(trait_header_conformance_proofs);
+    completed.trait_header_conformance_proofs = Some(trait_header_conformance_proofs.into());
     GenericConformanceProof::Proven(GenericConformanceEvidence::Exact(Arc::new(completed)))
 }
 
@@ -1284,6 +1285,12 @@ fn evaluate_conformance_goal(key: &GenericConformanceKey, context: &mut Conforma
 
 /// Recursive conformance proof query evaluated under an explicit session context.
 pub fn prove_conformance_with_context(key: &GenericConformanceKey, context: &mut ConformanceProofContext) -> GenericConformanceProof {
+    #[cfg(feature = "perf-observability")]
+    {
+        let perf = telos_observability::PerfContext::current_thread();
+        perf.record_counter(telos_observability::PerfCounter::GenericConformanceProofAttempts, 1);
+        perf.record_distribution_sample("generic_conformance_nested_proof_depth", context.stack.len() as u64 + 1);
+    }
     if context.cancellation.is_cancelled() {
         return GenericConformanceProof::Cancelled;
     }
@@ -1305,6 +1312,10 @@ pub fn prove_conformance_with_context(key: &GenericConformanceKey, context: &mut
     let proof = evaluate_conformance_goal(key, context);
 
     context.stack.pop();
+    #[cfg(feature = "perf-observability")]
+    if matches!(&proof, GenericConformanceProof::Proven(GenericConformanceEvidence::Derived(_))) {
+        telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::GenericConformanceDerivedProofs, 1);
+    }
     context.memo.insert(key.clone(), ProofMemoState::Completed(proof.clone()));
     proof
 }
@@ -1317,7 +1328,7 @@ pub fn query_generic_conformance_proof(
     trait_ref: &TraitRef,
     environment: Option<&GenericEvidenceEnvironment>,
     conformance_index: Option<&ConformanceIndex>,
-    witness_plans: Option<&BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
+    witness_plans: Option<&crate::impls::ConformanceWitnessPlans>,
     trait_surfaces: Option<&TraitSurfaceTable>,
     derived_rules: Option<&crate::derived_conformance::DerivedConformanceRuleIndex>,
     declarations: Option<&DeclarationTypeTable>,
@@ -1344,7 +1355,7 @@ pub fn query_generic_conformance_proof_with_structural(
     trait_ref: &TraitRef,
     environment: Option<&GenericEvidenceEnvironment>,
     conformance_index: Option<&ConformanceIndex>,
-    witness_plans: Option<&BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
+    witness_plans: Option<&crate::impls::ConformanceWitnessPlans>,
     trait_surfaces: Option<&TraitSurfaceTable>,
     derived_rules: Option<&crate::derived_conformance::DerivedConformanceRuleIndex>,
     declarations: Option<&DeclarationTypeTable>,
@@ -1352,6 +1363,8 @@ pub fn query_generic_conformance_proof_with_structural(
     store: Option<&mut TypeStore>,
     structural: Option<StructuralConformanceContext<'_>>,
 ) -> GenericConformanceProof {
+    #[cfg(feature = "perf-observability")]
+    telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::GenericConformanceProofQueries, 1);
     let mut context = ConformanceProofContext::new(environment, conformance_index, witness_plans, trait_surfaces, declarations, hierarchy, store)
         .with_derived_rules(derived_rules)
         .with_structural(structural);

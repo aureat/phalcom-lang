@@ -53,7 +53,10 @@ class Probe {
     let specialization = call.call_specialization.as_ref().expect("solved generic call product");
     assert_eq!(specialization.callable, call.callable.clone().expect("callable identity"));
     assert_eq!(specialization.bindings.len(), 1);
-    assert_eq!(specialization.bindings[0].1, fixture.ty("Int"));
+    assert_eq!(
+        specialization.bindings[0].1,
+        phalcom_semantic::types::store::StaticArgument::Term(fixture.ty("Int"))
+    );
 }
 
 #[test]

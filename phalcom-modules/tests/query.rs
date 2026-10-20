@@ -24,10 +24,10 @@ fn facade_exposes_canonical_roots_children_exports_and_provenance() {
         UnlinkedModuleInterface {
             id: root.clone(),
             kind: ModuleKind::Package,
-            declarations: BTreeMap::new(),
-            exports: BTreeMap::new(),
+            declarations: Default::default(),
+            exports: Default::default(),
             imports: Vec::new(),
-            exposed_children: BTreeSet::from([component("math")]),
+            exposed_children: BTreeSet::from([component("math")]).into(),
             metadata: ModuleMetadata::default(),
         },
     );
@@ -45,7 +45,8 @@ fn facade_exposes_canonical_roots_children_exports_and_provenance() {
                     target: LinkedExportTarget::Module(child.clone()),
                     range: SourceRange { start: 0, end: 6 },
                 },
-            )]),
+            )])
+            .into(),
             metadata: ModuleMetadata::default(),
         },
     );
@@ -88,10 +89,10 @@ fn facade_rejects_unexposed_package_children() {
         UnlinkedModuleInterface {
             id: root.clone(),
             kind: ModuleKind::Package,
-            declarations: BTreeMap::new(),
-            exports: BTreeMap::new(),
+            declarations: Default::default(),
+            exports: Default::default(),
             imports: Vec::new(),
-            exposed_children: BTreeSet::new(),
+            exposed_children: Default::default(),
             metadata: ModuleMetadata::default(),
         },
     )]);
@@ -100,7 +101,7 @@ fn facade_rejects_unexposed_package_children() {
         LinkedModuleInterface {
             module: child,
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: Default::default(),
             metadata: ModuleMetadata::default(),
         },
     )]);
@@ -127,10 +128,10 @@ fn facade_with_topology_and_reverse_imports_accelerates_lookups() {
         UnlinkedModuleInterface {
             id: root.clone(),
             kind: ModuleKind::Package,
-            declarations: BTreeMap::new(),
-            exports: BTreeMap::new(),
+            declarations: Default::default(),
+            exports: Default::default(),
             imports: Vec::new(),
-            exposed_children: BTreeSet::from([component("math")]),
+            exposed_children: BTreeSet::from([component("math")]).into(),
             metadata: ModuleMetadata::default(),
         },
     )]);
@@ -139,7 +140,7 @@ fn facade_with_topology_and_reverse_imports_accelerates_lookups() {
         LinkedModuleInterface {
             module: child.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: Default::default(),
             metadata: ModuleMetadata::default(),
         },
     )]);
@@ -194,10 +195,10 @@ fn unindexed_facade_records_fallback_scans_while_indexed_records_zero() {
         UnlinkedModuleInterface {
             id: root.clone(),
             kind: ModuleKind::Package,
-            declarations: BTreeMap::new(),
-            exports: BTreeMap::new(),
+            declarations: Default::default(),
+            exports: Default::default(),
             imports: Vec::new(),
-            exposed_children: BTreeSet::from([component("math")]),
+            exposed_children: BTreeSet::from([component("math")]).into(),
             metadata: ModuleMetadata::default(),
         },
     )]);
@@ -206,7 +207,7 @@ fn unindexed_facade_records_fallback_scans_while_indexed_records_zero() {
         LinkedModuleInterface {
             module: child.clone(),
             kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
+            exports: Default::default(),
             metadata: ModuleMetadata::default(),
         },
     )]);
@@ -285,10 +286,10 @@ fn synthetic_large_scale_topology_query_work_count() {
         UnlinkedModuleInterface {
             id: root.clone(),
             kind: ModuleKind::Package,
-            declarations: BTreeMap::new(),
-            exports: BTreeMap::new(),
+            declarations: Default::default(),
+            exports: Default::default(),
             imports: Vec::new(),
-            exposed_children: root_exposed,
+            exposed_children: root_exposed.into(),
             metadata: ModuleMetadata::default(),
         },
     );
@@ -307,10 +308,10 @@ fn synthetic_large_scale_topology_query_work_count() {
             UnlinkedModuleInterface {
                 id: p_id.clone(),
                 kind: ModuleKind::Package,
-                declarations: BTreeMap::new(),
-                exports: BTreeMap::new(),
+                declarations: Default::default(),
+                exports: Default::default(),
                 imports: Vec::new(),
-                exposed_children: p_exposed,
+                exposed_children: p_exposed.into(),
                 metadata: ModuleMetadata::default(),
             },
         );
@@ -329,10 +330,10 @@ fn synthetic_large_scale_topology_query_work_count() {
                 UnlinkedModuleInterface {
                     id: sp_id.clone(),
                     kind: ModuleKind::Package,
-                    declarations: BTreeMap::new(),
-                    exports: BTreeMap::new(),
+                    declarations: Default::default(),
+                    exports: Default::default(),
                     imports: Vec::new(),
-                    exposed_children: sp_exposed,
+                    exposed_children: sp_exposed.into(),
                     metadata: ModuleMetadata::default(),
                 },
             );
@@ -347,10 +348,10 @@ fn synthetic_large_scale_topology_query_work_count() {
                     UnlinkedModuleInterface {
                         id: m_id.clone(),
                         kind: ModuleKind::Module,
-                        declarations: BTreeMap::new(),
-                        exports: BTreeMap::new(),
+                        declarations: Default::default(),
+                        exports: Default::default(),
                         imports: Vec::new(),
-                        exposed_children: BTreeSet::new(),
+                        exposed_children: Default::default(),
                         metadata: ModuleMetadata::default(),
                     },
                 );

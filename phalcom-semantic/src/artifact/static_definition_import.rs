@@ -17,7 +17,7 @@ use crate::identity::DeclarationId;
 use crate::static_definition::StaticDefinitionSignature;
 use crate::types::parameter::TypeParameterOwner;
 use phalcom_common::range::SourceRange;
-use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1;
+use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV2;
 use phalcom_compiler_artifact::semantic::world::StaticDefinitionRecordV1;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_type_meta::allocation::AllocationBudget;
@@ -63,7 +63,7 @@ impl ImportedStaticDefinitionAuthority {
 /// live Operational body wrapper replaced by explicit staging authority.
 pub(crate) fn reconstruct_static_definitions(
     records: &[StaticDefinitionRecordV1],
-    contracts: &StructuralPrimaryContractsV1,
+    contracts: &StructuralPrimaryContractsV2,
     static_values: &ImportedStaticValueGraph,
     types: &ReconstructedTypeGraph,
     owners: &StableOwnerCatalog<'_>,
@@ -112,19 +112,14 @@ pub(crate) fn reconstruct_static_definitions(
                     ));
                 }
                 let structural_alias = contracts
-                    .hierarchy_and_aliases
+                    .type_aliases
                     .iter()
                     .find(|row| row.declaration == *alias)
                     .ok_or_else(|| {
                         invalid(
-                            "static definition alias link has no structural hierarchy/alias row",
+                            "static definition alias link has no structural type-alias row",
                         )
                     })?;
-                if structural_alias.aliased_type.is_none() {
-                    return Err(invalid(
-                        "static definition alias link targets a non-alias structural row",
-                    ));
-                }
                 if !contracts
                     .declaration_shells
                     .iter()

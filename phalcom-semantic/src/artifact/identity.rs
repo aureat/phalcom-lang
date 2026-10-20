@@ -6,6 +6,7 @@ use phalcom_compiler_artifact::module_world::ModuleWorldV2;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_modules::ProjectUniverse;
 use phalcom_modules::identity::{ModuleComponent, ModulePath};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{
     StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableImplRef, StableModuleRef, StableProjectRef, StableVariantRef,
 };
@@ -47,6 +48,45 @@ impl<'a> StableOwnerCatalog<'a> {
     }
 
     pub(crate) fn module_parts(&self, project_ref: &StableProjectRef, path: &[Box<str>]) -> Result<ModuleId, ArtifactError> {
+        let project = self.project_for_module_parts(project_ref, path)?;
+        let components = path
+            .iter()
+            .map(|segment| ModuleComponent::from_identifier(segment).map_err(|_| referential("invalid stable module path component")))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ModuleId {
+            project,
+            path: ModulePath::from_components(components),
+        })
+    }
+
+    pub(crate) fn module_parts_with_allocation_budget(
+        &self,
+        project_ref: &StableProjectRef,
+        path: &[Box<str>],
+        allocations: &mut AllocationBudget,
+    ) -> Result<ModuleId, ArtifactError> {
+        let project = self.project_for_module_parts(project_ref, path)?;
+        let mut components = allocations
+            .vector::<ModuleComponent>(path.len())
+            .map_err(allocation_error)?;
+        for segment in path {
+            let segment = allocations.boxed_str(segment).map_err(allocation_error)?;
+            components.push(
+                ModuleComponent::from_owned_identifier(segment)
+                    .map_err(|_| referential("invalid stable module path component"))?,
+            );
+        }
+        Ok(ModuleId {
+            project,
+            path: ModulePath::from_components(allocations.boxed_slice(components).map_err(allocation_error)?),
+        })
+    }
+
+    fn project_for_module_parts(
+        &self,
+        project_ref: &StableProjectRef,
+        path: &[Box<str>],
+    ) -> Result<crate::identity::ProjectIdentity, ArtifactError> {
         if matches!(project_ref, StableProjectRef::Session { .. }) {
             return Err(referential("session project owner is forbidden"));
         }
@@ -69,14 +109,7 @@ impl<'a> StableOwnerCatalog<'a> {
             .projects
             .resolve_stable_project(project_ref)
             .ok_or_else(|| referential("stable project identity has no exact persistent workspace binding"))?;
-        let components = path
-            .iter()
-            .map(|segment| ModuleComponent::from_identifier(segment).map_err(|_| referential("invalid stable module path component")))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(ModuleId {
-            project,
-            path: ModulePath::from_components(components),
-        })
+        Ok(project)
     }
 
     pub(crate) fn declaration(&self, stable: &StableDeclarationRef) -> Result<DeclarationId, ArtifactError> {
@@ -84,6 +117,19 @@ impl<'a> StableOwnerCatalog<'a> {
             return Err(referential("stable declaration owner is not a single canonical path component"));
         }
         Ok(DeclarationId::new(self.module(&stable.module)?, stable.path[0].clone()))
+    }
+
+    pub(crate) fn declaration_with_allocation_budget(
+        &self,
+        stable: &StableDeclarationRef,
+        allocations: &mut AllocationBudget,
+    ) -> Result<DeclarationId, ArtifactError> {
+        if stable.path.len() != 1 {
+            return Err(referential("stable declaration owner is not a single canonical path component"));
+        }
+        let module = self.module_parts_with_allocation_budget(&stable.module.project, &stable.module.path, allocations)?;
+        let name = allocations.boxed_str(&stable.path[0]).map_err(allocation_error)?;
+        Ok(DeclarationId::new(module, name))
     }
 
     pub(crate) fn variant(&self, stable: &StableVariantRef) -> Result<VariantId, ArtifactError> {
@@ -121,4 +167,8 @@ pub(crate) fn canonical_selector(encoded: &str) -> Result<Selector, ArtifactErro
 
 fn referential(message: impl Into<String>) -> ArtifactError {
     ArtifactError::Validation(ValidationError::ReferentialIntegrity(message.into()))
+}
+
+fn allocation_error(error: AllocationError) -> ArtifactError {
+    ArtifactError::Allocation(error)
 }

@@ -101,7 +101,7 @@ class Probe {
 "#,
     );
     let run = f.callable("Probe", "run", DispatchSide::Class);
-    assert!(run.flow_graph.nodes.values().any(|node| matches!(node.kind, FlowNodeKind::LoopHeader)));
+    assert!(run.flow_graph.nodes().any(|node| matches!(node.kind, FlowNodeKind::LoopHeader)));
 }
 
 /// LAW: closure capture checks body writes without applying them at creation.
@@ -161,16 +161,16 @@ class Probe {
             .origin(phalcom_semantic::EvidenceOrigin::Flow),
     );
     assert!(
-        run.flow_graph.nodes.values().any(|node| matches!(node.kind, FlowNodeKind::LoopHeader)),
+        run.flow_graph.nodes().any(|node| matches!(node.kind, FlowNodeKind::LoopHeader)),
         "composed loop must publish loop-header structure"
     );
     assert!(
-        run.flow_graph.edges.values().any(|edge| matches!(edge.kind, FlowEdgeKind::BackEdge)),
+        run.flow_graph.edges().any(|edge| matches!(edge.kind, FlowEdgeKind::BackEdge)),
         "while loop must publish a back edge"
     );
     assert!(
-        run.flow_graph.edges.values().any(|edge| matches!(edge.kind, FlowEdgeKind::Continue))
-            && run.flow_graph.edges.values().any(|edge| matches!(edge.kind, FlowEdgeKind::Break)),
+        run.flow_graph.edges().any(|edge| matches!(edge.kind, FlowEdgeKind::Continue))
+            && run.flow_graph.edges().any(|edge| matches!(edge.kind, FlowEdgeKind::Break)),
         "nested abrupt loop paths must remain explicit in the flow graph"
     );
     f.assert_no_error_diagnostics();

@@ -10,6 +10,7 @@ use crate::types::id::TypeId;
 use crate::types::relation::TypeHierarchy;
 use crate::types::specialization::ReceiverSpecializationStep;
 use phalcom_common::selector::Selector;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -143,6 +144,42 @@ pub struct CallableSignature {
 }
 
 impl CallableSignature {
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let mut parameters = allocations.vector(self.parameters.len())?;
+        for parameter in &self.parameters {
+            let contract = match &parameter.contract {
+                CallableParameterContract::Fixed(ty) => CallableParameterContract::Fixed(ty.clone_with_allocation_budget(allocations)?),
+                CallableParameterContract::Rest { mode, contract } => CallableParameterContract::Rest {
+                    mode: *mode,
+                    contract: match contract {
+                        RestValueContractKnowledge::Unconstrained => RestValueContractKnowledge::Unconstrained,
+                        RestValueContractKnowledge::Element(ty) => RestValueContractKnowledge::Element(ty.clone_with_allocation_budget(allocations)?),
+                        RestValueContractKnowledge::Lane(ty) => RestValueContractKnowledge::Lane(*ty),
+                        RestValueContractKnowledge::Invalid(reason) => RestValueContractKnowledge::Invalid(reason.clone_with_allocation_budget(allocations)?),
+                    },
+                },
+            };
+            parameters.push(CallableParameter {
+                external_label: parameter.external_label.as_ref().map(|label| allocations.string(label)).transpose()?,
+                local_name: allocations.string(&parameter.local_name)?,
+                ty: parameter.ty.clone_with_allocation_budget(allocations)?,
+                rest: parameter.rest,
+                contract,
+            });
+        }
+        Ok(Self {
+            selector: crate::traits::clone_selector_with_allocation_budget(&self.selector, allocations)?,
+            parameters,
+            return_type: self.return_type.clone_with_allocation_budget(allocations)?,
+            generics: self
+                .generics
+                .as_ref()
+                .map(|generics| generics.clone_with_allocation_budget(allocations))
+                .transpose()?,
+            kind: self.kind,
+        })
+    }
+
     pub fn new(selector: Selector, parameters: Vec<CallableParameter>, return_type: TypeKnowledge) -> Self {
         Self {
             selector,
@@ -330,10 +367,11 @@ pub trait DispatchResolver {
 /// A concrete dispatch resolver backed by nominal class surfaces and type interning.
 #[derive(Clone, Debug, Default)]
 pub struct SurfaceDispatchResolver {
-    surfaces: HashMap<DeclarationId, DeclarationSurface>,
-    conditional_members: HashMap<InherentImplTarget, Arc<ConditionalInherentMemberSet>>,
+    surfaces: Arc<crate::parent_map::ParentMap<DeclarationId, DeclarationSurface>>,
+    conditional_members: Arc<crate::parent_map::ParentMap<InherentImplTarget, Arc<ConditionalInherentMemberSet>>>,
     conditional_targets_by_owner: HashMap<DeclarationId, BTreeSet<InherentImplTarget>>,
-    type_declarations: HashMap<TypeId, DeclarationId>,
+    type_declarations: Arc<crate::parent_map::ParentMap<TypeId, DeclarationId>>,
+    inherent_impl_domains: Arc<crate::parent_map::ParentMap<crate::identity::ImplId, Arc<crate::impls::InherentImplDomain>>>,
     module_surfaces: HashMap<ModuleId, BTreeSet<DeclarationId>>,
     declaration_types: HashMap<DeclarationId, BTreeSet<TypeId>>,
 }
@@ -343,34 +381,108 @@ impl SurfaceDispatchResolver {
         Self::default()
     }
 
+    /// Builds the immutable dispatch authority retained by an imported
+    /// semantic snapshot without growing source-oriented native maps.
+    pub(crate) fn from_frozen_import_entries_with_allocation_budget(
+        surfaces: Vec<(DeclarationId, DeclarationSurface)>,
+        type_declarations: Vec<(TypeId, DeclarationId)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, FrozenDispatchImportError> {
+        let surfaces = crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(surfaces, allocations).map_err(|error| match error {
+            crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
+            crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateOwner,
+        })?;
+        let type_declarations =
+            crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(type_declarations, allocations).map_err(|error| match error {
+                crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
+                crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateType,
+            })?;
+        Ok(Self {
+            surfaces: allocations.arc(surfaces).map_err(FrozenDispatchImportError::Allocation)?,
+            conditional_members: allocations
+                .arc(crate::parent_map::ParentMap::default())
+                .map_err(FrozenDispatchImportError::Allocation)?,
+            type_declarations: allocations.arc(type_declarations).map_err(FrozenDispatchImportError::Allocation)?,
+            inherent_impl_domains: allocations
+                .arc(crate::parent_map::ParentMap::default())
+                .map_err(FrozenDispatchImportError::Allocation)?,
+            conditional_targets_by_owner: HashMap::new(),
+            module_surfaces: HashMap::new(),
+            declaration_types: HashMap::new(),
+        })
+    }
+
+    pub(crate) fn with_frozen_conditional_import_entries(
+        mut self,
+        conditional_members: Vec<(InherentImplTarget, Arc<ConditionalInherentMemberSet>)>,
+        inherent_impl_domains: Vec<(crate::identity::ImplId, Arc<crate::impls::InherentImplDomain>)>,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Self, FrozenDispatchImportError> {
+        let conditional_members =
+            crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(conditional_members, allocations).map_err(|error| match error {
+                crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
+                crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateConditionalTarget,
+            })?;
+        let inherent_impl_domains =
+            crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(inherent_impl_domains, allocations).map_err(|error| match error {
+                crate::parent_map::FrozenParentMapError::Allocation(error) => FrozenDispatchImportError::Allocation(error),
+                crate::parent_map::FrozenParentMapError::DuplicateKey => FrozenDispatchImportError::DuplicateDomain,
+            })?;
+        self.conditional_members = allocations.arc(conditional_members).map_err(FrozenDispatchImportError::Allocation)?;
+        self.inherent_impl_domains = allocations.arc(inherent_impl_domains).map_err(FrozenDispatchImportError::Allocation)?;
+        Ok(self)
+    }
+
+    /// Attaches canonical dispatch products without copying surfaces or registrations.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            surfaces: Arc::new(crate::parent_map::ParentMap::with_parent(parent.surfaces.clone())),
+            conditional_members: Arc::new(crate::parent_map::ParentMap::with_parent(parent.conditional_members.clone())),
+            type_declarations: Arc::new(crate::parent_map::ParentMap::with_parent(parent.type_declarations.clone())),
+            inherent_impl_domains: Arc::new(crate::parent_map::ParentMap::with_parent(parent.inherent_impl_domains.clone())),
+            ..Self::default()
+        }
+    }
+
     pub fn register_conditional_members(&mut self, target: InherentImplTarget, members: Arc<ConditionalInherentMemberSet>) {
         self.conditional_targets_by_owner
             .entry(target.declaration().clone())
             .or_default()
             .insert(target.clone());
-        self.conditional_members.insert(target, members);
+        let domain_map = Arc::make_mut(&mut self.inherent_impl_domains);
+        for member in &members.members {
+            if !domain_map.contains_key(&member.impl_id) {
+                domain_map.insert(member.impl_id.clone(), member.domain.clone());
+            }
+        }
+        Arc::make_mut(&mut self.conditional_members).insert(target, members);
+    }
+
+    pub fn inherent_impl_domain(&self, impl_id: &crate::identity::ImplId) -> Option<&Arc<crate::impls::InherentImplDomain>> {
+        self.inherent_impl_domains.get(impl_id)
     }
 
     pub fn get_conditional_members(&self, target: &InherentImplTarget) -> Option<&Arc<ConditionalInherentMemberSet>> {
         self.conditional_members.get(target)
     }
 
-    pub fn conditional_members(&self) -> &HashMap<InherentImplTarget, Arc<ConditionalInherentMemberSet>> {
+    pub fn conditional_members(&self) -> &crate::parent_map::ParentMap<InherentImplTarget, Arc<ConditionalInherentMemberSet>> {
         &self.conditional_members
     }
 
     pub fn register_surface(&mut self, decl: DeclarationId, surface: DeclarationSurface) {
         self.module_surfaces.entry(decl.module.clone()).or_default().insert(decl.clone());
-        self.surfaces.insert(decl, surface);
+        Arc::make_mut(&mut self.surfaces).insert(decl, surface);
     }
 
     pub fn register_type(&mut self, ty: TypeId, decl: DeclarationId) {
         self.declaration_types.entry(decl.clone()).or_default().insert(ty);
-        self.type_declarations.insert(ty, decl);
+        Arc::make_mut(&mut self.type_declarations).insert(ty, decl);
     }
 
     /// Removes declaration-owned dispatch surfaces and type registrations.
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        Arc::make_mut(&mut self.inherent_impl_domains).retain(|impl_id, _| &impl_id.module != module);
         let removed = self.module_surfaces.remove(module).unwrap_or_default();
         for declaration in removed {
             self.remove_surface(&declaration);
@@ -382,12 +494,12 @@ impl SurfaceDispatchResolver {
     pub fn remove_surface(&mut self, declaration: &DeclarationId) {
         if let Some(targets) = self.conditional_targets_by_owner.remove(declaration) {
             for target in targets {
-                self.conditional_members.remove(&target);
+                Arc::make_mut(&mut self.conditional_members).remove(&target);
             }
         } else {
-            self.conditional_members.remove(&InherentImplTarget::Declaration(declaration.clone()));
+            Arc::make_mut(&mut self.conditional_members).remove(&InherentImplTarget::Declaration(declaration.clone()));
         }
-        let Some(_) = self.surfaces.remove(declaration) else {
+        let Some(_) = Arc::make_mut(&mut self.surfaces).remove(declaration) else {
             return;
         };
         if let Some(declarations) = self.module_surfaces.get_mut(&declaration.module) {
@@ -398,7 +510,7 @@ impl SurfaceDispatchResolver {
         }
         if let Some(types) = self.declaration_types.remove(declaration) {
             for ty in types {
-                self.type_declarations.remove(&ty);
+                Arc::make_mut(&mut self.type_declarations).remove(&ty);
             }
         }
     }
@@ -408,7 +520,7 @@ impl SurfaceDispatchResolver {
     }
 
     pub fn get_surface_mut(&mut self, decl: &DeclarationId) -> Option<&mut DeclarationSurface> {
-        self.surfaces.get_mut(decl)
+        Arc::make_mut(&mut self.surfaces).get_mut(decl)
     }
 
     /// Replaces an inferred return type on an existing source callable while
@@ -419,7 +531,7 @@ impl SurfaceDispatchResolver {
             // members of a target-owned inherent dispatch surface.
             return false;
         }
-        let Some(surface) = self.surfaces.get_mut(callable.declaration_owner()) else {
+        let Some(surface) = Arc::make_mut(&mut self.surfaces).get_mut(callable.declaration_owner()) else {
             return false;
         };
         let member_surface = surface.surface_mut(callable.side);
@@ -436,7 +548,7 @@ impl SurfaceDispatchResolver {
         true
     }
 
-    pub fn surfaces(&self) -> &HashMap<DeclarationId, DeclarationSurface> {
+    pub fn surfaces(&self) -> &Arc<crate::parent_map::ParentMap<DeclarationId, DeclarationSurface>> {
         &self.surfaces
     }
 
@@ -559,5 +671,59 @@ impl SurfaceDispatchResolver {
             }
         }
         None
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum FrozenDispatchImportError {
+    Allocation(phalcom_type_meta::allocation::AllocationError),
+    DuplicateOwner,
+    DuplicateType,
+    DuplicateConditionalTarget,
+    DuplicateDomain,
+}
+
+#[cfg(test)]
+mod parent_tests {
+    use super::*;
+
+    #[test]
+    fn dispatch_overlay_resolves_parent_members_and_removes_only_local_registrations() {
+        let canonical = DeclarationId::new(ModuleId::universe_root(), "Canonical".into());
+        let local = DeclarationId::new(ModuleId::universe_root(), "Local".into());
+        let selector = Selector::method("value", []).unwrap();
+        let mut surface = DeclarationSurface::new(Some(canonical.clone()));
+        surface.add_callable(
+            DispatchSide::Instance,
+            CallableSignature::new(
+                selector.clone(),
+                vec![],
+                TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
+            ),
+        );
+        let mut parent = SurfaceDispatchResolver::new();
+        parent.register_surface(canonical.clone(), surface);
+        parent.register_type(TypeId(1), canonical.clone());
+        let parent = Arc::new(parent);
+        let mut overlay = SurfaceDispatchResolver::with_parent(parent.clone());
+        assert_eq!(overlay.surfaces().local_len(), 0);
+        assert_eq!(overlay.declaration_for_type(TypeId(1)), Some(&canonical));
+        assert!(overlay.get_surface_mut(&canonical).is_none());
+        let hierarchy = crate::types::relation::MapTypeHierarchy::new();
+        assert!(
+            overlay
+                .resolve_dispatch_on_owner(&hierarchy, &canonical, DispatchSide::Instance, &selector)
+                .is_found()
+        );
+        overlay.register_surface(local.clone(), DeclarationSurface::new(Some(local.clone())));
+        overlay.register_type(TypeId(2), local.clone());
+        let published = overlay.clone();
+        overlay.remove_module(&canonical.module);
+        assert!(overlay.get_surface(&local).is_none());
+        assert!(published.get_surface(&local).is_some());
+        assert!(std::ptr::eq(overlay.get_surface(&canonical).unwrap(), parent.get_surface(&canonical).unwrap()));
+        assert_eq!(overlay.declaration_for_type(TypeId(2)), None);
+        assert_eq!(overlay.declaration_for_type(TypeId(1)), Some(&canonical));
+        assert_eq!(parent.surfaces().len(), 1);
     }
 }

@@ -29,7 +29,7 @@ pub fn build_data_semantics_with_static_products(
     resolver: &LinkedTypeResolver,
     module_id: &ModuleId,
     catalog: Option<&crate::static_case::StaticDomainCaseCatalogProduct>,
-    signatures: &std::collections::BTreeMap<crate::identity::StaticCaseId, std::sync::Arc<crate::static_case::StaticCaseSignatureProduct>>,
+    signatures: &crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, std::sync::Arc<crate::static_case::StaticCaseSignatureProduct>>,
 ) -> Option<DataDeclarationProduct> {
     let algebraic_prod = crate::checker::algebraic_declaration::build_algebraic_semantics_with_static_products(
         owner,

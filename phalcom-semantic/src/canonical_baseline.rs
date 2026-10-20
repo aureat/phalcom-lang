@@ -805,7 +805,11 @@ impl CanonicalUniverseSemanticBaseline {
             base_associated_surface_products.push(surface);
         }
 
-        resolver.update_associated_type_members(&base_associated_surfaces, &base_type_member_declarations);
+        let base_type_member_declarations_index = base_type_member_declarations
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<crate::parent_map::ParentMap<_, _>>();
+        resolver.update_associated_type_members(&base_associated_surfaces, &base_type_member_declarations_index);
 
         Self {
             provider,

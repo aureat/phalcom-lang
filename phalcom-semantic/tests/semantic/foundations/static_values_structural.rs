@@ -205,3 +205,30 @@ fn structural_static_values_are_canonical_typed_and_acyclic() {
         Assignability::Refuted { .. }
     ));
 }
+
+#[test]
+fn structural_constant_descriptors_preserve_nested_values_and_labels() {
+    use phalcom_semantic::materialization::{MaterializationCapability, MaterializationDescriptor};
+    let mut values = StaticValueStore::new();
+    let number = values.intern_int(7);
+    let text = values.intern_string("retained");
+    let tuple = values.intern_tuple(vec![number, text]).unwrap();
+    let key = FieldKey::symbol("pair");
+    let record = values.intern_record(vec![(key.clone(), tuple)]).unwrap();
+    let label = values.intern_symbol_id("named");
+    let pack = values.intern_pack(vec![tuple], vec![(label, record)]).unwrap();
+    let descriptor = MaterializationDescriptor::from_static_value(&values, pack).unwrap();
+    drop(values);
+    let pair = MaterializationDescriptor::Tuple(Arc::from([
+        MaterializationDescriptor::Int(phalcom_semantic::static_value::StaticInt::Small(7)),
+        MaterializationDescriptor::String(Arc::from("retained")),
+    ]));
+    assert_eq!(
+        descriptor,
+        MaterializationDescriptor::Pack {
+            positionals: Arc::from([pair.clone()]),
+            labeled: Arc::from([(Arc::from("named"), MaterializationDescriptor::Record(Arc::from([(key, pair)])))]),
+        }
+    );
+    assert_eq!(descriptor.capability(), MaterializationCapability::Sequence);
+}

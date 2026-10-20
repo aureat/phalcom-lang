@@ -44,6 +44,71 @@ pub fn load_run(workspace_root: &Path, run_ref: &str) -> Result<BenchmarkRun, St
     BenchmarkRun::from_json_str(&content)
 }
 
+/// Attach a validated compiler profile beside the process-level sample it
+/// describes. The run record stays schema-compatible; the sidecar is optional.
+#[cfg(feature = "perf-observability")]
+pub fn save_internal_profile(workspace_root: &Path, run_id: &str, profile_json: &str) -> Result<PathBuf, String> {
+    let run = load_run(workspace_root, run_id)?;
+    let run_dir = workspace_root.join("target/perf/runs").join(run.run_id);
+    fs::create_dir_all(&run_dir).map_err(|e| e.to_string())?;
+    let path = run_dir.join("internal-profile.json");
+    fs::write(&path, profile_json).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+#[cfg(feature = "perf-observability")]
+pub fn load_internal_profile(workspace_root: &Path, run_ref: &str) -> Result<(BenchmarkRun, String), String> {
+    let run = load_run(workspace_root, run_ref)?;
+    let path = workspace_root.join("target/perf/runs").join(&run.run_id).join("internal-profile.json");
+    let content = fs::read_to_string(&path).map_err(|e| format!("no internal profile attached to run '{}': {e}", run.run_id))?;
+    Ok((run, content))
+}
+
+#[cfg(feature = "perf-observability")]
+pub fn save_profile_sample(workspace_root: &Path, profile_id: &str, profile_json: &str) -> Result<PathBuf, String> {
+    validate_profile_id(profile_id)?;
+    let profile_dir = workspace_root.join("target/perf/profiles").join(profile_id);
+    fs::create_dir_all(&profile_dir).map_err(|e| e.to_string())?;
+    let path = profile_dir.join("profile.json");
+    fs::write(&path, profile_json).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+#[cfg(feature = "perf-observability")]
+pub fn load_profile_sample(workspace_root: &Path, profile_ref: &str) -> Result<(String, String), String> {
+    let profiles_dir = workspace_root.join("target/perf/profiles");
+    if profile_ref == "latest-profile" {
+        let mut latest: Option<(std::time::SystemTime, PathBuf, String)> = None;
+        let entries = fs::read_dir(&profiles_dir).map_err(|e| format!("no stored profile samples: {e}"))?;
+        for entry in entries.flatten() {
+            let path = entry.path().join("profile.json");
+            let Ok(metadata) = fs::metadata(&path) else { continue };
+            let modified = metadata.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            let id = entry.file_name().to_string_lossy().into_owned();
+            if latest.as_ref().is_none_or(|(seen, _, _)| modified > *seen) {
+                latest = Some((modified, path, id));
+            }
+        }
+        let (_, path, id) = latest.ok_or_else(|| "no standalone profile samples found".to_owned())?;
+        let json = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        return Ok((id, json));
+    }
+
+    let profile_id = profile_ref.strip_prefix("profile:").unwrap_or(profile_ref);
+    validate_profile_id(profile_id)?;
+    let path = profiles_dir.join(profile_id).join("profile.json");
+    let json = fs::read_to_string(&path).map_err(|e| format!("no standalone profile sample '{profile_id}': {e}"))?;
+    Ok((profile_id.to_owned(), json))
+}
+
+#[cfg(feature = "perf-observability")]
+fn validate_profile_id(profile_id: &str) -> Result<(), String> {
+    if profile_id.is_empty() || !profile_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')) {
+        return Err("profile id must contain only ASCII letters, digits, '-' or '_'".into());
+    }
+    Ok(())
+}
+
 fn resolve_run_path(workspace_root: &Path, run_ref: &str) -> Result<PathBuf, String> {
     if run_ref == "latest" {
         return find_latest_run(workspace_root);

@@ -152,7 +152,7 @@ fn type_member_selector(
 ) -> Result<TypeMemberSelector, ArtifactError> {
     Ok(match selector {
         TypeMemberSelectorV1::Named { name } => {
-            if name.as_ref() == "At" {
+            if name.as_str() == "At" {
                 return Err(invalid("noncanonical type-member selector aliases subscript identity"));
             }
             TypeMemberSelector::Named(

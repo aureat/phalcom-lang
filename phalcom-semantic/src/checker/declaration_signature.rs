@@ -1080,3 +1080,91 @@ pub(crate) fn project_semantic_signature(signature: &CallableSemanticSignature) 
     }
     projected
 }
+
+pub(crate) fn project_semantic_signature_with_allocation_budget(
+    signature: &CallableSemanticSignature,
+    allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+) -> Result<CallableSignature, phalcom_type_meta::allocation::AllocationError> {
+    use crate::dispatch::{CallableParameterContract, RestValueContractKnowledge};
+    use crate::signature::{ParameterContract, RestValueContract};
+    use phalcom_common::selector::{SelectorBase, SelectorSlot};
+
+    fn clone_selector(
+        selector: &Selector,
+        allocations: &mut phalcom_type_meta::allocation::AllocationBudget,
+    ) -> Result<Selector, phalcom_type_meta::allocation::AllocationError> {
+        let base = match &selector.base {
+            SelectorBase::Named(name) => SelectorBase::Named(allocations.string(name)?),
+            SelectorBase::Subscript => SelectorBase::Subscript,
+        };
+        let mut slots = allocations.vector(selector.slots.len())?;
+        for slot in selector.slots.iter() {
+            slots.push(match slot {
+                SelectorSlot::Positional => SelectorSlot::Positional,
+                SelectorSlot::Label(label) => SelectorSlot::Label(allocations.string(label)?),
+            });
+        }
+        Ok(Selector {
+            base,
+            kind: selector.kind,
+            slots: allocations.boxed_slice(slots)?,
+        })
+    }
+
+    let mut parameters = allocations.vector(signature.parameters.len())?;
+    for parameter in signature.parameters.iter() {
+        let contract = match &parameter.contract {
+            ParameterContract::Fixed(fact) => CallableParameterContract::Fixed(fact.to_knowledge_with_allocation_budget(allocations)?),
+            ParameterContract::Rest { mode, contract } => CallableParameterContract::Rest {
+                mode: *mode,
+                contract: match contract {
+                    RestValueContract::Unconstrained => RestValueContractKnowledge::Unconstrained,
+                    RestValueContract::Element(fact) => RestValueContractKnowledge::Element(fact.to_knowledge_with_allocation_budget(allocations)?),
+                    RestValueContract::Lane(lane) => RestValueContractKnowledge::Lane(*lane),
+                    RestValueContract::Invalid(reason) => RestValueContractKnowledge::Invalid(reason.clone_with_allocation_budget(allocations)?),
+                },
+            },
+        };
+        let ty = match &contract {
+            CallableParameterContract::Fixed(ty) => ty.clone_with_allocation_budget(allocations)?,
+            CallableParameterContract::Rest {
+                contract: RestValueContractKnowledge::Element(ty),
+                ..
+            } => ty.clone_with_allocation_budget(allocations)?,
+            CallableParameterContract::Rest {
+                contract: RestValueContractKnowledge::Invalid(reason),
+                ..
+            } => crate::types::evidence::TypeKnowledge::Unknown(reason.clone_with_allocation_budget(allocations)?),
+            CallableParameterContract::Rest { .. } => crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
+        };
+        parameters.push(CallableParameter {
+            external_label: parameter.external_label.as_ref().map(|label| allocations.string(label)).transpose()?,
+            local_name: allocations.string(&parameter.local_name)?,
+            ty,
+            rest: contract.rest_mode(),
+            contract,
+        });
+    }
+
+    let kind = if signature.declared_return.basis == DeclaredTypeBasis::ConstructorSemantics {
+        CallableSemanticKind::Constructor
+    } else if signature.implementation != phalcom_common::modifier::ImplementationKind::Phalcom {
+        CallableSemanticKind::Native
+    } else {
+        CallableSemanticKind::Ordinary
+    };
+    let return_type = signature.published_return_knowledge_with_allocation_budget(allocations)?;
+    let generics = signature
+        .generics
+        .as_ref()
+        .map(|generics| generics.clone_with_allocation_budget(allocations))
+        .transpose()?;
+
+    Ok(CallableSignature {
+        selector: clone_selector(&signature.selector, allocations)?,
+        parameters,
+        return_type,
+        generics,
+        kind,
+    })
+}

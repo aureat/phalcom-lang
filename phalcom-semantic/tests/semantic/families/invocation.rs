@@ -203,6 +203,127 @@ class Nested {
 }
 
 #[test]
+fn qualified_module_value_dependencies_follow_reads_not_import_seeding_or_shadowed_names() {
+    let math = incremental_module_id("math");
+    let client = incremental_module_id("client");
+    let client_source = r#"
+import .math as math
+from .math import value as imported_value
+class Client {
+  @class used() { math.value }
+  @class unused() { 1 }
+  @class shadowed() { let math = 2; math }
+  @class selective() { imported_value }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let publication = session
+        .update(module_value_input(&math, "let value = 1\nexport value\n", &client, client_source, 1))
+        .expect("semantic test update should succeed");
+
+    let has_dependency = |owner: &str, dependency: QueryKey| {
+        let callable = CallableId::new(
+            DeclarationId::new(client.clone(), "Client".into()),
+            phalcom_common::selector::Selector::method(owner, []).expect("method selector"),
+            DispatchSide::Class,
+        );
+        session
+            .db()
+            .index()
+            .dependencies_of(&QueryKey::CallableBody(callable))
+            .is_some_and(|dependencies| dependencies.iter().any(|edge| edge.dependency == dependency))
+    };
+
+    assert!(has_dependency("used", QueryKey::ModuleStaticBindings(math.clone())));
+    assert!(has_dependency("used", QueryKey::ModuleStaticBindingCatalog(math.clone())));
+    assert!(has_dependency("used", QueryKey::PublicExport(math.clone(), "value".into())));
+    for owner in ["unused", "shadowed"] {
+        assert!(
+            !has_dependency(owner, QueryKey::ModuleStaticBindings(math.clone())),
+            "{owner} must not depend on the imported module value index"
+        );
+        assert!(
+            !has_dependency(owner, QueryKey::ModuleStaticBindingCatalog(math.clone())),
+            "{owner} must not depend on module exports when the import is unused or shadowed"
+        );
+    }
+
+    let selective = CallableId::new(
+        DeclarationId::new(client.clone(), "Client".into()),
+        phalcom_common::selector::Selector::method("selective", []).expect("method selector"),
+        DispatchSide::Class,
+    );
+    let analysis = publication.snapshot.callable_analyses.get(&selective).expect("selective import body analysis");
+    let imported_symbol = phalcom_modules::linker::SymbolId {
+        module: math,
+        name: "value".into(),
+    };
+    let imported_binding = analysis
+        .binding_origins
+        .iter()
+        .find_map(|(binding, origin)| match origin {
+            phalcom_semantic::checker::analysis::CallableBindingOrigin::ModuleValue { symbol, import: Some(_) } if symbol == &imported_symbol => Some(*binding),
+            _ => None,
+        })
+        .expect("selective alias retains its canonical remote symbol and import slot");
+    assert!(
+        publication
+            .snapshot
+            .source_index
+            .source_site_for_binding(&selective, imported_binding)
+            .is_none()
+    );
+    let read = analysis
+        .expressions
+        .values()
+        .find(|expression| expression.binding_read == Some(imported_binding))
+        .expect("read retains the imported body's binding handle");
+    assert_eq!(client_source.get(read.range.start..read.range.end), Some("imported_value"));
+}
+
+#[test]
+fn missing_qualified_module_value_export_invalidates_when_export_is_added() {
+    let math = incremental_module_id("math");
+    let client = incremental_module_id("client");
+    let client_source = "import .math as math\nclass Client { @class read() { math.value } }\n";
+    let read = CallableId::new(
+        DeclarationId::new(client.clone(), "Client".into()),
+        phalcom_common::selector::Selector::method("read", []).expect("read selector"),
+        DispatchSide::Class,
+    );
+    let body_key = QueryKey::CallableBody(read.clone());
+    let mut session = SemanticWorkspaceSession::new();
+    let missing = session
+        .update(module_value_input(&math, "let other = 1\nexport other\n", &client, client_source, 1))
+        .expect("initial semantic update should succeed");
+    let missing_body = missing.snapshot.callable_analyses.get(&read).expect("read body with missing export");
+    let missing_value = missing_body
+        .expressions
+        .values()
+        .find(|expression| client_source.get(expression.range.start..expression.range.end) == Some("math.value"))
+        .expect("qualified missing export expression");
+    assert!(missing_value.knowledge.is_unknown());
+    assert!(session.db().index().dependencies_of(&body_key).is_some_and(|dependencies| {
+        dependencies
+            .iter()
+            .any(|edge| edge.dependency == QueryKey::PublicExport(math.clone(), "value".into()))
+    }));
+
+    let added = session
+        .update(module_value_input(&math, "let value = 1\nexport value\n", &client, client_source, 2))
+        .expect("export addition update should succeed");
+    assert!(
+        added.stats.callable_bodies_recomputed > 0,
+        "adding the previously missing export must refresh its reader"
+    );
+    assert_eq!(
+        session.db().query_state(&body_key).and_then(|state| state.revision()),
+        Some(added.snapshot.id.revision()),
+        "the negative export dependency must revalidate the original reader",
+    );
+}
+
+#[test]
 fn qualified_module_calls_distinguish_unknown_exports_from_known_noncallables() {
     let client_source = r#"
 import .provider as api

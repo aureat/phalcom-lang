@@ -18,7 +18,7 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 | Plan | Status | Completion | Verification | Objective |
 |---|---|---|---|---|
 | `ARTF001.C1.P1` | COMPLETE | IMPLEMENTED | BASELINED | Repository setup, current-main baseline, P7 and main persistence census, authority reconciliation matrix, and P2 handoff. |
-| `ARTF001.C1.P2.R3` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Complete P2 before P3: native declaration/alias/hierarchy reconstruction, native witness/derived-conformance, source-free static program execution, complete native `CallableAnalysis`, module execution authority, dependency-closed query import, immutable imported canonical generation, ordinary `SemanticWorkspaceSession` publication without source access, whole-load allocation N/N-1/retry, and hostile matrix certification. Supersedes P2.R2. |
+| `ARTF001.C1.P2.R3` | IN_PROGRESS | PARTIAL | UNVERIFIED | Complete P2 before P3: native declaration/alias/hierarchy reconstruction, native witness/derived-conformance, source-free static program execution, complete native `CallableAnalysis`, module execution authority, dependency-closed query import, immutable imported canonical generation, ordinary `SemanticWorkspaceSession` publication without source access, whole-load allocation N/N-1/retry, and hostile matrix certification. Supersedes P2.R2. |
 | `ARTF001.C1.P3` | PROPOSED | NOT_STARTED | UNVERIFIED | Do not start until P2 publishes reconstructed current-main semantic/query authority through the ordinary session. |
 | `ARTF001.C1.P4` | PROPOSED | NOT_STARTED | UNVERIFIED | Core canonical artifact compiler and source-free compilation path parity. |
 | `ARTF001.C1.P5` | PROPOSED | NOT_STARTED | UNVERIFIED | Universe source cutover from `phalcom-core/core/universe` to `packages/universe` retaining `ProjectIdentity::Universe`. |
@@ -26,12 +26,12 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 
 ## Current continuation state (2026-10-20)
 
-- Code revision: `37d2b0d810e78e8ca08b71cc8fcad123eedcceb6` on `feat/artifact-universe-consolidation` (HEAD at `eafa80737df5db1e285ff135afadbfbc434db981`).
-- Active plan: `ARTF001.C1.P2.R3` adopted, superseding `ARTF001.C1.P2.R2`.
-- Current status: P2.R3 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. The substrate routes reconstructed type, static-value, structural-aggregate, and typed query owners through `StableOwnerCatalog`. T0 completed: branch re-pinned, checkpoint normalized, and comprehensive artifact coverage manifest (`phalcom-semantic/src/artifact/manifest.rs`) implemented with exhaustive tests covering every `SemanticSnapshot` field, `SemanticWorkspaceSession` base family, `QueryKind`, compiler attachment family, and imported artifact family.
-- Next action: Execute T1 (close current-main wire/schema authority for declarations, aliases, module execution, and callable phase evidence).
-- Branch rule: Continue and commit directly on `feat/artifact-universe-consolidation`, pushing to `origin/feat/artifact-universe-consolidation`. Do not create a branch. P3 remains proposed until P2 meets its acceptance contract.
-- Record-update scope: This handoff refresh is documentation-only; it did not rerun implementation tests. Four untracked toolchain specification files (`README.md`, `package-model-and-manifest.md`, `registry.md`, and `local-registry.md`) were included in the delivery as requested and are outside P2 implementation scope.
+- Code revision: `cf6de4bfff06b81994c66592cd3da8756e961e6c` on `feat/artifact-universe-consolidation`; P7 `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94` is the in-progress `MERGE_HEAD`. The merge has not been committed.
+- Active plan: `ARTF001.C1.P2.R3`, superseding `ARTF001.C1.P2.R2`.
+- Current status: P2.R3 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. The P7 `CanonicalUniverseFormalImage` build/load path and current V2/V4/V3 schema adapters are restored. Structural V2 carries independent static-domain and intrinsic type-owner row families; the exporter includes shell-less owners, and both semantic import paths resolve the rows through `StableOwnerCatalog`. The declaration shell's three-case owner is a redundant runtime-owner witness, validated against its binding. A new consultation request asks whether the Pack declaration also needs independent type-member authority; no such semantic change is implemented. Compile checks pass for `phalcom-compiler-artifact`, `phalcom-semantic`, and `phalcom-core`; semantic reports 68 warnings and core reports one unused-method warning. No tests were run. The artifact transaction still stages `ImportedCompilerImage` without publishing a complete imported snapshot or ordinary `SemanticWorkspaceSession`.
+- Next action: obtain the Pack-owner ruling, then continue the T1 schema matrix and P2 native session-publication work under the P7 consolidation sequence. P3 remains proposed until P2 meets its acceptance contract.
+- Branch rule: Continue on `feat/artifact-universe-consolidation`; preserve the staged merge and existing user changes. No commit or push has been made in this continuation.
+- Record-update scope: This update supersedes the obsolete loader-blocker status, records the restored P7 image lifecycle and current compile evidence, and adds the accepted independent-projection schema amendment. It does not close T1 or P2.
 
 ## Starting Baseline & Provenance
 
@@ -136,6 +136,84 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 - **Decision (2026-10-19):** The user selected a receipt from the caller's trusted package resolver. It binds the complete package/version/fingerprint reference, full validated `ArtifactDigest`, and an existing persistent `ResolvedProjectId`. Import validates the current artifact digest and header package/version, checks every receipt and target, then registers the exact binding in the supplied `ProjectUniverse`. Trust provisioning stays with the configured resolver; P2 adds no signature scheme or trust root. Missing authority fails closed.
 - **Plan impact:** The principal architect updated the Level 2 amendment and T2 acceptance conditions in `ARTF001-C1-P2-R2-plan.md`. Do not derive a fingerprint from the container digest or trust an in-artifact receipt. Package-owner acceptance requires receipt, digest, exact-tuple, target, and conflict coverage.
 
+### P2.R3 P7 ancestry-merge adaptation consultation — 2026-10-20
+
+- **Trigger:** The required real P7 ancestry merge exposed a publication representation conflict: current `SemanticSnapshot` fields use standard maps, while the P7 importer stages budget-accounted frozen maps. Converting those rows to standard maps would leave allocations outside the exact import ledger; changing the whole snapshot or retaining a parallel sidecar would threaten current semantic authority and create duplicate state.
+- **Decision:** Keep current semantic product types, owners, and authority. Use P7 `ParentMap`, `OrderedMap`, and `CallableAnalysisTable` selectively as the backing for imported immutable snapshot products. Do not restore the older P7 snapshot wholesale, add a sidecar source of truth, or estimate standard-map allocation costs.
+- **Identity boundary:** Thread one transaction-scoped `StableOwnerCatalog` through artifact-supplied module, declaration, variant, implementation, callable, query, dependency, and static-symbol conversions into live identities. Already-relocated IDs and non-identity payloads do not need the catalog. Its path conversion must use the import allocation ledger before exact-count certification.
+- **Operational static programs:** Port P7's `Operational` evaluator work/frame path into the current evaluator; do not replace `static_eval/machine.rs` wholesale. Stage and publish one native operational authority. Escalate if a current checked operation is absent from the canonical program or adapting execution would change current control-flow/result semantics.
+- **Implementation state:** The P7 ancestry merge remains in progress at consolidation `cf6de4bfff06b81994c66592cd3da8756e961e6c` with P7 `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94` as `MERGE_HEAD`; no merge commit has been made. The focused semantic library check passes with 0 errors and 68 warnings after an initial 86 errors. The package sweep also passes `phalcom-type-meta`, `phalcom-compiler-artifact`, and `phalcom-modules`; `phalcom-core` fails with 43 compile errors in the P7 runtime/compiler integration. No tests were run. This establishes a compileable semantic-library slice, not an integrated compileable state. P2 remains partial. The architecture consultation below resolved the core boundary; scoped API adaptation remains.
+
+### P2.R3 P7 core API merge-boundary consultation — 2026-10-20
+
+- **Trigger:** The required P7 merge exposed 43 `phalcom-core` compile errors spanning obsolete artifact schemas/options, current versus P7 generic call-environment types, `RuntimeRecordRow` shape, compiler lowering identities, and collection APIs.
+- **Finding:** The staged loader and generic VM extensions target P7's older `CanonicalUniverseFormalImage` route. P2 instead requires current-main native products to publish through the ordinary `SemanticSnapshot`, `SemanticDb`, and `SemanticWorkspaceSession`. The compile failures do not show that a new generic VM representation is needed.
+- **Decision:** Level 1 clarification; no plan amendment. Preserve P7 artifact transport, budgeted reconstruction, selectively frozen imported product backing, and the static evaluator's required operational work/frame path. Keep current-main semantic/compiler/runtime contracts authoritative. Adapt or remove only staged P7 consumers that assume absent APIs. Do not migrate `RuntimeTypeEnvironment` to tagged static arguments to satisfy old call sites, retain the parallel `CanonicalUniverseFormalImage` route, or discard budget/accounting work in a blanket revert.
+- **Implementation direction:** Rework the artifact loader toward current schemas and ordinary imported-session publication. Narrowly adapt `vm/dispatch.rs`, `modules/materialize.rs`, `compiler/lib/product_opt.rs`, and the `RuntimeRecordRow` consumers. Preserve exact owners, single semantic authority, allocation accounting, and atomic publication.
+- **Verification:** The consultation reproduced `cargo check -p phalcom-core` at 43 errors; no tests were run. Rerun that focused package check after scoped changes, then run only directly affected source compiler/runtime and artifact-session publication tests at the user's test gate.
+- **Status:** Implementer may resume on the current-main API integration and P2 artifact/session path. No code was changed by the adviser.
+
+### P2.R3 handoff and follow-up image-lifecycle sequencing amendment — 2026-10-20
+
+- **Authority:** The user-provided continuation handoff and the follow-up architecture consultation both direct recovery of the certified P7 image lifecycle before changing its publication boundary. This supersedes the earlier consultation's specific instruction to remove the `CanonicalUniverseFormalImage` route or move the loader to `SemanticWorkspaceSession` immediately; that earlier instruction is retained above as chronology.
+- **Decision:** Restore and adapt `CanonicalUniverseFormalImage`, `CanonicalCompilerImageView`, the loaded canonical reader, source-free completeness, module-query publication, dependency fingerprints, and the loaded-publication census as one P7 compiler-image path. The image is the sole loaded artifact authority during recovery, not a parallel semantic engine or sidecar. Adapt it to current semantic products and V2/V4/V3 payloads. Do not redesign it into `SemanticWorkspaceSession` in the same patch.
+- **Sequence:** First reach an integrated compileable state, then recover the P7 build/encode/load lifecycle and source-free completeness, then integrate the interrupted T1 phase and declaration-owner additions. Resume the ordinary current-session publication slices only after that lifecycle is recovered.
+- **Verification boundary:** The active handoff prohibits tests in this continuation. Focused compile checks are allowed. Do not claim P2/T1 completion from a compile-only recovery.
+- **Status:** The amendment changes sequencing and the temporary loaded-image authority boundary. P2 remains partial; no tests have been run.
+
+### P2.R3 T1 source-import identity clarification — 2026-10-20
+
+- **Trigger:** The V4 phase rows contain a `u32` binding value, but live `SourceImportBindingId` contains an import-site identity and a site-local binding ordinal. The plan requires the exact stable identity.
+- **Decision:** Interpret `binding` as a checked, module-relative flattened source-binding ordinal. Enumerate `ModuleWorldV2` imports in vector order; each row index is the import-site ordinal, including sites with no bindings. A module import contributes one binding at local ordinal 0; selective imports and re-exports contribute one binding per item in item order. The wire ordinal is the checked prefix sum of earlier site binding counts plus the item-local ordinal. Decoding reverses those ranges into the exact source-import identity.
+- **Scope and validation:** A module product's `StableModuleRef` scopes its ordinals; a callable's stable owner supplies the module scope. Require module products for every module, with exactly the dense ascending ordinal range for that module's bindings, including an empty range where appropriate. Callable observations remain sparse, must resolve within the owner's module, and must be consistent with the module phase summary. Never use executable linked-read slots, names, or spans as identity.
+- **Plan impact:** No material architecture or wire-layout amendment is needed. Make the encoding and cross-row validation explicit in T1.3/T1.4 and cover it with mixed-import round-trip and malformed-row cases. Existing V4/semantic ABI versioning applies; no additional bump is needed unless a producer has emitted a different `binding` meaning. No such producer is present in the inspected tree.
+- **Verification required:** Round-trip module, multi-item selective, multi-item re-export, and empty-item import sites; assert exact site/local identities for complete module products and sparse callable observations. Reject duplicate, missing, out-of-range, wrong-module, or phase-inconsistent rows and missing module products.
+- **Status:** Implementer may resume. T1 remains pending until encoding, mapping, validation, and focused tests are implemented. No tests have been run for this slice.
+
+- **Implementation follow-up (2026-10-20):** The V4 dependency-phase DTO now has the exact current states `InterfaceOnly` and `Runtime`. The lossy `CallableAnalysisRecordV1 -> V2` and `SemanticWorldV3 -> V4` conversions were removed because they defaulted new phase and module-execution authority to empty values. `cargo check -p phalcom-compiler-artifact` passes after this change. Source-import ordinal encoding, module/callable cross-row validation, and native product reconstruction remain open; no tests were run.
+
+- **Implementation follow-up (2026-10-20):** `ModuleWorldV2` now exposes checked forward and reverse conversion between ordered import-site/local-binding coordinates and the module-relative `u32` ordinal. V4 payload validation uses that same source import table to require exactly one phase product per module, the dense ordinal range for its bindings, covered callable phase observations, and valid runtime-requirement module owners. `cargo check -p phalcom-compiler-artifact` passes. Exporter/importer conversion to the native module identities and products remains open; no tests were run.
+
+### P2.R3 T1 dependency-phase wire clarification — 2026-10-20
+
+- **Trigger:** The unfinished V4 DTO defined `Syntax`, `LoadTime`, and `Runtime`, while current `DependencyPhase` and callable phase evidence have only `InterfaceOnly` and `Runtime`.
+- **Decision:** Make the V4 wire enum an exact two-state mirror: `InterfaceOnly` maps to `InterfaceOnly`, and `Runtime` maps to `Runtime`. Preserve the current join rule, where `Runtime` dominates. Do not reinterpret `Syntax` or `LoadTime` as current phases.
+- **Plan impact:** This is a Level 1 clarification of exact current authority. No ABI bump is needed because no V4 producer has emitted artifacts. If a producer appears before implementation, the wire change requires a new artifact version rather than reinterpretation.
+- **Verification required:** Round-trip both current phase values and reject invalid discriminants. Phase coverage checks must compare using the current phase ordering.
+- **Status:** Implementer may resume. Update the unfinished DTO and T1.3/T1.4 notes before adding a producer.
+
+### P2.R3 T1 intrinsic type-owner wire clarification — 2026-10-20 (superseded by the following amendment)
+
+- **Trigger:** `DeclarationShellV2.intrinsic_type_owner` reused `IntrinsicRuntimeOwnerV1`, whose three variants cannot represent all seven current `IntrinsicTypeOwner` values.
+- **Decision:** Define a distinct exhaustive `IntrinsicTypeOwnerV1` for the seven declaration-shell owner variants. Keep `IntrinsicRuntimeOwnerV1` as the three-case runtime binding owner for `DeclarationTypeBindingV1.runtime_owner`. Import both independently through the project-qualified `StableOwnerCatalog`, preserve `None`, and reject duplicate or conflicting shell authority.
+- **Plan impact:** Level 1 clarification; no ABI bump is needed because `StructuralPrimaryContractsV2` and `SemanticWorldV4` remain unpublished. If either schema has been emitted before this correction, stop and version the changed contract.
+- **Verification required:** Round-trip each intrinsic type owner and the independent runtime owner; reject duplicate owner authority. No tests are run during this continuation per the active handoff.
+- **Status:** Its initial type-member interpretation was superseded after the shell-less authority audit below. The shell field is retained as a redundant runtime-owner witness; the seven-case intrinsic type-owner enum applies only to standalone rows per the user clarification recorded after the schema amendment.
+
+### P2.R3 T1 shell-less intrinsic projection schema amendment — 2026-10-20
+
+- **Trigger:** `register_intrinsic_static_domain` stores authority outside `DeclarationTypeInfo` and removes the nominal shell. The current V2 producer attached static-domain and type-owner fields only while iterating declaration shells, so shell-less compiler-owned type authority could not be exported. No validated source-free derivation was found.
+- **Consultation decision:** Add independent `intrinsic_static_domains` and `intrinsic_type_owners` row families to `StructuralPrimaryContractsV2`, keyed by project-qualified `StableDeclarationRef`; remove the actual static-domain and seven-case type-member projections from declaration shells. Validate strict per-family ordering/uniqueness, resolve owners through `StableOwnerCatalog` even when shell-less, and import each projection independently with allocation charging. Do not infer static-domain authority from a kind, or type-owner authority from static/runtime ownership. A single owner can have both projection rows.
+- **Plan/schema impact:** Level 2 architecture amendment; schema V2/V4 stay unchanged because they remain unpublished on this branch. If emitted bytes are found, version the affected structural and enclosing semantic artifact schemas before acceptance.
+- **Status:** Accepted by architectural adviser and implemented in the current source tree. `cargo check -p phalcom-compiler-artifact --lib`, `cargo check -p phalcom-semantic --lib`, and `cargo check -p phalcom-core --lib` pass. Tests remain intentionally unrun per the active handoff.
+
+### P2.R3 T1 shell runtime-owner witness clarification — 2026-10-20
+
+- **User decision:** Keep `DeclarationShellV2.intrinsic_type_owner` as the three-case `IntrinsicRuntimeOwnerV1` runtime-owner witness. It is redundant with `binding.runtime_owner` and must match it exactly. `Pack` stays runtime-only and does not imply `IntrinsicTypeOwnerV1::TypePack`.
+- **Wire separation:** The actual seven-case type-member authority remains in standalone `intrinsic_type_owners` rows, independent of shell/runtime authority. Static-domain authority remains in standalone rows as well.
+- **Implementation:** V2 validation now rejects shell witness/binding mismatches; export copies the runtime owner into both fields. No tests were run per the active handoff.
+- **Verification:** `cargo check -p phalcom-compiler-artifact --lib`, `cargo check -p phalcom-semantic --lib`, and `cargo check -p phalcom-core --lib` pass after the clarification. Tests remain unrun per the active handoff.
+
+### P2.R3 T1 Pack semantic-owner consultation request — 2026-10-20
+
+- **Status:** Request prepared and sent to the available architecture adviser; response pending. Do not implement the proposed Pack ownership change until the ruling is recorded.
+- **Trigger:** The user asks that Pack have semantic authority beyond its current runtime owner. This changes semantic ownership and may change type-member dispatch, so it crosses the implementer's authority boundary.
+- **Normative boundary:** [`type-level-domains.md`](../../../specs/type-level-domains.md) and [`structural-products.md`](../../../specs/structural-products.md) define first-class proper `Pack` types separately from the kinded `TypePack` domain. The current runtime-owner witness must not be treated as proof that Pack and TypePack share one owner.
+- **Observed implementation:** `DeclarationTypeTable::store_authoritative` and `register_intrinsic_runtime_owner` associate runtime Tuple and Record with existing type-member owners, but associate runtime Pack with none. The source Pack declaration has semantic form `Intrinsic(Pack)` and runtime owner `Pack`. `register_intrinsic_static_domain` separately associates the `TypePack` kind with the `TypePack` type-member owner. Artifact V2 carries runtime ownership on the shell and actual type-member ownership in independent rows.
+- **Required invariants:** Keep one canonical semantic owner table; keep the shell runtime-owner witness equal to `binding.runtime_owner`; preserve project-qualified artifact owner validation; do not conflate the first-class Pack type with the kinded TypePack domain without an explicit semantic ruling.
+- **Decision requested:** Should the Pack declaration also own type-member authority? If yes, should it use an independent `IntrinsicTypeOwner::Pack` domain or another representation, and which members/operations and result domains belong to that owner? How should the decision flow through declaration registration, projection lookup, artifact rows, import/export, schema/ABI policy, and P2's remaining consolidation sequence? Specify focused tests and identify any independent P2 work that can continue while this semantic boundary is unresolved.
+- **Verification required:** After the ruling and when the active handoff permits tests, verify Pack runtime construction and type-owner authority independently, preserve the distinction from TypePack, and round-trip both authorities through the source-free artifact path. No tests were run for this request.
+
 ### P2.R2 topology-fingerprint Level 2 amendment
 
 - **Trigger:** Importing a package artifact against the required persistent resolver target failed with `module topology fingerprint mismatch`. The artifact module-world fingerprint was created with an empty graph; live topology validation hashes every project in the receiving `ProjectUniverse`, including graph-local IDs and import roots.
@@ -159,11 +237,11 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 - **Plan impact:** No Level 2 amendment is required. A material divergence from P7 or final deferral of query-root reuse would require an amendment.
 - **Status:** The exhaustive policy classifier is implemented and focused-tested; root reconstruction/publication checks remain open.
 
-## Current API surface (not yet a P3 takeover)
+## Current imported pipeline (not yet a P3 takeover)
 
-At source revision `37d2b0d8`, `ImportedCompilerImage` contains a reconstructed `CanonicalExternalModuleWorld`, the retained caller project graph, metadata, relocated current-main type and static-value stores, primary data/enum/variant aggregates, and the still-portable `SemanticWorldV3` and `QueryImageV3`. It is staged import data, not a published current-main `SemanticSnapshot` or populated `SemanticDb`.
+The restored P7 core loader validates V2/V4/V3 sections, reconstructs the current `SemanticSnapshot` and query image, and builds a `CanonicalUniverseFormalImage`. The structural V2 import now reconstructs declaration shells plus independently carried static-domain and intrinsic type-owner projections, including owners without shells. These paths compile, but the imported image is not yet published as the ordinary `SemanticWorkspaceSession` base with local overlays and invalidation.
 
-The current pipeline is owned by `ArtifactImportTransaction::stage_payload_with_digest`. `StableOwnerCatalog` resolves exact project-qualified identities for type/static relocation, primary structural reconstruction, and typed query owners. `QueryKey::from_portable_owner` and `query_root_is_reusable` provide owner conversion and policy/location checks. There is no `SemanticProduct` reconstruction, product/dependency fingerprint validation, or query database publication yet.
+The separate `ArtifactImportTransaction::stage_payload_with_digest` path still returns `ImportedCompilerImage` as staging data. It retains the `StableOwnerCatalog`-resolved typed query owners and staged semantic authority; query-root reuse and final session publication remain incomplete P2 work. P3 stays blocked until the ordinary session publication contract is complete.
 
 ## Active plan
 
@@ -174,7 +252,7 @@ The current pipeline is owned by `ArtifactImportTransaction::stage_payload_with_
 | Task | Objective | Status |
 |---|---|---|
 | T0 | Re-pin, normalize records, and establish executable completeness contracts (`manifest.rs`) | COMPLETE |
-| T1 | Close current-main wire/schema authority (declarations, aliases, module execution, callable phase evidence) | PENDING |
+| T1 | Close current-main wire/schema authority (declarations, aliases, module execution, callable phase evidence) | IN_PROGRESS |
 | T2 | Materialize declarations, aliases, hierarchy, and structural compiler authority | PENDING |
 | T3 | Complete native witness, evidence, derived-conformance, and static authority | PENDING |
 | T4 | Complete native `CallableAnalysis` | PENDING |

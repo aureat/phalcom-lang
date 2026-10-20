@@ -108,7 +108,7 @@ record!(CallablePatternSiteResolutionV1 { ordinal: u32, kind: CallablePatternSit
 impl CallableAnalysisRecordV1 {
     /// Checks local proof closure without allocating scratch or materializing owners.
     pub fn validate_proof_graph(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
-        validate_callable_proofs(None, self, limits).map(|_| ())
+        validate_proofs(None, self.into(), limits).map(|_| ())
     }
 
     /// Also checks canonical type, kind, parameter, variant, and field owners.
@@ -123,10 +123,53 @@ impl CallableAnalysisRecordV1 {
                 type_graph,
                 structural_contracts,
             }),
-            self,
+            self.into(),
             limits,
         )
         .map(|_| ())
+    }
+}
+
+impl CallableAnalysisRecordV2 {
+    /// Checks local proof closure without allocating scratch or materializing owners.
+    pub fn validate_proof_graph(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+        validate_proofs(None, self.into(), limits).map(|_| ())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CallableAnalysisProofView<'a> {
+    callable: &'a StableCallableRef,
+    local_proof_graph: &'a Option<CallableProofGraphV1>,
+    match_resolutions: &'a [CallableMatchResolutionV1],
+    pattern_site_resolutions: &'a [CallablePatternSiteResolutionV1],
+    expressions: &'a [CallableExpressionRowV1],
+    bindings: &'a [CallableBindingRowV1],
+}
+
+impl<'a> From<&'a CallableAnalysisRecordV1> for CallableAnalysisProofView<'a> {
+    fn from(record: &'a CallableAnalysisRecordV1) -> Self {
+        Self {
+            callable: &record.callable,
+            local_proof_graph: &record.local_proof_graph,
+            match_resolutions: &record.match_resolutions,
+            pattern_site_resolutions: &record.pattern_site_resolutions,
+            expressions: &record.expressions,
+            bindings: &record.bindings,
+        }
+    }
+}
+
+impl<'a> From<&'a CallableAnalysisRecordV2> for CallableAnalysisProofView<'a> {
+    fn from(record: &'a CallableAnalysisRecordV2) -> Self {
+        Self {
+            callable: &record.callable,
+            local_proof_graph: &record.local_proof_graph,
+            match_resolutions: &record.match_resolutions,
+            pattern_site_resolutions: &record.pattern_site_resolutions,
+            expressions: &record.expressions,
+            bindings: &record.bindings,
+        }
     }
 }
 
@@ -156,12 +199,12 @@ pub(super) fn validate_callable_proofs(
             type_graph: &world.type_graph,
             structural_contracts: &world.structural_contracts,
         }),
-        record,
+        record.into(),
         limits,
     )
 }
 
-fn validate_proofs(world: Option<ProofWorld<'_>>, record: &CallableAnalysisRecordV1, limits: &ValidationLimits) -> Result<usize, ArtifactError> {
+fn validate_proofs(world: Option<ProofWorld<'_>>, record: CallableAnalysisProofView<'_>, limits: &ValidationLimits) -> Result<usize, ArtifactError> {
     let mut check = ProofValidator {
         world,
         record,
@@ -169,7 +212,7 @@ fn validate_proofs(world: Option<ProofWorld<'_>>, record: &CallableAnalysisRecor
         rows: 0,
     };
     if let Some(graph) = &record.local_proof_graph {
-        if graph.owner != record.callable {
+        if &graph.owner != record.callable {
             return Err(invalid("callable proof graph belongs to another callable"));
         }
         for (index, scope) in graph.scopes.iter().enumerate() {
@@ -213,7 +256,7 @@ fn validate_proofs(world: Option<ProofWorld<'_>>, record: &CallableAnalysisRecor
     if record.match_resolutions.windows(2).any(|pair| pair[0].expression >= pair[1].expression) {
         return Err(invalid("callable match expressions are not canonical"));
     }
-    for resolution in &record.match_resolutions {
+    for resolution in record.match_resolutions {
         check.row(0)?;
         if resolution.expression as usize >= record.expressions.len() {
             return Err(invalid("callable match references an absent expression"));
@@ -271,7 +314,7 @@ fn validate_proofs(world: Option<ProofWorld<'_>>, record: &CallableAnalysisRecor
 
 struct ProofValidator<'a> {
     world: Option<ProofWorld<'a>>,
-    record: &'a CallableAnalysisRecordV1,
+    record: CallableAnalysisProofView<'a>,
     limits: &'a ValidationLimits,
     rows: usize,
 }

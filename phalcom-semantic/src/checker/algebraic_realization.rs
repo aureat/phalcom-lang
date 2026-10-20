@@ -803,10 +803,10 @@ fn instantiate_assumed_signature(
     let mut environment = TypeEnvironment::new();
     if let Some(generic) = &surface.generic_signature {
         for (&parameter, &argument) in generic.parameters.iter().zip(trait_ref.arguments.iter()) {
-            environment.bind_param(parameter, argument);
+            environment.bind_param(parameter, argument).expect("realization environment is source mutable");
         }
     }
-    environment.bind_self(subject);
+    environment.bind_self(subject).expect("realization environment is source mutable");
     member.instantiate(ctx.store, &environment).signature
 }
 

@@ -1,0 +1,3 @@
+=== Running Runtime Suite: mode=source (10 fresh processes) ===
+=== Running Runtime Suite: mode=artifact (10 fresh processes) ===
+Successfully wrote target/perf003-p7-audit/RAW-RUNTIME.csv

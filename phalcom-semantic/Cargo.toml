@@ -6,7 +6,8 @@ autotests = false
 
 [features]
 default = []
-test-timings = []
+perf-observability = ["dep:telos-observability"]
+test-timings = ["perf-observability"]
 
 [dependencies]
 phalcom-ast = { path = "../phalcom-ast" }
@@ -17,6 +18,7 @@ phalcom-native-meta = { path = "../phalcom-native-meta" }
 phalcom-native-surface = { path = "../phalcom-native-surface" }
 phalcom-type-meta = { path = "../phalcom-type-meta" }
 phalcom-compiler-artifact = { path = "../phalcom-compiler-artifact" }
+telos-observability = { path = "../telos-observability", optional = true }
 thiserror = { workspace = true }
 im = { workspace = true }
 num-bigint = { workspace = true }
@@ -28,10 +30,20 @@ serde_json = { workspace = true }
 [dev-dependencies]
 tempfile = "3.17"
 phalcom-modules = { path = "../phalcom-modules", features = ["test-support"] }
+telos-observability = { path = "../telos-observability" }
 
 [[test]]
 name = "semantic"
 path = "tests/semantic.rs"
+
+[[test]]
+name = "session-indexer-match"
+path = "tests/session_indexer_match.rs"
+
+# Keep the test-only global allocator isolated from the parallel semantic suite.
+[[test]]
+name = "artifact-allocation"
+path = "tests/semantic/artifact_allocation.rs"
 
 [[test]]
 name = "semantic-artifact"

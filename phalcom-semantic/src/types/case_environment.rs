@@ -1,26 +1,50 @@
 //! GADT case equality environment computation and normalization.
 
 use crate::identity::DeclarationId;
+use crate::ordered_map::OrderedMap;
 use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::parameter::{GenericConstraint, TypeTerm};
 use crate::types::store::{TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::BTreeMap;
 
 /// Per-variant GADT type equality environment.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct CaseTypeEnvironment {
-    pub bindings: BTreeMap<TypeParameterId, TypeId>,
+    pub bindings: OrderedMap<TypeParameterId, TypeId>,
     pub equalities: Box<[GenericConstraint]>,
 }
 
 impl CaseTypeEnvironment {
-    pub fn new(bindings: BTreeMap<TypeParameterId, TypeId>, equalities: Box<[GenericConstraint]>) -> Self {
-        Self { bindings, equalities }
+    pub fn new(bindings: impl Into<OrderedMap<TypeParameterId, TypeId>>, equalities: Box<[GenericConstraint]>) -> Self {
+        Self {
+            bindings: bindings.into(),
+            equalities,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
         self.bindings.is_empty() && self.equalities.is_empty()
+    }
+
+    pub(crate) fn clone_with_allocation_budget(&self, allocations: &mut AllocationBudget) -> Result<Self, AllocationError> {
+        let mut bindings = allocations.vector(self.bindings.len())?;
+        for (parameter, ty) in self.bindings.iter() {
+            bindings.push((*parameter, *ty));
+        }
+        let bindings = OrderedMap::from_frozen_entries_with_allocation_budget(bindings, allocations).map_err(|error| match error {
+            crate::ordered_map::FrozenOrderedMapError::Allocation(error) => error,
+            crate::ordered_map::FrozenOrderedMapError::DuplicateKey => AllocationError::Failed,
+        })?;
+        let mut equalities = allocations.vector(self.equalities.len())?;
+        for equality in self.equalities.iter() {
+            equalities.push(crate::types::parameter::clone_generic_constraint_with_allocation_budget(equality, allocations)?);
+        }
+        Ok(Self {
+            bindings,
+            equalities: allocations.boxed_slice(equalities)?,
+        })
     }
 
     pub fn to_substitution(&self) -> TypeSubstitution {
@@ -133,7 +157,7 @@ pub fn derive_case_environment(
         .collect();
 
     Ok(CaseTypeEnvironment {
-        bindings,
+        bindings: bindings.into(),
         equalities: equalities.into_boxed_slice(),
     })
 }

@@ -67,9 +67,9 @@ fn bind_owner_parameters(store: &TypeStore, owner: &DeclarationId, args: &[Stati
             return false;
         };
         match arg {
-            StaticArgument::Term(ty) => environment.bind_param(parameter, *ty),
-            StaticArgument::RecordRow(row) => environment.bind_row(parameter, *row),
-            StaticArgument::DynamicType => environment.bind_dynamic(parameter),
+            StaticArgument::Term(ty) => environment.bind_param(parameter, *ty).expect("specialization environment is source mutable"),
+            StaticArgument::RecordRow(row) => environment.bind_row(parameter, *row).expect("specialization environment is source mutable"),
+            StaticArgument::DynamicType => environment.bind_dynamic(parameter).expect("specialization environment is source mutable"),
         }
     }
     true
@@ -143,7 +143,9 @@ pub fn specialize_receiver_to_owner<C: SpecializationControl>(
         });
 
         if &current_owner == target_owner {
-            owner_environment.bind_self(receiver);
+            owner_environment
+                .bind_self(receiver)
+                .expect("receiver specialization environment is source mutable");
             return Ok(ReceiverSpecialization {
                 receiver,
                 receiver_owner,

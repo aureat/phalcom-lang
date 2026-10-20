@@ -1,0 +1,17 @@
+=== Running Cold Suite: mode=source, workload=print42 (10 fresh processes) ===
+  Summary [source/print42] (N=10): total_median=9535.31ms, init_median=9528.08ms, comp_median=6.93ms, rss_median=809208KB
+=== Running Cold Suite: mode=artifact, workload=print42 (10 fresh processes) ===
+  Summary [artifact/print42] (N=10): total_median=314.91ms, init_median=287.23ms, comp_median=6.13ms, rss_median=324736KB
+=== Running Cold Suite: mode=source, workload=option_string (10 fresh processes) ===
+  Summary [source/option_string] (N=10): total_median=9273.36ms, init_median=9266.17ms, comp_median=6.86ms, rss_median=809240KB
+=== Running Cold Suite: mode=artifact, workload=option_string (10 fresh processes) ===
+  Summary [artifact/option_string] (N=10): total_median=309.58ms, init_median=282.06ms, comp_median=6.29ms, rss_median=325880KB
+=== Running Cold Suite: mode=source, workload=synthetic_pkg (10 fresh processes) ===
+  Summary [source/synthetic_pkg] (N=10): total_median=9162.57ms, init_median=9154.07ms, comp_median=7.42ms, rss_median=809368KB
+=== Running Cold Suite: mode=artifact, workload=synthetic_pkg (10 fresh processes) ===
+  Summary [artifact/synthetic_pkg] (N=10): total_median=310.48ms, init_median=282.54ms, comp_median=6.68ms, rss_median=326032KB
+=== Running Cold Suite: mode=source, workload=slotmap (10 fresh processes) ===
+  Summary [source/slotmap] (N=10): total_median=9447.54ms, init_median=9150.25ms, comp_median=297.47ms, rss_median=822416KB
+=== Running Cold Suite: mode=artifact, workload=slotmap (10 fresh processes) ===
+  Summary [artifact/slotmap] (N=10): total_median=624.60ms, init_median=286.00ms, comp_median=313.24ms, rss_median=349912KB
+Successfully completed cold suite run (80 total recorded samples in target/perf003-p7-audit/RAW-COLD.csv)

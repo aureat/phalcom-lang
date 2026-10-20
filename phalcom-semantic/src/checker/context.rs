@@ -589,7 +589,7 @@ pub struct CheckingContext<'a> {
     pub phase: EvaluationPhase,
     /// Checked module value facts available to this body. These facts retain
     /// canonical source `SymbolId`s even when reached through an import alias.
-    module_value_bindings: Option<&'a BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>>,
+    module_value_bindings: Option<&'a crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>>,
     /// Linked public value exports keyed by the exporting module and public
     /// spelling. This is deliberately separate from ordinary object dispatch.
     module_value_exports: Option<&'a BTreeMap<(ModuleId, String), phalcom_modules::linker::SymbolId>>,
@@ -601,6 +601,9 @@ pub struct CheckingContext<'a> {
     /// Owner whose canonical instance constructor body is currently checked.
     /// Set only from a declaration signature carrying constructor semantics.
     pub(crate) current_constructor_owner: Option<DeclarationId>,
+    /// Stable identity of the enclosing checked static-definition body.
+    /// Static application ordinals are local to this owner, not to their target.
+    pub(crate) current_static_body_owner: Option<crate::static_definition::StaticBodyId>,
     pub internal_failure_policy: InternalFailurePolicy,
     pub control: CheckerControl,
     pub expected_return: Option<CallableReturnContract>,
@@ -651,6 +654,13 @@ pub struct CheckingContext<'a> {
     pub flow_graph: Option<std::sync::Arc<crate::checker::flow::graph::FlowGraph>>,
     pub dependencies: BTreeSet<CallableId>,
     semantic_dependencies: SharedSemanticDependencies,
+    /// Import provenance follows the selected lexical identity, so shadowing
+    /// does not observe a module product merely because an import was seeded.
+    module_binding_dependencies: BTreeMap<BindingId, Vec<SemanticDependency>>,
+    /// Storage origins for module values copied into this callable's scope.
+    /// Other binding handles are body-local and are materialized as such when
+    /// the callable analysis is finalized.
+    seeded_module_value_origins: BTreeMap<BindingId, crate::checker::analysis::CallableBindingOrigin>,
     field_signatures: Option<&'a FieldSignatureTable>,
     field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
     pub(crate) constructor_initializations: Option<&'a crate::signature::ConstructorInitializationTable>,
@@ -737,6 +747,8 @@ impl<'a> CheckingContext<'a> {
             caller_package: None,
             access_topology: None,
             phase: EvaluationPhase::Runtime,
+            module_binding_dependencies: BTreeMap::new(),
+            seeded_module_value_origins: BTreeMap::new(),
             module_value_bindings: None,
             module_value_exports: None,
             current_class: None,
@@ -745,6 +757,7 @@ impl<'a> CheckingContext<'a> {
             imported_source_bindings: BTreeMap::new(),
             observed_import_phases: BTreeMap::new(),
             current_constructor_owner: None,
+            current_static_body_owner: None,
             internal_failure_policy: InternalFailurePolicy::Contain,
             control: CheckerControl::default(),
             expected_return: None,
@@ -765,11 +778,11 @@ impl<'a> CheckingContext<'a> {
             expressions: ExpressionAnalysisIndex::new(),
             checked_static_applications: Vec::new(),
             checked_static_constructions: BTreeMap::new(),
-            for_iteration_lanes: BTreeMap::new(),
-            static_iteration_lanes: BTreeMap::new(),
-            positional_expansions: BTreeMap::new(),
-            known_invalid_positional_expansions: BTreeMap::new(),
-            sequence_literals: BTreeMap::new(),
+            for_iteration_lanes: Default::default(),
+            static_iteration_lanes: Default::default(),
+            positional_expansions: Default::default(),
+            known_invalid_positional_expansions: Default::default(),
+            sequence_literals: Default::default(),
             sequence_publication: Default::default(),
             call_publication_owners: BTreeMap::new(),
             deferred_applications: BTreeMap::new(),
@@ -857,6 +870,8 @@ impl<'a> CheckingContext<'a> {
             caller_package: None,
             access_topology: None,
             phase: EvaluationPhase::Runtime,
+            module_binding_dependencies: BTreeMap::new(),
+            seeded_module_value_origins: BTreeMap::new(),
             module_value_bindings: None,
             module_value_exports: None,
             current_class: None,
@@ -865,6 +880,7 @@ impl<'a> CheckingContext<'a> {
             imported_source_bindings: BTreeMap::new(),
             observed_import_phases: BTreeMap::new(),
             current_constructor_owner: None,
+            current_static_body_owner: None,
             internal_failure_policy: InternalFailurePolicy::Contain,
             control,
             expected_return: None,
@@ -885,11 +901,11 @@ impl<'a> CheckingContext<'a> {
             expressions: ExpressionAnalysisIndex::new(),
             checked_static_applications: Vec::new(),
             checked_static_constructions: BTreeMap::new(),
-            for_iteration_lanes: BTreeMap::new(),
-            static_iteration_lanes: BTreeMap::new(),
-            positional_expansions: BTreeMap::new(),
-            known_invalid_positional_expansions: BTreeMap::new(),
-            sequence_literals: BTreeMap::new(),
+            for_iteration_lanes: Default::default(),
+            static_iteration_lanes: Default::default(),
+            positional_expansions: Default::default(),
+            known_invalid_positional_expansions: Default::default(),
+            sequence_literals: Default::default(),
             sequence_publication: Default::default(),
             call_publication_owners: BTreeMap::new(),
             deferred_applications: BTreeMap::new(),
@@ -956,6 +972,8 @@ impl<'a> CheckingContext<'a> {
             caller_package: self.caller_package.clone(),
             access_topology: self.access_topology,
             phase: self.phase,
+            module_binding_dependencies: self.module_binding_dependencies.clone(),
+            seeded_module_value_origins: self.seeded_module_value_origins.clone(),
             module_value_bindings: self.module_value_bindings,
             module_value_exports: self.module_value_exports,
             current_class: self.current_class.clone(),
@@ -964,6 +982,7 @@ impl<'a> CheckingContext<'a> {
             imported_source_bindings: self.imported_source_bindings.clone(),
             observed_import_phases: self.observed_import_phases.clone(),
             current_constructor_owner: self.current_constructor_owner.clone(),
+            current_static_body_owner: self.current_static_body_owner.clone(),
             internal_failure_policy: self.internal_failure_policy,
             control: self.control.clone(),
             expected_return: self.expected_return.clone(),
@@ -1061,7 +1080,7 @@ impl<'a> CheckingContext<'a> {
     /// index owns the exported value's type and denotation.
     pub(crate) fn attach_module_value_exports(
         &mut self,
-        bindings: &'a BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
+        bindings: &'a crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
         exports: &'a BTreeMap<(ModuleId, String), phalcom_modules::linker::SymbolId>,
     ) {
         self.module_value_bindings = Some(bindings);
@@ -1073,8 +1092,16 @@ impl<'a> CheckingContext<'a> {
     pub(crate) fn seed_linked_module_import_values(
         &mut self,
         linked_module: &phalcom_modules::linker::LinkedModule,
-        bindings: &BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
+        bindings: &crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
     ) {
+        if let Some(index) = bindings.get(&self.current_module).cloned() {
+            for (name, fact) in index.visible_bindings() {
+                if fact.symbol.module != self.current_module {
+                    continue;
+                }
+                self.declare_module_value_binding(name.to_owned(), &fact.state, fact.phase, fact.symbol.clone(), None);
+            }
+        }
         for (local_name, import_id) in &linked_module.bindings.imports {
             let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
                 continue;
@@ -1082,12 +1109,7 @@ impl<'a> CheckingContext<'a> {
             let Some(fact) = bindings.get(&symbol.module).and_then(|index| index.get(symbol)) else {
                 continue;
             };
-            self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::LinkedName(
-                self.current_module.clone(),
-                local_name.to_string(),
-            ));
-            self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
-            self.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase);
+            self.declare_module_value_binding(local_name.to_string(), &fact.state, fact.phase, symbol.clone(), Some(*import_id));
         }
     }
 
@@ -1101,7 +1123,7 @@ impl<'a> CheckingContext<'a> {
     pub(crate) fn seed_symbolic_module_import_values(
         &mut self,
         semantic_module: &phalcom_modules::linker::SemanticLinkedModule,
-        bindings: &BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
+        bindings: &crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
     ) {
         for import_binding in semantic_module.imports.bindings.values() {
             let phalcom_modules::linker::SymbolicImportTarget::Binding(ref symbol) = import_binding.target else {
@@ -1127,6 +1149,8 @@ impl<'a> CheckingContext<'a> {
     pub(crate) fn resolve_module_export_value(&self, module_alias: &str, public_name: &str) -> Option<ValueSemanticFact> {
         self.record_semantic_dependency(SemanticDependency::LinkedName(self.current_module.clone(), module_alias.to_owned()));
         let module = self.resolver.resolve_module_alias(&self.current_module, module_alias)?;
+        self.record_semantic_dependency(SemanticDependency::PublicExport(module.clone(), public_name.to_owned()));
+        self.record_semantic_dependency(SemanticDependency::ModuleStaticBindingCatalog(module.clone()));
         let exports = self.module_value_exports?;
         let symbol = exports.get(&(module.clone(), public_name.to_owned()))?;
         let bindings = self.module_value_bindings?;
@@ -1213,6 +1237,8 @@ impl<'a> CheckingContext<'a> {
 
         probe.caller_package = self.caller_package.clone();
         probe.access_topology = self.access_topology;
+        probe.module_binding_dependencies = self.module_binding_dependencies.clone();
+        probe.seeded_module_value_origins = self.seeded_module_value_origins.clone();
         probe.module_value_bindings = self.module_value_bindings;
         probe.module_value_exports = self.module_value_exports;
         probe.current_class = self.current_class.clone();
@@ -1514,7 +1540,9 @@ impl<'a> CheckingContext<'a> {
 
     pub(crate) fn reject_sequence_expression(&mut self, expression: ExpressionId) {
         self.sequence_publication.discard_expression(expression);
-        self.sequence_literals.remove(&expression);
+        self.sequence_literals
+            .remove_source(&expression)
+            .expect("checking context sequence products are source mutable");
     }
 
     pub(crate) fn reject_all_sequence_products(&mut self) {
@@ -1546,7 +1574,11 @@ impl<'a> CheckingContext<'a> {
                         requirements.range,
                     ));
                 }
-                if let Some(expression) = self.expressions.get_mut(&requirements.expression) {
+                if let Some(expression) = self
+                    .expressions
+                    .get_source_mut(&requirements.expression)
+                    .expect("checking context expression products are source mutable")
+                {
                     expression.status = status.clone();
                 }
                 self.record_terminal_status(status.clone());
@@ -1648,18 +1680,15 @@ impl<'a> CheckingContext<'a> {
 
     pub(crate) fn record_checked_static_application(
         &mut self,
-        owner: DeclarationId,
         source_range: SourceRange,
         target: DeclarationId,
         signature: crate::static_definition::StaticDefinitionSignature,
         arguments: Box<[crate::static_definition::CheckedStaticApplicationArgument]>,
     ) -> Option<crate::static_definition::StaticApplicationId> {
         let expression = self.current_expression_id()?;
+        let body = self.current_static_body_owner.clone()?;
         let ordinal = u32::try_from(self.checked_static_applications.len()).ok()?;
-        let id = crate::static_definition::StaticApplicationId {
-            body: crate::static_definition::StaticBodyId(owner),
-            ordinal,
-        };
+        let id = crate::static_definition::StaticApplicationId { body, ordinal };
         self.checked_static_applications.push(crate::static_definition::CheckedStaticApplication {
             id: id.clone(),
             expression,
@@ -2058,7 +2087,11 @@ impl<'a> CheckingContext<'a> {
 
         if let Some(owner) = owner {
             if let Some(status) = status.clone() {
-                if let Some(analysis) = self.expressions.get_mut(&owner) {
+                if let Some(analysis) = self
+                    .expressions
+                    .get_source_mut(&owner)
+                    .expect("checking context expression products are source mutable")
+                {
                     analysis.status = status;
                     if let Some(cause) = cause {
                         analysis.causal_invalidity = analysis.causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
@@ -2204,7 +2237,9 @@ impl<'a> CheckingContext<'a> {
         analysis.binding_read = typed.binding_read;
         analysis.binding_write = typed.binding_write;
 
-        self.expressions.insert(id, analysis.clone());
+        self.expressions
+            .insert_source(id, analysis.clone())
+            .expect("checking context expression products are source mutable");
         analysis
     }
 
@@ -2214,7 +2249,11 @@ impl<'a> CheckingContext<'a> {
         let Some(id) = typed.expression_id else {
             return;
         };
-        let Some(analysis) = self.expressions.get_mut(&id) else {
+        let Some(analysis) = self
+            .expressions
+            .get_source_mut(&id)
+            .expect("checking context expression products are source mutable")
+        else {
             return;
         };
 
@@ -2395,6 +2434,37 @@ impl<'a> CheckingContext<'a> {
         BindingDeclarationResult::Inserted(binding_id)
     }
 
+    /// Imports a checked module value under a fresh local binding handle and
+    /// retains its canonical storage owner. The source binding's range may be
+    /// owned by a different module; callers attach the local import site via
+    /// the module source index rather than treating it as a body-local token.
+    pub(crate) fn declare_module_value_binding(
+        &mut self,
+        name: String,
+        source: &crate::checker::analysis::BindingState,
+        phase: crate::module_bindings::ModuleBindingPhase,
+        symbol: phalcom_modules::linker::SymbolId,
+        import: Option<phalcom_modules::linker::ImportBindingId>,
+    ) -> BindingDeclarationResult {
+        let result = self.declare_checked_binding(name.clone(), source, phase);
+        if let BindingDeclarationResult::Inserted(binding) = &result {
+            self.seeded_module_value_origins.insert(
+                *binding,
+                crate::checker::analysis::CallableBindingOrigin::ModuleValue {
+                    symbol: symbol.clone(),
+                    import,
+                },
+            );
+            let mut dependencies = Vec::with_capacity(2);
+            if import.is_some() {
+                dependencies.push(crate::checker::analysis::SemanticDependency::LinkedName(self.current_module.clone(), name));
+            }
+            dependencies.push(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
+            self.module_binding_dependencies.insert(*binding, dependencies);
+        }
+        result
+    }
+
     pub fn bind_callable_parameter(&mut self, name: impl Into<String>, current: TypeKnowledge, range: SourceRange) -> BindingDeclarationResult {
         self.bind_callable_parameter_with_identity(name, current, range, crate::checker::causal::CausalInvalidity::Clean, None)
     }
@@ -2528,6 +2598,11 @@ impl<'a> CheckingContext<'a> {
     pub fn lookup_binding_info(&self, name: &str) -> Option<&LocalBindingInfo> {
         for scope in self.scopes.iter().rev() {
             if let Some(info) = scope.get(name) {
+                if let Some(dependencies) = self.module_binding_dependencies.get(&info.id) {
+                    for dependency in dependencies {
+                        self.record_semantic_dependency(dependency.clone());
+                    }
+                }
                 return Some(info);
             }
         }
@@ -2618,7 +2693,12 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn lookup_local(&self, name: &str) -> Option<ValueSemanticFact> {
-        let info = self.lookup_binding_info(name)?;
+        let Some(info) = self.lookup_binding_info(name) else {
+            if self.module_value_bindings.is_some() {
+                self.record_semantic_dependency(SemanticDependency::ModuleStaticBindingCatalog(self.current_module.clone()));
+            }
+            return None;
+        };
         let state = self.flow.get_binding(info.id)?;
         Some(ValueSemanticFact {
             knowledge: state.current.clone(),
@@ -3301,11 +3381,11 @@ impl<'a> CheckingContext<'a> {
             let mut type_env = crate::types::environment::TypeEnvironment::default();
             // The proven subject may be a rigid caller parameter. Trait
             // `Self` denotes that subject for either requirement side.
-            type_env.bind_self(receiver);
+            type_env.bind_self(receiver).expect("dispatch type environment is source mutable");
             if let Some(generics) = &surface.generic_signature {
                 for (idx, &param) in generics.parameters.iter().enumerate() {
                     if let Some(&arg) = conformance_key.trait_ref.arguments.get(idx) {
-                        type_env.bind_param(param, arg);
+                        type_env.bind_param(param, arg).expect("dispatch type environment is source mutable");
                     }
                 }
             }
@@ -3646,7 +3726,7 @@ impl<'a> CheckingContext<'a> {
                                         let unspecialized_return = signature.return_type.clone();
                                         let mut environment = receiver_spec.environment;
                                         for (&p, &t) in &capability.applicability.bindings {
-                                            environment.bind_param(p, t);
+                                            environment.bind_param(p, t).expect("conditional dispatch environment is source mutable");
                                         }
                                         let env = environment.clone();
                                         let specialize_type = |ctx: &mut Self, ty| {
@@ -4011,7 +4091,9 @@ impl<'a> CheckingContext<'a> {
         evidence: Vec<crate::explain::EvidenceRef>,
         parents: Vec<crate::identity::ExplanationId>,
     ) -> crate::identity::ExplanationId {
-        self.explanations.alloc_full(step, rule, status, origin, evidence, parents)
+        self.explanations
+            .alloc_full(step, rule, status, origin, evidence, parents)
+            .expect("checking context explanation arena is source mutable")
     }
 
     /// Legacy compatibility query. Suppression is now carried by the owning
@@ -4046,6 +4128,19 @@ impl<'a> CheckingContext<'a> {
             };
         }
         let return_validation = self.validate_return_contract(status, &normal_returns);
+        let frozen_proofs = match crate::types::proof::freeze_callable_proofs(&self.rigids, self.store, &self.match_resolutions, &self.pattern_site_resolutions)
+        {
+            Ok(proofs) => proofs,
+            Err(error) => {
+                let incident = self.publish_analysis_incident(format!("callable proof publication failed: {error:?}"));
+                status = super::analysis::CallableAnalysisStatus::InternalFailure(incident);
+                crate::types::proof::FrozenCallableProofs {
+                    graph: Default::default(),
+                    matches: Default::default(),
+                    sites: Default::default(),
+                }
+            }
+        };
         let semantic_dependencies = self.semantic_dependencies_snapshot();
         let entry_flow = self.current_flow_summary();
         let flow_graph = self
@@ -4053,40 +4148,59 @@ impl<'a> CheckingContext<'a> {
             .unwrap_or_else(|| std::sync::Arc::new(crate::checker::flow::graph::FlowGraph::default()));
 
         let return_summary = crate::checker::analysis::normal_return_summary(self.store, &normal_returns);
-        let return_explanation = Some(self.explanations.alloc(
-            crate::explain::ExplanationStep::CallableReturnSummary {
-                callable: callable.clone(),
-                returns: normal_returns.iter().map(|exit| exit.knowledge.clone()).collect::<Vec<_>>().into_boxed_slice(),
-                result: return_summary.clone(),
-            },
-            return_summary.status().unwrap_or(crate::types::evidence::EvidenceStatus::Assumed),
-            return_summary.origin().unwrap_or(crate::types::evidence::EvidenceOrigin::Flow),
-            Vec::new(),
-        ));
+        let return_explanation = Some(
+            self.explanations
+                .alloc(
+                    crate::explain::ExplanationStep::CallableReturnSummary {
+                        callable: callable.clone(),
+                        returns: normal_returns.iter().map(|exit| exit.knowledge.clone()).collect::<Vec<_>>().into_boxed_slice(),
+                        result: return_summary.clone(),
+                    },
+                    return_summary.status().unwrap_or(crate::types::evidence::EvidenceStatus::Assumed),
+                    return_summary.origin().unwrap_or(crate::types::evidence::EvidenceOrigin::Flow),
+                    Vec::new(),
+                )
+                .expect("checking context explanation arena is source mutable"),
+        );
         let exits = crate::checker::analysis::BodyExitFacts {
             normal_returns,
             throws: self.throw_exit_flows,
             unreachable: false,
         };
+        let mut bindings: crate::checker::analysis::BindingAnalysisIndex = self.binding_history.into();
+        bindings
+            .extend_source(self.flow.bindings)
+            .expect("checking context binding products are source mutable");
+        let binding_origins = bindings
+            .keys()
+            .map(|binding| {
+                (
+                    *binding,
+                    self.seeded_module_value_origins
+                        .get(binding)
+                        .cloned()
+                        .unwrap_or(crate::checker::analysis::CallableBindingOrigin::BodyLocal),
+                )
+            })
+            .collect::<crate::checker::analysis::CallableBindingOriginIndex>();
 
         crate::checker::analysis::CallableAnalysis {
             callable,
             body_range,
+            body_source_owner: None,
             expressions: self.expressions,
             for_iteration_lanes: std::sync::Arc::new(self.for_iteration_lanes),
             positional_expansions: std::sync::Arc::new(self.positional_expansions),
             known_invalid_positional_expansions: std::sync::Arc::new(self.known_invalid_positional_expansions),
             sequence_literals: std::sync::Arc::new(self.sequence_literals),
-            bindings: {
-                let mut bindings = self.binding_history;
-                bindings.extend(self.flow.bindings);
-                bindings
-            },
+            bindings,
+            binding_origins,
             associated_resolutions: std::sync::Arc::new(self.associated_resolutions),
             callable_reference_resolutions: std::sync::Arc::new(self.callable_reference_resolutions),
             family_applications: std::sync::Arc::new(self.family_applications),
-            match_resolutions: std::sync::Arc::new(self.match_resolutions),
-            pattern_site_resolutions: std::sync::Arc::new(self.pattern_site_resolutions),
+            match_resolutions: std::sync::Arc::new(frozen_proofs.matches),
+            pattern_site_resolutions: std::sync::Arc::new(frozen_proofs.sites),
+            local_proof_graph: std::sync::Arc::new(frozen_proofs.graph),
             flow_graph,
             entry_flow,
             exits,
@@ -4105,24 +4219,34 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn record_associated_resolution(&mut self, expr_id: ExpressionId, resolution: crate::checker::associated::AssociatedResolution) {
-        self.associated_resolutions.insert(expr_id, resolution);
+        self.associated_resolutions
+            .insert_source(expr_id, resolution)
+            .expect("checking context associated resolutions are source mutable");
     }
 
     pub fn record_callable_reference_resolution(&mut self, expr_id: ExpressionId, resolution: crate::checker::associated::CallableReferenceResolution) {
-        self.callable_reference_resolutions.insert(expr_id, resolution);
+        self.callable_reference_resolutions
+            .insert_source(expr_id, resolution)
+            .expect("checking context callable references are source mutable");
     }
 
     pub fn record_family_application(&mut self, expr_id: ExpressionId, resolution: crate::checker::associated::FamilyApplicationResolution) {
-        self.family_applications.insert(expr_id, resolution);
+        self.family_applications
+            .insert_source(expr_id, resolution)
+            .expect("checking context family applications are source mutable");
     }
 
     pub fn record_match_resolution(&mut self, expr_id: ExpressionId, resolution: crate::match_semantics::MatchResolution) {
-        self.match_resolutions.insert(expr_id, resolution);
+        self.match_resolutions
+            .insert_source(expr_id, resolution)
+            .expect("checking context match resolutions are source mutable");
     }
 
     pub fn record_pattern_site_resolution(&mut self, resolution: crate::match_semantics::PatternSiteResolution) {
         let key = crate::match_semantics::PatternSiteKey::new(resolution.kind, resolution.range);
-        self.pattern_site_resolutions.insert(key, resolution);
+        self.pattern_site_resolutions
+            .insert_source(key, resolution)
+            .expect("checking context pattern resolutions are source mutable");
     }
 
     pub fn record_proof_predicate(&mut self, resolution: crate::checker::proof_predicate::ProofPredicateResolution) {

@@ -242,6 +242,8 @@ fn reconstruct_member(
         return Err(invalid("trait requirement has default source without a default implementation"));
     }
 
+    let source_member_index = usize::try_from(row.source_member_index)
+        .map_err(|_| invalid("trait source member index exceeds address space"))?;
     Ok(ImportedTraitMember {
         member: TraitSurfaceMember {
             requirement,
@@ -249,11 +251,11 @@ fn reconstruct_member(
             signature,
             visibility: visibility(&row.visibility),
             source,
+            source_member_index,
             default_present: row.default_present,
             default_source,
         },
-        source_member_index: usize::try_from(row.source_member_index)
-            .map_err(|_| invalid("trait source member index exceeds address space"))?,
+        source_member_index,
     })
 }
 

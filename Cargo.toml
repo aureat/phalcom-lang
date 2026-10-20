@@ -18,6 +18,7 @@ members = [
     "phalcom-type-meta",
     "phalcom-type-meta-derive",
     "phalcom-compiler-artifact",
+    "telos-observability",
 ]
 resolver = "2"
 default-members = [
@@ -36,6 +37,7 @@ default-members = [
     "phalcom-type-meta",
     "phalcom-type-meta-derive",
     "phalcom-compiler-artifact",
+    "telos-observability",
 ]
 
 [profile.dev]

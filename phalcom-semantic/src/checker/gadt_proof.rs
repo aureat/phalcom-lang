@@ -502,7 +502,9 @@ pub(crate) fn merge_branch_proofs(store: &mut TypeStore, left: &BranchProofEnvir
                 return ProofMerge::Blocked(crate::types::outcome::BlockReason::ReflectionBoundary);
             }
         } else {
-            local_bindings.insert(parameter, right_type.clone());
+            local_bindings
+                .insert_source(parameter, right_type.clone())
+                .expect("new GADT branch proofs use source-mutable maps");
         }
     }
     let mut local_equalities = left.local_equalities.to_vec();
@@ -601,9 +603,9 @@ pub fn solve_gadt_branch_proof(
     }
 
     let proof = BranchProofEnvironment {
-        bindings,
+        bindings: bindings.into(),
         equalities: equalities.into_boxed_slice(),
-        local_bindings: BTreeMap::new(),
+        local_bindings: Default::default(),
         local_equalities: Box::new([]),
     };
     let specialized_scrutinee = apply_branch_proof(store, &proof, scrutinee_ty);
@@ -1181,7 +1183,7 @@ mod local_outcome_tests {
         let case = CaseInstantiation {
             variant,
             scope,
-            local_rigids: BTreeMap::from([(parameter, rigid)]),
+            local_rigids: BTreeMap::from([(parameter, rigid)]).into(),
             payload_types: Box::new([LocalType::Rigid(rigid)]),
             result_type: local(LocalType::Rigid(rigid)),
             constraints: Box::new([]),
@@ -1268,20 +1270,20 @@ mod local_outcome_tests {
         ));
         let parameter = *case.local_rigids.keys().next().unwrap();
         let left = BranchProofEnvironment {
-            bindings: BTreeMap::from([(parameter, projection)]),
+            bindings: BTreeMap::from([(parameter, projection)]).into(),
             ..Default::default()
         };
         let right = BranchProofEnvironment {
-            bindings: BTreeMap::from([(parameter, concrete)]),
+            bindings: BTreeMap::from([(parameter, concrete)]).into(),
             ..Default::default()
         };
         assert!(matches!(merge_branch_proofs(&mut store, &left, &right), ProofMerge::Blocked(_)));
         let left = BranchProofEnvironment {
-            local_bindings: BTreeMap::from([(parameter, LocalType::Canonical(projection))]),
+            local_bindings: BTreeMap::from([(parameter, LocalType::Canonical(projection))]).into(),
             ..Default::default()
         };
         let right = BranchProofEnvironment {
-            local_bindings: BTreeMap::from([(parameter, LocalType::Canonical(concrete))]),
+            local_bindings: BTreeMap::from([(parameter, LocalType::Canonical(concrete))]).into(),
             ..Default::default()
         };
         assert!(matches!(merge_branch_proofs(&mut store, &left, &right), ProofMerge::Blocked(_)));

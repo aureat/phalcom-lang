@@ -1,0 +1,4 @@
+# BASELINE_HEAD=b00d75b3ac9f50d37cf9abfddfde00917e099031
+# BRANCH=perf/universe-characterization
+   Compiling phalcom-core v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-core)
+    Finished `dev` profile [unoptimized] target(s) in 1.15s

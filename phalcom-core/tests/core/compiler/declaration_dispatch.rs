@@ -268,8 +268,8 @@ fn intrinsic_structural_data_without_facade_semantics_fails_closed() {
         .compile_closure_as(module, "intrinsic data Tuple<***Es>(***Es)\n", UnitKind::Repl)
         .expect_err("missing semantic owner product must not trigger name-based runtime-owner guessing");
     assert!(
-        error.to_string().contains("has no canonical facade binding"),
-        "expected a typed missing-facade error, got: {error}"
+        error.to_string().contains("no formal lowering semantics"),
+        "expected missing generic lowering to fail closed, got: {error}"
     );
 }
 

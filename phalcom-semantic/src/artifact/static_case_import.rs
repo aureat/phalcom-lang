@@ -89,10 +89,13 @@ pub(crate) fn reconstruct_static_case_authority(
                 source_range: source_range(record_case.source.start, record_case.source.end)?,
             });
         }
+        let cases = allocations
+            .boxed_slice(cases)
+            .map_err(ArtifactError::Allocation)?;
         let product = allocations
             .arc(StaticDomainCaseCatalogProduct {
                 domain: domain.clone(),
-                cases: allocations.boxed_slice(cases).map_err(ArtifactError::Allocation)?,
+                cases,
             })
             .map_err(ArtifactError::Allocation)?;
         imported_catalogs.push((domain, product));
@@ -118,10 +121,13 @@ pub(crate) fn reconstruct_static_case_authority(
                     .ok_or_else(|| invalid("static-case signature references an absent kind row"))?,
             );
         }
+        let parameter_kinds = allocations
+            .boxed_slice(parameter_kinds)
+            .map_err(ArtifactError::Allocation)?;
         let product = allocations
             .arc(StaticCaseSignatureProduct {
                 id: id.clone(),
-                parameter_kinds: allocations.boxed_slice(parameter_kinds).map_err(ArtifactError::Allocation)?,
+                parameter_kinds,
                 source_range: source_range(record.source.start, record.source.end)?,
             })
             .map_err(ArtifactError::Allocation)?;

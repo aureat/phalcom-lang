@@ -168,9 +168,11 @@ fn presentation_index_projects_formal_sites_without_reanalysis() {
     );
     let analysis = CallableAnalysis {
         callable: callable.clone(),
+        body_source_owner: None,
         body_range: SourceRange { start: 0, end: 12 },
         expressions: BTreeMap::from([(expression_id, expression)]),
         bindings: BTreeMap::new(),
+        binding_origins: BTreeMap::new(),
         for_iteration_lanes: Arc::new(BTreeMap::new()),
         positional_expansions: Arc::new(BTreeMap::new()),
         known_invalid_positional_expansions: Arc::new(BTreeMap::new()),
@@ -179,7 +181,8 @@ fn presentation_index_projects_formal_sites_without_reanalysis() {
         callable_reference_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),
         match_resolutions: Arc::new(BTreeMap::new()),
-        pattern_site_resolutions: Arc::new(BTreeMap::new()),
+        pattern_site_resolutions: Arc::new(Default::default()),
+        local_proof_graph: Arc::new(Default::default()),
         flow_graph: Arc::new(FlowGraph::default()),
         entry_flow: FlowStateSummary::default(),
         exits: Default::default(),
@@ -241,9 +244,11 @@ fn presentation_preserves_non_ready_formal_states() {
     let callable = CallableId::new(declaration("Invalid"), Selector::getter("body").unwrap(), DispatchSide::Instance);
     let analysis = CallableAnalysis {
         callable: callable.clone(),
+        body_source_owner: None,
         body_range: SourceRange { start: 0, end: 3 },
         expressions: BTreeMap::from([(expression.id, expression)]),
         bindings: BTreeMap::new(),
+        binding_origins: BTreeMap::new(),
         for_iteration_lanes: Arc::new(BTreeMap::new()),
         positional_expansions: Arc::new(BTreeMap::new()),
         known_invalid_positional_expansions: Arc::new(BTreeMap::new()),
@@ -252,7 +257,8 @@ fn presentation_preserves_non_ready_formal_states() {
         callable_reference_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),
         match_resolutions: Arc::new(BTreeMap::new()),
-        pattern_site_resolutions: Arc::new(BTreeMap::new()),
+        pattern_site_resolutions: Arc::new(Default::default()),
+        local_proof_graph: Arc::new(Default::default()),
         flow_graph: Arc::new(FlowGraph::default()),
         entry_flow: FlowStateSummary::default(),
         exits: Default::default(),

@@ -4,6 +4,7 @@
 //! and package exposure boundaries, independent of source method bodies.
 
 use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, SourceId, SourceLocation};
+use crate::authority::{ModuleAuthorityMap, ModuleAuthoritySet};
 use crate::interface::UnlinkedModuleInterface;
 use crate::project::ProjectUniverse;
 use crate::source::ModuleKind;
@@ -41,17 +42,17 @@ pub struct TopologyNode {
 pub struct ModuleTopology {
     pub generation: ResolverGeneration,
     pub fingerprint: TopologyFingerprint,
-    pub nodes: BTreeMap<ModuleId, TopologyNode>,
-    pub source_modules: BTreeMap<SourceId, ModuleId>,
-    pub children: BTreeMap<ModuleId, BTreeSet<ModuleId>>,
-    pub exposed_children: BTreeMap<ModuleId, BTreeSet<ModuleComponent>>,
+    pub nodes: ModuleAuthorityMap<ModuleId, TopologyNode>,
+    pub source_modules: ModuleAuthorityMap<SourceId, ModuleId>,
+    pub children: ModuleAuthorityMap<ModuleId, ModuleAuthoritySet<ModuleId>>,
+    pub exposed_children: ModuleAuthorityMap<ModuleId, ModuleAuthoritySet<ModuleComponent>>,
 }
 
 impl ModuleTopology {
     pub(crate) fn fingerprint_for_parts(
         universe: &ProjectUniverse,
-        nodes: &BTreeMap<ModuleId, TopologyNode>,
-        exposed_children: &BTreeMap<ModuleId, BTreeSet<ModuleComponent>>,
+        nodes: &ModuleAuthorityMap<ModuleId, TopologyNode>,
+        exposed_children: &ModuleAuthorityMap<ModuleId, ModuleAuthoritySet<ModuleComponent>>,
     ) -> TopologyFingerprint {
         compute_topology_fingerprint(universe, nodes, exposed_children)
     }
@@ -128,6 +129,14 @@ impl ModuleTopology {
             }
         }
 
+        let nodes = nodes.into();
+        let source_modules = source_modules.into();
+        let children = children
+            .into_iter()
+            .map(|(module, children)| (module, ModuleAuthoritySet::from(children)))
+            .collect::<BTreeMap<_, _>>()
+            .into();
+        let exposed_children = exposed_children.into();
         let fingerprint = Self::fingerprint_for_parts(universe, &nodes, &exposed_children);
 
         Self {
@@ -151,12 +160,12 @@ impl ModuleTopology {
     }
 
     /// Returns direct child module identities of the given parent.
-    pub fn module_children(&self, parent: &ModuleId) -> Option<&BTreeSet<ModuleId>> {
+    pub fn module_children(&self, parent: &ModuleId) -> Option<&ModuleAuthoritySet<ModuleId>> {
         self.children.get(parent)
     }
 
     /// Returns the exposed child components of a package.
-    pub fn exposed_children(&self, package: &ModuleId) -> Option<&BTreeSet<ModuleComponent>> {
+    pub fn exposed_children(&self, package: &ModuleId) -> Option<&ModuleAuthoritySet<ModuleComponent>> {
         self.exposed_children.get(package)
     }
 
@@ -311,8 +320,8 @@ impl ModuleTopology {
 
 fn compute_topology_fingerprint(
     universe: &ProjectUniverse,
-    nodes: &BTreeMap<ModuleId, TopologyNode>,
-    exposed_children: &BTreeMap<ModuleId, BTreeSet<ModuleComponent>>,
+    nodes: &ModuleAuthorityMap<ModuleId, TopologyNode>,
+    exposed_children: &ModuleAuthorityMap<ModuleId, ModuleAuthoritySet<ModuleComponent>>,
 ) -> TopologyFingerprint {
     let mut hasher = DefaultHasher::new();
 

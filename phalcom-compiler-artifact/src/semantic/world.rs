@@ -1087,9 +1087,8 @@ record!(CallableAnalysisRecordV1 {
 });
 
 tagged!(DependencyPhaseV1 {
-    0 => Syntax,
-    1 => LoadTime,
-    2 => Runtime,
+    0 => InterfaceOnly,
+    1 => Runtime,
 });
 
 tagged!(PhaseEvidenceCoverageV1 {
@@ -1177,15 +1176,6 @@ record!(ModuleExecutionAuthorityV1 {
     runtime_requirements: Vec<RuntimeDependencyRequirementV1>,
 });
 
-impl ModuleExecutionAuthorityV1 {
-    pub const fn empty() -> Self {
-        Self {
-            import_phase_products: Vec::new(),
-            runtime_requirements: Vec::new(),
-        }
-    }
-}
-
 record!(CallableObservedImportPhaseV1 {
     binding: u32,
     phase: DependencyPhaseV1,
@@ -1225,45 +1215,48 @@ record!(CallableAnalysisRecordV2 {
     observed_import_phases: Vec<CallableObservedImportPhaseV1>,
 });
 
-impl From<CallableAnalysisRecordV1> for CallableAnalysisRecordV2 {
-    fn from(v1: CallableAnalysisRecordV1) -> Self {
+impl CallableAnalysisRecordV2 {
+    /// Reuses the complete v1 callable payload while attaching phase evidence
+    /// obtained from the current native `CallableAnalysis` product.
+    pub fn from_v1_with_observed_import_phases(
+        record: CallableAnalysisRecordV1,
+        observed_import_phases: Vec<CallableObservedImportPhaseV1>,
+    ) -> Self {
         Self {
-            callable: v1.callable,
-            body_source_owner: v1.body_source_owner,
-            body_range: v1.body_range,
-            status: v1.status,
-            exits_unreachable: v1.exits_unreachable,
-            flow_graph: v1.flow_graph,
-            constructor_super_initializer: v1.constructor_super_initializer,
-            expressions: v1.expressions,
-            conformance_evidence: v1.conformance_evidence,
-            bindings: v1.bindings,
-            for_iteration_lanes: v1.for_iteration_lanes,
-            positional_expansions: v1.positional_expansions,
-            known_invalid_positional_expansions: v1.known_invalid_positional_expansions,
-            sequence_literals: v1.sequence_literals,
-            associated_resolutions: v1.associated_resolutions,
-            callable_reference_resolutions: v1.callable_reference_resolutions,
-            family_applications: v1.family_applications,
-            local_proof_graph: v1.local_proof_graph,
-            match_resolutions: v1.match_resolutions,
-            pattern_site_resolutions: v1.pattern_site_resolutions,
-            entry_flow: v1.entry_flow,
-            normal_returns: v1.normal_returns,
-            throws: v1.throws,
-            return_validation: v1.return_validation,
-            explanations: v1.explanations,
-            return_explanation: v1.return_explanation,
-            diagnostic_cause_count: v1.diagnostic_cause_count,
-            diagnostics: v1.diagnostics,
-            dependencies: v1.dependencies,
-            semantic_dependencies: v1.semantic_dependencies,
-            observed_import_phases: Vec::new(),
+            callable: record.callable,
+            body_source_owner: record.body_source_owner,
+            body_range: record.body_range,
+            status: record.status,
+            exits_unreachable: record.exits_unreachable,
+            flow_graph: record.flow_graph,
+            constructor_super_initializer: record.constructor_super_initializer,
+            expressions: record.expressions,
+            conformance_evidence: record.conformance_evidence,
+            bindings: record.bindings,
+            for_iteration_lanes: record.for_iteration_lanes,
+            positional_expansions: record.positional_expansions,
+            known_invalid_positional_expansions: record.known_invalid_positional_expansions,
+            sequence_literals: record.sequence_literals,
+            associated_resolutions: record.associated_resolutions,
+            callable_reference_resolutions: record.callable_reference_resolutions,
+            family_applications: record.family_applications,
+            local_proof_graph: record.local_proof_graph,
+            match_resolutions: record.match_resolutions,
+            pattern_site_resolutions: record.pattern_site_resolutions,
+            entry_flow: record.entry_flow,
+            normal_returns: record.normal_returns,
+            throws: record.throws,
+            return_validation: record.return_validation,
+            explanations: record.explanations,
+            return_explanation: record.return_explanation,
+            diagnostic_cause_count: record.diagnostic_cause_count,
+            diagnostics: record.diagnostics,
+            dependencies: record.dependencies,
+            semantic_dependencies: record.semantic_dependencies,
+            observed_import_phases,
         }
     }
-}
 
-impl CallableAnalysisRecordV2 {
     pub fn to_v1(&self) -> CallableAnalysisRecordV1 {
         CallableAnalysisRecordV1 {
             callable: self.callable.clone(),
@@ -2962,36 +2955,6 @@ impl SemanticWorldV4 {
             static_case_catalogs: self.static_case_catalogs.clone(),
             static_case_signatures: self.static_case_signatures.clone(),
             associated_surfaces: self.associated_surfaces.clone(),
-        }
-    }
-}
-
-impl From<SemanticWorldV3> for SemanticWorldV4 {
-    fn from(v3: SemanticWorldV3) -> Self {
-        Self {
-            type_graph: v3.type_graph,
-            structural_contracts: StructuralPrimaryContractsV2::from(v3.structural_contracts),
-            enum_requirements: v3.enum_requirements,
-            static_values: v3.static_values,
-            static_definitions: v3.static_definitions,
-            static_constants: v3.static_constants,
-            module_static_bindings: v3.module_static_bindings,
-            witness_plans: v3.witness_plans,
-            derived_conformance_rules: v3.derived_conformance_rules,
-            callable_signatures: v3.callable_signatures,
-            callable_definitions: v3.callable_definitions,
-            callable_analyses: v3.callable_analyses.into_iter().map(CallableAnalysisRecordV2::from).collect(),
-            trait_surfaces: v3.trait_surfaces,
-            dispatch_surfaces: v3.dispatch_surfaces,
-            conditional_inherent_sets: v3.conditional_inherent_sets,
-            conformance_heads: v3.conformance_heads,
-            constructor_initializations: v3.constructor_initializations,
-            type_member_declarations: v3.type_member_declarations,
-            associated_static_domains: v3.associated_static_domains,
-            static_case_catalogs: v3.static_case_catalogs,
-            static_case_signatures: v3.static_case_signatures,
-            associated_surfaces: v3.associated_surfaces,
-            module_execution_authority: ModuleExecutionAuthorityV1::empty(),
         }
     }
 }

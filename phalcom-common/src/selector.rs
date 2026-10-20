@@ -175,9 +175,8 @@ impl Selector {
             return Self::setter(name);
         }
 
-        let name = head.strip_prefix("init ").unwrap_or(head);
         let slots = parse_slots_strict(inner)?;
-        Self::method(name, slots.into_boxed_slice())
+        Self::method(head, slots.into_boxed_slice())
     }
 
     /// Total runtime-originated decode. Malformed text is represented as an
@@ -847,6 +846,61 @@ mod tests {
             assert!(is_selector_pattern_syntax(text));
             assert!(!is_exact_selector_syntax(text));
             assert_eq!(pat.encode(), text);
+        }
+    }
+
+    #[test]
+    fn canonical_exact_selector_matches_try_decode_exact() {
+        let test_cases = [
+            ("foo", true),
+            ("foo()", true),
+            ("foo(_)", true),
+            ("foo(_,bar)", true),
+            ("foo(bar)", true),
+            ("foo(bar,baz)", true),
+            ("foo=(_)", true),
+            ("[]", true),
+            ("[_]", true),
+            ("[_,_]", true),
+            ("[_]=(_)", true),
+            ("[_,bar]=(_)", true),
+            ("+(_)", true),
+            ("-(_)", true),
+            ("*(_)", true),
+            ("/(_)", true),
+            ("==(_)", true),
+            ("<=(_)", true),
+            ("<>(_)", true),
+            ("", false),
+            (" ", true), // named base without () [] , is accepted as getter
+            ("foo ", true),
+            (" foo", true),
+            ("foo( )", false),
+            ("foo( _ )", false),
+            ("foo(_ )", false),
+            ("foo(bar, _)", false), // positional after label
+            ("foo(bar,_)", false),  // positional after label
+            ("foo(*)", false),      // * decodes to Positional, but encodes as _
+            ("foo(**)", false),
+            ("foo(***)", false),
+            ("foo...", true),
+            ("foo(...)", false),
+            ("foo(...,duration)", false),
+            ("[...]", false),
+            ("[...]=(_)", false),
+            ("[", false),
+            ("]", false),
+            ("foo(", false),
+            ("foo)", false),
+            ("=(_)", true),
+            ("=foo=(_)", true),
+        ];
+
+        for (text, expected) in test_cases {
+            let direct = is_canonical_exact_selector(text);
+            let via_decode = Selector::try_decode_exact(text).is_ok_and(|s| s.encode() == text);
+            assert_eq!(direct, via_decode, "mismatch for {text:?}: direct={direct}, via_decode={via_decode}");
+            assert_eq!(direct, expected, "unexpected result for {text:?}");
         }
     }
 }

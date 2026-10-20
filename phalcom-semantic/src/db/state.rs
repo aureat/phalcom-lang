@@ -145,10 +145,11 @@ impl<T> QueryOutcome<T> {
     }
 }
 
-/// Error returned when attempting to publish a query result against a stale revision.
+/// Error returned for a stale revision or an immutable canonical query identity.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PublishError {
     stale: bool,
+    immutable: bool,
     expected_revision: SemanticRevision,
     actual_revision: SemanticRevision,
 }
@@ -157,9 +158,23 @@ impl PublishError {
     pub const fn stale(expected_revision: SemanticRevision, actual_revision: SemanticRevision) -> Self {
         Self {
             stale: true,
+            immutable: false,
             expected_revision,
             actual_revision,
         }
+    }
+
+    pub const fn immutable(revision: SemanticRevision) -> Self {
+        Self {
+            stale: false,
+            immutable: true,
+            expected_revision: revision,
+            actual_revision: revision,
+        }
+    }
+
+    pub const fn is_immutable(self) -> bool {
+        self.immutable
     }
 
     pub const fn is_stale(self) -> bool {

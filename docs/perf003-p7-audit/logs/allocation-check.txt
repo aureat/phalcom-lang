@@ -1,0 +1,3 @@
+=== Checking cumulative allocation budgets and limits ===
+Ledger requested bytes (N): 373069634
+R.G4 allocation check verified: exact N=373069634 succeeds, N-1 fails closed, and retry with N succeeds.

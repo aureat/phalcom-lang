@@ -1,5 +1,6 @@
 //! Static symbol/import linking for a resolved module universe.
 
+use crate::authority::ModuleAuthorityMap;
 use crate::error::ModuleGraphError;
 use crate::graph::{
     DependencyPhase, ModuleGraphs, ReferenceEdge, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyReason, RuntimeRequirementProduct,
@@ -185,8 +186,8 @@ impl SemanticLinkedProgram {
         for (module, symbolic) in &self.modules {
             graphs.runtime.add_node(module.clone());
             let mut bindings = ModuleBindingLayout {
-                local_globals: symbolic.local_globals.clone(),
-                imports: BTreeMap::new(),
+                local_globals: symbolic.local_globals.clone().into(),
+                imports: BTreeMap::new().into(),
             };
             let mut linked_reads = Vec::new();
 
@@ -221,7 +222,7 @@ impl SemanticLinkedProgram {
 
         Arc::new(LinkedProgram {
             universe: self.universe.clone(),
-            modules,
+            modules: modules.into(),
             graphs,
             entry: self.entry.clone(),
             initialization_order: Vec::new(),
@@ -359,7 +360,12 @@ impl ExecutableLinkedProgram {
         }
 
         let initialization_order = program.graphs.runtime.initialization_order().map_err(LinkError::RuntimeCycle)?;
-        for (module_id, module) in &mut program.modules {
+        for (module_id, module) in program
+            .modules
+            .as_source_mut()
+            .expect("source linker output must remain mutable until finalization")
+            .iter_mut()
+        {
             module.runtime_dependencies = program.graphs.runtime.dependencies(module_id);
         }
         program.initialization_order = initialization_order;
@@ -388,9 +394,9 @@ impl std::ops::Deref for ExecutableLinkedProgram {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ModuleBindingLayout {
     /// Module-owned globals.
-    pub local_globals: BTreeMap<Box<str>, GlobalBindingId>,
+    pub local_globals: ModuleAuthorityMap<Box<str>, GlobalBindingId>,
     /// Immutable imported bindings.
-    pub imports: BTreeMap<Box<str>, ImportBindingId>,
+    pub imports: ModuleAuthorityMap<Box<str>, ImportBindingId>,
 }
 
 /// Index of a local global in a linked module layout.
@@ -420,7 +426,7 @@ pub struct LinkedProgram {
     /// Resolved project/package universe.
     pub universe: Arc<ProjectUniverse>,
     /// Every linked reachable module.
-    pub modules: BTreeMap<ModuleId, LinkedModule>,
+    pub modules: ModuleAuthorityMap<ModuleId, LinkedModule>,
     /// Reference, semantic, and runtime graphs.
     pub graphs: ModuleGraphs,
     /// Selected entry module.
@@ -523,13 +529,29 @@ pub struct TolerantLinkResult {
 pub struct ModuleLinker {
     universe: Arc<ProjectUniverse>,
     interfaces: BTreeMap<ModuleId, UnlinkedModuleInterface>,
+    external: Option<Arc<crate::canonical_products::CanonicalExternalModuleWorld>>,
 }
 
 impl ModuleLinker {
     /// Creates a linker. The interface map is the complete source universe for
     /// this linking generation; no source is parsed during linking.
     pub fn new(universe: Arc<ProjectUniverse>, interfaces: BTreeMap<ModuleId, UnlinkedModuleInterface>) -> Self {
-        Self { universe, interfaces }
+        Self {
+            universe,
+            interfaces,
+            external: None,
+        }
+    }
+
+    /// Resolves remote exports against completed immutable module products.
+    /// External modules never become local linking or initialization work.
+    pub fn with_external_modules(mut self, external: Arc<crate::canonical_products::CanonicalExternalModuleWorld>) -> Self {
+        self.external = Some(external);
+        self
+    }
+
+    fn is_external(&self, module: &ModuleId) -> bool {
+        self.external.as_ref().is_some_and(|image| image.linked().modules.contains_key(module))
     }
 
     /// Links all interfaces using `(importer, logical path)` resolutions.
@@ -561,7 +583,7 @@ impl ModuleLinker {
                 return TolerantLinkResult {
                     program: LinkedProgram {
                         universe: self.universe.clone(),
-                        modules: BTreeMap::new(),
+                        modules: ModuleAuthorityMap::new(),
                         graphs: ModuleGraphs::default(),
                         entry,
                         initialization_order: Vec::new(),
@@ -577,13 +599,14 @@ impl ModuleLinker {
             .filter(|(module, _)| reachable.contains(*module))
             .map(|(module, interface)| (module.clone(), interface.clone()))
             .collect();
-        let reachable_linker = ModuleLinker::new(self.universe.clone(), reachable_interfaces);
+        let mut reachable_linker = ModuleLinker::new(self.universe.clone(), reachable_interfaces);
+        reachable_linker.external = self.external.clone();
         let mut context = LinkContext::new(&reachable_linker, resolved, true, true);
         match context.build() {
             Ok((modules, graphs, initialization_order)) => TolerantLinkResult {
                 program: LinkedProgram {
                     universe: self.universe.clone(),
-                    modules,
+                    modules: modules.into(),
                     graphs,
                     entry,
                     initialization_order,
@@ -599,7 +622,7 @@ impl ModuleLinker {
                 TolerantLinkResult {
                     program: LinkedProgram {
                         universe: self.universe.clone(),
-                        modules: BTreeMap::new(),
+                        modules: ModuleAuthorityMap::new(),
                         graphs: ModuleGraphs::default(),
                         entry,
                         initialization_order: Vec::new(),
@@ -618,7 +641,7 @@ impl ModuleLinker {
             Ok((modules, graphs, initialization_order)) => TolerantLinkResult {
                 program: LinkedProgram {
                     universe: self.universe.clone(),
-                    modules,
+                    modules: modules.into(),
                     graphs,
                     entry,
                     initialization_order,
@@ -634,7 +657,7 @@ impl ModuleLinker {
                 TolerantLinkResult {
                     program: LinkedProgram {
                         universe: self.universe.clone(),
-                        modules: BTreeMap::new(),
+                        modules: ModuleAuthorityMap::new(),
                         graphs: ModuleGraphs::default(),
                         entry,
                         initialization_order: Vec::new(),
@@ -652,7 +675,7 @@ impl ModuleLinker {
         let mut context = LinkContext::new(self, resolved, false, false);
         context.build().map(|(modules, graphs, initialization_order)| LinkedProgram {
             universe: self.universe.clone(),
-            modules,
+            modules: modules.into(),
             graphs,
             entry,
             initialization_order,
@@ -798,8 +821,8 @@ impl ModuleLinker {
             graphs.runtime.add_node(module.clone());
             let evidence = phase_products.get(&module);
             let mut bindings = ModuleBindingLayout {
-                local_globals: symbolic.local_globals.clone(),
-                imports: BTreeMap::new(),
+                local_globals: symbolic.local_globals.clone().into(),
+                imports: BTreeMap::new().into(),
             };
             let mut linked_reads = Vec::new();
             for (id, import) in symbolic.imports.bindings {
@@ -935,7 +958,7 @@ impl ModuleLinker {
         Ok(ExecutableLinkedProgram {
             program: LinkedProgram {
                 universe,
-                modules,
+                modules: modules.into(),
                 graphs,
                 entry,
                 initialization_order,
@@ -958,11 +981,12 @@ impl ModuleLinker {
             .filter(|(module, _)| reachable.contains(*module))
             .map(|(module, interface)| (module.clone(), interface.clone()))
             .collect();
-        let reachable_linker = ModuleLinker::new(self.universe.clone(), reachable_interfaces);
+        let mut reachable_linker = ModuleLinker::new(self.universe.clone(), reachable_interfaces);
+        reachable_linker.external = self.external.clone();
         let mut context = LinkContext::new(&reachable_linker, resolved, allow_unresolved_imports, false);
         context.build().map(|(modules, graphs, initialization_order)| LinkedProgram {
             universe: self.universe.clone(),
-            modules,
+            modules: modules.into(),
             graphs,
             entry,
             initialization_order,
@@ -1004,7 +1028,7 @@ impl ModuleLinker {
                 let Some(target) = resolved
                     .get(&(module.clone(), path.0.to_string()))
                     .cloned()
-                    .filter(|target| self.interfaces.contains_key(target))
+                    .filter(|target| self.interfaces.contains_key(target) || self.is_external(target))
                 else {
                     if allow_unresolved_imports {
                         continue;
@@ -1015,6 +1039,9 @@ impl ModuleLinker {
                         range: path.1,
                     });
                 };
+                if self.is_external(&target) {
+                    continue;
+                }
                 if reachable.insert(target.clone()) {
                     pending.push(target.clone());
                 }
@@ -1037,6 +1064,9 @@ impl ModuleLinker {
                 let UnlinkedExportTarget::CanonicalDeclaration { module: target, .. } = &export.target else {
                     continue;
                 };
+                if self.is_external(target) {
+                    continue;
+                }
                 if !self.interfaces.contains_key(target) {
                     return Err(LinkError::MissingModule { module: target.clone() });
                 }
@@ -1569,7 +1599,7 @@ impl<'a> LinkContext<'a> {
         self.resolved
             .get(&(module.clone(), path.to_string()))
             .cloned()
-            .filter(|target| self.linker.interfaces.contains_key(target))
+            .filter(|target| self.linker.interfaces.contains_key(target) || self.linker.is_external(target))
             .ok_or_else(|| LinkError::UnresolvedImport {
                 module: module.clone(),
                 path: path.to_string(),
@@ -1586,6 +1616,14 @@ impl<'a> LinkContext<'a> {
     }
 
     fn resolve_export(&mut self, module: &ModuleId, name: &str, range: SourceRange, importer: &ModuleId) -> Result<LinkedExport, LinkError> {
+        if let Some(remote) = self.linker.external.as_ref().and_then(|image| image.linked().modules.get(module)) {
+            return remote.interface.exports.get(name).cloned().ok_or_else(|| LinkError::MissingExport {
+                module: module.clone(),
+                importer: importer.clone(),
+                name: name.to_owned(),
+                range,
+            });
+        }
         let key = (module.clone(), name.to_string());
         if let Some(export) = self.linked_exports.get(&key) {
             return Ok(export.clone());
@@ -1680,7 +1718,7 @@ impl<'a> LinkContext<'a> {
         Ok(LinkedModuleInterface {
             module: module.clone(),
             kind: unlinked.kind,
-            exports,
+            exports: exports.into(),
             metadata: unlinked.metadata.clone(),
         })
     }
