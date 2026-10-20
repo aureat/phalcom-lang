@@ -166,13 +166,12 @@ pub const fn query_root_is_reusable(kind: QueryKind) -> bool {
 /// when that identity depends on source-only provenance.
 pub const fn canonical_query_root_requirement(kind: QueryKind) -> CanonicalQueryRootRequirement {
     match kind {
-        QueryKind::ResolvedImports
+        QueryKind::DeclarationShell | QueryKind::CallableSignature | QueryKind::DeclarationSurface => CanonicalQueryRootRequirement::Required,
+        QueryKind::UnlinkedInterface
+        | QueryKind::ResolvedImports
         | QueryKind::LinkedInterface
-        | QueryKind::DeclarationShell
         | QueryKind::CallableDefinition
-        | QueryKind::CallableSignature
         | QueryKind::FieldSignature
-        | QueryKind::DeclarationSurface
         | QueryKind::TraitHeader
         | QueryKind::TraitSurface
         | QueryKind::DataDeclaration
@@ -180,8 +179,7 @@ pub const fn canonical_query_root_requirement(kind: QueryKind) -> CanonicalQuery
         | QueryKind::AssociatedSurface
         | QueryKind::TypeMemberDeclaration
         | QueryKind::ModuleStaticBindingCatalog
-        | QueryKind::ModuleStaticBindings => CanonicalQueryRootRequirement::Required,
-        QueryKind::UnlinkedInterface => CanonicalQueryRootRequirement::Optional,
+        | QueryKind::ModuleStaticBindings => CanonicalQueryRootRequirement::Optional,
         _ => CanonicalQueryRootRequirement::NotReusable,
     }
 }
@@ -299,13 +297,22 @@ mod tests {
             .filter(|kind| canonical_query_root_requirement(*kind) == CanonicalQueryRootRequirement::Required)
             .collect::<BTreeSet<_>>();
         let expected = BTreeSet::from([
+            QueryKind::DeclarationShell,
+            QueryKind::CallableSignature,
+            QueryKind::DeclarationSurface,
+        ]);
+        assert_eq!(required, expected);
+
+        let optional = QueryKind::ALL
+            .into_iter()
+            .filter(|kind| canonical_query_root_requirement(*kind) == CanonicalQueryRootRequirement::Optional)
+            .collect::<BTreeSet<_>>();
+        let expected_optional = BTreeSet::from([
+            QueryKind::UnlinkedInterface,
             QueryKind::ResolvedImports,
             QueryKind::LinkedInterface,
-            QueryKind::DeclarationShell,
             QueryKind::CallableDefinition,
-            QueryKind::CallableSignature,
             QueryKind::FieldSignature,
-            QueryKind::DeclarationSurface,
             QueryKind::TraitHeader,
             QueryKind::TraitSurface,
             QueryKind::DataDeclaration,
@@ -315,11 +322,7 @@ mod tests {
             QueryKind::ModuleStaticBindingCatalog,
             QueryKind::ModuleStaticBindings,
         ]);
-        assert_eq!(required, expected);
-        assert_eq!(
-            canonical_query_root_requirement(QueryKind::UnlinkedInterface),
-            CanonicalQueryRootRequirement::Optional
-        );
+        assert_eq!(optional, expected_optional);
         for kind in QueryKind::ALL {
             let requirement = canonical_query_root_requirement(kind);
             assert_eq!(

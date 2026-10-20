@@ -13,6 +13,8 @@ on:
       - "phalcom-modules/src/resolver.rs"
       - "phalcom-modules/src/session.rs"
       - "phalcom-semantic/src/canonical_image.rs"
+      - "phalcom-semantic/src/artifact/export.rs"
+      - "phalcom-semantic/src/artifact/query_policy.rs"
       - "phalcom-semantic/src/session.rs"
       - "phalcom-semantic/src/prelude.rs"
 
