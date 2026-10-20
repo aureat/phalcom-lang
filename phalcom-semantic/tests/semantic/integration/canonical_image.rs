@@ -127,6 +127,20 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
     let mut ids = SyntheticProjectIdAllocator;
     let local = ModuleId::synthetic(ids.allocate(), ModulePath::root());
     let mut session = SemanticWorkspaceSession::from_image(WorkspaceId::from_raw(733), image.clone());
+    let assert_canonical_queries_external = |session: &SemanticWorkspaceSession| {
+        for (key, _) in image.query_image().entries() {
+            assert!(
+                session.db().local_query_state(key).is_none(),
+                "canonical query {key:?} must not be copied into local session state"
+            );
+            assert_eq!(
+                session.db().product_origin(key),
+                Some(phalcom_semantic::db::SemanticProductOrigin::Canonical(image.world().clone())),
+                "canonical query {key:?} must retain image ownership"
+            );
+        }
+    };
+    assert_canonical_queries_external(&session);
     assert!(Arc::ptr_eq(session.last_snapshot().expect("initial image snapshot"), image.snapshot()));
     assert!(Arc::ptr_eq(
         session.last_known_good_snapshot().expect("initial image last-known-good snapshot"),
@@ -164,6 +178,7 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
             }])
             .unwrap();
         eprintln!("local image update {revision}: {:?}; stats {:?}", started.elapsed(), update.stats);
+        assert_canonical_queries_external(&session);
         assert_eq!(update.snapshot.sources.len(), 1);
         assert!(update.snapshot.sources.contains_key(&local));
         assert!(update.snapshot.semantic_structure_shards.keys().all(|module| !module.project.is_universe()));

@@ -54,3 +54,12 @@ jobs:
           test -p phalcom-semantic --test semantic
           ordinary_image_session_keeps_universe_external_across_replacement
           -- --nocapture
+      - name: Semantic artifact gates
+        run: |
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic-artifact
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test artifact_query_import_test
+      - name: Compiler artifact round trips
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          test -p phalcom-compiler-artifact --test round_trip_test
