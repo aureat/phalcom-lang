@@ -54,6 +54,13 @@ jobs:
           test -p phalcom-semantic --test semantic
           ordinary_image_session_keeps_universe_external_across_replacement
           -- --nocapture
+      - name: Image-backed rollback and fail-closed unit gates
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          test -p phalcom-semantic --lib
+          session::publication_tests::image_backed
+          -- --nocapture
       - name: Semantic artifact gates
         run: |
           cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic-artifact

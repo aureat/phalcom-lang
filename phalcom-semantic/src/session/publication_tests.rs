@@ -1,5 +1,8 @@
 use super::{SemanticPublicationFailpoint, SemanticUpdateFailure, SemanticWorkspaceSession, retire_blocked_declaration_shell_queries};
-use crate::db::{InputFingerprint, ProductFingerprint, QueryKey, QueryState, QueryValue, SemanticDb};
+use crate::db::{
+    InputFingerprint, ProductFingerprint, QueryKey, QueryOutcome, QueryState, QueryValue, SemanticDb, SemanticProductOrigin,
+    query_declaration_shell,
+};
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{DeclarationId, WorkspaceId};
 use crate::snapshot::SemanticSnapshot;
@@ -260,6 +263,107 @@ fn generated_trait_property_accessors_share_source_member_index() {
     assert!(diagnostic_surface.diagnostics.iter().any(|diagnostic| {
         diagnostic.code == crate::diagnostic::DiagnosticCode::TraitMemberConflict && diagnostic.message.contains("duplicate trait member selector")
     }));
+}
+
+#[test]
+fn image_backed_canonical_query_mismatch_fails_without_local_shadow() {
+    use crate::canonical_image::canonical_universe_formal_image;
+    use crate::declarations::TypeDeclarationShell;
+
+    let image = canonical_universe_formal_image().expect("canonical image");
+    let mut session = SemanticWorkspaceSession::from_image(WorkspaceId::from_raw(734), image.clone());
+    let key = image
+        .query_image()
+        .entries()
+        .map(|(key, _)| key)
+        .find(|key| {
+            session
+                .db()
+                .product(key)
+                .and_then(|product| product.as_declaration_shell())
+                .is_some_and(|shell| matches!(shell.as_ref(), TypeDeclarationShell::Nominal(_)))
+        })
+        .expect("canonical image must contain a nominal declaration shell")
+        .clone();
+    let original = session
+        .db()
+        .product(&key)
+        .and_then(|product| product.as_declaration_shell())
+        .expect("canonical declaration-shell product")
+        .clone();
+    let mut mismatched = original.as_ref().clone();
+    let TypeDeclarationShell::Nominal(info) = &mut mismatched else {
+        unreachable!("selected nominal declaration shell")
+    };
+    info.kind = if info.kind == KindId::TYPE {
+        KindId::RECORD_ROW
+    } else {
+        KindId::TYPE
+    };
+
+    let outcome = query_declaration_shell(session.db_mut(), Arc::new(mismatched));
+    let QueryOutcome::Failed(failure) = outcome else {
+        panic!("incompatible canonical query must fail closed, got {outcome:?}");
+    };
+    assert!(failure.contains("immutable canonical query"), "{failure}");
+    assert!(failure.contains("cannot be recomputed locally"), "{failure}");
+    assert!(session.db().local_query_state(&key).is_none());
+    assert_eq!(
+        session.db().product_origin(&key),
+        Some(SemanticProductOrigin::Canonical(image.world().clone()))
+    );
+    let retained = session
+        .db()
+        .product(&key)
+        .and_then(|product| product.as_declaration_shell())
+        .expect("canonical product remains readable");
+    assert!(Arc::ptr_eq(retained, &original), "mismatch must not replace the canonical product");
+}
+
+#[test]
+fn image_backed_failure_rolls_back_and_empty_retry_preserves_canonical_authority() {
+    use crate::canonical_image::canonical_universe_formal_image;
+
+    let image = canonical_universe_formal_image().expect("canonical image");
+    let mut session = SemanticWorkspaceSession::from_image(WorkspaceId::from_raw(735), image.clone());
+    let initial = session.last_snapshot().expect("image-backed initial snapshot").clone();
+    assert!(Arc::ptr_eq(&initial, image.snapshot()));
+
+    *session.test_publication_failpoint.lock().unwrap() = Some(SemanticPublicationFailpoint::BeforeCommit);
+    let failed = session.apply_module_mutations([set_overlay(
+        "/artf001/image-retry.ph",
+        1,
+        "from universe.collections import Array\nconst value: Int = 1\n",
+    )]);
+
+    assert!(failed.is_err(), "injected image-backed publication failure must surface");
+    assert!(session.last_snapshot().is_some_and(|snapshot| Arc::ptr_eq(snapshot, &initial)));
+    assert!(session.last_known_good_snapshot().is_some_and(|snapshot| Arc::ptr_eq(snapshot, &initial)));
+    assert!(session.pending_semantic_delta.as_ref().is_some_and(|delta| !delta.changed_modules.is_empty()));
+    for (key, _) in image.query_image().entries() {
+        assert!(session.db().local_query_state(key).is_none(), "rollback must not shadow canonical query {key:?}");
+        assert_eq!(
+            session.db().product_origin(key),
+            Some(SemanticProductOrigin::Canonical(image.world().clone())),
+            "rollback must preserve canonical origin for {key:?}"
+        );
+    }
+
+    let retried = session
+        .apply_module_mutations([])
+        .expect("empty batch retries the accepted local source against the same image");
+    assert!(session.pending_semantic_delta.is_none());
+    assert_eq!(retried.snapshot.sources.len(), 1);
+    assert!(retried.snapshot.sources.values().any(|source| source.text.contains("const value: Int = 1")));
+    assert!(!retried.snapshot.has_errors(), "{:?}", retried.snapshot.diagnostics);
+    for (key, _) in image.query_image().entries() {
+        assert!(session.db().local_query_state(key).is_none(), "retry must not shadow canonical query {key:?}");
+        assert_eq!(
+            session.db().product_origin(key),
+            Some(SemanticProductOrigin::Canonical(image.world().clone())),
+            "retry must preserve canonical origin for {key:?}"
+        );
+    }
 }
 
 #[test]
