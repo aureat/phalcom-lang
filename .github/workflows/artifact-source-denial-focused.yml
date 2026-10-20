@@ -10,6 +10,7 @@ on:
       - "phalcom-core/src/modules/compile.rs"
       - "phalcom-core/tests/core/modules/canonical_artifact.rs"
       - "phalcom-modules/src/builtin.rs"
+      - "phalcom-modules/src/resolver.rs"
       - "phalcom-modules/src/session.rs"
       - "phalcom-semantic/src/canonical_image.rs"
       - "phalcom-semantic/src/session.rs"

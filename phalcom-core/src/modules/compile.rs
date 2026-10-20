@@ -1141,7 +1141,8 @@ pub(crate) fn discover_reachable_dependencies<P: SourceProvider>(
 
             let target_unit = resolver.resolve_import(&current_id, import_path)?;
             resolved.insert((current_id.clone(), import_path.to_string()), target_unit.id.clone());
-            if visited.insert(target_unit.id.clone()) {
+            let is_external = resolver.has_external_authority(&target_unit.id);
+            if visited.insert(target_unit.id.clone()) && !is_external {
                 pending.push(target_unit.id);
             }
         }
