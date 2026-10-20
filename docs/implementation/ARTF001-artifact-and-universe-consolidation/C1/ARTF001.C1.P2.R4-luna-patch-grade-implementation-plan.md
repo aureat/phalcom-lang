@@ -5,9 +5,9 @@ program: ARTF001
 checkpoint: ARTF001.C1
 phase: P2
 revision: R4
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 branch: feat/artifact-universe-consolidation
 planning_revision: 2d3cf9ce2ca66d5da45aae8b26b765179efbddc1
 p7_merge_commit: f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a

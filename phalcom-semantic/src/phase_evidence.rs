@@ -321,7 +321,7 @@ fn add_native_prelude_read_requirements(importer: &ModuleId, source_index: &Sour
         if !seen.insert((target.clone(), occurrence.range)) {
             continue;
         }
-        requirements.push(RuntimeDependencyRequirement {
+        let requirement = RuntimeDependencyRequirement {
             importer: importer.clone(),
             dependency: dependency.clone(),
             range: occurrence.range,
@@ -337,7 +337,26 @@ fn add_native_prelude_read_requirements(importer: &ModuleId, source_index: &Sour
                 product: RuntimeRequirementProduct::RuntimeObject,
                 timing: RuntimeRequirementTiming::DuringModuleInitializer,
             },
-        });
+        };
+        // A checked type-form read owns publication when it already describes
+        // this exact native binding and availability requirement. The catalog
+        // projection is only a fallback; a shared source span alone is not proof
+        // that two reads have the same authority.
+        if requirements.iter().any(|existing| {
+            existing.provenance.producer == RuntimeRequirementProducer::DeclarationRead
+                && existing.importer == requirement.importer
+                && existing.dependency == requirement.dependency
+                && existing.range == requirement.range
+                && existing.reason == requirement.reason
+                && existing.read_target == requirement.read_target
+                && existing.provenance.consumer == requirement.provenance.consumer
+                && existing.provenance.target == requirement.provenance.target
+                && existing.provenance.product == requirement.provenance.product
+                && existing.provenance.timing == requirement.provenance.timing
+        }) {
+            continue;
+        }
+        requirements.push(requirement);
     }
 }
 
@@ -1464,8 +1483,6 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
         let mut observed_uses: BTreeMap<SourceImportBindingId, DependencyPhase> = BTreeMap::new();
         let mut module_complete = is_complete;
 
-        add_native_prelude_read_requirements(module_id, source_index, &mut generated_requirements);
-
         // 1. Whole-module imports and direct re-exports are always Runtime (§9.2).
         for binding in sem_mod.imports.bindings.values() {
             match binding.kind {
@@ -2066,6 +2083,8 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
             PhaseEvidenceCoverage::Incomplete
         };
 
+        add_native_prelude_read_requirements(module_id, source_index, &mut generated_requirements);
+
         products.insert(
             module_id.clone(),
             ModuleImportPhaseProduct {
@@ -2118,4 +2137,69 @@ pub fn compute_module_import_phase_products_with_attribute_analyses_and_mode(
     }
 
     (products, generated_requirements)
+}
+
+#[cfg(test)]
+mod native_prelude_tests {
+    use super::*;
+    use crate::source_index::{SourceIndexContext, build_source_scope_index};
+    use phalcom_modules::{ModuleComponent, ModulePath};
+
+    fn fixture() -> (ModuleId, SourceSemanticIndex, DeclarationId, phalcom_common::range::SourceRange) {
+        let module = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("consumer").unwrap()]));
+        let parsed = phalcom_ast::parse("Error\n", 0);
+        assert!(parsed.errors.is_empty());
+        let program = Arc::new(parsed.program);
+        let scope = build_source_scope_index(module.clone(), &program, &SourceIndexContext::default());
+        let source = Arc::new(ParsedModuleUnit::new(
+            module.clone(),
+            phalcom_modules::source::ModuleKind::Module,
+            None,
+            Arc::from("Error\n"),
+            program,
+        ));
+        let index =
+            SourceSemanticIndex::from_scope_indices_with_programs(BTreeMap::from([(module.clone(), scope)]), &BTreeMap::from([(module.clone(), source)]));
+        let dependency = ModuleId::universe(ModulePath::from_components(
+            ["errors", "error"].map(|name| ModuleComponent::from_identifier(name).unwrap()),
+        ));
+        (module, index, DeclarationId::new(dependency, "Error".into()), (0..5).into())
+    }
+
+    #[test]
+    fn native_prelude_fallback_defers_to_same_semantic_read() {
+        let (module, index, declaration, range) = fixture();
+        let mut requirements = Vec::new();
+        push_declaration_read_requirement(&module, &declaration, range, &mut requirements);
+        let semantic = requirements.clone();
+        add_native_prelude_read_requirements(&module, &index, &mut requirements);
+        assert_eq!(requirements, semantic, "one canonical declaration read must own the overlapping observation");
+    }
+
+    #[test]
+    fn native_prelude_fallback_preserves_distinct_same_span_targets() {
+        let (module, index, declaration, range) = fixture();
+        let distinct = DeclarationId::new(declaration.module.clone(), "OtherError".into());
+        let mut requirements = Vec::new();
+        push_declaration_read_requirement(&module, &distinct, range, &mut requirements);
+        add_native_prelude_read_requirements(&module, &index, &mut requirements);
+        assert_eq!(requirements.len(), 2);
+        assert_ne!(requirements[0].read_target, requirements[1].read_target);
+        assert_eq!(requirements[0].range, requirements[1].range);
+        assert_eq!(requirements[0].dependency, requirements[1].dependency);
+    }
+
+    #[test]
+    fn native_prelude_fallback_preserves_distinct_same_target_authority() {
+        let (module, index, declaration, range) = fixture();
+        let mut requirements = Vec::new();
+        push_declaration_read_requirement(&module, &declaration, range, &mut requirements);
+        requirements[0].provenance.product = RuntimeRequirementProduct::CanonicalIdentity;
+        requirements[0].provenance.timing = RuntimeRequirementTiming::BeforeSourceExecution;
+        add_native_prelude_read_requirements(&module, &index, &mut requirements);
+        assert_eq!(requirements.len(), 2);
+        assert_eq!(requirements[0].read_target, requirements[1].read_target);
+        assert_ne!(requirements[0].provenance.product, requirements[1].provenance.product);
+        assert_ne!(requirements[0].provenance.timing, requirements[1].provenance.timing);
+    }
 }

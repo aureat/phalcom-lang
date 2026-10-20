@@ -19,7 +19,7 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 |---|---|---|---|---|
 | `ARTF001.C1.P1` | COMPLETE | IMPLEMENTED | BASELINED | Repository setup, current-main baseline, P7 and main persistence census, authority reconciliation matrix, and P2 handoff. |
 | `ARTF001.C1.P2.R3` | SUPERSEDED | PARTIAL | UNVERIFIED | Complete P2 before P3: native declaration/alias/hierarchy reconstruction, native witness/derived-conformance, source-free static program execution, complete native `CallableAnalysis`, module execution authority, dependency-closed query import, immutable imported canonical generation, ordinary `SemanticWorkspaceSession` publication without source access, whole-load allocation N/N-1/retry, and hostile matrix certification. Superseded by P2.R4. |
-| `ARTF001.C1.P2.R4` | IN_PROGRESS | NOT_STARTED | UNVERIFIED | Final P2 closure: current-schema P7 recovery, ordinary session publication, consumer consolidation, and certification. Supersedes P2.R3. |
+| `ARTF001.C1.P2.R4` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Final P2 closure: current-schema P7 recovery, ordinary session publication, consumer consolidation, and certification. Supersedes P2.R3. |
 | `ARTF001.C1.P3` | PROPOSED | NOT_STARTED | UNVERIFIED | Do not start until P2 publishes reconstructed current-main semantic/query authority through the ordinary session. |
 | `ARTF001.C1.P4` | PROPOSED | NOT_STARTED | UNVERIFIED | Core canonical artifact compiler and source-free compilation path parity. |
 | `ARTF001.C1.P5` | PROPOSED | NOT_STARTED | UNVERIFIED | Universe source cutover from `phalcom-core/core/universe` to `packages/universe` retaining `ProjectIdentity::Universe`. |
@@ -29,7 +29,7 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 
 - Code revision: `2d3cf9ce2ca66d5da45aae8b26b765179efbddc1` on `feat/artifact-universe-consolidation`; P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
 - Active plan: `ARTF001.C1.P2.R4`, superseding `ARTF001.C1.P2.R3`.
-- Current status: P2.R4 active (`IN_PROGRESS / NOT_STARTED / UNVERIFIED`). P2 remains open; P3 is blocked pending R4 acceptance. The merge-period test prohibition is ended: R4 requires executed test evidence for every behavioral acceptance gate.
+- Current status: P2.R4 active (`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`). P2 remains open; P3 is blocked pending R4 acceptance. The merge-period test prohibition is ended: R4 requires executed test evidence for every behavioral acceptance gate. The task ledger and continuation findings below own current progress.
 - Pack consultation: closed. Pack remains runtime owner and semantic application form without an eighth type-member owner.
 - Next action: execute R4 tasks T0 through T9 in order to achieve final P2 closure and certification.
 - Branch rule: Continue on `feat/artifact-universe-consolidation`.
@@ -310,5 +310,13 @@ The separate `ArtifactImportTransaction::stage_payload_with_digest` path still r
 - **Current status:** R4.T1 remains IN_PROGRESS; R4.T2 remains IN_PROGRESS; R4.T3 remains PENDING. The previous explanation-mismatch blocker is resolved by the explanation fingerprint fix recorded above. T2/T3 acceptance is not promoted.
 - **Next action:** Inspect the producer rows for this exact source site; correct the redundant projection at its owner, add same-target overlap and distinct-target preservation regressions, then rerun the exact allocation gate. Continue ordered T2/T3 and later T4–T9 only after the vertical artifact build/load gate advances.
 - **Takeover record:** Updated details and the remaining-gate sequence are in [`ARTF001.C1.P2.R4-implementer-handoff.md`](ARTF001.C1.P2.R4-implementer-handoff.md).
+
+### P2.R4 native-prelude observation overlap — 2026-10-20
+
+- Starting revision: `da00e4c36` in `.worktrees/artifact`; the worktree was clean. The unrelated `main` checkout edit in `phalcom-semantic/src/session.rs` is outside this work unit.
+- Producer evidence: the exact allocation gate failed after 117.13s. Both records for `universe.callable.function`, dependency `universe.errors.error`, range `831..836`, have reason `RuntimeDeclarationReference`, read target `Binding(errors.error::Error)`, consumer `universe.callable.function`, provenance target `Binding(errors.error::Error)`, product `RuntimeObject`, and timing `DuringModuleInitializer`. Only the producer differs: `CompilerGeneratedRead` versus `DeclarationRead`.
+- Correction: native-prelude fallback runs after module semantic projections. It suppresses an observation only when a `DeclarationRead` matches every other requirement field. Different targets, products, or timing remain distinct. The artifact validator and its duplicate rejection are unchanged.
+- Focused evidence: `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --lib phase_evidence::native_prelude_tests -- --nocapture` passes 3/3 in 0.01s. The tests cover overlapping same-authority reads, distinct targets at one span, and distinct authority for one target.
+- Next gate: rerun the exact core allocation test with `PHALCOM_SAVE_UNIVERSE_TELOSC_FOR_TEST=/tmp/artf001-universe.telosc`. The prior dispatch has no preserved result, no active process, and no exported file in the current environment. No build/load, allocation, source-denial, or speedup acceptance is promoted from the focused producer tests.
 
 The previous plans P2.R1, P2.R2, and P2.R3 remain preserved as implementation history. The current active plan is `ARTF001.C1.P2.R4`.
