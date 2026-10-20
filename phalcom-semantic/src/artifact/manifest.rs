@@ -5,7 +5,9 @@
 //! an explicit `ArtifactAuthorityDisposition` with named compiler readers and
 //! concrete provenance.
 
-use crate::artifact::query_policy::{CanonicalQueryPersistence, canonical_query_persistence};
+use crate::artifact::query_policy::{
+    CanonicalQueryPersistence, CanonicalQueryRootRequirement, canonical_query_persistence, canonical_query_root_requirement,
+};
 use crate::db::key::QueryKind;
 
 /// Canonical classification of an artifact or semantic family's authority source.
@@ -88,6 +90,7 @@ pub enum QueryArtifactDisposition {
 pub struct QueryKindDispositionRow {
     pub kind: QueryKind,
     pub in_memory_persistence: CanonicalQueryPersistence,
+    pub root_requirement: CanonicalQueryRootRequirement,
     pub artifact_disposition: QueryArtifactDisposition,
     pub authority_disposition: ArtifactAuthorityDisposition,
 }
@@ -655,6 +658,7 @@ pub const SESSION_BASE_FAMILY_MANIFEST: &[SessionBaseFamilyManifestRow] = &[
 /// Exhaustive classification for all 46 [`QueryKind`] variants.
 pub const fn query_kind_disposition(kind: QueryKind) -> QueryKindDispositionRow {
     let in_memory_persistence = canonical_query_persistence(kind);
+    let root_requirement = canonical_query_root_requirement(kind);
     let (artifact_disposition, authority_disposition) = match kind {
         QueryKind::ParsedModule => (QueryArtifactDisposition::OmittedSourceDependent, ArtifactAuthorityDisposition::SourceOnly),
         QueryKind::UnlinkedInterface
@@ -706,6 +710,7 @@ pub const fn query_kind_disposition(kind: QueryKind) -> QueryKindDispositionRow 
     QueryKindDispositionRow {
         kind,
         in_memory_persistence,
+        root_requirement,
         artifact_disposition,
         authority_disposition,
     }

@@ -5451,21 +5451,40 @@ pub fn export_query_image_v4(
     world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::query::QueryImageV4, ArtifactError> {
-    use crate::artifact::query_policy::{CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_root_is_reusable};
+    use crate::artifact::query_policy::{
+        CanonicalQueryPersistence, CanonicalQueryRootRequirement, canonical_query_persistence, canonical_query_root_requirement,
+        portable_query_kind, query_root_is_reusable,
+    };
     use phalcom_compiler_artifact::query::{DependencyEvidenceEntryV4, PortableQueryKeyV1, QueryImageV4, QueryRootEntryV4};
     use std::collections::{BTreeMap, BTreeSet};
 
     let mut candidates = Vec::new();
     for (key, entry) in queries.entries() {
-        if !query_root_is_reusable(key.kind()) {
+        let requirement = canonical_query_root_requirement(key.kind());
+        if requirement == CanonicalQueryRootRequirement::NotReusable {
             continue;
         }
+        if !query_root_is_reusable(key.kind()) {
+            return Err(referential(format!(
+                "canonical query root profile disagrees with reusable-root policy for {:?}",
+                key.kind()
+            )));
+        }
+        let owner = match portable_query_owner_v4(key) {
+            Ok(owner) => owner,
+            Err(error) if requirement == CanonicalQueryRootRequirement::Optional => continue,
+            Err(error) => return Err(error),
+        };
         let portable_key = PortableQueryKeyV1 {
             kind: portable_query_kind(key.kind()),
-            owner: portable_query_owner_v4(key)?,
+            owner,
         };
-        let product = portable_query_product_ref(&portable_key, entry.product.as_ref(), modules, world)?;
-        candidates.push((key.clone(), portable_key, product, entry));
+        let product = match portable_query_product_ref(&portable_key, entry.product.as_ref(), modules, world) {
+            Ok(product) => product,
+            Err(error) if requirement == CanonicalQueryRootRequirement::Optional => continue,
+            Err(error) => return Err(error),
+        };
+        candidates.push((key.clone(), portable_key, product, entry, requirement));
     }
 
     // Remove roots until every retained dependency has a stable owner, current
@@ -5475,24 +5494,37 @@ pub fn export_query_image_v4(
     loop {
         let mut removed = Vec::new();
         for key in &retained {
-            let Some(entry) = queries.entry(key) else {
-                removed.push(key.clone());
-                continue;
+            let Some((_, _, _, entry, requirement)) = candidates.iter().find(|(candidate, ..)| candidate == key) else {
+                return Err(referential("retained canonical query root was lost from the export candidate set"));
             };
-            let mut closed = true;
+            let mut closure_failure = None;
             for edge in entry.dependencies.iter() {
                 let dependency = &edge.dependency;
-                if dependency_fingerprints.get(dependency).is_none()
-                    || portable_query_owner_v4(dependency).is_err()
-                    || !matches!(canonical_query_persistence(dependency.kind()), CanonicalQueryPersistence::EligibleStructural)
-                        && dependency.kind() != crate::db::QueryKind::HierarchyEdge
+                if dependency_fingerprints.get(dependency).is_none() {
+                    closure_failure = Some(format!("dependency {dependency:?} has no current live fingerprint"));
+                    break;
+                }
+                if portable_query_owner_v4(dependency).is_err() {
+                    closure_failure = Some(format!("dependency {dependency:?} has no representable portable owner"));
+                    break;
+                }
+                if !matches!(canonical_query_persistence(dependency.kind()), CanonicalQueryPersistence::EligibleStructural)
+                    && dependency.kind() != crate::db::QueryKind::HierarchyEdge
                 {
-                    closed = false;
+                    closure_failure = Some(format!(
+                        "dependency {dependency:?} is outside canonical structural dependency policy"
+                    ));
                     break;
                 }
             }
-            if !closed {
-                removed.push(key.clone());
+            if let Some(reason) = closure_failure {
+                match requirement {
+                    CanonicalQueryRootRequirement::Required => {
+                        return Err(referential(format!("required canonical query root {key:?} is not export-closed: {reason}")));
+                    }
+                    CanonicalQueryRootRequirement::Optional => removed.push(key.clone()),
+                    CanonicalQueryRootRequirement::NotReusable => unreachable!("non-reusable roots are never export candidates"),
+                }
             }
         }
         if removed.is_empty() {
@@ -5504,7 +5536,7 @@ pub fn export_query_image_v4(
     }
 
     let mut evidence_by_key = BTreeMap::<PortableQueryKeyV1, DependencyEvidenceEntryV4>::new();
-    for (key, _, _, entry) in &candidates {
+    for (key, _, _, entry, _) in &candidates {
         if !retained.contains(key) {
             continue;
         }
@@ -5543,7 +5575,7 @@ pub fn export_query_image_v4(
         .collect::<Result<BTreeMap<_, _>, _>>()?;
 
     let mut supported_roots = Vec::new();
-    for (key, portable_key, product, entry) in candidates {
+    for (key, portable_key, product, entry, _) in candidates {
         if !retained.contains(&key) {
             continue;
         }

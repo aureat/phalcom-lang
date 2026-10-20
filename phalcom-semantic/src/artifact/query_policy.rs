@@ -23,6 +23,22 @@ pub enum CanonicalQueryPersistence {
     Unsupported,
 }
 
+/// Canonical Universe compiler-image root requirement.
+///
+/// This is deliberately explicit rather than derived from structural
+/// persistence: a family can be structurally representable without being a
+/// reusable compiler root (for example ParsedModule and HierarchyEdge).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanonicalQueryRootRequirement {
+    /// Every source-canonical root of this family must survive artifact export.
+    Required,
+    /// A reusable root may be omitted only when its closure is unavailable.
+    Optional,
+    /// This family is not a reusable canonical compiler root.
+    NotReusable,
+}
+
+
 pub const fn portable_query_kind(kind: QueryKind) -> PortableQueryKindV1 {
     match kind {
         QueryKind::ParsedModule => PortableQueryKindV1::ParsedModule,
@@ -142,6 +158,34 @@ pub const fn query_root_is_reusable(kind: QueryKind) -> bool {
         )
 }
 
+/// Explicit current compiler-image root profile required by ARTF001.C1.P2.R4.T4.
+///
+/// These families are read by ordinary linking/semantic compilation from the
+/// imported image. No current family is optional: if a root exists in the
+/// source-canonical DB for one of these kinds, silently dropping it would
+/// weaken the compiler base.
+pub const fn canonical_query_root_requirement(kind: QueryKind) -> CanonicalQueryRootRequirement {
+    match kind {
+        QueryKind::UnlinkedInterface
+        | QueryKind::ResolvedImports
+        | QueryKind::LinkedInterface
+        | QueryKind::DeclarationShell
+        | QueryKind::CallableDefinition
+        | QueryKind::CallableSignature
+        | QueryKind::FieldSignature
+        | QueryKind::DeclarationSurface
+        | QueryKind::TraitHeader
+        | QueryKind::TraitSurface
+        | QueryKind::DataDeclaration
+        | QueryKind::EnumDeclaration
+        | QueryKind::AssociatedSurface
+        | QueryKind::TypeMemberDeclaration
+        | QueryKind::ModuleStaticBindingCatalog
+        | QueryKind::ModuleStaticBindings => CanonicalQueryRootRequirement::Required,
+        _ => CanonicalQueryRootRequirement::NotReusable,
+    }
+}
+
 /// Exhaustive current-main query reuse contract, ported from certified
 /// PERF003.C2.P7's `canonical_query_persistence` at `077d93d3`.
 ///
@@ -245,6 +289,44 @@ mod tests {
             QueryKind::CheckedStaticBody,
         ] {
             assert_eq!(canonical_query_persistence(kind), CanonicalQueryPersistence::OpenWorld);
+        }
+    }
+
+    #[test]
+    fn required_compiler_root_profile_is_explicit_and_matches_reusable_families() {
+        let required = QueryKind::ALL
+            .into_iter()
+            .filter(|kind| canonical_query_root_requirement(*kind) == CanonicalQueryRootRequirement::Required)
+            .collect::<BTreeSet<_>>();
+        let expected = BTreeSet::from([
+            QueryKind::UnlinkedInterface,
+            QueryKind::ResolvedImports,
+            QueryKind::LinkedInterface,
+            QueryKind::DeclarationShell,
+            QueryKind::CallableDefinition,
+            QueryKind::CallableSignature,
+            QueryKind::FieldSignature,
+            QueryKind::DeclarationSurface,
+            QueryKind::TraitHeader,
+            QueryKind::TraitSurface,
+            QueryKind::DataDeclaration,
+            QueryKind::EnumDeclaration,
+            QueryKind::AssociatedSurface,
+            QueryKind::TypeMemberDeclaration,
+            QueryKind::ModuleStaticBindingCatalog,
+            QueryKind::ModuleStaticBindings,
+        ]);
+        assert_eq!(required, expected);
+        for kind in QueryKind::ALL {
+            let requirement = canonical_query_root_requirement(kind);
+            assert_eq!(
+                requirement != CanonicalQueryRootRequirement::NotReusable,
+                query_root_is_reusable(kind),
+                "{kind:?}"
+            );
+            if requirement == CanonicalQueryRootRequirement::Required {
+                assert_eq!(canonical_query_persistence(kind), CanonicalQueryPersistence::EligibleStructural);
+            }
         }
     }
 
