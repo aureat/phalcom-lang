@@ -806,6 +806,7 @@ impl SemanticWorkspaceSession {
     /// local updates publish through this session's normal database overlay.
     pub fn from_image(workspace: WorkspaceId, image: Arc<crate::canonical_image::CanonicalUniverseFormalImage>) -> Self {
         let snapshot = image.snapshot();
+        crate::prelude::PreludeTypeMap::initialize_from_snapshot(snapshot);
         let provider = phalcom_modules::UniverseSourceProvider::new();
         let base_type_member_declarations = snapshot
             .type_member_declarations
@@ -5066,7 +5067,15 @@ impl SemanticWorkspaceSession {
         let mut conformance_associated_type_plans: BTreeMap<crate::identity::ImplId, crate::impls::ConformanceAssociatedTypePlan> = BTreeMap::new();
         let mut derived_conformance_rules = previous_snapshot
             .as_ref()
-            .map(|snapshot| (*snapshot.derived_conformance_rules).clone())
+            .map(|snapshot| {
+                if self.db.canonical_image().is_some_and(|image| {
+                    Arc::ptr_eq(&snapshot.derived_conformance_rules, &image.snapshot().derived_conformance_rules)
+                }) {
+                    crate::derived_conformance::DerivedConformanceRuleIndex::with_parent(snapshot.derived_conformance_rules.clone())
+                } else {
+                    (*snapshot.derived_conformance_rules).clone()
+                }
+            })
             .unwrap_or_default();
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             conformance_index.remove_source(module);

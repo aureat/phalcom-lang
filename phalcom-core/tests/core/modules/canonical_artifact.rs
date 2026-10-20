@@ -768,7 +768,7 @@ fn fresh_process_target_runner() {
     // while every canonical source-producing entry point is denied. Session
     // construction may create an inert provider, but it must consume only the
     // loaded image and retain the exact imported snapshot authority.
-    let session = phalcom_semantic::SemanticWorkspaceSession::from_image(
+    let mut session = phalcom_semantic::SemanticWorkspaceSession::from_image(
         phalcom_semantic::identity::WorkspaceId::from_raw(739),
         loaded.formal_image.clone(),
     );
@@ -785,6 +785,56 @@ fn fresh_process_target_runner() {
         0,
         "from_image must not trigger canonical source bootstrap under source denial"
     );
+    let mut required_roots = std::collections::BTreeMap::new();
+    for (key, _) in loaded.formal_image.query_image().entries() {
+        use phalcom_semantic::db::key::QueryKind;
+        if matches!(key.kind(), QueryKind::DeclarationShell | QueryKind::DeclarationSurface | QueryKind::CallableSignature) {
+            assert!(session.db().is_current(key), "required loaded root must be current: {key:?}");
+            assert!(session.db_mut().validate_ready(key), "required loaded root must validate: {key:?}");
+            *required_roots.entry(key.kind()).or_insert(0usize) += 1;
+        }
+    }
+    assert_eq!(required_roots.len(), 3, "all required root families must be present");
+    eprintln!("loaded required roots: {required_roots:?}");
+
+    // Exercise the ordinary overlay directly on the loaded image, without
+    // rebuilding a source-backed canonical image for this regression.
+    let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
+    let local = phalcom_modules::ModuleId::synthetic(ids.allocate(), phalcom_modules::ModulePath::root());
+    let canonical_rules = &loaded.formal_image.snapshot().derived_conformance_rules;
+    assert!(!canonical_rules.is_empty());
+    for rule in canonical_rules.iter() {
+        assert!(rule.source_module.project.is_universe());
+        eprintln!(
+            "inherited derived rule: {:?}; source={:?}; trait={:?}; parameter={:?}; target={:?}",
+            rule.impl_id, rule.source_module, rule.trait_ref.declaration, rule.target_parameter, rule.target_template
+        );
+    }
+    for (revision, text) in ["let value = 1\n", "let value = 2\n", "let replacement = 3\n"].into_iter().enumerate() {
+        let update = session.apply_module_mutations([phalcom_modules::WorkspaceSourceBatchMutation::SetOverlayForModule {
+            module: local.clone(),
+            source: phalcom_modules::SourceLocation {
+                source_id: phalcom_modules::SourceId("source-denied-overlay.ph".into()),
+                display_path: "/tmp/source-denied-overlay.ph".into(),
+            },
+            text: std::sync::Arc::from(text),
+            revision: phalcom_modules::SourceRevision(revision as u64 + 1),
+            recovered_program: None,
+        }]).expect("loaded-image local overlay update");
+        assert!(update.snapshot.diagnostics.get(&local).is_none_or(|diagnostics| diagnostics.is_empty()));
+        assert!(update.snapshot.internal_incidents.is_empty());
+        assert_eq!(update.snapshot.derived_conformance_rules.local_len(), 0);
+        assert_eq!(update.snapshot.derived_conformance_rules.parent_len(), canonical_rules.len());
+        for rule in canonical_rules.iter() {
+            assert!(std::sync::Arc::ptr_eq(rule, update.snapshot.derived_conformance_rules.get_rule(&rule.impl_id).unwrap()));
+        }
+        for (key, _) in loaded.formal_image.query_image().entries() {
+            assert!(session.db().local_query_state(key).is_none());
+            assert_eq!(session.db().product_origin(key), Some(phalcom_semantic::db::SemanticProductOrigin::Canonical(loaded.formal_image.world().clone())));
+            assert!(!update.invalidated.contains(key));
+            assert!(!update.recomputed.contains(key));
+        }
+    }
 
     let compiled = loaded
         .compile_user_entry(EntrySelection::Package(std::path::PathBuf::from(pkg_path)))
@@ -794,9 +844,15 @@ fn fresh_process_target_runner() {
     // SlotMap compilation is mandatory in fresh source-denied process:
     let slotmap_path = std::env::var("PHALCOM_TEST_SLOTMAP_PATH").expect("PHALCOM_TEST_SLOTMAP_PATH must be set; slotmap compilation is mandatory");
     let compiled_slotmap = loaded
-        .compile_user_entry(EntrySelection::Project(std::path::PathBuf::from(slotmap_path)))
+        .compile_user_entry(EntrySelection::Project(std::path::PathBuf::from(&slotmap_path)))
         .expect("compile slotmap project in fresh process against loaded artifact must succeed");
     assert_eq!(compiled_slotmap.modules.len(), 4, "slotmap project modules count must be 4");
+    eprintln!("source-denied loaded-image proof: three local revisions; SlotMap modules={}", compiled_slotmap.modules.len());
+    let compiled_runtime = loaded
+        .compile_user_entry(EntrySelection::Project(std::path::PathBuf::from(slotmap_path).join("tests/runtime")))
+        .expect("compile SlotMap runtime test project against loaded artifact with canonical source denied");
+    assert_eq!(compiled_runtime.modules.len(), 8);
+    eprintln!("source-denied SlotMap runtime project compilation: {} modules", compiled_runtime.modules.len());
 
     // Verify 0 source bootstrap attempts after package compilation
     assert_eq!(
@@ -883,6 +939,7 @@ fn fresh_process_source_denied_artifact_compilation() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+    eprint!("{}", String::from_utf8_lossy(&output.stderr));
 }
 
 #[test]

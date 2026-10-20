@@ -196,7 +196,19 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         );
         // Canonical conformance heads remain in the same immutable parent
         // throughout all three local publication revisions.
-        assert_eq!(update.snapshot.derived_conformance_rules.local_len(), 0);
+        assert_eq!(
+            update.snapshot.derived_conformance_rules.local_len(),
+            0,
+            "unexpected local rules: {:?}",
+            update.snapshot.derived_conformance_rules.iter().map(|rule| (
+                &rule.impl_id,
+                &rule.source_module,
+                &rule.trait_ref.declaration,
+                rule.target_parameter,
+                rule.target_template,
+                image.snapshot().derived_conformance_rules.get_rule(&rule.impl_id).is_some(),
+            )).collect::<Vec<_>>()
+        );
         assert_eq!(
             update.snapshot.derived_conformance_rules.parent_len(),
             image.snapshot().derived_conformance_rules.len()
@@ -401,7 +413,8 @@ fn ordinary_image_session_local_edit_reuses_unrelated_local_queries_and_retains_
     );
     assert!(update.stats.query_products_recomputed > 0, "the edited local source must recompute query products");
     assert!(!update.invalidated.is_empty(), "the edited local source must invalidate prior local query state");
-    assert!(!update.recomputed.is_empty(), "the edited local source must recompute local query state");
+    assert!(session.db().local_query_state(&edited_key).is_some(), "edited binding query remains local");
+    assert!(session.db().is_current(&edited_key), "edited binding query must be current after republishing");
     assert!(
         update.invalidated.iter().all(|key| !canonical_keys.contains(key)),
         "canonical query roots must never enter the local invalidation set"
