@@ -1314,7 +1314,7 @@ impl SemanticWorkspaceSession {
             .semantic_structure_shards
             .iter()
             .map(|(module, shard)| (module.clone(), shard.source.clone()))
-            .collect::<BTreeMap<_, _>>();
+            .collect::<crate::parent_map::ParentMap<_, _>>();
 
         // Publish source identity and binding phase before any type-bearing
         // declaration work. The catalog deliberately contains no checker state
@@ -1327,7 +1327,7 @@ impl SemanticWorkspaceSession {
                     Arc::new(crate::module_bindings::ModuleStaticBindingCatalog::from_source(module, &source.program)),
                 )
             })
-            .collect::<BTreeMap<_, _>>();
+            .collect::<crate::parent_map::ParentMap<_, _>>();
         if let Some(semantic_linked) = input.semantic_linked.as_ref() {
             for (module_id, sem_mod) in &semantic_linked.modules {
                 let imported_seeds = sem_mod
@@ -2494,7 +2494,7 @@ impl SemanticWorkspaceSession {
             .as_ref()
             .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
         let mut type_member_declarations_table = previous_snapshot.as_ref().map_or_else(
-            || self.base_type_member_declarations.clone(),
+            || self.base_type_member_declarations.iter().map(|(key, value)| (key.clone(), value.clone())).collect(),
             |snapshot| (*snapshot.type_member_declarations).clone(),
         );
         for module in structural_recomputed_modules.iter().chain(removed_modules.iter()) {
@@ -2607,7 +2607,7 @@ impl SemanticWorkspaceSession {
         let static_case_sources = collect_static_case_sources(&self.semantic_structure_shards, &resolver, &static_case_catalogs);
         let mut static_case_signatures_table = previous_snapshot
             .as_ref()
-            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.static_case_signatures).clone());
+            .map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| (*snapshot.static_case_signatures).clone());
         for case in &signature_case_work {
             static_case_signatures_table.remove(case);
         }
@@ -4051,7 +4051,7 @@ impl SemanticWorkspaceSession {
             .map_or_else(|| self.base_callable_signatures.clone(), |snapshot| (*snapshot.callable_signatures).clone());
         let mut callable_definitions = previous_snapshot
             .as_ref()
-            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.callable_definitions).clone());
+            .map_or_else(crate::parent_map::ParentMap::default, |snapshot| (*snapshot.callable_definitions).clone());
         let mut field_signatures = previous_snapshot
             .as_ref()
             .map_or_else(FieldSignatureTable::new, |snapshot| (*snapshot.field_signatures).clone());
@@ -4736,7 +4736,7 @@ impl SemanticWorkspaceSession {
             .map_or_else(|| self.base_enum_requirements.clone(), |snapshot| (*snapshot.enum_requirements).clone());
         let mut associated_static_domains_table = previous_snapshot
             .as_ref()
-            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.associated_static_domains).clone());
+            .map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| (*snapshot.associated_static_domains).clone());
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             data_semantics.remove_module(module);
             enum_semantics.remove_module(module);
@@ -4808,7 +4808,7 @@ impl SemanticWorkspaceSession {
 
                         enum_semantics.insert_enum(enum_product.info.clone());
                         for v in enum_product.variants.iter() {
-                            enum_semantics.insert_variant(Arc::new(v.clone()));
+                            enum_semantics.insert_variant(v.clone());
                         }
 
                         let arc_enum_product = Arc::new(enum_product);
@@ -5103,6 +5103,7 @@ impl SemanticWorkspaceSession {
                                             origin: crate::impls::CallableDefinitionOrigin::ConformanceWitness(contribution.impl_id.clone()),
                                             source_member_index,
                                             signature: signature.clone(),
+                                            body_provenance: crate::impls::CallableDefinitionBodyProvenance::SourceBody,
                                             inherent_body_context: None,
                                         };
                                         callable_definitions.insert(callable.clone(), definition.clone());
@@ -5248,6 +5249,7 @@ impl SemanticWorkspaceSession {
                                         origin: crate::impls::CallableDefinitionOrigin::ConformanceWitness(rule_head.impl_id.clone()),
                                         source_member_index,
                                         signature: signature.clone(),
+                                        body_provenance: crate::impls::CallableDefinitionBodyProvenance::SourceBody,
                                         inherent_body_context: None,
                                     };
                                     callable_definitions.insert(callable.clone(), definition.clone());
@@ -5558,6 +5560,7 @@ impl SemanticWorkspaceSession {
                                     origin: crate::impls::CallableDefinitionOrigin::InherentImpl(contrib.id.clone()),
                                     source_member_index: member.source_member,
                                     signature: member.signature.clone(),
+                                    body_provenance: crate::impls::CallableDefinitionBodyProvenance::SourceBody,
                                     inherent_body_context: Some(crate::impls::InherentBodyContext {
                                         generic_signature: contrib.generic_signature.clone(),
                                         covering: contrib.covering.clone(),
