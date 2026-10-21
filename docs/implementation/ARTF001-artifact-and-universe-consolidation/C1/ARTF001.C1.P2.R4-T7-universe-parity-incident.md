@@ -183,19 +183,39 @@ This explains why the paths can create different runtime edges. It does not
 prove that the artifact-side edges are wrong, and it does not by itself explain
 the differing constructor-initialization products.
 
-The supplied follow-up analysis describes the source/artifact linked Universe
-counts as 42/0. The earlier captured parity output prints only set differences
-(`only_in_src` and `only_in_art`), which are insufficient to derive both full
-set sizes. A fresh strict parity run is in progress with the comparator now
-printing the exact source and artifact constructor rows for each differing
-user module. Use that output to reconcile the module counts, record exact
-`ModuleId` dispositions, and trace each constructor product before changing
-compiler behavior or the parity boundary.
+The fresh strict parity run confirms the user-supplied linked-module counts:
+the linked-module set contains 42 Universe IDs only on the source side and zero
+Universe IDs only on the artifact side. Its separate initialization-order
+product contains 42 source-side Universe IDs and 10 artifact-side Universe
+dependency nodes. The ten artifact graph nodes are
+`collections.iterator_laws`, `collections.list`, `collections.tuple`,
+`concurrency.fiber`, `errors.error`, `object.object`, `option.option`,
+`scalar.bool`, `scalar.number`, and `scalar.string`. These are runtime graph
+nodes; they are not artifact-side linked module entries. The counts describe
+different products and must not be conflated.
+
+The structural constructor dump was parsed by module. For each of `<root>`,
+`dense_slot_map`, `main`, and `slot_map`, it contains 89 source-local rows and
+4 artifact-local rows: 85 source-only canonical Universe constructors, zero
+artifact-only rows, and zero value differences among the four shared user
+constructors. The source path owns its seeded Universe rows locally. The
+image-backed path attaches canonical constructor authority through the table's
+parent and keeps only user rows in its local overlay. This strongly suggests
+the current `iter_local()` comparison is testing ownership layout rather than
+the effective constructor authority. It remains a hypothesis until a focused
+check proves the image parent contains the same 85 rows and the architecture
+reviewer rules on comparing the effective table.
 
 ### Current disposition
 
 - Positive parity remains failed; comparator and compiler behavior remain
   unchanged.
+- Linked module-set counts are 42 source-side Universe modules and zero
+  artifact-side Universe modules; initialization order separately records
+  42 and 10 Universe nodes, respectively.
+- The four user constructor products match in the shared local rows. The 85
+  source-only rows are Universe products whose artifact-side effective-parent
+  equivalence still needs direct verification.
 - Entry-local negative diagnostic parity is also failed by one extra
   artifact-side `IncompatibleOverride` diagnostic.
 - Canonical Universe source diagnostics remain a separate unclassified census.

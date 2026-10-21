@@ -875,8 +875,15 @@ The strict positive parity rerun is in progress with detailed constructor
 products in failure output. Do not change production availability or the
 comparator before reviewing that output and obtaining an architectural ruling.
 
-The supplied analysis describes 42 source-side and zero artifact-side linked
-Universe modules. Earlier captured output reports only the set difference
-(`only_in_src=41`, `only_in_art=[]`), not both full set sizes. Record the exact
-per-path `ModuleId` counts and dispositions from the current run before
-reconciling that discrepancy. P2.R4.T7 remains open; P3 remains blocked.
+The fresh strict parity rerun confirms 42 Universe IDs in the source-only
+linked-module set and zero artifact-only Universe IDs. The initialization
+order is a separate product: it contains 42 source-side Universe modules and
+10 artifact-side Universe dependency nodes. Those ten are graph nodes, not
+linked artifact modules. For each of `<root>`, `dense_slot_map`, `main`, and
+`slot_map`, the constructor comparison has 89 source-local rows and 4
+artifact-local rows. The 85 source-only rows are canonical Universe
+constructors; all four shared user rows have identical values. The artifact
+session stores canonical authority in the constructor table's parent, so
+effective-parent equality still needs a focused proof and an architecture
+ruling before comparator changes. The test failed after 172.26s with 12
+reported differences; T7 remains open and P3 remains blocked.
