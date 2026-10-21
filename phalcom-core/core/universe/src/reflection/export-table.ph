@@ -2,7 +2,7 @@ from .export import Export
 
 @!documentation("Public export surface reflection table.")
 native class ExportTable is Object {
-  native names -> Tuple<Symbol>
+  native names -> (*: Symbol)
   native keys -> Tuple<Symbol>
   native size -> Int
   native contains(_ name: Symbol) -> Bool
