@@ -209,6 +209,10 @@ fn write_string(s: &str, out: &mut BinaryWriter) -> Result<(), ArtifactError> {
 }
 
 impl PortablePrototypeV1 {
+    pub(crate) fn validate_structure(&self, caps: &ExecutablePrototypeLimitsV1) -> Result<(), ArtifactError> {
+        validate_shape(self, caps)
+    }
+
     pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
         let caps = ExecutablePrototypeLimitsV1::default();
         validate_shape(self, &caps)?;

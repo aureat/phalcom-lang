@@ -8,7 +8,9 @@ use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::executable::compatibility::{CompilationProfileV1, PortableNativeAnchorV1, PrimordialRoleV1};
 use phalcom_compiler_artifact::executable::constant::{ConstantRecipeV1, MethodSignatureV1, RestLayoutV1, RestModeV1, StableClassRefV1};
 use phalcom_compiler_artifact::executable::image::{ExecutableImageLimitsV1, ExecutableImageV1};
-use phalcom_compiler_artifact::executable::instruction::{ControlFlowKindV1, OPCODE_MANIFEST_V1, OperandDomainV1, PortableOperandValueV1};
+use phalcom_compiler_artifact::executable::instruction::{
+    ControlFlowKindV1, OPCODE_MANIFEST_V1, OperandDomainV1, PortableInstructionV1, PortableOperandValueV1,
+};
 use phalcom_compiler_artifact::executable::module::{PortableClassAllocationV1, PortableLinkedReadV1};
 use phalcom_compiler_artifact::executable::prototype::{PortablePrototypeV1, PrototypeOwnerV1, RestKindV1, UpvalueCaptureV1};
 use phalcom_compiler_artifact::executable::semantic::{
@@ -105,6 +107,18 @@ pub(crate) enum ExecutableValidationError {
     InvalidBranchTarget { prototype: usize, instruction: usize, target: i64 },
     #[error("prototype {prototype} instruction {instruction} falls through to invalid instruction index {target}")]
     InvalidFallthrough { prototype: usize, instruction: usize, target: i64 },
+    #[error("prototype {prototype} instruction {instruction} needs {required} stack values but only {available} are available")]
+    StackUnderflow { prototype: usize, instruction: usize, required: usize, available: usize },
+    #[error("prototype {prototype} instruction {instruction} references local slot {slot} outside the live frame range 0..{limit}")]
+    InvalidLocalSlot { prototype: usize, instruction: usize, slot: usize, limit: usize },
+    #[error("prototype {prototype} instruction {instruction} joins with incompatible stack heights {existing} and {incoming}")]
+    IncompatibleControlFlowState { prototype: usize, instruction: usize, existing: usize, incoming: usize },
+    #[error("prototype {prototype} instruction {instruction} stack height overflowed")]
+    StackDepthOverflow { prototype: usize, instruction: usize },
+    #[error("prototype {prototype} instruction {instruction} has no executable stack-transfer rule for opcode {tag}")]
+    UnmodeledStackEffect { prototype: usize, instruction: usize, tag: u16 },
+    #[error("prototype {prototype} instruction {instruction} uses non-local return from non-block owner {owner:?}")]
+    InvalidNonLocalReturn { prototype: usize, instruction: usize, owner: PrototypeOwnerV1 },
     #[error("prototype {prototype} has invalid executable frame or parameter layout: {detail}")]
     InvalidPrototypeLayout { prototype: usize, detail: String },
     #[error("nested prototype {child} has invalid capture from parent {parent}: {detail}")]
@@ -320,6 +334,8 @@ pub(crate) fn validate_executable_image(
     loaded: &LoadedUniverseArtifact,
     limits: &ExecutableImageLimitsV1,
 ) -> Result<(), ExecutableValidationError> {
+    // The artifact layer owns fixed wire compatibility and bounded structural
+    // accounting; core adds host policy and loaded runtime/P7 authority checks.
     image.validate_structure(limits)?;
     image.validate_native_abi_digest()?;
     if image.compatibility.compilation_profile != CompilationProfileV1::Debug {
@@ -334,6 +350,7 @@ pub(crate) fn validate_executable_image(
     validate_classes(image, &context)?;
     validate_prototype_owners(image, &context)?;
     validate_prototypes(image, &context)?;
+    validate_detached_methods(image, &context)?;
     validate_required_declarations(image, &context)?;
     validate_canonical_semantic_roots(image, &context)?;
     validate_semantic_pools(image, &context)?;
@@ -598,6 +615,16 @@ fn validate_primordial_roles(image: &ExecutableImageV1) -> Result<(), Executable
             role: "bootstrap native runtime role list".into(),
         });
     }
+    for class in &image.classes {
+        if let PortableClassAllocationV1::Primordial { role } = &class.allocation {
+            let Some(expected_role) = expected.iter().find(|expected| expected.role == *role) else {
+                return Err(ExecutableValidationError::PrimordialRoleMismatch { role: role.clone() });
+            };
+            if expected_role.class != class.class {
+                return Err(ExecutableValidationError::PrimordialRoleMismatch { role: role.clone() });
+            }
+        }
+    }
     for role in &expected {
         let Some(class) = image.classes.iter().find(|row| row.class == role.class) else {
             return Err(ExecutableValidationError::PrimordialClassMissing { role: role.role.clone() });
@@ -610,12 +637,15 @@ fn validate_primordial_roles(image: &ExecutableImageV1) -> Result<(), Executable
 }
 
 fn validate_classes(image: &ExecutableImageV1, context: &ExecutableValidationContext<'_>) -> Result<(), ExecutableValidationError> {
-    let class_index = image
-        .classes
-        .iter()
-        .enumerate()
-        .map(|(index, row)| ((row.class.declaration.clone(), row.class.side), index))
-        .collect::<BTreeMap<_, _>>();
+    let mut class_index = BTreeMap::new();
+    for (index, row) in image.classes.iter().enumerate() {
+        if class_index.insert((row.class.declaration.clone(), row.class.side), index).is_some() {
+            return Err(ExecutableValidationError::InvalidClassLayout {
+                class: row.class.clone(),
+                detail: "duplicate class recipe".to_owned(),
+            });
+        }
+    }
 
     for row in &image.classes {
         if !context.has_p7_module(&row.class.declaration.module) {
@@ -626,6 +656,26 @@ fn validate_classes(image: &ExecutableImageV1, context: &ExecutableValidationCon
         }
         if !context.has_p7_class(&row.class) {
             return Err(ExecutableValidationError::UnknownP7Declaration(row.class.declaration.clone()));
+        }
+        if let Some(superclass) = &row.superclass
+            && superclass.side != row.class.side
+        {
+            return Err(ExecutableValidationError::InvalidClassLayout {
+                class: row.class.clone(),
+                detail: "superclass dispatch side differs from the class recipe".to_owned(),
+            });
+        }
+        let Some(metaclass) = &row.metaclass else {
+            return Err(ExecutableValidationError::InvalidClassLayout {
+                class: row.class.clone(),
+                detail: "class recipe has no metaclass".to_owned(),
+            });
+        };
+        if metaclass.side != StableDispatchSide::Class {
+            return Err(ExecutableValidationError::InvalidClassLayout {
+                class: row.class.clone(),
+                detail: "metaclass reference is not on the class dispatch side".to_owned(),
+            });
         }
         for reference in row.superclass.iter().chain(row.metaclass.iter()) {
             if !class_index.contains_key(&(reference.declaration.clone(), reference.side)) {
@@ -639,11 +689,12 @@ fn validate_classes(image: &ExecutableImageV1, context: &ExecutableValidationCon
             });
         }
         let mut field_slots = BTreeSet::new();
+        let mut field_names = BTreeSet::new();
         for field in &row.fields {
-            if field.slot >= row.field_count || !field_slots.insert(field.slot) {
+            if field.slot >= row.field_count || !field_slots.insert(field.slot) || !field_names.insert(&field.name) {
                 return Err(ExecutableValidationError::InvalidClassLayout {
                     class: row.class.clone(),
-                    detail: format!("field {} has a duplicate or out-of-range slot {}", field.name, field.slot),
+                    detail: format!("field {} has a duplicate name or duplicate/out-of-range slot {}", field.name, field.slot),
                 });
             }
         }
@@ -777,9 +828,49 @@ fn validate_prototype_owners(image: &ExecutableImageV1, context: &ExecutableVali
     Ok(())
 }
 
+fn validate_detached_methods(image: &ExecutableImageV1, context: &ExecutableValidationContext<'_>) -> Result<(), ExecutableValidationError> {
+    for (index, detached) in image.detached_methods.iter().enumerate() {
+        if !context.has_p7_callable(&detached.callable) {
+            return Err(ExecutableValidationError::UnknownP7Callable(detached.callable.clone()));
+        }
+        let method_constant = detached.method_constant.0 as usize;
+        let Some(ConstantRecipeV1::Method { recipe }) = image.constants.get(method_constant) else {
+            return Err(ExecutableValidationError::InvalidExecutableReference {
+                table: "detached methods",
+                index,
+                detail: format!("method constant {method_constant} is absent or is not a method recipe"),
+            });
+        };
+        if recipe.signature.selector != detached.callable.selector.as_ref() {
+            return Err(ExecutableValidationError::InvalidExecutableReference {
+                table: "detached methods",
+                index,
+                detail: "method recipe selector does not match its P7 callable identity".to_owned(),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn validate_prototypes(image: &ExecutableImageV1, context: &ExecutableValidationContext<'_>) -> Result<(), ExecutableValidationError> {
     validate_closure_template_constants(image, context)?;
     for (prototype_index, prototype) in image.prototypes.iter().enumerate() {
+        let source_map_index = prototype.source.0 as usize;
+        let Some(source_map) = image.source_maps.get(source_map_index) else {
+            return Err(ExecutableValidationError::InvalidExecutableReference {
+                table: "prototype source maps",
+                index: prototype_index,
+                detail: format!("source map {source_map_index} is absent"),
+            });
+        };
+        let owner_module = prototype_module(image, prototype_index)?;
+        if &source_map.module != owner_module {
+            return Err(ExecutableValidationError::InvalidExecutableReference {
+                table: "prototype source maps",
+                index: prototype_index,
+                detail: "source map module does not match prototype owner".to_owned(),
+            });
+        }
         let fixed_label_count = prototype.parameters.fixed_labels.len();
         let mut labels = BTreeSet::new();
         if prototype.parameters.fixed_labels.iter().any(|label| label.is_empty() || !labels.insert(label)) {
@@ -805,6 +896,7 @@ fn validate_prototypes(image: &ExecutableImageV1, context: &ExecutableValidation
 
         validate_prototype_operands(image, context, prototype_index, prototype)?;
         validate_prototype_control_flow(image, context, prototype_index, prototype)?;
+        validate_prototype_stack(prototype_index, prototype)?;
     }
     Ok(())
 }
@@ -917,6 +1009,22 @@ fn validate_instruction_operand(
             if !domain_matches {
                 return Err(invalid(format!("constant recipe {constant:?} does not satisfy its declared domain")));
             }
+            if domain == OperandDomainV1::ClosureTemplateConstant {
+                let ConstantRecipeV1::ClosureTemplate { prototype: child, .. } = constant else {
+                    return Err(invalid("closure-template operand does not resolve to a closure template".to_owned()));
+                };
+                let Some(child_prototype) = image.prototypes.get(child.0 as usize) else {
+                    return Err(invalid(format!("closure target prototype {} is absent", child.0)));
+                };
+                if let PrototypeOwnerV1::Nested { parent, .. } = &child_prototype.owner
+                    && parent.0 as usize != prototype_index
+                {
+                    return Err(invalid(format!(
+                        "nested closure target {} belongs to parent {}, not this prototype",
+                        child.0, parent.0
+                    )));
+                }
+            }
         }
         OperandDomainV1::LinkedRead => {
             let Some(index) = unsigned_operand(value).and_then(|value| usize::try_from(value).ok()) else {
@@ -1023,6 +1131,551 @@ fn validate_instruction_operand(
         }
     }
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ReachableStackState {
+    /// Total values above `CallFrame::stack_offset`, including receiver and parameters.
+    height: usize,
+    /// The receiver/parameter window established when this frame is entered.
+    floor: usize,
+}
+
+impl ReachableStackState {
+    fn adjust(
+        self,
+        prototype: usize,
+        instruction: usize,
+        pop: usize,
+        push: usize,
+    ) -> Result<Self, ExecutableValidationError> {
+        let Some(available) = self.height.checked_sub(self.floor) else {
+            return Err(ExecutableValidationError::StackUnderflow {
+                prototype,
+                instruction,
+                required: pop,
+                available: 0,
+            });
+        };
+        if pop > available {
+            return Err(ExecutableValidationError::StackUnderflow {
+                prototype,
+                instruction,
+                required: pop,
+                available,
+            });
+        }
+        let height = self
+            .height
+            .checked_sub(pop)
+            .and_then(|height| height.checked_add(push))
+            .ok_or(ExecutableValidationError::StackDepthOverflow {
+                prototype,
+                instruction,
+            })?;
+        Ok(Self {
+            height,
+            floor: self.floor,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct StackDelta {
+    pop: usize,
+    push: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum StackTransfer {
+    Linear(StackDelta),
+    Conditional { taken: StackDelta, fallthrough: StackDelta },
+}
+
+fn apply_stack_delta(
+    state: ReachableStackState,
+    delta: StackDelta,
+    prototype: usize,
+    instruction: usize,
+) -> Result<ReachableStackState, ExecutableValidationError> {
+    state.adjust(prototype, instruction, delta.pop, delta.push)
+}
+
+fn require_stack_values(
+    state: ReachableStackState,
+    prototype: usize,
+    instruction: usize,
+    required: usize,
+) -> Result<(), ExecutableValidationError> {
+    let Some(available) = state.height.checked_sub(state.floor) else {
+        return Err(ExecutableValidationError::StackUnderflow {
+            prototype,
+            instruction,
+            required,
+            available: 0,
+        });
+    };
+    if available < required {
+        return Err(ExecutableValidationError::StackUnderflow {
+            prototype,
+            instruction,
+            required,
+            available,
+        });
+    }
+    Ok(())
+}
+
+fn require_live_local_slot(
+    state: ReachableStackState,
+    prototype: usize,
+    instruction: usize,
+    slot: usize,
+    insertion: bool,
+) -> Result<(), ExecutableValidationError> {
+    let limit = state
+        .height
+        .checked_add(usize::from(insertion))
+        .ok_or(ExecutableValidationError::StackDepthOverflow {
+            prototype,
+            instruction,
+        })?;
+    if slot >= limit {
+        return Err(ExecutableValidationError::InvalidLocalSlot {
+            prototype,
+            instruction,
+            slot,
+            limit,
+        });
+    }
+    Ok(())
+}
+
+fn instruction_stack_transfer(
+    prototype: usize,
+    instruction_index: usize,
+    instruction: &PortableInstructionV1,
+    owner: &PrototypeOwnerV1,
+    state: ReachableStackState,
+) -> Result<StackTransfer, ExecutableValidationError> {
+    use PortableInstructionV1 as I;
+
+    let linear = |pop, push| StackTransfer::Linear(StackDelta { pop, push });
+    let unmodeled = || ExecutableValidationError::UnmodeledStackEffect {
+        prototype,
+        instruction: instruction_index,
+        tag: instruction.opcode_tag(),
+    };
+
+    match *instruction {
+        I::Constant { .. }
+        | I::Nil {}
+        | I::True {}
+        | I::False {}
+        | I::Closure { .. }
+        | I::GetEllipsis {}
+        | I::GetGlobal { .. }
+        | I::GetGlobalChecked { .. }
+        | I::UninitializedBinding {} => Ok(linear(0, 1)),
+        I::Pop {} => Ok(linear(1, 0)),
+        I::GetLocal { operand0 } | I::GetLocalChecked { operand0, .. } => {
+            require_live_local_slot(state, prototype, instruction_index, usize::from(operand0), false)?;
+            Ok(linear(0, 1))
+        }
+        I::SetLocal { operand0 } => {
+            require_live_local_slot(state, prototype, instruction_index, usize::from(operand0), false)?;
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(0, 0))
+        }
+        I::DefineGlobal { .. } => Ok(linear(1, 0)),
+        I::SetGlobal { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(0, 0))
+        }
+        I::GetSelf {} => {
+            require_live_local_slot(state, prototype, instruction_index, 0, false)?;
+            Ok(linear(0, 1))
+        }
+        I::GetField { .. } | I::GetFieldChecked { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(1, 1))
+        }
+        I::SetField { .. } => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(2, 1))
+        }
+        I::Invoke { operand0: arity, .. } | I::SuperSend { operand0: arity, .. } => {
+            let operands = usize::from(arity)
+                .checked_add(1)
+                .ok_or(ExecutableValidationError::StackDepthOverflow {
+                    prototype,
+                    instruction: instruction_index,
+                })?;
+            require_stack_values(state, prototype, instruction_index, operands)?;
+            Ok(linear(operands, 1))
+        }
+        I::GetUpvalue { .. } | I::GetUpvalueChecked { .. } => Ok(linear(0, 1)),
+        I::SetUpvalue { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(0, 0))
+        }
+        I::CloseUpvalue { operand0 } => {
+            require_live_local_slot(state, prototype, instruction_index, usize::from(operand0), false)?;
+            Ok(linear(0, 0))
+        }
+        I::Jump { .. } | I::Loop { .. } => Ok(linear(0, 0)),
+        I::Return {} => Ok(linear(1, 0)),
+        I::ReturnNonLocal {} => {
+            if !matches!(owner, PrototypeOwnerV1::Nested { .. }) {
+                return Err(ExecutableValidationError::InvalidNonLocalReturn {
+                    prototype,
+                    instruction: instruction_index,
+                    owner: owner.clone(),
+                });
+            }
+            Ok(linear(1, 0))
+        }
+        I::JumpIfFalse { .. } | I::JumpIfNone { .. } => Ok(linear(1, 0)),
+        I::GuardBool { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(0, 0))
+        }
+        I::GuardBlock { .. } => Ok(linear(0, 0)),
+        I::NewInstance {} => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(1, 1))
+        }
+        I::Dup {} => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(0, 1))
+        }
+        I::WrapSome {} => Ok(linear(1, 1)),
+        I::GuardSymbol {} => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(0, 0))
+        }
+        I::ReserveScratchLocal { operand0 } => {
+            require_live_local_slot(state, prototype, instruction_index, usize::from(operand0), true)?;
+            Ok(linear(0, 1))
+        }
+        I::ReleaseScratchLocal { operand0 } => {
+            require_live_local_slot(state, prototype, instruction_index, usize::from(operand0), false)?;
+            Ok(linear(1, 0))
+        }
+        I::TryInvokeExact { arity, .. } => {
+            let arguments = usize::from(arity)
+                .checked_add(1)
+                .ok_or(ExecutableValidationError::StackDepthOverflow {
+                    prototype,
+                    instruction: instruction_index,
+                })?;
+            require_stack_values(state, prototype, instruction_index, arguments)?;
+            Ok(StackTransfer::Conditional {
+                taken: StackDelta { pop: arguments, push: 0 },
+                fallthrough: StackDelta { pop: arguments, push: 1 },
+            })
+        }
+        I::JumpIfUnsupported { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(StackTransfer::Conditional {
+                taken: StackDelta { pop: 1, push: 0 },
+                fallthrough: StackDelta { pop: 0, push: 0 },
+            })
+        }
+        I::BuildTuple { positional, labeled } => {
+            let values = usize::from(positional)
+                .checked_add(usize::from(labeled))
+                .ok_or(ExecutableValidationError::StackDepthOverflow {
+                    prototype,
+                    instruction: instruction_index,
+                })?;
+            Ok(linear(values, 1))
+        }
+        I::BuildRecord { fields } => Ok(linear(usize::from(fields), 1)),
+        I::BuildRange { has_lower, has_upper, .. } => {
+            Ok(linear(usize::from(has_lower) + usize::from(has_upper), 1))
+        }
+        I::BuildList { operand0: count }
+        | I::BuildArray { operand0: count }
+        | I::BuildVector { operand0: count } => Ok(linear(usize::from(count), 1)),
+        I::BeginListLiteral {}
+        | I::BeginSetLiteral {}
+        | I::BeginMapLiteral {}
+        | I::BeginArrayLiteral {}
+        | I::BeginVectorLiteral {}
+        | I::NewRecordLiteralBuilder {} => Ok(linear(0, 1)),
+        I::ListLiteralAppend {} | I::ArrayLiteralAppend {} => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(2, 1))
+        }
+        I::ListTryExpandTuplePositionals {} | I::ArrayTryExpandTuplePositionals {} => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(2, 1))
+        }
+        I::FinishListLiteral {} | I::FinishSetLiteral {} | I::FinishMapLiteral {} => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(0, 0))
+        }
+        I::SetLiteralAdd {} => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(1, 0))
+        }
+        I::MapLiteralInsertUnique {} => {
+            require_stack_values(state, prototype, instruction_index, 3)?;
+            Ok(linear(2, 0))
+        }
+        I::MapLiteralExpandLabels {} => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(1, 0))
+        }
+        I::RecordLiteralAppend {} => {
+            require_stack_values(state, prototype, instruction_index, 3)?;
+            Ok(linear(3, 0))
+        }
+        I::RecordLiteralExpandLabels {} => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(2, 0))
+        }
+        I::FinishRecordLiteral {} | I::FinishArrayLiteral {} | I::FinishVectorLiteral { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(1, 1))
+        }
+        I::VectorExpandExactPositionals { .. } => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(2, 1))
+        }
+        I::CopyVector {} => Ok(linear(1, 1)),
+        I::Class { .. }
+        | I::Method { .. }
+        | I::GetLinked { .. }
+        | I::MakeFamily { .. }
+        | I::FinalizeClass {}
+        | I::InvokeLocal { .. }
+        | I::InvokeConst { .. }
+        | I::InvokeCompilerInternal { .. }
+        | I::NewArgumentPack {}
+        | I::PackPushPositional {}
+        | I::PackReserveStaticLabel { .. }
+        | I::PackReserveComputedLabel {}
+        | I::PackFillReservedLabel {}
+        | I::PackExpandLabels {}
+        | I::PackExpandComplete {}
+        | I::PackTryExpandTuplePositionals {}
+        | I::InvokePack { .. }
+        | I::SuperSendPack { .. }
+        | I::FinishTuplePack {}
+        | I::BilateralPreferReflected { .. }
+        | I::ValidateOrdering { .. }
+        | I::Same {}
+        | I::RaiseUnsupported { .. }
+        | I::RaiseNonIterableStarOperand {}
+        | I::Enum { .. }
+        | I::VariantMethod { .. }
+        | I::FinalizeEnum { .. }
+        | I::LoadVariantSingleton { .. }
+        | I::ConstructVariant { .. }
+        | I::MakeResolvedBoundMethod { .. }
+        | I::InvokeResolvedAssociated { .. }
+        | I::MakeAssociatedFamily { .. }
+        | I::InvokeAssociatedFamilyStatic { .. }
+        | I::InvokeAssociatedFamilyPack { .. }
+        | I::IsVariant { .. }
+        | I::GetVariantPayload { .. }
+        | I::MatchInvariantFailure {}
+        | I::InvokeSubscriptSetPack { .. }
+        | I::Data { .. }
+        | I::FinalizeData { .. }
+        | I::LoadDataSingleton { .. }
+        | I::ConstructData { .. }
+        | I::GetDataComponent { .. }
+        | I::BuildStaticTuple { .. }
+        | I::BuildStaticRecord { .. }
+        | I::InvokeConditional { .. }
+        | I::MakeConditionalFamily { .. }
+        | I::InvokeSpecialized { .. }
+        | I::InvokeTraitSelected { .. }
+        | I::InvokeTraitRequirement { .. }
+        | I::MakeTraitBoundMethod { .. }
+        | I::GetDataProductSlot { .. }
+        | I::FinishPack {}
+        | I::BuildStaticPack { .. }
+        | I::BuildPack { .. }
+        | I::GuardFieldKey {}
+        | I::RecordLiteralCheckKey {}
+        | I::LoadTypeParameterClass { .. }
+        | I::BuildStaticTuple { .. }
+        | I::BuildStaticRecord { .. } => Err(unmodeled()),
+    }
+}
+
+fn validate_prototype_stack(prototype_index: usize, prototype: &PortablePrototypeV1) -> Result<(), ExecutableValidationError> {
+    let rest_slots = usize::from(prototype.parameters.rest.is_some());
+    let argument_slots = (prototype.parameters.fixed_positionals as usize)
+        .checked_add(prototype.parameters.fixed_labels.len())
+        .and_then(|slots| slots.checked_add(rest_slots))
+        .ok_or_else(|| ExecutableValidationError::InvalidPrototypeLayout {
+            prototype: prototype_index,
+            detail: "parameter slot count overflowed".to_owned(),
+        })?;
+    let entry_height = match prototype.owner {
+        PrototypeOwnerV1::ModuleInitializer { .. } => 0,
+        PrototypeOwnerV1::Callable { .. } | PrototypeOwnerV1::Nested { .. } => argument_slots
+            .checked_add(1)
+            .ok_or_else(|| ExecutableValidationError::InvalidPrototypeLayout {
+                prototype: prototype_index,
+                detail: "receiver and parameter slot count overflowed".to_owned(),
+            })?,
+    };
+
+    let code_len = prototype.code.len();
+    if code_len == 0 {
+        return Err(ExecutableValidationError::InvalidBranchTarget {
+            prototype: prototype_index,
+            instruction: 0,
+            target: 0,
+        });
+    }
+    let mut states = vec![None; code_len];
+    let mut pending = vec![0usize];
+    states[0] = Some(ReachableStackState {
+        height: entry_height,
+        floor: entry_height,
+    });
+
+    while let Some(instruction_index) = pending.pop() {
+        let state = states[instruction_index].ok_or(ExecutableValidationError::InvalidInstruction {
+            prototype: prototype_index,
+            instruction: instruction_index,
+            operand: "reachable control-flow state",
+            detail: "reachable instruction has no incoming stack state".to_owned(),
+        })?;
+        let instruction = &prototype.code[instruction_index];
+        let control_flow = instruction.control_flow_kind();
+        let transfer = instruction_stack_transfer(prototype_index, instruction_index, instruction, &prototype.owner, state)?;
+
+        match control_flow {
+            ControlFlowKindV1::Fallthrough => {
+                let StackTransfer::Linear(delta) = transfer else {
+                    return Err(invalid_stack_transfer_classification(prototype_index, instruction_index, control_flow));
+                };
+                let outgoing = apply_stack_delta(state, delta, prototype_index, instruction_index)?;
+                let target = instruction_index.checked_add(1).filter(|target| *target < code_len).ok_or(
+                    ExecutableValidationError::InvalidFallthrough {
+                        prototype: prototype_index,
+                        instruction: instruction_index,
+                        target: instruction_index
+                            .checked_add(1)
+                            .and_then(|target| i64::try_from(target).ok())
+                            .unwrap_or(i64::MAX),
+                    },
+                )?;
+                enqueue_stack_state(&mut pending, &mut states, prototype_index, instruction_index, target, outgoing)?;
+            }
+            ControlFlowKindV1::UnconditionalBranch => {
+                let StackTransfer::Linear(delta) = transfer else {
+                    return Err(invalid_stack_transfer_classification(prototype_index, instruction_index, control_flow));
+                };
+                let offset = relative_jump_offset(instruction).ok_or(ExecutableValidationError::InvalidBranchTarget {
+                    prototype: prototype_index,
+                    instruction: instruction_index,
+                    target: i64::MAX,
+                })?;
+                let target = validate_branch_target(prototype_index, instruction_index, code_len, offset)?;
+                let outgoing = apply_stack_delta(state, delta, prototype_index, instruction_index)?;
+                enqueue_stack_state(&mut pending, &mut states, prototype_index, instruction_index, target, outgoing)?;
+            }
+            ControlFlowKindV1::ConditionalBranch => {
+                let offset = relative_jump_offset(instruction).ok_or(ExecutableValidationError::InvalidBranchTarget {
+                    prototype: prototype_index,
+                    instruction: instruction_index,
+                    target: i64::MAX,
+                })?;
+                let target = validate_branch_target(prototype_index, instruction_index, code_len, offset)?;
+                let fallthrough = instruction_index.checked_add(1).filter(|target| *target < code_len).ok_or(
+                    ExecutableValidationError::InvalidFallthrough {
+                        prototype: prototype_index,
+                        instruction: instruction_index,
+                        target: instruction_index
+                            .checked_add(1)
+                            .and_then(|target| i64::try_from(target).ok())
+                            .unwrap_or(i64::MAX),
+                    },
+                )?;
+                let (taken_delta, fallthrough_delta) = match transfer {
+                    StackTransfer::Linear(delta) => (delta, delta),
+                    StackTransfer::Conditional { taken, fallthrough } => (taken, fallthrough),
+                };
+                let taken_state = apply_stack_delta(state, taken_delta, prototype_index, instruction_index)?;
+                let fallthrough_state = apply_stack_delta(state, fallthrough_delta, prototype_index, instruction_index)?;
+                enqueue_stack_state(&mut pending, &mut states, prototype_index, instruction_index, target, taken_state)?;
+                enqueue_stack_state(&mut pending, &mut states, prototype_index, instruction_index, fallthrough, fallthrough_state)?;
+            }
+            ControlFlowKindV1::FunctionExit | ControlFlowKindV1::NonLocalExit | ControlFlowKindV1::ExceptionalTermination => {
+                let StackTransfer::Linear(delta) = transfer else {
+                    return Err(invalid_stack_transfer_classification(prototype_index, instruction_index, control_flow));
+                };
+                let _terminal_state = apply_stack_delta(state, delta, prototype_index, instruction_index)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn relative_jump_offset(instruction: &PortableInstructionV1) -> Option<i32> {
+    let mut offset = None;
+    instruction.visit_operands(|domain, value| {
+        if domain == OperandDomainV1::RelativeJump {
+            if let PortableOperandValueV1::Signed(value) = value {
+                offset = i32::try_from(value).ok();
+            }
+        }
+    });
+    offset
+}
+
+fn enqueue_stack_state(
+    pending: &mut Vec<usize>,
+    states: &mut [Option<ReachableStackState>],
+    prototype: usize,
+    instruction: usize,
+    target: usize,
+    incoming: ReachableStackState,
+) -> Result<(), ExecutableValidationError> {
+    let Some(existing) = states.get_mut(target) else {
+        return Err(ExecutableValidationError::InvalidBranchTarget {
+            prototype,
+            instruction,
+            target: i64::try_from(target).unwrap_or(i64::MAX),
+        });
+    };
+    match existing {
+        Some(existing) if existing.height != incoming.height => Err(ExecutableValidationError::IncompatibleControlFlowState {
+            prototype,
+            instruction: target,
+            existing: existing.height,
+            incoming: incoming.height,
+        }),
+        Some(_) => Ok(()),
+        None => {
+            *existing = Some(incoming);
+            pending.push(target);
+            Ok(())
+        }
+    }
+}
+
+fn invalid_stack_transfer_classification(
+    prototype: usize,
+    instruction: usize,
+    flow: ControlFlowKindV1,
+) -> ExecutableValidationError {
+    ExecutableValidationError::InvalidInstruction {
+        prototype,
+        instruction,
+        operand: "stack-transfer metadata",
+        detail: format!("conditional stack transfer is incompatible with {flow:?}"),
+    }
 }
 
 fn validate_prototype_control_flow(

@@ -234,10 +234,7 @@ impl ExecutableImageV1 {
             }
         }
         for (index, prototype) in self.prototypes.iter().enumerate() {
-            if prototype.max_slots > caps.prototypes.max_frame_slots {
-                return Err(invalid("prototype frame slot limit exceeded"));
-            }
-            check_count(prototype.upvalues.len(), caps.prototypes.max_upvalues, "prototype upvalues")?;
+            prototype.validate_structure(&caps.prototypes)?;
             self.source_map(prototype.source.0, "prototype source map")?;
             self.semantic_pool(prototype.semantics.0, "prototype semantic pool")?;
             for constant in &prototype.constants {
