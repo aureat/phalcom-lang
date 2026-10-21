@@ -26,19 +26,19 @@ impl<S, T> State<S, T> {
   /// Reads the supplied state as the produced value.
   @class
   get() -> State<S, T> where T == S {
-    State<S, T>.new(|state| { StateStep<S, T>(state: state, value: state) })
+    State<S, S>.new(|state| { StateStep<S, S>(state: state, value: state) })
   }
 
   /// Replaces the supplied state. Available on State<S, Unit>.
   @class
   put(_ replacement: S) -> State<S, T> where T == Unit {
-    State<S, T>.new(|_| { StateStep<S, T>(state: replacement, value: ()) })
+    State<S, Unit>.new(|_| { StateStep<S, Unit>(state: replacement, value: ()) })
   }
 
   /// Updates the supplied state once per run, producing Unit.
   @class
   modify(_ f: (S) -> S) -> State<S, T> where T == Unit {
-    State<S, T>.new(|state| { StateStep<S, T>(state: f.call(state), value: ()) })
+    State<S, Unit>.new(|state| { StateStep<S, Unit>(state: f.call(state), value: ()) })
   }
 
   /// Reads a projection of the state without changing it.
