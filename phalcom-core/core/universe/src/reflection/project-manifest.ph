@@ -17,6 +17,6 @@ native class ProjectManifest is Object {
   native entry -> String
   native defaultEntry -> String
   native dependencyDeclarations -> (*: PackageRequirement)
-  native dependencies -> Tuple<PackageRequirement>
+  native dependencies -> (*: PackageRequirement)
   native toString -> String
 }
