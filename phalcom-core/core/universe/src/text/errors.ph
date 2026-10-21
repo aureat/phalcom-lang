@@ -5,12 +5,14 @@ class Utf8Error is Error {
 
   @constructor
   new(validUpTo: Int, errorLength: Option<Int>) {
+    super.new()
     _validUpTo = validUpTo
     _errorLength = errorLength
   }
 
   @constructor
   new(_ validUpTo: Int, _ errorLength: Option<Int>) {
+    super.new()
     _validUpTo = validUpTo
     _errorLength = errorLength
   }
@@ -37,18 +39,21 @@ class IntParseError is Error {
 
   @constructor
   new(message: String, index: Option<Int>) {
+    super.new()
     _message = message
     _index = index
   }
 
   @constructor
   new(message: String) {
+    super.new()
     _message = message
     _index = None
   }
 
   @constructor
   new(_ message: String) {
+    super.new()
     _message = message
     _index = None
   }
@@ -79,18 +84,21 @@ class FloatParseError is Error {
 
   @constructor
   new(message: String, index: Option<Int>) {
+    super.new()
     _message = message
     _index = index
   }
 
   @constructor
   new(message: String) {
+    super.new()
     _message = message
     _index = None
   }
 
   @constructor
   new(_ message: String) {
+    super.new()
     _message = message
     _index = None
   }
@@ -121,18 +129,21 @@ class BoolParseError is Error {
 
   @constructor
   new(message: String, index: Option<Int>) {
+    super.new()
     _message = message
     _index = index
   }
 
   @constructor
   new(message: String) {
+    super.new()
     _message = message
     _index = None
   }
 
   @constructor
   new(_ message: String) {
+    super.new()
     _message = message
     _index = None
   }
