@@ -2640,12 +2640,25 @@ fn apply_generic_callable_in_context(
                     };
 
                     let term_to_constrain = canonicalized_return_term.as_ref().unwrap_or(return_term);
-                    let term_to_constrain = session_handle.borrow().term_for_expected(term_to_constrain);
-                    session_handle.borrow_mut().add_constraint(
-                        InferenceRelation::Subtype(term_to_constrain, expected_term),
-                        ConstraintOrigin::ExpectedResult { expression: call_id },
-                        None,
-                    );
+                    let lexically_equivalent = expected.ty().is_some_and(|expected_ty| {
+                        session_handle
+                            .borrow()
+                            .materialize(term_to_constrain, ctx.store)
+                            .ok()
+                            .is_some_and(|return_ty| {
+                                ctx.generic_evidence
+                                    .are_types_equivalent(ctx.store, return_ty, expected_ty)
+                                    .is_proven()
+                            })
+                    });
+                    if !lexically_equivalent {
+                        let term_to_constrain = session_handle.borrow().term_for_expected(term_to_constrain);
+                        session_handle.borrow_mut().add_constraint(
+                            InferenceRelation::Subtype(term_to_constrain, expected_term),
+                            ConstraintOrigin::ExpectedResult { expression: call_id },
+                            None,
+                        );
+                    }
                 }
                 session_handle.borrow_mut().record_context_selection(return_term);
                 if let Some(expected_ty) = expected.ty() {
