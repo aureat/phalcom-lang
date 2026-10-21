@@ -95,27 +95,64 @@ fn constructor_table_difference(
     src: &ConstructorInitializationTable,
     art: &ConstructorInitializationTable,
     user_modules: &BTreeSet<ModuleId>,
+    referenced_initializers: &BTreeSet<phalcom_semantic::identity::CallableId>,
 ) -> Option<String> {
-    let src_effective: BTreeMap<_, _> = src.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
-    let art_effective: BTreeMap<_, _> = art.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
-    if src_effective == art_effective {
+    let src_partitions = partition_constructor_products(src, user_modules);
+    let art_partitions = partition_constructor_products(art, user_modules);
+    let source_required = |products: &BTreeMap<phalcom_semantic::identity::CallableId, ConstructorInitializationProduct>| {
+        products
+            .iter()
+            .filter(|(_, product)| referenced_initializers.contains(&product.initializer))
+            .map(|(key, product)| (key.clone(), product.clone()))
+            .collect::<BTreeMap<_, _>>()
+    };
+    let src_canonical = source_required(&src_partitions.canonical);
+    let art_canonical = source_required(&art_partitions.canonical);
+    let src_external = source_required(&src_partitions.external);
+    let art_external = source_required(&art_partitions.external);
+    let referenced_products = |table: &ConstructorInitializationTable| {
+        table
+            .iter()
+            .filter(|(_, product)| referenced_initializers.contains(&product.initializer))
+            .map(|(key, product)| (key.clone(), product.clone()))
+            .collect::<BTreeMap<_, _>>()
+    };
+    let source_products = referenced_products(src);
+    let artifact_products = referenced_products(art);
+    let source_missing = referenced_initializers
+        .iter()
+        .filter(|initializer| !source_products.values().any(|product| &product.initializer == *initializer))
+        .cloned()
+        .collect::<Vec<_>>();
+    let artifact_missing = referenced_initializers
+        .iter()
+        .filter(|initializer| !artifact_products.values().any(|product| &product.initializer == *initializer))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if src_partitions.user == art_partitions.user
+        && src_canonical == art_canonical
+        && src_external == art_external
+        && source_missing.is_empty()
+        && artifact_missing.is_empty()
+    {
         return None;
     }
 
-    let src_partitions = partition_constructor_products(src, user_modules);
-    let art_partitions = partition_constructor_products(art, user_modules);
     Some(format!(
-        "Constructor initialization products mismatch for {:?}: source effective={} (local={}, parent={}), artifact effective={} (local={}, parent={}); {}; {}; {}",
+        "Constructor initialization parity mismatch for {:?}: source effective rows={} (local={}, parent={}), artifact effective rows={} (local={}, parent={}); {}; {}; {}; referenced initializers missing in source={:?}, artifact={:?}",
         module,
-        src_effective.len(),
+        src.len(),
         src.local_len(),
         src.parent_len(),
-        art_effective.len(),
+        art.len(),
         art.local_len(),
         art.parent_len(),
         constructor_partition_summary("user-owned", &src_partitions.user, &art_partitions.user),
-        constructor_partition_summary("canonical-owned", &src_partitions.canonical, &art_partitions.canonical),
-        constructor_partition_summary("other-external-owned", &src_partitions.external, &art_partitions.external),
+        constructor_partition_summary("referenced canonical-owned", &src_canonical, &art_canonical),
+        constructor_partition_summary("referenced other-external-owned", &src_external, &art_external),
+        source_missing,
+        artifact_missing,
     ))
 }
 
@@ -577,6 +614,13 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
             &src_mod.lowering.constructor_initializations,
             &art_mod.lowering.constructor_initializations,
             &user_module_ids,
+            &src_mod
+                .lowering
+                .constructor_super_initializers
+                .values()
+                .chain(art_mod.lowering.constructor_super_initializers.values())
+                .cloned()
+                .collect(),
         ) {
             report.differences.push(difference);
         }
@@ -697,6 +741,7 @@ mod tests {
         let user_modules = BTreeSet::from([user_module.clone()]);
         let canonical = product(&canonical_module, "Canonical", 11);
         let user = product(&user_module, "User", 22);
+        let referenced_initializers = BTreeSet::from([canonical.initializer.clone()]);
 
         let mut source = ConstructorInitializationTable::default();
         source.insert(canonical.clone());
@@ -711,7 +756,7 @@ mod tests {
         assert_eq!(source.parent_len(), 0);
         assert_eq!(artifact.local_len(), 1);
         assert_eq!(artifact.parent_len(), 1);
-        assert!(constructor_table_difference(&user_module, &source, &artifact, &user_modules).is_none());
+        assert!(constructor_table_difference(&user_module, &source, &artifact, &user_modules, &referenced_initializers).is_none());
 
         let source_partitions = partition_constructor_products(&source, &user_modules);
         let artifact_partitions = partition_constructor_products(&artifact, &user_modules);
@@ -727,16 +772,16 @@ mod tests {
             table.insert(user.clone());
             table
         };
-        let missing =
-            constructor_table_difference(&user_module, &source, &missing_artifact, &user_modules).expect("missing canonical authority must fail parity");
-        assert!(missing.contains("canonical-owned: source=1, artifact=0"), "{missing}");
+        let missing = constructor_table_difference(&user_module, &source, &missing_artifact, &user_modules, &referenced_initializers)
+            .expect("missing canonical authority must fail parity");
+        assert!(missing.contains("referenced canonical-owned: source=1, artifact=0"), "{missing}");
 
         let mut changed_parent = ConstructorInitializationTable::default();
         changed_parent.insert(canonical);
         let mut changed_artifact = ConstructorInitializationTable::with_parent(Arc::new(changed_parent));
         changed_artifact.insert(product(&user_module, "User", 23));
-        let changed =
-            constructor_table_difference(&user_module, &source, &changed_artifact, &user_modules).expect("changed user product fingerprint must fail parity");
+        let changed = constructor_table_difference(&user_module, &source, &changed_artifact, &user_modules, &referenced_initializers)
+            .expect("changed user product fingerprint must fail parity");
         assert!(changed.contains("field_input_fingerprint"), "{changed}");
 
         let missing_user_table = ConstructorInitializationTable::with_parent(Arc::new({
@@ -744,8 +789,18 @@ mod tests {
             parent.insert(product(&canonical_module, "Canonical", 11));
             parent
         }));
-        let missing_user =
-            constructor_table_difference(&user_module, &source, &missing_user_table, &user_modules).expect("missing user product must fail parity");
+        let missing_user = constructor_table_difference(&user_module, &source, &missing_user_table, &user_modules, &referenced_initializers)
+            .expect("missing user product must fail parity");
         assert!(missing_user.contains("user-owned: source=1, artifact=0"), "{missing_user}");
+
+        let mut broader_parent = ConstructorInitializationTable::default();
+        broader_parent.insert(product(&canonical_module, "Canonical", 11));
+        broader_parent.insert(product(&canonical_module, "ImageOnly", 33));
+        let mut broader_artifact = ConstructorInitializationTable::with_parent(Arc::new(broader_parent));
+        broader_artifact.insert(user);
+        assert!(
+            constructor_table_difference(&user_module, &source, &broader_artifact, &user_modules, &referenced_initializers).is_none(),
+            "unreferenced imported canonical authority may be a strict superset"
+        );
     }
 }

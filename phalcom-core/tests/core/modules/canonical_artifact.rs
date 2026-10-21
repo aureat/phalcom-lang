@@ -21,6 +21,28 @@ fn constructor_products_where(
         .collect()
 }
 
+fn constructor_products_local_where(
+    table: &ConstructorInitializationTable,
+    mut include: impl FnMut(&CallableId) -> bool,
+) -> BTreeMap<CallableId, ConstructorInitializationProduct> {
+    table
+        .iter_local()
+        .filter(|(callable, _)| include(callable))
+        .map(|(callable, product)| (callable.clone(), product.clone()))
+        .collect()
+}
+
+fn constructor_products_for_initializers(
+    table: &ConstructorInitializationTable,
+    initializers: &BTreeSet<CallableId>,
+) -> BTreeMap<CallableId, ConstructorInitializationProduct> {
+    table
+        .iter()
+        .filter(|(_, product)| initializers.contains(&product.initializer))
+        .map(|(callable, product)| (callable.clone(), product.clone()))
+        .collect()
+}
+
 fn assert_constructor_parent_coverage(
     source: &phalcom_core::modules::compile::CompiledProgram,
     artifact: &phalcom_core::modules::compile::CompiledProgram,
@@ -41,24 +63,32 @@ fn assert_constructor_parent_coverage(
     });
     assert_eq!(
         source_canonical, artifact_canonical,
-        "source and imported artifact canonical constructor products must match exactly"
+        "source and imported artifact canonical constructor images must match exactly"
     );
 
     for module in &source_modules {
         let source_table = &source.modules[module].lowering.constructor_initializations;
         let artifact_table = &artifact.modules[module].lowering.constructor_initializations;
-        let source_local_canonical = source_table
-            .iter_local()
-            .filter(|(callable, _)| callable.owner.module().project.is_universe())
-            .count();
-        let artifact_local_canonical = artifact_table
-            .iter_local()
-            .filter(|(callable, _)| callable.owner.module().project.is_universe())
-            .count();
+        let source_local_canonical = constructor_products_local_where(source_table, |callable| callable.owner.module().project.is_universe());
+        let artifact_local_canonical = constructor_products_local_where(artifact_table, |callable| callable.owner.module().project.is_universe());
         let source_effective_canonical = constructor_products_where(source_table, |callable| callable.owner.module().project.is_universe());
         let artifact_effective_canonical = constructor_products_where(artifact_table, |callable| callable.owner.module().project.is_universe());
         let source_user = constructor_products_where(source_table, |callable| source_modules.contains(callable.owner.module()));
         let artifact_user = constructor_products_where(artifact_table, |callable| artifact_modules.contains(callable.owner.module()));
+        let referenced_initializers = source.modules[module]
+            .lowering
+            .constructor_super_initializers
+            .values()
+            .chain(artifact.modules[module].lowering.constructor_super_initializers.values())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let source_referenced = constructor_products_for_initializers(source_table, &referenced_initializers);
+        let artifact_referenced = constructor_products_for_initializers(artifact_table, &referenced_initializers);
+        let source_missing_image_rows = source_local_canonical
+            .iter()
+            .filter(|(callable, product)| source_canonical.get(*callable) != Some(*product))
+            .map(|(callable, _)| callable.clone())
+            .collect::<Vec<_>>();
 
         assert_eq!(
             source_table.parent_len(),
@@ -66,12 +96,17 @@ fn assert_constructor_parent_coverage(
             "source compilation should own its canonical constructor rows locally for {module:?}"
         );
         assert_eq!(
-            source_local_canonical,
-            source_canonical.len(),
-            "source canonical constructor rows must match the formal image for {module:?}"
+            source_effective_canonical, source_local_canonical,
+            "source has no canonical parent rows for {module:?}"
         );
         assert_eq!(
-            artifact_local_canonical, 0,
+            source_missing_image_rows,
+            Vec::<CallableId>::new(),
+            "every source-context canonical constructor row must exist identically in the source formal image for {module:?}"
+        );
+        assert_eq!(
+            artifact_local_canonical.len(),
+            0,
             "artifact compilation must keep canonical constructors in the imported parent for {module:?}"
         );
         assert_eq!(
@@ -80,33 +115,30 @@ fn assert_constructor_parent_coverage(
             "artifact constructor parent must cover the full imported canonical table for {module:?}"
         );
         assert_eq!(
-            source_effective_canonical, source_canonical,
-            "source lowering context must contain the exact canonical products for {module:?}"
-        );
-        assert_eq!(
             artifact_effective_canonical, artifact_canonical,
             "artifact lowering context must expose the exact imported canonical products for {module:?}"
         );
-        assert_eq!(
-            source_effective_canonical, artifact_effective_canonical,
-            "canonical constructor coverage must match for {module:?}"
-        );
         assert_eq!(source_user, artifact_user, "user constructor products must match exactly for {module:?}");
-
-        let source_effective = constructor_products_where(&source_table, |_| true);
-        let artifact_effective = constructor_products_where(&artifact_table, |_| true);
         assert_eq!(
-            source_effective, artifact_effective,
-            "effective constructor tables must match exactly for {module:?}"
+            source_referenced, artifact_referenced,
+            "all constructor products selected by user lowering must have exact canonical authority for {module:?}"
         );
+        for (factory, product) in &source_referenced {
+            if product.factory.owner.module().project.is_universe() {
+                assert_eq!(source_canonical.get(factory), Some(product), "source image canonical product {factory:?}");
+                assert_eq!(artifact_canonical.get(factory), Some(product), "artifact image canonical product {factory:?}");
+            }
+        }
         eprintln!(
-            "T7 constructor proof {module:?}: source local canonical/user={}/{}, artifact local canonical/user={}/{}, artifact parent={}, effective canonical={}, user products={}",
-            source_local_canonical,
-            source_table.local_len() - source_local_canonical,
-            artifact_local_canonical,
-            artifact_table.local_len() - artifact_local_canonical,
+            "T7 constructor proof {module:?}: source local canonical/user={}/{}, source image canonical={}, artifact local canonical/user={}/{}, artifact parent={}, artifact effective canonical={}, referenced products={}, user products={}",
+            source_local_canonical.len(),
+            source_table.local_len() - source_local_canonical.len(),
+            source_canonical.len(),
+            artifact_local_canonical.len(),
+            artifact_table.local_len() - artifact_local_canonical.len(),
             artifact_table.parent_len(),
             artifact_effective_canonical.len(),
+            source_referenced.len(),
             source_user.len(),
         );
     }
