@@ -15,8 +15,8 @@ next_action: >
   outside the prior focused-test authorization until the plan/user authorizes
   them.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: 0fc8f4ee51fc91da26c6186f249bd70131899dd1
-latest_tested_revision: "0fc8f4ee51fc91da26c6186f249bd70131899dd1 + dirty worktree"
+execution_tree_head: c36a788fcfdb44cad7449aa582f14c060233f5ae
+latest_tested_revision: c36a788fcfdb44cad7449aa582f14c060233f5ae
 latest_tested_predecessor: 0fc8f4ee51fc91da26c6186f249bd70131899dd1
 ---
 

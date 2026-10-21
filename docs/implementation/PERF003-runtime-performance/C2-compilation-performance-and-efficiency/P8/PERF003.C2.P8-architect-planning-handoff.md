@@ -28,9 +28,10 @@ defers those gates pending policy authorization.
 
 - Checkpoint: `PERF003.C2`, `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
 - Plan: `PERF003.C2.P8`, `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
-- Branch: `feat/artifact-universe-consolidation`; the delivery commit is the
-  source and record state for this handoff. The implementation was tested as
-  the dirty tree based on `0fc8f4ee51fc91da26c6186f249bd70131899dd1`.
+- Branch: `feat/artifact-universe-consolidation`; implementation source is
+  commit `c36a788fcfdb44cad7449aa582f14c060233f5ae`. This handoff and the
+  checkpoint anchor to that tested source revision. The focused checks ran
+  against the same source tree before commit.
 - P7's loaded compiler image and independent certification are accepted. P8.G1
   is PASS: the loaded compiler interface is present and the targeted compiler
   check passed.
