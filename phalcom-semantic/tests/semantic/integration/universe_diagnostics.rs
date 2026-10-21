@@ -209,3 +209,30 @@ impl ProbeConstructorWitness<ProbeBox> for ProbeBoxContext {}
     );
     assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
 }
+
+
+#[test]
+fn same_owner_class_generic_dispatch_resolves_current_class() {
+    let snapshot = analyze(
+        r#"
+class ProbeStatics {
+  @class
+  identity<T>(_ value: T) -> T { value }
+
+  @class
+  forward<T>(_ value: T) -> T {
+    ProbeStatics.identity<T>(value)
+  }
+}
+"#,
+    );
+
+    assert!(
+        !snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnresolved),
+        "same-owner class generic dispatch must resolve the current class; diagnostics: {:#?}",
+        snapshot.diagnostics
+    );
+    assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
+}
