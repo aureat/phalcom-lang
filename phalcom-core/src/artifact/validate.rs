@@ -19,17 +19,17 @@ use phalcom_compiler_artifact::executable::semantic::{
     PortableTypeParameterRefV1, PortableTypeRecipeV1,
 };
 use phalcom_modules::linker::{LinkedModule, LinkedReadSpec};
+use phalcom_semantic::canonical_image::CanonicalUniverseFormalImage;
 use phalcom_semantic::metadata::stable_identity::{
     to_stable_data_component, to_stable_declaration, to_stable_impl, to_stable_module, to_stable_variant, to_stable_variant_field,
 };
+use phalcom_type_meta::SemanticMetadataBundle;
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::generic::{StableTypeParameterOwnerRef, StableTypeParameterRef};
 use phalcom_type_meta::identity::{
     StableCallableOwnerRef, StableCallableRef, StableDataComponentRef, StableDeclarationRef, StableDispatchSide, StableFieldRef, StableImplRef,
     StableModuleRef, StableStaticConstantRef, StableVariantFieldRef, StableVariantRef,
 };
-
-use crate::modules::canonical_artifact::LoadedUniverseArtifact;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ExecutableValidationError {
@@ -168,16 +168,15 @@ struct ExecutableValidationContext<'a> {
 }
 
 impl<'a> ExecutableValidationContext<'a> {
-    fn new(loaded: &'a LoadedUniverseArtifact) -> Result<Self, ExecutableValidationError> {
+    fn new(formal_image: &'a CanonicalUniverseFormalImage, metadata: &SemanticMetadataBundle) -> Result<Self, ExecutableValidationError> {
         let mut linked_modules = BTreeMap::new();
-        for (module, linked) in loaded.formal_image.linked().modules.iter() {
+        for (module, linked) in formal_image.linked().modules.iter() {
             let stable = to_stable_module(module);
             if linked_modules.insert(stable.clone(), linked).is_some() {
                 return Err(ExecutableValidationError::DuplicateP7Module(stable));
             }
         }
 
-        let metadata = &loaded.metadata;
         let declarations = metadata
             .declarations
             .iter()
@@ -193,7 +192,7 @@ impl<'a> ExecutableValidationContext<'a> {
         let callables = metadata.callables.iter().map(|record| record.callable.clone()).collect();
         let fields = metadata.fields.iter().map(|record| record.field.clone()).collect();
         let mut implementations = BTreeSet::new();
-        let snapshot = loaded.formal_image.snapshot();
+        let snapshot = formal_image.snapshot();
         implementations.extend(snapshot.conformance_index.iter().map(|(implementation, _)| to_stable_impl(implementation)));
         implementations.extend(
             snapshot
@@ -211,7 +210,7 @@ impl<'a> ExecutableValidationContext<'a> {
         let mut data_declarations = BTreeSet::new();
         let mut data_components = BTreeSet::new();
         let mut data_component_names = BTreeMap::new();
-        for (module, _) in loaded.formal_image.linked().modules.iter() {
+        for (module, _) in formal_image.linked().modules.iter() {
             for (_, data) in snapshot.data_semantics.iter_module(module) {
                 let owner = to_stable_declaration(&data.owner);
                 data_declarations.insert(owner);
@@ -323,15 +322,14 @@ impl<'a> ExecutableValidationContext<'a> {
     }
 }
 
-/// Checks the executable's initial compatibility and P7-reference boundary.
-/// This remains a staging check, not execution authority: the function returns
-/// no VM-usable product until prototype, control-flow, and semantic-pool
-/// validation are complete.
+/// Authorizes a decoded executable only after all core-owned compatibility,
+/// control-flow, runtime-object, and P2 semantic-reference checks pass.
 pub(crate) fn validate_executable_image(
-    image: &ExecutableImageV1,
-    loaded: &LoadedUniverseArtifact,
+    image: Arc<ExecutableImageV1>,
+    formal_image: &CanonicalUniverseFormalImage,
+    metadata: &SemanticMetadataBundle,
     limits: &ExecutableImageLimitsV1,
-) -> Result<(), ExecutableValidationError> {
+) -> Result<ValidatedExecutableImage, ExecutableValidationError> {
     // The artifact layer owns fixed wire compatibility and bounded structural
     // accounting; core adds host policy and loaded runtime/P7 authority checks.
     image.validate_structure(limits)?;
@@ -340,20 +338,20 @@ pub(crate) fn validate_executable_image(
         return Err(ExecutableValidationError::UnsupportedProfile(image.compatibility.compilation_profile.clone()));
     }
 
-    let context = ExecutableValidationContext::new(loaded)?;
-    validate_module_coverage(image, &context)?;
-    validate_bootstrap_dependencies(image, &context)?;
-    validate_native_anchors(image)?;
-    validate_primordial_roles(image)?;
-    validate_classes(image, &context)?;
-    validate_prototype_owners(image, &context)?;
-    validate_prototypes(image, &context)?;
-    validate_method_recipes(image)?;
-    validate_detached_methods(image, &context)?;
-    validate_required_declarations(image, &context)?;
-    validate_canonical_semantic_roots(image, &context)?;
-    validate_semantic_pools(image, &context)?;
-    Ok(())
+    let context = ExecutableValidationContext::new(formal_image, metadata)?;
+    validate_module_coverage(&image, &context)?;
+    validate_bootstrap_dependencies(&image, &context)?;
+    validate_native_anchors(&image)?;
+    validate_primordial_roles(&image)?;
+    validate_classes(&image, &context)?;
+    validate_prototype_owners(&image, &context)?;
+    validate_prototypes(&image, &context)?;
+    validate_method_recipes(&image)?;
+    validate_detached_methods(&image, &context)?;
+    validate_required_declarations(&image, &context)?;
+    validate_canonical_semantic_roots(&image, &context)?;
+    validate_semantic_pools(&image, &context)?;
+    Ok(ValidatedExecutableImage { image })
 }
 
 fn validate_module_coverage(image: &ExecutableImageV1, context: &ExecutableValidationContext<'_>) -> Result<(), ExecutableValidationError> {
@@ -2984,6 +2982,21 @@ fn stable_semantic_digest(fingerprint: Fingerprint128) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new_derive_key("phalcom.telosc.executable.semantic-type.v1");
     hasher.update(fingerprint.as_bytes());
     *hasher.finalize().as_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validator_contract_uses_unpublished_p2_authority_and_returns_private_authority() {
+        let _validator: fn(
+            Arc<ExecutableImageV1>,
+            &phalcom_semantic::canonical_image::CanonicalUniverseFormalImage,
+            &phalcom_type_meta::SemanticMetadataBundle,
+            &ExecutableImageLimitsV1,
+        ) -> Result<ValidatedExecutableImage, ExecutableValidationError> = validate_executable_image;
+    }
 }
 
 fn hex_digest(bytes: &[u8]) -> String {

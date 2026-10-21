@@ -3,13 +3,13 @@ use phalcom_compiler_artifact::semantic::aggregates::{StructuralPrimaryContracts
 use phalcom_compiler_artifact::semantic::static_value::StaticValueGraphV1;
 use phalcom_compiler_artifact::semantic::type_store::TypeGraphV1;
 use phalcom_compiler_artifact::semantic::world::{
-    CallableAnalysisRecordV1, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1,
+    CallableAnalysisRecordV1, CallableAnalysisRecordV2, CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1,
     CallableBindingRowV1, CallableCallSpecializationV1, CallableCausalInvalidityV1, CallableConformanceEvidenceNodeV1, CallableExactConformanceEvidenceV1,
     CallableExpressionRowV1, CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1, CallableFlowNodeV1,
     CallableFlowStateSummaryV1, CallableGenericCallConformanceBindingV1, CallableGenericCallConformanceSourceV1, CallableGenericConformanceProofRefV1,
     CallableInitializationStateV1, CallableTypeEnvironmentV1, ConstructorSuperInitializerV1, EvidenceOriginV1, EvidenceSetV1, EvidenceStatusV1,
     GenericConformanceKeyV1, ModuleStaticBindingIndexV1, ModuleStaticBindingPhaseV1, ModuleStaticBindingRecordV1, ModuleStaticBindingVisibleNameV1,
-    ReturnContractValidationV1, SemanticWorldV3, StaticConstantSymbolV1, TypeKnowledgeV1,
+    ModuleExecutionAuthorityV1, ReturnContractValidationV1, SemanticWorldV3, SemanticWorldV4, StaticConstantSymbolV1, TypeKnowledgeV1,
 };
 use phalcom_type_meta::identity::{
     StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableImplRef, StableModuleRef, StableProjectRef,
@@ -658,6 +658,43 @@ fn world(status: CallableAnalysisStatusV1) -> SemanticWorldV3 {
     }
 }
 
+// V3 remains a validation projection. Codec round trips must exercise the
+// current V4 schema, whose allocation-aware decoder is the supported path.
+fn current_world(world: SemanticWorldV3) -> SemanticWorldV4 {
+    SemanticWorldV4 {
+        type_graph: world.type_graph,
+        structural_contracts: world.structural_contracts.into(),
+        enum_requirements: world.enum_requirements,
+        static_values: world.static_values,
+        static_definitions: world.static_definitions,
+        static_constants: world.static_constants,
+        module_static_bindings: world.module_static_bindings,
+        witness_plans: world.witness_plans,
+        derived_conformance_rules: world.derived_conformance_rules,
+        callable_signatures: world.callable_signatures,
+        callable_definitions: world.callable_definitions,
+        callable_analyses: world
+            .callable_analyses
+            .into_iter()
+            .map(|analysis| CallableAnalysisRecordV2::from_v1_with_observed_import_phases(analysis, Vec::new()))
+            .collect(),
+        trait_surfaces: world.trait_surfaces,
+        dispatch_surfaces: world.dispatch_surfaces,
+        conditional_inherent_sets: world.conditional_inherent_sets,
+        conformance_heads: world.conformance_heads,
+        constructor_initializations: world.constructor_initializations,
+        type_member_declarations: world.type_member_declarations,
+        associated_static_domains: world.associated_static_domains,
+        static_case_catalogs: world.static_case_catalogs,
+        static_case_signatures: world.static_case_signatures,
+        associated_surfaces: world.associated_surfaces,
+        module_execution_authority: ModuleExecutionAuthorityV1 {
+            import_phase_products: Vec::new(),
+            runtime_requirements: Vec::new(),
+        },
+    }
+}
+
 #[test]
 fn callable_analysis_status_is_preserved_by_semantic_world_codec() {
     for status in [
@@ -667,8 +704,8 @@ fn callable_analysis_status_is_preserved_by_semantic_world_codec() {
         CallableAnalysisStatusV1::Cancelled,
         CallableAnalysisStatusV1::BudgetExceeded,
     ] {
-        let encoded = world(status.clone()).encode().expect("valid semantic world encodes");
-        let decoded = SemanticWorldV3::decode(&encoded, &Default::default()).expect("semantic world decodes");
+        let encoded = current_world(world(status.clone())).encode().expect("valid current semantic world encodes");
+        let decoded = SemanticWorldV4::decode(&encoded, &Default::default()).expect("current semantic world decodes");
         assert_eq!(decoded.callable_analyses[0].status, status);
         assert_eq!(decoded.callable_analyses[0].callable, callable());
         assert!(decoded.callable_analyses[0].exits_unreachable);
@@ -777,8 +814,8 @@ fn callable_explanation_references_close_over_their_owner() {
     expression.explanation = Some(0);
     analysis.expressions.push(expression);
     valid.validate(&Default::default()).expect("owner-local explanation references are valid");
-    let encoded = valid.encode().expect("explanation references encode");
-    let decoded = SemanticWorldV3::decode(&encoded, &Default::default()).expect("explanation references decode");
+    let encoded = current_world(valid.clone()).encode().expect("explanation references encode");
+    let decoded = SemanticWorldV4::decode(&encoded, &Default::default()).expect("explanation references decode");
     assert_eq!(decoded.callable_analyses[0].explanations, valid.callable_analyses[0].explanations);
     assert_eq!(decoded.callable_analyses[0].return_explanation, Some(0));
     for field in ["expression", "binding", "return"] {
@@ -865,8 +902,8 @@ fn callable_flow_graph_round_trips_owner_local_nodes_edges_and_entry_exit() {
     source.callable_analyses[0].flow_graph.exits = vec![1];
     let expected = source.callable_analyses[0].flow_graph.clone();
 
-    let encoded = source.encode().expect("well-formed owner-local graph encodes");
-    let decoded = SemanticWorldV3::decode(&encoded, &Default::default()).expect("owner-local graph decodes");
+    let encoded = current_world(source.clone()).encode().expect("well-formed owner-local graph encodes");
+    let decoded = SemanticWorldV4::decode(&encoded, &Default::default()).expect("owner-local graph decodes");
     assert_eq!(decoded.callable_analyses[0].flow_graph, expected);
 
     let mut malformed = source.clone();
@@ -1107,8 +1144,8 @@ fn explicit_dynamic_call_argument_round_trips_without_a_type_node() {
         }),
     }];
 
-    let encoded = image.encode().expect("explicit Dynamic is a valid call argument");
-    let decoded = SemanticWorldV3::decode(&encoded, &Default::default()).expect("call argument decodes");
+    let encoded = current_world(image).encode().expect("explicit Dynamic is a valid call argument");
+    let decoded = SemanticWorldV4::decode(&encoded, &Default::default()).expect("call argument decodes");
     assert_eq!(decoded.type_graph.types.len(), 0, "Dynamic has no proper type node");
     assert!(matches!(
         decoded.callable_analyses[0].expressions[0]
@@ -1524,8 +1561,8 @@ fn associated_family_capture_round_trips_subset_and_optional_targets() {
         call_specialization: None,
     }];
 
-    let encoded = image.encode().expect("valid checker-captured subset should encode");
-    let decoded = SemanticWorldV3::decode(&encoded, &Default::default()).expect("captured subset should validate and decode");
+    let encoded = current_world(image).encode().expect("valid checker-captured subset should encode");
+    let decoded = SemanticWorldV4::decode(&encoded, &Default::default()).expect("captured subset should validate and decode");
     assert_eq!(decoded.callable_analyses[0].expressions[0].denotation.as_ref(), Some(&source_denotation));
 }
 

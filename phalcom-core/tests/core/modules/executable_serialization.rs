@@ -65,9 +65,10 @@ fn constant_family_tag(recipe: &ConstantRecipeV1) -> u16 {
 
 #[test]
 fn canonical_universe_executable_capture_structurally_round_trips() {
-    let payload = capture_canonical_universe_executable().unwrap_or_else(|error| panic!("{error:#?}"));
+    let canonical = phalcom_core::modules::canonical_universe_program().expect("canonical Universe product");
+    let payload = capture_canonical_universe_executable(canonical).unwrap_or_else(|error| panic!("{error:#?}"));
     assert!(!payload.payload().is_empty());
-    let repeated = capture_canonical_universe_executable().unwrap_or_else(|error| panic!("second canonical capture failed: {error:#?}"));
+    let repeated = capture_canonical_universe_executable(canonical).unwrap_or_else(|error| panic!("second canonical capture failed: {error:#?}"));
     assert_eq!(
         payload.payload(),
         repeated.payload(),

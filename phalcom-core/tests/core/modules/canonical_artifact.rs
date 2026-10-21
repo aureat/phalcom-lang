@@ -987,7 +987,7 @@ fn source_backed_and_artifact_backed_compiler_program_parity() {
 }
 
 #[test]
-fn artifact_backed_slotmap_runtime_tests_bootstrap_vm_with_generic_intrinsic_adts() {
+fn artifact_backed_compiler_output_runs_on_ordinary_vm() {
     let program = canonical_universe_program().expect("canonical universe program");
     let view = program.compiler_image_view().expect("compiler image view");
     let limits = ValidationLimits::default();
@@ -1003,7 +1003,9 @@ fn artifact_backed_slotmap_runtime_tests_bootstrap_vm_with_generic_intrinsic_adt
     let art_tests = loaded.compile_user_entry(entry).expect("artifact compilation of slotmap runtime tests");
     assert_eq!(art_tests.modules.len(), 8);
 
-    let _vm = phalcom_core::vm::VM::new();
+    let mut vm = phalcom_core::vm::VM::new();
+    vm.run_compiled(&art_tests)
+        .expect("ordinary VM must execute program compiled from artifact-backed canonical authority");
 }
 
 #[test]
@@ -1302,6 +1304,7 @@ fn writer_preserves_previous_output_when_bytes_are_invalid() {
             semantic_world_bytes: 0,
             query_image_bytes: 0,
             metadata_bytes: 0,
+            executable_bytes: 0,
             artifact_digest: [0; 32],
         },
     };

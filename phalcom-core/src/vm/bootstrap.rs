@@ -185,10 +185,10 @@ impl VM {
         Self::try_new_with_native_install_mode_and_output_capture(native_install_mode, output, None)
     }
 
-    pub(crate) fn build_canonical_executable_payload()
+    pub(crate) fn build_canonical_executable_payload(
+        canonical: &crate::modules::CanonicalUniverseProgram,
+    )
     -> Result<phalcom_compiler_artifact::executable::staging::StagedExecutableSectionV1, crate::artifact::capture::ExecutableCaptureError> {
-        let canonical =
-            crate::modules::canonical_universe_program().map_err(|error| crate::artifact::capture::ExecutableCaptureError::Bootstrap(error.to_string()))?;
         let mut capture = crate::artifact::capture::ExecutableImageCapture::new(canonical);
         let mut vm = Self::try_new_with_native_install_mode_and_output_capture(
             NativeInstallMode::DescriptorOnly,
@@ -378,10 +378,26 @@ impl VM {
     }
 
     fn install_native_runtime(vm: &mut Self, native_install_mode: NativeInstallMode) -> Result<(), crate::error::VmBootstrapError> {
-        let universe_sym = vm.interner.intern("universe");
-
         // Initialize canonical builtin 'universe' package with native bindings & exports.
         let universe_pkg = crate::modules::builtin_materialize::initialize_canonical_universe(vm).map_err(crate::error::VmBootstrapError::Runtime)?;
+        Self::finish_native_runtime(vm, native_install_mode, universe_pkg)
+    }
+
+    fn install_native_runtime_on_artifact_topology(
+        vm: &mut Self,
+        native_install_mode: NativeInstallMode,
+    ) -> Result<(), crate::error::VmBootstrapError> {
+        let universe_pkg = crate::modules::builtin_materialize::install_universe_native_bindings_from_registry(vm)
+            .map_err(crate::error::VmBootstrapError::Runtime)?;
+        Self::finish_native_runtime(vm, native_install_mode, universe_pkg)
+    }
+
+    fn finish_native_runtime(
+        vm: &mut Self,
+        native_install_mode: NativeInstallMode,
+        universe_pkg: crate::heap::ObjRef,
+    ) -> Result<(), crate::error::VmBootstrapError> {
+        let universe_sym = vm.interner.intern("universe");
         vm.define_global(universe_pkg, universe_sym, Value::obj(universe_pkg))
             .map_err(crate::error::VmBootstrapError::Runtime)?;
         // Bind primordial classes into their canonical modules and retain root

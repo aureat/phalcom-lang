@@ -1094,6 +1094,16 @@ impl<'a> CheckingContext<'a> {
         linked_module: &phalcom_modules::linker::LinkedModule,
         bindings: &crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
     ) {
+        self.seed_current_module_values(bindings);
+        self.seed_linked_import_values(linked_module, bindings);
+    }
+
+    /// Seeds the current module's already checked top-level values into a
+    /// callable body's outer scope.
+    pub(crate) fn seed_current_module_values(
+        &mut self,
+        bindings: &crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
+    ) {
         if let Some(index) = bindings.get(&self.current_module).cloned() {
             for (name, fact) in index.visible_bindings() {
                 if fact.symbol.module != self.current_module {
@@ -1102,7 +1112,6 @@ impl<'a> CheckingContext<'a> {
                 self.declare_module_value_binding(name.to_owned(), &fact.state, fact.phase, fact.symbol.clone(), None);
             }
         }
-        self.seed_linked_import_values(linked_module, bindings);
     }
 
     /// Seeds only selective imports from the canonical linked target.
@@ -1171,6 +1180,18 @@ impl<'a> CheckingContext<'a> {
                 self.imported_source_bindings.insert(binding_id, import_binding.id.clone());
             }
         }
+    }
+
+    /// Seeds the current module's checked top-level values and its symbolic
+    /// imports into a callable body's outer scope.
+    pub(crate) fn seed_symbolic_module_values(
+        &mut self,
+        semantic_module: &phalcom_modules::linker::SemanticLinkedModule,
+        linked_module: &phalcom_modules::linker::LinkedModule,
+        bindings: &crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
+    ) {
+        self.seed_current_module_values(bindings);
+        self.seed_symbolic_module_import_values(semantic_module, linked_module, bindings);
     }
 
     /// Resolves `module_alias.public_name` as an exported *value*, without

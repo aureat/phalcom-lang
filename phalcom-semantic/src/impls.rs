@@ -3003,8 +3003,9 @@ fn specialize_inherent_applicability(
 }
 
 /// Workspace-level source index for explicit conformance heads.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct ConformanceIndex {
+    parent: Option<Arc<Self>>,
     contributions: crate::parent_map::ParentMap<ImplId, ConformanceContribution>,
 }
 
@@ -3013,16 +3014,30 @@ impl ConformanceIndex {
         Self::default()
     }
 
+    /// Shares an immutable canonical conformance index with a local overlay.
+    pub(crate) fn with_parent(parent: Arc<Self>) -> Self {
+        assert!(parent.parent.is_none(), "conformance index parent must be a canonical root");
+        Self {
+            parent: Some(parent),
+            contributions: crate::parent_map::ParentMap::default(),
+        }
+    }
+
     pub(crate) fn from_frozen_entries_with_allocation_budget(
         entries: Vec<(ImplId, ConformanceContribution)>,
         allocations: &mut AllocationBudget,
     ) -> Result<Self, crate::parent_map::FrozenParentMapError> {
         Ok(Self {
+            parent: None,
             contributions: crate::parent_map::ParentMap::from_frozen_entries_with_allocation_budget(entries, allocations)?,
         })
     }
 
     pub fn insert(&mut self, contribution: ConformanceContribution) {
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.get(&contribution.impl_id).is_some()),
+            "cannot overwrite a canonical conformance head"
+        );
         self.contributions.insert(contribution.impl_id.clone(), contribution);
     }
 
@@ -3035,11 +3050,16 @@ impl ConformanceIndex {
     }
 
     pub fn get(&self, impl_id: &ImplId) -> Option<&ConformanceContribution> {
-        self.contributions.get(impl_id)
+        self.contributions
+            .get(impl_id)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(impl_id)))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&ImplId, &ConformanceContribution)> {
-        self.contributions.iter()
+        self.parent
+            .iter()
+            .flat_map(|parent| parent.contributions.iter())
+            .chain(self.contributions.iter())
     }
 
     /// Returns every eligible source head matching the exact target and trait
@@ -3047,7 +3067,7 @@ impl ConformanceIndex {
     /// matches rather than choosing by insertion or source order.
     pub fn query_exact(&self, store: &mut TypeStore, target: TypeId, trait_ref: &TraitRef) -> Vec<ConformanceHeadMatch> {
         let mut matches = Vec::new();
-        for contribution in self.contributions.values().filter(|contribution| contribution.is_lookup_eligible()) {
+        for (_, contribution) in self.iter().filter(|(_, contribution)| contribution.is_lookup_eligible()) {
             if contribution.trait_ref.declaration != trait_ref.declaration || contribution.trait_ref.arguments.len() != trait_ref.arguments.len() {
                 continue;
             }
@@ -3091,8 +3111,8 @@ impl ConformanceIndex {
     /// patterns overlap. No precedence or specialization rule is applied.
     pub fn overlap_conflicts(&self, store: &mut TypeStore) -> Vec<(ImplId, ImplId)> {
         let contributions = self
-            .contributions
-            .values()
+            .iter()
+            .map(|(_, contribution)| contribution)
             .filter(|contribution| contribution.is_lookup_eligible())
             .collect::<Vec<_>>();
         let mut conflicts = Vec::new();
@@ -3119,6 +3139,14 @@ impl ConformanceIndex {
         conflicts
     }
 }
+
+impl PartialEq for ConformanceIndex {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().count() == other.iter().count() && self.iter().all(|(id, contribution)| other.get(id) == Some(contribution))
+    }
+}
+
+impl Eq for ConformanceIndex {}
 
 fn impl_parameter(store: &TypeStore, ty: TypeId) -> Option<TypeParameterId> {
     let TypeData::Parameter(parameter) = store.get(ty) else { return None };

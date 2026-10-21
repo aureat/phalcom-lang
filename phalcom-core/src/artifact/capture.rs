@@ -100,8 +100,10 @@ pub enum ExecutableCaptureError {
 
 /// Builds the actual canonical executable image using the ordinary source
 /// compiler and bytecode emitter in a disposable VM.
-pub fn capture_canonical_universe_executable() -> Result<phalcom_compiler_artifact::executable::staging::StagedExecutableSectionV1, ExecutableCaptureError> {
-    VM::build_canonical_executable_payload()
+pub fn capture_canonical_universe_executable(
+    canonical: &crate::modules::CanonicalUniverseProgram,
+) -> Result<phalcom_compiler_artifact::executable::staging::StagedExecutableSectionV1, ExecutableCaptureError> {
+    VM::build_canonical_executable_payload(canonical)
 }
 
 pub(crate) struct ExecutableImageCapture {

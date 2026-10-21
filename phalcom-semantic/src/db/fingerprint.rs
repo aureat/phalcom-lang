@@ -504,9 +504,8 @@ fn hash_type_alias_info(info: &TypeAliasInfo, hasher: &mut impl Hasher) {
         None => 0u8.hash(hasher),
     }
     info.structural_form.hash(hasher);
-    let mut dependencies = info.dependencies.iter().collect::<Vec<_>>();
-    dependencies.sort();
-    dependencies.hash(hasher);
+    info.dependencies.len().hash(hasher);
+    hash_sorted_slice_without_allocation(&info.dependencies, hasher);
 }
 
 fn hash_type_declaration_shell(shell: &TypeDeclarationShell, hasher: &mut impl Hasher) {

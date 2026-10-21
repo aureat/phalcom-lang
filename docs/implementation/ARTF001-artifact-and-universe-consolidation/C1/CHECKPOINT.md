@@ -769,3 +769,27 @@ the partial executable DTO and projection infrastructure. The final core library
 check passed in 7.17s, including the owner-string-cap correction; evidence is
 `/tmp/artf001-delivery-check.log`. The documentation commit preserves the current
 handoff. R4/P2 and P8 remain incomplete; no source-free VM runtime result is claimed.
+
+### Bounded P2/P3 closure work — 2026-10-21
+
+Repository callers confirm that `ImportedCompilerImage` and
+`ArtifactImportTransaction` serve compatibility, validation, and
+package-authority tests. Production publication uses the current native
+importer and `CanonicalUniverseFormalImage`. The transaction is now
+crate-private, and the compatibility view is hidden from generated public
+documentation. R4.T6 remains open until the final caller/disposition gate is
+reviewed.
+
+`artifact_backed_compiler_output_runs_on_ordinary_vm` now calls
+`VM::run_compiled` on the artifact-compiled SlotMap runtime program. The target
+passed 1/1 in 114.50s and printed both SlotMap success markers followed by
+`slotmap runtime tests complete`. This proves P2 runtime compatibility on the
+ordinary source-backed VM; it is not source-free artifact VM evidence.
+
+P2.R4 remains `IN_PROGRESS / PARTIAL`, so P3 G0 is false and no artifact VM
+authority was published. The inherited validator no longer depends on an
+already-published `LoadedUniverseArtifact`: it takes
+`CanonicalUniverseFormalImage` plus `SemanticMetadataBundle` and returns the
+private `ValidatedExecutableImage` after validation. Its contract test was
+observed RED (`E0308`) and then passed 1/1. Full T1 proof limits and identity
+coverage, T2–T10, and source-free VM execution remain open.

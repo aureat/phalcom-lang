@@ -255,14 +255,23 @@ impl VM {
         id: &phalcom_modules::ModuleId,
         compiled_mod: &crate::modules::CompiledModule,
     ) -> PhResult<()> {
+        self.materialize_linked_authority_for_module(id, &compiled_mod.linked_reads, &compiled_mod.interface)
+    }
+
+    fn materialize_linked_authority_for_module(
+        &mut self,
+        id: &phalcom_modules::ModuleId,
+        linked_reads: &[LinkedReadSpec],
+        interface: &phalcom_modules::LinkedModuleInterface,
+    ) -> PhResult<()> {
         let obj_ref = self
             .module_registry
             .get(id)
             .ok_or_else(|| RuntimeError::Internal(format!("module {id} not registered for linked reads")))?
             .object;
-        let mut materialized_reads = Vec::with_capacity(compiled_mod.linked_reads.len());
+        let mut materialized_reads = Vec::with_capacity(linked_reads.len());
 
-        for read_spec in &compiled_mod.linked_reads {
+        for read_spec in linked_reads {
             let runtime_read = match read_spec {
                 LinkedReadSpec::Module(target_id) => {
                     let target_obj = self
@@ -307,7 +316,93 @@ impl VM {
         }
 
         self.heap.module_mut(obj_ref).linked_reads = materialized_reads;
-        self.materialize_linked_exports_for_module(id, &compiled_mod.interface)?;
+        self.materialize_linked_exports_for_module(id, interface)?;
+        Ok(())
+    }
+
+    /// Materializes the immutable P2 Universe module topology without reading
+    /// source or consulting a source provider. Initializers are attached later
+    /// from validated executable recipes.
+    pub(crate) fn materialize_universe_artifact_topology(
+        &mut self,
+        image: &phalcom_semantic::canonical_image::CanonicalUniverseFormalImage,
+    ) -> PhResult<()> {
+        for (id, linked) in image.linked().modules.iter() {
+            let display_name = id.to_string();
+            let name_sym = self.interner.intern(&display_name);
+            let mut module = ModuleObject::new(
+                id.clone(),
+                linked.interface.kind,
+                display_name.clone(),
+                name_sym,
+                display_name,
+                None,
+                true,
+            );
+            module.metadata = Some(Arc::new(linked.interface.metadata.clone()));
+            let object = self.heap.alloc(Object::Module(Box::new(module)));
+            self.privileged_modules.insert(object);
+            self.module_registry
+                .register_new(
+                    id.clone(),
+                    ModuleRecord::prepared(
+                        object,
+                        crate::modules::registry::RuntimeProgramId(0),
+                        crate::modules::registry::ModulePlanFingerprint(0),
+                    ),
+                )
+                .map_err(|error| RuntimeError::Internal(error.to_string()))?;
+        }
+
+        let root_id = phalcom_modules::ModuleId::universe_root();
+        let root = self
+            .module_registry
+            .get(&root_id)
+            .ok_or_else(|| RuntimeError::Internal("artifact Universe root is absent".into()))?
+            .object;
+        for (id, linked) in image.linked().modules.iter() {
+            let object = self.module_registry.get(id).expect("artifact module allocated").object;
+            let mut globals = linked
+                .bindings
+                .local_globals
+                .iter()
+                .map(|(name, slot)| (slot.0, name.as_ref()))
+                .collect::<Vec<_>>();
+            globals.sort_by_key(|(slot, _)| *slot);
+            for (expected, name) in globals {
+                let symbol = self.interner.intern(name);
+                let actual = self.heap.module_mut(object).declare(symbol)?;
+                if actual != expected as usize {
+                    return Err(RuntimeError::Internal(format!(
+                        "artifact global layout mismatch for {id}::{name}: {actual} != {expected}"
+                    ))
+                    .into());
+                }
+            }
+
+            let parent = if id.path.is_root() {
+                object
+            } else {
+                let parent_id = phalcom_modules::ModuleId::universe(
+                    id.path.parent().ok_or_else(|| RuntimeError::Internal(format!("artifact module {id} has no parent")))?,
+                );
+                self.module_registry
+                    .get(&parent_id)
+                    .ok_or_else(|| RuntimeError::Internal(format!("artifact parent {parent_id} is absent")))?
+                    .object
+            };
+            self.heap.module_mut(object).package = Some(if linked.interface.kind == phalcom_modules::ModuleKind::Package {
+                object
+            } else {
+                parent
+            });
+            self.heap.module_mut(object).root_package = Some(root);
+        }
+
+        for (id, linked) in image.linked().modules.iter() {
+            self.materialize_linked_authority_for_module(id, &linked.linked_reads, &linked.interface)?;
+        }
+        self.runtime_roots = Some(RuntimeRoots { universe: root, entry: None });
         Ok(())
     }
 

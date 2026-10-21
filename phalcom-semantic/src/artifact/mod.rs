@@ -2,9 +2,9 @@
 //!
 //! (ARTF001.C1.P2)
 
-// Certified-P7 portable producer/importer pipeline. The in-progress current-main
-// importer below remains available as an adaptation source until the P7 path
-// has recovered current-schema parity.
+// The current-schema producer/importer modules below are the production path.
+// The compatibility staging API in this module is retained for transport,
+// validation, and package-authority tests; it is not a second publication path.
 pub mod export;
 pub mod import;
 pub mod operational;
@@ -124,11 +124,13 @@ impl CompilerArtifactImage {
     }
 }
 
-/// Validated artifact data staged for a future live semantic import.
+/// Validation-only compatibility view of staged artifact data.
 ///
-/// `semantic_world` and `query_image` remain portable wire DTOs here. This value is not a
-/// `SemanticSnapshot`, and it is not published into `SemanticDb`.
+/// `semantic_world` and `query_image` remain portable wire DTOs here. Production
+/// publication uses the current native importer to build one `SemanticSnapshot`,
+/// one `SemanticDb`, and one `CanonicalUniverseFormalImage`.
 #[derive(Clone, Debug)]
+#[doc(hidden)]
 pub struct ImportedCompilerImage {
     pub external_world: Arc<CanonicalExternalModuleWorld>,
     /// Project identity graph retained for subsequent semantic import and local overlays.
@@ -228,7 +230,7 @@ impl ImportedCompilerImage {
 /// Ensures fail-closed semantics: allocations are tracked against a budget,
 /// all stages are loaded into private uncommitted fields, and on any error,
 /// staging structures are dropped without publishing partial state.
-pub struct ArtifactImportTransaction<'a> {
+pub(crate) struct ArtifactImportTransaction<'a> {
     pub parent_budget: &'a mut AllocationBudget,
     pub child_ledger: Option<phalcom_type_meta::allocation::ChildAllocationBudget>,
     pub limits: ValidationLimits,
@@ -797,9 +799,11 @@ pub fn decode_and_validate_artifact(
     CompilerArtifactPayload::decode_and_validate(bytes, limits, expected_identity, budget)
 }
 
-/// Transactionally stages a compiler artifact payload into an `ImportedCompilerImage` value.
+/// Stages a compiler artifact into the validation-only compatibility view.
 ///
-/// Semantic/query DTO reconstruction and workspace publication are not implemented yet.
+/// Production semantic/query publication is owned by the current native
+/// importer and `CanonicalUniverseFormalImage` loader.
+#[doc(hidden)]
 pub fn import_compiler_image(
     artifact: CompilerArtifactPayload,
     limits: &ValidationLimits,
@@ -812,7 +816,9 @@ pub fn import_compiler_image(
 
 /// Decodes and stages artifact bytes against an existing workspace project graph.
 /// Package references require validated bytes and receipts from the supplied
-/// trusted package resolver. The returned image retains the resulting graph.
+/// trusted package resolver. The returned compatibility view retains the
+/// resulting graph but is not a production semantic publication authority.
+#[doc(hidden)]
 pub fn import_compiler_image_bytes_with_project_catalog(
     bytes: &[u8],
     expected_identity: Option<&CanonicalCompatibilityIdentity>,

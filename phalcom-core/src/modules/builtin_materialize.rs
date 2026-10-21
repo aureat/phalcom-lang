@@ -80,10 +80,7 @@ pub fn initialize_canonical_universe(vm: &mut VM) -> PhResult<ObjRef> {
         vm.heap.module_mut(object).root_package = Some(root);
     }
 
-    let root_iface = provider
-        .load_interface(&root_id)
-        .map_err(|e| RuntimeError::Internal(format!("failed to load builtin universe interface: {e}")))?;
-    install_universe_native_bindings(vm, &modules, root, &root_iface)?;
+    install_universe_native_bindings(vm, &modules, root)?;
     Ok(root)
 }
 
@@ -93,7 +90,6 @@ pub fn install_universe_native_bindings(
     vm: &mut VM,
     modules: &HashMap<ModuleId, ObjRef>,
     universe_root: ObjRef,
-    _iface: &phalcom_modules::UnlinkedModuleInterface,
 ) -> PhResult<()> {
     for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
         let class_id = vm.universe.classes.resolve(binding.key);
@@ -120,18 +116,17 @@ pub fn install_universe_native_bindings(
         }
     }
 
-    let provider = UniverseSourceProvider::new();
-    for node in provider.nodes().iter().filter(|node| node.path.len() == 1) {
-        let component_name = node
-            .path
-            .first()
-            .ok_or_else(|| RuntimeError::Internal("canonical Universe child has no path component".into()))?;
-        let component = phalcom_modules::ModuleComponent::from_identifier(component_name)
-            .map_err(|error| RuntimeError::Internal(format!("invalid canonical Universe component `{component_name}`: {error}")))?;
-        let child_id = ModuleId::universe(ModulePath::from_components(vec![component.clone()]));
+    let mut children = modules
+        .keys()
+        .filter(|id| id.project.is_universe() && id.path.components().len() == 1)
+        .cloned()
+        .collect::<Vec<_>>();
+    children.sort();
+    for child_id in children {
         let child = *modules
             .get(&child_id)
             .ok_or_else(|| RuntimeError::Internal(format!("Universe child module {child_id} was not allocated")))?;
+        let component = child_id.path.components().first().expect("one-component child");
         let name_sym = vm.interner.intern(component.as_str());
         let slot = vm.heap.module_mut(universe_root).declare(name_sym)?;
         vm.heap.module_mut(universe_root).set_global(slot, Value::obj(child))?;
@@ -171,4 +166,22 @@ pub fn install_universe_native_bindings(
     }
 
     Ok(())
+}
+
+/// Installs canonical native bindings into an already materialized Universe
+/// topology. This is the source-free counterpart of provider-backed module
+/// allocation; it performs no source/provider access itself.
+pub(crate) fn install_universe_native_bindings_from_registry(vm: &mut VM) -> PhResult<ObjRef> {
+    let modules = vm
+        .module_registry
+        .iter()
+        .filter(|(id, _)| id.project.is_universe())
+        .map(|(id, record)| (id.clone(), record.object))
+        .collect::<HashMap<_, _>>();
+    let root_id = ModuleId::universe(ModulePath::root());
+    let root = *modules
+        .get(&root_id)
+        .ok_or_else(|| RuntimeError::Internal("artifact Universe root must be materialized".into()))?;
+    install_universe_native_bindings(vm, &modules, root)?;
+    Ok(root)
 }

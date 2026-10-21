@@ -320,10 +320,16 @@ impl CanonicalUniverseSemanticBaseline {
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
             for stmt in &parsed.program.statements {
                 let Statement::Class(class_def) = stmt else { continue };
-                let declaration = base_declarations
+                let Some(declaration) = base_declarations
                     .iter()
                     .find_map(|(declaration, _)| (declaration.module == module_id && declaration.name.as_ref() == class_def.name).then(|| declaration.clone()))
-                    .unwrap_or_else(|| panic!("canonical Universe class declaration is missing: {module_id}::{}", class_def.name));
+                else {
+                    // Source-only classes in a private Universe provider are
+                    // discovered by the workspace update. This baseline pass
+                    // enriches only declarations owned by the native core
+                    // surface with canonical superclass authority.
+                    continue;
+                };
                 let (resolved_super_decl, _) = crate::checker::context::resolve_source_class_superclass(&declaration, class_def, &resolver);
                 let source_super_decl = resolved_super_decl.or_else(|| {
                     // A few runtime-owned source classes spell a parent that

@@ -201,7 +201,7 @@ fn analyze_callable_body_with_attribute_context(
         ctx.attach_module_value_exports(module_values.bindings, module_values.exports);
         if let Some(semantic_linked_module) = semantic_linked_module {
             let linked_module = linked_module.expect("semantic import authority must include its executable linked layout");
-            ctx.seed_symbolic_module_import_values(semantic_linked_module, linked_module, module_values.bindings);
+            ctx.seed_symbolic_module_values(semantic_linked_module, linked_module, module_values.bindings);
         } else if let Some(linked_module) = linked_module {
             ctx.seed_linked_module_import_values(linked_module, module_values.bindings);
         }

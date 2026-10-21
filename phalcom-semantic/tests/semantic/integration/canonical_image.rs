@@ -86,7 +86,31 @@ fn canonical_formal_image_source_parity_and_provider_isolation() {
         assert_eq!(signature.selector, expected.selector);
         assert_eq!(signature.side, expected.side);
         assert_eq!(signature.parameters.len(), expected.parameters.len());
-        assert_eq!(signature.return_validation, expected.return_validation);
+        assert_eq!(
+            signature.return_validation,
+            expected.return_validation,
+            "return-contract validation differs for callable {id:?} ({:?}, {:?}); source analysis {:?} exits {:?}; image analysis {:?} exits {:?}",
+            signature.selector,
+            signature.side,
+            reference
+                .callable_analyses
+                .get(id)
+                .map(|analysis| (analysis.return_validation, analysis.status, analysis.exits.normal_returns.len())),
+            reference
+                .callable_analyses
+                .get(id)
+                .map(|analysis| analysis.exits.normal_returns.iter().map(|fact| (&fact.knowledge, &fact.status, &fact.causal_invalidity)).collect::<Vec<_>>()),
+            image
+                .snapshot()
+                .callable_analyses
+                .get(id)
+                .map(|analysis| (analysis.return_validation, analysis.status, analysis.exits.normal_returns.len())),
+            image
+                .snapshot()
+                .callable_analyses
+                .get(id)
+                .map(|analysis| analysis.exits.normal_returns.iter().map(|fact| (&fact.knowledge, &fact.status, &fact.causal_invalidity)).collect::<Vec<_>>())
+        );
         assert_eq!(
             signature.declared_return.canonical_type().map(|ty| reference.store.format_type(ty)),
             expected.declared_return.canonical_type().map(|ty| image.snapshot().store.format_type(ty))

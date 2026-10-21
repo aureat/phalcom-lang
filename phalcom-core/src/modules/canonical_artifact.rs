@@ -3,6 +3,7 @@
 use crate::modules::canonical_universe::CanonicalCompilerImageView;
 use crate::modules::compile::{CompiledProgram, EntrySelection, ProgramCompilationOptions, ProgramCompileError, ProgramCompiler};
 use phalcom_compiler_artifact::container::{TeloscContainerBuilder, TeloscContainerView};
+use phalcom_compiler_artifact::executable::image::{ExecutableImageLimitsV1, ExecutableImageV1};
 use phalcom_compiler_artifact::digest::{
     ArtifactDigest, ArtifactHasher, DOMAIN_METADATA, DOMAIN_MODULE_WORLD, DOMAIN_QUERY_IMAGE, DOMAIN_SEMANTIC_WORLD, DOMAIN_SOURCE,
 };
@@ -130,6 +131,16 @@ impl TeloscCapabilities {
             portable_executable: false,
         }
     }
+
+    pub const fn full_v1() -> Self {
+        Self {
+            module_world: true,
+            semantic_world: true,
+            query_image: true,
+            runtime_public_metadata: true,
+            portable_executable: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -139,6 +150,7 @@ pub struct TeloscBuildSummary {
     pub semantic_world_bytes: usize,
     pub query_image_bytes: usize,
     pub metadata_bytes: usize,
+    pub executable_bytes: usize,
     pub artifact_digest: [u8; 32],
 }
 
@@ -171,6 +183,8 @@ pub enum TeloscArtifactError {
     Capability(&'static str),
     #[error("allocation budget exceeded: limit {limit_bytes} bytes")]
     BudgetExceeded { limit_bytes: usize },
+    #[error("portable executable validation error: {0}")]
+    Executable(String),
 }
 
 fn allocation_error(error: AllocationError, limit_bytes: usize) -> TeloscArtifactError {
@@ -192,10 +206,18 @@ pub struct LoadedUniverseArtifact {
     pub formal_image: Arc<CanonicalUniverseFormalImage>,
     pub metadata: Arc<SemanticMetadataBundle>,
     pub timings: TeloscLoadTimings,
-    pub executable_reserved_p8: Option<()>,
+    executable: Option<crate::artifact::validate::ValidatedExecutableImage>,
 }
 
 impl LoadedUniverseArtifact {
+    pub fn has_portable_executable(&self) -> bool {
+        self.executable.is_some()
+    }
+
+    pub(crate) fn executable(&self) -> Option<&crate::artifact::validate::ValidatedExecutableImage> {
+        self.executable.as_ref()
+    }
+
     pub fn compile_user_entry(&self, entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
         ProgramCompiler::compile_entry_selection_with_image(entry, self.formal_image.clone())
     }
@@ -382,10 +404,69 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
         semantic_world_bytes: semantic_world_bytes.len(),
         query_image_bytes: query_image_bytes.len(),
         metadata_bytes: metadata_bytes.len(),
+        executable_bytes: 0,
         artifact_digest: *container_view.header().artifact_digest.as_bytes(),
     };
 
     Ok(BuiltUniverseTelosc { bytes: built_bytes, summary })
+}
+
+/// Builds a deterministic compiler+executable Universe artifact from one
+/// canonical source product. The executable capability is granted only after
+/// core validation against that same product's compiler authority.
+pub fn build_full_universe_telosc(
+    canonical: &crate::modules::CanonicalUniverseProgram,
+    limits: &ValidationLimits,
+) -> Result<BuiltUniverseTelosc, TeloscArtifactError> {
+    let view = canonical
+        .compiler_image_view()
+        .ok_or(TeloscArtifactError::Capability("canonical Universe product has no compiler image"))?;
+    let compiler = build_universe_telosc(&view, limits)?;
+    let staged = crate::artifact::capture::capture_canonical_universe_executable(canonical)
+        .map_err(|error| TeloscArtifactError::Executable(error.to_string()))?;
+    let executable_limits = ExecutableImageLimitsV1::default();
+    let mut budget = AllocationBudget::new(usize::try_from(limits.max_total_allocation_bytes).unwrap_or(usize::MAX));
+    let image = Arc::new(ExecutableImageV1::decode(staged.payload(), limits, &executable_limits, &mut budget)?);
+    crate::artifact::validate::validate_executable_image(image, view.formal, view.metadata, &executable_limits)
+        .map_err(|error| TeloscArtifactError::Executable(error.to_string()))?;
+
+    let compiler_view = TeloscContainerView::parse(&compiler.bytes, limits)?;
+    let mut header = compiler_view.header().clone();
+    header.capabilities |= phalcom_compiler_artifact::header::TeloscCapabilities::PORTABLE_EXECUTABLE;
+    header.artifact_digest = ArtifactDigest::ZERO;
+    header.section_count = 5;
+    let mut builder = TeloscContainerBuilder::new(header);
+    for (kind, schema) in [
+        (SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V2),
+        (SectionKind::SemanticWorld, SEMANTIC_WORLD_SCHEMA_V4),
+        (SectionKind::QueryImage, QUERY_IMAGE_SCHEMA_V4),
+        (SectionKind::Metadata, METADATA_SECTION_SCHEMA_V1),
+    ] {
+        let payload = compiler_view
+            .require_section(kind)
+            .map_err(phalcom_compiler_artifact::ArtifactError::from)?;
+        builder.add_section(kind, schema, SectionFlags::REQUIRED, payload.to_vec());
+    }
+    builder.add_section(
+        SectionKind::Executable,
+        staged.schema_version(),
+        SectionFlags::REQUIRED,
+        staged.payload().to_vec(),
+    );
+    let bytes = builder.build()?;
+    let parsed = TeloscContainerView::parse(&bytes, limits)?;
+    Ok(BuiltUniverseTelosc {
+        summary: TeloscBuildSummary {
+            capabilities: TeloscCapabilities::full_v1(),
+            module_world_bytes: compiler.summary.module_world_bytes,
+            semantic_world_bytes: compiler.summary.semantic_world_bytes,
+            query_image_bytes: compiler.summary.query_image_bytes,
+            metadata_bytes: compiler.summary.metadata_bytes,
+            executable_bytes: staged.payload().len(),
+            artifact_digest: *parsed.header().artifact_digest.as_bytes(),
+        },
+        bytes,
+    })
 }
 
 /// Atomically writes `universe.telosc` via a same-directory temporary file (`PERF003.C2.P7.T11`).
@@ -397,6 +478,20 @@ pub fn write_universe_telosc(path: &Path, built: &BuiltUniverseTelosc) -> Result
     }
     // The public build product is mutable: validate the actual bytes, including
     // every owner section, before touching the previous destination.
+    load_universe_telosc_from_bytes(&built.bytes, &ValidationLimits::default())?;
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(&built.bytes)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path).map_err(|error| error.error)?;
+    Ok(())
+}
+
+/// Atomically writes a full compiler+executable Universe artifact.
+pub fn write_full_universe_telosc(path: &Path, built: &BuiltUniverseTelosc) -> Result<(), TeloscArtifactError> {
+    if !built.summary.capabilities.portable_executable {
+        return Err(TeloscArtifactError::Capability("full writer requires PORTABLE_EXECUTABLE"));
+    }
     load_universe_telosc_from_bytes(&built.bytes, &ValidationLimits::default())?;
     let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
@@ -493,6 +588,14 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     let metadata_sec = container
         .require_section(SectionKind::Metadata)
         .map_err(|_| TeloscArtifactError::Capability("missing METADATA section"))?;
+    let portable_executable = container
+        .header()
+        .capabilities
+        .contains(phalcom_compiler_artifact::header::TeloscCapabilities::PORTABLE_EXECUTABLE);
+    let executable_sec = portable_executable
+        .then(|| container.require_section(SectionKind::Executable))
+        .transpose()
+        .map_err(|_| TeloscArtifactError::Capability("missing EXECUTABLE section"))?;
     validate_section_provenance(container.header(), module_world_sec, semantic_world_sec, query_image_sec, metadata_sec)?;
     record_loader_allocation_diagnostic_stage(0, allocations);
 
@@ -577,14 +680,29 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     timings.relocation = t_reloc.elapsed();
 
     let metadata_bundle = allocations.arc(metadata_bundle).map_err(|error| allocation_error(error, transaction_limit))?;
+    let executable = if let Some(bytes) = executable_sec {
+        let executable_limits = ExecutableImageLimitsV1::default();
+        let image = Arc::new(ExecutableImageV1::decode(bytes, limits, &executable_limits, allocations)?);
+        Some(
+            crate::artifact::validate::validate_executable_image(image, &formal_image, &metadata_bundle, &executable_limits)
+                .map_err(|error| TeloscArtifactError::Executable(error.to_string()))?,
+        )
+    } else {
+        None
+    };
     let loaded = finish_loaded_universe_telosc(
-        TeloscCapabilities::compiler_only_v1(),
+        if portable_executable {
+            TeloscCapabilities::full_v1()
+        } else {
+            TeloscCapabilities::compiler_only_v1()
+        },
         &meta_v1,
         &preflight_limits,
         &expected_package_digest,
         allocations,
         formal_image,
         metadata_bundle,
+        executable,
         *timings,
     )?;
     record_loader_allocation_diagnostic_stage(14, allocations);
@@ -592,7 +710,7 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
 }
 
 /// Validates metadata section preflight and constructs `Arc<LoadedUniverseArtifact>` (`PERF003.C2.P7.T10/T12`).
-pub fn finish_loaded_universe_telosc(
+pub(crate) fn finish_loaded_universe_telosc(
     capabilities: TeloscCapabilities,
     _metadata_section: &MetadataSectionV1,
     _metadata_limits: &MetadataPreflightLimits,
@@ -600,6 +718,7 @@ pub fn finish_loaded_universe_telosc(
     allocation_budget: &mut AllocationBudget,
     formal_image: Arc<CanonicalUniverseFormalImage>,
     metadata: Arc<SemanticMetadataBundle>,
+    executable: Option<crate::artifact::validate::ValidatedExecutableImage>,
     mut timings: TeloscLoadTimings,
 ) -> Result<Arc<LoadedUniverseArtifact>, TeloscArtifactError> {
     if !capabilities.module_world || !capabilities.semantic_world || !capabilities.query_image || !capabilities.runtime_public_metadata {
@@ -616,7 +735,7 @@ pub fn finish_loaded_universe_telosc(
                 timings.publication = t_pub.elapsed();
                 timings
             },
-            executable_reserved_p8: None,
+            executable,
         })
         .map_err(|error| allocation_error(error, transaction_limit))?;
     Ok(artifact)
@@ -660,9 +779,10 @@ fn validate_reader_header(header: &TeloscHeaderV2) -> Result<(), TeloscArtifactE
             .into(),
         );
     }
-    let required = WireCapabilities::CANONICAL_COMPILER_IMAGE_V1 | WireCapabilities::RUNTIME_PUBLIC_METADATA;
-    if header.capabilities != required {
-        return Err(TeloscArtifactError::Capability("unsupported compiler artifact capability set"));
+    let compiler = WireCapabilities::CANONICAL_COMPILER_IMAGE_V1 | WireCapabilities::RUNTIME_PUBLIC_METADATA;
+    let full = compiler | WireCapabilities::PORTABLE_EXECUTABLE;
+    if header.capabilities != compiler && header.capabilities != full {
+        return Err(TeloscArtifactError::Capability("unsupported Universe artifact capability set"));
     }
     Ok(())
 }
@@ -1081,6 +1201,7 @@ mod temporary_loaded_publication_allocation_census {
                 budget,
                 formal_image,
                 metadata,
+                None,
                 TeloscLoadTimings::default(),
             )
         });

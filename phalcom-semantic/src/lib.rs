@@ -205,8 +205,7 @@ pub use type_alias::{TypeAliasInfo, TypeAliasTable};
 pub use workspace_inputs::*;
 
 pub use artifact::{
-    ArtifactImportTransaction, CompilerArtifactImage, ImportedCompilerImage, decode_and_validate_artifact, encode_artifact, import_compiler_image,
-    import_compiler_image_bytes_with_project_catalog,
+    CompilerArtifactImage, decode_and_validate_artifact, encode_artifact,
 };
 pub use field_key::{FieldKey, FieldKeyKind};
 pub use scalar::StaticInt;
