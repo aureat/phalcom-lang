@@ -56,7 +56,7 @@ class Effects {
   sequence<F: Type -> Type, D, I, A>(_ source: I) -> F<Chain<A>>
     where D |= Functor<F>, D |= Applicative<F>, D |= Monad<F>,
           I |= Iterable, <I as Iterable>::Item == F<A>
-  { Effects.traverse<F, D, I, F<A>, A>(source, using: |effect| { effect }) }
+  { Effects.traverse(source, using: |effect| { effect }) }
 }
 
 export Effects

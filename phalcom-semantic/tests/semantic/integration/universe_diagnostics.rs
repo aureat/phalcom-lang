@@ -221,7 +221,7 @@ class ProbeStatics {
 
   @class
   forward<T>(_ value: T) -> T {
-    ProbeStatics.identity<T>(value)
+    ProbeStatics.identity(value)
   }
 }
 "#,

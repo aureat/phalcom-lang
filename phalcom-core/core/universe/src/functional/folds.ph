@@ -20,7 +20,7 @@ class Folds {
   @class
   combineAll<I, M>(_ source: I) -> M
     where I |= Iterable, <I as Iterable>::Item == M, M |= Semigroup, M |= Monoid
-  { Folds.foldMap<I, M>(source, using: |value| { value }) }
+  { Folds.foldMap(source, using: |value| { value }) }
 
   /// Stops at the first Error; neither f nor next is called for later inputs.
   /// Empty input succeeds with an empty persistent sequence.
