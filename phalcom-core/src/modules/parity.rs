@@ -517,7 +517,12 @@ pub fn assert_semantic_diagnostics_parity(src: &ProgramSemanticDiagnostics, art:
     for module in &src_keys {
         let src_diags = src_modules[module];
         let art_diags = art_modules[module];
-        assert_eq!(src_diags.len(), art_diags.len(), "Diagnostic count mismatch for module {:?}", module);
+        assert_eq!(
+            src_diags.len(),
+            art_diags.len(),
+            "Diagnostic count mismatch for module {:?}; source diagnostics: {src_diags:#?}; artifact diagnostics: {art_diags:#?}",
+            module
+        );
 
         for (i, (sd, ad)) in src_diags.iter().zip(art_diags.iter()).enumerate() {
             assert_eq!(sd.code, ad.code, "Diagnostic [{i}] code mismatch for {:?}", module);
