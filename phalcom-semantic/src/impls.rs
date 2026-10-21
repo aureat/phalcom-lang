@@ -6205,6 +6205,10 @@ fn abi_erased_native_anchor_error(
     None
 }
 
+fn enum_root_member_is_requirement(has_body: bool, implementation: phalcom_common::modifier::ImplementationKind) -> bool {
+    !has_body && implementation.is_phalcom()
+}
+
 /// Builds the canonical `InherentImplContribution` from an `ImplDef`.
 pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: &ImplId, impl_def: &ImplDef) -> InherentImplContribution {
     let resolved_target = resolve_inherent_impl_target(ctx, impl_id, impl_def);
@@ -6478,7 +6482,7 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
         }
 
         let is_requirement = if is_enum_root {
-            if !syntax.has_body() {
+            if enum_root_member_is_requirement(syntax.has_body(), syntax.implementation()) {
                 if is_class_side {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
@@ -6635,6 +6639,17 @@ mod completeness_tests {
 
     fn impl_id() -> ImplId {
         ImplId::new(ModuleId::resolved(ResolvedProjectId::from_raw(9), ModulePath::root()), ImplLocalId(4))
+    }
+
+    #[test]
+    fn enum_root_native_anchor_is_concrete_behavior_not_requirement() {
+        use phalcom_common::modifier::ImplementationKind;
+
+        assert!(super::enum_root_member_is_requirement(false, ImplementationKind::Phalcom));
+        assert!(!super::enum_root_member_is_requirement(true, ImplementationKind::Phalcom));
+        assert!(!super::enum_root_member_is_requirement(false, ImplementationKind::Native));
+        assert!(!super::enum_root_member_is_requirement(false, ImplementationKind::Foreign));
+        assert!(!super::enum_root_member_is_requirement(false, ImplementationKind::Intrinsic));
     }
 
     #[test]
