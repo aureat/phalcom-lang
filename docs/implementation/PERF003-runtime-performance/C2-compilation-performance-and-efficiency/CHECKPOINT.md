@@ -10,15 +10,17 @@ active_plan: PERF003.C2.P8
 latest_completed_plan: PERF003.C2.P7.PATCH5-R
 next_plan: PERF003.C2.P8
 next_action: >
-  Continue PERF003.C2.P8.T3. Close any remaining compatibility/resource and P7
-  cross-section checks, then prove reachable stack/frame safety using the
-  exhaustive per-opcode control-flow contract. Mint private validated authority
-  only after all required checks pass. Do not begin T4 materialization before
-  that boundary is complete. This continuation is authorized only to run
-  `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --lib`.
-  Behavioral and runtime gates remain unauthorized.
+  Keep PERF003.C2.P8.T3 partial. The user selected schema-preserving CFG
+  provenance for ordinary Method and VariantMethod installation. Before
+  implementing that proof, obtain architect review of exact runtime identity:
+  Class allocates fresh objects, and Method installation mutates method
+  anchors. The plan now requires allocation-site identity and fail-closed
+  treatment of loops, aliases, and conflicting installations. Then implement
+  the bounded proof and keep validate_executable_image non-authoritative until
+  all T3 obligations pass. Do not begin T4. Only the authorized core library
+  check and diff check may run; behavioral/runtime gates remain unauthorized.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: 424936a3181e8d6c6968b079a168890fcf89353b
+execution_tree_head: 9b4da01af1297450243eea55c8110938af48e850
 latest_tested_revision: 424936a3181e8d6c6968b079a168890fcf89353b
 latest_tested_predecessor: 180cee9ebeeb524c7a10f6018e14ede143e4bcf9
 ---
@@ -142,6 +144,73 @@ was created. The current implementation state and next action are in the
 The former architect-planning handoff is historical and superseded.
 The closed capture/publication slice is recorded in
 [the partial ESI walkthrough](P8/PERF003.C2.P8-ESI-publication-determinism-walkthrough.md).
+
+## PERF003.C2.P8.T3 stack and activation proof continuation — 2026-10-21
+
+This increment is on the working tree based at
+`9b4da01af1297450243eea55c8110938af48e850`.
+
+The T3 validator now checks reachable stack transfers for every declared
+portable opcode. It derives the entry floor from the frame's receiver and
+parameter layout, rejects reachable underflow and incompatible stack joins,
+and preserves edge-specific states for conditional transfers. `BuildTuple` and
+`BuildRecord` account for runtime label/value pairs; static product operations
+derive their value counts from the referenced semantic-pool product. Fused
+local and constant invokes account for the result they leave on the stack.
+
+The validator also classifies closure-template activation paths from `Closure`
+instructions and method-body recipes. By the user's decision, the wire schema
+stays unchanged: `ReturnNonLocal` is accepted only when every known activation
+path for that template is a block path with a home-frame token. A template also
+used as a method body is rejected. This graph proof does not yet mint
+`ValidatedExecutableImage`.
+
+`RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --lib` passes with
+the existing unintegrated-validator and semantic dead-code warnings. No
+validator behavior tests or runtime gates were run. T3 remains
+`PARTIAL / UNVERIFIED`; cross-section coverage and behavior remain open. Do not
+begin T4.
+
+## P8.T3 method graph decision and review boundary — 2026-10-21
+
+The validator now checks every method recipe's selector, kind, arity, and rest
+shape. Closure-backed recipes must agree with their target prototype's
+parameter layout; native-backed recipes must agree with the referenced anchor's
+selector and calling shape. A detached closure row must resolve through its
+method recipe and template to a prototype owned by that exact stable callable.
+Existing checks continue to establish P7 callable membership, closure-template
+module/class references, and class-row authority.
+
+The architectural adviser found that `MethodRecipeV1` has no stable callable or
+installation-site identity. `Bytecode::Method` obtains the class and method
+values from runtime stack state, then sets holder, access owner, and closure
+lexical anchors during installation. The user selected the schema-preserving
+graph proof in place of adding wire metadata. The plan now requires method and
+class provenance to be tracked through CFG edges and local aliases, tied to the
+actual install operands, and rejected when unknown or conflicting. Do not infer
+holder/access-owner from callable owner.
+
+The bounded source audit identified two runtime-identity constraints that
+need architect review before implementing the abstract interpreter:
+
+- `Bytecode::Class` allocates a fresh class every execution. A stable class
+  recipe alone cannot distinguish repeated or distinct allocations. Track its
+  instruction site and prove a unique, non-repeating source-class allocation,
+  or reject it.
+- `Bytecode::Method` mutates the method object's installation anchors. Track
+  recipe identity across every install and reject reuse that could bind one
+  method object to conflicting class/selector/side identities.
+
+The plan amendment records these as fail-closed proof constraints, but the
+exact accepted CFG/alias boundary should be reviewed before implementation.
+The user-selected block-only activation proof for `ReturnNonLocal` remains
+unchanged. No P9 was created and T4 remains unstarted.
+
+`RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --lib` passes after
+these validator changes, with existing semantic and unintegrated-validator
+warnings. No tests, runtime probes, workspace checks, or authority promotion
+were performed. The graph provenance implementation remains open. T3 remains
+`PARTIAL / UNVERIFIED`; this compilation result is not behavior evidence.
 
 ## Independent certification reconciliation — 2026-10-19
 
@@ -1151,7 +1220,7 @@ After:
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
 | `PERF003.C2.P7` (normalized, historical) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical status before PATCH5-R closure; superseded by the October 19 `PERF003.C2.P7.PATCH5-R` final closure recorded above. |
 | `PERF003.C2.P7.PATCH5-R` | Corrective compiler-only Universe artifact closure | Loaded compiler artifact | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | R.G6/R.G7 independently recertified PASS; evidence and matrix are linked above. |
-| `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T1/T2 are implemented/focused-tested at the structural staging boundary. T3 now has explicit generated control-flow classes for every opcode and reachable branch/fallthrough bounds checks, but its stack/frame proof is incomplete and it does not mint `ValidatedExecutableImage`; runtime materialization and source-free VM acceptance remain open. See the T3 continuation handoff. |
+| `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T1/T2 are implemented/focused-tested at the structural staging boundary. T3 now adds exhaustive reachable stack transfers, frame-entry/local checks, and conservative activation-graph proof for non-local returns; the library check passes, but behavior and remaining cross-section checks are unverified and no `ValidatedExecutableImage` is minted. Runtime materialization and source-free VM acceptance remain open. See the T3 continuation handoff. |
 
 ## P7 flow-graph allocation ruling — 2026-10-15
 
@@ -1328,6 +1397,21 @@ not change iteration analysis and the three graph-construction tests passed.
 ---
 
 ## 6. Consultations and amendments
+
+- P8.T3 closure activation decision (2026-10-21; user): keep the executable
+  wire schema unchanged and prove activation roles from the existing closure
+  and method-body graph. Permit `ReturnNonLocal` only when every activation
+  path guarantees a home-frame token; reject templates with any non-block
+  path. Explicit activation metadata would change the executable wire
+  contract, so it is not part of this implementation.
+
+- P8.T3 method installation decision (2026-10-21; user): keep the executable
+  wire schema unchanged and use conservative bytecode/CFG provenance for
+  `Method` and `VariantMethod`. Reject unknown or conflicting installations.
+  The plan amendment adds allocation-site identity for fresh `Class`
+  producers, method-recipe reuse conflict checks, and fail-closed handling for
+  loops or unsupported aliases. Architect review of that detailed proof
+  boundary is the next action before implementation resumes.
 
 - `INC-PATCH5R-E-BASELINE-20261018` (2026-10-18): The handoff's exact
   `264,140,594` semantic-import guard differed by 32 bytes on the current

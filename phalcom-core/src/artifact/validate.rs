@@ -12,7 +12,7 @@ use phalcom_compiler_artifact::executable::instruction::{
     ControlFlowKindV1, OPCODE_MANIFEST_V1, OperandDomainV1, PortableInstructionV1, PortableOperandValueV1,
 };
 use phalcom_compiler_artifact::executable::module::{PortableClassAllocationV1, PortableLinkedReadV1};
-use phalcom_compiler_artifact::executable::prototype::{PortablePrototypeV1, PrototypeOwnerV1, RestKindV1, UpvalueCaptureV1};
+use phalcom_compiler_artifact::executable::prototype::{PortablePrototypeV1, PrototypeOwnerV1, UpvalueCaptureV1};
 use phalcom_compiler_artifact::executable::semantic::{
     PortableConformanceSlotEntryV1, PortableConformanceSlotV1, PortableFamilyTargetV1, PortableInvocationTargetV1, PortableKindRecipeV1,
     PortableRuntimeTypeRecipeV1, PortableSemanticPoolV1, PortableTraitRequirementV1, PortableTraitSelectionTargetV1, PortableTypeParameterOwnerV1,
@@ -115,9 +115,7 @@ pub(crate) enum ExecutableValidationError {
     IncompatibleControlFlowState { prototype: usize, instruction: usize, existing: usize, incoming: usize },
     #[error("prototype {prototype} instruction {instruction} stack height overflowed")]
     StackDepthOverflow { prototype: usize, instruction: usize },
-    #[error("prototype {prototype} instruction {instruction} has no executable stack-transfer rule for opcode {tag}")]
-    UnmodeledStackEffect { prototype: usize, instruction: usize, tag: u16 },
-    #[error("prototype {prototype} instruction {instruction} uses non-local return from non-block owner {owner:?}")]
+    #[error("prototype {prototype} instruction {instruction} uses non-local return without exclusive block activation (owner {owner:?})")]
     InvalidNonLocalReturn { prototype: usize, instruction: usize, owner: PrototypeOwnerV1 },
     #[error("prototype {prototype} has invalid executable frame or parameter layout: {detail}")]
     InvalidPrototypeLayout { prototype: usize, detail: String },
@@ -350,6 +348,7 @@ pub(crate) fn validate_executable_image(
     validate_classes(image, &context)?;
     validate_prototype_owners(image, &context)?;
     validate_prototypes(image, &context)?;
+    validate_method_recipes(image)?;
     validate_detached_methods(image, &context)?;
     validate_required_declarations(image, &context)?;
     validate_canonical_semantic_roots(image, &context)?;
@@ -828,6 +827,144 @@ fn validate_prototype_owners(image: &ExecutableImageV1, context: &ExecutableVali
     Ok(())
 }
 
+fn validate_method_recipes(image: &ExecutableImageV1) -> Result<(), ExecutableValidationError> {
+    use phalcom_compiler_artifact::executable::constant::{MethodBodyV1, MethodSignatureKindV1, RestModeV1};
+    use phalcom_compiler_artifact::executable::prototype::RestKindV1;
+    use phalcom_common::selector::{Selector, SelectorKind, SelectorSlot};
+
+    for (index, constant) in image.constants.iter().enumerate() {
+        let ConstantRecipeV1::Method { recipe } = constant else {
+            continue;
+        };
+
+        let invalid = |detail: String| ExecutableValidationError::InvalidExecutableReference {
+            table: "method recipes",
+            index,
+            detail,
+        };
+        let selector = Selector::try_decode_exact(&recipe.signature.selector)
+            .map_err(|error| invalid(format!("method recipe selector is invalid: {error}")))?;
+        let has_rest = recipe.signature.selector.contains("***");
+        let fixed_slots = if has_rest {
+            &selector.slots[..selector.slots.len().saturating_sub(1)]
+        } else {
+            &selector.slots
+        };
+        let fixed_positionals = u8::try_from(fixed_slots.iter().filter(|slot| matches!(slot, SelectorSlot::Positional)).count())
+            .map_err(|_| invalid("fixed positional count exceeds the executable ABI".to_owned()))?;
+        let setter_value = matches!(selector.kind, SelectorKind::Setter | SelectorKind::SubscriptSet);
+        let positional_arity = fixed_positionals
+            .checked_add(u8::from(setter_value))
+            .ok_or_else(|| invalid("positional arity exceeds the executable ABI".to_owned()))?;
+        let slot_count = if selector.kind == SelectorKind::Method && has_rest {
+            selector.slots.len().saturating_sub(1)
+        } else {
+            selector.slots.len()
+        };
+        let slot_count = u8::try_from(slot_count).map_err(|_| invalid("selector slot count exceeds the executable ABI".to_owned()))?;
+        let expected_kind = match selector.kind {
+            SelectorKind::Getter => MethodSignatureKindV1::Getter,
+            SelectorKind::Setter => MethodSignatureKindV1::Setter,
+            SelectorKind::Method => MethodSignatureKindV1::Method { slots: slot_count },
+            SelectorKind::SubscriptGet => MethodSignatureKindV1::SubscriptGet { slots: slot_count },
+            SelectorKind::SubscriptSet => MethodSignatureKindV1::SubscriptSet { slots: slot_count },
+        };
+        if recipe.signature.kind != expected_kind || recipe.signature.positional_arity != positional_arity {
+            return Err(invalid("method signature kind or positional arity disagrees with its exact selector".to_owned()));
+        }
+
+        let fixed_labels = fixed_slots
+            .iter()
+            .filter_map(|slot| match slot {
+                SelectorSlot::Label(label) => Some(label.as_str()),
+                SelectorSlot::Positional => None,
+            })
+            .collect::<Vec<_>>();
+        match (&recipe.signature.rest, has_rest) {
+            (Some(rest), true)
+                if rest.fixed_positionals == fixed_positionals
+                    && rest.fixed_labels.iter().map(String::as_str).eq(fixed_labels.iter().copied()) => {}
+            (None, false) => {}
+            _ => return Err(invalid("rest signature layout disagrees with the exact selector".to_owned())),
+        }
+        if let Some(rest) = &recipe.signature.rest {
+            let rest_parameters = if matches!(rest.mode, RestModeV1::Split { .. }) { 2 } else { 1 };
+            let parameter_count = usize::from(rest.fixed_positionals)
+                .checked_add(rest.fixed_labels.len())
+                .and_then(|count| count.checked_add(rest_parameters))
+                .ok_or_else(|| invalid("rest parameter count overflow".to_owned()))?;
+            let valid_indices = match &rest.mode {
+                RestModeV1::Positional { param_index } | RestModeV1::Labeled { param_index } | RestModeV1::Complete { param_index } => {
+                    usize::from(*param_index) < parameter_count
+                }
+                RestModeV1::Split {
+                    positional_param_index,
+                    labeled_param_index,
+                } => {
+                    positional_param_index != labeled_param_index
+                        && usize::from(*positional_param_index) < parameter_count
+                        && usize::from(*labeled_param_index) < parameter_count
+                }
+            };
+            if !matches!(recipe.signature.kind, MethodSignatureKindV1::Method { .. }) || !valid_indices {
+                return Err(invalid("rest mode does not fit the method's parameter slots".to_owned()));
+            }
+        }
+
+        match &recipe.body {
+            MethodBodyV1::Native { anchor } => {
+                let anchor_index = anchor.0 as usize;
+                let Some(native_anchor) = image.native_anchors.get(anchor_index) else {
+                    return Err(invalid(format!("native body references absent anchor {anchor_index}")));
+                };
+                let rest_shape_matches = match (&recipe.signature.rest, &native_anchor.signature.rest) {
+                    (None, None) => true,
+                    (Some(recipe_rest), Some(anchor_rest)) => {
+                        recipe_rest.fixed_positionals == anchor_rest.fixed_positionals && recipe_rest.fixed_labels == anchor_rest.fixed_labels
+                    }
+                    _ => false,
+                };
+                if recipe.signature.selector != native_anchor.signature.selector
+                    || recipe.signature.kind != native_anchor.signature.kind
+                    || recipe.signature.positional_arity != native_anchor.signature.positional_arity
+                    || !rest_shape_matches
+                {
+                    return Err(invalid(format!("native body signature shape disagrees with anchor {anchor_index}")));
+                }
+            }
+            MethodBodyV1::Closure { template } => {
+                let template_index = template.0 as usize;
+                let Some(ConstantRecipeV1::ClosureTemplate { prototype: target, .. }) = image.constants.get(template_index) else {
+                    return Err(invalid(format!("closure body references absent or non-template constant {template_index}")));
+                };
+                let prototype_index = target.0 as usize;
+                let Some(prototype) = image.prototypes.get(prototype_index) else {
+                    return Err(invalid(format!("closure body references absent prototype {prototype_index}")));
+                };
+                let expected_rest = recipe.signature.rest.as_ref().map(|rest| match rest.mode {
+                    phalcom_compiler_artifact::executable::constant::RestModeV1::Positional { .. } => RestKindV1::Positional,
+                    phalcom_compiler_artifact::executable::constant::RestModeV1::Labeled { .. } => RestKindV1::Labeled,
+                    phalcom_compiler_artifact::executable::constant::RestModeV1::Split { .. } => RestKindV1::Split,
+                    phalcom_compiler_artifact::executable::constant::RestModeV1::Complete { .. } => RestKindV1::Complete,
+                });
+                let expected_labels = recipe
+                    .signature
+                    .rest
+                    .as_ref()
+                    .map(|rest| rest.fixed_labels.iter().map(String::as_str).collect::<Vec<_>>())
+                    .unwrap_or_else(|| fixed_labels.clone());
+                if prototype.parameters.fixed_positionals != u32::from(recipe.signature.positional_arity)
+                    || prototype.parameters.fixed_labels.iter().map(String::as_str).ne(expected_labels.iter().copied())
+                    || prototype.parameters.rest != expected_rest
+                {
+                    return Err(invalid(format!("closure prototype {prototype_index} parameter layout disagrees with its method signature")));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_detached_methods(image: &ExecutableImageV1, context: &ExecutableValidationContext<'_>) -> Result<(), ExecutableValidationError> {
     for (index, detached) in image.detached_methods.iter().enumerate() {
         if !context.has_p7_callable(&detached.callable) {
@@ -848,12 +985,38 @@ fn validate_detached_methods(image: &ExecutableImageV1, context: &ExecutableVali
                 detail: "method recipe selector does not match its P7 callable identity".to_owned(),
             });
         }
+        if let phalcom_compiler_artifact::executable::constant::MethodBodyV1::Closure { template } = &recipe.body {
+            let template_index = template.0 as usize;
+            let Some(ConstantRecipeV1::ClosureTemplate { prototype, .. }) = image.constants.get(template_index) else {
+                return Err(ExecutableValidationError::InvalidExecutableReference {
+                    table: "detached methods",
+                    index,
+                    detail: format!("closure body references absent or non-template constant {template_index}"),
+                });
+            };
+            let prototype_index = prototype.0 as usize;
+            let Some(target) = image.prototypes.get(prototype_index) else {
+                return Err(ExecutableValidationError::InvalidExecutableReference {
+                    table: "detached methods",
+                    index,
+                    detail: format!("closure body references absent prototype {prototype_index}"),
+                });
+            };
+            if !matches!(&target.owner, PrototypeOwnerV1::Callable { callable } if callable == &detached.callable) {
+                return Err(ExecutableValidationError::InvalidExecutableReference {
+                    table: "detached methods",
+                    index,
+                    detail: format!("closure target prototype {prototype_index} is not owned by the detached P7 callable"),
+                });
+            }
+        }
     }
     Ok(())
 }
 
 fn validate_prototypes(image: &ExecutableImageV1, context: &ExecutableValidationContext<'_>) -> Result<(), ExecutableValidationError> {
     validate_closure_template_constants(image, context)?;
+    let activation_roles = classify_prototype_activation_roles(image)?;
     for (prototype_index, prototype) in image.prototypes.iter().enumerate() {
         let source_map_index = prototype.source.0 as usize;
         let Some(source_map) = image.source_maps.get(source_map_index) else {
@@ -871,7 +1034,6 @@ fn validate_prototypes(image: &ExecutableImageV1, context: &ExecutableValidation
                 detail: "source map module does not match prototype owner".to_owned(),
             });
         }
-        let fixed_label_count = prototype.parameters.fixed_labels.len();
         let mut labels = BTreeSet::new();
         if prototype.parameters.fixed_labels.iter().any(|label| label.is_empty() || !labels.insert(label)) {
             return Err(ExecutableValidationError::InvalidPrototypeLayout {
@@ -879,24 +1041,17 @@ fn validate_prototypes(image: &ExecutableImageV1, context: &ExecutableValidation
                 detail: "parameter labels must be nonempty and unique".to_owned(),
             });
         }
-        let rest_slots = match prototype.parameters.rest {
-            Some(RestKindV1::Positional | RestKindV1::Labeled | RestKindV1::Complete) => 1,
-            Some(RestKindV1::Split) => 1,
-            None => 0,
-        };
-        let fixed_slots = (prototype.parameters.fixed_positionals as usize)
-            .checked_add(fixed_label_count)
-            .and_then(|slots| slots.checked_add(rest_slots));
-        if fixed_slots.is_none_or(|slots| slots > prototype.max_slots as usize) {
+        let entry_slots = prototype_entry_slots(prototype_index, prototype)?;
+        if entry_slots > prototype.max_slots as usize {
             return Err(ExecutableValidationError::InvalidPrototypeLayout {
                 prototype: prototype_index,
-                detail: "frame is smaller than its declared parameter slots".to_owned(),
+                detail: format!("frame has {} slots but requires {entry_slots} entry slots", prototype.max_slots),
             });
         }
 
         validate_prototype_operands(image, context, prototype_index, prototype)?;
         validate_prototype_control_flow(image, context, prototype_index, prototype)?;
-        validate_prototype_stack(prototype_index, prototype)?;
+        validate_prototype_stack(image, prototype_index, prototype, activation_roles[prototype_index])?;
     }
     Ok(())
 }
@@ -1251,22 +1406,158 @@ fn require_live_local_slot(
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct PrototypeActivationRoles {
+    block_template: bool,
+    non_block: bool,
+}
+
+impl PrototypeActivationRoles {
+    fn guarantees_home_frame_token(self) -> bool {
+        self.block_template && !self.non_block
+    }
+}
+
+fn activation_closure_target(
+    image: &ExecutableImageV1,
+    constant_id: u32,
+    table: &'static str,
+    index: usize,
+) -> Result<usize, ExecutableValidationError> {
+    let Some(ConstantRecipeV1::ClosureTemplate { prototype, .. }) = image.constants.get(constant_id as usize) else {
+        return Err(ExecutableValidationError::InvalidExecutableReference {
+            table,
+            index,
+            detail: format!("constant {constant_id} is absent or is not a closure template"),
+        });
+    };
+    let target = prototype.0 as usize;
+    if target >= image.prototypes.len() {
+        return Err(ExecutableValidationError::InvalidExecutableReference {
+            table,
+            index,
+            detail: format!("closure template targets absent prototype {}", prototype.0),
+        });
+    }
+    Ok(target)
+}
+
+fn classify_prototype_activation_roles(
+    image: &ExecutableImageV1,
+) -> Result<Vec<PrototypeActivationRoles>, ExecutableValidationError> {
+    let mut roles = vec![PrototypeActivationRoles::default(); image.prototypes.len()];
+    for (index, prototype) in image.prototypes.iter().enumerate() {
+        if matches!(prototype.owner, PrototypeOwnerV1::ModuleInitializer { .. } | PrototypeOwnerV1::Callable { .. }) {
+            roles[index].non_block = true;
+        }
+        for (instruction_index, instruction) in prototype.code.iter().enumerate() {
+            let PortableInstructionV1::Closure { operand0 } = instruction else {
+                continue;
+            };
+            let Some(constant_id) = prototype.constants.get(usize::from(*operand0)) else {
+                return Err(ExecutableValidationError::InvalidExecutableReference {
+                    table: "block activation graph",
+                    index: instruction_index,
+                    detail: format!("prototype {index} closure instruction references absent constant slot {operand0}"),
+                });
+            };
+            let target = activation_closure_target(image, constant_id.0, "block activation graph", instruction_index)?;
+            roles[target].block_template = true;
+        }
+    }
+
+    for (constant_index, constant) in image.constants.iter().enumerate() {
+        let ConstantRecipeV1::Method { recipe } = constant else {
+            continue;
+        };
+        let phalcom_compiler_artifact::executable::constant::MethodBodyV1::Closure { template } = &recipe.body else {
+            continue;
+        };
+        let target = activation_closure_target(image, template.0, "method-body activation graph", constant_index)?;
+        roles[target].non_block = true;
+    }
+
+    Ok(roles)
+}
+
+fn prototype_entry_slots(
+    prototype_index: usize,
+    prototype: &PortablePrototypeV1,
+) -> Result<usize, ExecutableValidationError> {
+    match prototype.owner {
+        PrototypeOwnerV1::ModuleInitializer { .. } => Ok(0),
+        PrototypeOwnerV1::Callable { .. } | PrototypeOwnerV1::Nested { .. } => {
+            let rest_slots = usize::from(prototype.parameters.rest.is_some());
+            (prototype.parameters.fixed_positionals as usize)
+                .checked_add(prototype.parameters.fixed_labels.len())
+                .and_then(|slots| slots.checked_add(rest_slots))
+                .and_then(|slots| slots.checked_add(1))
+                .ok_or_else(|| ExecutableValidationError::InvalidPrototypeLayout {
+                    prototype: prototype_index,
+                    detail: "receiver and parameter entry-slot count overflowed".to_owned(),
+                })
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AnonymousProductShape {
+    Tuple,
+    Record,
+    Pack,
+}
+
+fn anonymous_product_stack_values(
+    image: &ExecutableImageV1,
+    prototype_index: usize,
+    prototype: &PortablePrototypeV1,
+    instruction_index: usize,
+    spec: u16,
+    expected: AnonymousProductShape,
+) -> Result<usize, ExecutableValidationError> {
+    let invalid = |detail: String| ExecutableValidationError::InvalidInstruction {
+        prototype: prototype_index,
+        instruction: instruction_index,
+        operand: "anonymous-product specification",
+        detail,
+    };
+    let pool_index = prototype.semantics.0 as usize;
+    let product = image
+        .semantic_pools
+        .get(pool_index)
+        .and_then(|pool| pool.anonymous_products.get(usize::from(spec)))
+        .ok_or_else(|| invalid(format!("semantic product {} is absent from pool {pool_index}", spec)))?;
+    use phalcom_compiler_artifact::executable::semantic::PortableAnonymousProductKindV1 as K;
+    let count = match (expected, &product.kind) {
+        (AnonymousProductShape::Tuple, K::Tuple { positional_len, labels })
+        | (AnonymousProductShape::Pack, K::Pack { positional_len, labels }) => usize::try_from(*positional_len)
+            .ok()
+            .and_then(|positionals| positionals.checked_add(labels.len()))
+            .ok_or(ExecutableValidationError::StackDepthOverflow {
+                prototype: prototype_index,
+                instruction: instruction_index,
+            })?,
+        (AnonymousProductShape::Record, K::Record { logical_keys, .. }) => logical_keys.len(),
+        (AnonymousProductShape::Tuple, _) => return Err(invalid("static Tuple instruction references a non-Tuple product".to_owned())),
+        (AnonymousProductShape::Record, _) => return Err(invalid("static Record instruction references a non-Record product".to_owned())),
+        (AnonymousProductShape::Pack, _) => return Err(invalid("static Pack instruction references a non-Pack product".to_owned())),
+    };
+    Ok(count)
+}
+
 fn instruction_stack_transfer(
+    image: &ExecutableImageV1,
     prototype: usize,
+    prototype_data: &PortablePrototypeV1,
     instruction_index: usize,
     instruction: &PortableInstructionV1,
     owner: &PrototypeOwnerV1,
+    activation_roles: PrototypeActivationRoles,
     state: ReachableStackState,
 ) -> Result<StackTransfer, ExecutableValidationError> {
     use PortableInstructionV1 as I;
 
     let linear = |pop, push| StackTransfer::Linear(StackDelta { pop, push });
-    let unmodeled = || ExecutableValidationError::UnmodeledStackEffect {
-        prototype,
-        instruction: instruction_index,
-        tag: instruction.opcode_tag(),
-    };
-
     match *instruction {
         I::Constant { .. }
         | I::Nil {}
@@ -1276,7 +1567,9 @@ fn instruction_stack_transfer(
         | I::GetEllipsis {}
         | I::GetGlobal { .. }
         | I::GetGlobalChecked { .. }
-        | I::UninitializedBinding {} => Ok(linear(0, 1)),
+        | I::UninitializedBinding {}
+        | I::GetLinked { .. }
+        | I::LoadTypeParameterClass { .. } => Ok(linear(0, 1)),
         I::Pop {} => Ok(linear(1, 0)),
         I::GetLocal { operand0 } | I::GetLocalChecked { operand0, .. } => {
             require_live_local_slot(state, prototype, instruction_index, usize::from(operand0), false)?;
@@ -1296,6 +1589,27 @@ fn instruction_stack_transfer(
             require_live_local_slot(state, prototype, instruction_index, 0, false)?;
             Ok(linear(0, 1))
         }
+        I::Class { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(1, 1))
+        }
+        I::Method { .. } => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(1, 0))
+        }
+        I::FinalizeClass {} => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(0, 0))
+        }
+        I::MakeFamily { .. } | I::MakeConditionalFamily { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(1, 1))
+        }
+        I::MakeResolvedBoundMethod { .. } | I::MakeAssociatedFamily { .. } => Ok(linear(0, 1)),
+        I::MakeTraitBoundMethod { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(1, 1))
+        }
         I::GetField { .. } | I::GetFieldChecked { .. } => {
             require_stack_values(state, prototype, instruction_index, 1)?;
             Ok(linear(1, 1))
@@ -1314,6 +1628,57 @@ fn instruction_stack_transfer(
             require_stack_values(state, prototype, instruction_index, operands)?;
             Ok(linear(operands, 1))
         }
+        I::InvokeCompilerInternal { operand0: arity, .. } | I::InvokeSpecialized { operand0: arity, .. } => {
+            let operands = usize::from(arity)
+                .checked_add(1)
+                .ok_or(ExecutableValidationError::StackDepthOverflow {
+                    prototype,
+                    instruction: instruction_index,
+                })?;
+            require_stack_values(state, prototype, instruction_index, operands)?;
+            Ok(linear(operands, 1))
+        }
+        I::InvokeLocal { operand0: slot, operand1: arity, .. } => {
+            require_live_local_slot(state, prototype, instruction_index, usize::from(slot), false)?;
+            let arguments = usize::from(arity);
+            require_stack_values(state, prototype, instruction_index, arguments)?;
+            Ok(linear(arguments, 1))
+        }
+        I::InvokeConst { operand1: arity, .. } => {
+            let arguments = usize::from(arity);
+            require_stack_values(state, prototype, instruction_index, arguments)?;
+            Ok(linear(arguments, 1))
+        }
+        I::InvokePack { .. } | I::SuperSendPack { .. } => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(1, 0))
+        }
+        I::InvokeSubscriptSetPack { .. } => {
+            require_stack_values(state, prototype, instruction_index, 3)?;
+            Ok(linear(2, 0))
+        }
+        I::InvokeResolvedAssociated { arity, .. } => {
+            let arguments = usize::from(arity);
+            require_stack_values(state, prototype, instruction_index, arguments)?;
+            Ok(linear(arguments, 1))
+        }
+        I::InvokeAssociatedFamilyStatic { arity, .. }
+        | I::InvokeConditional { arity, .. }
+        | I::InvokeTraitSelected { arity, .. }
+        | I::InvokeTraitRequirement { arity, .. } => {
+            let operands = usize::from(arity)
+                .checked_add(1)
+                .ok_or(ExecutableValidationError::StackDepthOverflow {
+                    prototype,
+                    instruction: instruction_index,
+                })?;
+            require_stack_values(state, prototype, instruction_index, operands)?;
+            Ok(linear(operands, 1))
+        }
+        I::InvokeAssociatedFamilyPack { .. } => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(1, 0))
+        }
         I::GetUpvalue { .. } | I::GetUpvalueChecked { .. } => Ok(linear(0, 1)),
         I::SetUpvalue { .. } => {
             require_stack_values(state, prototype, instruction_index, 1)?;
@@ -1326,7 +1691,7 @@ fn instruction_stack_transfer(
         I::Jump { .. } | I::Loop { .. } => Ok(linear(0, 0)),
         I::Return {} => Ok(linear(1, 0)),
         I::ReturnNonLocal {} => {
-            if !matches!(owner, PrototypeOwnerV1::Nested { .. }) {
+            if !activation_roles.guarantees_home_frame_token() {
                 return Err(ExecutableValidationError::InvalidNonLocalReturn {
                     prototype,
                     instruction: instruction_index,
@@ -1353,6 +1718,26 @@ fn instruction_stack_transfer(
         I::GuardSymbol {} => {
             require_stack_values(state, prototype, instruction_index, 1)?;
             Ok(linear(0, 0))
+        }
+        I::BilateralPreferReflected { .. } => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(0, 1))
+        }
+        I::ValidateOrdering { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(1, 1))
+        }
+        I::Same {} => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(2, 1))
+        }
+        I::RaiseUnsupported { .. } => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(2, 0))
+        }
+        I::RaiseNonIterableStarOperand {} => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(1, 0))
         }
         I::ReserveScratchLocal { operand0 } => {
             require_live_local_slot(state, prototype, instruction_index, usize::from(operand0), true)?;
@@ -1383,15 +1768,59 @@ fn instruction_stack_transfer(
             })
         }
         I::BuildTuple { positional, labeled } => {
+            let labeled_values = usize::from(labeled)
+                .checked_mul(2)
+                .ok_or(ExecutableValidationError::StackDepthOverflow {
+                    prototype,
+                    instruction: instruction_index,
+                })?;
             let values = usize::from(positional)
-                .checked_add(usize::from(labeled))
+                .checked_add(labeled_values)
                 .ok_or(ExecutableValidationError::StackDepthOverflow {
                     prototype,
                     instruction: instruction_index,
                 })?;
             Ok(linear(values, 1))
         }
-        I::BuildRecord { fields } => Ok(linear(usize::from(fields), 1)),
+        I::BuildRecord { fields } => {
+            let values = usize::from(fields)
+                .checked_mul(2)
+                .ok_or(ExecutableValidationError::StackDepthOverflow {
+                    prototype,
+                    instruction: instruction_index,
+                })?;
+            Ok(linear(values, 1))
+        }
+        I::BuildPack { positional, labeled } => {
+            let labeled_values = usize::from(labeled)
+                .checked_mul(2)
+                .ok_or(ExecutableValidationError::StackDepthOverflow {
+                    prototype,
+                    instruction: instruction_index,
+                })?;
+            let values = usize::from(positional)
+                .checked_add(labeled_values)
+                .ok_or(ExecutableValidationError::StackDepthOverflow {
+                    prototype,
+                    instruction: instruction_index,
+                })?;
+            Ok(linear(values, 1))
+        }
+        I::BuildStaticTuple { spec } => {
+            let values = anonymous_product_stack_values(image, prototype, prototype_data, instruction_index, spec, AnonymousProductShape::Tuple)?;
+            require_stack_values(state, prototype, instruction_index, values)?;
+            Ok(linear(values, 1))
+        }
+        I::BuildStaticRecord { spec } => {
+            let values = anonymous_product_stack_values(image, prototype, prototype_data, instruction_index, spec, AnonymousProductShape::Record)?;
+            require_stack_values(state, prototype, instruction_index, values)?;
+            Ok(linear(values, 1))
+        }
+        I::BuildStaticPack { spec } => {
+            let values = anonymous_product_stack_values(image, prototype, prototype_data, instruction_index, spec, AnonymousProductShape::Pack)?;
+            require_stack_values(state, prototype, instruction_index, values)?;
+            Ok(linear(values, 1))
+        }
         I::BuildRange { has_lower, has_upper, .. } => {
             Ok(linear(usize::from(has_lower) + usize::from(has_upper), 1))
         }
@@ -1412,10 +1841,11 @@ fn instruction_stack_transfer(
             require_stack_values(state, prototype, instruction_index, 2)?;
             Ok(linear(2, 1))
         }
-        I::FinishListLiteral {} | I::FinishSetLiteral {} | I::FinishMapLiteral {} => {
+        I::FinishListLiteral {} => {
             require_stack_values(state, prototype, instruction_index, 1)?;
             Ok(linear(0, 0))
         }
+        I::FinishSetLiteral {} | I::FinishMapLiteral {} => Ok(linear(0, 0)),
         I::SetLiteralAdd {} => {
             require_stack_values(state, prototype, instruction_index, 2)?;
             Ok(linear(1, 0))
@@ -1445,87 +1875,65 @@ fn instruction_stack_transfer(
             Ok(linear(2, 1))
         }
         I::CopyVector {} => Ok(linear(1, 1)),
-        I::Class { .. }
-        | I::Method { .. }
-        | I::GetLinked { .. }
-        | I::MakeFamily { .. }
-        | I::FinalizeClass {}
-        | I::InvokeLocal { .. }
-        | I::InvokeConst { .. }
-        | I::InvokeCompilerInternal { .. }
-        | I::NewArgumentPack {}
-        | I::PackPushPositional {}
-        | I::PackReserveStaticLabel { .. }
-        | I::PackReserveComputedLabel {}
-        | I::PackFillReservedLabel {}
-        | I::PackExpandLabels {}
-        | I::PackExpandComplete {}
-        | I::PackTryExpandTuplePositionals {}
-        | I::InvokePack { .. }
-        | I::SuperSendPack { .. }
-        | I::FinishTuplePack {}
-        | I::BilateralPreferReflected { .. }
-        | I::ValidateOrdering { .. }
-        | I::Same {}
-        | I::RaiseUnsupported { .. }
-        | I::RaiseNonIterableStarOperand {}
-        | I::Enum { .. }
-        | I::VariantMethod { .. }
-        | I::FinalizeEnum { .. }
-        | I::LoadVariantSingleton { .. }
-        | I::ConstructVariant { .. }
-        | I::MakeResolvedBoundMethod { .. }
-        | I::InvokeResolvedAssociated { .. }
-        | I::MakeAssociatedFamily { .. }
-        | I::InvokeAssociatedFamilyStatic { .. }
-        | I::InvokeAssociatedFamilyPack { .. }
-        | I::IsVariant { .. }
-        | I::GetVariantPayload { .. }
-        | I::MatchInvariantFailure {}
-        | I::InvokeSubscriptSetPack { .. }
-        | I::Data { .. }
-        | I::FinalizeData { .. }
-        | I::LoadDataSingleton { .. }
-        | I::ConstructData { .. }
-        | I::GetDataComponent { .. }
-        | I::BuildStaticTuple { .. }
-        | I::BuildStaticRecord { .. }
-        | I::InvokeConditional { .. }
-        | I::MakeConditionalFamily { .. }
-        | I::InvokeSpecialized { .. }
-        | I::InvokeTraitSelected { .. }
-        | I::InvokeTraitRequirement { .. }
-        | I::MakeTraitBoundMethod { .. }
-        | I::GetDataProductSlot { .. }
-        | I::FinishPack {}
-        | I::BuildStaticPack { .. }
-        | I::BuildPack { .. }
-        | I::GuardFieldKey {}
-        | I::RecordLiteralCheckKey {}
-        | I::LoadTypeParameterClass { .. }
-        | I::BuildStaticTuple { .. }
-        | I::BuildStaticRecord { .. } => Err(unmodeled()),
+        I::Enum { .. } | I::Data { .. } | I::LoadVariantSingleton { .. } | I::LoadDataSingleton { .. } => Ok(linear(0, 1)),
+        I::FinalizeEnum { .. } | I::FinalizeData { .. } => Ok(linear(0, 0)),
+        I::VariantMethod { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(1, 0))
+        }
+        I::ConstructVariant { arity, .. } | I::ConstructData { arity, .. } => {
+            let arity = usize::from(arity);
+            require_stack_values(state, prototype, instruction_index, arity)?;
+            Ok(linear(arity, 1))
+        }
+        I::GetVariantPayload { .. } | I::GetDataComponent { .. } | I::GetDataProductSlot { .. } | I::IsVariant { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(1, 1))
+        }
+        I::MatchInvariantFailure {} => Ok(linear(0, 0)),
+        I::NewArgumentPack {} => Ok(linear(0, 1)),
+        I::PackPushPositional {} => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(2, 0))
+        }
+        I::PackReserveStaticLabel { .. } => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(1, 0))
+        }
+        I::PackReserveComputedLabel {} | I::PackFillReservedLabel {} => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(2, 0))
+        }
+        I::PackExpandLabels {} | I::PackExpandComplete {} => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(2, 0))
+        }
+        I::PackTryExpandTuplePositionals {} => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(2, 1))
+        }
+        I::FinishTuplePack {} | I::FinishPack {} => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(1, 1))
+        }
+        I::GuardFieldKey {} => {
+            require_stack_values(state, prototype, instruction_index, 1)?;
+            Ok(linear(0, 0))
+        }
+        I::RecordLiteralCheckKey {} => {
+            require_stack_values(state, prototype, instruction_index, 2)?;
+            Ok(linear(0, 0))
+        }
     }
 }
 
-fn validate_prototype_stack(prototype_index: usize, prototype: &PortablePrototypeV1) -> Result<(), ExecutableValidationError> {
-    let rest_slots = usize::from(prototype.parameters.rest.is_some());
-    let argument_slots = (prototype.parameters.fixed_positionals as usize)
-        .checked_add(prototype.parameters.fixed_labels.len())
-        .and_then(|slots| slots.checked_add(rest_slots))
-        .ok_or_else(|| ExecutableValidationError::InvalidPrototypeLayout {
-            prototype: prototype_index,
-            detail: "parameter slot count overflowed".to_owned(),
-        })?;
-    let entry_height = match prototype.owner {
-        PrototypeOwnerV1::ModuleInitializer { .. } => 0,
-        PrototypeOwnerV1::Callable { .. } | PrototypeOwnerV1::Nested { .. } => argument_slots
-            .checked_add(1)
-            .ok_or_else(|| ExecutableValidationError::InvalidPrototypeLayout {
-                prototype: prototype_index,
-                detail: "receiver and parameter slot count overflowed".to_owned(),
-            })?,
-    };
+fn validate_prototype_stack(
+    image: &ExecutableImageV1,
+    prototype_index: usize,
+    prototype: &PortablePrototypeV1,
+    activation_roles: PrototypeActivationRoles,
+) -> Result<(), ExecutableValidationError> {
+    let entry_height = prototype_entry_slots(prototype_index, prototype)?;
 
     let code_len = prototype.code.len();
     if code_len == 0 {
@@ -1551,7 +1959,16 @@ fn validate_prototype_stack(prototype_index: usize, prototype: &PortablePrototyp
         })?;
         let instruction = &prototype.code[instruction_index];
         let control_flow = instruction.control_flow_kind();
-        let transfer = instruction_stack_transfer(prototype_index, instruction_index, instruction, &prototype.owner, state)?;
+        let transfer = instruction_stack_transfer(
+            image,
+            prototype_index,
+            prototype,
+            instruction_index,
+            instruction,
+            &prototype.owner,
+            activation_roles,
+            state,
+        )?;
 
         match control_flow {
             ControlFlowKindV1::Fallthrough => {
