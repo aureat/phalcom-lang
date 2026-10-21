@@ -339,11 +339,11 @@ class Future<T> {
     match _outcome {
       Option::Some(out) => {
         match out {
-          Result::Ok(v) => Some(v)
-          _ => None
+          Result::Ok(v) => Option<T>::Some(v)
+          _ => Option<T>::None
         }
       }
-      _ => None
+      _ => Option<T>::None
     }
   }
 
