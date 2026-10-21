@@ -1260,7 +1260,14 @@ fn lower_scoped_type_form(
             }
 
             let members: Vec<String> = sym_ref.members.iter().map(|member| member.name.clone()).collect();
-            if let Some(declaration) = resolver.resolve_type_name(current_module, &sym_ref.root, &members) {
+            let declaration = resolver.resolve_type_name(current_module, &sym_ref.root, &members).or_else(|| {
+                let owner = site.self_term.as_ref()?.owner.clone();
+                (members.is_empty()
+                    && owner.module == *current_module
+                    && owner.name.as_ref() == sym_ref.root.as_str())
+                .then_some(owner)
+            });
+            if let Some(declaration) = declaration {
                 let runtime_form = declarations
                     .intrinsic_runtime_owner(&declaration)
                     .and_then(|_| declarations.runtime_form(store, &declaration));
