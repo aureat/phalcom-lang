@@ -2,17 +2,7 @@ name: Universe semantic targeted
 
 on:
   push:
-    branches:
-      - fix/universe-semantic-source
-    paths:
-      - "phalcom-semantic/src/checker/**"
-      - "phalcom-semantic/tests/semantic/integration/**"
-      - "phalcom-core/core/universe/src/**"
-      - ".github/workflows/universe-semantic-targeted.yml"
-
-concurrency:
-  group: universe-semantic-targeted-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [fix/universe-semantic-source]
 
 env:
   CARGO_TERM_COLOR: always
