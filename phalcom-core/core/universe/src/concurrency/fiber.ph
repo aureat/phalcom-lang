@@ -636,11 +636,11 @@ class Future<T> {
   all<U>(_ inputs: List<Future<U>>) -> Future<List<U>> {
     let n = inputs.size
     if n == 0 {
-      return Future.value(List.new())
+      return Future.value(List<U>.new())
     }
     let result: Future<List<U>> = Future.new()
     let mut remaining = n
-    let values: List<U> = List.new()
+    let values: List<U> = List<U>.new()
     let mut idx = 0
     while idx < n {
       values.rawPush(None)
@@ -713,11 +713,11 @@ class Future<T> {
   allSettled<U>(_ inputs: List<Future<U>>) -> Future<List<Result<U, Error>>> {
     let n = inputs.size
     if n == 0 {
-      return Future.value(List.new())
+      return Future.value(List<Result<U, Error>>.new())
     }
     let result: Future<List<Result<U, Error>>> = Future.new()
     let mut remaining = n
-    let outcomes: List<Result<U, Error>> = List.new()
+    let outcomes: List<Result<U, Error>> = List<Result<U, Error>>.new()
     let mut idx = 0
     while idx < n {
       outcomes.rawPush(None)
