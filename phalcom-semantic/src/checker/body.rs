@@ -8,7 +8,7 @@ use crate::checker::statement::check_statement;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::declarations::DeclarationTypeTable;
 use crate::identity::{CallableId, ModuleId};
-use crate::types::annotation::{ScopedTypeResolver, TypeResolver, type_level_binding_for_parameter};
+use crate::types::annotation::{CurrentDeclarationTypeResolver, ScopedTypeResolver, TypeResolver, type_level_binding_for_parameter};
 use crate::types::evidence::DynamicReason;
 use crate::types::outcome::RelationOutcome;
 use crate::types::parameter::GenericSignature;
@@ -186,8 +186,20 @@ fn analyze_callable_body_with_attribute_context(
             }
         }
     }
+    let current_declaration_resolver = if trait_surface.is_none() {
+        callable.try_declaration_owner().map(|declaration| CurrentDeclarationTypeResolver {
+            parent: resolver,
+            declaration,
+        })
+    } else {
+        None
+    };
+    let body_resolver: &dyn TypeResolver = current_declaration_resolver
+        .as_ref()
+        .map(|resolver| resolver as &dyn TypeResolver)
+        .unwrap_or(resolver);
     let scoped_resolver = ScopedTypeResolver {
-        parent: resolver,
+        parent: body_resolver,
         type_parameters,
     };
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, &scoped_resolver, declarations, dispatch, module, control);

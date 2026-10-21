@@ -299,6 +299,97 @@ impl TypeResolver for ProjectedRecordKeyResolver<'_> {
     }
 }
 
+
+/// Resolver overlay that makes the callable body's canonical declaration
+/// available as an ordinary local type name even when the linked module
+/// interface does not export that declaration. This is lexical declaration
+/// authority, not an export: imported/public lookup remains owned by `parent`.
+pub struct CurrentDeclarationTypeResolver<'a> {
+    pub parent: &'a dyn TypeResolver,
+    pub declaration: &'a DeclarationId,
+}
+
+impl TypeResolver for CurrentDeclarationTypeResolver<'_> {
+    fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
+        self.parent.resolve_type_name(current_module, root, members).or_else(|| {
+            (members.is_empty()
+                && current_module == &self.declaration.module
+                && root == self.declaration.name.as_ref())
+            .then(|| self.declaration.clone())
+        })
+    }
+
+    fn projected_record_key(&self, syntax: &phalcom_ast::ast::RecordKeySyntax) -> Option<crate::static_key::ProjectedRecordKeyFact> {
+        self.parent.projected_record_key(syntax)
+    }
+
+    fn resolve_trait_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
+        self.parent.resolve_trait_name(current_module, root, members)
+    }
+
+    fn resolve_type_level_binding(&self, name: &str) -> Option<TypeLevelBinding> {
+        self.parent.resolve_type_level_binding(name)
+    }
+
+    fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<TypeId> {
+        self.parent.resolve_alias_form(declaration)
+    }
+
+    fn resolve_static_definition(&self, declaration: &DeclarationId) -> Option<std::sync::Arc<crate::static_definition::StaticDefinitionProduct>> {
+        self.parent.resolve_static_definition(declaration)
+    }
+
+    fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
+        self.parent.resolve_module_alias(current_module, alias)
+    }
+
+    fn resolve_import_binding_id(&self, current_module: &ModuleId, name: &str) -> Option<phalcom_modules::identity::SourceImportBindingId> {
+        self.parent.resolve_import_binding_id(current_module, name)
+    }
+
+    fn resolve_associated_type_requirement(&self, trait_declaration: &DeclarationId, name: &str) -> Option<AssociatedTypeRequirementId> {
+        self.parent.resolve_associated_type_requirement(trait_declaration, name)
+    }
+
+    fn resolve_associated_type_member(
+        &self,
+        owner: &DeclarationId,
+        selector: &TypeMemberSelector,
+    ) -> Option<std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>> {
+        self.parent.resolve_associated_type_member(owner, selector)
+    }
+
+    fn resolve_associated_type_member_id(
+        &self,
+        owner: &DeclarationId,
+        selector: &TypeMemberSelector,
+    ) -> Option<crate::types::type_member::TypeMemberDeclarationId> {
+        self.parent.resolve_associated_type_member_id(owner, selector)
+    }
+
+    fn resolve_static_case_catalog(
+        &self,
+        domain: &crate::identity::StaticDomainDeclarationId,
+    ) -> Option<std::sync::Arc<crate::static_case::StaticDomainCaseCatalogProduct>> {
+        self.parent.resolve_static_case_catalog(domain)
+    }
+
+    fn resolve_static_case_signature(
+        &self,
+        case: &crate::identity::StaticCaseId,
+    ) -> Option<std::sync::Arc<crate::static_case::StaticCaseSignatureProduct>> {
+        self.parent.resolve_static_case_signature(case)
+    }
+
+    fn resolve_associated_static_domain(
+        &self,
+        owner: &DeclarationId,
+        name: &str,
+    ) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
+        self.parent.resolve_associated_static_domain(owner, name)
+    }
+}
+
 /// A scoped type resolver overlaying lexical type parameters on top of a parent resolver.
 pub struct ScopedTypeResolver<'a> {
     pub parent: &'a dyn TypeResolver,
