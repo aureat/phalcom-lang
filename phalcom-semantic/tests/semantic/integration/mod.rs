@@ -31,4 +31,5 @@ mod static_definition_bodies;
 mod static_recursive_evaluation;
 mod static_value_metadata;
 mod type_member_closure;
+mod universe_diagnostics;
 mod workspace;

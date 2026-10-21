@@ -1,0 +1,41 @@
+name: Universe semantic targeted
+
+on:
+  push:
+    branches:
+      - fix/universe-semantic-source
+    paths:
+      - "phalcom-semantic/src/checker/**"
+      - "phalcom-semantic/tests/semantic/integration/**"
+      - "phalcom-core/core/universe/src/**"
+      - ".github/workflows/universe-semantic-targeted.yml"
+
+concurrency:
+  group: universe-semantic-targeted-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: ""
+  RUSTC_WRAPPER: ""
+
+jobs:
+  semantic:
+    name: Focused Universe semantic regressions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustfmt,rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Formatting
+        run: cargo +nightly-2026-07-10 fmt --all -- --check
+      - name: Option typing regressions
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic semantic::integration::option_typing:: -- --nocapture
+      - name: Result callback regressions
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic semantic::integration::result_callbacks:: -- --nocapture
+      - name: Universe diagnostic regressions
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic semantic::integration::universe_diagnostics:: -- --nocapture

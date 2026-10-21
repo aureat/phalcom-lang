@@ -434,7 +434,11 @@ fn analyze_callable_body_with_attribute_context(
                         .unwrap_or_default()
                 };
                 let mut typed = crate::checker::expression::analyze_expression(&mut ctx, expr, &expected);
-                if attribute_context.is_none() && !constructor_body && !setter_body {
+                // A tail expression contributes to the callable result only when it can
+                // complete normally. Non-fallthrough expressions (for example an
+                // unconditional loop with no reachable break) deliberately leave the
+                // flow unreachable and must not be compared as an implicit Unit return.
+                if attribute_context.is_none() && !constructor_body && !setter_body && ctx.flow.is_reachable() {
                     if let Some(expected_return) = ctx.expected_return.clone() {
                         let relation = ctx.apply_knowledge_against_type(
                             &typed.knowledge,
