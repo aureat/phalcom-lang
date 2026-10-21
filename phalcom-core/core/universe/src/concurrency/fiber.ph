@@ -640,7 +640,7 @@ class Future<T> {
     }
     let result: Future<List<U>> = Future.new()
     let mut remaining = n
-    let values = List.new()
+    let values: List<U> = List.new()
     let mut idx = 0
     while idx < n {
       values.rawPush(None)
@@ -717,7 +717,7 @@ class Future<T> {
     }
     let result: Future<List<Result<U, Error>>> = Future.new()
     let mut remaining = n
-    let outcomes = List.new()
+    let outcomes: List<Result<U, Error>> = List.new()
     let mut idx = 0
     while idx < n {
       outcomes.rawPush(None)
