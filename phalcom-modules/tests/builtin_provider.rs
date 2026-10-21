@@ -285,6 +285,6 @@ fn canonical_universe_sources_parse_interfaces_and_link() {
     }
 
     phalcom_modules::ModuleLinker::new(universe, interfaces)
-        .link_all(ModuleId::universe_root(), &resolved)
-        .expect("canonical Universe interfaces must link");
+        .link_semantic(ModuleId::universe_root(), &resolved)
+        .expect("canonical Universe interfaces must symbolically link");
 }

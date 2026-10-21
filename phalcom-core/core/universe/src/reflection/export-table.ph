@@ -7,6 +7,8 @@ native class ExportTable is Object {
   native keys -> (*: Symbol)
   native size -> Int
   native contains(_ name: Symbol) -> Bool
-  native descriptor(_ name: Symbol) -> Export
+  native descriptor(_ name: Symbol) -> Option<Export>
   native get(_ name: Symbol) -> Option<Dynamic>
 }
+
+export ExportTable

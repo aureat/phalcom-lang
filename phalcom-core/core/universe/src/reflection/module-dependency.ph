@@ -7,3 +7,5 @@ native class ModuleDependency is Object {
   native phase -> Symbol
   native reason -> String
 }
+
+export ModuleDependency
