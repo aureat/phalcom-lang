@@ -19,3 +19,5 @@ native primitive class Method is Object {
 }
 
 native primitive class BoundMethod is Function {}
+
+export Method
