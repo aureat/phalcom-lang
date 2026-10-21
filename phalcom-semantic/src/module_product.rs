@@ -13,11 +13,7 @@ pub struct ResolvedImportsProduct {
 }
 
 impl ResolvedImportsProduct {
-    pub fn new(
-        module: ModuleId,
-        imports: impl Into<ModuleAuthorityMap<String, ModuleId>>,
-        unresolved_diagnostics: Vec<(String, SourceRange)>,
-    ) -> Self {
+    pub fn new(module: ModuleId, imports: impl Into<ModuleAuthorityMap<String, ModuleId>>, unresolved_diagnostics: Vec<(String, SourceRange)>) -> Self {
         Self {
             module,
             imports: imports.into(),

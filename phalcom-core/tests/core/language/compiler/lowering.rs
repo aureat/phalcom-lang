@@ -124,10 +124,7 @@ let result = value.isSome
         .find(|recipe| recipe.callable.selector.as_ref() == "isSome")
         .expect("Option.isSome must retain its call-entry recipe");
     assert!(
-        matches!(
-            recipe.bindings.as_ref(),
-            [(_, RuntimeTypeRecipe::Closed(_))]
-        ),
+        matches!(recipe.bindings.as_ref(), [(_, RuntimeTypeRecipe::Closed(_))]),
         "concrete Option<Int>.isSome must lower Option.T as Closed(Int), got {recipe:?}"
     );
 
@@ -167,10 +164,7 @@ class Probe<T> {
         .collect();
     assert_eq!(recipes.len(), 1, "generic Probe should have one Option.isSome recipe");
     assert!(
-        matches!(
-            recipes[0].bindings.as_ref(),
-            [(_, RuntimeTypeRecipe::Template(_))]
-        ),
+        matches!(recipes[0].bindings.as_ref(), [(_, RuntimeTypeRecipe::Template(_))]),
         "generic Probe<T>.check must forward Probe.T as a template, got {:?}",
         recipes[0]
     );

@@ -5068,9 +5068,11 @@ impl SemanticWorkspaceSession {
         let mut derived_conformance_rules = previous_snapshot
             .as_ref()
             .map(|snapshot| {
-                if self.db.canonical_image().is_some_and(|image| {
-                    Arc::ptr_eq(&snapshot.derived_conformance_rules, &image.snapshot().derived_conformance_rules)
-                }) {
+                if self
+                    .db
+                    .canonical_image()
+                    .is_some_and(|image| Arc::ptr_eq(&snapshot.derived_conformance_rules, &image.snapshot().derived_conformance_rules))
+                {
                     crate::derived_conformance::DerivedConformanceRuleIndex::with_parent(snapshot.derived_conformance_rules.clone())
                 } else {
                     (*snapshot.derived_conformance_rules).clone()

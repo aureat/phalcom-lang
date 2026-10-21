@@ -200,14 +200,19 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
             update.snapshot.derived_conformance_rules.local_len(),
             0,
             "unexpected local rules: {:?}",
-            update.snapshot.derived_conformance_rules.iter().map(|rule| (
-                &rule.impl_id,
-                &rule.source_module,
-                &rule.trait_ref.declaration,
-                rule.target_parameter,
-                rule.target_template,
-                image.snapshot().derived_conformance_rules.get_rule(&rule.impl_id).is_some(),
-            )).collect::<Vec<_>>()
+            update
+                .snapshot
+                .derived_conformance_rules
+                .iter()
+                .map(|rule| (
+                    &rule.impl_id,
+                    &rule.source_module,
+                    &rule.trait_ref.declaration,
+                    rule.target_parameter,
+                    rule.target_template,
+                    image.snapshot().derived_conformance_rules.get_rule(&rule.impl_id).is_some(),
+                ))
+                .collect::<Vec<_>>()
         );
         assert_eq!(
             update.snapshot.derived_conformance_rules.parent_len(),
@@ -327,8 +332,7 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
 #[test]
 fn ordinary_image_session_local_edit_reuses_unrelated_local_queries_and_retains_universe_identity() {
     use phalcom_modules::{
-        ModuleId, ModulePath, ProjectIdentity, SourceId, SourceLocation, SourceRevision, SyntheticProjectIdAllocator,
-        WorkspaceSourceBatchMutation,
+        ModuleId, ModulePath, ProjectIdentity, SourceId, SourceLocation, SourceRevision, SyntheticProjectIdAllocator, WorkspaceSourceBatchMutation,
     };
     use phalcom_semantic::{SemanticWorkspaceSession, db::QueryKey, identity::WorkspaceId};
     use std::collections::BTreeSet;
@@ -387,7 +391,10 @@ fn ordinary_image_session_local_edit_reuses_unrelated_local_queries_and_retains_
         .filter(|((importer, written), _)| importer == &edited && written.starts_with("universe"))
         .map(|(_, target)| target.clone())
         .collect::<Vec<_>>();
-    assert!(!initial_universe_targets.is_empty(), "local import must resolve through external Universe authority");
+    assert!(
+        !initial_universe_targets.is_empty(),
+        "local import must resolve through external Universe authority"
+    );
     assert!(
         initial_universe_targets.iter().all(|target| target.project == ProjectIdentity::Universe),
         "Universe imports must retain the builtin project identity"
@@ -411,8 +418,14 @@ fn ordinary_image_session_local_edit_reuses_unrelated_local_queries_and_retains_
         "edited local diagnostics: {:?}",
         update.snapshot.diagnostics.get(&edited)
     );
-    assert!(update.stats.query_products_recomputed > 0, "the edited local source must recompute query products");
-    assert!(!update.invalidated.is_empty(), "the edited local source must invalidate prior local query state");
+    assert!(
+        update.stats.query_products_recomputed > 0,
+        "the edited local source must recompute query products"
+    );
+    assert!(
+        !update.invalidated.is_empty(),
+        "the edited local source must invalidate prior local query state"
+    );
     assert!(session.db().local_query_state(&edited_key).is_some(), "edited binding query remains local");
     assert!(session.db().is_current(&edited_key), "edited binding query must be current after republishing");
     assert!(
@@ -423,10 +436,19 @@ fn ordinary_image_session_local_edit_reuses_unrelated_local_queries_and_retains_
         update.recomputed.iter().all(|key| !canonical_keys.contains(key)),
         "canonical query roots must never enter the local recomputation set"
     );
-    assert!(!update.invalidated.iter().any(|key| key == &stable_key), "unrelated local query must not be invalidated");
-    assert!(!update.recomputed.iter().any(|key| key == &stable_key), "unrelated local query must not be recomputed");
+    assert!(
+        !update.invalidated.iter().any(|key| key == &stable_key),
+        "unrelated local query must not be invalidated"
+    );
+    assert!(
+        !update.recomputed.iter().any(|key| key == &stable_key),
+        "unrelated local query must not be recomputed"
+    );
     let retained_stable = session.db().product(&stable_key).expect("stable module query product remains published");
-    assert!(Arc::ptr_eq(retained_stable, &stable_product), "unrelated local query product must retain Arc identity");
+    assert!(
+        Arc::ptr_eq(retained_stable, &stable_product),
+        "unrelated local query product must retain Arc identity"
+    );
 
     let edited_universe_targets = session
         .module_session()
@@ -435,7 +457,10 @@ fn ordinary_image_session_local_edit_reuses_unrelated_local_queries_and_retains_
         .filter(|((importer, written), _)| importer == &edited && written.starts_with("universe"))
         .map(|(_, target)| target.clone())
         .collect::<Vec<_>>();
-    assert!(!edited_universe_targets.is_empty(), "edited import must still resolve through external Universe authority");
+    assert!(
+        !edited_universe_targets.is_empty(),
+        "edited import must still resolve through external Universe authority"
+    );
     assert!(
         edited_universe_targets.iter().all(|target| target.project == ProjectIdentity::Universe),
         "editing a local module must not rebase imported Universe identities"
@@ -459,7 +484,10 @@ fn ordinary_image_sessions_share_canonical_products_but_isolate_workspace_state(
     let canonical_key = image.query_image().entries().next().expect("canonical query root").0.clone();
     let left_canonical = left.db().product(&canonical_key).expect("left canonical product").clone();
     let right_canonical = right.db().product(&canonical_key).expect("right canonical product").clone();
-    assert!(Arc::ptr_eq(&left_canonical, &right_canonical), "sessions must share the exact immutable canonical product");
+    assert!(
+        Arc::ptr_eq(&left_canonical, &right_canonical),
+        "sessions must share the exact immutable canonical product"
+    );
     assert!(left.db().local_query_state(&canonical_key).is_none());
     assert!(right.db().local_query_state(&canonical_key).is_none());
 
@@ -484,11 +512,23 @@ fn ordinary_image_sessions_share_canonical_products_but_isolate_workspace_state(
     );
 
     let local_key = QueryKey::ModuleStaticBindings(local.clone());
-    assert!(left.db().local_query_state(&local_key).is_some(), "left session must publish ordinary local query state");
+    assert!(
+        left.db().local_query_state(&local_key).is_some(),
+        "left session must publish ordinary local query state"
+    );
     assert!(left.db().product(&local_key).is_some(), "left session must own the local query product");
-    assert!(right.db().local_query_state(&local_key).is_none(), "right session must not observe left local query state");
-    assert!(right.db().product(&local_key).is_none(), "right session must not observe left local query products");
-    assert!(right.module_session().sources().is_empty(), "right session source ownership must remain isolated");
+    assert!(
+        right.db().local_query_state(&local_key).is_none(),
+        "right session must not observe left local query state"
+    );
+    assert!(
+        right.db().product(&local_key).is_none(),
+        "right session must not observe left local query products"
+    );
+    assert!(
+        right.module_session().sources().is_empty(),
+        "right session source ownership must remain isolated"
+    );
     assert!(Arc::ptr_eq(right.last_snapshot().expect("right snapshot remains canonical"), image.snapshot()));
     assert!(right.last_known_good_snapshot().is_some_and(|snapshot| Arc::ptr_eq(snapshot, image.snapshot())));
 

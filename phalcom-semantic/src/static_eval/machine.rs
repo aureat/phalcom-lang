@@ -305,7 +305,12 @@ impl<'a> EvaluatorBody<'a> {
         }
     }
 
-    fn canonical_definition(&self) -> Option<(&'a crate::static_definition::StaticDefinition, &'a crate::static_definition::CanonicalStaticProgram)> {
+    fn canonical_definition(
+        &self,
+    ) -> Option<(
+        &'a crate::static_definition::StaticDefinition,
+        &'a crate::static_definition::CanonicalStaticProgram,
+    )> {
         match self {
             Self::CanonicalDefinition { definition, program } => Some((*definition, *program)),
             _ => None,
@@ -4426,9 +4431,7 @@ impl<'a> StaticEvaluator<'a> {
                     let result = match op {
                         StaticUnaryOp::Neg => match &val_data {
                             StaticValueData::Int(n) => self.values.intern_int(-n.to_bigint()),
-                            StaticValueData::Float(f) => {
-                                self.values.intern_float(crate::static_value::StaticFloat::from_f64(-f.to_f64()))
-                            }
+                            StaticValueData::Float(f) => self.values.intern_float(crate::static_value::StaticFloat::from_f64(-f.to_f64())),
                             _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
                         },
                         StaticUnaryOp::Not => match &val_data {
@@ -4641,10 +4644,7 @@ impl<'a> StaticEvaluator<'a> {
         Ok(result)
     }
 
-    fn canonical_program_for_body(
-        &self,
-        body: &'a CheckedStaticBody,
-    ) -> Option<&'a crate::static_definition::CanonicalStaticProgram> {
+    fn canonical_program_for_body(&self, body: &'a CheckedStaticBody) -> Option<&'a crate::static_definition::CanonicalStaticProgram> {
         if let crate::static_definition::StaticDefinitionBodyRepr::Operational(program) = &body.root {
             return Some(program);
         }
@@ -4653,10 +4653,7 @@ impl<'a> StaticEvaluator<'a> {
             .and_then(|product| product.canonical_program.as_deref())
     }
 
-    fn canonical_application_for_current_body(
-        &self,
-        ordinal: u32,
-    ) -> Result<&'a crate::static_definition::CanonicalCheckedStaticApplication, Stop> {
+    fn canonical_application_for_current_body(&self, ordinal: u32) -> Result<&'a crate::static_definition::CanonicalCheckedStaticApplication, Stop> {
         let (owner, program) = match self.body {
             EvaluatorBody::Definition(body) => (
                 body.owner.clone(),

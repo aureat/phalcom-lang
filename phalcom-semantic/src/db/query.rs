@@ -237,12 +237,7 @@ fn immutable_canonical_terminal_failure(db: &SemanticDb, key: &QueryKey, attempt
     )
 }
 
-fn canonical_query_reuse_failure<T>(
-    db: &SemanticDb,
-    key: &QueryKey,
-    input_fingerprint: InputFingerprint,
-    expected_product: &str,
-) -> Option<QueryOutcome<T>> {
+fn canonical_query_reuse_failure<T>(db: &SemanticDb, key: &QueryKey, input_fingerprint: InputFingerprint, expected_product: &str) -> Option<QueryOutcome<T>> {
     if !db.is_canonical_query(key) {
         return None;
     }
@@ -1909,9 +1904,7 @@ fn ensure_semantic_dependency_current(
         }
         crate::checker::analysis::SemanticDependency::TraitHeader(declaration) => {
             let key = QueryKey::TraitHeader(declaration.clone());
-            if db.is_dependency_current(&key)
-                && db.product(&key).and_then(|product| product.as_trait_header()).is_some()
-            {
+            if db.is_dependency_current(&key) && db.product(&key).and_then(|product| product.as_trait_header()).is_some() {
                 QueryOutcome::Ready(())
             } else {
                 QueryOutcome::Blocked(BlockReason::SuppressedDependency)

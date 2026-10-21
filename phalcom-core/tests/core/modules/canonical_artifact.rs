@@ -768,10 +768,8 @@ fn fresh_process_target_runner() {
     // while every canonical source-producing entry point is denied. Session
     // construction may create an inert provider, but it must consume only the
     // loaded image and retain the exact imported snapshot authority.
-    let mut session = phalcom_semantic::SemanticWorkspaceSession::from_image(
-        phalcom_semantic::identity::WorkspaceId::from_raw(739),
-        loaded.formal_image.clone(),
-    );
+    let mut session =
+        phalcom_semantic::SemanticWorkspaceSession::from_image(phalcom_semantic::identity::WorkspaceId::from_raw(739), loaded.formal_image.clone());
     assert!(std::sync::Arc::ptr_eq(
         session.last_snapshot().expect("artifact-backed initial snapshot"),
         loaded.formal_image.snapshot()
@@ -788,7 +786,10 @@ fn fresh_process_target_runner() {
     let mut required_roots = std::collections::BTreeMap::new();
     for (key, _) in loaded.formal_image.query_image().entries() {
         use phalcom_semantic::db::key::QueryKind;
-        if matches!(key.kind(), QueryKind::DeclarationShell | QueryKind::DeclarationSurface | QueryKind::CallableSignature) {
+        if matches!(
+            key.kind(),
+            QueryKind::DeclarationShell | QueryKind::DeclarationSurface | QueryKind::CallableSignature
+        ) {
             assert!(session.db().is_current(key), "required loaded root must be current: {key:?}");
             assert!(session.db_mut().validate_ready(key), "required loaded root must validate: {key:?}");
             *required_roots.entry(key.kind()).or_insert(0usize) += 1;
@@ -811,26 +812,34 @@ fn fresh_process_target_runner() {
         );
     }
     for (revision, text) in ["let value = 1\n", "let value = 2\n", "let replacement = 3\n"].into_iter().enumerate() {
-        let update = session.apply_module_mutations([phalcom_modules::WorkspaceSourceBatchMutation::SetOverlayForModule {
-            module: local.clone(),
-            source: phalcom_modules::SourceLocation {
-                source_id: phalcom_modules::SourceId("source-denied-overlay.ph".into()),
-                display_path: "/tmp/source-denied-overlay.ph".into(),
-            },
-            text: std::sync::Arc::from(text),
-            revision: phalcom_modules::SourceRevision(revision as u64 + 1),
-            recovered_program: None,
-        }]).expect("loaded-image local overlay update");
+        let update = session
+            .apply_module_mutations([phalcom_modules::WorkspaceSourceBatchMutation::SetOverlayForModule {
+                module: local.clone(),
+                source: phalcom_modules::SourceLocation {
+                    source_id: phalcom_modules::SourceId("source-denied-overlay.ph".into()),
+                    display_path: "/tmp/source-denied-overlay.ph".into(),
+                },
+                text: std::sync::Arc::from(text),
+                revision: phalcom_modules::SourceRevision(revision as u64 + 1),
+                recovered_program: None,
+            }])
+            .expect("loaded-image local overlay update");
         assert!(update.snapshot.diagnostics.get(&local).is_none_or(|diagnostics| diagnostics.is_empty()));
         assert!(update.snapshot.internal_incidents.is_empty());
         assert_eq!(update.snapshot.derived_conformance_rules.local_len(), 0);
         assert_eq!(update.snapshot.derived_conformance_rules.parent_len(), canonical_rules.len());
         for rule in canonical_rules.iter() {
-            assert!(std::sync::Arc::ptr_eq(rule, update.snapshot.derived_conformance_rules.get_rule(&rule.impl_id).unwrap()));
+            assert!(std::sync::Arc::ptr_eq(
+                rule,
+                update.snapshot.derived_conformance_rules.get_rule(&rule.impl_id).unwrap()
+            ));
         }
         for (key, _) in loaded.formal_image.query_image().entries() {
             assert!(session.db().local_query_state(key).is_none());
-            assert_eq!(session.db().product_origin(key), Some(phalcom_semantic::db::SemanticProductOrigin::Canonical(loaded.formal_image.world().clone())));
+            assert_eq!(
+                session.db().product_origin(key),
+                Some(phalcom_semantic::db::SemanticProductOrigin::Canonical(loaded.formal_image.world().clone()))
+            );
             assert!(!update.invalidated.contains(key));
             assert!(!update.recomputed.contains(key));
         }
@@ -847,7 +856,10 @@ fn fresh_process_target_runner() {
         .compile_user_entry(EntrySelection::Project(std::path::PathBuf::from(&slotmap_path)))
         .expect("compile slotmap project in fresh process against loaded artifact must succeed");
     assert_eq!(compiled_slotmap.modules.len(), 4, "slotmap project modules count must be 4");
-    eprintln!("source-denied loaded-image proof: three local revisions; SlotMap modules={}", compiled_slotmap.modules.len());
+    eprintln!(
+        "source-denied loaded-image proof: three local revisions; SlotMap modules={}",
+        compiled_slotmap.modules.len()
+    );
     let compiled_runtime = loaded
         .compile_user_entry(EntrySelection::Project(std::path::PathBuf::from(slotmap_path).join("tests/runtime")))
         .expect("compile SlotMap runtime test project against loaded artifact with canonical source denied");
@@ -1310,7 +1322,7 @@ fn loader_rejects_rehashed_incompatible_header_fields() {
     let limits = ValidationLimits::default();
     let built = build_universe_telosc(&view, &limits).unwrap();
     let parsed = TeloscContainerView::parse(&built.bytes, &limits).unwrap();
-    for field in 0..12 {
+    for field in 0..13 {
         let mut header = parsed.header().clone();
         match field {
             0 => header.semantic_model_version += 1,
@@ -1335,6 +1347,7 @@ fn loader_rejects_rehashed_incompatible_header_fields() {
                     version: "0.2.0".into(),
                 }
             }
+            12 => header.type_metadata_schema_version = phalcom_type_meta::TYPE_METADATA_SCHEMA_VERSION - 1,
             _ => unreachable!(),
         }
         let mut builder = TeloscContainerBuilder::new(header);
@@ -1344,10 +1357,12 @@ fn loader_rejects_rehashed_incompatible_header_fields() {
             SectionKind::QueryImage,
             SectionKind::Metadata,
         ] {
-            let schema = if kind == SectionKind::SemanticWorld {
-                phalcom_compiler_artifact::semantic::world::SEMANTIC_WORLD_SCHEMA_V3
-            } else {
-                1
+            let schema = match kind {
+                SectionKind::ModuleWorld => phalcom_compiler_artifact::module_world::MODULE_WORLD_SCHEMA_V2,
+                SectionKind::SemanticWorld => phalcom_compiler_artifact::semantic::world::SEMANTIC_WORLD_SCHEMA_V4,
+                SectionKind::QueryImage => phalcom_compiler_artifact::query::QUERY_IMAGE_SCHEMA_V4,
+                SectionKind::Metadata => phalcom_compiler_artifact::metadata::METADATA_SECTION_SCHEMA_V1,
+                _ => unreachable!("only required canonical sections are re-emitted"),
             };
             builder.add_section(kind, schema, SectionFlags::REQUIRED, parsed.require_section(kind).unwrap().to_vec());
         }

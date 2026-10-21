@@ -2045,13 +2045,19 @@ mod tests {
                 Some(crate::db::SemanticProductOrigin::Canonical(image.world().clone())),
                 "required canonical root must retain canonical origin: {key:?}"
             );
-            assert!(db.local_query_state(key).is_none(), "required canonical root must not synthesize local state: {key:?}");
+            assert!(
+                db.local_query_state(key).is_none(),
+                "required canonical root must not synthesize local state: {key:?}"
+            );
             assert_eq!(db.ready_product_fingerprint(key), Some(entry.product_fingerprint));
         }
 
         for kind in QueryKind::ALL {
             if canonical_query_root_requirement(kind) == CanonicalQueryRootRequirement::Required {
-                assert!(observed.get(&kind).is_some_and(|count| *count > 0), "required canonical root family has no source root: {kind:?}");
+                assert!(
+                    observed.get(&kind).is_some_and(|count| *count > 0),
+                    "required canonical root family has no source root: {kind:?}"
+                );
             }
         }
     }

@@ -175,9 +175,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
     /// may resolve their interfaces/exports, but must not enqueue them for
     /// local source discovery or parsing.
     pub fn has_external_authority(&self, module_id: &ModuleId) -> bool {
-        self.external
-            .as_ref()
-            .is_some_and(|external| external.linked().modules.contains_key(module_id))
+        self.external.as_ref().is_some_and(|external| external.linked().modules.contains_key(module_id))
     }
 
     fn universe_location(&self, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {

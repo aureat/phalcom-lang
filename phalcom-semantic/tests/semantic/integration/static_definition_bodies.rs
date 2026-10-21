@@ -628,8 +628,8 @@ fn symbolic_vector_identity_spread_stays_unreduced_before_reading_its_source() {
     resolution
         .exact_expansions
         .insert_source(
-        source_range,
-        phalcom_semantic::checker::SequenceExpansionResolution::VectorStorage { extent: symbolic_extent },
+            source_range,
+            phalcom_semantic::checker::SequenceExpansionResolution::VectorStorage { extent: symbolic_extent },
         )
         .expect("source expansion map");
     checked.sequence_literals = Arc::new(resolutions);

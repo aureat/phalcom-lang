@@ -2130,9 +2130,7 @@ impl<'a> CallableEvidenceImporter<'a> {
         validate_relocated_conformance_evidence_fingerprint(&evidence, source_plan_fingerprint)?;
         let evidence = self.allocations.arc(evidence).map_err(allocation_error)?;
         record_callable_import_allocation_diagnostic_stage(36, self.allocations, &mut diagnostic_previous_observed, &mut diagnostic_previous_ledger);
-        Ok(crate::generic_evidence::GenericConformanceEvidence::Exact(
-            evidence,
-        ))
+        Ok(crate::generic_evidence::GenericConformanceEvidence::Exact(evidence))
     }
 
     fn import_derived(
@@ -5573,7 +5571,8 @@ fn import_callable_observed_import_phases(
     module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
     import_phase_products: &impl phalcom_modules::linker::ModuleImportPhaseProductLookup,
     allocations: &mut AllocationBudget,
-) -> Result<crate::checker::analysis_map::AnalysisMap<phalcom_modules::identity::SourceImportBindingId, phalcom_modules::graph::DependencyPhase>, ArtifactError> {
+) -> Result<crate::checker::analysis_map::AnalysisMap<phalcom_modules::identity::SourceImportBindingId, phalcom_modules::graph::DependencyPhase>, ArtifactError>
+{
     use phalcom_compiler_artifact::semantic::world::DependencyPhaseV1;
     use phalcom_modules::graph::DependencyPhase;
     use phalcom_modules::identity::{ImportBindingLocalId, ImportSiteId, ImportSiteLocalId, SourceImportBindingId};
@@ -5721,10 +5720,11 @@ fn import_module_execution_authority(
         };
         phase_product_entries.push((module, imported));
     }
-    let phase_products = phalcom_modules::authority::ModuleAuthorityMap::from_budgeted_entries(phase_product_entries, allocations).map_err(|error| match error {
-        phalcom_modules::authority::ModuleAuthorityBuildError::Allocation(error) => allocation_error(error),
-        _ => referential("module import phase product owner is duplicated after identity relocation"),
-    })?;
+    let phase_products =
+        phalcom_modules::authority::ModuleAuthorityMap::from_budgeted_entries(phase_product_entries, allocations).map_err(|error| match error {
+            phalcom_modules::authority::ModuleAuthorityBuildError::Allocation(error) => allocation_error(error),
+            _ => referential("module import phase product owner is duplicated after identity relocation"),
+        })?;
 
     let mut runtime_requirements = allocations
         .vector::<RuntimeDependencyRequirement>(authority.runtime_requirements.len())
@@ -7166,7 +7166,12 @@ fn validate_and_import_semantic_world_inner(
         .vector::<(crate::identity::ImplId, crate::db::ProductFingerprint)>(world.witness_plans.len())
         .map_err(allocation_error)?;
     #[cfg(feature = "allocation-diagnostics")]
-    record_callable_import_allocation_diagnostic_stage(39, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
+    record_callable_import_allocation_diagnostic_stage(
+        39,
+        allocations,
+        &mut witness_diagnostic_previous_observed,
+        &mut witness_diagnostic_previous_ledger,
+    );
     for witness in &world.witness_plans {
         let impl_id = import_stable_impl_with_allocation_budget(&witness.impl_id, allocations)?;
         let source_module = import_stable_module_with_allocation_budget(&witness.source_module, allocations)?;
@@ -7186,7 +7191,12 @@ fn validate_and_import_semantic_world_inner(
             None
         };
         #[cfg(feature = "allocation-diagnostics")]
-        record_callable_import_allocation_diagnostic_stage(40, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
+        record_callable_import_allocation_diagnostic_stage(
+            40,
+            allocations,
+            &mut witness_diagnostic_previous_observed,
+            &mut witness_diagnostic_previous_ledger,
+        );
         let mut requirement_view_entries = allocations
             .vector::<(crate::traits::TraitRequirementId, crate::traits::InstantiatedTraitRequirement)>(witness.requirement_views.len())
             .map_err(allocation_error)?;
@@ -7218,7 +7228,12 @@ fn validate_and_import_semantic_world_inner(
                 crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("witness requirement view is duplicated"),
             })?;
         #[cfg(feature = "allocation-diagnostics")]
-        record_callable_import_allocation_diagnostic_stage(41, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
+        record_callable_import_allocation_diagnostic_stage(
+            41,
+            allocations,
+            &mut witness_diagnostic_previous_observed,
+            &mut witness_diagnostic_previous_ledger,
+        );
 
         let mut requirement_entries = allocations
             .vector::<(crate::traits::TraitRequirementId, crate::impls::RequirementSelectionTemplate)>(witness.requirements.len())
@@ -7249,10 +7264,20 @@ fn validate_and_import_semantic_world_inner(
                 crate::ordered_map::FrozenOrderedMapError::DuplicateKey => referential("witness requirement selection is duplicated"),
             })?;
         #[cfg(feature = "allocation-diagnostics")]
-        record_callable_import_allocation_diagnostic_stage(42, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
+        record_callable_import_allocation_diagnostic_stage(
+            42,
+            allocations,
+            &mut witness_diagnostic_previous_observed,
+            &mut witness_diagnostic_previous_ledger,
+        );
         let associated_type_plan = import_callable_associated_type_plan(&witness.associated_type_plan, &impl_id, &trait_decl, &type_relocation, allocations)?;
         #[cfg(feature = "allocation-diagnostics")]
-        record_callable_import_allocation_diagnostic_stage(43, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
+        record_callable_import_allocation_diagnostic_stage(
+            43,
+            allocations,
+            &mut witness_diagnostic_previous_observed,
+            &mut witness_diagnostic_previous_ledger,
+        );
         let completeness = import_callable_conformance_completeness(&witness.completeness, &type_relocation, allocations)?;
         let mut diagnostics = allocations.vector(witness.diagnostics.len()).map_err(allocation_error)?;
         for diagnostic in &witness.diagnostics {
@@ -7260,7 +7285,12 @@ fn validate_and_import_semantic_world_inner(
         }
         let diagnostics = allocations.boxed_slice(diagnostics).map_err(allocation_error)?;
         #[cfg(feature = "allocation-diagnostics")]
-        record_callable_import_allocation_diagnostic_stage(44, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
+        record_callable_import_allocation_diagnostic_stage(
+            44,
+            allocations,
+            &mut witness_diagnostic_previous_observed,
+            &mut witness_diagnostic_previous_ledger,
+        );
         let plan = crate::impls::ConformanceWitnessPlan::from_parts(
             impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
             source_module,
@@ -7275,7 +7305,12 @@ fn validate_and_import_semantic_world_inner(
             diagnostics,
         );
         #[cfg(feature = "allocation-diagnostics")]
-        record_callable_import_allocation_diagnostic_stage(45, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
+        record_callable_import_allocation_diagnostic_stage(
+            45,
+            allocations,
+            &mut witness_diagnostic_previous_observed,
+            &mut witness_diagnostic_previous_ledger,
+        );
 
         source_plan_fingerprints.push((impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, plan.fingerprint));
         witness_plan_entries.push((
@@ -7283,7 +7318,12 @@ fn validate_and_import_semantic_world_inner(
             allocations.arc(plan).map_err(allocation_error)?,
         ));
         #[cfg(feature = "allocation-diagnostics")]
-        record_callable_import_allocation_diagnostic_stage(46, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
+        record_callable_import_allocation_diagnostic_stage(
+            46,
+            allocations,
+            &mut witness_diagnostic_previous_observed,
+            &mut witness_diagnostic_previous_ledger,
+        );
     }
 
     let witness_plans_map =
@@ -7292,7 +7332,12 @@ fn validate_and_import_semantic_world_inner(
             crate::parent_map::FrozenParentMapError::DuplicateKey => referential("witness plan is duplicated after identity relocation"),
         })?;
     #[cfg(feature = "allocation-diagnostics")]
-    record_callable_import_allocation_diagnostic_stage(47, allocations, &mut witness_diagnostic_previous_observed, &mut witness_diagnostic_previous_ledger);
+    record_callable_import_allocation_diagnostic_stage(
+        47,
+        allocations,
+        &mut witness_diagnostic_previous_observed,
+        &mut witness_diagnostic_previous_ledger,
+    );
     record_import_allocation_diagnostic_stage(11, allocations);
 
     let (callable_analyses, callable_binding_ranges) = import_callable_analysis_records(
@@ -9119,7 +9164,10 @@ mod tests {
                         segments: Vec::new(),
                         span: span.clone(),
                     },
-                    alias: Some(AliasV1 { name: "dependency".into(), span: span.clone() }),
+                    alias: Some(AliasV1 {
+                        name: "dependency".into(),
+                        span: span.clone(),
+                    }),
                     span,
                 }],
                 exposed_children: Vec::new(),
@@ -9180,14 +9228,16 @@ mod tests {
         let stricter_products = std::collections::BTreeMap::from([(module, stricter_product)]);
         let mut uncovered_record = record.clone();
         uncovered_record.observed_import_phases[0].phase = DependencyPhaseV1::Runtime;
-        assert!(import_callable_observed_import_phases(
-            &uncovered_record,
-            &callable,
-            &module_world,
-            &stricter_products,
-            &mut AllocationBudget::new(4096),
-        )
-        .is_err());
+        assert!(
+            import_callable_observed_import_phases(
+                &uncovered_record,
+                &callable,
+                &module_world,
+                &stricter_products,
+                &mut AllocationBudget::new(4096),
+            )
+            .is_err()
+        );
     }
 
     #[test]

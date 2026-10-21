@@ -3,6 +3,7 @@
 use crate::codec::{BinaryReader, BinaryWriter};
 use crate::digest::{ArtifactDigest, ArtifactHasher, DOMAIN_ARTIFACT, DOMAIN_SECTION};
 use crate::error::{ArtifactError, CodecError, ContainerError};
+use crate::executable::staging::StagedExecutableSectionV1;
 use crate::header::{TeloscCapabilities, TeloscHeaderV2};
 use crate::limits::ValidationLimits;
 use crate::section::{SECTION_DIRECTORY_ENTRY_SIZE, SectionDirectoryEntryV1, SectionFlags, SectionKind};
@@ -33,6 +34,20 @@ impl TeloscContainerBuilder {
             flags,
             data,
         });
+    }
+
+    /// Adds executable bytes to a compiler artifact as an explicitly
+    /// non-authoritative staging section. The portable-executable capability
+    /// remains unavailable until a later validator grants executable authority.
+    pub fn stage_executable_section(&mut self, staged: StagedExecutableSectionV1) -> Result<(), ArtifactError> {
+        if self.header.capabilities.contains(TeloscCapabilities::PORTABLE_EXECUTABLE) {
+            return Err(ContainerError::UnvalidatedExecutableCapability.into());
+        }
+        if self.sections.iter().any(|section| section.kind == SectionKind::Executable) {
+            return Err(ContainerError::DuplicateSection(SectionKind::Executable).into());
+        }
+        self.add_section(SectionKind::Executable, staged.schema_version(), SectionFlags::empty(), staged.into_payload());
+        Ok(())
     }
 
     /// Assembles and serializes the complete container artifact.

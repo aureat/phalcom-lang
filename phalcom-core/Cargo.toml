@@ -85,6 +85,7 @@ opcode-histogram = []
 benchmarks = ["dep:criterion"]
 
 [dependencies]
+blake3 = { workspace = true }
 tempfile = "3"
 getrandom = "0.3.3"
 phalcom-ast = { path = "../phalcom-ast" }

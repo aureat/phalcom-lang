@@ -3886,11 +3886,11 @@ mod tests {
         let mut recursive_prerequisite = (*exact_conformance_evidence()).clone();
         recursive_prerequisite.trait_header_conformance_proofs = Some(
             BTreeMap::from([(
-            GenericConformanceKey::new(
-                TypeTerm::Canonical(TypeId::DUMMY),
-                TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Nested".into()), Box::<[TypeId]>::default()),
-            ),
-            GenericConformanceEvidence::Exact(exact_conformance_evidence()),
+                GenericConformanceKey::new(
+                    TypeTerm::Canonical(TypeId::DUMMY),
+                    TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Nested".into()), Box::<[TypeId]>::default()),
+                ),
+                GenericConformanceEvidence::Exact(exact_conformance_evidence()),
             )])
             .into(),
         );
@@ -3901,11 +3901,11 @@ mod tests {
         }]);
         recursive_parent.trait_header_conformance_proofs = Some(
             BTreeMap::from([(
-            GenericConformanceKey::new(
-                TypeTerm::Canonical(TypeId::DUMMY),
-                TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Gate".into()), Box::<[TypeId]>::default()),
-            ),
-            GenericConformanceEvidence::Exact(Arc::new(recursive_prerequisite)),
+                GenericConformanceKey::new(
+                    TypeTerm::Canonical(TypeId::DUMMY),
+                    TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Gate".into()), Box::<[TypeId]>::default()),
+                ),
+                GenericConformanceEvidence::Exact(Arc::new(recursive_prerequisite)),
             )])
             .into(),
         );

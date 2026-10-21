@@ -4,6 +4,9 @@ use crate::fingerprint::Fingerprint128;
 use serde::{Deserialize, Serialize};
 
 pub const MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION: u32 = 1;
+/// Schema v14 canonicalizes global Union structural fingerprints over stable
+/// child fingerprints, independent of process-local TypeId order. Scoped
+/// union ordering remains represented.
 /// Schema v13 adds FieldKey heterogeneous Record keys, durable StaticValue DAGs, and static constants.
 /// Legacy v12 string Record field names remain readable as Symbol FieldKeys.
 /// Schema v12 encodes exact static integers as normalized decimal strings.
@@ -13,7 +16,7 @@ pub const MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION: u32 = 1;
 /// Schema v10 adds structural member presence and anonymous Tuple/Record remainders;
 /// v9 adds scoped heterogeneous `RecordFields` arguments; v8 adds a
 /// typed static-domain catalog and v7 retains selected source member identity.
-pub const TYPE_METADATA_SCHEMA_VERSION: u32 = 13;
+pub const TYPE_METADATA_SCHEMA_VERSION: u32 = 14;
 pub const SEMANTIC_MODEL_VERSION: u32 = 1;
 pub const NATIVE_SURFACE_SCHEMA_VERSION: u32 = 2;
 

@@ -113,7 +113,11 @@ pub(super) fn validate_callable_owner(
     Ok(())
 }
 
-fn validate_dependency(dependency: &StaticSemanticDependencyV1, world: &SemanticWorldValidationView<'_>, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+fn validate_dependency(
+    dependency: &StaticSemanticDependencyV1,
+    world: &SemanticWorldValidationView<'_>,
+    limits: &ValidationLimits,
+) -> Result<(), ArtifactError> {
     use StaticSemanticDependencyV1 as D;
     match dependency {
         D::GenericConformance { subject, trait_ref } => {

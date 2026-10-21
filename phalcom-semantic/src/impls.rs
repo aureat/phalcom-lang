@@ -1,7 +1,7 @@
 //! Canonical inherent implementation fragment analysis, target resolution, and contribution publication.
 
-use crate::checker::context::{CheckerControl, CheckingContext};
 use crate::checker::analysis_map::AnalysisMap;
+use crate::checker::context::{CheckerControl, CheckingContext};
 use crate::checker::declaration_signature::{
     CallableSyntaxRef, DelegationError, callable_id_for_syntax, delegated_accessor_signatures, delegated_member_visibility,
     semantic_signature_for_syntax_with_resolver,
@@ -1205,14 +1205,7 @@ pub(crate) fn project_inferred_trait_default_signature(
                     .iter()
                     .map(|(parameter, ty)| (*parameter, *ty))
                     .collect::<HashMap<_, _>>();
-                let environment = conformance_environment(
-                    store,
-                    Some(declarations),
-                    surface,
-                    exact_trait_ref,
-                    *exact_subject,
-                    &impl_bindings,
-                );
+                let environment = conformance_environment(store, Some(declarations), surface, exact_trait_ref, *exact_subject, &impl_bindings);
                 let signature = member.instantiate(store, &environment).signature;
                 Some(normalize_source_signature_in_store(
                     store,
@@ -4088,7 +4081,10 @@ impl ConditionalInherentSelectorIndex {
     ) -> Result<Self, crate::ordered_map::FrozenOrderedMapError> {
         Ok(Self {
             source: HashMap::new(),
-            frozen: Some(crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(entries, allocations)?),
+            frozen: Some(crate::ordered_map::OrderedMap::from_frozen_entries_with_allocation_budget(
+                entries,
+                allocations,
+            )?),
         })
     }
 }
@@ -6381,9 +6377,7 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
             };
         let side = if is_class_side { DispatchSide::Class } else { DispatchSide::Instance };
 
-        let native_anchor_record = if !syntax.has_body()
-            && syntax.implementation() == phalcom_common::modifier::ImplementationKind::Native
-        {
+        let native_anchor_record = if !syntax.has_body() && syntax.implementation() == phalcom_common::modifier::ImplementationKind::Native {
             // ABI-erased source anchors are not limited to intrinsic runtime
             // owners. Source-defined roots such as Option can own a native
             // catalog row while retaining their ordinary semantic identity.

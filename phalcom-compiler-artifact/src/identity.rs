@@ -76,12 +76,8 @@ impl TeloscPackageIdentity {
     /// Returns true if this container package identity matches the given stable project reference.
     pub fn matches_project(&self, project: &StableProjectRef) -> bool {
         match (self, project) {
-            (Self::Builtin { namespace, version }, StableProjectRef::Builtin { namespace: ns, version: v }) => {
-                namespace == ns && version == v
-            }
-            (Self::Package { package, version }, StableProjectRef::Package { package: p, version: v, .. }) => {
-                package == p && version == v
-            }
+            (Self::Builtin { namespace, version }, StableProjectRef::Builtin { namespace: ns, version: v }) => namespace == ns && version == v,
+            (Self::Package { package, version }, StableProjectRef::Package { package: p, version: v, .. }) => package == p && version == v,
             _ => false,
         }
     }

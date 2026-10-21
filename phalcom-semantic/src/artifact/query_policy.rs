@@ -38,7 +38,6 @@ pub enum CanonicalQueryRootRequirement {
     NotReusable,
 }
 
-
 pub const fn portable_query_kind(kind: QueryKind) -> PortableQueryKindV1 {
     match kind {
         QueryKind::ParsedModule => PortableQueryKindV1::ParsedModule,
@@ -296,11 +295,7 @@ mod tests {
             .into_iter()
             .filter(|kind| canonical_query_root_requirement(*kind) == CanonicalQueryRootRequirement::Required)
             .collect::<BTreeSet<_>>();
-        let expected = BTreeSet::from([
-            QueryKind::DeclarationShell,
-            QueryKind::CallableSignature,
-            QueryKind::DeclarationSurface,
-        ]);
+        let expected = BTreeSet::from([QueryKind::DeclarationShell, QueryKind::CallableSignature, QueryKind::DeclarationSurface]);
         assert_eq!(required, expected);
 
         let optional = QueryKind::ALL

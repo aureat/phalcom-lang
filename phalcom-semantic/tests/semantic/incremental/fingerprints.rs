@@ -225,14 +225,14 @@ fn fingerprint_test_bound_family(family_type: TypeId, spec: BehavioralFamilySpec
     };
     Arc::make_mut(&mut analysis.callable_reference_resolutions)
         .insert_source(
-        fingerprint_test_expression(),
-        CallableReferenceResolution {
-            kind: CallableReferenceResolutionKind::BoundFamily {
-                family_type,
-                spec,
-                members: vec![member].into_boxed_slice(),
+            fingerprint_test_expression(),
+            CallableReferenceResolution {
+                kind: CallableReferenceResolutionKind::BoundFamily {
+                    family_type,
+                    spec,
+                    members: vec![member].into_boxed_slice(),
+                },
             },
-        },
         )
         .expect("source analysis map");
     analysis
@@ -660,15 +660,15 @@ fn callable_body_product_includes_binding_state() {
     let binding = phalcom_semantic::BindingId(1);
     left.bindings
         .insert_source(
-        binding,
-        BindingState::new(
             binding,
-            "value",
-            SourceRange { start: 1, end: 6 },
-            None,
-            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
-            false,
-        ),
+            BindingState::new(
+                binding,
+                "value",
+                SourceRange { start: 1, end: 6 },
+                None,
+                TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+                false,
+            ),
         )
         .expect("source analysis map");
     let mut right = left.clone();
@@ -684,12 +684,12 @@ fn callable_body_product_includes_expression_denotation_and_status() {
     let mut left = callable_analysis();
     left.expressions
         .insert_source(
-        expression_id,
-        ExpressionAnalysis::ready(
             expression_id,
-            SourceRange { start: 1, end: 4 },
-            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
-        ),
+            ExpressionAnalysis::ready(
+                expression_id,
+                SourceRange { start: 1, end: 4 },
+                TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+            ),
         )
         .expect("source analysis map");
     let mut right = left.clone();
@@ -710,12 +710,12 @@ fn callable_body_product_includes_resolved_callable_identity() {
     let mut left = callable_analysis();
     left.expressions
         .insert_source(
-        expression_id,
-        ExpressionAnalysis::ready(
             expression_id,
-            SourceRange { start: 1, end: 4 },
-            TypeKnowledge::established(TypeId(1), EvidenceOrigin::CallableSignature),
-        ),
+            ExpressionAnalysis::ready(
+                expression_id,
+                SourceRange { start: 1, end: 4 },
+                TypeKnowledge::established(TypeId(1), EvidenceOrigin::CallableSignature),
+            ),
         )
         .expect("source analysis map");
     let mut right = left.clone();
@@ -734,12 +734,12 @@ fn callable_body_product_includes_binding_write_target() {
     let mut left = callable_analysis();
     left.expressions
         .insert_source(
-        expression_id,
-        ExpressionAnalysis::ready(
             expression_id,
-            SourceRange::default(),
-            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
-        ),
+            ExpressionAnalysis::ready(
+                expression_id,
+                SourceRange::default(),
+                TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+            ),
         )
         .expect("source analysis map");
     left.expressions
@@ -825,11 +825,11 @@ fn callable_body_product_includes_associated_resolution_variant() {
     let mut left = callable_analysis();
     Arc::make_mut(&mut left.associated_resolutions)
         .insert_source(
-        expression_id,
-        fingerprint_test_associated_resolution(AssociatedResolutionKind::ExactValue {
-            member: fingerprint_test_member(),
-            value_type: TypeId(2),
-        }),
+            expression_id,
+            fingerprint_test_associated_resolution(AssociatedResolutionKind::ExactValue {
+                member: fingerprint_test_member(),
+                value_type: TypeId(2),
+            }),
         )
         .expect("source analysis map");
 
@@ -868,11 +868,11 @@ fn callable_body_product_includes_associated_resolution_family_owner() {
     let mut left = callable_analysis();
     Arc::make_mut(&mut left.associated_resolutions)
         .insert_source(
-        expression_id,
-        fingerprint_test_associated_resolution(AssociatedResolutionKind::ExactValue {
-            member: fingerprint_test_member(),
-            value_type: TypeId(2),
-        }),
+            expression_id,
+            fingerprint_test_associated_resolution(AssociatedResolutionKind::ExactValue {
+                member: fingerprint_test_member(),
+                value_type: TypeId(2),
+            }),
         )
         .expect("source analysis map");
 
@@ -918,10 +918,10 @@ fn callable_body_product_includes_nested_associated_resolution() {
     let mut left = callable_analysis();
     Arc::make_mut(&mut left.callable_reference_resolutions)
         .insert_source(
-        expression_id,
-        CallableReferenceResolution {
-            kind: CallableReferenceResolutionKind::Associated(Box::new(fingerprint_test_exact_callable(fingerprint_test_target("TargetA")))),
-        },
+            expression_id,
+            CallableReferenceResolution {
+                kind: CallableReferenceResolutionKind::Associated(Box::new(fingerprint_test_exact_callable(fingerprint_test_target("TargetA")))),
+            },
         )
         .expect("source analysis map");
 
@@ -963,19 +963,19 @@ fn callable_body_product_uses_associated_resolution_hash_for_both_owners() {
     let mut nested_left = callable_analysis();
     Arc::make_mut(&mut nested_left.callable_reference_resolutions)
         .insert_source(
-        expression_id,
-        CallableReferenceResolution {
-            kind: CallableReferenceResolutionKind::Associated(Box::new(left_resolution)),
-        },
+            expression_id,
+            CallableReferenceResolution {
+                kind: CallableReferenceResolutionKind::Associated(Box::new(left_resolution)),
+            },
         )
         .expect("source analysis map");
     let mut nested_right = callable_analysis();
     Arc::make_mut(&mut nested_right.callable_reference_resolutions)
         .insert_source(
-        expression_id,
-        CallableReferenceResolution {
-            kind: CallableReferenceResolutionKind::Associated(Box::new(right_resolution)),
-        },
+            expression_id,
+            CallableReferenceResolution {
+                kind: CallableReferenceResolutionKind::Associated(Box::new(right_resolution)),
+            },
         )
         .expect("source analysis map");
     assert_ne!(
@@ -990,13 +990,13 @@ fn callable_body_product_ignores_diagnostic_cause_renumbering() {
     let mut left = callable_analysis();
     left.expressions
         .insert_source(
-        expression_id,
-        ExpressionAnalysis::ready(
             expression_id,
-            SourceRange { start: 1, end: 4 },
-            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
-        )
-        .with_status(AnalysisStatus::Invalid(DiagnosticCauseId(1))),
+            ExpressionAnalysis::ready(
+                expression_id,
+                SourceRange { start: 1, end: 4 },
+                TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+            )
+            .with_status(AnalysisStatus::Invalid(DiagnosticCauseId(1))),
         )
         .expect("source analysis map");
     left.expressions
@@ -1041,14 +1041,14 @@ fn callable_body_product_distinguishes_flow_evidence_status() {
         .entry_flow
         .bindings
         .insert_source(
-        binding,
-        FlowBindingSummary {
-            knowledge: TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
-            contract: None,
-            consistency: BindingConsistency::Unconstrained,
-            mutable: false,
-            initialization: phalcom_semantic::checker::flow::InitializationState::DefinitelyInitialized,
-        },
+            binding,
+            FlowBindingSummary {
+                knowledge: TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+                contract: None,
+                consistency: BindingConsistency::Unconstrained,
+                mutable: false,
+                initialization: phalcom_semantic::checker::flow::InitializationState::DefinitelyInitialized,
+            },
         )
         .expect("source analysis map");
     let mut assumed = established.clone();
@@ -1071,14 +1071,14 @@ fn callable_body_product_distinguishes_unknown_and_dynamic_flow() {
         .entry_flow
         .bindings
         .insert_source(
-        binding,
-        FlowBindingSummary {
-            knowledge: TypeKnowledge::Unknown(phalcom_semantic::UnknownReason::NoTypeEvidence),
-            contract: None,
-            consistency: BindingConsistency::Unconstrained,
-            mutable: false,
-            initialization: phalcom_semantic::checker::flow::InitializationState::DefinitelyInitialized,
-        },
+            binding,
+            FlowBindingSummary {
+                knowledge: TypeKnowledge::Unknown(phalcom_semantic::UnknownReason::NoTypeEvidence),
+                contract: None,
+                consistency: BindingConsistency::Unconstrained,
+                mutable: false,
+                initialization: phalcom_semantic::checker::flow::InitializationState::DefinitelyInitialized,
+            },
         )
         .expect("source analysis map");
     let mut dynamic = unknown.clone();
@@ -1101,15 +1101,15 @@ fn changing_only_initialization_safety_changes_callable_product_fingerprint() {
     definite
         .bindings
         .insert_source(
-        binding,
-        BindingState::new(
             binding,
-            "x",
-            SourceRange::default(),
-            None,
-            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
-            true,
-        ),
+            BindingState::new(
+                binding,
+                "x",
+                SourceRange::default(),
+                None,
+                TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+                true,
+            ),
         )
         .expect("source analysis map");
     let mut expr = ExpressionAnalysis::ready(expr_id, SourceRange::default(), TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow));
@@ -1154,25 +1154,25 @@ fn callable_body_product_ignores_explanation_presentation() {
     let mut left_arena = ExplanationArena::new();
     let left_explanation = left_arena
         .alloc(
-        ExplanationStep::Literal {
-            expression: expression_id,
-            ty: TypeId(1),
-        },
-        EvidenceStatus::Established,
-        EvidenceOrigin::Syntax,
-        Vec::new(),
+            ExplanationStep::Literal {
+                expression: expression_id,
+                ty: TypeId(1),
+            },
+            EvidenceStatus::Established,
+            EvidenceOrigin::Syntax,
+            Vec::new(),
         )
         .expect("source explanation arena");
     left.explanations = Arc::new(left_arena);
     left.expressions
         .insert_source(
-        expression_id,
-        ExpressionAnalysis::ready(
             expression_id,
-            SourceRange { start: 1, end: 4 },
-            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
-        )
-        .with_explanation(left_explanation),
+            ExpressionAnalysis::ready(
+                expression_id,
+                SourceRange { start: 1, end: 4 },
+                TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+            )
+            .with_explanation(left_explanation),
         )
         .expect("source analysis map");
 
@@ -1180,26 +1180,26 @@ fn callable_body_product_ignores_explanation_presentation() {
     let mut right_arena = ExplanationArena::new();
     let right_explanation = right_arena
         .alloc(
-        ExplanationStep::Literal {
-            expression: expression_id,
-            ty: TypeId(2),
-        },
-        EvidenceStatus::Established,
-        EvidenceOrigin::Syntax,
-        Vec::new(),
+            ExplanationStep::Literal {
+                expression: expression_id,
+                ty: TypeId(2),
+            },
+            EvidenceStatus::Established,
+            EvidenceOrigin::Syntax,
+            Vec::new(),
         )
         .expect("source explanation arena");
     right.explanations = Arc::new(right_arena);
     right
         .expressions
         .insert_source(
-        expression_id,
-        ExpressionAnalysis::ready(
             expression_id,
-            SourceRange { start: 1, end: 4 },
-            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
-        )
-        .with_explanation(right_explanation),
+            ExpressionAnalysis::ready(
+                expression_id,
+                SourceRange { start: 1, end: 4 },
+                TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+            )
+            .with_explanation(right_explanation),
         )
         .expect("source analysis map");
 
@@ -1245,12 +1245,12 @@ fn callable_body_product_ignores_source_ranges_and_type_provenance() {
     left.body_range = SourceRange { start: 1, end: 4 };
     left.expressions
         .insert_source(
-        expression_id,
-        ExpressionAnalysis::ready(
             expression_id,
-            SourceRange { start: 1, end: 4 },
-            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow).with_range(SourceRange { start: 1, end: 4 }),
-        ),
+            ExpressionAnalysis::ready(
+                expression_id,
+                SourceRange { start: 1, end: 4 },
+                TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow).with_range(SourceRange { start: 1, end: 4 }),
+            ),
         )
         .expect("source analysis map");
     let mut right = left.clone();

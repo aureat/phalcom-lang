@@ -220,35 +220,35 @@ fn associated_and_family_selections_emit_external_callable_owner_requirements() 
 
     analysis.associated_resolutions = Arc::new(
         BTreeMap::from([(
-        expression_id,
-        phalcom_semantic::checker::associated::AssociatedResolution {
-            owner_form: phalcom_semantic::types::id::TypeId(0),
-            lookup_owner: DeclarationId::new(fixture.provider.clone(), "Imported".into()),
-            family: None,
-            kind: phalcom_semantic::checker::associated::AssociatedResolutionKind::ExactCallable {
-                member: phalcom_semantic::associated::AssociatedMemberId::DataConstructor(phalcom_semantic::identity::DataConstructorId::new(
-                    external_owner.clone(),
-                )),
-                target: invocation_target.clone(),
-                callable_type: phalcom_semantic::types::id::TypeId(0),
+            expression_id,
+            phalcom_semantic::checker::associated::AssociatedResolution {
+                owner_form: phalcom_semantic::types::id::TypeId(0),
+                lookup_owner: DeclarationId::new(fixture.provider.clone(), "Imported".into()),
+                family: None,
+                kind: phalcom_semantic::checker::associated::AssociatedResolutionKind::ExactCallable {
+                    member: phalcom_semantic::associated::AssociatedMemberId::DataConstructor(phalcom_semantic::identity::DataConstructorId::new(
+                        external_owner.clone(),
+                    )),
+                    target: invocation_target.clone(),
+                    callable_type: phalcom_semantic::types::id::TypeId(0),
+                },
             },
-        },
         )])
         .into(),
     );
     analysis.family_applications = Arc::new(
         BTreeMap::from([(
-        expression_id,
-        phalcom_semantic::checker::associated::FamilyApplicationResolution {
-            family_type: phalcom_semantic::types::id::TypeId(0),
-            kind: phalcom_semantic::checker::associated::FamilyApplicationKind::Associated,
-            selection: phalcom_semantic::checker::associated::FamilyApplicationSelection::Static {
-                operation: phalcom_semantic::types::family::FamilyOperationShape::getter(),
-                target: Some(invocation_target),
-                callable_type: phalcom_semantic::types::id::TypeId(0),
-                result_type: phalcom_semantic::types::id::TypeId(0),
+            expression_id,
+            phalcom_semantic::checker::associated::FamilyApplicationResolution {
+                family_type: phalcom_semantic::types::id::TypeId(0),
+                kind: phalcom_semantic::checker::associated::FamilyApplicationKind::Associated,
+                selection: phalcom_semantic::checker::associated::FamilyApplicationSelection::Static {
+                    operation: phalcom_semantic::types::family::FamilyOperationShape::getter(),
+                    target: Some(invocation_target),
+                    callable_type: phalcom_semantic::types::id::TypeId(0),
+                    result_type: phalcom_semantic::types::id::TypeId(0),
+                },
             },
-        },
         )])
         .into(),
     );

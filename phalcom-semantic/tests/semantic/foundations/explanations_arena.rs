@@ -9,40 +9,40 @@ fn test_explanation_arena_and_causal_slice() {
     let lit_expr = ExpressionId::new(BodyId(1), LocalExpressionId(0));
     let n1 = arena
         .alloc(
-        ExplanationStep::Literal {
-            expression: lit_expr,
-            ty: TypeId(1),
-        },
-        EvidenceStatus::Established,
-        EvidenceOrigin::Syntax,
-        Vec::new(),
+            ExplanationStep::Literal {
+                expression: lit_expr,
+                ty: TypeId(1),
+            },
+            EvidenceStatus::Established,
+            EvidenceOrigin::Syntax,
+            Vec::new(),
         )
         .expect("source explanation arena");
 
     let n2 = arena
         .alloc(
-        ExplanationStep::FlowRefinement {
-            binding: BindingId(1),
-            predicate: PredicateKind::IsInstance,
-            prior: phalcom_semantic::types::evidence::TypeKnowledge::established(TypeId(1), EvidenceOrigin::Syntax),
-            refined: phalcom_semantic::types::evidence::TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
-        },
-        EvidenceStatus::Established,
-        EvidenceOrigin::Flow,
-        vec![n1],
+            ExplanationStep::FlowRefinement {
+                binding: BindingId(1),
+                predicate: PredicateKind::IsInstance,
+                prior: phalcom_semantic::types::evidence::TypeKnowledge::established(TypeId(1), EvidenceOrigin::Syntax),
+                refined: phalcom_semantic::types::evidence::TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+            },
+            EvidenceStatus::Established,
+            EvidenceOrigin::Flow,
+            vec![n1],
         )
         .expect("source explanation arena");
 
     let n3 = arena
         .alloc(
-        ExplanationStep::Subtyping {
-            actual: TypeId(1),
-            expected: TypeId(1),
-            proven: true,
-        },
-        EvidenceStatus::Established,
-        EvidenceOrigin::Flow,
-        vec![n2],
+            ExplanationStep::Subtyping {
+                actual: TypeId(1),
+                expected: TypeId(1),
+                proven: true,
+            },
+            EvidenceStatus::Established,
+            EvidenceOrigin::Flow,
+            vec![n2],
         )
         .expect("source explanation arena");
 

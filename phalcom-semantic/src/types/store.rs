@@ -2241,7 +2241,8 @@ impl TypeStore {
     /// 1. Flatten nested unions.
     /// 2. Remove duplicates.
     /// 3. Remove `Never` when other members exist.
-    /// 4. Sort canonically by TypeId.
+    /// 4. Sort into a store-local canonical order by TypeId. This order is not
+    ///    a persistent semantic identity.
     /// 5. Zero members -> `Never`.
     /// 6. One member -> member TypeId.
     pub fn union(&mut self, members: &[TypeId]) -> TypeId {

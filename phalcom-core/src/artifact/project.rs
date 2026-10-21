@@ -144,28 +144,100 @@ pub fn project_class_reference(
     use phalcom_compiler_artifact::executable::constant::StableClassRefV1;
     use phalcom_type_meta::identity::StableDispatchSide;
 
-    if let Some(declaration) = vm.typing_registry.declaration_for_nominal(class) {
+    let declaration_for_class = |class| {
+        vm.typing_registry
+            .declaration_for_nominal(class)
+            .cloned()
+            .or_else(|| {
+                vm.classes.iter().find_map(|(key, candidate)| {
+                    if *candidate != class {
+                        return None;
+                    }
+                    let module = &vm.heap.module(key.module).id;
+                    vm.typing_registry.declaration_identity(module, vm.interner.lookup(key.name)).cloned()
+                })
+            })
+            .or_else(|| {
+                phalcom_native_meta::UNIVERSE_BINDINGS
+                    .iter()
+                    .find(|binding| vm.universe.classes.resolve(binding.key) == class)
+                    .map(|binding| {
+                        phalcom_semantic::metadata::stable_identity::to_stable_declaration(&phalcom_semantic::core_surface::universe_declaration(binding.key))
+                    })
+            })
+    };
+
+    if let Some(declaration) = declaration_for_class(class) {
         return Ok(StableClassRefV1 {
-            declaration: declaration.clone(),
+            declaration,
             side: StableDispatchSide::Instance,
         });
     }
-    // A metaclass is anchored by the registered declaration of its instance
-    // class. Sort aliases so numbering cannot depend on HashMap iteration.
-    let declaration = vm
+    if let Some(declaration) = vm
         .classes
         .values()
         .filter(|candidate| vm.heap.class(**candidate).class == class)
-        .filter_map(|candidate| vm.typing_registry.declaration_for_nominal(*candidate))
+        .filter_map(|candidate| declaration_for_class(*candidate))
         .min()
-        .cloned()
-        .ok_or_else(|| ExecutableProjectionError::UnboundClass {
-            name: vm.heap.class(class).name.clone(),
-        })?;
-    Ok(StableClassRefV1 {
-        declaration,
-        side: StableDispatchSide::Class,
+    {
+        return Ok(StableClassRefV1 {
+            declaration,
+            side: StableDispatchSide::Class,
+        });
+    }
+    Err(ExecutableProjectionError::UnboundClass {
+        name: vm.heap.class(class).name.clone(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ExecutableProjectionError, PrototypeRelocations, project_callable_prototype};
+    use crate::callable::Callable;
+    use crate::chunk::Chunk;
+    use crate::interner::Interner;
+    use crate::parameters::ParameterShape;
+    use phalcom_compiler_artifact::executable::prototype::{PrototypeId, PrototypeOwnerV1, SemanticPoolId, SourceMapId};
+
+    #[test]
+    fn callable_projection_rejects_inconsistent_upvalue_layout() {
+        let mut interner = Interner::with_capacity(4);
+        let callable = Callable {
+            chunk: Chunk::new(),
+            max_slots: 1,
+            num_upvalues: 1,
+            upvalues: Vec::new(),
+            arity: 0,
+            parameter_shape: ParameterShape::closure(0, false),
+            name_sym: interner.intern("fixture"),
+            local_names: Vec::new(),
+        };
+        let owner = PrototypeOwnerV1::Nested {
+            parent: PrototypeId(0),
+            ordinal: 0,
+        };
+        let error = project_callable_prototype(
+            &callable,
+            &interner,
+            owner,
+            PrototypeRelocations {
+                constants: Vec::new(),
+                source: SourceMapId(0),
+                semantics: SemanticPoolId(0),
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ExecutableProjectionError::InconsistentLayout {
+                field: "upvalue descriptors",
+                found: 0,
+                expected: 1,
+                ..
+            }
+        ));
+    }
 }
 
 /// Copies the emitter's complete calling shape, including rest storage slots.

@@ -711,13 +711,12 @@ fn module_static_bindings_accept_exact_module_value_source_authority() {
     current.module_static_bindings.push(ModuleStaticBindingIndexV1 {
         module,
         bindings: vec![record],
-        visible_names: vec![ModuleStaticBindingVisibleNameV1 {
-            name: "shared".into(),
-            symbol,
-        }],
+        visible_names: vec![ModuleStaticBindingVisibleNameV1 { name: "shared".into(), symbol }],
     });
 
-    current.validate(&Default::default()).expect("module binding must accept its exact same-module declaration authority");
+    current
+        .validate(&Default::default())
+        .expect("module binding must accept its exact same-module declaration authority");
 }
 
 #[test]
@@ -743,13 +742,13 @@ fn module_static_bindings_reject_import_alias_authority() {
             declaration_source: SpanV1 { start: 0, end: 8 },
             initializer_source: None,
         }],
-        visible_names: vec![ModuleStaticBindingVisibleNameV1 {
-            name: "shared".into(),
-            symbol,
-        }],
+        visible_names: vec![ModuleStaticBindingVisibleNameV1 { name: "shared".into(), symbol }],
     });
 
-    assert!(imported.validate(&Default::default()).is_err(), "an imported alias is not a declaration owned by this module");
+    assert!(
+        imported.validate(&Default::default()).is_err(),
+        "an imported alias is not a declaration owned by this module"
+    );
 }
 
 fn explanation_node() -> phalcom_compiler_artifact::semantic::world::CallableExplanationNodeV1 {

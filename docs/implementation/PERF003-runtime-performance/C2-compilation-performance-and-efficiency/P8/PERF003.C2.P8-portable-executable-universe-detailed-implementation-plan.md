@@ -5,7 +5,7 @@ checkpoint: PERF003.C2
 phase: PERF003.C2.P8
 status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 prepared_against_revision: 3ca30fca
 prepared_against_working_tree: true
 depends_on: [PERF003.C2.P7]
@@ -47,7 +47,16 @@ must_haves:
 
 Deliver `universe.telosc` containing the completed compiler image plus portable VM-bytecode recipes. A fresh process must load it, compile novel user code and initialize fresh VMs without Universe parsing, analysis, lowering or bytecode compilation. Initializer execution remains per VM.
 
-Planning is ready now. **BUILD entry P8.G1 requires the complete P7 loaded compiler interface and its targeted compiler check.** Continue P7 code first. The source-free compiler acceptance remains a mandatory deferred closure gate; under the current policy it blocks P7 COMPLETE, not subsequent P8 code work. Do not silently advance either plan's status or treat this plan as test authorization.
+P7 closure and independent certification are accepted in the checkpoint record.
+P8.G1 is PASS: the loaded compiler interface is present and the focused P8
+compiler checks listed in the checkpoint pass. P8 is now active and remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; the capture/codec/publication slice is
+not the executable validation, VM materialization, or source-free execution
+acceptance objective. This plan remains the implementation contract, but its
+remaining task sequencing and test authorization are for the architect to
+reconcile against the current tree using the linked P8 architect-planning
+handoff. Do not infer runtime-test authorization from the focused capture
+tests.
 
 Read the shared P7/P8 research, P7 execution companion, existing program P8 outline, `docs/specs/compiler-artifacts/telosc.md`, `universe.md`, `vm/bytecodes.md`, `vm/vm-execution-model.md`, and the heap/rooting owners reached by materialization. The old proposed unified program specification is not adopted wholesale.
 
@@ -235,17 +244,39 @@ ExecutableImageV1/ExecutableCompatibilityV1; portable module/callable/chunk/inst
 
 ## Acceptance gates and execution budget
 
+### Current implementation reconciliation — 2026-10-21
+
+This table describes the live tree. A partial implementation does not satisfy
+the task's full acceptance criteria.
+
+| Task | Current state | Evidence or remaining work |
+|---|---|---|
+| P8.T1 | PARTIAL / FOCUSED_TESTED | Executable DTOs, compatibility header, explicit opcode manifest, bounded codec, and field census exist. Full executable validation limits and malformed-input rules remain P8.T3 work. |
+| P8.T2 | PARTIAL / FOCUSED_TESTED | Existing compiler/emitter capture produces canonical staged image data and has focused structural round-trip coverage. It is not validated executable code and does not prove source-free runtime consumption. |
+| P8.T3 | NOT IMPLEMENTED | No private validated-executable owner or core cross-section/opcode/control-flow validator exists. |
+| P8.T4 | NOT IMPLEMENTED | No executable-to-VM allocation/relocation path with rooting and failure atomicity exists. |
+| P8.T5 | NOT IMPLEMENTED | Artifact VM native/bootstrap setup still depends on the source-backed canonical Universe path. |
+| P8.T6 | NOT IMPLEMENTED | No VM entry point accepts one validated executable artifact and initializes it source-free. |
+| P8.T7 | NOT IMPLEMENTED | Later canonical imports do not have a persisted prototype registry with a demonstrated no-source path. |
+| P8.T8 | PARTIAL | The staged capture API exists; full compiler-plus-executable publication and explicit CLI/API use of one loaded artifact remain open. |
+| P8.T9 | PARTIAL | The persistence census and capture determinism tests exist. The source/artifact parity, denial, retry, and two-VM harnesses and evidence remain open. |
+| P8.T10 | OPEN | Current lifecycle state is recorded, but final closure and P9 takeover require the missing behavior and gate evidence. |
+
+The current gate results below are authoritative for verification. The linked
+architect handoff asks for a sequenced closure plan and explicit treatment of
+the still-restricted runtime gates.
+
 | Gate | Evidence | Current state |
 |---|---|---|
-| P8.G1 | Complete P7 loaded compiler interface and targeted compiler check | WAITING_FOR_P7_CODE; planning ready |
+| P8.G1 | Complete P7 loaded compiler interface and targeted compiler check | PASS: P7 loaded compiler interface is present; focused `phalcom-core` compilation and tests pass |
 | P8.G2 | Opcode/constant/semantic/native validator rejects malformed/incompatible payload before initialization | NOT RUN |
 | P8.G3 | Source/artifact runtime parity across native/classes/closures/static/ADT/generic/trait/reflection/error/order | NOT RUN |
 | P8.G4 | Fresh-process source-unavailable eager and later-import execution; all Universe compiler counters zero | NOT RUN |
 | P8.G5 | Two-VM independent mutable state, allocation/rooting correctness and within-VM sharing | NOT RUN |
-| P8.G6 | Fresh-process byte determinism, failed-load retry and separate startup timings | NOT RUN |
+| P8.G6 | Fresh-process byte determinism, failed-load retry and separate startup timings | PARTIAL: byte determinism PASS in two independent capture processes (4,999,601 bytes; digest `c2af943406376eae636979f1223ea58895db3265a2d43dcf48c5da759267efea`); failed-load retry and startup timings NOT RUN |
 | P8.G7 | P7 source-free compiler gate plus P8 focused closure records; broader certification separately authorized | DEFERRED |
 
-Only compiler checks listed in tasks are permitted during BUILD; use pinned rust-toolchain.toml and clear local RUSTFLAGS/RUSTC_WRAPPER. Batch adjacent task checks at coherent interfaces rather than run Cargo per field. No test, clippy, workspace suite, runtime probe or benchmark is authorized by this plan under the current instruction. Do not run Cargo for planning edits.
+The 2026-10-21 continuation authorizes only the focused semantic-projection unit tests and two-process canonical-capture discriminator recorded in `CHECKPOINT.md`. Failed-load retry, startup timing, source-free runtime probes, two-VM runtime checks, workspace suites, clippy, and benchmarks remain unauthorized. Use pinned `rust-toolchain.toml` and clear local `RUSTFLAGS`/`RUSTC_WRAPPER` for the named focused checks; do not run Cargo for planning-only edits.
 
 FIXED: existing emitter, no live heap persistence, stable symbolic ownership, fresh VM state, exact observable ordering, compiler/executable compatibility separation, validation before initializer execution and no explicit-path fallback. MECHANICALLY FLEXIBLE: private adapter names/files, equivalent API parameter packaging and bounded decoder decomposition. VERIFY-FIRST: emitted object census, build-time initialization prerequisites, all closure capture sites, native installation side effects and current rooting APIs.
 

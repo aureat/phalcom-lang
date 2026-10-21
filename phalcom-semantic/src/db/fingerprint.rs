@@ -1673,10 +1673,7 @@ fn callable_definition_fingerprint_value(definition: &crate::impls::EffectiveCal
             hasher.finish().rotate_left(7)
         }
     };
-    let body_context_tag = definition
-        .inherent_body_context
-        .as_ref()
-        .map_or(0, inherent_body_context_fingerprint);
+    let body_context_tag = definition.inherent_body_context.as_ref().map_or(0, inherent_body_context_fingerprint);
     let body_provenance_tag = callable_definition_body_provenance_fingerprint(&definition.body_provenance);
     signature_fingerprint.raw()
         ^ origin_tag.rotate_left(17)
@@ -2314,7 +2311,10 @@ fn hash_match_arm_resolution<R: Hash, S: Hash, K: Hash>(arm: &crate::match_seman
     hash_type_knowledge(&arm.branch_result, false, hasher);
 }
 
-fn hash_pattern_site_resolutions<R: Hash, S: Hash, K: Hash>(resolutions: &crate::match_semantics::PatternSiteResolutionIndex<R, S, K>, hasher: &mut impl Hasher) {
+fn hash_pattern_site_resolutions<R: Hash, S: Hash, K: Hash>(
+    resolutions: &crate::match_semantics::PatternSiteResolutionIndex<R, S, K>,
+    hasher: &mut impl Hasher,
+) {
     resolutions.len().hash(hasher);
     for (key, resolution) in resolutions.iter() {
         match key.kind {
@@ -3338,10 +3338,7 @@ mod tests {
 
     #[test]
     fn streamed_debug_hash_matches_allocating_analysis_map_hash() {
-        let value = crate::checker::analysis_map::AnalysisMap::from_source(std::collections::BTreeMap::from([
-            (1_u32, "one"),
-            (3, "three"),
-        ]));
+        let value = crate::checker::analysis_map::AnalysisMap::from_source(std::collections::BTreeMap::from([(1_u32, "one"), (3, "three")]));
         let mut expected = DefaultHasher::new();
         format!("{value:?}").hash(&mut expected);
 
@@ -3452,16 +3449,19 @@ mod tests {
 
         let make_summary = |validity: FieldContractValidity, causal: CausalInvalidity| {
             let mut summary = FlowStateSummary::default();
-            summary.fields.insert_source(
-                field.clone(),
-                FlowFieldSummary {
-                    contract: contract.clone(),
-                    current: current.clone(),
-                    initialization: FieldInitialization::DefinitelyInitialized,
-                    validity,
-                    causal_invalidity: causal,
-                },
-            ).unwrap();
+            summary
+                .fields
+                .insert_source(
+                    field.clone(),
+                    FlowFieldSummary {
+                        contract: contract.clone(),
+                        current: current.clone(),
+                        initialization: FieldInitialization::DefinitelyInitialized,
+                        validity,
+                        causal_invalidity: causal,
+                    },
+                )
+                .unwrap();
             let mut hasher = DefaultHasher::new();
             hash_flow_summary(&summary, &mut hasher);
             hasher.finish()

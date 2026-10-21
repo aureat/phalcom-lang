@@ -300,12 +300,7 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     let native_floor_availability = native_floor_availability(&symbolic)?;
     let linked = Arc::new(
         linker
-            .finalize_executable_with_availability(
-                (*symbolic).clone(),
-                &semantic.import_phase_products,
-                &requirements,
-                &native_floor_availability,
-            )
+            .finalize_executable_with_availability((*symbolic).clone(), &semantic.import_phase_products, &requirements, &native_floor_availability)
             .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?,
     );
 

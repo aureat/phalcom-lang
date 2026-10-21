@@ -9,8 +9,7 @@ pub use proof::*;
 use crate::module_world::SpanV1;
 use crate::module_world::{Decode, Wire, invalid, record, tagged};
 use crate::semantic::aggregates::{
-    DeclaredTypeFactV1, GenericSignatureV1, StructuralPrimaryContractsV1, StructuralPrimaryContractsV2, TraitRefV1, TypeTermV1,
-    UnknownReasonV1,
+    DeclaredTypeFactV1, GenericSignatureV1, StructuralPrimaryContractsV1, StructuralPrimaryContractsV2, TraitRefV1, TypeTermV1, UnknownReasonV1,
 };
 use crate::semantic::operational::OperationalOpV1;
 use crate::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1};
@@ -1303,10 +1302,7 @@ record!(CallableAnalysisRecordV2 {
 impl CallableAnalysisRecordV2 {
     /// Reuses the complete v1 callable payload while attaching phase evidence
     /// obtained from the current native `CallableAnalysis` product.
-    pub fn from_v1_with_observed_import_phases(
-        record: CallableAnalysisRecordV1,
-        observed_import_phases: Vec<CallableObservedImportPhaseV1>,
-    ) -> Self {
+    pub fn from_v1_with_observed_import_phases(record: CallableAnalysisRecordV1, observed_import_phases: Vec<CallableObservedImportPhaseV1>) -> Self {
         Self {
             callable: record.callable,
             body_source_owner: record.body_source_owner,
@@ -1925,9 +1921,7 @@ impl StructuralValidationAuthority<'_> {
             Self::V1(contracts) => contracts.declaration_shells.iter().any(|row| &row.declaration == owner),
             Self::V2(contracts) => contracts.declaration_shells.iter().any(|row| &row.declaration == owner),
         };
-        shell
-            || self.data_contracts().iter().any(|row| &row.owner == owner)
-            || self.enum_contracts().iter().any(|row| &row.owner == owner)
+        shell || self.data_contracts().iter().any(|row| &row.owner == owner) || self.enum_contracts().iter().any(|row| &row.owner == owner)
     }
 
     pub(super) fn alias_form(&self, owner: &StableDeclarationRef) -> Option<ArtifactTypeId> {
@@ -3573,7 +3567,11 @@ fn validate_static_definition_signature(
     Ok(())
 }
 
-fn validate_static_definitions(world: &SemanticWorldValidationView<'_>, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+fn validate_static_definitions(
+    world: &SemanticWorldValidationView<'_>,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<(), ArtifactError> {
     for pair in world.static_definitions.windows(2) {
         if pair[0].id >= pair[1].id {
             return Err(invalid("static definition owners must be unique and sorted"));
@@ -4020,7 +4018,11 @@ fn validate_static_case_selector(selector: &ExactSelectorV1, limits: &Validation
     Ok(())
 }
 
-fn validate_static_case_owners(world: &SemanticWorldValidationView<'_>, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+fn validate_static_case_owners(
+    world: &SemanticWorldValidationView<'_>,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<(), ArtifactError> {
     if world
         .static_case_catalogs
         .windows(2)

@@ -310,7 +310,11 @@ mod stable_module_identity_tests {
         if let StableProjectRef::SourceArtifact { source_fingerprint, .. } = &mut stale.project {
             source_fingerprint.0[0] ^= 1;
         }
-        assert_eq!(resolve_stable_module(&stale, &projects), None, "matching URI cannot authorize a stale fingerprint");
+        assert_eq!(
+            resolve_stable_module(&stale, &projects),
+            None,
+            "matching URI cannot authorize a stale fingerprint"
+        );
     }
 
     #[test]

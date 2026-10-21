@@ -5463,9 +5463,7 @@ fn query_root_dependency_closure_failure(
             return Some(format!("dependency {dependency:?} has no representable portable owner"));
         }
         if !query_root_is_reusable(dependency.kind()) && dependency.kind() != crate::db::QueryKind::HierarchyEdge {
-            return Some(format!(
-                "dependency {dependency:?} is outside canonical artifact dependency policy"
-            ));
+            return Some(format!("dependency {dependency:?} is outside canonical artifact dependency policy"));
         }
     }
     None
@@ -5509,10 +5507,7 @@ mod query_export_required_root_tests {
                 .contains("no current live fingerprint")
         );
 
-        let stale = CanonicalDependencyFingerprints::Source(BTreeMap::from([(
-            dependency.clone(),
-            ProductFingerprint::new(0x52),
-        )]));
+        let stale = CanonicalDependencyFingerprints::Source(BTreeMap::from([(dependency.clone(), ProductFingerprint::new(0x52))]));
         assert!(
             query_root_dependency_closure_failure(std::slice::from_ref(&edge), |key| stale.get(key).copied())
                 .expect("stale dependency evidence must fail")

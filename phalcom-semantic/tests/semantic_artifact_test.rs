@@ -13,8 +13,8 @@ use phalcom_compiler_artifact::query::{
     QueryRootEntryV4,
 };
 use phalcom_compiler_artifact::semantic::aggregates::{
-    DataInfoV1, DataShapeV1, DeclaredTypeBasisV1, DeclaredTypeFactV1, DeclaredTypeStateV1, EnumInfoV1, StructuralPrimaryContractsV2, TraitRefV1, UnknownReasonV1,
-    VisibilityV1,
+    DataInfoV1, DataShapeV1, DeclaredTypeBasisV1, DeclaredTypeFactV1, DeclaredTypeStateV1, EnumInfoV1, StructuralPrimaryContractsV2, TraitRefV1,
+    UnknownReasonV1, VisibilityV1,
 };
 use phalcom_compiler_artifact::semantic::operational::OperationalOpV1;
 use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
@@ -23,19 +23,18 @@ use phalcom_compiler_artifact::semantic::type_store::{
 };
 use phalcom_compiler_artifact::semantic::world::{
     AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedSurfaceRecordV1, CallableAnalysisRecordV1, CallableAnalysisRecordV2,
-    CallableAnalysisSourceOwnerV1,
-    CallableAnalysisStatusV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1, CallableBindingReadSafetyV1, CallableBindingRowV1,
-    CallableCallSpecializationV1, CallableCausalInvalidityV1, CallableConformanceAssociatedTypePlanV1, CallableConformanceCompletenessV1,
+    CallableAnalysisSourceOwnerV1, CallableAnalysisStatusV1, CallableBindingAuthorityV1, CallableBindingConsistencyV1, CallableBindingReadSafetyV1,
+    CallableBindingRowV1, CallableCallSpecializationV1, CallableCausalInvalidityV1, CallableConformanceAssociatedTypePlanV1, CallableConformanceCompletenessV1,
     CallableDefinitionBodyProvenanceV1, CallableDefinitionOriginV1, CallableDefinitionRecordV1, CallableDiagnosticSeverityV1, CallableEvidenceDiagnosticV1,
     CallableExpressionRowV1, CallableExpressionStatusV1, CallableFlowGraphV1, CallableFlowStateSummaryV1, CallableGeneratedBindingReasonV1,
     CallableInitializationStateV1, CallableSignatureRecordV1, CanonicalCheckedStaticApplicationV1, CanonicalStaticProgramV1, ConditionalInherentMemberV1,
     ConditionalInherentSetV1, ConformanceHeadRecordV1, ConformanceTargetV1, ConstructorInitializationRecordV1, DeclarationSurfaceRecordV1,
     DispatchCallableFactV1, EffectSpecV1, EnumRequirementOwnerV1, EnumRequirementRecordV1, EnumRequirementSourceV1, ExactSelectorV1, FieldSignatureV1,
-    ImplementationKindV1, InherentImplDomainV1, InherentImplTargetV1, ModuleStaticBindingIndexV1, ModuleStaticBindingPhaseV1, ModuleStaticBindingRecordV1,
-    ModuleStaticBindingVisibleNameV1, NativeLifecycleSpecV1, RaisesSpecV1, ReturnContractValidationV1, ReturnFlowV1, SelectorKindV1, SemanticDenotationV1,
-    ModuleExecutionAuthorityV1, SemanticWorldV4, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1, StaticConstantOutcomeV1, StaticConstantRecordV1,
-    StaticConstantSymbolV1, StaticDefinitionRecordV1, StaticDefinitionSignatureV1, StaticDomainCaseCatalogRecordV1, StaticValueDomainV1, TraitSurfaceRecordV1,
-    TypeKnowledgeV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1, WitnessPlanV1,
+    ImplementationKindV1, InherentImplDomainV1, InherentImplTargetV1, ModuleExecutionAuthorityV1, ModuleStaticBindingIndexV1, ModuleStaticBindingPhaseV1,
+    ModuleStaticBindingRecordV1, ModuleStaticBindingVisibleNameV1, NativeLifecycleSpecV1, RaisesSpecV1, ReturnContractValidationV1, ReturnFlowV1,
+    SelectorKindV1, SemanticDenotationV1, SemanticWorldV4, StaticCaseDomainV1, StaticCaseHeaderV1, StaticCaseShapeV1, StaticConstantOutcomeV1,
+    StaticConstantRecordV1, StaticConstantSymbolV1, StaticDefinitionRecordV1, StaticDefinitionSignatureV1, StaticDomainCaseCatalogRecordV1,
+    StaticValueDomainV1, TraitSurfaceRecordV1, TypeKnowledgeV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1, WitnessPlanV1,
 };
 use phalcom_semantic::artifact::{
     CompilerArtifactImage, ImportedOperationalNode, decode_and_validate_artifact, encode_artifact, import_compiler_image,
@@ -106,7 +105,7 @@ fn sample_image() -> CompilerArtifactImage {
         query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V3,
         native_surface_schema_version: 1,
         native_catalog_fingerprint: [7; 16],
-        type_metadata_schema_version: 13,
+        type_metadata_schema_version: TYPE_METADATA_SCHEMA_VERSION,
         capabilities: TeloscCapabilities::CANONICAL_COMPILER_IMAGE_V1 | TeloscCapabilities::RUNTIME_PUBLIC_METADATA,
         source_digest: ArtifactDigest::ZERO,
         interface_digest: ArtifactDigest::ZERO,
@@ -1167,7 +1166,10 @@ fn p7_constructor_initialization_reconstructs_as_snapshot_authority_without_read
     };
     image.semantic_world.callable_signatures.push(signature(factory.clone(), 1, "new"));
     image.semantic_world.callable_signatures.push(signature(initializer.clone(), 0, "initialize"));
-    image.semantic_world.callable_signatures.sort_by(|left, right| left.callable.cmp(&right.callable));
+    image
+        .semantic_world
+        .callable_signatures
+        .sort_by(|left, right| left.callable.cmp(&right.callable));
     image.semantic_world.constructor_initializations.push(ConstructorInitializationRecordV1 {
         factory,
         initializer,
@@ -1643,116 +1645,120 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
             replacement: None,
         },
     });
-    image.semantic_world.callable_analyses.push(CallableAnalysisRecordV2::from_v1_with_observed_import_phases(CallableAnalysisRecordV1 {
-        callable: callable.clone(),
-        body_source_owner: Some(CallableAnalysisSourceOwnerV1::Callable { callable: callable.clone() }),
-        body_range: SpanV1 { start: 0, end: 0 },
-        status: CallableAnalysisStatusV1::Complete,
-        exits_unreachable: false,
-        flow_graph: CallableFlowGraphV1 {
-            nodes: vec![],
-            edges: vec![],
-            entry: None,
-            exits: vec![],
-        },
-        constructor_super_initializer: None,
-        expressions: vec![CallableExpressionRowV1 {
-            ordinal: 0,
-            range: SpanV1 { start: 1, end: 2 },
-            knowledge: TypeKnowledgeV1::Unknown {
-                reason: UnknownReasonV1::NoTypeEvidence,
-            },
-            callable: Some(callable.clone()),
-            conditional_dispatch: None,
-            conditional_capability: None,
-            trait_dispatch: None,
-            trait_dispatch_candidates: None,
-            contextual_realization: None,
-            status: CallableExpressionStatusV1::Ready,
-            causal_invalidity: CallableCausalInvalidityV1::Clean,
-            explanation: None,
-            binding_read_safety: Some(CallableBindingReadSafetyV1::ProvenInitialized),
-            binding_read: Some(1),
-            binding_write: None,
-            denotation: Some(SemanticDenotationV1::TypeForm { ty: ArtifactTypeId(0) }),
-            call_specialization: Some(CallableCallSpecializationV1 {
+    image
+        .semantic_world
+        .callable_analyses
+        .push(CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
+            CallableAnalysisRecordV1 {
                 callable: callable.clone(),
-                bindings: vec![],
-                conformances: vec![],
-            }),
-        }],
-        conformance_evidence: vec![],
-        bindings: vec![
-            CallableBindingRowV1 {
-                ordinal: 0,
-                name: "self".into(),
-                parameter: None,
-                range: SpanV1 { start: 0, end: 0 },
-                contract: None,
-                current: TypeKnowledgeV1::Unknown {
-                    reason: UnknownReasonV1::NoTypeEvidence,
+                body_source_owner: Some(CallableAnalysisSourceOwnerV1::Callable { callable: callable.clone() }),
+                body_range: SpanV1 { start: 0, end: 0 },
+                status: CallableAnalysisStatusV1::Complete,
+                exits_unreachable: false,
+                flow_graph: CallableFlowGraphV1 {
+                    nodes: vec![],
+                    edges: vec![],
+                    entry: None,
+                    exits: vec![],
                 },
-                denotation: Some(SemanticDenotationV1::TypeForm { ty: ArtifactTypeId(0) }),
-                consistency: CallableBindingConsistencyV1::Unconstrained,
-                causal_invalidity: CallableCausalInvalidityV1::Clean,
-                mutable: false,
-                initialization: CallableInitializationStateV1::DefinitelyInitialized,
-                version: 0,
-                explanation: None,
-                authority: CallableBindingAuthorityV1::BodyLocalGenerated {
-                    reason: CallableGeneratedBindingReasonV1::ImplicitReceiver,
-                },
-            },
-            CallableBindingRowV1 {
-                ordinal: 1,
-                name: "cached".into(),
-                parameter: None,
-                range: SpanV1 { start: 1, end: 2 },
-                contract: None,
-                current: TypeKnowledgeV1::Unknown {
-                    reason: UnknownReasonV1::NoTypeEvidence,
-                },
-                denotation: None,
-                consistency: CallableBindingConsistencyV1::Unconstrained,
-                causal_invalidity: CallableCausalInvalidityV1::Clean,
-                mutable: false,
-                initialization: CallableInitializationStateV1::DefinitelyInitialized,
-                version: 0,
-                explanation: None,
-                authority: CallableBindingAuthorityV1::BodyLocalSource {
-                    site_owner: CallableAnalysisSourceOwnerV1::Module {
-                        module: stable_module.clone(),
+                constructor_super_initializer: None,
+                expressions: vec![CallableExpressionRowV1 {
+                    ordinal: 0,
+                    range: SpanV1 { start: 1, end: 2 },
+                    knowledge: TypeKnowledgeV1::Unknown {
+                        reason: UnknownReasonV1::NoTypeEvidence,
                     },
-                    site_local: 1,
-                    declaration_range: SpanV1 { start: 1, end: 2 },
+                    callable: Some(callable.clone()),
+                    conditional_dispatch: None,
+                    conditional_capability: None,
+                    trait_dispatch: None,
+                    trait_dispatch_candidates: None,
+                    contextual_realization: None,
+                    status: CallableExpressionStatusV1::Ready,
+                    causal_invalidity: CallableCausalInvalidityV1::Clean,
+                    explanation: None,
+                    binding_read_safety: Some(CallableBindingReadSafetyV1::ProvenInitialized),
+                    binding_read: Some(1),
+                    binding_write: None,
+                    denotation: Some(SemanticDenotationV1::TypeForm { ty: ArtifactTypeId(0) }),
+                    call_specialization: Some(CallableCallSpecializationV1 {
+                        callable: callable.clone(),
+                        bindings: vec![],
+                        conformances: vec![],
+                    }),
+                }],
+                conformance_evidence: vec![],
+                bindings: vec![
+                    CallableBindingRowV1 {
+                        ordinal: 0,
+                        name: "self".into(),
+                        parameter: None,
+                        range: SpanV1 { start: 0, end: 0 },
+                        contract: None,
+                        current: TypeKnowledgeV1::Unknown {
+                            reason: UnknownReasonV1::NoTypeEvidence,
+                        },
+                        denotation: Some(SemanticDenotationV1::TypeForm { ty: ArtifactTypeId(0) }),
+                        consistency: CallableBindingConsistencyV1::Unconstrained,
+                        causal_invalidity: CallableCausalInvalidityV1::Clean,
+                        mutable: false,
+                        initialization: CallableInitializationStateV1::DefinitelyInitialized,
+                        version: 0,
+                        explanation: None,
+                        authority: CallableBindingAuthorityV1::BodyLocalGenerated {
+                            reason: CallableGeneratedBindingReasonV1::ImplicitReceiver,
+                        },
+                    },
+                    CallableBindingRowV1 {
+                        ordinal: 1,
+                        name: "cached".into(),
+                        parameter: None,
+                        range: SpanV1 { start: 1, end: 2 },
+                        contract: None,
+                        current: TypeKnowledgeV1::Unknown {
+                            reason: UnknownReasonV1::NoTypeEvidence,
+                        },
+                        denotation: None,
+                        consistency: CallableBindingConsistencyV1::Unconstrained,
+                        causal_invalidity: CallableCausalInvalidityV1::Clean,
+                        mutable: false,
+                        initialization: CallableInitializationStateV1::DefinitelyInitialized,
+                        version: 0,
+                        explanation: None,
+                        authority: CallableBindingAuthorityV1::BodyLocalSource {
+                            site_owner: CallableAnalysisSourceOwnerV1::Module { module: stable_module.clone() },
+                            site_local: 1,
+                            declaration_range: SpanV1 { start: 1, end: 2 },
+                        },
+                    },
+                ],
+                for_iteration_lanes: vec![],
+                positional_expansions: vec![],
+                known_invalid_positional_expansions: vec![],
+                sequence_literals: vec![],
+                associated_resolutions: vec![],
+                callable_reference_resolutions: vec![],
+                family_applications: vec![],
+                local_proof_graph: None,
+                match_resolutions: vec![],
+                pattern_site_resolutions: vec![],
+                entry_flow: CallableFlowStateSummaryV1 {
+                    bindings: vec![],
+                    fields: vec![],
+                    fact_count: 0,
                 },
+                normal_returns: vec![],
+                throws: vec![],
+                return_validation: ReturnContractValidationV1::NotApplicable,
+                explanations: vec![],
+                return_explanation: None,
+                diagnostic_cause_count: 0,
+                diagnostics: vec![],
+                dependencies: vec![],
+                semantic_dependencies: vec![],
             },
-        ],
-        for_iteration_lanes: vec![],
-        positional_expansions: vec![],
-        known_invalid_positional_expansions: vec![],
-        sequence_literals: vec![],
-        associated_resolutions: vec![],
-        callable_reference_resolutions: vec![],
-        family_applications: vec![],
-        local_proof_graph: None,
-        match_resolutions: vec![],
-        pattern_site_resolutions: vec![],
-        entry_flow: CallableFlowStateSummaryV1 {
-            bindings: vec![],
-            fields: vec![],
-            fact_count: 0,
-        },
-        normal_returns: vec![],
-        throws: vec![],
-        return_validation: ReturnContractValidationV1::NotApplicable,
-        explanations: vec![],
-        return_explanation: None,
-        diagnostic_cause_count: 0,
-        diagnostics: vec![],
-        dependencies: vec![],
-        semantic_dependencies: vec![],
-    }, vec![]));
+            vec![],
+        ));
 
     image.semantic_world.static_constants.push(StaticConstantRecordV1 {
         symbol: StaticConstantSymbolV1 {
@@ -2048,69 +2054,75 @@ fn p7_static_application_denotation_binds_to_imported_checked_application_identi
             replacement: None,
         },
     });
-    image.semantic_world.callable_analyses.push(CallableAnalysisRecordV2::from_v1_with_observed_import_phases(CallableAnalysisRecordV1 {
-        callable: callable.clone(),
-        body_source_owner: Some(CallableAnalysisSourceOwnerV1::Callable { callable: callable.clone() }),
-        body_range: SpanV1 { start: 0, end: 1 },
-        status: CallableAnalysisStatusV1::Complete,
-        exits_unreachable: false,
-        flow_graph: CallableFlowGraphV1 {
-            nodes: vec![],
-            edges: vec![],
-            entry: None,
-            exits: vec![],
-        },
-        constructor_super_initializer: None,
-        expressions: vec![],
-        conformance_evidence: vec![],
-        bindings: vec![CallableBindingRowV1 {
-            ordinal: 0,
-            name: "resolved".into(),
-            parameter: None,
-            range: SpanV1 { start: 0, end: 1 },
-            contract: None,
-            current: TypeKnowledgeV1::Unknown {
-                reason: UnknownReasonV1::NoTypeEvidence,
+    image
+        .semantic_world
+        .callable_analyses
+        .push(CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
+            CallableAnalysisRecordV1 {
+                callable: callable.clone(),
+                body_source_owner: Some(CallableAnalysisSourceOwnerV1::Callable { callable: callable.clone() }),
+                body_range: SpanV1 { start: 0, end: 1 },
+                status: CallableAnalysisStatusV1::Complete,
+                exits_unreachable: false,
+                flow_graph: CallableFlowGraphV1 {
+                    nodes: vec![],
+                    edges: vec![],
+                    entry: None,
+                    exits: vec![],
+                },
+                constructor_super_initializer: None,
+                expressions: vec![],
+                conformance_evidence: vec![],
+                bindings: vec![CallableBindingRowV1 {
+                    ordinal: 0,
+                    name: "resolved".into(),
+                    parameter: None,
+                    range: SpanV1 { start: 0, end: 1 },
+                    contract: None,
+                    current: TypeKnowledgeV1::Unknown {
+                        reason: UnknownReasonV1::NoTypeEvidence,
+                    },
+                    denotation: Some(SemanticDenotationV1::StaticApplication {
+                        body: static_owner.clone(),
+                        ordinal: 0,
+                    }),
+                    consistency: CallableBindingConsistencyV1::Unconstrained,
+                    causal_invalidity: CallableCausalInvalidityV1::Clean,
+                    mutable: false,
+                    initialization: CallableInitializationStateV1::DefinitelyInitialized,
+                    version: 0,
+                    explanation: None,
+                    authority: CallableBindingAuthorityV1::BodyLocalGenerated {
+                        reason: CallableGeneratedBindingReasonV1::ImplicitReceiver,
+                    },
+                }],
+                for_iteration_lanes: vec![],
+                positional_expansions: vec![],
+                known_invalid_positional_expansions: vec![],
+                sequence_literals: vec![],
+                associated_resolutions: vec![],
+                callable_reference_resolutions: vec![],
+                family_applications: vec![],
+                local_proof_graph: None,
+                match_resolutions: vec![],
+                pattern_site_resolutions: vec![],
+                entry_flow: CallableFlowStateSummaryV1 {
+                    bindings: vec![],
+                    fields: vec![],
+                    fact_count: 0,
+                },
+                normal_returns: vec![],
+                throws: vec![],
+                return_validation: ReturnContractValidationV1::NotApplicable,
+                explanations: vec![],
+                return_explanation: None,
+                diagnostic_cause_count: 0,
+                diagnostics: vec![],
+                dependencies: vec![],
+                semantic_dependencies: vec![],
             },
-            denotation: Some(SemanticDenotationV1::StaticApplication {
-                body: static_owner.clone(),
-                ordinal: 0,
-            }),
-            consistency: CallableBindingConsistencyV1::Unconstrained,
-            causal_invalidity: CallableCausalInvalidityV1::Clean,
-            mutable: false,
-            initialization: CallableInitializationStateV1::DefinitelyInitialized,
-            version: 0,
-            explanation: None,
-            authority: CallableBindingAuthorityV1::BodyLocalGenerated {
-                reason: CallableGeneratedBindingReasonV1::ImplicitReceiver,
-            },
-        }],
-        for_iteration_lanes: vec![],
-        positional_expansions: vec![],
-        known_invalid_positional_expansions: vec![],
-        sequence_literals: vec![],
-        associated_resolutions: vec![],
-        callable_reference_resolutions: vec![],
-        family_applications: vec![],
-        local_proof_graph: None,
-        match_resolutions: vec![],
-        pattern_site_resolutions: vec![],
-        entry_flow: CallableFlowStateSummaryV1 {
-            bindings: vec![],
-            fields: vec![],
-            fact_count: 0,
-        },
-        normal_returns: vec![],
-        throws: vec![],
-        return_validation: ReturnContractValidationV1::NotApplicable,
-        explanations: vec![],
-        return_explanation: None,
-        diagnostic_cause_count: 0,
-        diagnostics: vec![],
-        dependencies: vec![],
-        semantic_dependencies: vec![],
-    }, vec![]));
+            vec![],
+        ));
 
     let bytes = encode_artifact(&image).expect("encode P7 static-application denotation");
     let limits = ValidationLimits::default();

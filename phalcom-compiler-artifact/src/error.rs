@@ -80,6 +80,9 @@ pub enum ContainerError {
     #[error("duplicate section: {0}")]
     DuplicateSection(SectionKind),
 
+    #[error("an unvalidated executable section cannot be published with PORTABLE_EXECUTABLE")]
+    UnvalidatedExecutableCapability,
+
     #[error("offset overflow for section {section}: offset {offset} + len {len}")]
     OffsetOverflow { section: SectionKind, offset: u64, len: u64 },
 

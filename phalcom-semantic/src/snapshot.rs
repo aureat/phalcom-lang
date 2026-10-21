@@ -34,9 +34,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-fn collect_internal_incidents(
-    callable_analyses: impl IntoIterator<Item = Arc<crate::checker::CallableAnalysis>>,
-) -> Arc<[InternalSemanticIncident]> {
+fn collect_internal_incidents(callable_analyses: impl IntoIterator<Item = Arc<crate::checker::CallableAnalysis>>) -> Arc<[InternalSemanticIncident]> {
     let mut incidents = Vec::new();
     for analysis in callable_analyses {
         incidents.extend(analysis.internal_incidents.iter().cloned());
@@ -215,7 +213,10 @@ impl ModuleQueryProducts {
 
         let mut reverse_pairs = allocations.vector::<(ModuleId, ModuleId)>(resolved_imports_authority.len())?;
         for ((importer, _), target) in resolved_imports_authority.iter() {
-            reverse_pairs.push((target.clone_with_allocation_budget(allocations)?, importer.clone_with_allocation_budget(allocations)?));
+            reverse_pairs.push((
+                target.clone_with_allocation_budget(allocations)?,
+                importer.clone_with_allocation_budget(allocations)?,
+            ));
         }
         reverse_pairs.sort_unstable();
         reverse_pairs.dedup();
@@ -383,11 +384,15 @@ pub struct SemanticSnapshot {
     pub associated_surfaces: Arc<AssociatedFamilyTable>,
     /// Checked source type-member contracts keyed by stable declaration identity.
     /// Associated namespace selection remains exclusively in `associated_surfaces`.
-    pub type_member_declarations: Arc<crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
+    pub type_member_declarations:
+        Arc<crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     /// Checked associated static-domain declarations keyed by stable owner/name identity.
-    pub associated_static_domains: Arc<crate::ordered_map::OrderedMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
+    pub associated_static_domains: Arc<
+        crate::ordered_map::OrderedMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>,
+    >,
     /// Source-structural static case membership, independent of payload validity.
-    pub static_case_catalogs: Arc<crate::ordered_map::OrderedMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
+    pub static_case_catalogs:
+        Arc<crate::ordered_map::OrderedMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>,
     /// Checked constructor contracts keyed by stable static-case identity.
     pub static_case_signatures: Arc<crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>,
     /// Checked static definitions keyed by declaration identity.
@@ -621,7 +626,9 @@ impl SemanticSnapshot {
 
     pub fn with_type_member_declarations(
         mut self,
-        declarations: Arc<crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
+        declarations: Arc<
+            crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+        >,
     ) -> Self {
         self.type_member_declarations = declarations;
         self
@@ -629,7 +636,12 @@ impl SemanticSnapshot {
 
     pub fn with_associated_static_domains(
         mut self,
-        domains: Arc<crate::ordered_map::OrderedMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
+        domains: Arc<
+            crate::ordered_map::OrderedMap<
+                crate::identity::AssociatedStaticDomainDeclarationId,
+                Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>,
+            >,
+        >,
     ) -> Self {
         self.associated_static_domains = domains;
         self
@@ -883,9 +895,7 @@ impl SemanticSnapshot {
                 &self.module_products.display_path_modules,
             )
         };
-        facade
-            .with_topology(&self.module_products.topology)
-            .with_reverse_imports(reverse_imports)
+        facade.with_topology(&self.module_products.topology).with_reverse_imports(reverse_imports)
     }
 
     /// Returns true if this snapshot's module query facade is backed by precomputed indexed products.

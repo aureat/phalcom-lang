@@ -627,10 +627,7 @@ fn callable_definition_fingerprint(definition: &crate::impls::EffectiveCallableD
     ProductFingerprint::new(value)
 }
 
-fn format_import_path_with_allocation_budget(
-    path: &phalcom_ast::ast::ImportPath,
-    allocations: &mut AllocationBudget,
-) -> Result<String, CanonicalImageError> {
+fn format_import_path_with_allocation_budget(path: &phalcom_ast::ast::ImportPath, allocations: &mut AllocationBudget) -> Result<String, CanonicalImageError> {
     use phalcom_ast::ast::ImportRoot;
 
     let mut len = match &path.root {
@@ -641,9 +638,7 @@ fn format_import_path_with_allocation_budget(
         if index > 0 || matches!(path.root, ImportRoot::Absolute(_)) {
             len = len.checked_add(1).ok_or_else(|| allocation_error(AllocationError::Overflow))?;
         }
-        len = len
-            .checked_add(segment.name.len())
-            .ok_or_else(|| allocation_error(AllocationError::Overflow))?;
+        len = len.checked_add(segment.name.len()).ok_or_else(|| allocation_error(AllocationError::Overflow))?;
     }
 
     let mut bytes = allocations.vector::<u8>(len).map_err(allocation_error)?;
@@ -699,7 +694,9 @@ fn product_and_fingerprints(
                 .get(module)
                 .ok_or_else(|| incomplete("missing import source interface for portable owner"))?;
             let references = modules.linked().graphs.references.edges_from(module);
-            let mut import_entries = allocations.vector::<(String, crate::identity::ModuleId)>(interface.imports.len()).map_err(allocation_error)?;
+            let mut import_entries = allocations
+                .vector::<(String, crate::identity::ModuleId)>(interface.imports.len())
+                .map_err(allocation_error)?;
             for import in &interface.imports {
                 let edge = references
                     .iter()
@@ -1108,10 +1105,7 @@ pub fn reconstruct_query_image_v4_with_allocation_budget(
                 product: product.clone(),
             },
         ));
-        fingerprints.push((
-            clone_loaded_query_key_with_allocation_budget(key, &mut allocations)?,
-            *product_fingerprint,
-        ));
+        fingerprints.push((clone_loaded_query_key_with_allocation_budget(key, &mut allocations)?, *product_fingerprint));
     }
     let entries = CanonicalQueryEntries::from_loaded_entries(entries, &mut allocations)?;
     let fingerprints = CanonicalDependencyFingerprints::from_loaded_entries(fingerprints, &mut allocations)?;
@@ -1168,9 +1162,7 @@ fn clone_loaded_query_key_with_allocation_budget(key: &QueryKey, allocations: &m
         Q::CallableSignature(callable) => Q::CallableSignature(callable.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
         Q::FieldSignature(field) => Q::FieldSignature(field.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
         Q::TypeMemberDeclaration(member) => Q::TypeMemberDeclaration(member.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
-        Q::ModuleStaticBindingCatalog(module) => {
-            Q::ModuleStaticBindingCatalog(module.clone_with_allocation_budget(allocations).map_err(allocation_error)?)
-        }
+        Q::ModuleStaticBindingCatalog(module) => Q::ModuleStaticBindingCatalog(module.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
         Q::ModuleStaticBindings(module) => Q::ModuleStaticBindings(module.clone_with_allocation_budget(allocations).map_err(allocation_error)?),
         _ => return Err(incomplete("loaded query key has no budget-aware clone")),
     })

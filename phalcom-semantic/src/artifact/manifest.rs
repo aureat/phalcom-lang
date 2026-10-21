@@ -5,9 +5,7 @@
 //! an explicit `ArtifactAuthorityDisposition` with named compiler readers and
 //! concrete provenance.
 
-use crate::artifact::query_policy::{
-    CanonicalQueryPersistence, CanonicalQueryRootRequirement, canonical_query_persistence, canonical_query_root_requirement,
-};
+use crate::artifact::query_policy::{CanonicalQueryPersistence, CanonicalQueryRootRequirement, canonical_query_persistence, canonical_query_root_requirement};
 use crate::db::key::QueryKind;
 
 /// Canonical classification of an artifact or semantic family's authority source.

@@ -796,11 +796,7 @@ impl ModuleWorldV2 {
         Ok(out.into_vec())
     }
 
-    pub fn decode_with_allocation_budget(
-        bytes: &[u8],
-        limits: &ValidationLimits,
-        transaction: &mut AllocationBudget,
-    ) -> Result<Self, ArtifactError> {
+    pub fn decode_with_allocation_budget(bytes: &[u8], limits: &ValidationLimits, transaction: &mut AllocationBudget) -> Result<Self, ArtifactError> {
         let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
         let mut section = transaction.child(section_limit);
         let world = {
@@ -865,9 +861,7 @@ impl ModuleWorldV2 {
 
         for (mod_idx, module) in self.modules.iter().enumerate() {
             crate::identity::validate_persistent_project_ref(&module.identity.project, limits)?;
-            if module.path.len() != module.identity.path.len()
-                || !module.path.iter().zip(module.identity.path.iter()).all(|(a, b)| a.as_str() == b.as_ref())
-            {
+            if module.path.len() != module.identity.path.len() || !module.path.iter().zip(module.identity.path.iter()).all(|(a, b)| a.as_str() == b.as_ref()) {
                 return Err(invalid(format!(
                     "module {mod_idx} path does not match stable module identity: {:?} vs {:?}",
                     module.path, module.identity.path

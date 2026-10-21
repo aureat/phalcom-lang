@@ -176,7 +176,10 @@ impl LinkedTypeResolver {
         }
     }
 
-    pub fn update_static_case_signatures(&self, signatures: &crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>) {
+    pub fn update_static_case_signatures(
+        &self,
+        signatures: &crate::ordered_map::OrderedMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
+    ) {
         if let Ok(mut current) = self.static_case_signatures.write() {
             *current = signatures.clone();
         }

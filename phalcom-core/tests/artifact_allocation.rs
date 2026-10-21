@@ -11,9 +11,7 @@ use phalcom_core::modules::canonical_artifact::{
 use phalcom_core::modules::canonical_universe::canonical_universe_program;
 use phalcom_semantic::SemanticWorkspaceSession;
 use phalcom_semantic::artifact::import::{
-    callable_import_allocation_diagnostic_stages,
-    import_allocation_diagnostic_stages,
-    reset_import_allocation_diagnostics,
+    callable_import_allocation_diagnostic_stages, import_allocation_diagnostic_stages, reset_import_allocation_diagnostics,
     validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget,
 };
 use phalcom_semantic::artifact::query::reconstruct_query_image_v4_with_allocation_budget;
@@ -343,11 +341,9 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
         let ledger_delta = pair[1].ledger_bytes - pair[0].ledger_bytes;
         let observed_delta = pair[1].observed_bytes - pair[0].observed_bytes;
         assert_eq!(
-            observed_delta,
-            ledger_delta,
+            observed_delta, ledger_delta,
             "whole-load stage {} -> {} must account for every request",
-            pair[0].name,
-            pair[1].name,
+            pair[0].name, pair[1].name,
         );
     }
     let query_census = phalcom_semantic::artifact::query::take_query_reconstruction_census();
@@ -360,17 +356,19 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
         ("Q5 query image Arc publication", query_census.query_image_publication),
     ] {
         assert_eq!(
-            row.observed_bytes,
-            row.ledger_bytes,
+            row.observed_bytes, row.ledger_bytes,
             "query reconstruction stage {name} must account for every request"
         );
     }
     for row in &query_census.product_by_kind {
-        assert_eq!(row.observed_bytes, row.ledger_bytes, "query product {:?} must account for every request", row.kind);
+        assert_eq!(
+            row.observed_bytes, row.ledger_bytes,
+            "query product {:?} must account for every request",
+            row.kind
+        );
     }
     assert_eq!(
-        query_census.product_buffer_observed,
-        query_census.product_buffer_ledger,
+        query_census.product_buffer_observed, query_census.product_buffer_ledger,
         "query reconstruction product buffer must account for every request"
     );
     let whole_query_stage = load_stages
@@ -414,24 +412,40 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     for (name, ledger, stage_observed) in [
         ("snapshot clone", publication.snapshot_clone_ledger, publication.snapshot_clone),
         ("status promotion", publication.status_promotion_ledger, publication.status_promotion),
-        ("ModuleQueryProducts reconstruction", publication.module_query_products_ledger, publication.module_query_products),
+        (
+            "ModuleQueryProducts reconstruction",
+            publication.module_query_products_ledger,
+            publication.module_query_products,
+        ),
         (
             "ModuleQueryProducts Arc/publication",
             publication.module_query_products_publication_ledger,
             publication.module_query_products_publication,
         ),
-        ("source-free completeness", publication.source_free_completeness_ledger, publication.source_free_completeness),
+        (
+            "source-free completeness",
+            publication.source_free_completeness_ledger,
+            publication.source_free_completeness,
+        ),
         ("advisory validation", publication.advisory_validation_ledger, publication.advisory_validation),
-        ("query reader validation", publication.query_reader_validation_ledger, publication.query_reader_validation),
-        ("fingerprint validation", publication.fingerprint_validation_ledger, publication.fingerprint_validation),
+        (
+            "query reader validation",
+            publication.query_reader_validation_ledger,
+            publication.query_reader_validation,
+        ),
+        (
+            "fingerprint validation",
+            publication.fingerprint_validation_ledger,
+            publication.fingerprint_validation,
+        ),
         ("final Arc<SemanticSnapshot>", publication.snapshot_arc_ledger, publication.snapshot_arc),
-        ("Arc<CanonicalUniverseFormalImage>", publication.formal_image_arc_ledger, publication.formal_image_arc),
+        (
+            "Arc<CanonicalUniverseFormalImage>",
+            publication.formal_image_arc_ledger,
+            publication.formal_image_arc,
+        ),
     ] {
-        assert_eq!(
-            stage_observed,
-            ledger,
-            "formal publication stage {name} must account for every request"
-        );
+        assert_eq!(stage_observed, ledger, "formal publication stage {name} must account for every request");
     }
 
     let loaded = loaded.expect("load at exact budget N must succeed");
@@ -506,8 +520,8 @@ fn full_universe_telosc_load_allocation_equality_and_n_minus_one() {
     let preceding_module_bytes = preceding_container
         .require_section(SectionKind::ModuleWorld)
         .expect("preceding module section must exist");
-    let preceding_module_dto =
-        ModuleWorldV2::decode_with_allocation_budget(preceding_module_bytes, &limits, &mut preceding_stage_budget).expect("preceding module DTO stage must decode");
+    let preceding_module_dto = ModuleWorldV2::decode_with_allocation_budget(preceding_module_bytes, &limits, &mut preceding_stage_budget)
+        .expect("preceding module DTO stage must decode");
     phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&preceding_module_dto, &limits, &mut preceding_stage_budget)
         .expect("preceding module materialization stage must succeed");
     let expected_preceding_debit = preceding_stage_budget.requested();

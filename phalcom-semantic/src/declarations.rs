@@ -523,15 +523,16 @@ impl DeclarationTypeTable {
             curr = table.parent.as_deref();
         }
         tables.into_iter().rev().flat_map(|table| {
-            table.intrinsic_type_owners.keys().chain(
-                table.frozen_intrinsic_type_owners.iter().flat_map(move |owners| {
+            table
+                .intrinsic_type_owners
+                .keys()
+                .chain(table.frozen_intrinsic_type_owners.iter().flat_map(move |owners| {
                     owners
                         .as_entries()
                         .iter()
                         .filter(move |(declaration, _)| !table.intrinsic_type_owners.contains_key(declaration))
                         .map(|(declaration, _)| declaration)
-                }),
-            )
+                }))
         })
     }
 
@@ -539,7 +540,12 @@ impl DeclarationTypeTable {
         self.intrinsic_static_domains
             .get(declaration)
             .copied()
-            .or_else(|| self.frozen_intrinsic_static_domains.as_ref().and_then(|domains| domains.get(declaration)).copied())
+            .or_else(|| {
+                self.frozen_intrinsic_static_domains
+                    .as_ref()
+                    .and_then(|domains| domains.get(declaration))
+                    .copied()
+            })
             .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_static_domain_kind(declaration)))
     }
 
@@ -551,15 +557,16 @@ impl DeclarationTypeTable {
             curr = t.parent.as_deref();
         }
         tables.into_iter().rev().flat_map(|table| {
-            table.intrinsic_static_domains.keys().chain(
-                table.frozen_intrinsic_static_domains.iter().flat_map(move |domains| {
+            table
+                .intrinsic_static_domains
+                .keys()
+                .chain(table.frozen_intrinsic_static_domains.iter().flat_map(move |domains| {
                     domains
                         .as_entries()
                         .iter()
                         .filter(move |(declaration, _)| !table.intrinsic_static_domains.contains_key(declaration))
                         .map(|(declaration, _)| declaration)
-                }),
-            )
+                }))
         })
     }
 

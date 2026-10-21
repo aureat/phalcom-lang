@@ -239,7 +239,12 @@ impl PreludeTypeMap {
 
         for (name, decl) in &exceptional_entries {
             let present = contains_decl(decl);
-            if !present && matches!(*name, "Unit" | "Duration" | "Timestamp" | "DuplicateKeyError" | "Equivalent" | "Subtype" | "Conforms") {
+            if !present
+                && matches!(
+                    *name,
+                    "Unit" | "Duration" | "Timestamp" | "DuplicateKeyError" | "Equivalent" | "Subtype" | "Conforms"
+                )
+            {
                 panic!("Mandatory prelude declaration {:?} ({:?}) not found in semantic authority", name, decl);
             }
             if present {

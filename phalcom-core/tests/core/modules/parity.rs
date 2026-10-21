@@ -540,10 +540,7 @@ fn compile_sample_parity_program() -> (TempDir, phalcom_core::modules::compile::
     (temp, program)
 }
 
-fn compile_parity_program_variant(
-    main_source: &str,
-    extra_modules: &[(&str, &str)],
-) -> (TempDir, phalcom_core::modules::compile::CompiledProgram) {
+fn compile_parity_program_variant(main_source: &str, extra_modules: &[(&str, &str)]) -> (TempDir, phalcom_core::modules::compile::CompiledProgram) {
     let temp = TempDir::new().unwrap();
     write_parity_package(temp.path());
     fs::write(temp.path().join("main.ph"), main_source).unwrap();

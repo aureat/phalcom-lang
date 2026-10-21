@@ -1,12 +1,17 @@
 ---
 id: PERF003.C2.P8
 kind: handoff
-status: PROPOSED
+status: SUPERSEDED
 completion: NOT_STARTED
 verification: UNVERIFIED
 ---
 
 # PERF003.C2.P8 takeover handoff
+
+> Historical handoff, accurate at the P7 certification takeover on 2026-10-19.
+> P8 implementation has since started. Use the current
+> [architect-planning handoff](PERF003.C2.P8-architect-planning-handoff.md)
+> and the live checkpoint instead.
 
 ## Readiness
 

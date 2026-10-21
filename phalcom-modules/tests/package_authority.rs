@@ -161,7 +161,11 @@ fn artifact_package_authority_is_staged_from_resolver_and_validated_bytes() {
 
     assert_eq!(universe.resolve_stable_project(&package), None, "staging must not mutate the caller's graph");
     assert_eq!(candidate.resolve_stable_project(&package), Some(ProjectIdentity::Resolved(project_id)));
-    assert_eq!(candidate.projects().len(), universe.projects().len(), "receipt registration must not allocate a project ID");
+    assert_eq!(
+        candidate.projects().len(),
+        universe.projects().len(),
+        "receipt registration must not allocate a project ID"
+    );
 }
 
 #[test]
@@ -178,23 +182,22 @@ fn artifact_package_authority_fails_closed_for_missing_receipt_or_wrong_digest()
         version: "2.4.1".into(),
     };
 
-    assert!(stage_artifact_project_authorities(
-        &universe,
-        &package_module_world(package.clone()),
-        &identity,
-        digest,
-        &TestResolver(None),
-    )
-    .is_err());
-    assert!(stage_artifact_project_authorities(
-        &universe,
-        &package_module_world(package.clone()),
-        &identity,
-        digest,
-        &TestResolver(Some(wrong_receipt)),
-    )
-    .is_err());
-    assert_eq!(universe.resolve_stable_project(&package), None, "failed staging leaves the caller's graph unchanged");
+    assert!(stage_artifact_project_authorities(&universe, &package_module_world(package.clone()), &identity, digest, &TestResolver(None),).is_err());
+    assert!(
+        stage_artifact_project_authorities(
+            &universe,
+            &package_module_world(package.clone()),
+            &identity,
+            digest,
+            &TestResolver(Some(wrong_receipt)),
+        )
+        .is_err()
+    );
+    assert_eq!(
+        universe.resolve_stable_project(&package),
+        None,
+        "failed staging leaves the caller's graph unchanged"
+    );
 }
 
 #[test]
@@ -211,12 +214,14 @@ fn artifact_header_must_match_one_exact_package_tuple() {
         version: "2.4.2".into(),
     };
 
-    assert!(stage_artifact_project_authorities(
-        &universe,
-        &package_module_world(package.clone()),
-        &wrong_header,
-        ArtifactDigest([3; 32]),
-        &resolver,
-    )
-    .is_err());
+    assert!(
+        stage_artifact_project_authorities(
+            &universe,
+            &package_module_world(package.clone()),
+            &wrong_header,
+            ArtifactDigest([3; 32]),
+            &resolver,
+        )
+        .is_err()
+    );
 }

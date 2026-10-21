@@ -144,4 +144,5 @@ tagged!(ConstantRecipeV1 {
         labels: Vec<String>,
         labeled_values: Vec<super::prototype::ConstantId>
     },
+    21 => Nil,
 });

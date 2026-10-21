@@ -182,6 +182,30 @@ impl VM {
         native_install_mode: NativeInstallMode,
         output: Box<dyn RuntimeOutput>,
     ) -> Result<Self, crate::error::VmBootstrapError> {
+        Self::try_new_with_native_install_mode_and_output_capture(native_install_mode, output, None)
+    }
+
+    pub(crate) fn build_canonical_executable_payload()
+    -> Result<phalcom_compiler_artifact::executable::staging::StagedExecutableSectionV1, crate::artifact::capture::ExecutableCaptureError> {
+        let canonical =
+            crate::modules::canonical_universe_program().map_err(|error| crate::artifact::capture::ExecutableCaptureError::Bootstrap(error.to_string()))?;
+        let mut capture = crate::artifact::capture::ExecutableImageCapture::new(canonical);
+        let mut vm = Self::try_new_with_native_install_mode_and_output_capture(
+            NativeInstallMode::DescriptorOnly,
+            Box::new(crate::artifact::capture::ArtifactBuildOutput),
+            Some(&mut capture),
+        )
+        .map_err(|error| crate::artifact::capture::ExecutableCaptureError::Bootstrap(error.to_string()))?;
+        let image = capture.finish(&mut vm, canonical)?;
+        phalcom_compiler_artifact::executable::staging::StagedExecutableSectionV1::from_image(&image)
+            .map_err(|error| crate::artifact::capture::ExecutableCaptureError::Codec(error.to_string()))
+    }
+
+    fn try_new_with_native_install_mode_and_output_capture(
+        native_install_mode: NativeInstallMode,
+        output: Box<dyn RuntimeOutput>,
+        mut capture: Option<&mut crate::artifact::capture::ExecutableImageCapture>,
+    ) -> Result<Self, crate::error::VmBootstrapError> {
         crate::perf_span_result!(
             telos_observability::PerfPhase::VmBootstrap,
             || {
@@ -201,6 +225,9 @@ impl VM {
                 let kernel_native_started = Instant::now();
                 let mut vm = Self::try_new_native_with_native_install_mode_and_output(native_install_mode, output)?;
                 trace_semantic_bootstrap!("native runtime complete");
+                if let Some(capture) = capture.as_deref_mut() {
+                    capture.capture_native_anchors(&mut vm);
+                }
                 #[cfg(any(test, feature = "test-timings"))]
                 {
                     vm.bootstrap_timing.canonical_universe_product = canonical_universe_product;
@@ -232,7 +259,8 @@ impl VM {
                 // `install_primitives` so a reopen can call the primitives it wraps
                 // (e.g. `List.at(_:)` calling `at_(_:)`).
                 trace_semantic_bootstrap!("source module execution start");
-                vm.run_universe_modules(canonical).map_err(crate::error::VmBootstrapError::Runtime)?;
+                vm.run_universe_modules(canonical, capture.as_deref_mut())
+                    .map_err(crate::error::VmBootstrapError::Runtime)?;
                 trace_semantic_bootstrap!("source module execution complete");
                 crate::native::install::install_source_owned_primitives(&mut vm, canonical.source_index()).map_err(crate::error::VmBootstrapError::Runtime)?;
                 trace_semantic_bootstrap!("source primitives complete");
@@ -496,7 +524,11 @@ impl VM {
     /// # Errors
     ///
     /// Returns any [`crate::error::PhError`] raised while compiling or executing universe modules.
-    fn run_universe_modules(&mut self, canonical: &crate::modules::CanonicalUniverseProgram) -> PhResult<()> {
+    fn run_universe_modules(
+        &mut self,
+        canonical: &crate::modules::CanonicalUniverseProgram,
+        mut capture: Option<&mut crate::artifact::capture::ExecutableImageCapture>,
+    ) -> PhResult<()> {
         crate::perf_counter!(telos_observability::PerfCounter::BootstrapModules, canonical.bootstrap_order().len());
         self.universe_bootstrap_measurement = crate::vm::UniverseBootstrapMeasurement {
             discovered_units: canonical.source_index().units.len(),
@@ -512,6 +544,11 @@ impl VM {
                 || self.compile_universe_module(canonical, id),
                 |_| telos_observability::PerfOutcome::BootstrapError,
             )?;
+            if let Some(capture) = capture.as_deref_mut() {
+                capture.capture_module(self, canonical, id, closure);
+                capture.capture_class_layouts(self, id);
+                capture.capture_detached_methods(self);
+            }
             crate::perf_counter!(telos_observability::PerfCounter::UniverseModuleCompilations, 1);
             trace_semantic_bootstrap!("module compile complete {id}");
             #[cfg(any(test, feature = "test-timings"))]
@@ -547,6 +584,14 @@ impl VM {
                 .get_mut(id)
                 .ok_or_else(|| crate::error::RuntimeError::Internal(format!("bootstrapped Universe module {id} is not registered")))?
                 .state = crate::modules::registry::ModuleState::Initialized;
+        }
+        if let Some(capture) = capture.as_deref_mut() {
+            for id in canonical.program().modules.keys().filter(|id| !canonical.bootstrap_order().contains(id)) {
+                let closure = self.compile_universe_module(canonical, id)?;
+                capture.capture_module(self, canonical, id, closure);
+                capture.capture_class_layouts(self, id);
+                capture.capture_detached_methods(self);
+            }
         }
         Ok(())
     }

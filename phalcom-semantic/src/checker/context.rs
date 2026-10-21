@@ -1153,10 +1153,13 @@ impl<'a> CheckingContext<'a> {
                 .get(local_name.as_str())
                 .copied()
                 .expect("symbolic imported binding must have a linked import slot");
-            assert!(matches!(
-                linked_module.linked_reads.get(import_id.0 as usize),
-                Some(phalcom_modules::linker::LinkedReadSpec::Binding(linked_symbol)) if linked_symbol == symbol
-            ), "symbolic imported binding slot must resolve to the same canonical symbol");
+            assert!(
+                matches!(
+                    linked_module.linked_reads.get(import_id.0 as usize),
+                    Some(phalcom_modules::linker::LinkedReadSpec::Binding(linked_symbol)) if linked_symbol == symbol
+                ),
+                "symbolic imported binding slot must resolve to the same canonical symbol"
+            );
             self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::LinkedName(
                 self.current_module.clone(),
                 local_name.clone(),

@@ -21,14 +21,15 @@ characterization remain blocked by recorded baseline failures.
 PERF003.C2 is in progress with a detailed patch-grade implementation plan
 grounded in the COMPILATION-1 and COMPILATION-2 architectural analyses.
 
-Current C2 execution: `PERF003.C2.P5`, [canonical publication/persistent-image plan](C2-compilation-performance-and-efficiency/PERF003.C2.P5-canonical-publication-persistent-image-boundary-implementation-plan.md).
-P3 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED; P4 remains partial with metadata
-composition prerequisites. P5 is IN_PROGRESS / PARTIAL / FOCUSED_TESTED.
-Source revision `e71057d9` adds immutable parent overlays for dispatch and
-algebraic/associated/type-member products, exact aggregate dependency evidence,
-freeze consistency checks, and alias-cycle/relowering fixes. The continuation
-passed 65 selected tests plus core/LSP checks. Remaining lookup-map migrations,
-persistence contracts and P4-dependent metadata acceptance remain open.
+Current C2 execution: `PERF003.C2.P8`, portable executable Universe image.
+P7's compiler artifact is complete and independently certified. P8 is
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`: canonical executable capture,
+structural encoding and cross-process capture determinism are implemented and
+focused-tested. The executable section is still non-authoritative; executable
+validation, VM materialization, later imports and source-free VM execution are
+open. The next action is architect planning for a dependency-ordered closure
+plan. See the [P8 checkpoint](C2-compilation-performance-and-efficiency/CHECKPOINT.md)
+and [architect-planning handoff](C2-compilation-performance-and-efficiency/P8/PERF003.C2.P8-architect-planning-handoff.md).
 
 [CHECKPOINT.md](C2-compilation-performance-and-efficiency/CHECKPOINT.md) owns the
 normalized P1–P9 ledger, current evidence and next action. Historical P5/P7

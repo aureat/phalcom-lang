@@ -171,6 +171,20 @@ objects, closures, chunks, metadata pools, and empty caches. Relocation maps
 preserve required sharing inside that VM. Mutable globals, captured live values,
 heap state, GC state, resources, caches, and fibers are never persisted.
 
+Executable type recipes preserve the ordering semantics of their source
+constructors. Proper/global unions are unordered and are encoded by sorting
+their recursively stable portable member keys; sorting preserves cardinality
+and repeated members. Tuple elements, applied arguments, callable parameters,
+type-lambda parameters, pack positionals, record fields under their existing
+contract, and static arguments retain their established order. Scoped type
+graphs retain their existing representation contract and are not normalized
+by executable type-recipe projection. Portable type-recipe IDs are canonical
+publication coordinates: their numbering and all rewritten references are
+independent of graph discovery order, runtime pool numbering, and hash-map
+iteration. Runtime typing/semantic identity owns which constructors are
+unordered; executable projection owns only stable publication order and
+artifact-local ID assignment.
+
 Native/primordial installation and Universe initializers retain existing order
 and failure behavior. Later imports consume stored prototypes without fallback
 to source compilation. Logical URIs and source mappings identify runtime frames
@@ -231,8 +245,10 @@ slots are restored after relocation. Structural cycles, invalid references,
 noncanonical duplicate arena nodes, missing primitive nodes, checked structural
 kind mismatches,
 and escaped de Bruijn binder references are rejected before returning the store.
-Global unions normalize relocated member order; scoped union body order and
-repeated contributions remain as represented by the existing compiler.
+Global unions normalize relocated member order. Their structural fingerprints
+use the sorted multiset of stable child fingerprints, so process-local
+`TypeId` ordering does not affect persistent identity. Scoped union body order
+and repeated contributions remain as represented by the existing compiler.
 
 These payload implementations have compiler-check evidence only. Cross-process
 determinism, semantic parity, complete image loading, and execution acceptance

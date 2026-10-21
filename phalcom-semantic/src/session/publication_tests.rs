@@ -3,8 +3,7 @@ use super::{
     retire_blocked_declaration_shell_queries,
 };
 use crate::db::{
-    InputFingerprint, ProductFingerprint, QueryKey, QueryOutcome, QueryState, QueryValue, SemanticDb, SemanticProductOrigin,
-    query_declaration_shell,
+    InputFingerprint, ProductFingerprint, QueryKey, QueryOutcome, QueryState, QueryValue, SemanticDb, SemanticProductOrigin, query_declaration_shell,
 };
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{DeclarationId, WorkspaceId};
@@ -337,11 +336,7 @@ fn image_backed_canonical_query_mismatch_fails_without_local_shadow() {
     let TypeDeclarationShell::Nominal(info) = &mut mismatched else {
         unreachable!("selected nominal declaration shell")
     };
-    info.kind = if info.kind == KindId::TYPE {
-        KindId::RECORD_ROW
-    } else {
-        KindId::TYPE
-    };
+    info.kind = if info.kind == KindId::TYPE { KindId::RECORD_ROW } else { KindId::TYPE };
 
     let outcome = query_declaration_shell(session.db_mut(), Arc::new(mismatched));
     let QueryOutcome::Failed(failure) = outcome else {
@@ -350,10 +345,7 @@ fn image_backed_canonical_query_mismatch_fails_without_local_shadow() {
     assert!(failure.contains("immutable canonical query"), "{failure}");
     assert!(failure.contains("cannot be recomputed locally"), "{failure}");
     assert!(session.db().local_query_state(&key).is_none());
-    assert_eq!(
-        session.db().product_origin(&key),
-        Some(SemanticProductOrigin::Canonical(image.world().clone()))
-    );
+    assert_eq!(session.db().product_origin(&key), Some(SemanticProductOrigin::Canonical(image.world().clone())));
     let retained = session
         .db()
         .product(&key)
@@ -383,7 +375,10 @@ fn image_backed_failure_rolls_back_and_empty_retry_preserves_canonical_authority
     assert!(session.last_known_good_snapshot().is_some_and(|snapshot| Arc::ptr_eq(snapshot, &initial)));
     assert!(session.pending_semantic_delta.as_ref().is_some_and(|delta| !delta.changed_modules.is_empty()));
     for (key, _) in image.query_image().entries() {
-        assert!(session.db().local_query_state(key).is_none(), "rollback must not shadow canonical query {key:?}");
+        assert!(
+            session.db().local_query_state(key).is_none(),
+            "rollback must not shadow canonical query {key:?}"
+        );
         assert_eq!(
             session.db().product_origin(key),
             Some(SemanticProductOrigin::Canonical(image.world().clone())),

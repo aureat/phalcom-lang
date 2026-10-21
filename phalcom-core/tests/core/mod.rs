@@ -21,6 +21,8 @@ mod compiler_semantic_boundary;
 mod modules_canonical_artifact;
 #[path = "modules/compile.rs"]
 mod modules_compile;
+#[path = "modules/executable_serialization.rs"]
+mod modules_executable_serialization;
 #[path = "modules/linking.rs"]
 mod modules_linking;
 #[path = "modules/package_info.rs"]

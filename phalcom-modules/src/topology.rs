@@ -3,8 +3,8 @@
 //! Represents the structural DAG of modules, packages, project boundaries,
 //! and package exposure boundaries, independent of source method bodies.
 
-use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, SourceId, SourceLocation};
 use crate::authority::{ModuleAuthorityMap, ModuleAuthoritySet};
+use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, SourceId, SourceLocation};
 use crate::interface::UnlinkedModuleInterface;
 use crate::project::ProjectUniverse;
 use crate::source::ModuleKind;

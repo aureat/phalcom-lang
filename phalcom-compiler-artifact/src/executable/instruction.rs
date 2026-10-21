@@ -44,21 +44,159 @@ pub enum OperandDomainV1 {
     VariantTarget,
 }
 
+/// Cross-table identity relocation implied by one opcode operand.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RelocationRequirementV1 {
+    ConstantRecipe,
+    LinkedModuleRead,
+    SemanticPoolEntry,
+}
+
+/// Minimum full-validator obligation implied by one opcode operand.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ValidatorRequirementV1 {
+    ConstantReference,
+    TypedConstantReference,
+    ClosureTemplateReference,
+    MethodReference,
+    ModuleReference,
+    LinkedReadReference,
+    SelectorSpecificationReference,
+    SemanticPoolReference,
+    SemanticComponentReference,
+    FrameSlot,
+    UpvalueSlot,
+    FieldSlot,
+    ArityAndStackShape,
+    CountAndStackShape,
+    ControlFlowTarget,
+    CanonicalFlag,
+    OperandTag,
+}
+
+pub const fn relocation_requirement_v1(domain: OperandDomainV1) -> Option<RelocationRequirementV1> {
+    use OperandDomainV1 as Domain;
+    match domain {
+        Domain::Constant
+        | Domain::ClosureTemplateConstant
+        | Domain::MethodConstant
+        | Domain::ModuleConstant
+        | Domain::SelectorSpecification
+        | Domain::SymbolConstant => Some(RelocationRequirementV1::ConstantRecipe),
+        Domain::LinkedRead => Some(RelocationRequirementV1::LinkedModuleRead),
+        Domain::AnonymousProduct
+        | Domain::AssociatedTarget
+        | Domain::CallEnvironment
+        | Domain::Component
+        | Domain::ConditionalFamily
+        | Domain::DataConstruction
+        | Domain::DataDeclaration
+        | Domain::DataTarget
+        | Domain::EnumDeclaration
+        | Domain::FamilyCandidates
+        | Domain::FamilyDescriptor
+        | Domain::FamilyOperation
+        | Domain::TraitInvocation
+        | Domain::TraitRequirementInvocation
+        | Domain::TypeParameterReceiver
+        | Domain::VariantTarget => Some(RelocationRequirementV1::SemanticPoolEntry),
+        Domain::Access
+        | Domain::Arity
+        | Domain::Count
+        | Domain::FamilyKind
+        | Domain::Field
+        | Domain::Flag
+        | Domain::Local
+        | Domain::RelativeJump
+        | Domain::SendKind
+        | Domain::Upvalue => None,
+    }
+}
+
+pub const fn validator_requirement_v1(domain: OperandDomainV1) -> ValidatorRequirementV1 {
+    use OperandDomainV1 as Domain;
+    match domain {
+        Domain::Constant => ValidatorRequirementV1::ConstantReference,
+        Domain::SymbolConstant => ValidatorRequirementV1::TypedConstantReference,
+        Domain::ClosureTemplateConstant => ValidatorRequirementV1::ClosureTemplateReference,
+        Domain::MethodConstant => ValidatorRequirementV1::MethodReference,
+        Domain::ModuleConstant => ValidatorRequirementV1::ModuleReference,
+        Domain::LinkedRead => ValidatorRequirementV1::LinkedReadReference,
+        Domain::SelectorSpecification => ValidatorRequirementV1::SelectorSpecificationReference,
+        Domain::AnonymousProduct
+        | Domain::AssociatedTarget
+        | Domain::CallEnvironment
+        | Domain::ConditionalFamily
+        | Domain::DataConstruction
+        | Domain::DataDeclaration
+        | Domain::DataTarget
+        | Domain::EnumDeclaration
+        | Domain::FamilyCandidates
+        | Domain::FamilyDescriptor
+        | Domain::FamilyOperation
+        | Domain::TraitInvocation
+        | Domain::TraitRequirementInvocation
+        | Domain::TypeParameterReceiver
+        | Domain::VariantTarget => ValidatorRequirementV1::SemanticPoolReference,
+        Domain::Component => ValidatorRequirementV1::SemanticComponentReference,
+        Domain::Local => ValidatorRequirementV1::FrameSlot,
+        Domain::Upvalue => ValidatorRequirementV1::UpvalueSlot,
+        Domain::Field => ValidatorRequirementV1::FieldSlot,
+        Domain::Arity => ValidatorRequirementV1::ArityAndStackShape,
+        Domain::Count => ValidatorRequirementV1::CountAndStackShape,
+        Domain::RelativeJump => ValidatorRequirementV1::ControlFlowTarget,
+        Domain::Flag => ValidatorRequirementV1::CanonicalFlag,
+        Domain::Access | Domain::FamilyKind | Domain::SendKind => ValidatorRequirementV1::OperandTag,
+    }
+}
+
+/// Canonical byte encoding used for one fixed-width instruction operand.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OperandEncodingV1 {
+    U8,
+    U16Le,
+    U32Le,
+    I32Le,
+    BoolU8,
+    TagU8,
+}
+
+impl OperandEncodingV1 {
+    pub const fn width_bytes(self) -> u8 {
+        match self {
+            Self::U8 | Self::BoolU8 | Self::TagU8 => 1,
+            Self::U16Le => 2,
+            Self::U32Le | Self::I32Le => 4,
+        }
+    }
+}
+
+/// One operand's interpretation and wire width in the stable opcode manifest.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OperandManifestEntryV1 {
+    pub domain: OperandDomainV1,
+    pub encoding: OperandEncodingV1,
+    pub relocation: Option<RelocationRequirementV1>,
+    pub validation: ValidatorRequirementV1,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct OpcodeManifestRowV1 {
     pub tag: u16,
     pub name: &'static str,
-    pub operands: &'static [OperandDomainV1],
+    pub operands: &'static [OperandManifestEntryV1],
 }
 
 trait WireOperand: Sized + Copy {
+    const ENCODING: OperandEncodingV1;
     fn write(self, writer: &mut BinaryWriter);
     fn read(reader: &mut BinaryReader<'_>) -> Result<Self, CodecError>;
 }
 
 macro_rules! primitive_operand {
-    ($ty:ty, $write:ident, $read:ident) => {
+    ($ty:ty, $write:ident, $read:ident, $encoding:ident) => {
         impl WireOperand for $ty {
+            const ENCODING: OperandEncodingV1 = OperandEncodingV1::$encoding;
             fn write(self, writer: &mut BinaryWriter) {
                 writer.$write(self);
             }
@@ -68,11 +206,12 @@ macro_rules! primitive_operand {
         }
     };
 }
-primitive_operand!(u8, write_u8, read_u8);
-primitive_operand!(u16, write_u16, read_u16);
-primitive_operand!(u32, write_u32, read_u32);
-primitive_operand!(bool, write_bool, read_bool);
+primitive_operand!(u8, write_u8, read_u8, U8);
+primitive_operand!(u16, write_u16, read_u16, U16Le);
+primitive_operand!(u32, write_u32, read_u32, U32Le);
+primitive_operand!(bool, write_bool, read_bool, BoolU8);
 impl WireOperand for i32 {
+    const ENCODING: OperandEncodingV1 = OperandEncodingV1::I32Le;
     fn write(self, writer: &mut BinaryWriter) {
         writer.write_bytes(&self.to_le_bytes());
     }
@@ -86,6 +225,7 @@ macro_rules! tagged_operand {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         pub enum $name { $($variant),+ }
         impl WireOperand for $name {
+            const ENCODING: OperandEncodingV1 = OperandEncodingV1::TagU8;
             fn write(self, writer: &mut BinaryWriter) {
                 writer.write_u8(match self { $(Self::$variant => $tag),+ });
             }
@@ -102,6 +242,30 @@ tagged_operand!(PortableFamilyKindV1 { Exact = 0, Pattern = 1 });
 tagged_operand!(PortableSendKindV1 { Method = 0, SubscriptGet = 1, SubscriptSet = 2 });
 tagged_operand!(PortableAccessV1 { Ordinary = 0, CompilerInternal = 1 });
 
+#[cfg(test)]
+trait TestOperand: Copy {
+    const SAMPLE: Self;
+}
+
+#[cfg(test)]
+macro_rules! test_operand_samples {
+    ($($ty:ty => $sample:expr),+ $(,)?) => {
+        $(impl TestOperand for $ty { const SAMPLE: Self = $sample; })+
+    };
+}
+
+#[cfg(test)]
+test_operand_samples!(
+    u8 => 0,
+    u16 => 0,
+    u32 => 0,
+    i32 => -17,
+    bool => true,
+    PortableFamilyKindV1 => PortableFamilyKindV1::Pattern,
+    PortableSendKindV1 => PortableSendKindV1::SubscriptSet,
+    PortableAccessV1 => PortableAccessV1::CompilerInternal,
+);
+
 macro_rules! instructions {
     ($($tag:literal => $name:ident { $($field:ident: $ty:ty => $domain:ident),* $(,)? }),+ $(,)?) => {
         /// One decoded instruction. References are unvalidated until the full
@@ -110,11 +274,25 @@ macro_rules! instructions {
         pub enum PortableInstructionV1 { $($name { $($field: $ty),* }),+ }
 
         pub const OPCODE_MANIFEST_V1: &[OpcodeManifestRowV1] = &[
-            $(OpcodeManifestRowV1 { tag: $tag, name: stringify!($name), operands: &[$(OperandDomainV1::$domain),*] }),+
+            $(OpcodeManifestRowV1 {
+                tag: $tag,
+                name: stringify!($name),
+                operands: &[$(OperandManifestEntryV1 {
+                    domain: OperandDomainV1::$domain,
+                    encoding: <$ty as WireOperand>::ENCODING,
+                    relocation: relocation_requirement_v1(OperandDomainV1::$domain),
+                    validation: validator_requirement_v1(OperandDomainV1::$domain),
+                }),*],
+            }),+
         ];
 
         impl PortableInstructionV1 {
             pub fn opcode_tag(&self) -> u16 { match self { $(Self::$name { .. } => $tag),+ } }
+
+            #[cfg(test)]
+            fn test_variants() -> Vec<Self> {
+                vec![$(Self::$name { $($field: <$ty as TestOperand>::SAMPLE),* }),+]
+            }
 
             pub fn write_to(&self, writer: &mut BinaryWriter) {
                 writer.write_u16(self.opcode_tag());
@@ -127,6 +305,7 @@ macro_rules! instructions {
                     tag => Err(CodecError::InvalidTag { type_name: "PortableInstructionV1", tag: u32::from(tag) }),
                 }
             }
+
         }
     };
 }
@@ -260,4 +439,52 @@ instructions! {
     126 => FinishVectorLiteral { operand0: u32 => Count },
     127 => BeginVectorLiteral {  },
     128 => CopyVector {  },
+}
+
+const _: () = {
+    let mut left = 0;
+    while left < OPCODE_MANIFEST_V1.len() {
+        let mut right = left + 1;
+        while right < OPCODE_MANIFEST_V1.len() {
+            assert!(OPCODE_MANIFEST_V1[left].tag != OPCODE_MANIFEST_V1[right].tag);
+            right += 1;
+        }
+        left += 1;
+    }
+};
+
+#[cfg(test)]
+mod tests {
+    use super::{OPCODE_MANIFEST_V1, PortableInstructionV1, relocation_requirement_v1, validator_requirement_v1};
+    use crate::{BinaryReader, BinaryWriter};
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn every_portable_opcode_variant_round_trips_and_matches_the_manifest() {
+        let variants = PortableInstructionV1::test_variants();
+        assert_eq!(variants.len(), 128);
+        assert_eq!(OPCODE_MANIFEST_V1.len(), variants.len());
+
+        let mut seen_tags = BTreeSet::new();
+        for instruction in variants {
+            let tag = instruction.opcode_tag();
+            assert!(seen_tags.insert(tag), "duplicate sampled opcode tag {tag}");
+            let row = OPCODE_MANIFEST_V1
+                .iter()
+                .find(|row| row.tag == tag)
+                .unwrap_or_else(|| panic!("opcode {tag} is missing from the manifest"));
+            for operand in row.operands {
+                assert_eq!(operand.relocation, relocation_requirement_v1(operand.domain), "{} relocation", row.name);
+                assert_eq!(operand.validation, validator_requirement_v1(operand.domain), "{} validation", row.name);
+                assert_ne!(operand.encoding.width_bytes(), 0, "{} operand width", row.name);
+            }
+
+            let mut writer = BinaryWriter::new();
+            instruction.write_to(&mut writer);
+            let bytes = writer.into_vec();
+            let mut reader = BinaryReader::new(&bytes);
+            assert_eq!(PortableInstructionV1::read_from(&mut reader).unwrap(), instruction, "opcode {}", row.name);
+        }
+        assert_eq!(seen_tags.len(), OPCODE_MANIFEST_V1.len());
+    }
 }

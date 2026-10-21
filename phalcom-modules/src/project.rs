@@ -234,11 +234,7 @@ impl ProjectUniverse {
         if !project.persistent_project {
             return Err(PackageAuthorityRegistrationError::NonPersistentProject);
         }
-        if self
-            .package_authorities
-            .get(stable_project)
-            .is_some_and(|registered| registered != receipt)
-        {
+        if self.package_authorities.get(stable_project).is_some_and(|registered| registered != receipt) {
             return Err(PackageAuthorityRegistrationError::ConflictingBinding);
         }
         Ok(receipt.project_id())

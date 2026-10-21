@@ -1980,9 +1980,14 @@ impl<'a> MetadataExporter<'a> {
             }
             TypeNode::Union(members) => {
                 fp_b.write_u8(5);
-                fp_b.write_u32(members.len() as u32);
-                for m in members.iter() {
-                    fp_b.write_fingerprint(self.types[m.0 as usize].structural_fingerprint);
+                let mut member_fingerprints = members
+                    .iter()
+                    .map(|member| self.types[member.0 as usize].structural_fingerprint)
+                    .collect::<Vec<_>>();
+                member_fingerprints.sort_unstable();
+                fp_b.write_u32(member_fingerprints.len() as u32);
+                for fingerprint in member_fingerprints {
+                    fp_b.write_fingerprint(fingerprint);
                 }
             }
             TypeNode::Tuple(elements) => {
@@ -2896,5 +2901,109 @@ mod callable_owner_fingerprint_tests {
             })
             .collect();
         assert_eq!(fingerprints.iter().collect::<std::collections::HashSet<_>>().len(), fingerprints.len());
+    }
+}
+
+#[cfg(test)]
+mod union_fingerprint_tests {
+    use super::*;
+    use crate::metadata::import::SemanticMetadataImporter;
+    use crate::types::store::TupleTypeElement;
+    use crate::types::type_lambda::ScopedTypeData;
+    use phalcom_type_meta::scoped_type::ScopedTypeNode;
+    use phalcom_type_meta::type_node::TypeNode;
+
+    fn fingerprint(store: &TypeStore, ty: TypeId) -> Fingerprint128 {
+        MetadataExporter::new(store, None, None, None, MetadataProfile::RuntimePublic)
+            .type_fingerprint(ty)
+            .expect("export type fingerprint")
+    }
+
+    #[test]
+    fn global_union_fingerprint_ignores_store_local_type_id_order() {
+        let mut left = TypeStore::new();
+        let unit = left.unit();
+        let left_a = left.tuple(vec![TupleTypeElement::unlabeled(unit)].into_boxed_slice());
+        let left_b = left.tuple(vec![TupleTypeElement::unlabeled(unit), TupleTypeElement::unlabeled(unit)].into_boxed_slice());
+        let left_union = left.union(&[left_a, left_b]);
+        let left_tuple = left.tuple(vec![TupleTypeElement::unlabeled(left_a), TupleTypeElement::unlabeled(left_b)].into_boxed_slice());
+        let left_reversed_tuple = left.tuple(vec![TupleTypeElement::unlabeled(left_b), TupleTypeElement::unlabeled(left_a)].into_boxed_slice());
+
+        let mut right = TypeStore::new();
+        let unit = right.unit();
+        let right_b = right.tuple(vec![TupleTypeElement::unlabeled(unit), TupleTypeElement::unlabeled(unit)].into_boxed_slice());
+        let right_a = right.tuple(vec![TupleTypeElement::unlabeled(unit)].into_boxed_slice());
+        let right_union = right.union(&[right_a, right_b]);
+
+        assert!(left_a < left_b);
+        assert!(right_a > right_b);
+        assert_eq!(fingerprint(&left, left_union), fingerprint(&right, right_union));
+        assert_ne!(fingerprint(&left, left_tuple), fingerprint(&left, left_reversed_tuple));
+    }
+
+    #[test]
+    fn scoped_union_fingerprint_keeps_order_and_repeated_contributions() {
+        let mut store = TypeStore::new();
+        let a = store.const_int(1);
+        let b = store.const_int(2);
+        let scoped_a = store.arena_mut().intern_scoped(ScopedTypeData::Free(a));
+        let scoped_b = store.arena_mut().intern_scoped(ScopedTypeData::Free(b));
+        let first = store
+            .arena_mut()
+            .intern_scoped(ScopedTypeData::Union(vec![scoped_a, scoped_b, scoped_a].into_boxed_slice()));
+        let reordered = store
+            .arena_mut()
+            .intern_scoped(ScopedTypeData::Union(vec![scoped_b, scoped_a, scoped_a].into_boxed_slice()));
+
+        let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+        let first_id = exporter.export_scoped_type(first).expect("export scoped union");
+        let reordered_id = exporter.export_scoped_type(reordered).expect("export reordered scoped union");
+        let ScopedTypeNode::Union(first_members) = &exporter.scoped_types[first_id.0 as usize].form else {
+            panic!("expected scoped union node");
+        };
+        assert_eq!(first_members.len(), 3);
+        assert_eq!(first_members[0], first_members[2]);
+        assert_ne!(
+            exporter.scoped_types[first_id.0 as usize].structural_fingerprint,
+            exporter.scoped_types[reordered_id.0 as usize].structural_fingerprint
+        );
+    }
+
+    #[test]
+    fn reordered_global_union_metadata_imports_to_the_same_type_store_union() {
+        let mut source = TypeStore::new();
+        let unit = source.unit();
+        let a = source.tuple(vec![TupleTypeElement::unlabeled(unit)].into_boxed_slice());
+        let b = source.tuple(vec![TupleTypeElement::unlabeled(unit), TupleTypeElement::unlabeled(unit)].into_boxed_slice());
+        let union = source.union(&[a, b]);
+        let mut exporter = MetadataExporter::new(&source, None, None, None, MetadataProfile::RuntimePublic);
+        let union_node = exporter.export_type_form(union).expect("export global union");
+        let original_bundle = exporter.build_bundle(&[]).expect("build metadata bundle");
+        assert_eq!(original_bundle.header.schema_version, phalcom_type_meta::TYPE_METADATA_SCHEMA_VERSION);
+        let TypeNode::Union(members) = &original_bundle.types[union_node.0 as usize].form else {
+            panic!("expected global union node");
+        };
+        let mut reordered_members = members.to_vec();
+        reordered_members.reverse();
+        let mut types = original_bundle.types.to_vec();
+        types[union_node.0 as usize].form = TypeNode::Union(reordered_members.into_boxed_slice());
+        let mut reordered_bundle = original_bundle.clone();
+        reordered_bundle.types = types.into_boxed_slice();
+
+        phalcom_type_meta::validate::validate_metadata_bundle(&reordered_bundle, &phalcom_type_meta::validate::ValidationLimits::default())
+            .expect("reordered global union remains a valid metadata graph");
+
+        let projects = phalcom_modules::ProjectUniverse::new();
+        let mut values = crate::static_value::StaticValueStore::new();
+        let mut imported_types = TypeStore::new();
+        let original = SemanticMetadataImporter::new(&original_bundle, &mut values, &mut imported_types, &projects)
+            .resolve_type(union_node)
+            .expect("import original global union");
+        // The same store must intern the reordered artifact node to the
+        // existing canonical global union.
+        let imported_reordered = SemanticMetadataImporter::new(&reordered_bundle, &mut values, &mut imported_types, &projects)
+            .resolve_type(union_node)
+            .expect("import reordered global union");
+        assert_eq!(original, imported_reordered);
     }
 }

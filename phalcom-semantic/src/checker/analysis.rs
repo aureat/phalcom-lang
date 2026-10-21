@@ -744,9 +744,7 @@ pub struct CallableAnalysis {
     pub dependency_fingerprint: crate::db::ProductFingerprint,
     pub status: CallableAnalysisStatus,
     /// Joined use-phases for each imported source binding observed in this callable body.
-    pub observed_import_phases: Arc<
-        AnalysisMap<phalcom_modules::identity::SourceImportBindingId, phalcom_modules::graph::DependencyPhase>,
-    >,
+    pub observed_import_phases: Arc<AnalysisMap<phalcom_modules::identity::SourceImportBindingId, phalcom_modules::graph::DependencyPhase>>,
 }
 
 /// A frozen callable table's rows are grouped by module and ordered by

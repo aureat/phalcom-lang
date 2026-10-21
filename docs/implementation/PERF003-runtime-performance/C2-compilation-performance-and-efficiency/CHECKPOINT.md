@@ -2,28 +2,128 @@
 id: PERF003.C2
 program: PERF003
 kind: optimization
-status: COMPLETE
-completion: COMPLETE
+status: IN_PROGRESS
+completion: PARTIAL
 verification: FOCUSED_TESTED
 latest_completed_plan_verification: FOCUSED_TESTED
-active_plan: null
+active_plan: PERF003.C2.P8
 latest_completed_plan: PERF003.C2.P7.PATCH5-R
 next_plan: PERF003.C2.P8
 next_action: >
-  P7 independent certification is accepted: R.G6 and R.G7 PASS. P8 takeover is
-  unblocked; P8 implementation has not started. Use the certified P8 handoff
-  and detailed P8 plan for the next implementation work.
+  Architect to plan the remaining P8 closure from the current partial
+  implementation and the P8 architect-planning handoff. Keep runtime gates
+  outside the prior focused-test authorization until the plan/user authorizes
+  them.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: c1524361b9606dc537671997fe5069f2aa66035b
-latest_tested_revision: c1524361b9606dc537671997fe5069f2aa66035b
-latest_tested_predecessor: f2550f7193ae776f78e58d1ed187a3ae6c7efdd2
+execution_tree_head: 0fc8f4ee51fc91da26c6186f249bd70131899dd1
+latest_tested_revision: "0fc8f4ee51fc91da26c6186f249bd70131899dd1 + dirty worktree"
+latest_tested_predecessor: 0fc8f4ee51fc91da26c6186f249bd70131899dd1
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
 
+## P8 ESI execution status — 2026-10-21
+
+P8 is active on `feat/artifact-universe-consolidation`. The ESI implementation
+is `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. Capture and deterministic
+publication are implemented and focused-tested; the executable section remains
+staging data without executable authority, and source-free VM execution is not
+implemented or verified.
+
+- The executable image, compatibility header, semantic-pool recipes, module and
+  bootstrap records, and bounded whole-image codec are present on the branch.
+  The opcode manifest classifies wire tags, operand widths/domains,
+  relocations, and future validator obligations.
+- Core capture uses the existing source compiler and emitter in an isolated VM.
+  It captures module initializers before execution, semantic pools, detached
+  methods, class layouts, native anchors, and primordial roles. Prototype and
+  constant IDs are renumbered from stable owners and ordered graph edges.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --lib` — PASS.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-compiler-artifact --test executable_image_codec_test` — PASS, 9 tests.
+- The focused canonical capture integration test — PASS, 1 test. It captured
+  two fresh canonical builds, compared payload bytes, decoded the image, and
+  checked module/bootstrap disposition, native anchors, primordial roles, and
+  encode/decode byte preservation.
+- User-approved semantic identity decision: global `TypeNode::Union`
+  fingerprints hash the tag, cardinality, and sorted multiset of stable child
+  fingerprints; scoped-union order and repeated contributions remain intact.
+  `TypeStore::union` retains its TypeId order for store-local interning. The
+  metadata schema is v14; semantic model, container, semantic-artifact ABI,
+  stable-identity schema, query-fingerprint ABI, module ABI, and executable
+  schema remain unchanged. The importer continues to rebuild through
+  `TypeStore::union`.
+- Implemented the v14 fingerprint rule in the semantic metadata exporter and
+  widened metadata validation through schema 14. Added allocation-order,
+  tuple-order, scoped-order/repetition, and reordered-import regressions. The
+  focused semantic tests pass 3/3. The loader rejects a rehashed v13 Universe
+  header and accepts current-schema artifacts; the fresh-artifact
+  source-denied compiler regression passes.
+- The user-approved semantic-order/publication split remains in force:
+  ordinary global unions are unordered and may be sorted only at portable
+  publication by recursively stable member keys; scoped unions remain
+  unchanged; final type-recipe IDs and their references do not depend on
+  first-seen traversal. The executable type-recipe contract is recorded in
+  `docs/specs/compiler-artifacts/telosc.md`.
+- The prior cross-process mismatch was caused by runtime root resolution, not
+  by unstable semantic input or metadata fingerprints. In the two-process
+  discriminator, both source inputs and the `Interval` exact metadata root
+  fingerprint matched (`6eee82a7f40850c3dd262ed8161bc02f`). Its lowering recipe
+  carried a `Base(pool 0, node 2)` placeholder; during projection, runtime pool
+  0 resolved that coordinate to the unrelated
+  `CannotYieldAcrossNativeFrame` metadata root. The data-construction
+  projector now derives its canonical recipe from the exact construction's
+  attached metadata bundle root and checks that the recipe names that root.
+  Metadata schema v14 and semantic identity rules were not changed.
+- After root binding and deterministic portable publication were fixed, two
+  independent canonical capture processes each passed the single selected
+  structural round-trip test and produced identical 4,999,601-byte payloads:
+  `c2af943406376eae636979f1223ea58895db3265a2d43dcf48c5da759267efea`.
+  Top-level and semantic-family fingerprints matched, including type recipes
+  and kind recipes. Recipe tables are ordered by recursively stable portable
+  keys; only global `Union` members are sorted, with cardinality and repeated
+  contributions preserved. Tuple/applied ordering is covered by focused unit
+  regressions. Type and kind recipe references are rewritten to their
+  canonical publication IDs.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib artifact::semantic:: -- --nocapture`
+  — PASS, 4 tests. This includes the exact metadata-root binding regression
+  and three type/kind recipe-ordering regressions.
+- The older
+  [type-recipe determinism incident](P8/PERF003.C2.P8-ESI-type-recipe-determinism-consultation.md)
+  and
+  [canonical type-digest incident](P8/PERF003.C2.P8-ESI-canonical-type-digest-consultation.md)
+  remain as historical evidence and are explicitly superseded by the root
+  resolution discriminator recorded above.
+- The inspectable field-level persistence census is recorded in
+  [P8 executable persistence census](P8/PERF003.C2.P8-executable-persistence-census.md).
+- Canonical capture now returns `StagedExecutableSectionV1`. Container staging
+  writes section tag 7 with schema 1 while `PORTABLE_EXECUTABLE` stays clear;
+  the builder rejects staging when that capability is set. The focused
+  `write_universe_telosc_rejects_portable_executable_capability` test — PASS,
+  1 test.
+- The live tree has no private validated-executable owner, executable
+  validator, executable VM materializer, or
+  `VM::try_new_with_universe_artifact` entry point. Runtime bootstrap still
+  obtains the canonical Universe program and compiles Universe modules through
+  the source-backed path. The executable DTO/codec and capture do not cross
+  that runtime boundary.
+- Post-v14 gates: the 128-opcode manifest regression passes 1/1; all 9
+  executable image codec tests pass; the staging-capability rejection passes
+  1/1; `cargo fmt --all -- --check` and `git diff --check` pass.
+- Workspace and release gates were not run. No executable capability is
+  published, and no full executable validation or VM materialization is
+  claimed.
+
+ESI remains partial. The focused cross-process determinism discriminator now
+passes; source-free execution, failed-load retry, two-VM independence,
+executable validation, and the remaining P8 acceptance gates are not claimed.
+The current next-step request and implementation evidence are consolidated in
+[the P8 architect-planning handoff](P8/PERF003.C2.P8-architect-planning-handoff.md).
+The closed capture/publication slice is recorded in
+[the partial ESI walkthrough](P8/PERF003.C2.P8-ESI-publication-determinism-walkthrough.md).
+
 ## Independent certification reconciliation — 2026-10-19
 
-P7 remains `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Independent certification is **ACCEPTED / RECERTIFIED**: R.G6 and R.G7 both PASS. P8 takeover is unblocked; P8 implementation remains not started.
+P7 remains `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Independent certification is **ACCEPTED / RECERTIFIED**: R.G6 and R.G7 both PASS. P8 takeover was unblocked; its current ESI execution status is recorded above.
 
 - Measured implementation revision: `f2550f7193ae776f78e58d1ed187a3ae6c7efdd2`.
 - R.G7 test revision: `c1524361b9606dc537671997fe5069f2aa66035b`.
@@ -35,7 +135,10 @@ P7 remains `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Independent certification 
 - Runtime suite: 20/20 attempts have `RUNTIME_ERROR`; the harness output field is empty. No runtime speed or cause is claimed.
 - Peak RSS remains a high-water process metric. Leak and retained-memory claims are unverified.
 
-See [P8 takeover handoff](P8/PERF003.C2.P8-p7-certification-takeover-handoff.md). Earlier R.T1–R.T7 records remain historical execution evidence and are not replaced by this concise status.
+See the [current P8 architect-planning handoff](P8/PERF003.C2.P8-architect-planning-handoff.md).
+The [P7 certification takeover handoff](P8/PERF003.C2.P8-p7-certification-takeover-handoff.md)
+is historical. Earlier R.T1–R.T7 records remain historical execution evidence
+and are not replaced by this concise status.
 
 ## October 19 implementation closure record (historical; superseded for R.G6/R.G7)
 
@@ -1026,7 +1129,7 @@ After:
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
 | `PERF003.C2.P7` (normalized, historical) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical status before PATCH5-R closure; superseded by the October 19 `PERF003.C2.P7.PATCH5-R` final closure recorded above. |
 | `PERF003.C2.P7.PATCH5-R` | Corrective compiler-only Universe artifact closure | Loaded compiler artifact | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | R.G6/R.G7 independently recertified PASS; evidence and matrix are linked above. |
-| `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | PROPOSED | NOT_STARTED | UNVERIFIED | P7 takeover unblocked by the independent certification; implementation has not started. See the P8 handoff and detailed plan. |
+| `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Canonical capture, bounded image codec, root-bound semantic projection, and cross-process capture determinism are implemented/focused-tested. Executable validation, runtime materialization, and source-free VM acceptance remain open; see the current architect-planning handoff. |
 
 ## P7 flow-graph allocation ruling — 2026-10-15
 

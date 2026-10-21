@@ -358,11 +358,7 @@ impl ProofValidator<'_> {
         Ok(())
     }
     fn scope(&self, ordinal: u32) -> Result<(), ArtifactError> {
-        if self
-            .record
-            .local_proof_graph
-            .is_none_or(|graph| ordinal as usize >= graph.scopes.len())
-        {
+        if self.record.local_proof_graph.is_none_or(|graph| ordinal as usize >= graph.scopes.len()) {
             return Err(invalid("callable proof scope is absent"));
         }
         Ok(())
@@ -564,10 +560,7 @@ impl ProofValidator<'_> {
             } => {
                 if let Some(world) = self.world {
                     for owner in owner.iter().chain(owner_candidates) {
-                        if !world
-                            .structural
-                            .has_declaration(owner)
-                        {
+                        if !world.structural.has_declaration(owner) {
                             return Err(invalid("callable pattern declaration owner is absent"));
                         }
                     }

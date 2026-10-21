@@ -17,54 +17,54 @@ fn causal_trace_is_deterministic_parent_first_and_deduplicated() {
 
     let shared = arena
         .alloc_full(
-        ExplanationStep::Literal {
-            expression: expr,
-            ty: TypeId(1),
-        },
-        DerivationRule::LiteralSynthesis,
-        EvidenceStatus::Established,
-        EvidenceOrigin::Syntax,
-        vec![EvidenceRef::SourceSpan(RANGE), EvidenceRef::TypeId(TypeId(1))],
-        Vec::new(),
+            ExplanationStep::Literal {
+                expression: expr,
+                ty: TypeId(1),
+            },
+            DerivationRule::LiteralSynthesis,
+            EvidenceStatus::Established,
+            EvidenceOrigin::Syntax,
+            vec![EvidenceRef::SourceSpan(RANGE), EvidenceRef::TypeId(TypeId(1))],
+            Vec::new(),
         )
         .expect("source explanation arena");
     let left = arena
         .alloc(
-        ExplanationStep::Declared {
-            binding: Some(BindingId(1)),
-            range: RANGE,
-            ty: TypeId(1),
-        },
-        EvidenceStatus::Established,
-        EvidenceOrigin::DeveloperAnnotation,
-        vec![shared],
+            ExplanationStep::Declared {
+                binding: Some(BindingId(1)),
+                range: RANGE,
+                ty: TypeId(1),
+            },
+            EvidenceStatus::Established,
+            EvidenceOrigin::DeveloperAnnotation,
+            vec![shared],
         )
         .expect("source explanation arena");
     let right = arena
         .alloc(
-        ExplanationStep::TypeRequirement {
-            expected: TypeId(2),
-            origin: phalcom_semantic::checker::expected::ExpectationOrigin::ExplicitCheck,
-            source: None,
-        },
-        EvidenceStatus::Established,
-        EvidenceOrigin::DeveloperAnnotation,
-        vec![shared],
+            ExplanationStep::TypeRequirement {
+                expected: TypeId(2),
+                origin: phalcom_semantic::checker::expected::ExpectationOrigin::ExplicitCheck,
+                source: None,
+            },
+            EvidenceStatus::Established,
+            EvidenceOrigin::DeveloperAnnotation,
+            vec![shared],
         )
         .expect("source explanation arena");
     let root = arena
         .alloc(
-        ExplanationStep::TypeRelation {
-            actual: known(TypeId(1)),
-            expected: TypeId(2),
-            outcome: RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                actual: TypeId(1),
+            ExplanationStep::TypeRelation {
+                actual: known(TypeId(1)),
                 expected: TypeId(2),
-            }),
-        },
-        EvidenceStatus::Established,
-        EvidenceOrigin::Flow,
-        vec![left, right],
+                outcome: RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                    actual: TypeId(1),
+                    expected: TypeId(2),
+                }),
+            },
+            EvidenceStatus::Established,
+            EvidenceOrigin::Flow,
+            vec![left, right],
         )
         .expect("source explanation arena");
 
@@ -82,29 +82,29 @@ fn type_relation_preserves_refuted_and_blocked_outcomes() {
     let mut arena = ExplanationArena::new();
     let refuted = arena
         .alloc(
-        ExplanationStep::TypeRelation {
-            actual: known(TypeId(1)),
-            expected: TypeId(2),
-            outcome: RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                actual: TypeId(1),
+            ExplanationStep::TypeRelation {
+                actual: known(TypeId(1)),
                 expected: TypeId(2),
-            }),
-        },
-        EvidenceStatus::Established,
-        EvidenceOrigin::Flow,
-        Vec::new(),
+                outcome: RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                    actual: TypeId(1),
+                    expected: TypeId(2),
+                }),
+            },
+            EvidenceStatus::Established,
+            EvidenceOrigin::Flow,
+            Vec::new(),
         )
         .expect("source explanation arena");
     let blocked = arena
         .alloc(
-        ExplanationStep::TypeRelation {
-            actual: TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration),
-            expected: TypeId(2),
-            outcome: RelationOutcome::Blocked(BlockReason::UnknownType(UnknownReason::UnannotatedDeclaration)),
-        },
-        EvidenceStatus::Assumed,
-        EvidenceOrigin::Flow,
-        Vec::new(),
+            ExplanationStep::TypeRelation {
+                actual: TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration),
+                expected: TypeId(2),
+                outcome: RelationOutcome::Blocked(BlockReason::UnknownType(UnknownReason::UnannotatedDeclaration)),
+            },
+            EvidenceStatus::Assumed,
+            EvidenceOrigin::Flow,
+            Vec::new(),
         )
         .expect("source explanation arena");
 
@@ -129,15 +129,15 @@ fn flow_refinement_keeps_actual_predicate_kind() {
     let mut arena = ExplanationArena::new();
     let node = arena
         .alloc(
-        ExplanationStep::FlowRefinement {
-            binding: BindingId(1),
-            predicate: PredicateKind::Falsy,
-            prior: known(TypeId(1)),
-            refined: known(TypeId(2)),
-        },
-        EvidenceStatus::Established,
-        EvidenceOrigin::Flow,
-        Vec::new(),
+            ExplanationStep::FlowRefinement {
+                binding: BindingId(1),
+                predicate: PredicateKind::Falsy,
+                prior: known(TypeId(1)),
+                refined: known(TypeId(2)),
+            },
+            EvidenceStatus::Established,
+            EvidenceOrigin::Flow,
+            Vec::new(),
         )
         .expect("source explanation arena");
 
