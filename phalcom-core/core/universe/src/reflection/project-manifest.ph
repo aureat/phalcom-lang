@@ -7,7 +7,7 @@ native class ProjectManifest is Object {
   native name -> Symbol
   native namespace -> Symbol
   native version -> String
-  native authors -> Tuple<PackageAuthor>
+  native authors -> (*: PackageAuthor)
   native description -> String
   native license -> String
   native homepage -> Uri
@@ -15,7 +15,7 @@ native class ProjectManifest is Object {
   native source -> Uri
   native entry -> String
   native defaultEntry -> String
-  native dependencyDeclarations -> Tuple<PackageRequirement>
+  native dependencyDeclarations -> (*: PackageRequirement)
   native dependencies -> Tuple<PackageRequirement>
   native toString -> String
 }
