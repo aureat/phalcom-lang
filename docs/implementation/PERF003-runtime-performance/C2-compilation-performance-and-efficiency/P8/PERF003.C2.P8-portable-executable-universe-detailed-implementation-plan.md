@@ -52,11 +52,12 @@ P8.G1 is PASS: the loaded compiler interface is present and the focused P8
 compiler checks listed in the checkpoint pass. P8 is now active and remains
 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; the capture/codec/publication slice is
 not the executable validation, VM materialization, or source-free execution
-acceptance objective. This plan remains the implementation contract, but its
-remaining task sequencing and test authorization are for the architect to
-reconcile against the current tree using the linked P8 architect-planning
-handoff. Do not infer runtime-test authorization from the focused capture
-tests.
+acceptance objective. The owner-supplied closure handoff amends this plan in
+place; do not create P9. T1/T2 are complete at the structural-staging boundary,
+and T3 is the active partial implementation. The architect-planning handoff is
+historical and superseded by the T3 continuation handoff linked from the
+checkpoint. Do not infer runtime-test authorization from focused capture
+tests or a successful library check.
 
 Read the shared P7/P8 research, P7 execution companion, existing program P8 outline, `docs/specs/compiler-artifacts/telosc.md`, `universe.md`, `vm/bytecodes.md`, `vm/vm-execution-model.md`, and the heap/rooting owners reached by materialization. The old proposed unified program specification is not adopted wholesale.
 
@@ -236,10 +237,10 @@ ExecutableImageV1/ExecutableCompatibilityV1; portable module/callable/chunk/inst
   <reversibility rating="reversible">Private implementation can change within the owning boundary.</reversibility>
   <read_first>implementation-record lifecycle; CHECKPOINT.md; P7/P8 plans</read_first>
   <files>CHECKPOINT.md; P8/PERF003.C2.P8-{walkthrough,handoff}.md; telosc executable schema tables</files>
-  <action>Record implemented contracts and exact compiler results separately from behavioral acceptance. P8 cannot become COMPLETE or a fully compiled Universe artifact until the source-free execution, lazy import, determinism and two-VM gates pass with recorded evidence. Under current policy retain IN_PROGRESS/PARTIAL-or-IMPLEMENTED/UNVERIFIED as appropriate. Preserve P7 closure evidence as its own record; list residual typed projection failures rather than omit code. Hand P9 only the finalized explicit build/load/runtime APIs and format ABIs, with operational policy still deferred. Do not commit/push or certify release without instruction.</action>
-  <acceptance_criteria>P7/P8 status reflects actual completed gates, and the P9 takeover has no hidden source fallback or unexplained missing payload.</acceptance_criteria>
+  <action>Record implemented contracts and exact compiler results separately from behavioral acceptance. P8 cannot become COMPLETE or a fully compiled Universe artifact until the source-free execution, lazy import, determinism and two-VM gates pass with recorded evidence. Under current policy retain IN_PROGRESS/PARTIAL-or-IMPLEMENTED/UNVERIFIED as appropriate. Preserve P7 closure evidence as its own record; list residual typed projection failures rather than omit code. At P8 closure, record the stable explicit build/load/runtime APIs and format ABIs in the plan completion records. Do not create P9 or another sibling plan as part of this closure; defer any separate follow-on planning until explicitly requested. Do not commit/push or certify release without instruction.</action>
+  <acceptance_criteria>P7/P8 status reflects actual completed gates; the P8 records expose no hidden source fallback or unexplained missing payload; no successor plan was created.</acceptance_criteria>
   <verify>Prose-only closure record: no Cargo command.</verify>
-  <done>P7/P8 status reflects actual completed gates, and the P9 takeover has no hidden source fallback or unexplained missing payload. Behavioral evidence remains UNVERIFIED until deferred gates execute.</done>
+  <done>P7/P8 status reflects actual completed gates, no successor plan was created, and the P8 records expose no hidden source fallback or unexplained missing payload. Behavioral evidence remains UNVERIFIED until deferred gates execute.</done>
 </task>
 
 ## Acceptance gates and execution budget
@@ -251,20 +252,20 @@ the task's full acceptance criteria.
 
 | Task | Current state | Evidence or remaining work |
 |---|---|---|
-| P8.T1 | PARTIAL / FOCUSED_TESTED | Executable DTOs, compatibility header, explicit opcode manifest, bounded codec, and field census exist. Full executable validation limits and malformed-input rules remain P8.T3 work. |
-| P8.T2 | PARTIAL / FOCUSED_TESTED | Existing compiler/emitter capture produces canonical staged image data and has focused structural round-trip coverage. It is not validated executable code and does not prove source-free runtime consumption. |
-| P8.T3 | NOT IMPLEMENTED | No private validated-executable owner or core cross-section/opcode/control-flow validator exists. |
+| P8.T1 | IMPLEMENTED / FOCUSED_TESTED | The portable executable representation, opcode manifest, bounded structural codec, and field census are complete. Semantic execution safety remains T3 work. |
+| P8.T2 | IMPLEMENTED / FOCUSED_TESTED | The existing compiler/emitter produces complete deterministic portable staging data. Capture remains non-authoritative and does not prove runtime consumption. |
+| P8.T3 | PARTIAL / FOCUSED_TESTED | `phalcom-core/src/artifact/validate.rs` adds typed validation errors, a private `ValidatedExecutableImage` type, P7 validation context, compatibility/resource checks, module/bootstrap/native/primordial/class/prototype/closure/operand/semantic checks, and a generated operand visitor from the opcode declaration. `validate_executable_image` still returns `Result<(), _>` and does not construct authority. The reachable-flow classifier still defaults unclassified opcodes to fallthrough; exhaustive opcode/stack/control-flow/frame-safety rules and behavior tests remain open. The current core library check passes with expected `dead_code` warnings for the unintegrated validator; this is compilation evidence only. |
 | P8.T4 | NOT IMPLEMENTED | No executable-to-VM allocation/relocation path with rooting and failure atomicity exists. |
 | P8.T5 | NOT IMPLEMENTED | Artifact VM native/bootstrap setup still depends on the source-backed canonical Universe path. |
 | P8.T6 | NOT IMPLEMENTED | No VM entry point accepts one validated executable artifact and initializes it source-free. |
 | P8.T7 | NOT IMPLEMENTED | Later canonical imports do not have a persisted prototype registry with a demonstrated no-source path. |
 | P8.T8 | PARTIAL | The staged capture API exists; full compiler-plus-executable publication and explicit CLI/API use of one loaded artifact remain open. |
 | P8.T9 | PARTIAL | The persistence census and capture determinism tests exist. The source/artifact parity, denial, retry, and two-VM harnesses and evidence remain open. |
-| P8.T10 | OPEN | Current lifecycle state is recorded, but final closure and P9 takeover require the missing behavior and gate evidence. |
+| P8.T10 | OPEN | Final P8 closure requires the remaining behavior and gate evidence. P8 remains the active plan; no successor plan was created. |
 
-The current gate results below are authoritative for verification. The linked
-architect handoff asks for a sequenced closure plan and explicit treatment of
-the still-restricted runtime gates.
+The current gate results below are authoritative for verification. The T3
+continuation handoff records the next implementation slice and the still-
+restricted runtime gates.
 
 | Gate | Evidence | Current state |
 |---|---|---|
@@ -276,7 +277,14 @@ the still-restricted runtime gates.
 | P8.G6 | Fresh-process byte determinism, failed-load retry and separate startup timings | PARTIAL: byte determinism PASS in two independent capture processes (4,999,601 bytes; digest `c2af943406376eae636979f1223ea58895db3265a2d43dcf48c5da759267efea`); failed-load retry and startup timings NOT RUN |
 | P8.G7 | P7 source-free compiler gate plus P8 focused closure records; broader certification separately authorized | DEFERRED |
 
-The 2026-10-21 continuation authorizes only the focused semantic-projection unit tests and two-process canonical-capture discriminator recorded in `CHECKPOINT.md`. Failed-load retry, startup timing, source-free runtime probes, two-VM runtime checks, workspace suites, clippy, and benchmarks remain unauthorized. Use pinned `rust-toolchain.toml` and clear local `RUSTFLAGS`/`RUSTC_WRAPPER` for the named focused checks; do not run Cargo for planning-only edits.
+For the current implementation continuation, verification is limited to
+`RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --lib`; this check
+passes with warnings on the current worktree and establishes compilation only.
+Do not run validator tests, other Cargo tests, runtime probes, failed-load
+retry, startup timing, two-VM checks, workspace suites, Clippy, or benchmarks
+unless the user authorizes them. The earlier focused capture and
+semantic-projection results remain historical evidence recorded in the
+checkpoint.
 
 FIXED: existing emitter, no live heap persistence, stable symbolic ownership, fresh VM state, exact observable ordering, compiler/executable compatibility separation, validation before initializer execution and no explicit-path fallback. MECHANICALLY FLEXIBLE: private adapter names/files, equivalent API parameter packaging and bounded decoder decomposition. VERIFY-FIRST: emitted object census, build-time initialization prerequisites, all closure capture sites, native installation side effects and current rooting APIs.
 

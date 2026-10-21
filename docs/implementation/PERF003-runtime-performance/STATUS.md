@@ -60,13 +60,17 @@ indexed backend scans, gated by structural cardinality assertions in
 
 Current C2 execution: `PERF003.C2.P8`, portable executable Universe image.
 P7's compiler artifact is complete and independently certified. P8 is
-`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`: canonical executable capture,
-structural encoding and cross-process capture determinism are implemented and
-focused-tested. The executable section is still non-authoritative; executable
-validation, VM materialization, later imports and source-free VM execution are
-open. The next action is architect planning for a dependency-ordered closure
-plan. See the [P8 checkpoint](C2-compilation-performance-and-efficiency/CHECKPOINT.md)
-and [architect-planning handoff](C2-compilation-performance-and-efficiency/P8/PERF003.C2.P8-architect-planning-handoff.md).
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. T1/T2 are implemented and
+focused-tested at the structural-staging boundary. T3 now has a partial
+core-owned validator and a passing `cargo check -p phalcom-core --lib` with
+`dead_code` warnings for the unintegrated validator. It does not yet mint
+runtime authority, and its opcode/control-flow/frame proof is incomplete. The
+staged executable remains non-authoritative. VM materialization, later imports
+and source-free VM execution remain open. The next action is to complete
+fail-closed T3 validation before starting T4. See
+the [P8 checkpoint](C2-compilation-performance-and-efficiency/CHECKPOINT.md)
+and [T3 implementation handoff](C2-compilation-performance-and-efficiency/P8/PERF003.C2.P8-T3-implementation-continuation-handoff.md).
+The architect-planning handoff is historical and superseded.
 
 [CHECKPOINT.md](C2-compilation-performance-and-efficiency/CHECKPOINT.md) owns the
 normalized P1–P9 ledger, current evidence and next action. Historical P5/P7

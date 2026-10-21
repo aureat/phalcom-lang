@@ -44,6 +44,17 @@ pub enum OperandDomainV1 {
     VariantTarget,
 }
 
+/// Process-independent value exposed by the generated operand visitor so the
+/// core validator can apply each manifest domain without maintaining a second
+/// match over the opcode set.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PortableOperandValueV1 {
+    Unsigned(u32),
+    Signed(i32),
+    Boolean(bool),
+    Tag(u8),
+}
+
 /// Cross-table identity relocation implied by one opcode operand.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RelocationRequirementV1 {
@@ -191,10 +202,11 @@ trait WireOperand: Sized + Copy {
     const ENCODING: OperandEncodingV1;
     fn write(self, writer: &mut BinaryWriter);
     fn read(reader: &mut BinaryReader<'_>) -> Result<Self, CodecError>;
+    fn portable_value(self) -> PortableOperandValueV1;
 }
 
 macro_rules! primitive_operand {
-    ($ty:ty, $write:ident, $read:ident, $encoding:ident) => {
+    ($ty:ty, $write:ident, $read:ident, $encoding:ident, $value_variant:ident) => {
         impl WireOperand for $ty {
             const ENCODING: OperandEncodingV1 = OperandEncodingV1::$encoding;
             fn write(self, writer: &mut BinaryWriter) {
@@ -203,13 +215,16 @@ macro_rules! primitive_operand {
             fn read(reader: &mut BinaryReader<'_>) -> Result<Self, CodecError> {
                 reader.$read()
             }
+            fn portable_value(self) -> PortableOperandValueV1 {
+                PortableOperandValueV1::$value_variant(self as _)
+            }
         }
     };
 }
-primitive_operand!(u8, write_u8, read_u8, U8);
-primitive_operand!(u16, write_u16, read_u16, U16Le);
-primitive_operand!(u32, write_u32, read_u32, U32Le);
-primitive_operand!(bool, write_bool, read_bool, BoolU8);
+primitive_operand!(u8, write_u8, read_u8, U8, Unsigned);
+primitive_operand!(u16, write_u16, read_u16, U16Le, Unsigned);
+primitive_operand!(u32, write_u32, read_u32, U32Le, Unsigned);
+primitive_operand!(bool, write_bool, read_bool, BoolU8, Boolean);
 impl WireOperand for i32 {
     const ENCODING: OperandEncodingV1 = OperandEncodingV1::I32Le;
     fn write(self, writer: &mut BinaryWriter) {
@@ -217,6 +232,9 @@ impl WireOperand for i32 {
     }
     fn read(reader: &mut BinaryReader<'_>) -> Result<Self, CodecError> {
         Ok(Self::from_le_bytes(reader.read_fixed()?))
+    }
+    fn portable_value(self) -> PortableOperandValueV1 {
+        PortableOperandValueV1::Signed(self)
     }
 }
 
@@ -234,6 +252,9 @@ macro_rules! tagged_operand {
                     $($tag => Ok(Self::$variant),)+
                     tag => Err(CodecError::InvalidTag { type_name: stringify!($name), tag: u32::from(tag) }),
                 }
+            }
+            fn portable_value(self) -> PortableOperandValueV1 {
+                PortableOperandValueV1::Tag(match self { $(Self::$variant => $tag),+ })
             }
         }
     };
@@ -288,6 +309,24 @@ macro_rules! instructions {
 
         impl PortableInstructionV1 {
             pub fn opcode_tag(&self) -> u16 { match self { $(Self::$name { .. } => $tag),+ } }
+
+            /// Visits every operand together with the exact domain emitted into
+            /// `OPCODE_MANIFEST_V1`. Both views are generated from this single
+            /// opcode declaration, so the core validator cannot silently miss
+            /// an operand when a new instruction is added.
+            pub fn visit_operands(
+                &self,
+                mut visit: impl FnMut(OperandDomainV1, PortableOperandValueV1),
+            ) {
+                match *self {
+                    $(Self::$name { $($field),* } => {
+                        $(visit(
+                            OperandDomainV1::$domain,
+                            <$ty as WireOperand>::portable_value($field),
+                        );)*
+                    }),+
+                }
+            }
 
             #[cfg(test)]
             fn test_variants() -> Vec<Self> {

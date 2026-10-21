@@ -10,10 +10,13 @@ active_plan: PERF003.C2.P8
 latest_completed_plan: PERF003.C2.P7.PATCH5-R
 next_plan: PERF003.C2.P8
 next_action: >
-  Architect to plan the remaining P8 closure from the current partial
-  implementation and the P8 architect-planning handoff. Keep runtime gates
-  outside the prior focused-test authorization until the plan/user authorizes
-  them.
+  Continue PERF003.C2.P8.T3. Finish fail-closed executable compatibility,
+  reference, opcode, control-flow, and frame-safety validation, then mint the
+  private validated authority only after every required check passes. Do not
+  begin T4 materialization before that boundary is complete. This continuation
+  is authorized only to run
+  `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --lib`.
+  Behavioral and runtime gates remain unauthorized.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
 execution_tree_head: c36a788fcfdb44cad7449aa582f14c060233f5ae
 latest_tested_revision: c36a788fcfdb44cad7449aa582f14c060233f5ae
@@ -25,15 +28,17 @@ latest_tested_predecessor: 0fc8f4ee51fc91da26c6186f249bd70131899dd1
 ## P8 ESI execution status — 2026-10-21
 
 P8 is active on `feat/artifact-universe-consolidation`. The ESI implementation
-is `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. Capture and deterministic
-publication are implemented and focused-tested; the executable section remains
-staging data without executable authority, and source-free VM execution is not
-implemented or verified.
+is `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. T1 and T2 are implemented and
+focused-tested at the revised structural-staging boundary. T3 now has an
+initial core-owned validator and passed a library check, but it does not yet
+mint execution authority. The executable section remains staging data, and
+source-free VM execution is not implemented or verified.
 
 - The executable image, compatibility header, semantic-pool recipes, module and
   bootstrap records, and bounded whole-image codec are present on the branch.
   The opcode manifest classifies wire tags, operand widths/domains,
-  relocations, and future validator obligations.
+  relocations, and validator obligations. Core now consumes a generated
+  operand visitor derived from the same opcode declarations.
 - Core capture uses the existing source compiler and emitter in an isolated VM.
   It captures module initializers before execution, semantic pools, detached
   methods, class layouts, native anchors, and primordial roles. Prototype and
@@ -100,12 +105,22 @@ implemented or verified.
   the builder rejects staging when that capability is set. The focused
   `write_universe_telosc_rejects_portable_executable_capability` test — PASS,
   1 test.
-- The live tree has no private validated-executable owner, executable
-  validator, executable VM materializer, or
-  `VM::try_new_with_universe_artifact` entry point. Runtime bootstrap still
-  obtains the canonical Universe program and compiles Universe modules through
-  the source-backed path. The executable DTO/codec and capture do not cross
-  that runtime boundary.
+- The live tree has no executable authority crossing the VM boundary,
+  executable VM materializer, or
+  `VM::try_new_with_universe_artifact` entry point. The core declares a private
+  `ValidatedExecutableImage` wrapper, but `validate_executable_image` still
+  returns `Result<(), _>` and does not construct it. The current validator
+  checks structural limits, supported executable ABIs, the native ABI digest,
+  the Debug profile, P7 module/bootstrap relations, native/primordial/class
+  records, prototype/closure layouts, operand domains, and semantic-pool
+  references. Its control-flow classifier still has a default sequential-flow
+  case; stack effects, reachable frame safety, and valid exit/loop behavior
+  are not proven. Runtime bootstrap still obtains the canonical Universe
+  program and compiles Universe modules through the source-backed path.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --lib` — PASS with
+  warnings on the current implementation worktree. The unintegrated validator
+  emits `dead_code` warnings. This establishes compilation only; no validator
+  behavior test or runtime gate was run for this continuation.
 - Post-v14 gates: the 128-opcode manifest regression passes 1/1; all 9
   executable image codec tests pass; the staging-capability rejection passes
   1/1; `cargo fmt --all -- --check` and `git diff --check` pass.
@@ -114,10 +129,11 @@ implemented or verified.
   claimed.
 
 ESI remains partial. The focused cross-process determinism discriminator now
-passes; source-free execution, failed-load retry, two-VM independence,
-executable validation, and the remaining P8 acceptance gates are not claimed.
-The current next-step request and implementation evidence are consolidated in
-[the P8 architect-planning handoff](P8/PERF003.C2.P8-architect-planning-handoff.md).
+passes; source-free execution, failed-load retry, two-VM independence, and the
+remaining P8 acceptance gates are not claimed. P8 was amended in place; no P9
+was created. The current implementation state and next action are in the
+[P8.T3 continuation handoff](P8/PERF003.C2.P8-T3-implementation-continuation-handoff.md).
+The former architect-planning handoff is historical and superseded.
 The closed capture/publication slice is recorded in
 [the partial ESI walkthrough](P8/PERF003.C2.P8-ESI-publication-determinism-walkthrough.md).
 
@@ -135,7 +151,7 @@ P7 remains `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Independent certification 
 - Runtime suite: 20/20 attempts have `RUNTIME_ERROR`; the harness output field is empty. No runtime speed or cause is claimed.
 - Peak RSS remains a high-water process metric. Leak and retained-memory claims are unverified.
 
-See the [current P8 architect-planning handoff](P8/PERF003.C2.P8-architect-planning-handoff.md).
+See the [current P8.T3 implementation handoff](P8/PERF003.C2.P8-T3-implementation-continuation-handoff.md).
 The [P7 certification takeover handoff](P8/PERF003.C2.P8-p7-certification-takeover-handoff.md)
 is historical. Earlier R.T1–R.T7 records remain historical execution evidence
 and are not replaced by this concise status.
@@ -1129,7 +1145,7 @@ After:
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
 | `PERF003.C2.P7` (normalized, historical) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical status before PATCH5-R closure; superseded by the October 19 `PERF003.C2.P7.PATCH5-R` final closure recorded above. |
 | `PERF003.C2.P7.PATCH5-R` | Corrective compiler-only Universe artifact closure | Loaded compiler artifact | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | R.G6/R.G7 independently recertified PASS; evidence and matrix are linked above. |
-| `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Canonical capture, bounded image codec, root-bound semantic projection, and cross-process capture determinism are implemented/focused-tested. Executable validation, runtime materialization, and source-free VM acceptance remain open; see the current architect-planning handoff. |
+| `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T1/T2 are implemented/focused-tested at the structural staging boundary. T3 has a partial, compile-checked core validator but does not mint `ValidatedExecutableImage`; exhaustive control-flow/frame proof, runtime materialization, and source-free VM acceptance remain open. See the T3 continuation handoff. |
 
 ## P7 flow-graph allocation ruling — 2026-10-15
 

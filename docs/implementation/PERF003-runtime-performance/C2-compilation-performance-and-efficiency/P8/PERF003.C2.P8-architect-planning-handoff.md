@@ -1,14 +1,23 @@
 ---
 id: PERF003.C2.P8
 kind: architect-handoff
-status: PROPOSED
-completion: NOT_STARTED
+status: SUPERSEDED
+completion: IMPLEMENTED
 verification: UNVERIFIED
 date: 2026-10-21
 branch: feat/artifact-universe-consolidation
 ---
 
 # PERF003.C2.P8 architect-planning handoff
+
+## Disposition — 2026-10-21
+
+The owner-supplied closure amendment resolves the planning questions below:
+continue in P8, do not create P9, and treat T1/T2 as implemented at the
+structural-staging boundary. T3 is the active partial implementation. This
+document remains as historical context; the checkpoint and
+[T3 continuation handoff](PERF003.C2.P8-T3-implementation-continuation-handoff.md)
+now hold the current state and next action.
 
 ## Request
 
@@ -24,7 +33,7 @@ This is a planning handoff. It does not authorize runtime probes, benchmarks,
 workspace tests, or release certification. The current P8 plan explicitly
 defers those gates pending policy authorization.
 
-## Current state
+## State at handoff creation (historical snapshot)
 
 - Checkpoint: `PERF003.C2`, `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
 - Plan: `PERF003.C2.P8`, `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
@@ -168,7 +177,7 @@ fails. Do not repair them unless a P8 acceptance dependency requires it.
   and sharing within that VM; share no relocation or mutable runtime cache
   across VMs. Use existing rooting and failure-atomicity owners.
 
-## Architect decisions requested
+## Questions asked at handoff creation (resolved by the owner-supplied amendment)
 
 1. Decide whether to amend the current P8 plan or create a successor plan under
    the same `PERF003.C2` checkpoint. Keep the checkpoint objective and retain
