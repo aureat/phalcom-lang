@@ -4089,7 +4089,10 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn resolve_type_name(&self, name: &str) -> Option<DeclarationId> {
-        self.resolver.resolve_type_name(&self.current_module, name, &[])
+        self.resolver.resolve_type_name(&self.current_module, name, &[]).or_else(|| {
+            let current = self.current_class.as_ref()?;
+            (current.module == self.current_module && current.name.as_ref() == name && self.declarations.contains(current)).then(|| current.clone())
+        })
     }
 
     pub fn resolve_type_name_with_path(&self, root: &str, members: &[String]) -> Option<DeclarationId> {
