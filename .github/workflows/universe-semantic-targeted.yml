@@ -24,8 +24,23 @@ jobs:
       - name: Formatting
         run: cargo +nightly-2026-07-10 fmt --all -- --check
       - name: Option typing regressions
-        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic semantic::integration::option_typing:: -- --nocapture
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          test -p phalcom-semantic --test semantic
+          'semantic::integration::option_typing::'
+          -- --nocapture
       - name: Result callback regressions
-        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic semantic::integration::result_callbacks:: -- --nocapture
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          test -p phalcom-semantic --test semantic
+          'semantic::integration::result_callbacks::'
+          -- --nocapture
       - name: Universe diagnostic regressions
-        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic semantic::integration::universe_diagnostics:: -- --nocapture
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          test -p phalcom-semantic --test semantic
+          'semantic::integration::universe_diagnostics::'
+          -- --nocapture
