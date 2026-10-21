@@ -821,5 +821,21 @@ image V1 names and the old owner-key field. The fixture now targets the current
 legacy closure-validation DTO (`QueryImageV2`) and keeps the same allocation,
 cycle, duplicate, and invalid-index assertions. Its focused allocation test is
 running; the workspace no-run gate must be repeated after that passes.
-The repaired query-closure allocation discriminator passed 1/1; the workspace
-no-run gate is now being repeated.
+The repaired query-closure allocation discriminator passed 1/1. The required
+workspace `--no-run` retry reached `phalcom-core` and failed while compiling
+the existing auto-discovered `examples/perf_workloads.rs`: that example defines
+library-style workload functions but has no `main`. Its file history predates
+this closure slice and none of the active changes touch it, so it is classified
+as an unrelated workspace baseline blocker pending a clean-baseline comparison.
+The workspace compile gate did not pass; continue with the named P2 crate gates
+and retain this blocker in the final receipt.
+
+R4.T7 positive parity remains blocked on an architectural diagnosis. The
+ordinary source compiler and artifact compiler both compile the SlotMap inputs,
+but the parity comparator reports 12 differences, including 41 source-side
+Universe modules versus 8 artifact-side modules and mismatched runtime
+dependency and constructor-initialization products. The earlier
+`compile_entry_selection_with_image` source attempt also surfaced the
+source-built canonical Universe image's semantic diagnostics. No diagnostics
+were suppressed and no parity invariant was weakened. See
+`ARTF001.C1.P2.R4-T7-universe-parity-incident.md` for the consultation packet.
