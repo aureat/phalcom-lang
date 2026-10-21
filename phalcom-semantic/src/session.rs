@@ -117,11 +117,14 @@ fn build_canonical_universe_linked_program(provider: &phalcom_modules::UniverseS
         }
     }
 
-    Arc::new(
-        phalcom_modules::ModuleLinker::new(universe, interfaces)
-            .link_all(phalcom_modules::ModuleId::universe_root(), &resolved)
-            .unwrap_or_else(|error| panic!("failed to link canonical Universe semantic baseline: {error}")),
-    )
+    let semantic = phalcom_modules::ModuleLinker::new(universe, interfaces)
+        .link_semantic(phalcom_modules::ModuleId::universe_root(), &resolved)
+        .unwrap_or_else(|error| panic!("failed to symbolically link canonical Universe semantic baseline: {error}"));
+    // Canonical semantic bootstrap must not validate runtime initialization
+    // before body analysis has classified each import's phase. Preserve the
+    // legacy LinkedProgram view only as an unfinalized compatibility projection;
+    // executable consumers still finalize through phase evidence.
+    semantic.to_unfinalized_program()
 }
 
 fn canonical_linked_program_for_session(db: &SemanticDb, provider: &phalcom_modules::UniverseSourceProvider) -> Arc<LinkedProgram> {
