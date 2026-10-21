@@ -22,8 +22,6 @@ jobs:
           components: rustc-codegen-cranelift-preview
       - uses: Swatinem/rust-cache@v2
       - name: Canonical Universe parse/link
-        id: source
-        continue-on-error: true
         run: >-
           cargo +nightly-2026-07-10
           --config 'build.rustc-wrapper=""'
@@ -60,7 +58,6 @@ jobs:
       - name: Require all focused checks
         if: always()
         run: |
-          test "${{ steps.source.outcome }}" = "success"
           test "${{ steps.option.outcome }}" = "success"
           test "${{ steps.result.outcome }}" = "success"
           test "${{ steps.universe.outcome }}" = "success"
