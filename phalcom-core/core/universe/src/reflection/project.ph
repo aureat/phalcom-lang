@@ -1,10 +1,10 @@
 @!documentation("Project reflection and build boundary object.")
 
-from .project-manifest import ProjectManifest
-from .package-object import Package
+from .project_manifest import ProjectManifest
+from .package_object import Package
 from .module import Module
-from .project-identity import ProjectIdentity
-from .resolved-project-dependency import ResolvedProjectDependency
+from .project_identity import ProjectIdentity
+from .resolved_project_dependency import ResolvedProjectDependency
 
 native class Project is Object {
   native name -> Symbol

@@ -1,8 +1,8 @@
 @!documentation("Durable package artifact metadata.")
 
-from .package-author import PackageAuthor
-from .package-identity import PackageIdentity
-from .package-requirement import PackageRequirement
+from .package_author import PackageAuthor
+from .package_identity import PackageIdentity
+from .package_requirement import PackageRequirement
 from .uri import Uri
 
 native class PackageInfo is Object {

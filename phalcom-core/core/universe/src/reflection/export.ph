@@ -1,6 +1,6 @@
 @!documentation("Individual reflected module export descriptor.")
 
-from .export-kind import ExportKind
+from .export_kind import ExportKind
 from .module import Module
 
 native class Export is Object {

@@ -1,8 +1,8 @@
 @!documentation("Resolved dependency inside an active development project.")
 
-from .package-requirement import PackageRequirement
-from .package-info import PackageInfo
-from .package-object import Package
+from .package_requirement import PackageRequirement
+from .package_info import PackageInfo
+from .package_object import Package
 from .uri import Uri
 
 native class ResolvedProjectDependency is Object {

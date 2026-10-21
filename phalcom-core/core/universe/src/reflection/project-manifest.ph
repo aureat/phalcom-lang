@@ -1,7 +1,7 @@
 @!documentation("Validated development project manifest representation.")
 
-from .package-author import PackageAuthor
-from .package-requirement import PackageRequirement
+from .package_author import PackageAuthor
+from .package_requirement import PackageRequirement
 from .uri import Uri
 
 native class ProjectManifest is Object {

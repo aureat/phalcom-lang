@@ -1,7 +1,7 @@
 @!documentation("Package reflection and exposure namespace object.")
 from .module import Module
-from .package-info import PackageInfo
-from .child-module-table import ChildModuleTable
+from .package_info import PackageInfo
+from .child_module_table import ChildModuleTable
 
 native primitive class Package is Module {
   native package -> Package
