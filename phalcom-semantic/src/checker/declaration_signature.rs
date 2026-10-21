@@ -950,7 +950,8 @@ fn resolve_callable_local_generics(
     range: SourceRange,
     callable_kind: &str,
 ) -> Option<crate::types::parameter::GenericSignature> {
-    if generic_parameters.is_empty() {
+    let has_where_constraints = where_clause.is_some_and(|clause| !clause.constraints.is_empty());
+    if generic_parameters.is_empty() && !has_where_constraints {
         return None;
     }
 
