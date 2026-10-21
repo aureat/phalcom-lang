@@ -1848,16 +1848,23 @@ fn apply_generic_callable_in_context(
         if let (Some(return_term), Some(expected_ty)) = (return_term.as_ref(), expected.ty())
             && (is_variant_constructor || target.data_constructor_shape.is_some() || expected_type_contains_callable_payload(ctx.store, expected_ty))
         {
-            let expected_term = InferenceTerm::Canonical(expected_ty);
-            let term_to_constrain = session_handle.borrow().term_for_expected(return_term);
-            session_handle.borrow_mut().add_constraint(
-                InferenceRelation::Subtype(term_to_constrain, expected_term),
-                ConstraintOrigin::ExpectedResult { expression: call_id },
-                None,
-            );
-            let _ = ctx
-                .inference_session(context)
-                .map(|session| ctx.solve_inference_in_frame(&mut session.borrow_mut(), frame));
+            let lexically_equivalent = session_handle
+                .borrow()
+                .materialize(return_term, ctx.store)
+                .ok()
+                .is_some_and(|return_ty| ctx.generic_evidence.are_types_equivalent(ctx.store, return_ty, expected_ty).is_proven());
+            if !lexically_equivalent {
+                let expected_term = InferenceTerm::Canonical(expected_ty);
+                let term_to_constrain = session_handle.borrow().term_for_expected(return_term);
+                session_handle.borrow_mut().add_constraint(
+                    InferenceRelation::Subtype(term_to_constrain, expected_term),
+                    ConstraintOrigin::ExpectedResult { expression: call_id },
+                    None,
+                );
+                let _ = ctx
+                    .inference_session(context)
+                    .map(|session| ctx.solve_inference_in_frame(&mut session.borrow_mut(), frame));
+            }
             true
         } else {
             false

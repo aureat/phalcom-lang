@@ -2201,6 +2201,12 @@ impl<'a> CheckingContext<'a> {
         self.internal_failure_policy = policy;
     }
 
+    fn lexical_types_equivalent(&self, actual: TypeId, expected: TypeId) -> bool {
+        self.generic_evidence
+            .are_types_equivalent(self.store, actual, expected)
+            .is_proven()
+    }
+
     pub fn apply_assignability(
         &mut self,
         actual: &TypeKnowledge,
@@ -2209,9 +2215,12 @@ impl<'a> CheckingContext<'a> {
         message: impl Into<String>,
         range: SourceRange,
     ) -> RelationApplication {
-        let outcome = self
-            .control
-            .relation(|budget, cancellation| check_assignability_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation));
+        let outcome = match (actual.ty(), expected.ty()) {
+            (Some(actual_ty), Some(expected_ty)) if self.lexical_types_equivalent(actual_ty, expected_ty) => RelationOutcome::proven(()),
+            _ => self
+                .control
+                .relation(|budget, cancellation| check_assignability_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation)),
+        };
         let explanation = expected.ty().map(|expected_ty| self.record_type_relation(actual, expected_ty, &outcome, range));
         self.apply_relation_outcome(outcome, code, message, range, None, explanation)
     }
@@ -2224,9 +2233,12 @@ impl<'a> CheckingContext<'a> {
         message: impl Into<String>,
         range: SourceRange,
     ) -> RelationApplication {
-        let outcome = self
-            .control
-            .relation(|budget, cancellation| check_knowledge_against_type_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation));
+        let outcome = if actual.ty().is_some_and(|actual_ty| self.lexical_types_equivalent(actual_ty, expected)) {
+            RelationOutcome::proven(())
+        } else {
+            self.control
+                .relation(|budget, cancellation| check_knowledge_against_type_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation))
+        };
         let explanation = Some(self.record_type_relation(actual, expected, &outcome, range));
         self.apply_relation_outcome(outcome, code, message, range, None, explanation)
     }
@@ -2234,8 +2246,12 @@ impl<'a> CheckingContext<'a> {
     /// Evaluates one contract relation while sharing this body's budget and
     /// cancellation state. The caller owns diagnostic policy and reconciliation.
     pub fn check_knowledge_against_type(&mut self, actual: &TypeKnowledge, expected: TypeId) -> RelationOutcome {
-        self.control
-            .relation(|budget, cancellation| check_knowledge_against_type_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation))
+        if actual.ty().is_some_and(|actual_ty| self.lexical_types_equivalent(actual_ty, expected)) {
+            RelationOutcome::proven(())
+        } else {
+            self.control
+                .relation(|budget, cancellation| check_knowledge_against_type_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation))
+        }
     }
 
     pub fn apply_knowledge_against_type_owned(
@@ -2247,9 +2263,12 @@ impl<'a> CheckingContext<'a> {
         range: SourceRange,
         owner: ExpressionId,
     ) -> RelationApplication {
-        let outcome = self
-            .control
-            .relation(|budget, cancellation| check_knowledge_against_type_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation));
+        let outcome = if actual.ty().is_some_and(|actual_ty| self.lexical_types_equivalent(actual_ty, expected)) {
+            RelationOutcome::proven(())
+        } else {
+            self.control
+                .relation(|budget, cancellation| check_knowledge_against_type_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation))
+        };
         let explanation = Some(self.record_type_relation(actual, expected, &outcome, range));
         let application = self.apply_relation_outcome(outcome, code, message, range, Some(owner), explanation);
         if let Some(cause) = application.cause {

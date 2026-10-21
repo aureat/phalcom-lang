@@ -454,6 +454,67 @@ impl GenericEvidenceEnvironment {
         GenericEquivalenceProof::NotProven
     }
 
+    /// Proves conservative structural congruence under lexical generic equality.
+    ///
+    /// This does not choose a representative for parameter-only equivalence
+    /// classes. It only lifts already-proven equality through the same canonical
+    /// type constructor, which is sufficient for source facts such as
+    /// `A == B` to establish `F<A> == F<B>`.
+    pub fn are_types_equivalent(&self, store: &TypeStore, left: TypeId, right: TypeId) -> GenericEquivalenceProof {
+        if left == right || self.are_equivalent(&TypeTerm::Canonical(left), &TypeTerm::Canonical(right)).is_proven() {
+            return GenericEquivalenceProof::Proven;
+        }
+
+        match (store.get(left), store.get(right)) {
+            (
+                crate::types::store::TypeData::Applied {
+                    origin: left_origin,
+                    arguments: left_arguments,
+                },
+                crate::types::store::TypeData::Applied {
+                    origin: right_origin,
+                    arguments: right_arguments,
+                },
+            ) if left_arguments.len() == right_arguments.len()
+                && self.are_types_equivalent(store, *left_origin, *right_origin).is_proven() =>
+            {
+                let arguments_equivalent = left_arguments.iter().zip(right_arguments.iter()).all(|(left, right)| match (left, right) {
+                    (
+                        crate::types::store::StaticArgument::Term(left),
+                        crate::types::store::StaticArgument::Term(right),
+                    ) => self.are_types_equivalent(store, *left, *right).is_proven(),
+                    (
+                        crate::types::store::StaticArgument::RecordRow(left),
+                        crate::types::store::StaticArgument::RecordRow(right),
+                    ) => left == right,
+                    (
+                        crate::types::store::StaticArgument::DynamicType,
+                        crate::types::store::StaticArgument::DynamicType,
+                    ) => true,
+                    _ => false,
+                });
+                if arguments_equivalent {
+                    GenericEquivalenceProof::Proven
+                } else {
+                    GenericEquivalenceProof::NotProven
+                }
+            }
+            (
+                crate::types::store::TypeData::ExactCase {
+                    variant: left_variant,
+                    enum_type: left_enum,
+                },
+                crate::types::store::TypeData::ExactCase {
+                    variant: right_variant,
+                    enum_type: right_enum,
+                },
+            ) if left_variant == right_variant && self.are_types_equivalent(store, *left_enum, *right_enum).is_proven() => {
+                GenericEquivalenceProof::Proven
+            }
+            _ => GenericEquivalenceProof::NotProven,
+        }
+    }
+
     /// Returns all terms provably equivalent to `start` in the lexical environment.
     pub fn equivalent_terms(&self, start: &TypeTerm) -> BTreeSet<TypeTerm> {
         self.equivalences.get(start).cloned().unwrap_or_default()
@@ -1416,6 +1477,23 @@ mod refinement_tests {
         let cancel = CancellationToken::new();
         let mut context = ProjectionNormalizationContext::new(ProjectionNormalizationMode::AbstractTrait { trait_ref: &trait_ref }, &mut budget, &cancel);
         environment.refine_type(store, ty, &mut context)
+    }
+
+    #[test]
+    fn lexical_equality_is_congruent_through_applied_type_arguments() {
+        let mut store = TypeStore::new();
+        let a = parameter(&mut store, "Owner", 0);
+        let b = parameter(&mut store, "Owner", 1);
+        let constructor_kind = store.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
+        let constructor = store.nominal_form(declaration("Container"), constructor_kind);
+        let left = store.apply_type_form(constructor, &[a]).expect("Container<A>");
+        let right = store.apply_type_form(constructor, &[b]).expect("Container<B>");
+        let environment = environment(&[(a, b)]);
+
+        assert_eq!(
+            environment.are_types_equivalent(&store, left, right),
+            GenericEquivalenceProof::Proven
+        );
     }
 
     #[test]
