@@ -8,12 +8,12 @@ native class PackageInfo is Object {
   native name -> Symbol
   native namespace -> Symbol
   native version -> String
-  native authors -> Tuple<PackageAuthor>
+  native authors -> (*: PackageAuthor)
   native description -> String
   native license -> String
   native homepage -> Uri
   native repository -> Uri
-  native requirements -> Tuple<PackageRequirement>
+  native requirements -> (*: PackageRequirement)
   native defaultEntry -> String
   native identity -> PackageIdentity
   native toString -> String
