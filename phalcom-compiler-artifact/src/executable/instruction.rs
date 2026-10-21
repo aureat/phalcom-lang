@@ -44,6 +44,19 @@ pub enum OperandDomainV1 {
     VariantTarget,
 }
 
+/// Normal control-flow effect of a portable opcode. Every opcode must declare
+/// one class in the instruction table; adding a new opcode cannot implicitly
+/// make it an ordinary fallthrough instruction.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ControlFlowKindV1 {
+    Fallthrough,
+    UnconditionalBranch,
+    ConditionalBranch,
+    FunctionExit,
+    NonLocalExit,
+    ExceptionalTermination,
+}
+
 /// Process-independent value exposed by the generated operand visitor so the
 /// core validator can apply each manifest domain without maintaining a second
 /// match over the opcode set.
@@ -196,6 +209,7 @@ pub struct OpcodeManifestRowV1 {
     pub tag: u16,
     pub name: &'static str,
     pub operands: &'static [OperandManifestEntryV1],
+    pub control_flow: ControlFlowKindV1,
 }
 
 trait WireOperand: Sized + Copy {
@@ -288,7 +302,7 @@ test_operand_samples!(
 );
 
 macro_rules! instructions {
-    ($($tag:literal => $name:ident { $($field:ident: $ty:ty => $domain:ident),* $(,)? }),+ $(,)?) => {
+    ($($tag:literal => $name:ident => $control_flow:ident { $($field:ident: $ty:ty => $domain:ident),* $(,)? }),+ $(,)?) => {
         /// One decoded instruction. References are unvalidated until the full
         /// executable image has passed its cross-table and control-flow checks.
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -304,11 +318,16 @@ macro_rules! instructions {
                     relocation: relocation_requirement_v1(OperandDomainV1::$domain),
                     validation: validator_requirement_v1(OperandDomainV1::$domain),
                 }),*],
+                control_flow: ControlFlowKindV1::$control_flow,
             }),+
         ];
 
         impl PortableInstructionV1 {
             pub fn opcode_tag(&self) -> u16 { match self { $(Self::$name { .. } => $tag),+ } }
+
+            pub const fn control_flow_kind(&self) -> ControlFlowKindV1 {
+                match self { $(Self::$name { .. } => ControlFlowKindV1::$control_flow),+ }
+            }
 
             /// Visits every operand together with the exact domain emitted into
             /// `OPCODE_MANIFEST_V1`. Both views are generated from this single
@@ -350,134 +369,134 @@ macro_rules! instructions {
 }
 
 instructions! {
-    1 => Constant { operand0: u16 => Constant },
-    2 => Nil {  },
-    3 => True {  },
-    4 => False {  },
-    5 => Pop {  },
-    6 => GetLocal { operand0: u16 => Local },
-    7 => SetLocal { operand0: u16 => Local },
-    8 => DefineGlobal { operand0: u16 => SymbolConstant },
-    9 => GetGlobal { operand0: u16 => SymbolConstant },
-    10 => SetGlobal { operand0: u16 => SymbolConstant },
-    11 => GetField { operand0: u16 => Field },
-    12 => SetField { operand0: u16 => Field },
-    13 => GetSelf {  },
-    14 => Invoke { operand0: u8 => Arity, operand1: u16 => SymbolConstant },
-    15 => SuperSend { operand0: u8 => Arity, operand1: u16 => SymbolConstant },
-    16 => Class { operand0: u16 => SymbolConstant },
-    17 => Method { operand0: u16 => SymbolConstant, operand1: bool => Flag },
-    18 => Return {  },
-    19 => ReturnNonLocal {  },
-    20 => Closure { operand0: u16 => ClosureTemplateConstant },
-    21 => GetUpvalue { operand0: u16 => Upvalue },
-    22 => SetUpvalue { operand0: u16 => Upvalue },
-    23 => CloseUpvalue { operand0: u16 => Local },
-    24 => Jump { operand0: i32 => RelativeJump },
-    25 => JumpIfFalse { operand0: i32 => RelativeJump },
-    26 => JumpIfNone { operand0: i32 => RelativeJump },
-    27 => Loop { operand0: i32 => RelativeJump },
-    28 => GuardBool { operand0: i32 => RelativeJump },
-    29 => GuardBlock { operand0: i32 => RelativeJump },
-    30 => NewInstance {  },
-    31 => Dup {  },
-    32 => WrapSome {  },
-    33 => GetLinked { operand0: u16 => LinkedRead },
-    34 => MakeFamily { spec: u16 => SelectorSpecification, kind: PortableFamilyKindV1 => FamilyKind },
-    35 => FinalizeClass {  },
-    36 => InvokeLocal { operand0: u16 => Local, operand1: u8 => Arity, operand2: u16 => SymbolConstant },
-    37 => InvokeConst { operand0: u16 => Constant, operand1: u8 => Arity, operand2: u16 => SymbolConstant },
-    38 => GuardSymbol {  },
-    39 => BuildTuple { positional: u16 => Count, labeled: u16 => Count },
-    40 => BuildRecord { fields: u16 => Count },
-    41 => BeginMapLiteral {  },
-    42 => MapLiteralInsertUnique {  },
-    43 => FinishMapLiteral {  },
-    44 => BeginSetLiteral {  },
-    45 => SetLiteralAdd {  },
-    46 => FinishSetLiteral {  },
-    47 => BuildRange { has_lower: bool => Flag, has_upper: bool => Flag, upper_inclusive: bool => Flag },
-    48 => InvokeCompilerInternal { operand0: u8 => Arity, operand1: u16 => SymbolConstant },
-    49 => BuildList { operand0: u16 => Count },
-    50 => NewArgumentPack {  },
-    51 => PackPushPositional {  },
-    52 => PackReserveStaticLabel { operand0: u16 => SymbolConstant },
-    53 => PackReserveComputedLabel {  },
-    54 => PackFillReservedLabel {  },
-    55 => PackExpandLabels {  },
-    56 => PackExpandComplete {  },
-    57 => PackTryExpandTuplePositionals {  },
-    58 => InvokePack { base_name: u16 => SymbolConstant, kind: PortableSendKindV1 => SendKind, access: PortableAccessV1 => Access },
-    59 => SuperSendPack { base_name: u16 => SymbolConstant },
-    60 => FinishTuplePack {  },
-    61 => ReserveScratchLocal { operand0: u16 => Local },
-    62 => ReleaseScratchLocal { operand0: u16 => Local },
-    63 => BeginListLiteral {  },
-    64 => ListLiteralAppend {  },
-    65 => FinishListLiteral {  },
-    66 => ListTryExpandTuplePositionals {  },
-    67 => NewRecordLiteralBuilder {  },
-    68 => RecordLiteralAppend {  },
-    69 => RecordLiteralExpandLabels {  },
-    70 => FinishRecordLiteral {  },
-    71 => MapLiteralExpandLabels {  },
-    72 => GetEllipsis {  },
-    73 => BilateralPreferReflected { operand0: u16 => SymbolConstant },
-    74 => TryInvokeExact { arity: u8 => Arity, selector: u16 => SymbolConstant, missing_offset: i32 => RelativeJump },
-    75 => JumpIfUnsupported { operand0: i32 => RelativeJump },
-    76 => ValidateOrdering { reverse: bool => Flag },
-    77 => Same {  },
-    78 => RaiseUnsupported { operator: u16 => SymbolConstant, direct: u16 => SymbolConstant, reflected: u16 => SymbolConstant },
-    79 => RaiseNonIterableStarOperand {  },
-    80 => Enum { operand0: u16 => EnumDeclaration },
-    81 => VariantMethod { variant: u16 => VariantTarget, selector: u16 => SymbolConstant },
-    82 => FinalizeEnum { operand0: u16 => EnumDeclaration },
-    83 => LoadVariantSingleton { operand0: u16 => VariantTarget },
-    84 => ConstructVariant { variant: u16 => VariantTarget, arity: u8 => Arity },
-    85 => MakeResolvedBoundMethod { operand0: u16 => AssociatedTarget },
-    86 => InvokeResolvedAssociated { target: u16 => AssociatedTarget, arity: u8 => Arity },
-    87 => MakeAssociatedFamily { operand0: u16 => FamilyDescriptor },
-    88 => InvokeAssociatedFamilyStatic { operation: u16 => FamilyOperation, arity: u8 => Arity },
-    89 => InvokeAssociatedFamilyPack { candidates: u16 => FamilyCandidates },
-    90 => IsVariant { operand0: u16 => VariantTarget },
-    91 => GetVariantPayload { operand0: u16 => Component },
-    92 => MatchInvariantFailure {  },
-    93 => InvokeSubscriptSetPack { base_name: u16 => SymbolConstant, access: PortableAccessV1 => Access },
-    94 => Data { operand0: u16 => DataDeclaration },
-    95 => FinalizeData { operand0: u16 => DataDeclaration },
-    96 => LoadDataSingleton { operand0: u16 => DataConstruction },
-    97 => ConstructData { constructor: u16 => DataConstruction, arity: u8 => Arity },
-    98 => GetDataComponent { operand0: u16 => Component },
-    99 => BuildStaticTuple { spec: u16 => AnonymousProduct },
-    100 => BuildStaticRecord { spec: u16 => AnonymousProduct },
-    101 => InvokeConditional { arity: u8 => Arity, selector: u16 => SymbolConstant, declaring_module: u16 => ModuleConstant, declaring_name: u16 => SymbolConstant, class_side: bool => Flag, fallback_method: u16 => MethodConstant, call_environment_recipe: u16 => CallEnvironment },
-    102 => MakeConditionalFamily { spec: u16 => SelectorSpecification, kind: PortableFamilyKindV1 => FamilyKind, conditional: u16 => ConditionalFamily },
-    103 => InvokeSpecialized { operand0: u8 => Arity, operand1: u16 => SymbolConstant, operand2: u16 => CallEnvironment },
-    104 => InvokeTraitSelected { selection: u16 => TraitInvocation, arity: u8 => Arity },
-    105 => InvokeTraitRequirement { slot: u16 => TraitRequirementInvocation, arity: u8 => Arity },
-    106 => MakeTraitBoundMethod { operand0: u16 => TraitInvocation },
-    107 => GetDataProductSlot { operand0: u16 => Component },
-    108 => UninitializedBinding {  },
-    109 => GetLocalChecked { operand0: u16 => Local, operand1: u16 => SymbolConstant },
-    110 => GetUpvalueChecked { operand0: u16 => Upvalue, operand1: u16 => SymbolConstant },
-    111 => GetGlobalChecked { operand0: u16 => SymbolConstant },
-    112 => GetFieldChecked { operand0: u16 => Field, operand1: u16 => SymbolConstant },
-    113 => FinishPack {  },
-    114 => BuildStaticPack { spec: u16 => AnonymousProduct },
-    115 => BuildPack { positional: u16 => Count, labeled: u16 => Count },
-    116 => GuardFieldKey {  },
-    117 => RecordLiteralCheckKey {  },
-    118 => LoadTypeParameterClass { operand0: u16 => TypeParameterReceiver },
-    119 => BuildArray { operand0: u16 => Count },
-    120 => BeginArrayLiteral {  },
-    121 => ArrayLiteralAppend {  },
-    122 => FinishArrayLiteral {  },
-    123 => ArrayTryExpandTuplePositionals {  },
-    124 => BuildVector { operand0: u16 => Count },
-    125 => VectorExpandExactPositionals { vector: bool => Flag, expected: u32 => Count },
-    126 => FinishVectorLiteral { operand0: u32 => Count },
-    127 => BeginVectorLiteral {  },
-    128 => CopyVector {  },
+    1 => Constant => Fallthrough { operand0: u16 => Constant },
+    2 => Nil => Fallthrough {  },
+    3 => True => Fallthrough {  },
+    4 => False => Fallthrough {  },
+    5 => Pop => Fallthrough {  },
+    6 => GetLocal => Fallthrough { operand0: u16 => Local },
+    7 => SetLocal => Fallthrough { operand0: u16 => Local },
+    8 => DefineGlobal => Fallthrough { operand0: u16 => SymbolConstant },
+    9 => GetGlobal => Fallthrough { operand0: u16 => SymbolConstant },
+    10 => SetGlobal => Fallthrough { operand0: u16 => SymbolConstant },
+    11 => GetField => Fallthrough { operand0: u16 => Field },
+    12 => SetField => Fallthrough { operand0: u16 => Field },
+    13 => GetSelf => Fallthrough {  },
+    14 => Invoke => Fallthrough { operand0: u8 => Arity, operand1: u16 => SymbolConstant },
+    15 => SuperSend => Fallthrough { operand0: u8 => Arity, operand1: u16 => SymbolConstant },
+    16 => Class => Fallthrough { operand0: u16 => SymbolConstant },
+    17 => Method => Fallthrough { operand0: u16 => SymbolConstant, operand1: bool => Flag },
+    18 => Return => FunctionExit {  },
+    19 => ReturnNonLocal => NonLocalExit {  },
+    20 => Closure => Fallthrough { operand0: u16 => ClosureTemplateConstant },
+    21 => GetUpvalue => Fallthrough { operand0: u16 => Upvalue },
+    22 => SetUpvalue => Fallthrough { operand0: u16 => Upvalue },
+    23 => CloseUpvalue => Fallthrough { operand0: u16 => Local },
+    24 => Jump => UnconditionalBranch { operand0: i32 => RelativeJump },
+    25 => JumpIfFalse => ConditionalBranch { operand0: i32 => RelativeJump },
+    26 => JumpIfNone => ConditionalBranch { operand0: i32 => RelativeJump },
+    27 => Loop => UnconditionalBranch { operand0: i32 => RelativeJump },
+    28 => GuardBool => ConditionalBranch { operand0: i32 => RelativeJump },
+    29 => GuardBlock => ConditionalBranch { operand0: i32 => RelativeJump },
+    30 => NewInstance => Fallthrough {  },
+    31 => Dup => Fallthrough {  },
+    32 => WrapSome => Fallthrough {  },
+    33 => GetLinked => Fallthrough { operand0: u16 => LinkedRead },
+    34 => MakeFamily => Fallthrough { spec: u16 => SelectorSpecification, kind: PortableFamilyKindV1 => FamilyKind },
+    35 => FinalizeClass => Fallthrough {  },
+    36 => InvokeLocal => Fallthrough { operand0: u16 => Local, operand1: u8 => Arity, operand2: u16 => SymbolConstant },
+    37 => InvokeConst => Fallthrough { operand0: u16 => Constant, operand1: u8 => Arity, operand2: u16 => SymbolConstant },
+    38 => GuardSymbol => Fallthrough {  },
+    39 => BuildTuple => Fallthrough { positional: u16 => Count, labeled: u16 => Count },
+    40 => BuildRecord => Fallthrough { fields: u16 => Count },
+    41 => BeginMapLiteral => Fallthrough {  },
+    42 => MapLiteralInsertUnique => Fallthrough {  },
+    43 => FinishMapLiteral => Fallthrough {  },
+    44 => BeginSetLiteral => Fallthrough {  },
+    45 => SetLiteralAdd => Fallthrough {  },
+    46 => FinishSetLiteral => Fallthrough {  },
+    47 => BuildRange => Fallthrough { has_lower: bool => Flag, has_upper: bool => Flag, upper_inclusive: bool => Flag },
+    48 => InvokeCompilerInternal => Fallthrough { operand0: u8 => Arity, operand1: u16 => SymbolConstant },
+    49 => BuildList => Fallthrough { operand0: u16 => Count },
+    50 => NewArgumentPack => Fallthrough {  },
+    51 => PackPushPositional => Fallthrough {  },
+    52 => PackReserveStaticLabel => Fallthrough { operand0: u16 => SymbolConstant },
+    53 => PackReserveComputedLabel => Fallthrough {  },
+    54 => PackFillReservedLabel => Fallthrough {  },
+    55 => PackExpandLabels => Fallthrough {  },
+    56 => PackExpandComplete => Fallthrough {  },
+    57 => PackTryExpandTuplePositionals => Fallthrough {  },
+    58 => InvokePack => Fallthrough { base_name: u16 => SymbolConstant, kind: PortableSendKindV1 => SendKind, access: PortableAccessV1 => Access },
+    59 => SuperSendPack => Fallthrough { base_name: u16 => SymbolConstant },
+    60 => FinishTuplePack => Fallthrough {  },
+    61 => ReserveScratchLocal => Fallthrough { operand0: u16 => Local },
+    62 => ReleaseScratchLocal => Fallthrough { operand0: u16 => Local },
+    63 => BeginListLiteral => Fallthrough {  },
+    64 => ListLiteralAppend => Fallthrough {  },
+    65 => FinishListLiteral => Fallthrough {  },
+    66 => ListTryExpandTuplePositionals => Fallthrough {  },
+    67 => NewRecordLiteralBuilder => Fallthrough {  },
+    68 => RecordLiteralAppend => Fallthrough {  },
+    69 => RecordLiteralExpandLabels => Fallthrough {  },
+    70 => FinishRecordLiteral => Fallthrough {  },
+    71 => MapLiteralExpandLabels => Fallthrough {  },
+    72 => GetEllipsis => Fallthrough {  },
+    73 => BilateralPreferReflected => Fallthrough { operand0: u16 => SymbolConstant },
+    74 => TryInvokeExact => ConditionalBranch { arity: u8 => Arity, selector: u16 => SymbolConstant, missing_offset: i32 => RelativeJump },
+    75 => JumpIfUnsupported => ConditionalBranch { operand0: i32 => RelativeJump },
+    76 => ValidateOrdering => Fallthrough { reverse: bool => Flag },
+    77 => Same => Fallthrough {  },
+    78 => RaiseUnsupported => ExceptionalTermination { operator: u16 => SymbolConstant, direct: u16 => SymbolConstant, reflected: u16 => SymbolConstant },
+    79 => RaiseNonIterableStarOperand => ExceptionalTermination {  },
+    80 => Enum => Fallthrough { operand0: u16 => EnumDeclaration },
+    81 => VariantMethod => Fallthrough { variant: u16 => VariantTarget, selector: u16 => SymbolConstant },
+    82 => FinalizeEnum => Fallthrough { operand0: u16 => EnumDeclaration },
+    83 => LoadVariantSingleton => Fallthrough { operand0: u16 => VariantTarget },
+    84 => ConstructVariant => Fallthrough { variant: u16 => VariantTarget, arity: u8 => Arity },
+    85 => MakeResolvedBoundMethod => Fallthrough { operand0: u16 => AssociatedTarget },
+    86 => InvokeResolvedAssociated => Fallthrough { target: u16 => AssociatedTarget, arity: u8 => Arity },
+    87 => MakeAssociatedFamily => Fallthrough { operand0: u16 => FamilyDescriptor },
+    88 => InvokeAssociatedFamilyStatic => Fallthrough { operation: u16 => FamilyOperation, arity: u8 => Arity },
+    89 => InvokeAssociatedFamilyPack => Fallthrough { candidates: u16 => FamilyCandidates },
+    90 => IsVariant => Fallthrough { operand0: u16 => VariantTarget },
+    91 => GetVariantPayload => Fallthrough { operand0: u16 => Component },
+    92 => MatchInvariantFailure => ExceptionalTermination {  },
+    93 => InvokeSubscriptSetPack => Fallthrough { base_name: u16 => SymbolConstant, access: PortableAccessV1 => Access },
+    94 => Data => Fallthrough { operand0: u16 => DataDeclaration },
+    95 => FinalizeData => Fallthrough { operand0: u16 => DataDeclaration },
+    96 => LoadDataSingleton => Fallthrough { operand0: u16 => DataConstruction },
+    97 => ConstructData => Fallthrough { constructor: u16 => DataConstruction, arity: u8 => Arity },
+    98 => GetDataComponent => Fallthrough { operand0: u16 => Component },
+    99 => BuildStaticTuple => Fallthrough { spec: u16 => AnonymousProduct },
+    100 => BuildStaticRecord => Fallthrough { spec: u16 => AnonymousProduct },
+    101 => InvokeConditional => Fallthrough { arity: u8 => Arity, selector: u16 => SymbolConstant, declaring_module: u16 => ModuleConstant, declaring_name: u16 => SymbolConstant, class_side: bool => Flag, fallback_method: u16 => MethodConstant, call_environment_recipe: u16 => CallEnvironment },
+    102 => MakeConditionalFamily => Fallthrough { spec: u16 => SelectorSpecification, kind: PortableFamilyKindV1 => FamilyKind, conditional: u16 => ConditionalFamily },
+    103 => InvokeSpecialized => Fallthrough { operand0: u8 => Arity, operand1: u16 => SymbolConstant, operand2: u16 => CallEnvironment },
+    104 => InvokeTraitSelected => Fallthrough { selection: u16 => TraitInvocation, arity: u8 => Arity },
+    105 => InvokeTraitRequirement => Fallthrough { slot: u16 => TraitRequirementInvocation, arity: u8 => Arity },
+    106 => MakeTraitBoundMethod => Fallthrough { operand0: u16 => TraitInvocation },
+    107 => GetDataProductSlot => Fallthrough { operand0: u16 => Component },
+    108 => UninitializedBinding => Fallthrough {  },
+    109 => GetLocalChecked => Fallthrough { operand0: u16 => Local, operand1: u16 => SymbolConstant },
+    110 => GetUpvalueChecked => Fallthrough { operand0: u16 => Upvalue, operand1: u16 => SymbolConstant },
+    111 => GetGlobalChecked => Fallthrough { operand0: u16 => SymbolConstant },
+    112 => GetFieldChecked => Fallthrough { operand0: u16 => Field, operand1: u16 => SymbolConstant },
+    113 => FinishPack => Fallthrough {  },
+    114 => BuildStaticPack => Fallthrough { spec: u16 => AnonymousProduct },
+    115 => BuildPack => Fallthrough { positional: u16 => Count, labeled: u16 => Count },
+    116 => GuardFieldKey => Fallthrough {  },
+    117 => RecordLiteralCheckKey => Fallthrough {  },
+    118 => LoadTypeParameterClass => Fallthrough { operand0: u16 => TypeParameterReceiver },
+    119 => BuildArray => Fallthrough { operand0: u16 => Count },
+    120 => BeginArrayLiteral => Fallthrough {  },
+    121 => ArrayLiteralAppend => Fallthrough {  },
+    122 => FinishArrayLiteral => Fallthrough {  },
+    123 => ArrayTryExpandTuplePositionals => Fallthrough {  },
+    124 => BuildVector => Fallthrough { operand0: u16 => Count },
+    125 => VectorExpandExactPositionals => Fallthrough { vector: bool => Flag, expected: u32 => Count },
+    126 => FinishVectorLiteral => Fallthrough { operand0: u32 => Count },
+    127 => BeginVectorLiteral => Fallthrough {  },
+    128 => CopyVector => Fallthrough {  },
 }
 
 const _: () = {
@@ -494,7 +513,7 @@ const _: () = {
 
 #[cfg(test)]
 mod tests {
-    use super::{OPCODE_MANIFEST_V1, PortableInstructionV1, relocation_requirement_v1, validator_requirement_v1};
+    use super::{ControlFlowKindV1, OPCODE_MANIFEST_V1, PortableInstructionV1, relocation_requirement_v1, validator_requirement_v1};
     use crate::{BinaryReader, BinaryWriter};
     use std::collections::BTreeSet;
 
@@ -525,5 +544,20 @@ mod tests {
             assert_eq!(PortableInstructionV1::read_from(&mut reader).unwrap(), instruction, "opcode {}", row.name);
         }
         assert_eq!(seen_tags.len(), OPCODE_MANIFEST_V1.len());
+    }
+
+    #[test]
+    fn opcode_manifest_declares_current_control_flow_contracts() {
+        for row in OPCODE_MANIFEST_V1 {
+            let expected = match row.tag {
+                18 => ControlFlowKindV1::FunctionExit,
+                19 => ControlFlowKindV1::NonLocalExit,
+                24 | 27 => ControlFlowKindV1::UnconditionalBranch,
+                25 | 26 | 28 | 29 | 74 | 75 => ControlFlowKindV1::ConditionalBranch,
+                78 | 79 | 92 => ControlFlowKindV1::ExceptionalTermination,
+                _ => ControlFlowKindV1::Fallthrough,
+            };
+            assert_eq!(row.control_flow, expected, "opcode {}", row.name);
+        }
     }
 }

@@ -8,7 +8,7 @@ use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::executable::compatibility::{CompilationProfileV1, PortableNativeAnchorV1, PrimordialRoleV1};
 use phalcom_compiler_artifact::executable::constant::{ConstantRecipeV1, MethodSignatureV1, RestLayoutV1, RestModeV1, StableClassRefV1};
 use phalcom_compiler_artifact::executable::image::{ExecutableImageLimitsV1, ExecutableImageV1};
-use phalcom_compiler_artifact::executable::instruction::{OPCODE_MANIFEST_V1, OperandDomainV1, PortableOperandValueV1};
+use phalcom_compiler_artifact::executable::instruction::{ControlFlowKindV1, OPCODE_MANIFEST_V1, OperandDomainV1, PortableOperandValueV1};
 use phalcom_compiler_artifact::executable::module::{PortableClassAllocationV1, PortableLinkedReadV1};
 use phalcom_compiler_artifact::executable::prototype::{PortablePrototypeV1, PrototypeOwnerV1, RestKindV1, UpvalueCaptureV1};
 use phalcom_compiler_artifact::executable::semantic::{
@@ -103,6 +103,8 @@ pub(crate) enum ExecutableValidationError {
     },
     #[error("prototype {prototype} instruction {instruction} targets invalid instruction index {target}")]
     InvalidBranchTarget { prototype: usize, instruction: usize, target: i64 },
+    #[error("prototype {prototype} instruction {instruction} falls through to invalid instruction index {target}")]
+    InvalidFallthrough { prototype: usize, instruction: usize, target: i64 },
     #[error("prototype {prototype} has invalid executable frame or parameter layout: {detail}")]
     InvalidPrototypeLayout { prototype: usize, detail: String },
     #[error("nested prototype {child} has invalid capture from parent {parent}: {detail}")]
@@ -1052,59 +1054,105 @@ fn validate_prototype_control_flow(
                 tag: instruction.opcode_tag(),
             });
         };
-        let mut target = None;
+        let control_flow = instruction.control_flow_kind();
+        if opcode.control_flow != control_flow {
+            return Err(ExecutableValidationError::InvalidInstruction {
+                prototype: prototype_index,
+                instruction: instruction_index,
+                operand: "control-flow metadata",
+                detail: "instruction and opcode manifest classifications disagree".to_owned(),
+            });
+        }
+
+        let mut relative_jump_count = 0;
+        let mut relative_jump_offset = None;
         instruction.visit_operands(|domain, value| {
             if domain == OperandDomainV1::RelativeJump {
+                relative_jump_count += 1;
                 if let PortableOperandValueV1::Signed(offset) = value {
-                    target = branch_target(instruction_index, offset);
+                    relative_jump_offset = Some(offset);
                 }
             }
         });
-        match opcode.name {
-            "Return" | "ReturnNonLocal" => {}
-            "Jump" | "Loop" => {
-                let target = target.ok_or(ExecutableValidationError::InvalidBranchTarget {
+
+        let expects_relative_jump = match control_flow {
+            ControlFlowKindV1::UnconditionalBranch | ControlFlowKindV1::ConditionalBranch => true,
+            ControlFlowKindV1::Fallthrough
+            | ControlFlowKindV1::FunctionExit
+            | ControlFlowKindV1::NonLocalExit
+            | ControlFlowKindV1::ExceptionalTermination => false,
+        };
+        if relative_jump_count != usize::from(expects_relative_jump) {
+            return Err(ExecutableValidationError::InvalidInstruction {
+                prototype: prototype_index,
+                instruction: instruction_index,
+                operand: "control-flow metadata",
+                detail: format!(
+                    "{control_flow:?} requires {} relative jump operand(s), found {relative_jump_count}",
+                    usize::from(expects_relative_jump),
+                ),
+            });
+        }
+
+        match control_flow {
+            ControlFlowKindV1::Fallthrough => {
+                enqueue_fallthrough(&mut pending, prototype_index, instruction_index, code_len)?;
+            }
+            ControlFlowKindV1::UnconditionalBranch => {
+                let offset = relative_jump_offset.ok_or(ExecutableValidationError::InvalidBranchTarget {
                     prototype: prototype_index,
                     instruction: instruction_index,
                     target: i64::MAX,
                 })?;
-                if target >= code_len {
-                    return Err(ExecutableValidationError::InvalidBranchTarget {
-                        prototype: prototype_index,
-                        instruction: instruction_index,
-                        target: target as i64,
-                    });
-                }
+                let target = validate_branch_target(prototype_index, instruction_index, code_len, offset)?;
                 pending.push(target);
             }
-            "JumpIfFalse" | "JumpIfNone" | "GuardBool" | "GuardBlock" | "JumpIfUnsupported" | "TryInvokeExact" => {
-                let target = target.ok_or(ExecutableValidationError::InvalidBranchTarget {
+            ControlFlowKindV1::ConditionalBranch => {
+                let offset = relative_jump_offset.ok_or(ExecutableValidationError::InvalidBranchTarget {
                     prototype: prototype_index,
                     instruction: instruction_index,
                     target: i64::MAX,
                 })?;
-                if target >= code_len {
-                    return Err(ExecutableValidationError::InvalidBranchTarget {
-                        prototype: prototype_index,
-                        instruction: instruction_index,
-                        target: target as i64,
-                    });
-                }
+                let target = validate_branch_target(prototype_index, instruction_index, code_len, offset)?;
                 pending.push(target);
-                pending.push(instruction_index + 1);
+                enqueue_fallthrough(&mut pending, prototype_index, instruction_index, code_len)?;
             }
-            _ => pending.push(instruction_index + 1),
+            ControlFlowKindV1::FunctionExit
+            | ControlFlowKindV1::NonLocalExit
+            | ControlFlowKindV1::ExceptionalTermination => {}
         }
     }
     Ok(())
 }
 
-fn validate_branch_target(prototype: usize, instruction: usize, code_len: usize, offset: i32) -> Result<(), ExecutableValidationError> {
+fn enqueue_fallthrough(
+    pending: &mut Vec<usize>,
+    prototype: usize,
+    instruction: usize,
+    code_len: usize,
+) -> Result<(), ExecutableValidationError> {
+    let target = instruction.checked_add(1);
+    if let Some(target) = target.filter(|target| *target < code_len) {
+        pending.push(target);
+        return Ok(());
+    }
+    Err(ExecutableValidationError::InvalidFallthrough {
+        prototype,
+        instruction,
+        target: target.and_then(|target| i64::try_from(target).ok()).unwrap_or(i64::MAX),
+    })
+}
+
+fn validate_branch_target(prototype: usize, instruction: usize, code_len: usize, offset: i32) -> Result<usize, ExecutableValidationError> {
     let Some(target) = branch_target(instruction, offset) else {
         return Err(ExecutableValidationError::InvalidBranchTarget {
             prototype,
             instruction,
-            target: instruction as i64 + 1 + i64::from(offset),
+            target: i64::try_from(instruction)
+                .ok()
+                .and_then(|instruction| instruction.checked_add(1))
+                .and_then(|instruction| instruction.checked_add(i64::from(offset)))
+                .unwrap_or(i64::MAX),
         });
     };
     if target >= code_len {
@@ -1114,7 +1162,7 @@ fn validate_branch_target(prototype: usize, instruction: usize, code_len: usize,
             target: target as i64,
         });
     }
-    Ok(())
+    Ok(target)
 }
 
 fn branch_target(instruction: usize, offset: i32) -> Option<usize> {

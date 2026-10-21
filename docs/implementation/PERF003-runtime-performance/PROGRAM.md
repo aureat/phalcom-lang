@@ -27,7 +27,9 @@ P7's compiler artifact is complete and independently certified. P8 is
 focused-tested at the structural-staging boundary. T3 now has a partial
 core-owned validator and a passing `cargo check -p phalcom-core --lib` with
 `dead_code` warnings for the unintegrated validator. It does not yet mint
-runtime authority, and its opcode/control-flow/frame proof is incomplete. The
+runtime authority. Every opcode now has an explicit generated control-flow
+class, and reachable branch/fallthrough bounds are checked without a default
+sequential-flow case; reachable stack/frame proof remains incomplete. The
 staged executable remains non-authoritative. VM materialization, later imports
 and source-free VM execution remain open. The next action is to complete
 fail-closed T3 validation before starting T4. See
