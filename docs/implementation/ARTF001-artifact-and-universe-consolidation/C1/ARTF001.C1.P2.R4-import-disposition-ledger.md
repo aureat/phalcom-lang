@@ -3,10 +3,11 @@
 ## Scope and conclusion
 
 This ledger classifies every module under `phalcom-semantic/src/artifact/` for
-R4.T6. The current production route is singular at its call sites, but the
-compatibility transaction still builds a parallel semantic authority and is
-reachable through doc-hidden public APIs. T6 remains open until that route is
-test-only or retired.
+R4.T6. The compatibility transaction previously built a parallel semantic
+authority through doc-hidden public APIs. It is now gated under `cfg(test)`;
+the 20 semantic-artifact behavioral tests were moved into the unit-test build
+and pass. T6 remains open until the normal library check and T2–T5 focused
+regressions pass after this consolidation.
 
 The canonical production route is:
 
@@ -29,14 +30,14 @@ diagnostic entry points.
 - **CANONICAL** — current producer or import/query path owns this behavior.
 - **RETAIN_HELPER** — shared helper used by the canonical path, without a
   separate semantic authority.
-- **HISTORICAL_TEST_ONLY** — legacy staged importer code and fixtures to be
-  compiled only for tests or removed. The entries marked below are not yet
-  cfg-gated; this is their required final disposition.
+- **HISTORICAL_TEST_ONLY** — legacy staged importer code and fixtures compiled
+  only for tests or removed. The entries marked below are now cfg-gated under
+  `cfg(test)`.
 - **VALIDATION_ONLY** — validates hostile input without reconstructing or
   publishing an alternate semantic generation.
 
-No module is unclassified. The explicit remaining action is to enforce the
-test-only boundary in code; this ledger does not claim that T6 is closed.
+No module is unclassified. The test-only boundary is enforced in code; the
+post-consolidation recertification remains outstanding.
 
 ## Canonical producer and loader modules
 
@@ -65,9 +66,10 @@ Each module below is invoked by `ArtifactImportTransaction::stage_payload` in
 type/static, declaration, callable, dispatch, conformance, proof, constructor,
 and query products into `ImportedCompilerImage`. They have no production call
 sites outside that transaction. Repository callers of the compatibility
-staging entry points are semantic artifact tests, but the APIs are currently
-public and merely `doc(hidden)`. The required disposition is test-only; code
-gating/migration remains outstanding.
+staging entry points are semantic artifact tests. The transaction, result type,
+wrappers, family modules, and family re-exports are now `cfg(test)`. The former
+integration fixture is now `src/artifact/compatibility_tests.rs` and remains
+selected by the semantic crate's normal unit-test run.
 
 | Module | Final disposition | Staged family |
 |---|---|---|
@@ -100,7 +102,7 @@ gating/migration remains outstanding.
 | `trait_import.rs` | HISTORICAL_TEST_ONLY | Trait headers, requirements, and associated types |
 | `type_import.rs` | HISTORICAL_TEST_ONLY | Portable type graph relocation for the staged path |
 | `witness_import.rs` | HISTORICAL_TEST_ONLY | Staged witness-plan preflight and selections |
-| `mod.rs` — transaction, `ImportedCompilerImage`, compatibility imports | HISTORICAL_TEST_ONLY | Parallel transaction and staged semantic result; must be gated under tests or removed. |
+| `mod.rs` — transaction, `ImportedCompilerImage`, compatibility imports | HISTORICAL_TEST_ONLY | Parallel transaction and staged semantic result, gated under tests. |
 
 ## Caller and authority census
 
@@ -111,7 +113,7 @@ gating/migration remains outstanding.
 | Current type relocation | 1 | Native importer unit tests | Canonical: `TypeStore::import_type_graph_with_allocation_budget` in native import. |
 | Current static-value relocation | 1 | Native importer unit tests | Canonical: `import_static_value_graph_with_allocation_budget` in native import. |
 | Native proof/evidence reconstruction | 1 orchestration path | Native importer family tests | Canonical: proof/witness/callable evidence stages under `artifact::import`. |
-| Compatibility staging transaction | 0 production call sites | `tests/semantic_artifact_test.rs`; generic package receipt tests exercise `phalcom-modules` staging | HISTORICAL_TEST_ONLY intended but not enforced yet. |
+| Compatibility staging transaction | 0 production call sites; excluded from non-test builds | `artifact::compatibility_tests`; generic package receipt tests exercise `phalcom-modules` staging | HISTORICAL_TEST_ONLY, enforced with `cfg(test)`. |
 
 The generic `ProjectUniverse`, `TrustedPackageResolver`, and
 `stage_artifact_project_authorities` contracts remain in `phalcom-modules`.
@@ -123,9 +125,9 @@ those checks with an in-memory-only trust decision.
 
 Before marking R4.T6 complete:
 
-1. Compile the legacy transaction, `ImportedCompilerImage`, its family staging
-   modules, and compatibility wrappers only for unit tests, or retire them
-   after migrating behavioral fixtures to the native path.
+1. Verify a normal library build excludes the legacy transaction,
+   `ImportedCompilerImage`, its family staging modules, and compatibility
+   wrappers; keep their behavior covered by unit tests.
 2. Preserve generic package receipt tests and exact package/version/fingerprint,
    artifact-digest, and target-identity checks.
 3. Run migrated compatibility tests and P2 T2–T5 focused regressions; verify

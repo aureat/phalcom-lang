@@ -259,7 +259,7 @@ The separate `ArtifactImportTransaction::stage_payload_with_digest` path still r
 | R4.T3 | Re-establish exact allocation, rollback, failpoint, and retry certification | COMPLETE |
 | R4.T4 | Finish dependency-bearing current query profile and fail-closed required-root completeness | COMPLETE |
 | R4.T5 | Certify ordinary imported SemanticWorkspaceSession with overlays/invalidation/rollback | COMPLETE |
-| R4.T6 | Consolidate duplicate consumer/import staging architecture and stabilize APIs | IN_PROGRESS — module/caller census is complete; the old staged importer is still a doc-hidden public route and must be sealed as test-only or retired |
+| R4.T6 | Consolidate duplicate consumer/import staging architecture and stabilize APIs | IN_PROGRESS — legacy staged importer is now `cfg(test)`; its 20 semantic artifact tests and `cargo check -p phalcom-semantic --lib` pass; T2–T5 post-consolidation recertification remains |
 | R4.T7 | Fresh-process source denial, compiler parity, diagnostics parity, real package/runtime functionality | IN_PROGRESS — source-denied, ordinary-VM runtime, and source CLI gates pass; strict positive parity fails and is under architecture diagnosis |
 | R4.T8 | Broad regression, schema freeze, manifest closure, cleanup | IN_PROGRESS — query allocation fixture passes; workspace `--no-run` was executed but is blocked by an existing example target with no `main`; crate gates remain |
 | R4.T9 | P2 acceptance, walkthrough, checkpoint closure, P3 handoff | PENDING |
@@ -849,12 +849,10 @@ and predecessor revision. Negative diagnostics and T8 broad gates remain open;
 this does not yet constitute the P2 acceptance receipt.
 
 R4.T6's source/caller census records one internal production native semantic
-importer and one production V4 query reconstruction path. The compatibility
-`ArtifactImportTransaction` still reconstructs a parallel set of semantic
-sidecars and exposes them through doc-hidden public import functions, although
-repository callers are test fixtures. Because `doc(hidden)` does not remove a
-public route, T6 is not closed. The module ledger is in
-`ARTF001.C1.P2.R4-import-disposition-ledger.md`; the remaining T6 action is to
-make the legacy staging implementation test-only (migrating its integration
-fixtures into the unit-test build) or retire it without losing trusted package
-receipt coverage.
+importer and one production V4 query reconstruction path. The legacy
+`ArtifactImportTransaction`, `ImportedCompilerImage`, family staging modules,
+and compatibility wrappers are now guarded by `cfg(test)`. The 20-test
+semantic artifact suite moved into the unit-test build and passes 20/20. The
+normal semantic library check also passes with existing warnings; the T2–T5
+post-consolidation focused regressions remain before T6 can be promoted. See
+`ARTF001.C1.P2.R4-import-disposition-ledger.md` for the current dispositions.
