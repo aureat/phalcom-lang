@@ -1,3 +1,5 @@
+from .module import Module
+
 @!documentation("Module runtime dependency reference.")
 native class ModuleDependency is Object {
   native module -> Module
