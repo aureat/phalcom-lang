@@ -1,7 +1,9 @@
 use phalcom_compiler_artifact::ArtifactError;
 use phalcom_compiler_artifact::error::QueryImageError;
 use phalcom_compiler_artifact::limits::ValidationLimits;
-use phalcom_compiler_artifact::query::{DependencyEvidenceEntryV1, PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1};
+use phalcom_compiler_artifact::query::{
+    DependencyEvidenceEntryV2, LegacyPortableQueryKeyV1, PortableQueryKindV1, QueryImageV2, QueryProductRefV2, QueryRootEntryV2,
+};
 use phalcom_compiler_artifact::semantic::world::{CallableFlowEdgeKindV1, CallableFlowEdgeV1, CallableFlowGraphV1, CallableFlowNodeKindV1, CallableFlowNodeV1};
 use phalcom_semantic::artifact::import::import_callable_flow_graph_with_allocation_budget;
 use phalcom_semantic::artifact::query::validate_query_image_closure_with_allocation_budget;
@@ -48,17 +50,23 @@ unsafe impl GlobalAlloc for CountingAllocator {
 #[global_allocator]
 static GLOBAL: CountingAllocator = CountingAllocator;
 
-fn valid_query_dag(count: usize) -> QueryImageV1 {
+fn valid_query_dag(count: usize) -> QueryImageV2 {
     let supported_roots = (0..count)
-        .map(|index| QueryRootEntryV1 {
-            key: PortableQueryKeyV1 {
+        .map(|index| QueryRootEntryV2 {
+            key: LegacyPortableQueryKeyV1 {
                 kind: PortableQueryKindV1::CallableSignature,
                 stable_owner_key: format!("callable:{index}"),
             },
+            product: QueryProductRefV2 {
+                kind: PortableQueryKindV1::CallableSignature,
+                row_index: index as u32,
+            },
+            input_fingerprint: 0,
+            product_fingerprint: 0,
             dependency_indices: if index == 0 { Vec::new() } else { vec![(index - 1) as u32] },
         })
         .collect();
-    QueryImageV1 {
+    QueryImageV2 {
         supported_roots,
         dependency_evidence: Vec::new(),
     }
@@ -69,7 +77,7 @@ fn query_closure_debits_exact_allocator_requests_and_rolls_back_on_exhaustion() 
     let count = 512;
     let image = valid_query_dag(count);
     let limits = ValidationLimits::default();
-    let expected = Layout::array::<&PortableQueryKeyV1>(count).unwrap().size()
+    let expected = Layout::array::<&LegacyPortableQueryKeyV1>(count).unwrap().size()
         + Layout::array::<u8>(count).unwrap().size()
         + Layout::array::<(usize, usize)>(count).unwrap().size();
     let mut transaction = AllocationBudget::new(expected);
@@ -122,14 +130,15 @@ fn query_closure_debits_exact_allocator_requests_and_rolls_back_on_exhaustion() 
     let result = validate_query_image_closure_with_allocation_budget(&missing_dependency, &limits, &mut missing_budget);
     assert!(matches!(result, Err(ArtifactError::QueryImage(QueryImageError::InvalidDependencyIndex))));
 
-    let dependency_evidence = QueryImageV1 {
+    let dependency_evidence = QueryImageV2 {
         supported_roots: Vec::new(),
-        dependency_evidence: vec![DependencyEvidenceEntryV1 {
-            key: PortableQueryKeyV1 {
+        dependency_evidence: vec![DependencyEvidenceEntryV2 {
+            key: LegacyPortableQueryKeyV1 {
                 kind: PortableQueryKindV1::HierarchyEdge,
                 stable_owner_key: "declaration:owner".into(),
             },
             stable_aggregate_owner: "declaration:owner".into(),
+            product_fingerprint: 0,
         }],
     };
     let mut evidence_budget = AllocationBudget::new(0);
