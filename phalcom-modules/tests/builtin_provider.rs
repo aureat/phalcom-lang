@@ -241,3 +241,50 @@ fn universe_random_provider_registers_facade_and_source_modules() {
         assert!(!provider.source_text(&child_id).expect("random child source loads").is_empty());
     }
 }
+
+
+#[test]
+fn canonical_universe_sources_parse_interfaces_and_link() {
+    let provider = UniverseSourceProvider::new();
+    let universe = std::sync::Arc::new(phalcom_modules::ProjectUniverse::new());
+    let filesystem = phalcom_modules::FilesystemSourceProvider::new();
+    let mut resolver =
+        phalcom_modules::ModuleResolver::with_universe_source_provider(&universe, &filesystem, provider.clone());
+    let mut interfaces = std::collections::BTreeMap::new();
+
+    for node in provider.nodes() {
+        let path = ModulePath::from_components(
+            node.path
+                .iter()
+                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                .collect::<Vec<_>>(),
+        );
+        let id = ModuleId::universe(path);
+        provider
+            .load_parsed(&id)
+            .unwrap_or_else(|error| panic!("{id} canonical source must parse: {error}"));
+        let interface = provider
+            .load_interface(&id)
+            .unwrap_or_else(|error| panic!("{id} canonical interface must load: {error}"));
+        interfaces.insert(id, interface);
+    }
+
+    let mut resolved = std::collections::BTreeMap::new();
+    for (module, interface) in &interfaces {
+        for import in &interface.imports {
+            let path = match import {
+                phalcom_modules::ImportSurface::Module(decl) => &decl.path,
+                phalcom_modules::ImportSurface::Selective(decl) => &decl.path,
+                phalcom_modules::ImportSurface::ReExport(decl) => &decl.path,
+            };
+            let target = resolver
+                .resolve_import(module, path)
+                .unwrap_or_else(|error| panic!("{module}::{path} canonical import must resolve: {error}"));
+            resolved.insert((module.clone(), path.to_string()), target.id);
+        }
+    }
+
+    phalcom_modules::ModuleLinker::new(universe, interfaces)
+        .link_all(ModuleId::universe_root(), &resolved)
+        .expect("canonical Universe interfaces must link");
+}
