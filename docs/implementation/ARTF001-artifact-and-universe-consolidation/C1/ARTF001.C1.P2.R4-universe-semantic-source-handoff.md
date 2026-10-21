@@ -19,9 +19,8 @@ The branch is `fix/universe-semantic-source` at `5a68a1b6e`, fetched from
 `origin/fix/universe-semantic-source`. The worktree contains the completed
 source-diagnostics slice and its focused records.
 
-The branch's local upstream configuration still names the historical
-`origin/feat/artifact-universe-consolidation` merge ref. Before another pull,
-use the explicit target branch or repair the upstream configuration to
+The worktree initially had a stale upstream configuration; it was corrected
+before delivery. The branch now tracks
 `origin/fix/universe-semantic-source`.
 
 ## Stable corrections
