@@ -30,7 +30,7 @@ P2.R4.T7 requires the same real package entry to compile through the ordinary so
 
 - `ProgramCompiler::compile_entry_selection` compiles both `packages/slotmap` and `packages/slotmap/tests/runtime` from source.
 - `LoadedUniverseArtifact::compile_user_entry` compiles both entries from the loaded compiler-only artifact.
-- The positive parity test fails: 12 comparator differences. The source program has 41 Universe modules while the artifact program has 8. Reported mismatches include linked initialization order/reference graph, runtime dependency sets, and constructor-initialization products.
+- The positive parity test fails: 12 comparator differences. The source-side linked graph has 41 Universe modules while the artifact-side linked graph has 10. Reported mismatches include linked initialization order and graph/module sets, runtime dependency sets, and constructor-initialization products.
 - The earlier source side using `compile_entry_selection_with_image` failed before comparison because the source-built `CanonicalUniverseFormalImage` snapshot contains semantic diagnostics; `compile_analyzed` rejects snapshots with errors.
 - The ordinary source CLI completes SlotMap runtime tests. The artifact-compiled SlotMap test program also runs on ordinary `VM::run_compiled`.
 - Semantic diagnostics are not serialized in the compiler artifact. Their absence after artifact import is not evidence that the source diagnostics were resolved.
@@ -68,13 +68,27 @@ Key files:
 
 ## 8. Scoped implementation diff
 
-The active test now compares the ordinary source compiler entry point with the artifact-backed compiler for both real SlotMap entries. The assertion remains strict. No production compiler behavior has been changed for this incident.
+The positive test compares the ordinary source compiler entry point with the artifact-backed compiler for both real SlotMap entries. The assertion remains strict. The negative test source route was changed to the ordinary source entry point in `15917229f`; its focused rerun is pending. No production compiler behavior has been changed for this incident.
 
 ## 9. Evidence
 
 - The test source selects four modules for `packages/slotmap` and eight for `packages/slotmap/tests/runtime` on both sides.
 - Both compilers return `CompiledProgram` values; failure occurs in `assert_compiled_program_parity`.
-- The comparator reports 12 field-level differences; the source side includes 41 Universe modules and artifact side 8.
+- The exact rerun at `7cff51b4b` reports these 12 comparator differences:
+  1. linked initialization order;
+  2. reference graph nodes;
+  3. semantic graph nodes;
+  4. runtime graph nodes;
+  5. linked module set (`only_in_src` contains the 41-module Universe source set; `only_in_art` is empty);
+  6. constructor-initialization products for package `<root>`;
+  7. runtime dependencies for `dense_slot_map`;
+  8. constructor-initialization products for `dense_slot_map`;
+  9. runtime dependencies for `main`;
+  10. constructor-initialization products for `main`;
+  11. runtime dependencies for `slot_map`;
+  12. constructor-initialization products for `slot_map`.
+- The artifact-side runtime dependencies add Universe modules. `dense_slot_map` adds `collections.iterator_laws`, `collections.list`, `errors.error`, `object.object`, `option.option`, and `scalar.number`; `main` adds `collections.tuple`, `concurrency.fiber`, `errors.error`, `option.option`, and `scalar.string`; `slot_map` adds `collections.iterator_laws`, `collections.list`, `errors.error`, `object.object`, `option.option`, `scalar.bool`, `scalar.number`, and `scalar.string`.
+- The live code confirms two path inputs without establishing which output is wrong: source analysis seeds source-authored Universe support and finalizes with `canonical_universe_program().availability_after_bootstrap()`; artifact analysis discovers through the imported external module world and supplies `AvailabilityContract::default()`.
 - Focused artifact-runtime execution passes on ordinary `VM::run_compiled`; source CLI execution also passes.
 - The source-image compiler path returns semantic errors from multiple Universe modules, including unresolved/unsaturated type annotations, generic inference failures, call-shape or argument mismatches, constructor-super requirements, and unsupported enum/associated-type forms. Their status against the accepted spec and their relationship to the parity mismatch have not been classified.
 
