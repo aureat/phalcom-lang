@@ -236,3 +236,32 @@ class ProbeStatics {
     );
     assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
 }
+
+
+#[test]
+fn canonical_universe_diagnostic_census_probe() {
+    use std::collections::BTreeMap;
+
+    let image = phalcom_semantic::canonical_image::canonical_universe_formal_image()
+        .expect("canonical Universe formal image must build for diagnostic census");
+    let diagnostics = image.snapshot().all_diagnostics().collect::<Vec<_>>();
+    let mut counts = BTreeMap::<String, usize>::new();
+
+    for diagnostic in &diagnostics {
+        *counts.entry(format!("{:?}", diagnostic.code)).or_default() += 1;
+    }
+
+    eprintln!("UNIVERSE_CENSUS_TOTAL|{}", diagnostics.len());
+    for (code, count) in counts {
+        eprintln!("UNIVERSE_CENSUS_COUNT|{code}|{count}");
+    }
+    for diagnostic in diagnostics {
+        eprintln!(
+            "UNIVERSE_CENSUS_ROW|{:?}|{:?}|{:?}|{}",
+            diagnostic.code,
+            diagnostic.primary.module,
+            diagnostic.primary.range,
+            diagnostic.message.replace('\n', " ")
+        );
+    }
+}
