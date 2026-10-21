@@ -7,7 +7,7 @@ from .uri import Uri
 
 native class ResolvedProjectDependency is Object {
   native alias -> Symbol
-  native requirement -> PackageRequirement
+  native requirement -> Option<PackageRequirement>
   native packageInfo -> PackageInfo
   native rootPackage -> Package
   native origin -> Uri

@@ -7,7 +7,7 @@ from .project_identity import ProjectIdentity
 from .resolved_project_dependency import ResolvedProjectDependency
 
 native class Project is Object {
-  native name -> Symbol
+  native name -> String
   native namespace -> Symbol
   native manifest -> ProjectManifest
   native rootPackage -> Package

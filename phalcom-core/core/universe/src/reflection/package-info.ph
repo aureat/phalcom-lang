@@ -6,16 +6,16 @@ from .package_requirement import PackageRequirement
 from .uri import Uri
 
 native class PackageInfo is Object {
-  native name -> Symbol
+  native name -> String
   native namespace -> Symbol
-  native version -> String
+  native version -> Option<String>
   native authors -> (*: PackageAuthor)
-  native description -> String
-  native license -> String
-  native homepage -> Uri
-  native repository -> Uri
+  native description -> Option<String>
+  native license -> Option<String>
+  native homepage -> Option<Uri>
+  native repository -> Option<Uri>
   native requirements -> (*: PackageRequirement)
-  native defaultEntry -> String
+  native defaultEntry -> Option<String>
   native identity -> PackageIdentity
   native toString -> String
 }
