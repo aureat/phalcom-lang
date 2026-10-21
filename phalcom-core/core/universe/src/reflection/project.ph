@@ -10,7 +10,7 @@ native class Project is Object {
   native namespace -> Symbol
   native manifest -> ProjectManifest
   native rootPackage -> Package
-  native dependencies -> List<ResolvedProjectDependency>
+  native dependencies -> Tuple<ResolvedProjectDependency>
   native developmentEntry -> Module
   native identity -> ProjectIdentity
   native toString -> String
