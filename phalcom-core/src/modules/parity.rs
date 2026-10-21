@@ -470,7 +470,10 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         if src_ci != art_ci {
-            report.differences.push(format!("Lowering constructor initializations mismatch for {:?}", id));
+            report.differences.push(format!(
+                "Lowering constructor initializations mismatch for {:?}: src={:#?}, art={:#?}",
+                id, src_ci, art_ci
+            ));
         }
 
         // Normalized for iteration lanes (excluding process-local TypeId)

@@ -139,3 +139,69 @@ The additional source-side modules may be required entry closure or broader sour
 4. Catalog each Universe diagnostic by module, code, range, and triggering construct; compare with accepted specification rules, existing tests, and the relevant predecessor revision before classifying it as inherited debt or a defect.
 
 Do not suppress diagnostics, filter diagnostic-bearing modules, drop parity fields, or treat runtime smoke as parity evidence. Independent T6/T8 work may continue; T7 parity changes remain stopped until the difference report resolves the architecture choice.
+
+## 16. Latest continuation evidence — 2026-10-21
+
+### Entry-local negative diagnostic parity
+
+The focused test
+`negative_parity_constructor_resolution_failure` completed after 168.10s and
+failed its entry-local diagnostic comparison. The ordinary source compiler
+reported one diagnostic at `<root>`, range `93..106`:
+
+```text
+ConstructorSuperInvalid: no direct-parent constructor matches this `super.new(...)` call
+```
+
+Artifact-backed compilation reported that same diagnostic and an additional
+diagnostic at `<root>`, range `31..39`:
+
+```text
+IncompatibleOverride: override `new()` is incompatible with the inherited contract from `Class`
+```
+
+This confirms a second semantic-product mismatch for the same invalid input.
+The output does not establish which route owns the incorrect result. No
+diagnostic was suppressed or normalized away.
+
+### Positive parity causal trace
+
+The live source path confirms these inputs:
+
+- `ProgramAnalyzer::discover_and_analyze` seeds source-authored Universe
+  support modules from `collections`, `scalar`, `text`, and `option.unit`.
+- Its finalizer obtains availability from
+  `canonical_universe_program().availability_after_bootstrap()`.
+- `discover_image_closure` uses the imported image's external module world and
+  passes `AvailabilityContract::default()` so artifact compilation does not
+  consult the source bootstrap singleton.
+- `AvailabilityContract::satisfies` requires an exact target and product with
+  a proof available by the requirement's timing. The source and artifact paths
+  therefore do not currently provide equivalent availability inputs.
+
+This explains why the paths can create different runtime edges. It does not
+prove that the artifact-side edges are wrong, and it does not by itself explain
+the differing constructor-initialization products.
+
+The supplied follow-up analysis describes the source/artifact linked Universe
+counts as 42/0. The earlier captured parity output prints only set differences
+(`only_in_src` and `only_in_art`), which are insufficient to derive both full
+set sizes. A fresh strict parity run is in progress with the comparator now
+printing the exact source and artifact constructor rows for each differing
+user module. Use that output to reconcile the module counts, record exact
+`ModuleId` dispositions, and trace each constructor product before changing
+compiler behavior or the parity boundary.
+
+### Current disposition
+
+- Positive parity remains failed; comparator and compiler behavior remain
+  unchanged.
+- Entry-local negative diagnostic parity is also failed by one extra
+  artifact-side `IncompatibleOverride` diagnostic.
+- Canonical Universe source diagnostics remain a separate unclassified census.
+- Ignored `Result` values in `phalcom-semantic/src/impls.rs` are a separate
+  semantic-correctness audit item, not an established cause of either parity
+  failure.
+- Do not change availability, normalize constructor products, or narrow the
+  parity comparator until the structural dump is reviewed and the architecture
+  decision is recorded.

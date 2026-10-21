@@ -856,3 +856,27 @@ semantic artifact suite moved into the unit-test build and passes 20/20. The
 normal semantic library check also passes with existing warnings; the T2–T5
 post-consolidation focused regressions remain before T6 can be promoted. See
 `ARTF001.C1.P2.R4-import-disposition-ledger.md` for the current dispositions.
+
+### P2.R4 T7 continuation — 2026-10-21
+
+The entry-local negative parity test
+`negative_parity_constructor_resolution_failure` completed and failed after
+168.10s. Source compilation reports one `ConstructorSuperInvalid` diagnostic
+at `<root>` range `93..106`. Artifact compilation reports the same diagnostic
+plus `IncompatibleOverride` at `<root>` range `31..39`. The two routes still
+disagree on this invalid entry; neither diagnostic has been suppressed.
+
+The positive parity investigation confirms that ordinary source compilation
+uses `canonical_universe_program().availability_after_bootstrap()`, while
+artifact compilation passes an empty `AvailabilityContract` after loading the
+external image module world. This can account for different runtime dependency
+edges, but it does not yet explain the constructor-initialization differences.
+The strict positive parity rerun is in progress with detailed constructor
+products in failure output. Do not change production availability or the
+comparator before reviewing that output and obtaining an architectural ruling.
+
+The supplied analysis describes 42 source-side and zero artifact-side linked
+Universe modules. Earlier captured output reports only the set difference
+(`only_in_src=41`, `only_in_art=[]`), not both full set sizes. Record the exact
+per-path `ModuleId` counts and dispositions from the current run before
+reconciling that discrepancy. P2.R4.T7 remains open; P3 remains blocked.
