@@ -804,5 +804,9 @@ R4.T6's compatibility importer API cleanup passed the semantic artifact suite
 (20/20); its caller/disposition ledger still needs to be recorded before
 promotion. The fresh current-head source-denied artifact compile passed with
 three local revisions and the 4-module and 8-module SlotMap projects. The
-positive parity/runtime, negative diagnostic, source-mode, and T8 broad gates
-remain open; this does not yet constitute the P2 acceptance receipt.
+artifact-compiled runtime smoke passed on the ordinary VM. The positive parity
+test remains open: it failed before artifact compilation because the explicit
+source-image path returned canonical Universe diagnostics. The ordinary source
+CLI comparison is now running to determine whether this is confined to that
+image-backed comparison path. Negative diagnostics and T8 broad gates remain
+open; this does not yet constitute the P2 acceptance receipt.
