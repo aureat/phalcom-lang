@@ -182,3 +182,30 @@ impl<T> ProbeIterable for ProbeChain<T> {
     );
     assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
 }
+
+
+#[test]
+fn constructor_kinded_trait_arguments_are_accepted_in_conformance_heads() {
+    let snapshot = analyze(
+        r#"
+trait ProbeConstructorWitness<F: Type -> Type> {}
+
+data ProbeBox<T>(_ value: T)
+class ProbeBoxContext {}
+
+impl ProbeConstructorWitness<ProbeBox> for ProbeBoxContext {}
+"#,
+    );
+
+    assert!(
+        !snapshot.all_diagnostics().any(|diagnostic| {
+            matches!(
+                diagnostic.code,
+                DiagnosticCode::AnnotationUnsaturatedConstructor | DiagnosticCode::AnnotationUnresolved
+            )
+        }),
+        "constructor-kinded trait arguments must be formed at their declared kind; diagnostics: {:#?}",
+        snapshot.diagnostics
+    );
+    assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
+}
