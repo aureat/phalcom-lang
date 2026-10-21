@@ -3341,3 +3341,21 @@ HAND OFF
 Do not return to speculative family-by-family reimplementation unless an R4 discriminator proves the merged canonical importer lacks actual current compiler authority.
 
 The final branch should make P3 boring in the best sense: P3 should consume a stable current semantic generation, invoke already-proven deterministic artifact projection machinery, and integrate production artifact generation without reopening the artifact-consumer architecture.
+
+## Current correction slice — 2026-10-22
+
+The `fix/universe-semantic-source` continuation completed the bounded
+Universe-source diagnostic portion of R4. It is recorded separately from the
+larger artifact/session acceptance ledger because R4 itself remains open.
+
+At `5a68a1b6e`, the slice removed five unreachable `Future<T>` match arms,
+made the `Iterable.fold` requirement's callable generic explicit, and repaired
+generic associated-projection equality forwarding. The focused semantic target
+passed 8/8, the standalone `Module.packageInfo` unit test passed 1/1, and a
+fresh canonical Universe census passed with 48 classified residual rows.
+
+The detailed evidence is in
+`ARTF001.C1.P2.R4-universe-semantic-source-walkthrough.md`; the takeover
+boundary is in
+`ARTF001.C1.P2.R4-universe-semantic-source-handoff.md`. This slice does not
+promote R4/T9, close P2, or establish source-free VM execution.

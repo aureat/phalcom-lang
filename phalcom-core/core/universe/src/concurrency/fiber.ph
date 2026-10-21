@@ -439,7 +439,6 @@ class Future<T> {
         match out {
           Result::Ok(v) => v
           Result::Error(e) => e.raise()
-          _ => Error.new("await: invalid outcome").raise()
         }
       }
       _ => {
@@ -502,7 +501,6 @@ class Future<T> {
               result.settleError(e)
               ()
             }
-            _ => ()
           }
         }
         _ => ()
@@ -539,7 +537,6 @@ class Future<T> {
               result.settleError(e)
               ()
             }
-            _ => ()
           }
         }
         _ => ()
@@ -571,7 +568,6 @@ class Future<T> {
               )
               ()
             }
-            _ => ()
           }
         }
         _ => ()
@@ -607,7 +603,6 @@ class Future<T> {
               )
               ()
             }
-            _ => ()
           }
         }
         _ => ()

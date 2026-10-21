@@ -2732,10 +2732,26 @@ fn apply_generic_callable_in_context(
         // mandatory and do not publish a specialization for this call.
         let unproved_equality = underconstrained.unsolved_vars.is_empty() && {
             let session = session_handle.borrow();
-            var_map.values().all(|term| session.materialize(term, ctx.store).is_ok())
+            let evidence = &ctx.generic_evidence;
+            let store = &mut *ctx.store;
+            var_map.values().all(|term| session.materialize(term, store).is_ok())
                 && session.residual_obligations().iter().any(|obligation| {
-                    matches!(&obligation.origin, ConstraintOrigin::GenericWhere { callable: owner, .. } if Some(owner) == callable.as_ref())
-                        && matches!(obligation.relation, InferenceRelation::Equivalent(_, _))
+                    if !matches!(&obligation.origin, ConstraintOrigin::GenericWhere { callable: owner, .. } if Some(owner) == callable.as_ref()) {
+                        return false;
+                    }
+                    let InferenceRelation::Equivalent(left, right) = &obligation.relation else {
+                        return false;
+                    };
+                    let Ok(left_ty) = session.materialize(left, store) else {
+                        return true;
+                    };
+                    let Ok(right_ty) = session.materialize(right, store) else {
+                        return true;
+                    };
+                    let left_term = crate::types::parameter::TypeTerm::Canonical(left_ty);
+                    let right_term = crate::types::parameter::TypeTerm::Canonical(right_ty);
+                    !evidence.are_equivalent(&left_term, &right_term).is_proven()
+                        && !evidence.are_types_equivalent(store, left_ty, right_ty).is_proven()
                 })
         };
         let parameter = underconstrained
@@ -3963,7 +3979,9 @@ fn discharge_generic_obligations_with_instantiation(
                             .unwrap_or(instantiated_right);
                         let norm_left_term = TypeTerm::Canonical(norm_left);
                         let norm_right_term = TypeTerm::Canonical(norm_right);
-                        norm_left == norm_right || ctx.generic_evidence.are_equivalent(&norm_left_term, &norm_right_term).is_proven()
+                        norm_left == norm_right
+                            || ctx.generic_evidence.are_equivalent(&norm_left_term, &norm_right_term).is_proven()
+                            || ctx.generic_evidence.are_types_equivalent(ctx.store, norm_left, norm_right).is_proven()
                     };
 
                     if !satisfied {

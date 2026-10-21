@@ -903,3 +903,42 @@ or establish their root causes. See
 for every source location, construct, message, and first-pass semantic trace
 starting point. Classification against accepted rules, tests, and the
 predecessor revision remains open.
+
+### P2.R4 Universe semantic source-diagnostics closure — 2026-10-22
+
+The requested continuation ran on `fix/universe-semantic-source` after
+fast-forwarding from `origin/fix/universe-semantic-source` to `5a68a1b6e`.
+This is a bounded source-diagnostics correction slice; it does not close the
+larger P2.R4 artifact/session/runtime acceptance objective.
+
+Implemented at this slice:
+
+- removed five unreachable inner `Result` fallback arms from
+  `phalcom-core/core/universe/src/concurrency/fiber.ph`, while preserving the
+  outer `Option` fallbacks and the `Option<Result<T, Error>>` behavior;
+- made the `Iterable.fold` requirement publish its method-local accumulator
+  generic explicitly, matching the existing generic `Chain.fold` witness;
+- taught inference to defer equality between an associated projection and a
+  compound type, then let lexical/structural generic evidence prove or reject
+  that equality without inferring projection subjects backwards;
+- added focused positive/negative semantic regressions for the generic fold
+  witness and higher-kinded associated equality;
+- retained the standalone `Module.packageInfo` `None` unit regression.
+
+Current-head Universe census after the corrections:
+
+```text
+total = 48
+AssociatedTypeInherentUnsupported = 43  (intentional LANG007 residual)
+EnumCaseStaticBehaviorUnsupported = 2   (intentional enum semantics residual)
+MatchArmRedundant = 0                    (five fiber rows repaired)
+ImplConformanceIncomplete = 0            (Chain fold witness repaired)
+GenericConstraintUnsatisfied = 0         (Effects.sequence forwarding repaired)
+AnnotationUnsaturatedConstructor = 2     (deferred reflection ModuleMetadata gap)
+AnnotationUnresolved = 1                 (deferred UnorderedShape::Lookup gap)
+```
+
+All 48 rows are classified; no unexpected or unclassified source diagnostic
+remains in this census. The complete current evidence is recorded in
+`ARTF001.C1.P2.R4-universe-semantic-source-walkthrough.md`, with the next
+handoff in `ARTF001.C1.P2.R4-universe-semantic-source-handoff.md`.

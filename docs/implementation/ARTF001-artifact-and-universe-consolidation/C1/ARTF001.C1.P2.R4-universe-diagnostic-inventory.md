@@ -10,6 +10,28 @@ Universe diagnostics are **not gone**. `CanonicalProductFamily::Diagnostics` has
 
 No diagnostic was changed, suppressed, or fixed by this census. Each record still needs classification against the accepted language specification, existing semantic tests, and the predecessor revision before choosing a source, checker, or semantic-product correction.
 
+## Current-head closure census — 2026-10-22
+
+The 211-row table below is the initial discovery census and remains historical
+evidence. After implementing the bounded Universe-source correction slice on
+`fix/universe-semantic-source` at `5a68a1b6e`, a fresh canonical-image census
+reported **48 diagnostics**:
+
+| Diagnostic code | Current count | Disposition |
+|---|---:|---|
+| `AssociatedTypeInherentUnsupported` | 43 | Intentional LANG007 residual; associated-type bindings remain invalid in inherent implementations. |
+| `EnumCaseStaticBehaviorUnsupported` | 2 | Intentional enum-semantics residual; class-side trait requirements on enum targets remain unsupported. |
+| `MatchArmRedundant` | 0 | Five unreachable inner `Result` fallback arms removed from `concurrency.fiber`; outer `Option` fallbacks remain. |
+| `ImplConformanceIncomplete` | 0 | `Iterable.fold` now publishes its method-local accumulator generic, matching `Chain.fold`. |
+| `GenericConstraintUnsatisfied` | 0 | Associated-projection equality now defers to generic evidence; `Effects.sequence` forwarding is accepted while distinct constructors remain rejected. |
+| `AnnotationUnsaturatedConstructor` | 2 | Deferred reflection `ModuleMetadata` gap. |
+| `AnnotationUnresolved` | 1 | Deferred intrinsic `UnorderedShape::Lookup` gap. |
+
+The seven rows above account for all 48 current diagnostics. There are no
+unexpected or unclassified current-head rows. This closure census does not
+retroactively rewrite the historical 211-row discovery list; it records the
+post-correction state used by the focused acceptance receipt.
+
 ## Counts by diagnostic code
 
 | Diagnostic code | Count |

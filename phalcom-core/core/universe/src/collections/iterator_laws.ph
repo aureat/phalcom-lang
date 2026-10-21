@@ -190,7 +190,7 @@ trait Iterable
     return Some(lastVal)
   }
 
-  fold(initial initial, using f) {
+  fold<R>(initial initial: R, using f: (R, Self::Item) -> R) -> R {
     let mut it = self.iterator
     let mut acc = initial
     let mut step = it.next

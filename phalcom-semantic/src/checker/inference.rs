@@ -4658,6 +4658,14 @@ impl InferenceSession {
                     Ok(SolveEffect::Unchanged)
                 }
             }
+            (InferenceTerm::AssociatedProjection { .. }, _) | (_, InferenceTerm::AssociatedProjection { .. }) => {
+                // An associated projection may be equal to a compound type
+                // established by lexical generic evidence. Its subject must
+                // not be solved backwards from that equality; preserve the
+                // obligation for the generic proof layer instead.
+                self.defer_active_constraint();
+                Ok(SolveEffect::Unchanged)
+            }
             // Type-member operations are not injective. Their subjects and
             // arguments may become canonical after other constraints solve,
             // but projection equality must not solve those children backwards.

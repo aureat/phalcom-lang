@@ -133,8 +133,6 @@ impl<W, T> ProbeWriter<W, T> {
     );
     assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
 }
-
-
 #[test]
 fn universe_iterable_associated_contract_accepts_matching_iterator_evidence() {
     let snapshot = analyze(
@@ -183,6 +181,107 @@ impl<T> ProbeIterable for ProbeChain<T> {
     assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
 }
 
+#[test]
+fn universe_iterable_fold_witness_preserves_callable_generic_contract() {
+    let snapshot = analyze(
+        r#"
+trait ProbeIterator {
+  type Item
+  next -> Option<Self::Item>
+}
+
+trait ProbeIterable
+  where
+    Self::Iterator |= ProbeIterator,
+    <Self::Iterator as ProbeIterator>::Item == Self::Item
+{
+  type Item
+  type Iterator
+  iterator -> Self::Iterator
+  fold<R>(initial seed: R, using f: (R, Self::Item) -> R) -> R
+}
+
+data ProbeChainIterator<T>()
+impl<T> ProbeChainIterator<T> {
+  next -> Option<T> { Option<T>::None }
+}
+
+impl<T> ProbeIterator for ProbeChainIterator<T> {
+  type Item = T
+}
+
+data ProbeChain<T>()
+impl<T> ProbeChain<T> {
+  fold<R>(initial seed: R, using f: (R, T) -> R) -> R { seed }
+}
+
+impl<T> ProbeIterable for ProbeChain<T> {
+  type Item = T
+  type Iterator = ProbeChainIterator<T>
+
+  iterator -> ProbeChainIterator<T> { ProbeChainIterator<T>() }
+}
+"#,
+    );
+
+    assert!(
+        !snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::ImplConformanceIncomplete),
+        "generic fold witnesses must satisfy the Iterable-style requirement; diagnostics: {:#?}",
+        snapshot.diagnostics
+    );
+    assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
+}
+
+#[test]
+fn universe_higher_kinded_associated_equality_is_forwarded_structurally() {
+    let snapshot = analyze(
+        r#"
+trait ProbeIterable {
+  type Item
+}
+
+data ProbeChain<T>()
+impl<T> ProbeChain<T> {
+  @class
+  fromIterable<I>(_ values: I) -> ProbeChain<T>
+    where I |= ProbeIterable, <I as ProbeIterable>::Item == T
+  { ProbeChain<T>() }
+}
+
+class ProbeEffects {
+  @class
+  positive<F: Type -> Type, I, A>(_ source: I) -> Unit
+    where I |= ProbeIterable, <I as ProbeIterable>::Item == F<A>
+  {
+    let snapshot = ProbeChain<F<A>>.fromIterable(source)
+    ()
+  }
+
+  @class
+  negative<F: Type -> Type, G: Type -> Type, I, A>(_ source: I) -> Unit
+    where I |= ProbeIterable, <I as ProbeIterable>::Item == G<A>
+  {
+    let snapshot = ProbeChain<F<A>>.fromIterable(source)
+    ()
+  }
+}
+"#,
+    );
+
+    let equality_failures = snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::GenericConstraintUnsatisfied)
+        .count();
+    assert_eq!(
+        equality_failures, 1,
+        "the positive HKT equality must pass while the distinct-constructor negative control fails; diagnostics: {:#?}",
+        snapshot.diagnostics
+    );
+    assert!(snapshot.has_errors(), "the negative control must remain rejected: {:#?}", snapshot.diagnostics);
+}
+
 
 #[test]
 fn constructor_kinded_trait_arguments_are_accepted_in_conformance_heads() {
@@ -209,8 +308,6 @@ impl ProbeConstructorWitness<ProbeBox> for ProbeBoxContext {}
     );
     assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
 }
-
-
 #[test]
 fn same_owner_class_generic_dispatch_resolves_current_class() {
     let snapshot = analyze(
@@ -235,42 +332,4 @@ class ProbeStatics {
         snapshot.diagnostics
     );
     assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
-}
-
-
-#[test]
-fn canonical_universe_diagnostic_census_probe() {
-    use std::collections::BTreeMap;
-
-    let image = phalcom_semantic::canonical_image::canonical_universe_formal_image()
-        .expect("canonical Universe formal image must build for diagnostic census");
-    let diagnostics = image.snapshot().all_diagnostics().collect::<Vec<_>>();
-    let mut counts = BTreeMap::<String, usize>::new();
-
-    for diagnostic in &diagnostics {
-        *counts.entry(format!("{:?}", diagnostic.code)).or_default() += 1;
-    }
-
-    eprintln!("UNIVERSE_CENSUS_TOTAL|{}", diagnostics.len());
-    for (code, count) in counts {
-        eprintln!("UNIVERSE_CENSUS_COUNT|{code}|{count}");
-    }
-    for diagnostic in diagnostics {
-        eprintln!(
-            "UNIVERSE_CENSUS_ROW|{:?}|{:?}|{:?}|{}",
-            diagnostic.code,
-            diagnostic.primary.module,
-            diagnostic.primary.range,
-            diagnostic.message.replace('\n', " ")
-        );
-        for label in &diagnostic.labels {
-            eprintln!(
-                "UNIVERSE_CENSUS_LABEL|{:?}|{:?}|{:?}|{}",
-                diagnostic.code,
-                label.span.module,
-                label.span.range,
-                label.message.replace('\n', " ")
-            );
-        }
-    }
 }
