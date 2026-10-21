@@ -1260,14 +1260,7 @@ fn lower_scoped_type_form(
             }
 
             let members: Vec<String> = sym_ref.members.iter().map(|member| member.name.clone()).collect();
-            let declaration = resolver.resolve_type_name(current_module, &sym_ref.root, &members).or_else(|| {
-                let owner = site.self_term.as_ref()?.owner.clone();
-                (members.is_empty()
-                    && owner.module == *current_module
-                    && owner.name.as_ref() == sym_ref.root.as_str())
-                .then_some(owner)
-            });
-            if let Some(declaration) = declaration {
+            if let Some(declaration) = resolver.resolve_type_name(current_module, &sym_ref.root, &members) {
                 let runtime_form = declarations
                     .intrinsic_runtime_owner(&declaration)
                     .and_then(|_| declarations.runtime_form(store, &declaration));
@@ -2747,14 +2740,7 @@ pub fn resolve_type_form(
             }
 
             let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
-            let declaration = resolver.resolve_type_name(current_module, &sym_ref.root, &members).or_else(|| {
-                let owner = site.self_term.as_ref()?.owner.clone();
-                (members.is_empty()
-                    && owner.module == *current_module
-                    && owner.name.as_ref() == sym_ref.root.as_str())
-                .then_some(owner)
-            });
-            if let Some(decl) = declaration {
+            if let Some(decl) = resolver.resolve_type_name(current_module, &sym_ref.root, &members) {
                 if let Some(form) = declarations.form(&decl).or_else(|| resolver.resolve_alias_form(&decl)) {
                     TypeFormResolution::Ready(form)
                 } else {
