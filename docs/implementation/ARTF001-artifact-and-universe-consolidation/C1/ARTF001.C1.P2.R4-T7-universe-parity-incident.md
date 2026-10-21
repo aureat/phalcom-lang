@@ -9,7 +9,7 @@
 - Repository: `/Users/altunhasanli/dev/phalcom/phalcom`
 - Branch: `feat/artifact-universe-consolidation`
 - Starting revision: `4f65526d4b0cb5026ce02d53434f5b03d0167173`
-- Current revision: `4f65526d4b0cb5026ce02d53434f5b03d0167173`
+- Current revision at packet creation: `4f65526d4b0cb5026ce02d53434f5b03d0167173`
 
 ## 2. Escalation trigger
 
@@ -100,3 +100,28 @@ Choosing whether to expand artifact closure, narrow/normalize the parity project
 ## 14. Decision requested
 
 Determine the intended positive-parity boundary and source-image diagnostic disposition for P2.R4: should artifact loading reproduce the source compiler's 41-module linked/dependency/constructor products, or should the parity contract exclude source-bootstrap-only products while retaining semantic equivalence for the SlotMap program? Also determine whether diagnostics retained by `CanonicalUniverseFormalImage` are expected source debt, a checker/compiler defect, or a formal-image construction error, and identify the narrowest evidence needed to classify them.
+
+## 15. Advisory decision — 2026-10-21
+
+### Root cause and confidence
+
+The parity cause is not established. Two path differences are confirmed:
+
+- Ordinary source compilation creates a fresh `SemanticWorkspaceSession` and obtains availability from the source-backed canonical Universe program.
+- Artifact compilation creates a session from the imported image and uses `AvailabilityContract::default()` to avoid source bootstrap.
+- `CanonicalUniverseFormalImage::build` analyzes the Universe source set and retains its semantic diagnostics. Canonical bootstrap uses `compile_analyzed_for_canonical_bootstrap` to project that source surface despite diagnostics, while ordinary compilation with an explicit image uses `compile_analyzed_with_options`, which rejects snapshots with errors.
+
+The additional source-side modules may be required entry closure or broader source bootstrap. Current evidence does not decide which side produces the incorrect products. Confidence is high about the observed failures and path differences, low about the root cause.
+
+### Architecture verdict
+
+**PLAN NEEDS CLARIFICATION before parity-boundary narrowing or a shared availability-contract change.** Keep positive parity and the strict comparator. Do not expand artifact closure or change source availability until the exact 12 field differences identify which products are missing or extra. If a defect can be fixed while preserving the comparator and phase boundary, no plan amendment is required.
+
+### Required evidence and next action
+
+1. Produce a field-by-field report for all 12 differences, including module identities and affected products.
+2. Trace those products through source imports, artifact closure, and `AvailabilityContract`.
+3. For diagnostic parity, compile the same invalid input through the ordinary source and artifact-backed entry points and compare normalized entry-local diagnostics. The explicit source-image path is not a useful control while it rejects existing Universe diagnostics first.
+4. Catalog each Universe diagnostic by module, code, range, and triggering construct; compare with accepted specification rules, existing tests, and the relevant predecessor revision before classifying it as inherited debt or a defect.
+
+Do not suppress diagnostics, filter diagnostic-bearing modules, drop parity fields, or treat runtime smoke as parity evidence. Independent T6/T8 work may continue; T7 parity changes remain stopped until the difference report resolves the architecture choice.
