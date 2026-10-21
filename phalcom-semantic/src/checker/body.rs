@@ -186,14 +186,15 @@ fn analyze_callable_body_with_attribute_context(
             }
         }
     }
-    let current_declaration_resolver = if trait_surface.is_none() {
-        callable.try_declaration_owner().map(|declaration| CurrentDeclarationTypeResolver {
-            parent: resolver,
-            declaration,
-        })
+    let current_declaration_owner = if trait_surface.is_none() {
+        callable.try_declaration_owner().cloned()
     } else {
         None
     };
+    let current_declaration_resolver = current_declaration_owner.as_ref().map(|declaration| CurrentDeclarationTypeResolver {
+        parent: resolver,
+        declaration,
+    });
     let body_resolver: &dyn TypeResolver = current_declaration_resolver
         .as_ref()
         .map(|resolver| resolver as &dyn TypeResolver)
