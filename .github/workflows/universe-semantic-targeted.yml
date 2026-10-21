@@ -28,6 +28,15 @@ jobs:
           test -p phalcom-modules --test builtin_provider
           canonical_universe_sources_parse_interfaces_and_link
           -- --exact --nocapture
+      - name: Phase-aware mutual type cycle
+        id: phase_cycle
+        continue-on-error: true
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          test -p phalcom-semantic --test semantic
+          'semantic::integration::phase_evidence::mutual_type_only_import_cycle_finalizes_without_runtime_edges'
+          -- --exact --nocapture
       - name: Enum native root classification
         id: enum_native
         continue-on-error: true
@@ -67,6 +76,7 @@ jobs:
       - name: Require all focused checks
         if: always()
         run: |
+          test "${{ steps.phase_cycle.outcome }}" = "success"
           test "${{ steps.enum_native.outcome }}" = "success"
           test "${{ steps.option.outcome }}" = "success"
           test "${{ steps.result.outcome }}" = "success"

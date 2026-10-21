@@ -186,6 +186,103 @@ fn session_with_private_numbers_child_exposed(workspace: phalcom_semantic::ident
 }
 
 #[test]
+fn mutual_type_only_import_cycle_finalizes_without_runtime_edges() {
+    let a = module("cycle_a");
+    let b = module("cycle_b");
+    let source_texts = [
+        (
+            a.clone(),
+            "from .cycle_b import BType\nclass AType { peer(value: BType) -> BType { value } }\nexport AType\n",
+        ),
+        (
+            b.clone(),
+            "from .cycle_a import AType\nclass BType { peer(value: AType) -> AType { value } }\nexport BType\n",
+        ),
+    ];
+    let mut interfaces = BTreeMap::new();
+    let mut sources = BTreeMap::new();
+    for (id, source) in source_texts {
+        let parsed = phalcom_ast::parse(source, 0);
+        assert!(parsed.errors.is_empty(), "parse errors in {id}: {:#?}", parsed.errors);
+        let program = Arc::new(parsed.program);
+        interfaces.insert(
+            id.clone(),
+            InterfaceBuilder::build(id.clone(), ModuleKind::Module, &program).expect("interface builds"),
+        );
+        sources.insert(
+            id.clone(),
+            Arc::new(ParsedModuleUnit::new(id, ModuleKind::Module, None, Arc::from(source), program)),
+        );
+    }
+
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), interfaces);
+    let resolved = BTreeMap::from([
+        ((a.clone(), ".cycle_b".to_owned()), b.clone()),
+        ((b.clone(), ".cycle_a".to_owned()), a.clone()),
+    ]);
+    let semantic = Arc::new(
+        linker
+            .link_semantic(a.clone(), &resolved)
+            .expect("symbolic linking accepts the mutual type cycle"),
+    );
+
+    let mut session = session_with_private_numbers_child_exposed(phalcom_semantic::identity::WorkspaceId::from_raw(925));
+    let snapshot = session
+        .update_with_budget_and_cancel(
+            SemanticWorkspaceInput::new(semantic.to_unfinalized_program(), sources, 1).with_semantic_linked(semantic.clone()),
+            QueryBudget::default(),
+            &CancellationToken::new(),
+        )
+        .expect("semantic analysis accepts the mutual type cycle")
+        .snapshot;
+
+    let a_import = semantic.modules[&a].imports.by_local_name["BType"].clone();
+    let b_import = semantic.modules[&b].imports.by_local_name["AType"].clone();
+    for (module, import) in [(&a, &a_import), (&b, &b_import)] {
+        assert_eq!(
+            snapshot.import_phase_products[module].coverage,
+            phalcom_modules::linker::PhaseEvidenceCoverage::Complete,
+            "type-only import evidence must be complete for {module}"
+        );
+        assert_eq!(
+            snapshot.import_phase_products[module].bindings[import],
+            ImportPhaseSummary {
+                phase: DependencyPhase::InterfaceOnly,
+                observed: true,
+            },
+            "mutual annotation-only imports must remain interface-only"
+        );
+    }
+    assert!(
+        !snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.primary.module == a || diagnostic.primary.module == b),
+        "mutual type-only cycle should not produce semantic diagnostics"
+    );
+
+    let executable = ModuleLinker::new(semantic.universe.clone(), BTreeMap::new())
+        .finalize_executable_with_requirements(
+            (*semantic).clone(),
+            &snapshot.import_phase_products,
+            &snapshot.generated_runtime_requirements,
+        )
+        .expect("interface-only mutual cycle must finalize without a runtime cycle");
+
+    let a_read = LinkedReadSpec::Binding(SymbolId {
+        module: b.clone(),
+        name: "BType".into(),
+    });
+    let b_read = LinkedReadSpec::Binding(SymbolId {
+        module: a.clone(),
+        name: "AType".into(),
+    });
+    assert!(executable.runtime_read(&a, &a_read).is_none());
+    assert!(executable.runtime_read(&b, &b_read).is_none());
+    assert!(!executable.graphs.runtime.edges_from(&a).iter().any(|edge| edge.dependency == b));
+    assert!(!executable.graphs.runtime.edges_from(&b).iter().any(|edge| edge.dependency == a));
+}
+
+#[test]
 fn imported_value_use_is_classified_runtime() {
     let fixture = phase_fixture(
         "class Imported {}\nexport Imported\n",
