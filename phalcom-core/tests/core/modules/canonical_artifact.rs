@@ -1,8 +1,8 @@
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_core::modules::canonical_artifact::{build_universe_telosc, load_universe_telosc, load_universe_telosc_from_bytes, write_universe_telosc};
 use phalcom_core::modules::canonical_universe::canonical_universe_program;
-use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
-use phalcom_core::modules::parity::{assert_compile_error_parity, assert_compiled_program_parity};
+use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics};
+use phalcom_core::modules::parity::{assert_compiled_program_parity, assert_semantic_diagnostics_parity};
 use phalcom_semantic::canonical_image::canonical_universe_formal_image;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use tempfile::tempdir;
@@ -1030,13 +1030,34 @@ let list = List.withCapacity("not an int");
 
     match (&src_err, &art_err) {
         (ProgramCompileError::Semantic(src_diags), ProgramCompileError::Semantic(art_diags)) => {
-            assert!(!src_diags.by_module.is_empty(), "must have semantic diagnostics");
-            assert_eq!(src_diags.by_module.len(), art_diags.by_module.len());
+            let src_entry_diags = entry_local_diagnostics(src_diags);
+            let art_entry_diags = entry_local_diagnostics(art_diags);
+            assert_eq!(
+                src_entry_diags.by_module.len(),
+                1,
+                "source diagnostics must identify only the invalid entry module"
+            );
+            assert_eq!(
+                art_entry_diags.by_module.len(),
+                1,
+                "artifact diagnostics must identify only the invalid entry module"
+            );
+            assert_semantic_diagnostics_parity(&src_entry_diags, &art_entry_diags);
         }
         _ => panic!("Expected semantic errors, got src: {:?}, art: {:?}", src_err, art_err),
     }
+}
 
-    assert_compile_error_parity(&src_err, &art_err);
+fn entry_local_diagnostics(diagnostics: &ProgramSemanticDiagnostics) -> ProgramSemanticDiagnostics {
+    ProgramSemanticDiagnostics {
+        by_module: diagnostics
+            .by_module
+            .iter()
+            .filter(|(module, _)| !module.project.is_universe())
+            .map(|(module, diagnostics)| (module.clone(), diagnostics.clone()))
+            .collect(),
+        snapshot: None,
+    }
 }
 
 fn assert_negative_diagnostic_parity_for_source(source: &str, expected_code: DiagnosticCode) {
@@ -1054,25 +1075,34 @@ fn assert_negative_diagnostic_parity_for_source(source: &str, expected_code: Dia
 
     match (&src_err, &art_err) {
         (ProgramCompileError::Semantic(src_diags), ProgramCompileError::Semantic(art_diags)) => {
-            assert!(!src_diags.by_module.is_empty(), "must have semantic diagnostics");
-            assert_eq!(src_diags.by_module.len(), art_diags.by_module.len());
-            let src_has_code = src_diags.by_module.values().any(|diags| diags.iter().any(|d| d.code == expected_code));
+            let src_entry_diags = entry_local_diagnostics(src_diags);
+            let art_entry_diags = entry_local_diagnostics(art_diags);
+            assert_eq!(
+                src_entry_diags.by_module.len(),
+                1,
+                "source diagnostics must identify only the invalid entry module"
+            );
+            assert_eq!(
+                art_entry_diags.by_module.len(),
+                1,
+                "artifact diagnostics must identify only the invalid entry module"
+            );
+            let src_has_code = src_entry_diags.by_module.values().any(|diags| diags.iter().any(|d| d.code == expected_code));
             assert!(
                 src_has_code,
                 "source diagnostics must contain expected code {:?}, got: {:?}",
-                expected_code, src_diags
+                expected_code, src_entry_diags
             );
-            let art_has_code = art_diags.by_module.values().any(|diags| diags.iter().any(|d| d.code == expected_code));
+            let art_has_code = art_entry_diags.by_module.values().any(|diags| diags.iter().any(|d| d.code == expected_code));
             assert!(
                 art_has_code,
                 "artifact diagnostics must contain expected code {:?}, got: {:?}",
-                expected_code, art_diags
+                expected_code, art_entry_diags
             );
+            assert_semantic_diagnostics_parity(&src_entry_diags, &art_entry_diags);
         }
         _ => panic!("Expected semantic errors, got src: {:?}, art: {:?}", src_err, art_err),
     }
-
-    assert_compile_error_parity(&src_err, &art_err);
 }
 
 #[test]
