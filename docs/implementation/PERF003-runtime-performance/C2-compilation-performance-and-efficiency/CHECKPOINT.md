@@ -18,9 +18,9 @@ next_action: >
   `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --lib`.
   Behavioral and runtime gates remain unauthorized.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: c36a788fcfdb44cad7449aa582f14c060233f5ae
-latest_tested_revision: c36a788fcfdb44cad7449aa582f14c060233f5ae
-latest_tested_predecessor: 0fc8f4ee51fc91da26c6186f249bd70131899dd1
+execution_tree_head: 09dc019d72701cdb7b3075fec6fffa51c223a380
+latest_tested_revision: 09dc019d72701cdb7b3075fec6fffa51c223a380
+latest_tested_predecessor: 18b8aa7a4977e4fadb8c07336919c3636df852fc
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
@@ -118,9 +118,9 @@ source-free VM execution is not implemented or verified.
   are not proven. Runtime bootstrap still obtains the canonical Universe
   program and compiles Universe modules through the source-backed path.
 - `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --lib` — PASS with
-  warnings on the current implementation worktree. The unintegrated validator
-  emits `dead_code` warnings. This establishes compilation only; no validator
-  behavior test or runtime gate was run for this continuation.
+  warnings on `09dc019d72701cdb7b3075fec6fffa51c223a380`. The unintegrated
+  validator emits `dead_code` warnings. This establishes compilation only; no
+  validator behavior test or runtime gate was run for this continuation.
 - Post-v14 gates: the 128-opcode manifest regression passes 1/1; all 9
   executable image codec tests pass; the staging-capability rejection passes
   1/1; `cargo fmt --all -- --check` and `git diff --check` pass.

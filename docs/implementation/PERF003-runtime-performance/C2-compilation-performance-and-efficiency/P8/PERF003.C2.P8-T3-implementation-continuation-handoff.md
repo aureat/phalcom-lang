@@ -7,6 +7,7 @@ verification: FOCUSED_TESTED
 date: 2026-10-21
 branch: feat/artifact-universe-consolidation
 based_on_revision: 18b8aa7a4977e4fadb8c07336919c3636df852fc
+implementation_revision: 09dc019d72701cdb7b3075fec6fffa51c223a380
 ---
 
 # PERF003.C2.P8 T3 implementation continuation
@@ -31,6 +32,9 @@ tracking branch both pointed to `18b8aa7a4977e4fadb8c07336919c3636df852fc`.
 The implementation work was based on that revision. The checkpoint is the
 canonical shared lifecycle record; this file is a takeover aid, not a second
 plan or a P8 completion handoff.
+The initial validator and lifecycle updates are committed at
+`09dc019d72701cdb7b3075fec6fffa51c223a380`; the core library check passed on
+that exact source revision.
 
 ## Implemented slice and findings
 
@@ -114,9 +118,9 @@ current compiler check. No validator behavior tests were run in this slice.
 ## Verification and open gates
 
 - `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --lib`: PASS with
-  warnings on the implementation worktree. The unintegrated validator emits
-  `dead_code` warnings. This is compilation evidence, not a validator behavior
-  proof.
+  warnings on `09dc019d72701cdb7b3075fec6fffa51c223a380`. The unintegrated
+  validator emits `dead_code` warnings. This is compilation evidence, not a
+  validator behavior proof.
 - `git diff --check`: PASS. No tests were added or run for the new validator.
 - P8.G2 (malformed/incompatible payload rejected before initialization): NOT
   RUN. P8.G3 (source/artifact parity), G4 (fresh-process source-denied eager
