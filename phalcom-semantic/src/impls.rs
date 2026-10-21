@@ -17,7 +17,7 @@ use crate::surface::MemberVisibility;
 use crate::traits::{InstantiatedTraitRequirement, TraitHeaderTable, TraitRef, TraitRefFormationError, TraitSurface, TraitSurfaceTable};
 use crate::types::annotation::{
     GenericBinderSite, ScopedTypeResolver, TypeFormationOutcome, TypeFormationSite, TypeLevelBinding, TypeResolver, resolve_generic_signature,
-    resolve_type_annotation, type_level_binding_for_parameter,
+    resolve_type_annotation, resolve_type_form, type_level_binding_for_parameter,
 };
 use crate::types::environment::TypeEnvironment;
 use crate::types::evidence::{TypeKnowledge, UnknownReason};
@@ -3650,8 +3650,8 @@ pub fn resolve_conformance_head(
                     ));
                     continue;
                 };
-                let TypeKnowledge::Known(evidence) =
-                    resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, argument, &mut diagnostics)
+                let TypeFormationOutcome::Ready(argument_type) =
+                    resolve_type_form(ctx.store, ctx.declarations, &impl_resolver, &formation_site, argument, &mut diagnostics)
                 else {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
@@ -3661,7 +3661,7 @@ pub fn resolve_conformance_head(
                     ));
                     continue;
                 };
-                resolved.push(evidence.ty());
+                resolved.push(argument_type);
             }
             resolved
         }
