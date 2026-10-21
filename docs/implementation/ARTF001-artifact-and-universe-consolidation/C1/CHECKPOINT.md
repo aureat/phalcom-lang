@@ -261,7 +261,7 @@ The separate `ArtifactImportTransaction::stage_payload_with_digest` path still r
 | R4.T5 | Certify ordinary imported SemanticWorkspaceSession with overlays/invalidation/rollback | COMPLETE |
 | R4.T6 | Consolidate duplicate consumer/import staging architecture and stabilize APIs | PENDING |
 | R4.T7 | Fresh-process source denial, compiler parity, diagnostics parity, real package/runtime functionality | IN_PROGRESS — source-denied, ordinary-VM runtime, and source CLI gates pass; positive parity has an unresolved closure mismatch |
-| R4.T8 | Broad regression, schema freeze, manifest closure, cleanup | IN_PROGRESS — workspace no-run exposed a stale query allocation fixture; current-schema repair is under focused verification |
+| R4.T8 | Broad regression, schema freeze, manifest closure, cleanup | IN_PROGRESS — current-schema query allocation fixture passes; workspace no-run is being retried |
 | R4.T9 | P2 acceptance, walkthrough, checkpoint closure, P3 handoff | PENDING |
 
 ### P2.R4 compiler-image publication consultation — 2026-10-20
@@ -821,3 +821,5 @@ image V1 names and the old owner-key field. The fixture now targets the current
 legacy closure-validation DTO (`QueryImageV2`) and keeps the same allocation,
 cycle, duplicate, and invalid-index assertions. Its focused allocation test is
 running; the workspace no-run gate must be repeated after that passes.
+The repaired query-closure allocation discriminator passed 1/1; the workspace
+no-run gate is now being repeated.
