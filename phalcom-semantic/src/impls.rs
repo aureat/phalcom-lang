@@ -6205,8 +6205,30 @@ fn abi_erased_native_anchor_error(
     None
 }
 
-fn enum_root_member_is_requirement(has_body: bool, implementation: phalcom_common::modifier::ImplementationKind) -> bool {
-    !has_body && implementation.is_phalcom()
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EnumRootBodylessMemberPolicy {
+    Requirement,
+    ConcreteImplementation,
+    CatalogOwnedNative,
+    Unsupported,
+}
+
+fn enum_root_bodyless_member_policy(
+    implementation: phalcom_common::modifier::ImplementationKind,
+    has_native_anchor: bool,
+    native_catalog_owns: bool,
+) -> EnumRootBodylessMemberPolicy {
+    use phalcom_common::modifier::ImplementationKind;
+
+    match implementation {
+        ImplementationKind::Phalcom => EnumRootBodylessMemberPolicy::Requirement,
+        ImplementationKind::Native if has_native_anchor => EnumRootBodylessMemberPolicy::ConcreteImplementation,
+        ImplementationKind::Native if native_catalog_owns => EnumRootBodylessMemberPolicy::CatalogOwnedNative,
+        ImplementationKind::Native | ImplementationKind::Intrinsic => EnumRootBodylessMemberPolicy::Unsupported,
+        // LANG006 retains bodyless Foreign as a semantic callable and makes
+        // lowering fail explicitly at the unsupported binding boundary.
+        ImplementationKind::Foreign => EnumRootBodylessMemberPolicy::ConcreteImplementation,
+    }
 }
 
 /// Builds the canonical `InherentImplContribution` from an `ImplDef`.
@@ -6482,19 +6504,41 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
         }
 
         let is_requirement = if is_enum_root {
-            if enum_root_member_is_requirement(syntax.has_body(), syntax.implementation()) {
-                if is_class_side {
-                    diagnostics.push(SemanticDiagnostic::error_in(
-                        ctx.current_module.clone(),
-                        DiagnosticCode::EnumCaseStaticBehaviorUnsupported,
-                        "class-side requirement is not supported on enums",
-                        syntax.range(),
-                    ));
-                    continue;
-                }
-                true
-            } else {
+            if syntax.has_body() {
                 false
+            } else {
+                let native_catalog_owns = syntax.implementation() == phalcom_common::modifier::ImplementationKind::Native
+                    && ctx.declarations.intrinsic_runtime_owner(target_owner.declaration()).is_some()
+                    && native_anchor_record.is_none();
+                match enum_root_bodyless_member_policy(
+                    syntax.implementation(),
+                    native_anchor_record.is_some(),
+                    native_catalog_owns,
+                ) {
+                    EnumRootBodylessMemberPolicy::Requirement => {
+                        if is_class_side {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                ctx.current_module.clone(),
+                                DiagnosticCode::EnumCaseStaticBehaviorUnsupported,
+                                "class-side requirement is not supported on enums",
+                                syntax.range(),
+                            ));
+                            continue;
+                        }
+                        true
+                    }
+                    EnumRootBodylessMemberPolicy::ConcreteImplementation => false,
+                    EnumRootBodylessMemberPolicy::CatalogOwnedNative => continue,
+                    EnumRootBodylessMemberPolicy::Unsupported => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::ImplBodylessMemberUnsupported,
+                            "bodyless enum-root behavior requires a Phalcom requirement, retained Foreign binding, or canonical native implementation",
+                            syntax.range(),
+                        ));
+                        continue;
+                    }
+                }
             }
         } else if !is_exact_case {
             if !syntax.has_body() {
@@ -6643,13 +6687,33 @@ mod completeness_tests {
 
     #[test]
     fn enum_root_native_anchor_is_concrete_behavior_not_requirement() {
+        use super::EnumRootBodylessMemberPolicy;
         use phalcom_common::modifier::ImplementationKind;
 
-        assert!(super::enum_root_member_is_requirement(false, ImplementationKind::Phalcom));
-        assert!(!super::enum_root_member_is_requirement(true, ImplementationKind::Phalcom));
-        assert!(!super::enum_root_member_is_requirement(false, ImplementationKind::Native));
-        assert!(!super::enum_root_member_is_requirement(false, ImplementationKind::Foreign));
-        assert!(!super::enum_root_member_is_requirement(false, ImplementationKind::Intrinsic));
+        assert_eq!(
+            super::enum_root_bodyless_member_policy(ImplementationKind::Phalcom, false, false),
+            EnumRootBodylessMemberPolicy::Requirement
+        );
+        assert_eq!(
+            super::enum_root_bodyless_member_policy(ImplementationKind::Native, true, false),
+            EnumRootBodylessMemberPolicy::ConcreteImplementation
+        );
+        assert_eq!(
+            super::enum_root_bodyless_member_policy(ImplementationKind::Native, false, true),
+            EnumRootBodylessMemberPolicy::CatalogOwnedNative
+        );
+        assert_eq!(
+            super::enum_root_bodyless_member_policy(ImplementationKind::Native, false, false),
+            EnumRootBodylessMemberPolicy::Unsupported
+        );
+        assert_eq!(
+            super::enum_root_bodyless_member_policy(ImplementationKind::Foreign, false, false),
+            EnumRootBodylessMemberPolicy::ConcreteImplementation
+        );
+        assert_eq!(
+            super::enum_root_bodyless_member_policy(ImplementationKind::Intrinsic, false, false),
+            EnumRootBodylessMemberPolicy::Unsupported
+        );
     }
 
     #[test]
