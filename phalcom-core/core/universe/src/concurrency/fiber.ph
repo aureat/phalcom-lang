@@ -262,7 +262,7 @@ class Future<T> {
   @constructor
   new() {
     _outcome = None
-    _registrations = List.new()
+    _registrations = List<FutureSubscription>.new()
     _nextRegId = 0
     _detachCount = 0
   }
@@ -273,7 +273,7 @@ class Future<T> {
   @constructor
   value(_ v: T) {
     _outcome = None
-    _registrations = List.new()
+    _registrations = List<FutureSubscription>.new()
     _nextRegId = 0
     _detachCount = 0
     settleValue(v)
@@ -285,7 +285,7 @@ class Future<T> {
   @constructor
   error(_ e: Error) {
     _outcome = None
-    _registrations = List.new()
+    _registrations = List<FutureSubscription>.new()
     _nextRegId = 0
     _detachCount = 0
     settleError(e)
@@ -301,7 +301,7 @@ class Future<T> {
     }
     _outcome = Option::Some(outcome)
     let regs = _registrations
-    _registrations = List.new()
+    _registrations = List<FutureSubscription>.new()
     let mut i = 0
     let n = regs.size
     while i < n {
@@ -354,7 +354,7 @@ class Future<T> {
 
   // Amortized compaction to discard detached registration tombstones.
   private compactRegistrations() -> Unit {
-    let compacted = List.new()
+    let compacted = List<FutureSubscription>.new()
     let mut i = 0
     let n = _registrations.size
     while i < n {
@@ -647,7 +647,7 @@ class Future<T> {
       idx = idx + 1
     }
     let mut settled = false
-    let subs = List.new()
+    let subs = List<FutureSubscription>.new()
 
     let mut i = 0
     while i < n {
@@ -723,7 +723,7 @@ class Future<T> {
       outcomes.rawPush(None)
       idx = idx + 1
     }
-    let subs = List.new()
+    let subs = List<FutureSubscription>.new()
 
     let mut i = 0
     while i < n {
@@ -763,7 +763,7 @@ class Future<T> {
     }
     let result: Future<U> = Future.new()
     let mut settled = false
-    let subs = List.new()
+    let subs = List<FutureSubscription>.new()
 
     let mut i = 0
     while i < n {
