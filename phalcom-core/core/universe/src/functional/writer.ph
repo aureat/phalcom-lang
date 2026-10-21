@@ -40,7 +40,7 @@ impl<W, T> Writer<W, T> where W |= Semigroup {
 impl<W, T> Writer<W, T> where W |= Semigroup, W |= Monoid {
   @class pure(_ value: T) -> Writer<W, T> { Writer<W, T>(value: value, log: W.empty) }
   @class tell(_ log: W) -> Writer<W, T> where T == Unit {
-    Writer<W, T>(value: (), log: log)
+    Writer<W, Unit>(value: (), log: log)
   }
 }
 
