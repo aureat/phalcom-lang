@@ -22,6 +22,8 @@ jobs:
           components: rustc-codegen-cranelift-preview
       - uses: Swatinem/rust-cache@v2
       - name: Option typing regressions
+        id: option
+        continue-on-error: true
         run: >-
           cargo +nightly-2026-07-10
           --config 'build.rustc-wrapper=""'
@@ -29,6 +31,8 @@ jobs:
           'semantic::integration::option_typing::'
           -- --nocapture
       - name: Result callback regressions
+        id: result
+        continue-on-error: true
         run: >-
           cargo +nightly-2026-07-10
           --config 'build.rustc-wrapper=""'
@@ -36,9 +40,17 @@ jobs:
           'semantic::integration::result_callbacks::'
           -- --nocapture
       - name: Universe diagnostic regressions
+        id: universe
+        continue-on-error: true
         run: >-
           cargo +nightly-2026-07-10
           --config 'build.rustc-wrapper=""'
           test -p phalcom-semantic --test semantic
           'semantic::integration::universe_diagnostics::'
           -- --nocapture
+      - name: Require all focused checks
+        if: always()
+        run: |
+          test "${{ steps.option.outcome }}" = "success"
+          test "${{ steps.result.outcome }}" = "success"
+          test "${{ steps.universe.outcome }}" = "success"
