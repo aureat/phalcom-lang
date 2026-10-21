@@ -1,6 +1,6 @@
-from .method import Method
-
 @!documentation("Method family reference produced by selector binding.")
+
+from .method import Method
 native primitive class Family is Function {
   native receiver -> Dynamic
   native selector -> Selector
