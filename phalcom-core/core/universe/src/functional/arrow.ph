@@ -13,7 +13,7 @@ impl<A, B> Arrow<A, B> {
   type Input = A
   type Output = B
   @class new(_ transform: (A) -> B) -> Arrow<A, B> { Arrow<A, B>(transform) }
-  @class identity() -> Arrow<A, B> where A == B { Arrow<A, B>.new(|value| { value }) }
+  @class identity() -> Arrow<A, B> where A == B { Arrow<A, A>.new(|value| { value }) }
   call(_ value: A) -> B { self.transform.call(value) }
 
   then<C>(_ next: Arrow<B, C>) -> Arrow<A, C> {
