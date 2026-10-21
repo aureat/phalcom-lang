@@ -8,3 +8,5 @@ native class ChildModuleTable is Object {
   native contains(_ name: Symbol) -> Bool
   native get(_ name: Symbol) -> Option<Module>
 }
+
+export ChildModuleTable

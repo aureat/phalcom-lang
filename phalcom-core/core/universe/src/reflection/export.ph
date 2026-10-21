@@ -11,3 +11,5 @@ native class Export is Object {
   native isModule -> Bool
   native isBinding -> Bool
 }
+
+export Export

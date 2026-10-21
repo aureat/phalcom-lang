@@ -2,3 +2,5 @@
 native class ProjectIdentity is Object {
   native toString -> String
 }
+
+export ProjectIdentity

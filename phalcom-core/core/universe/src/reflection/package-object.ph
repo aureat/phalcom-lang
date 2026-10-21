@@ -16,3 +16,5 @@ native primitive class Package is Module {
   native __namespace__ -> Symbol
   native toString -> String
 }
+
+export Package

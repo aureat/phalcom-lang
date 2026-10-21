@@ -20,3 +20,5 @@ native class ProjectManifest is Object {
   native dependencies -> (*: PackageRequirement)
   native toString -> String
 }
+
+export ProjectManifest

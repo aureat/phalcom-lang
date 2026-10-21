@@ -7,3 +7,5 @@ native class PackageAuthor is Object {
   native email -> String
   native url -> Uri
 }
+
+export PackageAuthor

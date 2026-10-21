@@ -19,3 +19,5 @@ native class PackageInfo is Object {
   native identity -> PackageIdentity
   native toString -> String
 }
+
+export PackageInfo

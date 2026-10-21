@@ -12,3 +12,5 @@ native class ResolvedProjectDependency is Object {
   native rootPackage -> Package
   native origin -> Uri
 }
+
+export ResolvedProjectDependency

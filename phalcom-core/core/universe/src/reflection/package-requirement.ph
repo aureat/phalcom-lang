@@ -5,3 +5,5 @@ native class PackageRequirement is Object {
   native versionRequirement -> String
   native optional -> Bool
 }
+
+export PackageRequirement

@@ -3,3 +3,5 @@ native class Uri is Object {
   native toString -> String
   native ==(_ other: Dynamic) -> Bool
 }
+
+export Uri
