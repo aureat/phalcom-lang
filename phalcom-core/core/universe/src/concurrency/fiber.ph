@@ -253,7 +253,7 @@ class FutureSubscription {
 /// rejected (with `Error`). It provides combinators for chaining, transformation,
 /// recovery, and concurrency orchestration.
 class Future<T> {
-  mut _outcome
+  mut _outcome: Option<Result<T, Error>>
   mut _registrations
   mut _nextRegId
   mut _detachCount

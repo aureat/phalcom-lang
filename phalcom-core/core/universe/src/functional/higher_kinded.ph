@@ -58,7 +58,11 @@ impl Functor<Chain> for ChainContext {
   @class map<A, B>(_ value: Chain<A>, using f: (A) -> B) -> Chain<B> { value.map(f) }
 }
 impl Applicative<Chain> for ChainContext {
-  @class pure<A>(_ value: A) -> Chain<A> { Chain<A>::Empty.prepend(value) }
+  @class
+  pure<A>(_ value: A) -> Chain<A> {
+    let empty: Chain<A> = Chain<A>::Empty
+    empty.prepend(value)
+  }
   @class map2<A, B, C>(_ left: Chain<A>, _ right: Chain<B>, using f: (A, B) -> C) -> Chain<C> {
     left.flatMap(|a| { right.map(|b| { f.call(a, b) }) })
   }
