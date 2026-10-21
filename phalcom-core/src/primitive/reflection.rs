@@ -118,8 +118,7 @@ pub fn module_package_info(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
             }
         }
     } else {
-        let name = vm.heap.module(id).name.clone();
-        PackageInfoDescriptor::standalone(&name)
+        return Ok(Value::none());
     };
 
     let info_obj = ReflectionCache::get_or_create_package_info(vm, &desc);
@@ -1431,4 +1430,24 @@ pub fn module_dependency_reason(vm: &mut VM, receiver: &Value, _args: &[Value]) 
     })?;
     let reason = vm.heap.module_dependency(id).reason_sym;
     Ok(Value::symbol(reason))
+}
+
+
+#[cfg(test)]
+mod module_reflection_tests {
+    use super::*;
+
+    #[test]
+    fn standalone_module_package_info_is_none() {
+        let mut vm = VM::new_kernel();
+        let module = vm.create_module("standalone", "<test>");
+
+        let package_info = module_package_info(&mut vm, &Value::obj(module), &[])
+            .expect("standalone Module.packageInfo reflection must succeed");
+
+        assert!(
+            package_info.is_none(),
+            "a genuinely standalone Module must not fabricate PackageInfo"
+        );
+    }
 }
