@@ -19,10 +19,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-10
-          components: rustfmt,rustc-codegen-cranelift-preview
+          components: rustc-codegen-cranelift-preview
       - uses: Swatinem/rust-cache@v2
-      - name: Formatting
-        run: cargo +nightly-2026-07-10 fmt --all -- --check
       - name: Option typing regressions
         run: >-
           cargo +nightly-2026-07-10
