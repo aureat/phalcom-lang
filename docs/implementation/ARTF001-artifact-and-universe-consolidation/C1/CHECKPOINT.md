@@ -808,12 +808,15 @@ artifact-compiled runtime smoke passed on the ordinary VM, and the ordinary
 source CLI completed with both SlotMap success markers. The positive parity
 test's first source-image attempt stopped on canonical Universe diagnostics.
 After switching the source side to the normal source compiler entry point,
-both sides compiled, but the comparator reported 12 differences: 41 Universe
-modules on the source side versus 8 on the artifact side, plus differences in
-runtime dependency and constructor-initialization products. The cause and the
-required parity boundary remain unresolved; no compiler behavior or comparison
-invariant has been weakened. Negative diagnostics and T8 broad gates remain
-open; this does not yet constitute the P2 acceptance receipt.
+both sides compiled, but the comparator reported 12 differences. The
+linked-module set difference contains 42 source-only Universe IDs and zero
+artifact-only IDs; full cardinalities and common IDs were not reported.
+Initialization order is a separate product containing 42 source-side
+Universe IDs and 10 artifact-side Universe dependency nodes. Runtime
+dependency and constructor-initialization products also differ. The cause and
+the required parity boundary remain unresolved; no compiler behavior or
+comparison invariant has been weakened. Negative diagnostics and T8 broad gates
+remain open; this does not yet constitute the P2 acceptance receipt.
 
 The first required `cargo test --workspace --no-run` attempt failed compiling
 `phalcom-semantic`'s `artifact-allocation` fixture, which used removed query
@@ -832,9 +835,12 @@ and retain this blocker in the final receipt.
 
 R4.T7 positive parity remains blocked on an architectural diagnosis. The
 ordinary source compiler and artifact compiler both compile the SlotMap inputs,
-but the parity comparator reports 12 differences, including 41 source-side
-Universe modules versus 8 artifact-side modules and mismatched runtime
-dependency and constructor-initialization products. The earlier
+but the parity comparator reports 12 differences. The linked-module set
+difference contains 42 source-only Universe IDs and zero artifact-only IDs;
+full cardinalities and common IDs were not reported. Initialization order is a
+separate product with 42 source-side Universe IDs and 10 artifact-side
+Universe dependency nodes. Runtime dependency and constructor-initialization
+products also differ. The earlier
 `compile_entry_selection_with_image` source attempt also surfaced the
 source-built canonical Universe image's semantic diagnostics. No diagnostics
 were suppressed and no parity invariant was weakened. See
@@ -887,3 +893,13 @@ session stores canonical authority in the constructor table's parent, so
 effective-parent equality still needs a focused proof and an architecture
 ruling before comparator changes. The test failed after 172.26s with 12
 reported differences; T7 remains open and P3 remains blocked.
+
+The canonical source diagnostic census completed with 211 semantic errors
+across 37 Universe modules and 12 diagnostic codes. The snapshot retains these
+records, while the `Diagnostics` product is `NeverPersist` and is not written
+to the compiler artifact. The census does not mean the diagnostics were fixed
+or establish their root causes. See
+[`ARTF001.C1.P2.R4-universe-diagnostic-inventory.md`](ARTF001.C1.P2.R4-universe-diagnostic-inventory.md)
+for every source location, construct, message, and first-pass semantic trace
+starting point. Classification against accepted rules, tests, and the
+predecessor revision remains open.

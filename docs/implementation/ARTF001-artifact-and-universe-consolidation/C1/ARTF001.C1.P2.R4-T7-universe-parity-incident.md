@@ -30,7 +30,7 @@ P2.R4.T7 requires the same real package entry to compile through the ordinary so
 
 - `ProgramCompiler::compile_entry_selection` compiles both `packages/slotmap` and `packages/slotmap/tests/runtime` from source.
 - `LoadedUniverseArtifact::compile_user_entry` compiles both entries from the loaded compiler-only artifact.
-- The positive parity test fails: 12 comparator differences. The source-side linked graph has 41 Universe modules while the artifact-side linked graph has 10. Reported mismatches include linked initialization order and graph/module sets, runtime dependency sets, and constructor-initialization products.
+- The positive parity test fails: 12 comparator differences. The source-only linked-module set contains 42 Universe IDs and the artifact-only set contains zero; full set cardinalities and common IDs were not reported. The separate initialization-order product contains 42 source-side Universe IDs and 10 artifact-side Universe dependency nodes. Reported mismatches also include runtime dependency sets and constructor-initialization products.
 - The earlier source side using `compile_entry_selection_with_image` failed before comparison because the source-built `CanonicalUniverseFormalImage` snapshot contains semantic diagnostics; `compile_analyzed` rejects snapshots with errors.
 - The ordinary source CLI completes SlotMap runtime tests. The artifact-compiled SlotMap test program also runs on ordinary `VM::run_compiled`.
 - Semantic diagnostics are not serialized in the compiler artifact. Their absence after artifact import is not evidence that the source diagnostics were resolved.
@@ -79,7 +79,7 @@ The positive test compares the ordinary source compiler entry point with the art
   2. reference graph nodes;
   3. semantic graph nodes;
   4. runtime graph nodes;
-  5. linked module set (`only_in_src` contains the 41-module Universe source set; `only_in_art` is empty);
+  5. linked module set (`only_in_src` contains 42 Universe IDs; `only_in_art` is empty; full set cardinalities and common IDs were not reported);
   6. constructor-initialization products for package `<root>`;
   7. runtime dependencies for `dense_slot_map`;
   8. constructor-initialization products for `dense_slot_map`;
@@ -90,7 +90,7 @@ The positive test compares the ordinary source compiler entry point with the art
 - The artifact-side runtime dependencies add Universe modules. `dense_slot_map` adds `collections.iterator_laws`, `collections.list`, `errors.error`, `object.object`, `option.option`, and `scalar.number`; `main` adds `collections.tuple`, `concurrency.fiber`, `errors.error`, `option.option`, and `scalar.string`; `slot_map` adds `collections.iterator_laws`, `collections.list`, `errors.error`, `object.object`, `option.option`, `scalar.bool`, `scalar.number`, and `scalar.string`.
 - The live code confirms two path inputs without establishing which output is wrong: source analysis seeds source-authored Universe support and finalizes with `canonical_universe_program().availability_after_bootstrap()`; artifact analysis discovers through the imported external module world and supplies `AvailabilityContract::default()`.
 - Focused artifact-runtime execution passes on ordinary `VM::run_compiled`; source CLI execution also passes.
-- The source-image compiler path returns semantic errors from multiple Universe modules, including unresolved/unsaturated type annotations, generic inference failures, call-shape or argument mismatches, constructor-super requirements, and unsupported enum/associated-type forms. Their status against the accepted spec and their relationship to the parity mismatch have not been classified.
+- The source-image compiler path returns semantic errors from multiple Universe modules. The later census found 211 diagnostics across 37 modules and 12 diagnostic codes; their full source-located list and first-pass trace map are in [`ARTF001.C1.P2.R4-universe-diagnostic-inventory.md`](ARTF001.C1.P2.R4-universe-diagnostic-inventory.md). Their status against the accepted spec and their relationship to the parity mismatch have not been classified.
 
 ## 10. Implementer's causal hypothesis
 
@@ -113,7 +113,7 @@ Choosing whether to expand artifact closure, narrow/normalize the parity project
 
 ## 14. Decision requested
 
-Determine the intended positive-parity boundary and source-image diagnostic disposition for P2.R4: should artifact loading reproduce the source compiler's 41-module linked/dependency/constructor products, or should the parity contract exclude source-bootstrap-only products while retaining semantic equivalence for the SlotMap program? Also determine whether diagnostics retained by `CanonicalUniverseFormalImage` are expected source debt, a checker/compiler defect, or a formal-image construction error, and identify the narrowest evidence needed to classify them.
+Determine the intended positive-parity boundary and source-image diagnostic disposition for P2.R4: should artifact loading reproduce the source-only linked-module IDs and source-bootstrap runtime/constructor products, or should the parity contract exclude source-bootstrap-only products while retaining semantic equivalence for the SlotMap program? Also determine whether diagnostics retained by `CanonicalUniverseFormalImage` are expected source debt, a checker/compiler defect, or a formal-image construction error, and identify the narrowest evidence needed to classify them.
 
 ## 15. Advisory decision — 2026-10-21
 
@@ -210,15 +210,19 @@ reviewer rules on comparing the effective table.
 
 - Positive parity remains failed; comparator and compiler behavior remain
   unchanged.
-- Linked module-set counts are 42 source-side Universe modules and zero
-  artifact-side Universe modules; initialization order separately records
-  42 and 10 Universe nodes, respectively.
+- The linked-module set difference contains 42 source-only Universe IDs and
+  zero artifact-only Universe IDs; full cardinalities and common IDs are not
+  reported. Initialization order separately contains 42 source-side Universe
+  IDs and 10 artifact-side Universe dependency nodes.
 - The four user constructor products match in the shared local rows. The 85
   source-only rows are Universe products whose artifact-side effective-parent
   equivalence still needs direct verification.
 - Entry-local negative diagnostic parity is also failed by one extra
   artifact-side `IncompatibleOverride` diagnostic.
-- Canonical Universe source diagnostics remain a separate unclassified census.
+- The canonical source snapshot census found 211 semantic errors across 37
+  Universe modules and 12 diagnostic codes. The inventory records every
+  module, code, range, construct, and message. These diagnostics remain
+  unclassified against the spec and predecessor revision.
 - Ignored `Result` values in `phalcom-semantic/src/impls.rs` are a separate
   semantic-correctness audit item, not an established cause of either parity
   failure.
