@@ -257,10 +257,10 @@ The separate `ArtifactImportTransaction::stage_payload_with_digest` path still r
 | R4.T1 | Correct compatibility identity and port test/census infrastructure to current schemas | IN_PROGRESS |
 | R4.T2 | Recover complete ModuleWorldV2/SemanticWorldV4/QueryImageV4 build/load lifecycle and close current semantic authority | IN_PROGRESS |
 | R4.T3 | Re-establish exact allocation, rollback, failpoint, and retry certification | COMPLETE |
-| R4.T4 | Finish dependency-bearing current query profile and fail-closed required-root completeness | PENDING |
-| R4.T5 | Certify ordinary imported SemanticWorkspaceSession with overlays/invalidation/rollback | IN_PROGRESS — initial local overlay defect resolved; remaining closure evidence open |
+| R4.T4 | Finish dependency-bearing current query profile and fail-closed required-root completeness | COMPLETE |
+| R4.T5 | Certify ordinary imported SemanticWorkspaceSession with overlays/invalidation/rollback | COMPLETE |
 | R4.T6 | Consolidate duplicate consumer/import staging architecture and stabilize APIs | PENDING |
-| R4.T7 | Fresh-process source denial, compiler parity, diagnostics parity, real package/runtime functionality | PENDING |
+| R4.T7 | Fresh-process source denial, compiler parity, diagnostics parity, real package/runtime functionality | IN_PROGRESS — final-artifact source-denied compile passed; parity and final regressions remain |
 | R4.T8 | Broad regression, schema freeze, manifest closure, cleanup | PENDING |
 | R4.T9 | P2 acceptance, walkthrough, checkpoint closure, P3 handoff | PENDING |
 
@@ -793,3 +793,16 @@ already-published `LoadedUniverseArtifact`: it takes
 private `ValidatedExecutableImage` after validation. Its contract test was
 observed RED (`E0308`) and then passed 1/1. Full T1 proof limits and identity
 coverage, T2–T10, and source-free VM execution remain open.
+
+The current closure pass also completed the R4.T3 exact whole-load allocation
+gate at `N=453,885,905` bytes with independent allocator/ledger equality,
+`N-1` typed failure, rollback, and clean retry. R4.T4's explicit 46-kind query
+policy, required-root closure, and query import tests passed (6/6, 1/1, and
+4/4). R4.T5 ordinary image-session replacement, local overlay/invalidation,
+shared-canonical isolation, and failure rollback tests passed (3/3 and 1/1).
+R4.T6's compatibility importer API cleanup passed the semantic artifact suite
+(20/20); its caller/disposition ledger still needs to be recorded before
+promotion. The fresh current-head source-denied artifact compile passed with
+three local revisions and the 4-module and 8-module SlotMap projects. The
+positive parity/runtime, negative diagnostic, source-mode, and T8 broad gates
+remain open; this does not yet constitute the P2 acceptance receipt.
