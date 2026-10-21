@@ -1013,8 +1013,6 @@ fn source_backed_and_artifact_backed_negative_diagnostic_parity() {
     let limits = ValidationLimits::default();
     let built = build_universe_telosc(&view, &limits).expect("build");
     let loaded = load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load");
-    let source_image = canonical_universe_formal_image().expect("canonical universe formal image");
-
     // Invalid program exercising canonical semantic authority:
     // Calling List.withCapacity with incompatible argument type String instead of Int
     let invalid_entry = EntrySelection::Inline(
@@ -1024,7 +1022,7 @@ let list = List.withCapacity("not an int");
         .into(),
     );
 
-    let src_res = ProgramCompiler::compile_entry_selection_with_image(invalid_entry.clone(), source_image.clone());
+    let src_res = ProgramCompiler::compile_entry_selection(invalid_entry.clone());
     let art_res = loaded.compile_user_entry(invalid_entry);
 
     let src_err = src_res.expect_err("source compilation must fail on type mismatch with canonical Option");
@@ -1047,10 +1045,8 @@ fn assert_negative_diagnostic_parity_for_source(source: &str, expected_code: Dia
     let limits = ValidationLimits::default();
     let built = build_universe_telosc(&view, &limits).expect("build");
     let loaded = load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load");
-    let source_image = canonical_universe_formal_image().expect("canonical universe formal image");
-
     let invalid_entry = EntrySelection::Inline(source.into());
-    let src_res = ProgramCompiler::compile_entry_selection_with_image(invalid_entry.clone(), source_image.clone());
+    let src_res = ProgramCompiler::compile_entry_selection(invalid_entry.clone());
     let art_res = loaded.compile_user_entry(invalid_entry);
 
     let src_err = src_res.expect_err("source compilation must fail");
