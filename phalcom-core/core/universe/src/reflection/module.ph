@@ -16,7 +16,7 @@ native primitive class Module is Object {
   native namespace -> Symbol
   native package -> Option<Package>
   native rootPackage -> Option<Package>
-  native packageInfo -> PackageInfo
+  native packageInfo -> Option<PackageInfo>
   native exports -> ExportTable
   native metadata -> Map
   native dependencies -> (*: ModuleDependency)
