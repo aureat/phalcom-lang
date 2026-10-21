@@ -15,7 +15,7 @@ impl<R, T> Reader<R, T> {
 
   /// Produces the environment itself. Available on Reader<R, R>.
   @class
-  ask() -> Reader<R, T> where T == R { Reader<R, T>.new(|environment| { environment }) }
+  ask() -> Reader<R, T> where T == R { Reader<R, R>.new(|environment| { environment }) }
 
   run(_ environment: R) -> T { self.read.call(environment) }
 
