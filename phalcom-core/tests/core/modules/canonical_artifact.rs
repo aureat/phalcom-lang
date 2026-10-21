@@ -2,10 +2,139 @@ use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_core::modules::canonical_artifact::{build_universe_telosc, load_universe_telosc, load_universe_telosc_from_bytes, write_universe_telosc};
 use phalcom_core::modules::canonical_universe::canonical_universe_program;
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics};
-use phalcom_core::modules::parity::{assert_compiled_program_parity, assert_semantic_diagnostics_parity};
+use phalcom_core::modules::parity::{assert_semantic_diagnostics_parity, compare_compiled_programs};
 use phalcom_semantic::canonical_image::canonical_universe_formal_image;
 use phalcom_semantic::diagnostic::DiagnosticCode;
+use phalcom_semantic::identity::CallableId;
+use phalcom_semantic::signature::{ConstructorInitializationProduct, ConstructorInitializationTable};
+use std::collections::{BTreeMap, BTreeSet};
 use tempfile::tempdir;
+
+fn constructor_products_where(
+    table: &ConstructorInitializationTable,
+    mut include: impl FnMut(&CallableId) -> bool,
+) -> BTreeMap<CallableId, ConstructorInitializationProduct> {
+    table
+        .iter()
+        .filter(|(callable, _)| include(callable))
+        .map(|(callable, product)| (callable.clone(), product.clone()))
+        .collect()
+}
+
+fn assert_constructor_parent_coverage(
+    source: &phalcom_core::modules::compile::CompiledProgram,
+    artifact: &phalcom_core::modules::compile::CompiledProgram,
+    source_image: &phalcom_semantic::canonical_image::CanonicalUniverseFormalImage,
+    artifact_image: &phalcom_semantic::canonical_image::CanonicalUniverseFormalImage,
+) {
+    let source_modules = source.modules.keys().cloned().collect::<BTreeSet<_>>();
+    let artifact_modules = artifact.modules.keys().cloned().collect::<BTreeSet<_>>();
+    assert_eq!(
+        source_modules, artifact_modules,
+        "user module identities must match before constructor comparison"
+    );
+    let source_canonical = constructor_products_where(source_image.snapshot().constructor_initializations.as_ref(), |callable| {
+        callable.owner.module().project.is_universe()
+    });
+    let artifact_canonical = constructor_products_where(artifact_image.snapshot().constructor_initializations.as_ref(), |callable| {
+        callable.owner.module().project.is_universe()
+    });
+    assert_eq!(
+        source_canonical, artifact_canonical,
+        "source and imported artifact canonical constructor products must match exactly"
+    );
+
+    for module in &source_modules {
+        let source_table = &source.modules[module].lowering.constructor_initializations;
+        let artifact_table = &artifact.modules[module].lowering.constructor_initializations;
+        let source_local_canonical = source_table
+            .iter_local()
+            .filter(|(callable, _)| callable.owner.module().project.is_universe())
+            .count();
+        let artifact_local_canonical = artifact_table
+            .iter_local()
+            .filter(|(callable, _)| callable.owner.module().project.is_universe())
+            .count();
+        let source_effective_canonical = constructor_products_where(source_table, |callable| callable.owner.module().project.is_universe());
+        let artifact_effective_canonical = constructor_products_where(artifact_table, |callable| callable.owner.module().project.is_universe());
+        let source_user = constructor_products_where(source_table, |callable| source_modules.contains(callable.owner.module()));
+        let artifact_user = constructor_products_where(artifact_table, |callable| artifact_modules.contains(callable.owner.module()));
+
+        assert_eq!(
+            source_table.parent_len(),
+            0,
+            "source compilation should own its canonical constructor rows locally for {module:?}"
+        );
+        assert_eq!(
+            source_local_canonical,
+            source_canonical.len(),
+            "source canonical constructor rows must match the formal image for {module:?}"
+        );
+        assert_eq!(
+            artifact_local_canonical, 0,
+            "artifact compilation must keep canonical constructors in the imported parent for {module:?}"
+        );
+        assert_eq!(
+            artifact_table.parent_len(),
+            artifact_canonical.len(),
+            "artifact constructor parent must cover the full imported canonical table for {module:?}"
+        );
+        assert_eq!(
+            source_effective_canonical, source_canonical,
+            "source lowering context must contain the exact canonical products for {module:?}"
+        );
+        assert_eq!(
+            artifact_effective_canonical, artifact_canonical,
+            "artifact lowering context must expose the exact imported canonical products for {module:?}"
+        );
+        assert_eq!(
+            source_effective_canonical, artifact_effective_canonical,
+            "canonical constructor coverage must match for {module:?}"
+        );
+        assert_eq!(source_user, artifact_user, "user constructor products must match exactly for {module:?}");
+
+        let source_effective = constructor_products_where(&source_table, |_| true);
+        let artifact_effective = constructor_products_where(&artifact_table, |_| true);
+        assert_eq!(
+            source_effective, artifact_effective,
+            "effective constructor tables must match exactly for {module:?}"
+        );
+        eprintln!(
+            "T7 constructor proof {module:?}: source local canonical/user={}/{}, artifact local canonical/user={}/{}, artifact parent={}, effective canonical={}, user products={}",
+            source_local_canonical,
+            source_table.local_len() - source_local_canonical,
+            artifact_local_canonical,
+            artifact_table.local_len() - artifact_local_canonical,
+            artifact_table.parent_len(),
+            artifact_effective_canonical.len(),
+            source_user.len(),
+        );
+    }
+}
+
+fn report_user_universe_runtime_requirements(label: &str, program: &phalcom_core::modules::compile::CompiledProgram) {
+    let user_modules = program.modules.keys().cloned().collect::<BTreeSet<_>>();
+    for importer in &user_modules {
+        for requirement in program
+            .linked
+            .runtime_requirements()
+            .iter()
+            .filter(|requirement| &requirement.importer == importer && requirement.dependency.project.is_universe())
+        {
+            eprintln!("T7 runtime requirement {label}: {requirement:?}");
+        }
+        for edge in program
+            .linked
+            .graphs
+            .runtime
+            .edges_from(importer)
+            .iter()
+            .filter(|edge| edge.dependency.project.is_universe())
+        {
+            eprintln!("T7 retained Universe runtime edge {label}: {edge:?}");
+        }
+    }
+}
 
 #[test]
 fn build_and_load_universe_telosc_compiles_source_free_inline_user_entry() {
@@ -969,7 +1098,11 @@ fn source_backed_and_artifact_backed_compiler_program_parity() {
     let src_slotmap = ProgramCompiler::compile_entry_selection(entry.clone()).expect("source compilation of packages/slotmap");
     let art_slotmap = loaded.compile_user_entry(entry).expect("artifact compilation of packages/slotmap");
     assert_eq!(src_slotmap.modules.len(), 4);
-    assert_compiled_program_parity(&src_slotmap, &art_slotmap);
+    assert_eq!(art_slotmap.modules.len(), 4);
+    assert_constructor_parent_coverage(&src_slotmap, &art_slotmap, view.formal, &loaded.formal_image);
+    report_user_universe_runtime_requirements("source slot_map", &src_slotmap);
+    report_user_universe_runtime_requirements("artifact slot_map", &art_slotmap);
+    let slotmap_parity = compare_compiled_programs(&src_slotmap, &art_slotmap);
 
     // 2. Real package: packages/slotmap/tests/runtime (8 modules)
     let slotmap_tests_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -981,7 +1114,15 @@ fn source_backed_and_artifact_backed_compiler_program_parity() {
     let src_tests = ProgramCompiler::compile_entry_selection(entry.clone()).expect("source compilation of slotmap runtime tests");
     let art_tests = loaded.compile_user_entry(entry).expect("artifact compilation of slotmap runtime tests");
     assert_eq!(src_tests.modules.len(), 8);
-    assert_compiled_program_parity(&src_tests, &art_tests);
+    assert_eq!(art_tests.modules.len(), 8);
+    assert_constructor_parent_coverage(&src_tests, &art_tests, view.formal, &loaded.formal_image);
+    report_user_universe_runtime_requirements("source slot_map runtime tests", &src_tests);
+    report_user_universe_runtime_requirements("artifact slot_map runtime tests", &art_tests);
+    let runtime_tests_parity = compare_compiled_programs(&src_tests, &art_tests);
+    assert!(
+        slotmap_parity.is_empty() && runtime_tests_parity.is_empty(),
+        "SlotMap parity: {slotmap_parity:#?}\nSlotMap runtime-test parity: {runtime_tests_parity:#?}"
+    );
 }
 
 #[test]

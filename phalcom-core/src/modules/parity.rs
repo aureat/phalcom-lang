@@ -5,7 +5,119 @@ use crate::modules::semantic_lowering::{ForIterationLoweringSpec, ForIterationRe
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{DeclarationId, ModuleId};
 use phalcom_semantic::identity::ImplId;
+use phalcom_semantic::signature::{ConstructorInitializationProduct, ConstructorInitializationTable};
 use std::collections::{BTreeMap, BTreeSet};
+
+fn format_set_difference<T: std::fmt::Debug + Ord>(src: &BTreeSet<T>, art: &BTreeSet<T>) -> String {
+    format!(
+        "source={}, artifact={}, common={}, source_only={:?}, artifact_only={:?}",
+        src.len(),
+        art.len(),
+        src.intersection(art).count(),
+        src.difference(art).collect::<Vec<_>>(),
+        art.difference(src).collect::<Vec<_>>(),
+    )
+}
+
+#[derive(Default)]
+struct ConstructorProductPartitions {
+    user: BTreeMap<phalcom_semantic::identity::CallableId, ConstructorInitializationProduct>,
+    canonical: BTreeMap<phalcom_semantic::identity::CallableId, ConstructorInitializationProduct>,
+    external: BTreeMap<phalcom_semantic::identity::CallableId, ConstructorInitializationProduct>,
+}
+
+fn partition_constructor_products(table: &ConstructorInitializationTable, user_modules: &BTreeSet<ModuleId>) -> ConstructorProductPartitions {
+    let mut partitions = ConstructorProductPartitions::default();
+    for (callable, product) in table.iter() {
+        let owner_module = callable.owner.module();
+        let normalized_owner_module = normalize_module_id(owner_module);
+        let target = if user_modules.contains(&normalized_owner_module) {
+            &mut partitions.user
+        } else if owner_module.project.is_universe() {
+            &mut partitions.canonical
+        } else {
+            &mut partitions.external
+        };
+        target.insert(callable.clone(), product.clone());
+    }
+    partitions
+}
+
+fn differing_constructor_fields(src: &ConstructorInitializationProduct, art: &ConstructorInitializationProduct) -> Vec<&'static str> {
+    let mut fields = Vec::new();
+    if src.factory != art.factory {
+        fields.push("factory");
+    }
+    if src.initializer != art.initializer {
+        fields.push("initializer");
+    }
+    if src.origin != art.origin {
+        fields.push("origin");
+    }
+    if src.field_input_fingerprint != art.field_input_fingerprint {
+        fields.push("field_input_fingerprint");
+    }
+    if src.default_fields != art.default_fields {
+        fields.push("default_fields");
+    }
+    if src.parameter_fields != art.parameter_fields {
+        fields.push("parameter_fields");
+    }
+    fields
+}
+
+fn constructor_partition_summary(
+    label: &str,
+    src: &BTreeMap<phalcom_semantic::identity::CallableId, ConstructorInitializationProduct>,
+    art: &BTreeMap<phalcom_semantic::identity::CallableId, ConstructorInitializationProduct>,
+) -> String {
+    let src_keys: BTreeSet<_> = src.keys().cloned().collect();
+    let art_keys: BTreeSet<_> = art.keys().cloned().collect();
+    let differing_common = src_keys
+        .intersection(&art_keys)
+        .filter_map(|key| {
+            let fields = differing_constructor_fields(&src[key], &art[key]);
+            (!fields.is_empty()).then_some((key, fields))
+        })
+        .collect::<Vec<_>>();
+    format!(
+        "{label}: source={}, artifact={}, source_only={:?}, artifact_only={:?}, differing_common={:?}",
+        src.len(),
+        art.len(),
+        src_keys.difference(&art_keys).collect::<Vec<_>>(),
+        art_keys.difference(&src_keys).collect::<Vec<_>>(),
+        differing_common,
+    )
+}
+
+fn constructor_table_difference(
+    module: &ModuleId,
+    src: &ConstructorInitializationTable,
+    art: &ConstructorInitializationTable,
+    user_modules: &BTreeSet<ModuleId>,
+) -> Option<String> {
+    let src_effective: BTreeMap<_, _> = src.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+    let art_effective: BTreeMap<_, _> = art.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+    if src_effective == art_effective {
+        return None;
+    }
+
+    let src_partitions = partition_constructor_products(src, user_modules);
+    let art_partitions = partition_constructor_products(art, user_modules);
+    Some(format!(
+        "Constructor initialization products mismatch for {:?}: source effective={} (local={}, parent={}), artifact effective={} (local={}, parent={}); {}; {}; {}",
+        module,
+        src_effective.len(),
+        src.local_len(),
+        src.parent_len(),
+        art_effective.len(),
+        art.local_len(),
+        art.parent_len(),
+        constructor_partition_summary("user-owned", &src_partitions.user, &art_partitions.user),
+        constructor_partition_summary("canonical-owned", &src_partitions.canonical, &art_partitions.canonical),
+        constructor_partition_summary("other-external-owned", &src_partitions.external, &art_partitions.external),
+    ))
+}
 
 /// Normalizes module identity across synthetic project boundaries so that
 /// sequential project IDs in inline/eval compilations compare identically.
@@ -113,6 +225,7 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
     assert_eq!(art_modules.len(), art.modules.len(), "normalize_module_id collision in art");
     let src_module_ids: BTreeSet<_> = src_modules.keys().cloned().collect();
     let art_module_ids: BTreeSet<_> = art_modules.keys().cloned().collect();
+    let user_module_ids = src_module_ids.union(&art_module_ids).cloned().collect::<BTreeSet<_>>();
     if src_module_ids != art_module_ids {
         report
             .differences
@@ -138,9 +251,10 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
     let src_ref_nodes: BTreeSet<_> = src.linked.graphs.references.nodes().into_iter().map(|n| normalize_module_id(&n)).collect();
     let art_ref_nodes: BTreeSet<_> = art.linked.graphs.references.nodes().into_iter().map(|n| normalize_module_id(&n)).collect();
     if src_ref_nodes != art_ref_nodes {
-        report
-            .differences
-            .push(format!("Reference graph nodes mismatch: src={:?}, art={:?}", src_ref_nodes, art_ref_nodes));
+        report.differences.push(format!(
+            "Reference graph nodes mismatch: {}",
+            format_set_difference(&src_ref_nodes, &art_ref_nodes)
+        ));
     } else {
         let src_ref_map: BTreeMap<ModuleId, BTreeSet<(ModuleId, phalcom_modules::graph::ReferenceKind)>> = src
             .linked
@@ -203,9 +317,10 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
         .map(|n| normalize_semantic_node_id(&n))
         .collect();
     if src_sem_nodes != art_sem_nodes {
-        report
-            .differences
-            .push(format!("Semantic graph nodes mismatch: src={:?}, art={:?}", src_sem_nodes, art_sem_nodes));
+        report.differences.push(format!(
+            "Semantic graph nodes mismatch: {}",
+            format_set_difference(&src_sem_nodes, &art_sem_nodes)
+        ));
     } else {
         let src_sem_map: BTreeMap<
             phalcom_modules::graph::SemanticNodeId,
@@ -262,7 +377,7 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
     if src_rt_nodes != art_rt_nodes {
         report
             .differences
-            .push(format!("Runtime graph nodes mismatch: src={:?}, art={:?}", src_rt_nodes, art_rt_nodes));
+            .push(format!("Runtime graph nodes mismatch: {}", format_set_difference(&src_rt_nodes, &art_rt_nodes)));
     } else {
         let src_rt_map: BTreeMap<ModuleId, BTreeSet<(ModuleId, phalcom_modules::graph::RuntimeDependencyReason)>> = src
             .linked
@@ -325,9 +440,8 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
     let art_linked_ids: BTreeSet<_> = art_linked_modules.keys().cloned().collect();
     if src_linked_ids != art_linked_ids {
         report.differences.push(format!(
-            "Linked module set mismatch: only_in_src={:?}, only_in_art={:?}",
-            src_linked_ids.difference(&art_linked_ids).collect::<Vec<_>>(),
-            art_linked_ids.difference(&src_linked_ids).collect::<Vec<_>>()
+            "Linked module set mismatch: {}",
+            format_set_difference(&src_linked_ids, &art_linked_ids)
         ));
     }
 
@@ -456,24 +570,15 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
             report.differences.push(format!("Lowering binding read safeties mismatch for {:?}", id));
         }
 
-        // Local constructor initializations
-        let src_ci: BTreeMap<_, _> = src_mod
-            .lowering
-            .constructor_initializations
-            .iter_local()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        let art_ci: BTreeMap<_, _> = art_mod
-            .lowering
-            .constructor_initializations
-            .iter_local()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        if src_ci != art_ci {
-            report.differences.push(format!(
-                "Lowering constructor initializations mismatch for {:?}: src={:#?}, art={:#?}",
-                id, src_ci, art_ci
-            ));
+        // Compare semantic authority across immutable parent and mutable local
+        // storage. Table placement is not constructor ownership.
+        if let Some(difference) = constructor_table_difference(
+            id,
+            &src_mod.lowering.constructor_initializations,
+            &art_mod.lowering.constructor_initializations,
+            &user_module_ids,
+        ) {
+            report.differences.push(difference);
         }
 
         // Normalized for iteration lanes (excluding process-local TypeId)
@@ -556,5 +661,91 @@ pub fn assert_compile_error_parity(src_err: &ProgramCompileError, art_err: &Prog
                 art_err
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{constructor_table_difference, partition_constructor_products};
+    use phalcom_common::selector::Selector;
+    use phalcom_modules::ModuleId;
+    use phalcom_modules::identity::{ModulePath, ResolvedProjectId};
+    use phalcom_semantic::db::ProductFingerprint;
+    use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
+    use phalcom_semantic::signature::{ConstructorInitializationProduct, ConstructorInitializationTable, ConstructorOrigin};
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+
+    fn product(module: &ModuleId, name: &str, fingerprint: u64) -> ConstructorInitializationProduct {
+        let owner = DeclarationId::new(module.clone(), name.into());
+        let factory = CallableId::new(owner.clone(), Selector::method("new", Vec::new()).unwrap(), DispatchSide::Class);
+        let initializer = CallableId::new(owner, Selector::method("initialize", Vec::new()).unwrap(), DispatchSide::Instance);
+        ConstructorInitializationProduct {
+            factory,
+            initializer,
+            origin: ConstructorOrigin::Source,
+            field_input_fingerprint: ProductFingerprint(fingerprint),
+            default_fields: Vec::new().into_boxed_slice(),
+            parameter_fields: Vec::new().into_boxed_slice(),
+        }
+    }
+
+    #[test]
+    fn constructor_parity_compares_effective_authority_by_exact_owner() {
+        let canonical_module = ModuleId::universe(ModulePath::root());
+        let user_module = ModuleId::resolved(ResolvedProjectId::from_raw(7), ModulePath::root());
+        let user_modules = BTreeSet::from([user_module.clone()]);
+        let canonical = product(&canonical_module, "Canonical", 11);
+        let user = product(&user_module, "User", 22);
+
+        let mut source = ConstructorInitializationTable::default();
+        source.insert(canonical.clone());
+        source.insert(user.clone());
+
+        let mut artifact_parent = ConstructorInitializationTable::default();
+        artifact_parent.insert(canonical.clone());
+        let mut artifact = ConstructorInitializationTable::with_parent(Arc::new(artifact_parent));
+        artifact.insert(user.clone());
+
+        assert_eq!(source.local_len(), 2);
+        assert_eq!(source.parent_len(), 0);
+        assert_eq!(artifact.local_len(), 1);
+        assert_eq!(artifact.parent_len(), 1);
+        assert!(constructor_table_difference(&user_module, &source, &artifact, &user_modules).is_none());
+
+        let source_partitions = partition_constructor_products(&source, &user_modules);
+        let artifact_partitions = partition_constructor_products(&artifact, &user_modules);
+        assert_eq!(source_partitions.user, artifact_partitions.user);
+        assert_eq!(source_partitions.canonical, artifact_partitions.canonical);
+        assert!(source_partitions.external.is_empty());
+        assert!(artifact_partitions.external.is_empty());
+
+        // Keep the same user product while proving absent canonical authority
+        // remains visible as a parity failure.
+        let missing_artifact = {
+            let mut table = ConstructorInitializationTable::with_parent(Arc::new(ConstructorInitializationTable::default()));
+            table.insert(user.clone());
+            table
+        };
+        let missing =
+            constructor_table_difference(&user_module, &source, &missing_artifact, &user_modules).expect("missing canonical authority must fail parity");
+        assert!(missing.contains("canonical-owned: source=1, artifact=0"), "{missing}");
+
+        let mut changed_parent = ConstructorInitializationTable::default();
+        changed_parent.insert(canonical);
+        let mut changed_artifact = ConstructorInitializationTable::with_parent(Arc::new(changed_parent));
+        changed_artifact.insert(product(&user_module, "User", 23));
+        let changed =
+            constructor_table_difference(&user_module, &source, &changed_artifact, &user_modules).expect("changed user product fingerprint must fail parity");
+        assert!(changed.contains("field_input_fingerprint"), "{changed}");
+
+        let missing_user_table = ConstructorInitializationTable::with_parent(Arc::new({
+            let mut parent = ConstructorInitializationTable::default();
+            parent.insert(product(&canonical_module, "Canonical", 11));
+            parent
+        }));
+        let missing_user =
+            constructor_table_difference(&user_module, &source, &missing_user_table, &user_modules).expect("missing user product must fail parity");
+        assert!(missing_user.contains("user-owned: source=1, artifact=0"), "{missing_user}");
     }
 }
