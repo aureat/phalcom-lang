@@ -263,5 +263,14 @@ fn canonical_universe_diagnostic_census_probe() {
             diagnostic.primary.range,
             diagnostic.message.replace('\n', " ")
         );
+        for label in &diagnostic.labels {
+            eprintln!(
+                "UNIVERSE_CENSUS_LABEL|{:?}|{:?}|{:?}|{}",
+                diagnostic.code,
+                label.span.module,
+                label.span.range,
+                label.message.replace('\n', " ")
+            );
+        }
     }
 }
