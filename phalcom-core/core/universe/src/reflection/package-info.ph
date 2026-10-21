@@ -1,9 +1,10 @@
+@!documentation("Durable package artifact metadata.")
+
 from .package-author import PackageAuthor
 from .package-identity import PackageIdentity
 from .package-requirement import PackageRequirement
 from .uri import Uri
 
-@!documentation("Durable package artifact metadata.")
 native class PackageInfo is Object {
   native name -> Symbol
   native namespace -> Symbol

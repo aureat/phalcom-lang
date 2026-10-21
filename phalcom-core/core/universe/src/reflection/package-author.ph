@@ -1,6 +1,7 @@
+@!documentation("Structured package authorship metadata.")
+
 from .uri import Uri
 
-@!documentation("Structured package authorship metadata.")
 native class PackageAuthor is Object {
   native name -> String
   native email -> String

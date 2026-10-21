@@ -1,6 +1,7 @@
+@!documentation("Exposed child modules table for a Package.")
+
 from .module import Module
 
-@!documentation("Exposed child modules table for a Package.")
 native class ChildModuleTable is Object {
   native names -> (*: Symbol)
   native size -> Int

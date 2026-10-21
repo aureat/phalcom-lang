@@ -1,7 +1,8 @@
+@!documentation("Individual reflected module export descriptor.")
+
 from .export-kind import ExportKind
 from .module import Module
 
-@!documentation("Individual reflected module export descriptor.")
 native class Export is Object {
   native name -> Symbol
   native kind -> ExportKind

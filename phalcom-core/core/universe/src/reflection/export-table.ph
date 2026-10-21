@@ -1,6 +1,7 @@
+@!documentation("Public export surface reflection table.")
+
 from .export import Export
 
-@!documentation("Public export surface reflection table.")
 native class ExportTable is Object {
   native names -> (*: Symbol)
   native keys -> Tuple<Symbol>

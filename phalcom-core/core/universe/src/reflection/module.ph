@@ -1,9 +1,10 @@
+@!documentation("Module reflection and execution boundary object.")
+
 from .message import Message
 from .package-info import PackageInfo
 from .uri import Uri
 from .module-identity import ModuleIdentity
 
-@!documentation("Module reflection and execution boundary object.")
 native primitive class Module is Object {
   @class
   native new() -> Module
