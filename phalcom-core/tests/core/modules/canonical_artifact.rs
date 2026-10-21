@@ -961,13 +961,12 @@ fn source_backed_and_artifact_backed_compiler_program_parity() {
     let limits = ValidationLimits::default();
     let built = build_universe_telosc(&view, &limits).expect("build");
     let loaded = load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load");
-    let source_image = canonical_universe_formal_image().expect("canonical universe formal image");
 
     // 1. Real package: packages/slotmap (4 modules)
     let slotmap_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("packages/slotmap");
     assert!(slotmap_pkg.exists(), "packages/slotmap must exist");
     let entry = EntrySelection::Project(slotmap_pkg);
-    let src_slotmap = ProgramCompiler::compile_entry_selection_with_image(entry.clone(), source_image.clone()).expect("source compilation of packages/slotmap");
+    let src_slotmap = ProgramCompiler::compile_entry_selection(entry.clone()).expect("source compilation of packages/slotmap");
     let art_slotmap = loaded.compile_user_entry(entry).expect("artifact compilation of packages/slotmap");
     assert_eq!(src_slotmap.modules.len(), 4);
     assert_compiled_program_parity(&src_slotmap, &art_slotmap);
@@ -979,8 +978,7 @@ fn source_backed_and_artifact_backed_compiler_program_parity() {
         .join("packages/slotmap/tests/runtime");
     assert!(slotmap_tests_pkg.exists(), "packages/slotmap/tests/runtime must exist");
     let entry = EntrySelection::Project(slotmap_tests_pkg);
-    let src_tests =
-        ProgramCompiler::compile_entry_selection_with_image(entry.clone(), source_image.clone()).expect("source compilation of slotmap runtime tests");
+    let src_tests = ProgramCompiler::compile_entry_selection(entry.clone()).expect("source compilation of slotmap runtime tests");
     let art_tests = loaded.compile_user_entry(entry).expect("artifact compilation of slotmap runtime tests");
     assert_eq!(src_tests.modules.len(), 8);
     assert_compiled_program_parity(&src_tests, &art_tests);

@@ -807,6 +807,7 @@ three local revisions and the 4-module and 8-module SlotMap projects. The
 artifact-compiled runtime smoke passed on the ordinary VM. The positive parity
 test remains open: it failed before artifact compilation because the explicit
 source-image path returned canonical Universe diagnostics. The ordinary source
-CLI comparison is now running to determine whether this is confined to that
-image-backed comparison path. Negative diagnostics and T8 broad gates remain
-open; this does not yet constitute the P2 acceptance receipt.
+CLI completed successfully with both SlotMap success markers. The parity test
+now uses the normal source compiler entry point for its source-backed side;
+that focused comparison is pending. Negative diagnostics and T8 broad gates
+remain open; this does not yet constitute the P2 acceptance receipt.
