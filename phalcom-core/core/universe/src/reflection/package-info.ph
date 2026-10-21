@@ -1,5 +1,6 @@
 from .package-author import PackageAuthor
 from .package-identity import PackageIdentity
+from .package-requirement import PackageRequirement
 from .uri import Uri
 
 @!documentation("Durable package artifact metadata.")
@@ -12,7 +13,7 @@ native class PackageInfo is Object {
   native license -> String
   native homepage -> Uri
   native repository -> Uri
-  native requirements -> List
+  native requirements -> Tuple<PackageRequirement>
   native defaultEntry -> String
   native identity -> PackageIdentity
   native toString -> String
