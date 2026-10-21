@@ -133,3 +133,52 @@ impl<W, T> ProbeWriter<W, T> {
     );
     assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
 }
+
+
+#[test]
+fn universe_iterable_associated_contract_accepts_matching_iterator_evidence() {
+    let snapshot = analyze(
+        r#"
+trait ProbeIterator {
+  type Item
+  next -> Option<Self::Item>
+}
+
+trait ProbeIterable
+  where
+    Self::Iterator |= ProbeIterator,
+    <Self::Iterator as ProbeIterator>::Item == Self::Item
+{
+  type Item
+  type Iterator
+  iterator -> Self::Iterator
+}
+
+data ProbeChainIterator<T>()
+impl<T> ProbeChainIterator<T> {
+  next -> Option<T> { Option<T>::None }
+}
+
+impl<T> ProbeIterator for ProbeChainIterator<T> {
+  type Item = T
+}
+
+data ProbeChain<T>()
+impl<T> ProbeIterable for ProbeChain<T> {
+  type Item = T
+  type Iterator = ProbeChainIterator<T>
+
+  iterator -> ProbeChainIterator<T> { ProbeChainIterator<T>() }
+}
+"#,
+    );
+
+    assert!(
+        !snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::ImplConformanceIncomplete),
+        "matching associated iterator evidence must satisfy the Iterable-style trait contract; diagnostics: {:#?}",
+        snapshot.diagnostics
+    );
+    assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
+}
