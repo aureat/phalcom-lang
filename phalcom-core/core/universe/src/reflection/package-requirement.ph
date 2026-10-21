@@ -1,3 +1,5 @@
+from .package-info import PackageInfo
+
 @!documentation("Durable package dependency requirement descriptor.")
 native class PackageRequirement is Object {
   native alias -> Symbol
