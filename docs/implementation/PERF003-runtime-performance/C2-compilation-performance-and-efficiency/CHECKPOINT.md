@@ -18,9 +18,9 @@ next_action: >
   `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --lib`.
   Behavioral and runtime gates remain unauthorized.
 prepared_against_revision: 9cbba391a4482052dec476b327619c957a028b19
-execution_tree_head: 09dc019d72701cdb7b3075fec6fffa51c223a380
-latest_tested_revision: 09dc019d72701cdb7b3075fec6fffa51c223a380
-latest_tested_predecessor: 18b8aa7a4977e4fadb8c07336919c3636df852fc
+execution_tree_head: 424936a3181e8d6c6968b079a168890fcf89353b
+latest_tested_revision: 424936a3181e8d6c6968b079a168890fcf89353b
+latest_tested_predecessor: 180cee9ebeeb524c7a10f6018e14ede143e4bcf9
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
