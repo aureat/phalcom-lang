@@ -3,8 +3,9 @@
 //! (ARTF001.C1.P2)
 
 // The current-schema producer/importer modules below are the production path.
-// The compatibility staging API in this module is retained for transport,
-// validation, and package-authority tests; it is not a second publication path.
+// The compatibility staging importer and its family adapters are compiled
+// only into unit tests; production exposes no second semantic reconstruction
+// path.
 pub mod export;
 pub mod import;
 pub mod operational;
@@ -12,51 +13,94 @@ pub mod query;
 pub mod roots;
 pub mod validate;
 
+#[cfg(test)]
 mod associated_import;
+#[cfg(test)]
 mod callable_binding_import;
+#[cfg(test)]
 mod callable_dispatch_import;
+#[cfg(test)]
 mod callable_evidence_import;
+#[cfg(test)]
 mod callable_expression_import;
+#[cfg(test)]
 mod callable_import;
+#[cfg(test)]
 mod callable_specialization_import;
+#[cfg(test)]
 mod conformance_evidence_import;
+#[cfg(test)]
 mod conformance_import;
+#[cfg(test)]
 mod constructor_import;
+#[cfg(test)]
 mod denotation_import;
+#[cfg(test)]
 mod derived_import;
+#[cfg(test)]
 mod diagnostic_import;
+#[cfg(test)]
 mod dispatch_import;
+#[cfg(test)]
 mod enum_requirement_import;
 mod identity;
+#[cfg(test)]
 mod inherent_import;
 pub mod manifest;
+#[cfg(test)]
 mod module_static_import;
+#[cfg(test)]
 mod query_import;
 mod query_policy;
+#[cfg(test)]
 mod query_product_import;
+#[cfg(test)]
 mod semantic_import;
+#[cfg(test)]
 mod static_case_import;
+#[cfg(test)]
 mod static_constant_import;
+#[cfg(test)]
 mod static_definition_import;
+#[cfg(test)]
 mod static_dependency_import;
+#[cfg(test)]
 mod static_import;
+#[cfg(test)]
 mod static_program_import;
+#[cfg(test)]
 mod trait_import;
+#[cfg(test)]
 mod type_import;
+#[cfg(test)]
 mod witness_import;
+
+#[cfg(test)]
 pub use associated_import::ImportedAssociatedAuthority;
+#[cfg(test)]
 pub use callable_binding_import::ImportedCallableBindingAuthority;
+#[cfg(test)]
 pub use callable_dispatch_import::{ImportedCallableConditionalDispatchAuthority, ImportedConditionalCallCapability};
+#[cfg(test)]
 pub use callable_evidence_import::{ImportedCallableConformanceEvidence, ImportedCallableConformanceEvidenceAuthority};
+#[cfg(test)]
 pub use callable_expression_import::{ImportedCallableExpressionAuthority, ImportedCallableExpressionBase, ImportedExpressionDeferredAuthority};
+#[cfg(test)]
 pub use callable_import::ImportedCallableAuthority;
+#[cfg(test)]
 pub use callable_specialization_import::{ImportedCallSpecialization, ImportedCallableSpecializationAuthority};
+#[cfg(test)]
 pub use conformance_import::ImportedConformanceAuthority;
+#[cfg(test)]
 pub use constructor_import::ImportedConstructorInitializationAuthority;
+#[cfg(test)]
 pub use derived_import::ImportedDerivedConformanceAuthority;
+#[cfg(test)]
 pub use dispatch_import::ImportedDispatchAuthority;
+#[cfg(test)]
 pub use enum_requirement_import::ImportedEnumRequirementAuthority;
 pub use identity::StableOwnerCatalog;
+#[cfg(test)]
 pub use inherent_import::ImportedConditionalInherentAuthority;
 pub use manifest::{
     ArtifactAuthorityDisposition, COMPILER_ATTACHMENT_MANIFEST, CompilerAttachmentDispositionRow, CompilerAttachmentFamily, IMPORTED_ARTIFACT_FAMILY_MANIFEST,
@@ -64,38 +108,59 @@ pub use manifest::{
     SESSION_BASE_FAMILY_MANIFEST, SNAPSHOT_FIELD_MANIFEST, SessionBaseFamilyManifestRow, SnapshotFieldManifestRow, compiler_attachment_disposition,
     imported_family_disposition, query_kind_disposition, session_base_family_disposition, snapshot_field_disposition,
 };
+#[cfg(test)]
 pub use module_static_import::ImportedModuleStaticBindingAuthority;
 pub use query_policy::{
     CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_from_portable, query_kind_profile_support, query_root_is_reusable,
 };
 pub(crate) use query_policy::{CanonicalQueryRootRequirement, canonical_query_root_requirement};
+#[cfg(test)]
 pub use query_product_import::ImportedQueryProducts;
+#[cfg(test)]
 pub use semantic_import::ImportedSemanticAggregates;
+#[cfg(test)]
 pub use static_case_import::ImportedStaticCaseAuthority;
+#[cfg(test)]
 pub use static_constant_import::ImportedStaticConstantAuthority;
+#[cfg(test)]
 pub use static_definition_import::ImportedStaticDefinitionAuthority;
+#[cfg(test)]
 pub use static_import::ImportedStaticValueGraph;
+#[cfg(test)]
 pub use static_program_import::{
     ImportedCanonicalCheckedStaticApplication, ImportedCanonicalStaticApplicationArgument, ImportedCanonicalStaticProgram, ImportedOperationalNode,
     ImportedOperationalTarget, ImportedStaticBinaryOp, ImportedStaticUnaryOp,
 };
+#[cfg(test)]
 pub use trait_import::ImportedTraitAuthority;
+#[cfg(test)]
 pub use type_import::ImportedTypeGraph;
+#[cfg(test)]
 pub use witness_import::ImportedWitnessPreflightAuthority;
+
+#[cfg(test)]
+#[path = "compatibility_tests.rs"]
+mod compatibility_tests;
 
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::header::TeloscHeaderV2;
 use phalcom_compiler_artifact::identity::CanonicalCompatibilityIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
-use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
+#[cfg(test)]
+use phalcom_compiler_artifact::metadata::MetadataPreflightLimits;
+use phalcom_compiler_artifact::metadata::MetadataSectionV1;
 use phalcom_compiler_artifact::module_world::ModuleWorldV2;
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
 use phalcom_compiler_artifact::query::QueryImageV4;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV4;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
+#[cfg(test)]
 use phalcom_modules::canonical_products::CanonicalExternalModuleWorld;
+#[cfg(test)]
 use phalcom_modules::compiler_artifact::{load_module_world_with_allocation_budget, load_module_world_with_project_catalog_and_allocation_budget};
+#[cfg(test)]
 use phalcom_modules::{ProjectUniverse, TrustedPackageResolver, stage_artifact_project_authorities};
+#[cfg(test)]
 use phalcom_type_meta::SemanticMetadataBundle;
 use phalcom_type_meta::allocation::AllocationBudget;
 use std::sync::Arc;
@@ -131,6 +196,7 @@ impl CompilerArtifactImage {
 /// one `SemanticDb`, and one `CanonicalUniverseFormalImage`.
 #[derive(Clone, Debug)]
 #[doc(hidden)]
+#[cfg(test)]
 pub struct ImportedCompilerImage {
     pub external_world: Arc<CanonicalExternalModuleWorld>,
     /// Project identity graph retained for subsequent semantic import and local overlays.
@@ -213,6 +279,7 @@ pub struct ImportedCompilerImage {
     pub query_image: QueryImageV4,
 }
 
+#[cfg(test)]
 impl ImportedCompilerImage {
     /// Publishes fingerprint-validated imported query products into a fresh
     /// current-main semantic database.
@@ -230,6 +297,7 @@ impl ImportedCompilerImage {
 /// Ensures fail-closed semantics: allocations are tracked against a budget,
 /// all stages are loaded into private uncommitted fields, and on any error,
 /// staging structures are dropped without publishing partial state.
+#[cfg(test)]
 pub(crate) struct ArtifactImportTransaction<'a> {
     pub parent_budget: &'a mut AllocationBudget,
     pub child_ledger: Option<phalcom_type_meta::allocation::ChildAllocationBudget>,
@@ -266,6 +334,7 @@ pub(crate) struct ArtifactImportTransaction<'a> {
     committed: bool,
 }
 
+#[cfg(test)]
 impl<'a> ArtifactImportTransaction<'a> {
     pub fn new(budget: &'a mut AllocationBudget, limits: ValidationLimits) -> Self {
         let child_ledger = budget.child(usize::MAX);
@@ -738,6 +807,7 @@ impl<'a> ArtifactImportTransaction<'a> {
     }
 }
 
+#[cfg(test)]
 impl Drop for ArtifactImportTransaction<'_> {
     fn drop(&mut self) {
         if !self.committed {
@@ -775,6 +845,7 @@ impl Drop for ArtifactImportTransaction<'_> {
 }
 
 /// Helper converting general validation limits into metadata preflight limits.
+#[cfg(test)]
 pub fn metadata_preflight_limits(limits: &ValidationLimits) -> MetadataPreflightLimits {
     MetadataPreflightLimits {
         max_metadata_bytes: limits.max_string_bytes,
@@ -804,6 +875,7 @@ pub fn decode_and_validate_artifact(
 /// Production semantic/query publication is owned by the current native
 /// importer and `CanonicalUniverseFormalImage` loader.
 #[doc(hidden)]
+#[cfg(test)]
 pub fn import_compiler_image(
     artifact: CompilerArtifactPayload,
     limits: &ValidationLimits,
@@ -819,6 +891,7 @@ pub fn import_compiler_image(
 /// trusted package resolver. The returned compatibility view retains the
 /// resulting graph but is not a production semantic publication authority.
 #[doc(hidden)]
+#[cfg(test)]
 pub fn import_compiler_image_bytes_with_project_catalog(
     bytes: &[u8],
     expected_identity: Option<&CanonicalCompatibilityIdentity>,

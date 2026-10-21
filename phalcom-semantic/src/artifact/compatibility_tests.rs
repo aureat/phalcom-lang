@@ -36,7 +36,7 @@ use phalcom_compiler_artifact::semantic::world::{
     StaticConstantRecordV1, StaticConstantSymbolV1, StaticDefinitionRecordV1, StaticDefinitionSignatureV1, StaticDomainCaseCatalogRecordV1,
     StaticValueDomainV1, TraitSurfaceRecordV1, TypeKnowledgeV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1, WitnessPlanV1,
 };
-use phalcom_semantic::artifact::{
+use crate::artifact::{
     CompilerArtifactImage, ImportedOperationalNode, decode_and_validate_artifact, encode_artifact, import_compiler_image,
     import_compiler_image_bytes_with_project_catalog,
 };
@@ -395,7 +395,7 @@ fn transactional_semantic_export_and_import_round_trip() {
     let imported_unit = imported.static_values.value(ArtifactStaticValueId(0)).expect("imported static unit row");
     assert!(matches!(
         imported.static_values.store().get(imported_unit),
-        Ok(phalcom_semantic::static_value::StaticValueData::Unit)
+        Ok(crate::static_value::StaticValueData::Unit)
     ));
     assert_eq!(imported.query_image.supported_roots.len(), 1);
 
@@ -463,7 +463,7 @@ fn structural_data_contract_reconstructs_as_native_semantic_product() {
     let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
     ]));
-    let owner = phalcom_semantic::identity::DeclarationId::new(module, "Payload".into());
+    let owner = crate::identity::DeclarationId::new(module, "Payload".into());
     let info = imported
         .semantic_aggregates
         .data_semantics
@@ -471,7 +471,7 @@ fn structural_data_contract_reconstructs_as_native_semantic_product() {
         .expect("native data declaration product");
     assert_eq!(info.owner, owner);
     assert!(info.components.is_empty());
-    assert_eq!(info.shape, phalcom_semantic::data_semantics::DataShape::Tuple);
+    assert_eq!(info.shape, crate::data_semantics::DataShape::Tuple);
 }
 
 #[test]
@@ -562,21 +562,21 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
     let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
     ]));
-    let owner = phalcom_semantic::identity::DeclarationId::new(module, "CachedPayload".into());
+    let owner = crate::identity::DeclarationId::new(module, "CachedPayload".into());
     let info = seed_import
         .semantic_aggregates
         .data_semantics
         .get(&owner)
         .expect("reconstructed data declaration")
         .clone();
-    let diagnostics: Arc<[phalcom_semantic::diagnostic::SemanticDiagnostic]> = Arc::from([]);
-    let product = phalcom_semantic::db::product::DataDeclarationProduct {
+    let diagnostics: Arc<[crate::diagnostic::SemanticDiagnostic]> = Arc::from([]);
+    let product = crate::db::product::DataDeclarationProduct {
         info,
         diagnostics: diagnostics.clone(),
     };
-    let product_fingerprint = phalcom_semantic::db::fingerprint::data_declaration_product_fingerprint(&product).raw();
+    let product_fingerprint = crate::db::fingerprint::data_declaration_product_fingerprint(&product).raw();
 
-    let enum_owner = phalcom_semantic::identity::DeclarationId::new(owner.module.clone(), "CachedChoice".into());
+    let enum_owner = crate::identity::DeclarationId::new(owner.module.clone(), "CachedChoice".into());
     let enum_info = seed_import
         .semantic_aggregates
         .enum_semantics
@@ -584,12 +584,12 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         .get(&enum_owner)
         .expect("reconstructed enum declaration")
         .clone();
-    let enum_product = phalcom_semantic::db::product::EnumDeclarationProduct {
+    let enum_product = crate::db::product::EnumDeclarationProduct {
         info: enum_info,
         variants: Arc::from([]),
         diagnostics,
     };
-    let enum_product_fingerprint = phalcom_semantic::db::fingerprint::enum_declaration_product_fingerprint(&enum_product).raw();
+    let enum_product_fingerprint = crate::db::fingerprint::enum_declaration_product_fingerprint(&enum_product).raw();
 
     image.query_image.supported_roots.push(QueryRootEntryV4 {
         key: PortableQueryKeyV1 {
@@ -667,11 +667,11 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         "dependency-only DataDeclaration evidence is retained but not counted as reusable root authority"
     );
 
-    let mut db = phalcom_semantic::db::SemanticDb::new();
+    let mut db = crate::db::SemanticDb::new();
     imported
         .publish_query_products_into_empty_db(&mut db)
         .expect("publish structural product into fresh semantic db");
-    let query_key = phalcom_semantic::db::QueryKey::DataDeclaration(owner.clone());
+    let query_key = crate::db::QueryKey::DataDeclaration(owner.clone());
     let published = db
         .product(&query_key)
         .and_then(|product| product.as_data_declaration())
@@ -682,7 +682,7 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         Some(product_fingerprint),
         "published database state must use the verified current-main product fingerprint"
     );
-    let enum_query_key = phalcom_semantic::db::QueryKey::EnumDeclaration(enum_owner.clone());
+    let enum_query_key = crate::db::QueryKey::EnumDeclaration(enum_owner.clone());
     let published_enum = db
         .product(&enum_query_key)
         .and_then(|product| product.as_enum_declaration())
@@ -693,7 +693,7 @@ fn structural_data_query_root_reconstructs_typed_product_and_rejects_stale_finge
         Some(enum_product_fingerprint),
         "published enum state must use the verified current-main product fingerprint"
     );
-    let associated_query_key = phalcom_semantic::db::QueryKey::AssociatedSurface(owner.clone());
+    let associated_query_key = crate::db::QueryKey::AssociatedSurface(owner.clone());
     let associated = db
         .product(&associated_query_key)
         .and_then(|product| product.as_associated_surface())
@@ -849,25 +849,25 @@ fn p7_type_member_product_imports_as_current_main_ready_query() {
     let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
     ]));
-    let owner = phalcom_semantic::identity::DeclarationId::new(module, "TypeOwner".into());
-    let id = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
+    let owner = crate::identity::DeclarationId::new(module, "TypeOwner".into());
+    let id = crate::types::type_member::TypeMemberDeclarationId::new(
         owner,
-        phalcom_semantic::types::type_member::TypeMemberSelector::Named("Element".into()),
+        crate::types::type_member::TypeMemberSelector::Named("Element".into()),
     );
 
-    let mut db = phalcom_semantic::db::SemanticDb::new();
+    let mut db = crate::db::SemanticDb::new();
     imported
         .publish_query_products_into_empty_db(&mut db)
         .expect("publish imported type-member query");
     let product = db
-        .product(&phalcom_semantic::db::QueryKey::TypeMemberDeclaration(id.clone()))
+        .product(&crate::db::QueryKey::TypeMemberDeclaration(id.clone()))
         .and_then(|product| product.as_type_member_declaration())
         .expect("typed TypeMemberDeclaration product must be Ready");
     assert_eq!(product.id, id);
     assert!(product.signature.parameters.is_empty());
     assert!(matches!(
         product.signature.result_domain,
-        phalcom_semantic::types::type_member::TypeMemberDomain::Kind(phalcom_semantic::types::id::KindId::TYPE)
+        crate::types::type_member::TypeMemberDomain::Kind(crate::types::id::KindId::TYPE)
     ));
 }
 
@@ -1009,12 +1009,12 @@ fn p7_callable_signature_reconstructs_as_semantic_authority_without_ready_query(
         1,
         "zero-dependency CallableDefinition may become Ready, while CallableSignature remains semantic-only until its dependency closure is imported"
     );
-    let mut db = phalcom_semantic::db::SemanticDb::new();
+    let mut db = crate::db::SemanticDb::new();
     imported
         .publish_query_products_into_empty_db(&mut db)
         .expect("publish imported callable definition");
     assert!(
-        db.query_keys().any(|key| matches!(key, phalcom_semantic::db::QueryKey::CallableDefinition(_))),
+        db.query_keys().any(|key| matches!(key, crate::db::QueryKey::CallableDefinition(_))),
         "the reusable root must publish the exact current-main CallableDefinition family"
     );
 }
@@ -1819,24 +1819,24 @@ fn p7_callable_binding_state_reconstructs_without_claiming_full_callable_analysi
     let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
     ]));
-    let callable_id = phalcom_semantic::identity::CallableId::new(
-        phalcom_semantic::identity::DeclarationId::new(module, "BindingOwner".into()),
+    let callable_id = crate::identity::CallableId::new(
+        crate::identity::DeclarationId::new(module, "BindingOwner".into()),
         phalcom_common::selector::Selector::decode("run"),
-        phalcom_semantic::identity::DispatchSide::Instance,
+        crate::identity::DispatchSide::Instance,
     );
     let expression = imported
         .callable_expression_authority
         .expression(&callable_id, 0)
         .expect("relocated base expression");
-    assert_eq!(expression.binding_read, Some(phalcom_semantic::identity::BindingId(1)));
-    assert!(matches!(expression.status, phalcom_semantic::checker::analysis::AnalysisStatus::Ready));
+    assert_eq!(expression.binding_read, Some(crate::identity::BindingId(1)));
+    assert!(matches!(expression.status, crate::checker::analysis::AnalysisStatus::Ready));
     assert!(matches!(
         expression.binding_read_safety,
-        Some(phalcom_semantic::checker::flow::BindingReadSafety::ProvenInitialized)
+        Some(crate::checker::flow::BindingReadSafety::ProvenInitialized)
     ));
     assert!(matches!(
         expression.denotation,
-        Some(phalcom_semantic::types::denotation::SemanticDenotation::TypeForm(_))
+        Some(crate::types::denotation::SemanticDenotation::TypeForm(_))
     ));
     assert!(expression.deferred.call_specialization);
     let specialization = imported
@@ -1956,7 +1956,7 @@ fn p7_static_definition_preserves_source_free_operational_program_without_ast() 
     let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
     ]));
-    let id = phalcom_semantic::identity::DeclarationId::new(module, "CachedDefinition".into());
+    let id = crate::identity::DeclarationId::new(module, "CachedDefinition".into());
     let definition = imported.static_definition_authority.get(&id).expect("relocated static definition");
     assert_eq!(definition.canonical_program.owner.0, id);
     assert!(matches!(definition.canonical_program.root, ImportedOperationalNode::Constant(_)));
@@ -2134,19 +2134,19 @@ fn p7_static_application_denotation_binds_to_imported_checked_application_identi
     let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
     ]));
-    let callable_id = phalcom_semantic::identity::CallableId::new(
-        phalcom_semantic::identity::DeclarationId::new(module.clone(), "StaticUser".into()),
+    let callable_id = crate::identity::CallableId::new(
+        crate::identity::DeclarationId::new(module.clone(), "StaticUser".into()),
         phalcom_common::selector::Selector::decode("run"),
-        phalcom_semantic::identity::DispatchSide::Instance,
+        crate::identity::DispatchSide::Instance,
     );
     let binding = imported.callable_binding_authority.binding(&callable_id, 0).expect("imported callable binding");
-    let phalcom_semantic::types::denotation::SemanticDenotation::StaticApplication(application) =
+    let crate::types::denotation::SemanticDenotation::StaticApplication(application) =
         binding.state.denotation.as_ref().expect("static application denotation")
     else {
         panic!("binding denotation must remain a checked static application");
     };
     assert_eq!(application.ordinal, 0);
-    assert_eq!(application.body.0, phalcom_semantic::identity::DeclarationId::new(module, "StaticBody".into()));
+    assert_eq!(application.body.0, crate::identity::DeclarationId::new(module, "StaticBody".into()));
 }
 
 #[test]
@@ -2306,20 +2306,20 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
         1,
         "package-owned DataDeclaration root must survive portable fingerprint validation"
     );
-    let package_owner = phalcom_semantic::identity::DeclarationId::new(
+    let package_owner = crate::identity::DeclarationId::new(
         phalcom_modules::ModuleId::resolved(
             project_id,
             phalcom_modules::ModulePath::from_components(vec![phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component")]),
         ),
         "CachedPackagePayload".into(),
     );
-    let mut package_db = phalcom_semantic::db::SemanticDb::new();
+    let mut package_db = crate::db::SemanticDb::new();
     imported
         .publish_query_products_into_empty_db(&mut package_db)
         .expect("publish package-owned query product");
     assert!(
         package_db
-            .product(&phalcom_semantic::db::QueryKey::DataDeclaration(package_owner.clone()))
+            .product(&crate::db::QueryKey::DataDeclaration(package_owner.clone()))
             .and_then(|product| product.as_data_declaration())
             .is_some(),
         "first receiving graph must publish the package-owned typed product"
@@ -2385,20 +2385,20 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
             .expect("portable query fingerprint must survive package project-ID relocation");
     assert_eq!(relocated.query_products.len(), 1);
 
-    let relocated_owner = phalcom_semantic::identity::DeclarationId::new(
+    let relocated_owner = crate::identity::DeclarationId::new(
         phalcom_modules::ModuleId::resolved(
             relocated_project_id,
             phalcom_modules::ModulePath::from_components(vec![phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component")]),
         ),
         "CachedPackagePayload".into(),
     );
-    let mut relocated_db = phalcom_semantic::db::SemanticDb::new();
+    let mut relocated_db = crate::db::SemanticDb::new();
     relocated
         .publish_query_products_into_empty_db(&mut relocated_db)
         .expect("publish relocated package-owned product");
     assert!(
         relocated_db
-            .product(&phalcom_semantic::db::QueryKey::DataDeclaration(relocated_owner))
+            .product(&crate::db::QueryKey::DataDeclaration(relocated_owner))
             .and_then(|product| product.as_data_declaration())
             .is_some(),
         "second receiving graph must publish the same portable root under its own local owner"
