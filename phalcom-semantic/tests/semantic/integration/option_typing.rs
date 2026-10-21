@@ -54,6 +54,63 @@ class Probe {
 }
 
 #[test]
+fn option_map_none_reifies_result_generic() {
+    let snapshot = analyze(
+        r#"
+class Probe {
+  @class
+  run() {
+    let x: Option<Int> = Option<Int>::None
+    let y: Option<String> = x.map(|value| { value.toString })
+  }
+}
+"#,
+    );
+
+    assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
+}
+
+#[test]
+fn option_flatmap_none_reifies_result_generic() {
+    let snapshot = analyze(
+        r#"
+class Probe {
+  @class
+  run() {
+    let x: Option<Int> = Option<Int>::None
+    let y: Option<String> = x.flatMap(|value| { Option<String>::None })
+  }
+}
+"#,
+    );
+
+    assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
+}
+
+#[test]
+fn option_payload_types_are_not_assignable_without_type_evidence() {
+    let snapshot = analyze(
+        r#"
+class Probe {
+  @class
+  run() {
+    let x: Option<Int> = Option<Int>::Some(1)
+    let y: Option<String> = x
+  }
+}
+"#,
+    );
+
+    assert!(
+        snapshot.all_diagnostics().any(|diagnostic| {
+            matches!(diagnostic.code, DiagnosticCode::BindingInitializerMismatch | DiagnosticCode::GenericInferenceConflict)
+        }),
+        "Option<Int> must not be assignable to Option<String>; diagnostics: {:#?}",
+        snapshot.diagnostics
+    );
+}
+
+#[test]
 fn canonical_option_constructor_preserves_generic_payload_from_match() {
     let snapshot = analyze(
         r#"

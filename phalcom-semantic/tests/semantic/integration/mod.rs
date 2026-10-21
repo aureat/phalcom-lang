@@ -18,6 +18,7 @@ mod metadata;
 mod native_conformance;
 mod native_enum_extraction;
 mod option_typing;
+mod result_callbacks;
 mod parameter_identity;
 mod phase_evidence;
 mod prelude;

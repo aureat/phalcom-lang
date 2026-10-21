@@ -19,7 +19,7 @@ impl DateTime {
   parse(_ text: String) -> DateTime {
     let separator = text.indexOf("T")
     if separator <= 0 { ArgumentError.new("DateTime.parse: expected <date>T<time>").raise() }
-    DateTime.new(Date.parse(text.slice(0, separator)), Time.parse(text.slice(separator + 1, text.size)))
+    DateTime.new(Date.parse(text.slice(0, separator).toString), Time.parse(text.slice(separator + 1, text.size).toString))
   }
 
   compare(_ other: DateTime) -> Ordering {
