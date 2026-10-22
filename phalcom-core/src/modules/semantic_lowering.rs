@@ -906,7 +906,7 @@ fn build_data_construction_spec(
 
     Ok(Arc::new(DataConstructionLoweringSpec {
         constructor: constructor.clone(),
-        exact_type: Arc::new(metadata),
+        exact_type: Some(Arc::new(metadata)),
         type_recipe,
         layout: crate::product::ProductLayoutSpec::new(
             materialized_shape
