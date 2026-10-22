@@ -2569,20 +2569,33 @@ fn analyze_prototype_provenance(
                     }) = image.constants.get(constant)
                     {
                         let child = child.0 as usize;
+                        let child_prototype = image.prototypes.get(child).ok_or_else(|| ExecutableValidationError::InvalidExecutableReference {
+                            table: "closure creation",
+                            index: constant,
+                            detail: format!("closure template refers to missing prototype {child}"),
+                        })?;
+                        // The VM resolves Local and Upvalue against the *executing*
+                        // parent frame. A forged template aimed at another parent's
+                        // nested prototype must not inherit this frame's values.
+                        if !matches!(child_prototype.owner, PrototypeOwnerV1::Nested { parent, .. } if parent.0 as usize == prototype_index) {
+                            return Err(ExecutableValidationError::InvalidClosureCapture {
+                                child,
+                                parent: prototype_index,
+                                detail: "closure template is not nested under its creating frame".to_owned(),
+                            });
+                        }
                         let child_authority = explicit_template_authority(image, context, constant, lexical_class.as_ref(), super_anchor.as_ref(), &activation.receiver);
-                        let captures = image.prototypes.get(child).map(|child_prototype| {
-                            child_prototype.upvalues.iter().map(|descriptor| {
-                                if captured_cell_may_change(image, prototype_index, instruction_index, *descriptor) {
-                                    return ProvenanceFact::Unknown;
-                                }
-                                match descriptor {
-                                    UpvalueCaptureV1::Local(slot) =>
-                                        state.values.get(*slot as usize).cloned().unwrap_or(ProvenanceFact::Unknown),
-                                    UpvalueCaptureV1::Upvalue(slot) =>
-                                        activation.upvalues.get(*slot as usize).cloned().unwrap_or(ProvenanceFact::Unknown),
-                                }
-                            }).collect()
-                        }).unwrap_or_default();
+                        let captures = child_prototype.upvalues.iter().map(|descriptor| {
+                            if captured_cell_may_change(image, prototype_index, instruction_index, *descriptor) {
+                                return ProvenanceFact::Unknown;
+                            }
+                            match descriptor {
+                                UpvalueCaptureV1::Local(slot) =>
+                                    state.values.get(*slot as usize).cloned().unwrap_or(ProvenanceFact::Unknown),
+                                UpvalueCaptureV1::Upvalue(slot) =>
+                                    activation.upvalues.get(*slot as usize).cloned().unwrap_or(ProvenanceFact::Unknown),
+                            }
+                        }).collect();
                         effects.activations.push((child, PrototypeActivationProvenance {
                             receiver: child_authority,
                             upvalues: captures,
@@ -4599,6 +4612,22 @@ mod tests {
             matches!(result, Err(ExecutableValidationError::FieldSlotOutOfRange { slot: 1, field_count: 1, .. })),
             "unexpected result: {result:?}"
         );
+    }
+
+    #[test]
+    fn forged_closure_creation_parent_cannot_borrow_another_frames_captures() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+        use phalcom_compiler_artifact::executable::prototype::PrototypeId;
+
+        let (mut image, context) = field_method_fixture(&["Foo"], false, 0, 1);
+        image.prototypes[2].owner = PrototypeOwnerV1::Nested { parent: PrototypeId(0), ordinal: 0 };
+        image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
+        image.prototypes[2].code = vec![I::GetUpvalue { operand0: 0 }, I::GetField { operand0: 0 }, I::Return {}];
+
+        assert!(matches!(
+            validate_executable_provenance(&image, &context),
+            Err(ExecutableValidationError::InvalidClosureCapture { child: 2, parent: 1, .. })
+        ));
     }
 
     #[test]
