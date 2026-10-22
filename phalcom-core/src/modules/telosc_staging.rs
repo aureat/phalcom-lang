@@ -24,6 +24,8 @@ pub(crate) enum TeloscStagingError {
     Artifact(#[from] ArtifactError),
     #[error("capability error: {0}")]
     Capability(&'static str),
+    #[error("metadata section error: {0}")]
+    Metadata(#[from] phalcom_compiler_artifact::metadata::MetadataSectionError),
 }
 
 /// Non-owning transport section views. All required sections have passed
