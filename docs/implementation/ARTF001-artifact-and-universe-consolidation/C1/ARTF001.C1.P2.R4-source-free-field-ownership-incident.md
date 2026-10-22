@@ -325,3 +325,36 @@ SlotMap executable test has additionally been strengthened to require canonical
 semantic roots and retained initializer closures for every linked Universe
 module after `new_vm()`, but that long-running gate remains deferred until the
 new compile and focused tests are green.
+
+## Semantic-pool canonical type authority continuation — 2026-10-22
+
+The 24/24 focused validator result confirms the captured-receiver/field-layout
+incident has advanced beyond prototype 89. The next full artifact build stopped
+in semantic-pool validation because pool 1633 recipe 0 named a canonical type
+digest absent from persisted P7 metadata.
+
+The offending authority shape was data construction. Source lowering exports an
+exact specialized construction type into a private RuntimePublic metadata bundle
+so the source VM can bind the runtime descriptor. Executable capture had treated
+that private root fingerprint as portable canonical identity even though the
+artifact does not persist the private bundle. This is rejected rather than
+allowing the validator/materializer to search source state or accept arbitrary
+digests.
+
+The repair makes construction types first-class roots of the existing program
+P7 metadata bundle. A deterministic semantic census collects all exact
+construction result `TypeId`s used by executable lowering; the compiler exports
+them beside the existing anonymous-product/call/trait runtime roots and supplies
+their RuntimeTypeRefs to lowering. Portable projection then serializes the
+program-P7 recipe. Source execution still owns its private exact bundle and
+overrides from it as before.
+
+Pool identity is made fail-closed: logical pool 0 denotes only program P7 roots;
+source-only private construction roots use a sentinel pool and are never
+remapped. This prevents accidental authority transfer from a coincident numeric
+TypeNodeId. Recursive materialization remapping covers every container capable
+of retaining a construction recipe.
+
+The next discriminator is the core compile plus the focused data-root remapping
+unit test. Only after both are green should the full source-denied SlotMap gate
+be rebuilt using a fresh artifact pathname.
