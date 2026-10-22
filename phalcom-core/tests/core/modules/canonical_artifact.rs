@@ -1400,9 +1400,7 @@ class Probe {
     assert_negative_diagnostic_parity_for_source(source, DiagnosticCode::MatchPatternArityMismatch);
 }
 
-#[test]
-fn negative_parity_trait_resolution_failure() {
-    let source = r#"
+const TRAIT_RESOLUTION_FAILURE_SOURCE: &str = r#"
 trait Printable {
   printMe() -> Unit
 }
@@ -1414,7 +1412,25 @@ class Host {
 class NotPrintable {}
 let x = Host.display(NotPrintable());
 "#;
-    assert_negative_diagnostic_parity_for_source(source, DiagnosticCode::GenericConstraintUnsatisfied);
+
+#[test]
+fn negative_parity_trait_resolution_failure() {
+    assert_negative_diagnostic_parity_for_source(TRAIT_RESOLUTION_FAILURE_SOURCE, DiagnosticCode::GenericConstraintUnsatisfied);
+}
+
+#[test]
+fn artifact_backed_trait_requirement_resolves_imported_alias() {
+    let loaded = load_parity_universe();
+    let bootstrap_count = phalcom_semantic::canonical_image::canonical_universe_formal_image_build_count;
+    let before = bootstrap_count();
+    let error = loaded
+        .compile_user_entry(EntrySelection::Inline(TRAIT_RESOLUTION_FAILURE_SOURCE.into()))
+        .expect_err("invalid trait argument must fail");
+    let ProgramCompileError::Semantic(diagnostics) = error else { panic!("expected semantic diagnostics: {error:?}") };
+    let diagnostics = entry_local_diagnostics(&diagnostics);
+    let codes = diagnostics.by_module.values().flat_map(|rows| rows.iter().map(|diagnostic| diagnostic.code)).collect::<Vec<_>>();
+    assert_eq!(codes, vec![DiagnosticCode::GenericConstraintUnsatisfied], "imported Unit alias must resolve in the trait contract");
+    assert_eq!(bootstrap_count(), before, "artifact trait compilation must not build a source baseline");
 }
 
 #[test]

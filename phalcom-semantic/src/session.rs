@@ -822,6 +822,7 @@ impl SemanticWorkspaceSession {
             .filter(|(module, _)| module.project.is_universe())
             .map(|(module, diagnostics)| (module.clone(), diagnostics.to_vec()))
             .collect();
+        let alias_forms = Arc::new(snapshot.type_aliases.iter().map(|(declaration, alias)| (declaration.clone(), alias.form)).collect());
         let snapshot = snapshot.clone();
         Self {
             workspace,
@@ -862,7 +863,7 @@ impl SemanticWorkspaceSession {
             alias_reverse_dependencies: BTreeMap::new(),
             alias_contract_dependencies: BTreeMap::new(),
             alias_contract_reverse_dependencies: BTreeMap::new(),
-            alias_forms: Arc::new(BTreeMap::new()),
+            alias_forms,
             module_diagnostics: BTreeMap::new(),
             canonical_native_diagnostics,
             semantic_diagnostic_contributions: BTreeMap::new(),
@@ -2428,6 +2429,14 @@ impl SemanticWorkspaceSession {
         let mut known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
         known_declarations.extend(declarations.intrinsic_static_domain_declarations().cloned());
         known_declarations.extend(alias_declarations.iter().cloned());
+        // Imported aliases have canonical forms but no defining source shard.
+        // Replaced/removed source modules contribute only their current aliases.
+        known_declarations.extend(
+            self.alias_forms
+                .keys()
+                .filter(|declaration| !structural_recomputed_modules.contains(&declaration.module) && !removed_modules.contains(&declaration.module))
+                .cloned(),
+        );
         for kind in [
             crate::checker::proof_predicate::ProofPredicateKind::Equivalent,
             crate::checker::proof_predicate::ProofPredicateKind::Subtype,
