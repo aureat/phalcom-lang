@@ -818,21 +818,14 @@ impl SemanticPoolProjector<'_> {
             family: "data_constructions",
             reason: "portable projection requires source exact-type metadata".into(),
         })?;
-        let root = exact_type.runtime_roots.first().ok_or_else(|| SemanticProjectionError {
-            family: "data_constructions",
-            reason: "exact type metadata has no runtime root".into(),
-        })?;
-        let entry = exact_type.types.get(root.form.0 as usize).ok_or_else(|| SemanticProjectionError {
-            family: "data_constructions",
-            reason: "exact type metadata runtime root is outside its type table".into(),
-        })?;
-        let (template, recipe) = data_construction_type_recipe(spec.type_recipe, root.form, entry)?;
-        let recipe_id = self.intern_type_recipe(recipe)?;
-        let type_recipe = if template {
-            PortableRuntimeTypeRecipeV1::Template { ty: recipe_id }
-        } else {
-            PortableRuntimeTypeRecipeV1::Closed { ty: recipe_id }
-        };
+        if exact_type.runtime_roots.is_empty() {
+            return fail("data_constructions", "exact type metadata has no runtime root");
+        }
+        // Source execution keeps a per-construction exact metadata bundle for
+        // descriptor binding, but the portable executable must reference the
+        // program's persisted P7 metadata authority. The lowering type recipe
+        // is remapped to that program pool during compilation/materialization.
+        let type_recipe = self.runtime_type_recipe(spec.type_recipe)?;
         Ok(PortableDataConstructionV1 {
             constructor: to_stable_declaration(&spec.constructor.owner),
             exact_type_digest: exact_metadata_digest(exact_type)?,
@@ -1662,27 +1655,6 @@ fn stable_type_digest(fingerprint: Fingerprint128) -> [u8; 32] {
     *hasher.finalize().as_bytes()
 }
 
-fn data_construction_type_recipe(
-    recipe: RuntimeTypeRecipe,
-    root: phalcom_type_meta::type_node::TypeNodeId,
-    entry: &phalcom_type_meta::type_node::TypeNodeEntry,
-) -> ProjectionResult<(bool, PortableTypeRecipeV1)> {
-    let (template, runtime_type) = match recipe {
-        RuntimeTypeRecipe::Closed(runtime_type) => (false, runtime_type),
-        RuntimeTypeRecipe::Template(runtime_type) => (true, runtime_type),
-    };
-    match runtime_type {
-        RuntimeTypeRef::Base { node, .. } if node == root => Ok((
-            template,
-            PortableTypeRecipeV1::Canonical {
-                digest: stable_type_digest(entry.structural_fingerprint),
-            },
-        )),
-        RuntimeTypeRef::Base { .. } => fail("data_constructions", "runtime type recipe does not reference its owning metadata root"),
-        RuntimeTypeRef::Overlay(_) => fail("data_constructions", "exact data construction type must be owned by semantic metadata"),
-    }
-}
-
 fn exact_metadata_digest(bundle: &phalcom_type_meta::SemanticMetadataBundle) -> ProjectionResult<[u8; 32]> {
     let encoded = serde_json::to_vec(bundle).map_err(|error| SemanticProjectionError {
         family: "data_constructions",
@@ -1691,35 +1663,6 @@ fn exact_metadata_digest(bundle: &phalcom_type_meta::SemanticMetadataBundle) -> 
     let mut hasher = blake3::Hasher::new_derive_key("phalcom.telosc.executable.exact-type-metadata.v1");
     hasher.update(&encoded);
     Ok(*hasher.finalize().as_bytes())
-}
-
-#[cfg(test)]
-mod data_construction_type_recipe_tests {
-    use super::*;
-
-    #[test]
-    fn data_construction_recipe_uses_its_own_metadata_root() {
-        let root = phalcom_type_meta::type_node::TypeNodeId(2);
-        let entry = phalcom_type_meta::type_node::TypeNodeEntry {
-            kind: phalcom_type_meta::kind::KindNodeId(0),
-            form: phalcom_type_meta::type_node::TypeNode::Unit,
-            structural_fingerprint: Fingerprint128::from_u128(0x51a7),
-        };
-        let recipe = RuntimeTypeRecipe::Template(RuntimeTypeRef::Base {
-            pool: crate::typing::MetadataPoolId(97),
-            node: root,
-        });
-
-        let (template, portable) = data_construction_type_recipe(recipe, root, &entry).expect("owned root recipe");
-        assert!(template);
-        assert_eq!(
-            portable,
-            PortableTypeRecipeV1::Canonical {
-                digest: stable_type_digest(entry.structural_fingerprint),
-            }
-        );
-        assert!(data_construction_type_recipe(recipe, phalcom_type_meta::type_node::TypeNodeId(3), &entry).is_err());
-    }
 }
 
 impl SemanticPoolProjector<'_> {
