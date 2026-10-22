@@ -137,7 +137,7 @@ pub struct ModuleResolver<'u, P: SourceProvider> {
     pub universe: &'u ProjectUniverse,
     pub source: &'u P,
     universe_source: Option<UniverseSourceProvider>,
-    external: Option<Arc<crate::canonical_products::CanonicalExternalModuleWorld>>,
+    external: Option<Arc<dyn crate::external_authority::ExternalModuleAuthority>>,
     parsed_cache: HashMap<ModuleId, Result<Arc<ParsedModuleUnit>, ModuleLoadError>>,
     interface_cache: HashMap<ModuleId, Result<UnlinkedModuleInterface, ModuleLoadError>>,
 }
@@ -159,7 +159,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
     }
 
     /// Resolves completed external modules without a canonical source provider.
-    pub fn with_external_modules(universe: &'u ProjectUniverse, source: &'u P, external: Arc<crate::canonical_products::CanonicalExternalModuleWorld>) -> Self {
+    pub fn with_external_modules(universe: &'u ProjectUniverse, source: &'u P, external: Arc<dyn crate::external_authority::ExternalModuleAuthority>) -> Self {
         Self {
             universe,
             source,
@@ -175,15 +175,14 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
     /// may resolve their interfaces/exports, but must not enqueue them for
     /// local source discovery or parsing.
     pub fn has_external_authority(&self, module_id: &ModuleId) -> bool {
-        self.external.as_ref().is_some_and(|external| external.linked().modules.contains_key(module_id))
+        self.external.as_ref().is_some_and(|external| external.contains(module_id))
     }
 
     fn universe_location(&self, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {
         let id = ModuleId::universe(path.clone());
         let (kind, source_id) = if let Some(external) = &self.external {
             let interface = external
-                .interfaces()
-                .get(&id)
+                .interface(&id)
                 .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("external module {id} not found")))?;
             (
                 interface.kind,
@@ -476,7 +475,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                     self.validate_external_path_with_trace(target_project_id, &target_path, &mut package_interfaces)?;
                 }
 
-                let target = self.source.locate(target_project, &target_path)?;
+                let target = self.locate_project_module(ProjectIdentity::Resolved(target_project.id), &target_path)?;
 
                 let mut prefixes = Vec::new();
                 prefixes.push(ResolvedImportPrefix {
@@ -681,6 +680,22 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
     }
 
     fn locate_project_module(&self, project: ProjectIdentity, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {
+        let module = ModuleId { project, path: path.clone() };
+        if let Some(external) = &self.external {
+            if external.owns_project(project) {
+                let interface = external.interface(&module).ok_or_else(|| {
+                    ModuleResolutionError::ModuleNotFound(format!("external module {module} not found"))
+                })?;
+                return Ok(SourceUnit {
+                    id: module.clone(),
+                    kind: interface.kind,
+                    source: SourceLocation {
+                        source_id: crate::SourceId(format!("artifact://{module}").into()),
+                        display_path: PathBuf::from(format!("<artifact>/{module}")),
+                    },
+                });
+            }
+        }
         match project {
             ProjectIdentity::Universe => self.universe_location(path),
             ProjectIdentity::Resolved(project_id) => {
@@ -698,6 +713,9 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
     /// Loads and parses a module unit, caching the parsed AST and source artifact.
     pub fn load_parsed(&mut self, module_id: &ModuleId) -> Result<Arc<ParsedModuleUnit>, ModuleLoadError> {
+        if self.external.as_ref().is_some_and(|external| external.owns_project(module_id.project)) {
+            return Err(ModuleResolutionError::Source(crate::SourceError::CapabilityUnavailable { module: module_id.clone() }).into());
+        }
         if let Some(res) = self.parsed_cache.get(module_id) {
             return res.clone();
         }
@@ -754,23 +772,22 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
     /// Loads and parses the unlinked interface of a module.
     pub fn load_interface(&mut self, module_id: &ModuleId) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
+        if let Some(external) = &self.external {
+            if external.owns_project(module_id.project) {
+                return external.interface(module_id).map(|interface| (**interface).clone()).ok_or_else(|| {
+                    ModuleResolutionError::ModuleNotFound(format!("external module {module_id} not found")).into()
+                });
+            }
+        }
         if let Some(res) = self.interface_cache.get(module_id) {
             return res.clone();
         }
 
         if module_id.project == ProjectIdentity::Universe {
-            let result = if let Some(external) = &self.external {
-                external
-                    .interfaces()
-                    .get(module_id)
-                    .map(|interface| (**interface).clone())
-                    .ok_or_else(|| ModuleLoadError::Resolution(ModuleResolutionError::ModuleNotFound(format!("external module {module_id} not found"))))
-            } else {
-                crate::builtin_interface::BuiltinInterfaceBuilder::build(
-                    self.universe_source.as_ref().expect("source-backed resolver owns a provider"),
-                    module_id,
-                )
-            };
+            let result = crate::builtin_interface::BuiltinInterfaceBuilder::build(
+                self.universe_source.as_ref().ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("no canonical authority for {module_id}")))?,
+                module_id,
+            );
             self.interface_cache.insert(module_id.clone(), result.clone());
             return result;
         }

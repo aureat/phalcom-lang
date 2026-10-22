@@ -786,7 +786,7 @@ fn compute_connected_components(
 pub struct WorkspaceModuleSession {
     universe: ProjectUniverse,
     universe_source: Option<crate::UniverseSourceProvider>,
-    external: Option<Arc<crate::canonical_products::CanonicalExternalModuleWorld>>,
+    external: Option<Arc<dyn crate::external_authority::ExternalModuleAuthority>>,
     provider: OverlaySourceProvider<FilesystemSourceProvider>,
     project_roots: BTreeMap<ProjectSourceIdentity, crate::identity::ResolvedProjectId>,
     /// Maps protocol/display source tokens to compiler-owned canonical IDs.
@@ -834,8 +834,10 @@ impl WorkspaceModuleSession {
     }
 
     /// Creates a local source owner whose canonical imports are immutable leaves.
-    pub fn with_external_modules(external: Arc<crate::canonical_products::CanonicalExternalModuleWorld>) -> Self {
+    pub fn with_external_modules(external: Arc<dyn crate::external_authority::ExternalModuleAuthority>) -> Self {
         let mut session = Self::build_with_optional_universe_source_provider(None);
+        session.universe = external.projects().as_ref().clone();
+        session.topology = Arc::new(ModuleTopology::from_parts(ResolverGeneration(0), &session.universe, &BTreeMap::new(), &BTreeMap::new()));
         session.external = Some(external);
         session
     }
@@ -999,7 +1001,13 @@ impl WorkspaceModuleSession {
         let previous_states = self.sources_by_module.clone();
         let removed_modules = previous_states.keys().cloned().collect::<BTreeSet<_>>();
 
-        let mut target_universe = ProjectUniverse::new();
+        // Artifact bindings and graph IDs survive root-list changes. Source-only
+        // sessions retain their existing root reload behavior.
+        let mut target_universe = if let Some(external) = &self.external {
+            self.universe.workspace_update_candidate(|project| external.owns_project(crate::ProjectIdentity::Resolved(project)))
+        } else {
+            ProjectUniverse::new()
+        };
         let mut target_project_roots = BTreeMap::new();
         for root in roots {
             let canonical = root.canonicalize().unwrap_or_else(|_| root.clone());
@@ -1196,6 +1204,9 @@ impl WorkspaceModuleSession {
                         };
                         Self::resolve_module_for_location_delta(&source, &mut context)?
                     };
+                    if self.external.as_ref().is_some_and(|external| external.owns_project(module.project)) {
+                        return Err(SourceError::CapabilityUnavailable { module }.into());
+                    }
                     let kind = Self::kind_for_source_delta(&module, &source, &mutated_sources, &removed_sources, &self.sources_by_module);
                     let text_for_parse = text.clone();
                     let parsed = recovered_program.map_or_else(
@@ -1329,6 +1340,9 @@ impl WorkspaceModuleSession {
                         };
                         Self::resolve_module_for_location_delta(&source, &mut context)?
                     };
+                    if self.external.as_ref().is_some_and(|external| external.owns_project(module.project)) {
+                        return Err(SourceError::CapabilityUnavailable { module }.into());
+                    }
                     let kind = Self::kind_for_source_delta(&module, &source, &mutated_sources, &removed_sources, &self.sources_by_module);
                     let text_for_parse = text.clone();
                     let parsed = recovered_program.map_or_else(
@@ -1428,6 +1442,9 @@ impl WorkspaceModuleSession {
                         overlay_ops.push(OverlayOp::Remove(module.clone()));
                     }
                     let text = self.provider.base().read_uncached(&source.source_id)?;
+                    if self.external.as_ref().is_some_and(|external| external.owns_project(module.project)) {
+                        return Err(SourceError::CapabilityUnavailable { module }.into());
+                    }
                     let kind = Self::kind_for_source_delta(&module, &source, &mutated_sources, &removed_sources, &self.sources_by_module);
                     let parsed = parse_source(module.clone(), kind, source.clone(), text)?;
                     let state = WorkspaceSourceState {
@@ -2263,7 +2280,7 @@ impl WorkspaceModuleSession {
                 };
 
                 // Completed external modules are terminal for local discovery.
-                if self.external.as_ref().is_some_and(|image| image.linked().modules.contains_key(&target_id)) {
+                if self.external.as_ref().is_some_and(|image| image.contains(&target_id)) {
                     continue;
                 }
                 // Transitive discovery

@@ -215,6 +215,28 @@ impl ProjectUniverse {
         }
     }
 
+    /// Keeps graph slots and receipts while allowing mutable source manifests
+    /// to be loaded again. Artifact projects retain their validated bindings.
+    pub(crate) fn workspace_update_candidate(&self, immutable: impl Fn(ResolvedProjectId) -> bool) -> Self {
+        let mut candidate = self.clone();
+        candidate.roots.retain(|_, id| immutable(*id) || !self.get_project(*id).is_some_and(|project| project.persistent_project));
+        candidate
+    }
+
+    /// Checks that extending a project catalog did not rebind any existing owner
+    /// or discard a validated package receipt. No filesystem access is needed.
+    pub fn preserves_authority_of(&self, base: &Self) -> bool {
+        base.projects.iter().all(|prior| {
+            self.get_project(prior.id).is_some_and(|current| {
+                current.source_identity == prior.source_identity
+                    && current.persistent_project == prior.persistent_project
+                    && current.namespace == prior.namespace
+                    && current.dependencies == prior.dependencies
+                    && current.import_roots == prior.import_roots
+            })
+        }) && base.package_authorities.iter().all(|(owner, receipt)| self.package_authorities.get(owner) == Some(receipt))
+    }
+
     /// Checks a package receipt without changing this project universe.
     pub fn validate_package_authority_receipt(
         &self,
@@ -405,7 +427,10 @@ impl ProjectUniverse {
         visiting.pop();
         visited_stack.remove(&canonical_manifest);
 
-        let next_id = ResolvedProjectId::from_raw((self.projects.len() + 1) as u32);
+        // A workspace update can reload a mutable manifest while retaining its
+        // graph slot. New projects still allocate monotonically after all slots.
+        let existing = self.projects.iter().find(|project| project.persistent_project && project.source_identity == source_identity).map(|project| project.id);
+        let next_id = existing.unwrap_or_else(|| ResolvedProjectId::from_raw((self.projects.len() + 1) as u32));
 
         let mut import_roots = BTreeMap::new();
         let universe_comp = ModuleComponent::from_identifier("universe").expect("valid identifier");
@@ -429,7 +454,11 @@ impl ProjectUniverse {
             manifest: Some(validated),
         };
 
-        self.projects.push(resolved_project);
+        if let Some(existing) = existing {
+            self.projects[(existing.raw() - 1) as usize] = resolved_project;
+        } else {
+            self.projects.push(resolved_project);
+        }
         self.roots.insert(source_identity, next_id);
 
         Ok(next_id)

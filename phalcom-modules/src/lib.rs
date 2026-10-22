@@ -5,6 +5,8 @@ pub mod authority;
 pub mod builtin;
 pub mod builtin_interface;
 pub mod canonical_products;
+pub mod external_authority;
+pub use external_authority::{ExternalModuleAuthority, ExternalModuleAuthoritySet, ExternalModuleOrigin};
 pub mod compiler_artifact;
 pub mod declaration;
 pub mod diagnostic;

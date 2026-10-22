@@ -7,7 +7,7 @@
 //! reconstructing module meaning.
 
 use crate::authority::{ModuleAuthorityMapRef, ReverseImportsRef};
-use crate::canonical_products::CanonicalExternalModuleWorld;
+use crate::external_authority::ExternalModuleAuthority;
 use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, SourceId, SourceLocation};
 use crate::interface::{LinkedExport, LinkedModuleInterface, UnlinkedModuleInterface};
 use crate::project::ProjectUniverse;
@@ -47,7 +47,7 @@ pub struct ModuleQueryFacade<'a> {
     universe: &'a ProjectUniverse,
     unlinked: Option<ModuleAuthorityMapRef<'a, ModuleId, UnlinkedModuleInterface>>,
     linked: Option<ModuleAuthorityMapRef<'a, ModuleId, LinkedModuleInterface>>,
-    external_modules: Option<&'a CanonicalExternalModuleWorld>,
+    external_modules: Option<&'a dyn ExternalModuleAuthority>,
     resolved_imports: ModuleAuthorityMapRef<'a, (ModuleId, String), ModuleId>,
     sources: ModuleAuthorityMapRef<'a, ModuleId, SourceLocation>,
     source_modules: ModuleAuthorityMapRef<'a, SourceId, ModuleId>,
@@ -87,7 +87,7 @@ impl<'a> ModuleQueryFacade<'a> {
     /// materializing source-shaped interface maps.
     pub fn new_with_external_modules(
         universe: &'a ProjectUniverse,
-        external_modules: &'a CanonicalExternalModuleWorld,
+        external_modules: &'a dyn ExternalModuleAuthority,
         resolved_imports: impl Into<ModuleAuthorityMapRef<'a, (ModuleId, String), ModuleId>>,
         sources: impl Into<ModuleAuthorityMapRef<'a, ModuleId, SourceLocation>>,
         source_modules: impl Into<ModuleAuthorityMapRef<'a, SourceId, ModuleId>>,
@@ -109,11 +109,11 @@ impl<'a> ModuleQueryFacade<'a> {
     }
 
     /// Creates a query view over a frozen artifact base with mutable source
-    /// overlays. Overlay entries take precedence while the base remains the
-    /// authority for untouched modules.
+    /// overlays. Artifact-owned projects remain immutable; overlay entries
+    /// supply products for local source projects.
     pub fn new_with_external_modules_and_overlays(
         universe: &'a ProjectUniverse,
-        external_modules: &'a CanonicalExternalModuleWorld,
+        external_modules: &'a dyn ExternalModuleAuthority,
         unlinked: impl Into<ModuleAuthorityMapRef<'a, ModuleId, UnlinkedModuleInterface>>,
         linked: impl Into<ModuleAuthorityMapRef<'a, ModuleId, LinkedModuleInterface>>,
         resolved_imports: impl Into<ModuleAuthorityMapRef<'a, (ModuleId, String), ModuleId>>,
@@ -137,21 +137,19 @@ impl<'a> ModuleQueryFacade<'a> {
     }
 
     fn unlinked_interface(&self, module: &ModuleId) -> Option<&UnlinkedModuleInterface> {
-        if let Some(interface) = self.unlinked.as_ref().and_then(|unlinked| unlinked.get(module)) {
-            return Some(interface);
-        }
-        if let Some(external_modules) = self.external_modules {
-            return external_modules.interfaces().get(module).map(std::sync::Arc::as_ref);
+        if let Some(external) = self.external_modules {
+            if external.owns_project(module.project) {
+                return external.interface(module).map(std::sync::Arc::as_ref);
+            }
         }
         self.unlinked.as_ref()?.get(module)
     }
 
     fn linked_interface(&self, module: &ModuleId) -> Option<&LinkedModuleInterface> {
-        if let Some(interface) = self.linked.as_ref().and_then(|linked| linked.get(module)) {
-            return Some(interface);
-        }
-        if let Some(external_modules) = self.external_modules {
-            return external_modules.linked().modules.get(module).map(|linked| &linked.interface);
+        if let Some(external) = self.external_modules {
+            if external.owns_project(module.project) {
+                return external.linked_module(module).map(|linked| &linked.interface);
+            }
         }
         self.linked.as_ref()?.get(module)
     }
@@ -270,7 +268,7 @@ impl<'a> ModuleQueryFacade<'a> {
         self.record_fallback_scan();
         let mut children = BTreeSet::new();
         let mut candidates: Box<dyn Iterator<Item = &ModuleId> + '_> = if let Some(external_modules) = self.external_modules {
-            Box::new(external_modules.interfaces().keys())
+            external_modules.module_ids()
         } else {
             Box::new(
                 self.linked

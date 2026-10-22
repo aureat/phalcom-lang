@@ -660,7 +660,7 @@ pub struct TolerantLinkResult {
 pub struct ModuleLinker {
     universe: Arc<ProjectUniverse>,
     interfaces: BTreeMap<ModuleId, UnlinkedModuleInterface>,
-    external: Option<Arc<crate::canonical_products::CanonicalExternalModuleWorld>>,
+    external: Option<Arc<dyn crate::external_authority::ExternalModuleAuthority>>,
 }
 
 impl ModuleLinker {
@@ -676,13 +676,13 @@ impl ModuleLinker {
 
     /// Resolves remote exports against completed immutable module products.
     /// External modules never become local linking or initialization work.
-    pub fn with_external_modules(mut self, external: Arc<crate::canonical_products::CanonicalExternalModuleWorld>) -> Self {
+    pub fn with_external_modules(mut self, external: Arc<dyn crate::external_authority::ExternalModuleAuthority>) -> Self {
         self.external = Some(external);
         self
     }
 
     fn is_external(&self, module: &ModuleId) -> bool {
-        self.external.as_ref().is_some_and(|image| image.linked().modules.contains_key(module))
+        self.external.as_ref().is_some_and(|image| image.contains(module))
     }
 
     /// Links all interfaces using `(importer, logical path)` resolutions.
@@ -1783,7 +1783,7 @@ impl<'a> LinkContext<'a> {
     }
 
     fn resolve_export(&mut self, module: &ModuleId, name: &str, range: SourceRange, importer: &ModuleId) -> Result<LinkedExport, LinkError> {
-        if let Some(remote) = self.linker.external.as_ref().and_then(|image| image.linked().modules.get(module)) {
+        if let Some(remote) = self.linker.external.as_ref().and_then(|image| image.linked_module(module)) {
             return remote.interface.exports.get(name).cloned().ok_or_else(|| LinkError::MissingExport {
                 module: module.clone(),
                 importer: importer.clone(),

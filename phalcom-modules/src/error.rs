@@ -104,6 +104,9 @@ pub enum ModuleResolutionError {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum SourceError {
+    #[error("artifact-owned module {module} has no source capability")]
+    CapabilityUnavailable { module: ModuleId },
+
     #[error("Source reading IO error: {0}")]
     Io(String),
 
