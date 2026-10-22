@@ -931,6 +931,7 @@ fn project_data_constructor_target(
     constructor: &DataConstructorId,
     callable_type: TypeId,
     argument_mapping: Option<Box<[u32]>>,
+    runtime_data_type_roots: &BTreeMap<TypeId, RuntimeTypeRef>,
 ) -> Result<ExecutableInvocationTarget, ProjectionError> {
     use phalcom_semantic::types::store::TypeData;
     let (result_type, signature_arity) = match snapshot.store.get(callable_type) {
@@ -945,7 +946,15 @@ fn project_data_constructor_target(
     };
     let arity = argument_mapping.as_ref().map_or(signature_arity, |mapping| mapping.len());
     let arity_u8 = u8::try_from(arity).map_err(|_| ProjectionError::ArityOverflow(arity))?;
-    let construction = build_data_construction_spec(snapshot, projects, constructor, result_type, arity_u8, argument_mapping)?;
+    let construction = build_data_construction_spec(
+        snapshot,
+        projects,
+        constructor,
+        result_type,
+        arity_u8,
+        argument_mapping,
+        runtime_data_type_roots.get(&result_type).copied(),
+    )?;
     Ok(ExecutableInvocationTarget::DataConstructor {
         constructor: constructor.clone(),
         construction,
@@ -982,6 +991,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         snapshot,
         projects,
         runtime_type_roots,
+        &BTreeMap::new(),
         runtime_call_environment_recipes,
         &BTreeMap::new(),
     )
@@ -992,6 +1002,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
     snapshot: &SemanticSnapshot,
     projects: &phalcom_modules::ProjectUniverse,
     runtime_type_roots: &BTreeMap<SourceRange, RuntimeTypeRef>,
+    runtime_data_type_roots: &BTreeMap<TypeId, RuntimeTypeRef>,
     runtime_call_environment_recipes: &BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
     conditional_call_environment_recipes: &BTreeMap<(SourceRange, phalcom_semantic::identity::CallableId), Arc<RuntimeCallEnvironmentRecipe>>,
 ) -> Result<ModuleLoweringSemantics, ProjectionError> {
@@ -1331,7 +1342,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                 pack_constructions.insert(range);
                 continue;
             }
-            let (kind, spec) = project_associated_resolution(resolution, snapshot, projects)?;
+            let (kind, spec) = project_associated_resolution(resolution, snapshot, projects, runtime_data_type_roots)?;
             let site = LoweringSite::new(source_id.clone(), range, kind);
 
             if let Some(previous) = associated.get(&site) {
@@ -1360,6 +1371,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                 snapshot,
                 projects,
                 range,
+                runtime_data_type_roots,
                 runtime_call_environment_recipes,
                 conditional_call_environment_recipes,
             )?;
@@ -1547,7 +1559,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
             }
 
             if let Some(realization) = expression.contextual_realization.as_ref() {
-                let spec = project_contextual_realization(realization, &generic_evidence, snapshot, projects)?;
+                let spec = project_contextual_realization(realization, &generic_evidence, snapshot, projects, runtime_data_type_roots)?;
                 if contextual_realizations.insert(realization.source_range, Arc::new(spec)).is_some() {
                     return Err(ProjectionError::AmbiguousContextualRealization(realization.source_range));
                 }
@@ -1648,7 +1660,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                 None => return Err(ProjectionError::MissingSourceRange(*expr_id)),
             };
 
-            let spec = project_family_application(snapshot, projects, fam_app)?;
+            let spec = project_family_application(snapshot, projects, fam_app, runtime_data_type_roots)?;
             let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::FamilyApplication);
             family_application_sites.insert(site.clone());
 
@@ -2901,6 +2913,7 @@ fn project_associated_resolution(
     resolution: &AssociatedResolution,
     snapshot: &SemanticSnapshot,
     projects: &phalcom_modules::ProjectUniverse,
+    runtime_data_type_roots: &BTreeMap<TypeId, RuntimeTypeRef>,
 ) -> Result<(LoweringSiteKind, AssociatedLoweringSpec), ProjectionError> {
     match &resolution.kind {
         AssociatedResolutionKind::ExactValue { member, value_type } => {
@@ -3101,6 +3114,7 @@ fn project_callable_reference_resolution(
     snapshot: &SemanticSnapshot,
     projects: &phalcom_modules::ProjectUniverse,
     range: SourceRange,
+    runtime_data_type_roots: &BTreeMap<TypeId, RuntimeTypeRef>,
     runtime_call_environment_recipes: &BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
     conditional_call_environment_recipes: &BTreeMap<(SourceRange, phalcom_semantic::identity::CallableId), Arc<RuntimeCallEnvironmentRecipe>>,
 ) -> Result<CallableReferenceLoweringSpec, ProjectionError> {
@@ -3138,7 +3152,7 @@ fn project_callable_reference_resolution(
             })
         }
         CallableReferenceResolutionKind::Associated(associated) => {
-            let (_, spec) = project_associated_resolution(associated, snapshot, projects)?;
+            let (_, spec) = project_associated_resolution(associated, snapshot, projects, runtime_data_type_roots)?;
             match spec {
                 AssociatedLoweringSpec::MakeResolvedBoundMethod { target } => Ok(CallableReferenceLoweringSpec::MakeResolvedBoundMethod { target }),
                 AssociatedLoweringSpec::MakeVariantConstructorThunk { variant, operation } => {
@@ -3426,6 +3440,7 @@ fn project_contextual_realization(
     generic_evidence: &phalcom_semantic::generic_evidence::GenericEvidenceEnvironment,
     snapshot: &SemanticSnapshot,
     projects: &phalcom_modules::ProjectUniverse,
+    runtime_data_type_roots: &BTreeMap<TypeId, RuntimeTypeRef>,
 ) -> Result<ContextualRealizationLoweringSpec, ProjectionError> {
     use phalcom_semantic::checker::analysis::{ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource};
 
@@ -3781,6 +3796,7 @@ fn project_family_application(
     snapshot: &SemanticSnapshot,
     projects: &phalcom_modules::ProjectUniverse,
     fam_app: &FamilyApplicationResolution,
+    runtime_data_type_roots: &BTreeMap<TypeId, RuntimeTypeRef>,
 ) -> Result<FamilyApplicationLoweringSpec, ProjectionError> {
     match &fam_app.selection {
         FamilyApplicationSelection::Static {
@@ -3836,6 +3852,7 @@ fn executable_invocation_target(
     target: &InvocationTargetId,
     operation: &FamilyOperationShape,
     callable_type: TypeId,
+    runtime_data_type_roots: &BTreeMap<TypeId, RuntimeTypeRef>,
 ) -> Result<ExecutableInvocationTarget, ProjectionError> {
     match target {
         InvocationTargetId::Behavioral(c) => {
