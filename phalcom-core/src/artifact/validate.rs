@@ -4601,6 +4601,143 @@ mod tests {
         );
     }
 
+    #[test]
+    fn closure_capture_proves_exact_instance_receiver_upvalue() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+
+        let (mut image, context) = field_method_fixture(&["Foo"], false, 0, 1);
+        image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
+        image.prototypes[2].code = vec![I::GetUpvalue { operand0: 0 }, I::GetField { operand0: 0 }, I::Return {}];
+        validate_executable_provenance(&image, &context).unwrap();
+    }
+
+    #[test]
+    fn closure_capture_proves_exact_class_side_receiver_upvalue() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+
+        let (mut image, context) = field_method_fixture(&["Foo"], true, 0, 1);
+        image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
+        image.prototypes[2].code = vec![I::GetUpvalueChecked { operand0: 0, operand1: 0 }, I::GetField { operand0: 0 }, I::Return {}];
+        validate_executable_provenance(&image, &context).unwrap();
+    }
+
+    #[test]
+    fn nested_forwarded_upvalue_preserves_exact_receiver() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+        use phalcom_compiler_artifact::executable::prototype::{ConstantId, PrototypeId};
+
+        let (mut image, context) = field_method_fixture(&["Foo"], false, 0, 1);
+        image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
+        let grandchild_constant = ConstantId(image.constants.len() as u32);
+        image.constants.push(ConstantRecipeV1::ClosureTemplate {
+            prototype: PrototypeId(3),
+            module: test_module(),
+            lexical_class: None,
+            super_anchor: None,
+        });
+        image.prototypes[2].constants = vec![grandchild_constant];
+        image.prototypes[2].code = vec![
+            I::Closure { operand0: 0 },
+            I::Pop {},
+            I::GetUpvalue { operand0: 0 },
+            I::GetField { operand0: 0 },
+            I::Return {},
+        ];
+        let mut grandchild = image.prototypes[2].clone();
+        grandchild.owner = PrototypeOwnerV1::Nested { parent: PrototypeId(2), ordinal: 0 };
+        grandchild.upvalues = vec![UpvalueCaptureV1::Upvalue(0)];
+        grandchild.constants.clear();
+        grandchild.code = vec![I::GetUpvalue { operand0: 0 }, I::GetField { operand0: 0 }, I::Return {}];
+        image.prototypes.push(grandchild);
+
+        validate_executable_provenance(&image, &context).unwrap();
+    }
+
+    #[test]
+    fn closure_capture_rejects_unknown_local_receiver() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+
+        let (mut image, context) = field_method_fixture(&["Foo"], false, 0, 1);
+        image.prototypes[1].code = vec![
+            I::Nil {},
+            I::SetLocal { operand0: 0 },
+            I::Closure { operand0: 0 },
+            I::Pop {},
+            I::GetSelf {},
+            I::GetField { operand0: 0 },
+            I::Return {},
+        ];
+        image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
+        image.prototypes[2].code = vec![I::GetUpvalue { operand0: 0 }, I::GetField { operand0: 0 }, I::Return {}];
+
+        assert!(matches!(
+            validate_executable_provenance(&image, &context),
+            Err(ExecutableValidationError::UnknownFieldReceiver { prototype: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn closure_capture_rejects_parent_write_after_creation() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+
+        let (mut image, context) = field_method_fixture(&["Foo"], false, 0, 1);
+        image.prototypes[1].code = vec![
+            I::Closure { operand0: 0 },
+            I::Pop {},
+            I::Nil {},
+            I::SetLocal { operand0: 0 },
+            I::GetSelf {},
+            I::GetField { operand0: 0 },
+            I::Return {},
+        ];
+        image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
+        image.prototypes[2].code = vec![I::GetUpvalue { operand0: 0 }, I::GetField { operand0: 0 }, I::Return {}];
+
+        assert!(matches!(
+            validate_executable_provenance(&image, &context),
+            Err(ExecutableValidationError::UnknownFieldReceiver { prototype: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn closure_capture_rejects_mutating_shared_upvalue_cell() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+
+        let (mut image, context) = field_method_fixture(&["Foo"], false, 0, 1);
+        image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
+        image.prototypes[2].code = vec![
+            I::Nil {},
+            I::SetUpvalue { operand0: 0 },
+            I::GetUpvalue { operand0: 0 },
+            I::GetField { operand0: 0 },
+            I::Return {},
+        ];
+
+        assert!(matches!(
+            validate_executable_provenance(&image, &context),
+            Err(ExecutableValidationError::UnknownFieldReceiver { prototype: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn closure_capture_field_slot_must_fit_proven_layout() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+
+        let (mut image, context) = field_method_fixture(&["Foo"], false, 0, 1);
+        image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
+        image.prototypes[2].code = vec![I::GetUpvalue { operand0: 0 }, I::GetField { operand0: 1 }, I::Return {}];
+
+        assert!(matches!(
+            validate_executable_provenance(&image, &context),
+            Err(ExecutableValidationError::FieldSlotOutOfRange {
+                prototype: 2,
+                slot: 1,
+                field_count: 1,
+                ..
+            })
+        ));
+    }
+
     fn empty_image() -> ExecutableImageV1 {
         use phalcom_compiler_artifact::executable::{compatibility::ExecutableCompatibilityV1, module::PortableBootstrapPlanV1};
         ExecutableImageV1 {
