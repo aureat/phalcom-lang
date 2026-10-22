@@ -1580,3 +1580,48 @@ artifact on failure so the first loader/materializer/runtime error can be
 reproduced without rebuilding. P2.R4 remains `IN_PROGRESS / PARTIAL /
 FOCUSED_TESTED`; P3 remains blocked pending that evidence and the remaining
 closure/certification rows.
+
+### P2.R4 full executable discriminator: prototype 89 loop-capture correction — 2026-10-22
+
+The first authorized full source-free executable discriminator failed during
+artifact validation, before publication or VM materialization:
+
+```text
+prototype 89 instruction 1 has unknown receiver provenance for field slot 2
+owner Nested { parent: PrototypeId(88), ordinal: 0 }
+code [GetUpvalue { operand0: 0 }, GetField { operand0: 2 }]
+```
+
+This proves the remaining stop is still in executable field-authority transfer,
+not in the later class-preallocation/native/bootstrap work.
+
+Audit of the capture transfer found an over-conservative rule in
+`captured_cell_may_change`: every local captured at a closure instruction
+inside a CFG cycle was forced to `Unknown` solely because the closure site
+could execute more than once. That condition is stronger than the actual VM
+cell semantics and redundant with the existing mutation analysis. The
+provenance fixed point already joins all incoming iterations at the closure
+site; `captured_local_has_reachable_write` separately walks every CFG
+successor from creation and rejects a reachable `SetLocal` or scratch-slot
+rearrangement, while the alias walk rejects any nested `SetUpvalue`.
+Therefore a loop-created closure that repeatedly captures the same immutable
+exact receiver is safe for field-layout authority, while a cell that can change
+remains rejected.
+
+The blanket cyclic-site veto is removed. A new focused regression,
+`cyclic_closure_creation_preserves_immutable_exact_receiver_capture`, builds a
+real loop around closure creation and requires exact captured-self field
+authority. Existing negative coverage
+`backward_branch_cannot_hide_post_capture_local_write` remains the companion
+proof that a backward CFG path reaching a write still degrades authority and
+rejects the field access.
+
+Unknown-field diagnostics are also expanded for nested prototypes to report
+their capture descriptors and parent prototype owner/name/full bytecode. If
+prototype 89 remains blocked after this correction, the next full discriminator
+will expose the exact parent/capture route rather than only the child access.
+
+This slice does not weaken the invariant: every `GetField`/`SetField` still
+requires exact P7-owned layout authority and an in-range slot. It only removes
+cycle-ness as a substitute for actual mutation evidence. P2.R4 remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
