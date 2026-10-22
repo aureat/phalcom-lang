@@ -1539,3 +1539,44 @@ not yet been run.
 This continuation is committed but not yet locally compile-verified. Run the
 core library check, then only the two focused artifact-native tests. P2.R4
 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
+
+### P2.R4 native parity proofs green; full executable discriminator authorized — 2026-10-22
+
+The two focused source-free native/bootstrap parity regressions are now locally
+green:
+
+- `artifact_source_owned_native_install_uses_stable_owner_without_source_catalog`:
+  **1/1 passed**.
+- `artifact_primordial_origin_refresh_uses_validated_anchor_module`:
+  **1/1 passed**.
+
+Together with the previously green core compile, 23/23 artifact-validator tests,
+and 1/1 exact artifact-class preallocation test, all cheap discriminators for
+the current executable materializer/bootstrap continuation are green.
+
+The two remaining canonical Universe semantic diagnostics are intentionally
+unchanged. The existing P2.R4 architecture ruling at this checkpoint records
+that `reflection.module::metadata` and `__metadata__` name bare `Map`, while
+the normative public `ModuleMetadata` runtime type is not yet defined in the
+owning specs and the current primitive is only a documentation-oriented
+`Option<String>` stub. They remain the exact classified
+`AnnotationUnsaturatedConstructor` pair; this artifact/runtime slice does not
+invent a type or silently bless the current stub as the long-term contract.
+
+A read-only audit of
+`artifact_executable_bootstraps_and_runs_slotmap_without_universe_compilation`
+found the full discriminator already has the required source-denied fresh
+process: the child receives `PHALCOM_DENY_SOURCE_BOOTSTRAP=1`, asserts the
+canonical source image build count is zero before and after artifact load,
+then after SlotMap compilation/VM bootstrap/execution. The helper additionally
+asserts the loaded image has no sources, source-free semantic completeness,
+published semantic roots, and retained initializer closures for every linked
+Universe module. No further static weakening or fallback is required before
+running this gate.
+
+The next authorized discriminator is therefore the full reusable
+`PHALCOM_TEST_FULL_TELOSC_PATH` SlotMap executable test. Preserve the emitted
+artifact on failure so the first loader/materializer/runtime error can be
+reproduced without rebuilding. P2.R4 remains `IN_PROGRESS / PARTIAL /
+FOCUSED_TESTED`; P3 remains blocked pending that evidence and the remaining
+closure/certification rows.
