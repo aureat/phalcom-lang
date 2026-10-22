@@ -5070,4 +5070,78 @@ fn hex_digest(bytes: &[u8]) -> String {
         encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
     encoded
+
+    #[test]
+    fn trait_default_mode_is_derived_from_exact_stable_callable_identity() {
+        use phalcom_compiler_artifact::executable::semantic::{
+            PortableDataComponentRefV1, PortableTraitInvocationV1, PortableTraitRequirementV1, PortableTraitSelectionTargetV1,
+        };
+        use phalcom_type_meta::identity::{
+            StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableImplRef, StableModuleRef, StableProjectRef,
+        };
+
+        let module = StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: Box::new(["traits".into()]),
+        };
+        let owner = StableDeclarationRef {
+            module: module.clone(),
+            path: Box::new(["Iterable".into()]),
+        };
+        let requirement = PortableTraitRequirementV1 {
+            owner: owner.clone(),
+            selector: "iterator".into(),
+            side: StableDispatchSide::Instance,
+        };
+        let exact = StableCallableRef {
+            owner: StableCallableOwnerRef::Declaration(owner.clone()),
+            side: StableDispatchSide::Instance,
+            selector: "iterator".into(),
+        };
+        let invocation = |selection| PortableTraitInvocationV1 {
+            source_impl: StableImplRef {
+                module: module.clone(),
+                local_id: 0,
+            },
+            selection,
+            selection_is_trait_default: true,
+            requirement: requirement.clone(),
+            requirement_slot: 0,
+            requirement_slots: vec![],
+            requirement_targets: vec![],
+            antecedent_slots: vec![],
+            type_bindings: vec![],
+            call_environment: None,
+        };
+
+        assert!(trait_selection_identity_proves_default(&invocation(
+            PortableTraitSelectionTargetV1::Callable { callable: exact.clone() }
+        )));
+
+        let mut wrong_selector = exact.clone();
+        wrong_selector.selector = "next".into();
+        assert!(!trait_selection_identity_proves_default(&invocation(
+            PortableTraitSelectionTargetV1::Callable { callable: wrong_selector }
+        )));
+
+        let mut wrong_side = exact;
+        wrong_side.side = StableDispatchSide::Class;
+        assert!(!trait_selection_identity_proves_default(&invocation(
+            PortableTraitSelectionTargetV1::Callable { callable: wrong_side }
+        )));
+
+        assert!(!trait_selection_identity_proves_default(&invocation(
+            PortableTraitSelectionTargetV1::DataComponent {
+                component: PortableDataComponentRefV1 {
+                    owner,
+                    index: 0,
+                },
+                specialized_type: phalcom_compiler_artifact::executable::semantic::PortableTypeRecipeId(0),
+            }
+        )));
+    }
+
 }
