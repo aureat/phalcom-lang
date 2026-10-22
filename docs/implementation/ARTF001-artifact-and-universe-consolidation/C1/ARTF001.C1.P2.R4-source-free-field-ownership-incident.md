@@ -260,3 +260,38 @@ This continuation is not yet locally compile-verified. The next discriminator
 is the core library check followed by the focused artifact validator suite.
 The full artifact gate remains deferred until those are green. P2.R4 remains
 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
+
+## Artifact VM installation-order continuation — 2026-10-22
+
+The prior portable semantic-pool relocation now compiles locally and the
+focused validator selection passes **23/23**. With field/upvalue authorization
+and semantic side-table relocation green at their focused boundaries, the next
+static audit moved to VM installation order.
+
+Portable semantic pools are reconstructed before initializer bytecode runs.
+Source-owned nominal recipes therefore require exact runtime class identities
+earlier than the ordinary source `Class`/Enum/Data allocation points. The
+source-free path now preallocates validated instance-class recipes in
+superclass order, through exact stable declaration identity and exact module
+`ClassKey`. The defining runtime operation consumes that authorization once
+and checks its requested superclass. No display-name lookup, first-match
+selection, reopening policy, or source compilation supplies authority.
+Class-side objects continue to arise from the existing metaclass parallel rule.
+
+All captured Universe module initializer closures are now materialized and
+attached before execution. Only modules in the canonical eager bootstrap list
+execute immediately; deferred modules remain `Prepared` with their artifact
+closure retained, so later initialization cannot require source. After eager
+execution, an outstanding preallocated class is legal only when its owner
+module is explicitly deferred.
+
+Artifact bootstrap now also publishes the exact semantic roots
+(`unsupported`, `ellipsis`, `Ordering`) from the same canonical Universe
+exports used by source bootstrap. The binding code is shared rather than
+duplicated, preserving object identity and avoiding Rust-side substitutes.
+
+A focused unit test proves preallocation is exact-superclass checked and
+one-shot. This ordering/root continuation is not yet locally compile-verified.
+The next local discriminator is `cargo check -p phalcom-core --lib` followed
+by that focused VM unit test. The full SlotMap executable test remains deferred
+until those checks are green.
