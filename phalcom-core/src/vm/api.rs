@@ -100,6 +100,59 @@ impl VM {
         class
     }
 
+    /// Allocates one artifact-authorized class early enough for portable
+    /// semantic recipes to resolve its exact nominal runtime identity.
+    ///
+    /// The ordinary source `Class` opcode does not consult this table unless
+    /// an entry was installed here; preallocation is therefore an artifact-only
+    /// bootstrap seam, not class reopening or name-based reuse.
+    pub(crate) fn preallocate_artifact_class(
+        &mut self,
+        module: ObjRef,
+        name: &str,
+        superclass: Option<ClassId>,
+    ) -> Result<ClassId, RuntimeError> {
+        let name_sym = self.interner.intern(name);
+        let key = super::ClassKey { module, name: name_sym };
+        if self.artifact_preallocated_classes.contains_key(&key) {
+            return Err(RuntimeError::Internal(format!("artifact class {name} was preallocated twice")));
+        }
+        if self.classes.contains_key(&key) {
+            return Err(RuntimeError::Internal(format!(
+                "artifact class {name} collides with an already materialized runtime class"
+            )));
+        }
+        let class = self.create_class(module, name, superclass);
+        self.artifact_preallocated_classes.insert(key, class);
+        Ok(class)
+    }
+
+    /// Consumes an exact artifact preallocation for the defining runtime
+    /// operation. The entry is retained on mismatch so a bad initializer cannot
+    /// destroy the authority before reporting the invariant failure.
+    pub(crate) fn consume_artifact_preallocated_class(
+        &mut self,
+        module: ObjRef,
+        name: Symbol,
+        expected_superclass: Option<ClassId>,
+    ) -> Result<Option<ClassId>, RuntimeError> {
+        let key = super::ClassKey { module, name };
+        let Some(&class) = self.artifact_preallocated_classes.get(&key) else {
+            return Ok(None);
+        };
+        let actual_superclass = self.heap.class(class).superclass;
+        if actual_superclass != expected_superclass {
+            return Err(RuntimeError::Internal(format!(
+                "artifact preallocated class {} has superclass {:?}, initializer requested {:?}",
+                self.resolve_symbol(name),
+                actual_superclass,
+                expected_superclass
+            )));
+        }
+        self.artifact_preallocated_classes.remove(&key);
+        Ok(Some(class))
+    }
+
     /// Allocates a source-class instance and seeds every immutable field slot
     /// with the private sentinel until its canonical constructor initializes it.
     pub(crate) fn allocate_class_instance(&mut self, class: ClassId) -> ObjRef {
