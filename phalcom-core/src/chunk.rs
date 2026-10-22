@@ -76,7 +76,7 @@ pub struct ExecutableTraitInvocationSpec {
 }
 
 impl ExecutableTraitInvocationSpec {
-    fn from_semantic(spec: &TraitInvocationSpec) -> Self {
+    pub(crate) fn from_semantic(spec: &TraitInvocationSpec) -> Self {
         fn target(
             selection: &phalcom_semantic::impls::RequirementSelectionTemplate,
         ) -> ExecutableTraitSelectionTarget {
