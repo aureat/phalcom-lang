@@ -81,14 +81,13 @@ fn remap_for_requirement(requirement: &mut crate::modules::semantic_lowering::Fo
 }
 
 
-fn remap_data_construction(
-    construction: &mut Arc<crate::modules::semantic_lowering::DataConstructionLoweringSpec>,
+fn remap_data_construction_type_recipe(
+    recipe: crate::typing::RuntimeTypeRecipe,
     pool_id: crate::typing::MetadataPoolId,
-) {
+) -> crate::typing::RuntimeTypeRecipe {
     use crate::typing::{MetadataPoolId, RuntimeTypeRecipe, RuntimeTypeRef};
 
-    let construction = Arc::make_mut(construction);
-    construction.type_recipe = match construction.type_recipe {
+    match recipe {
         RuntimeTypeRecipe::Closed(RuntimeTypeRef::Base {
             pool: MetadataPoolId(0),
             node,
@@ -101,7 +100,15 @@ fn remap_data_construction(
         // remapped. Source execution replaces them from exact_type; portable
         // projection must reject them if the P7 root census missed a type.
         recipe => recipe,
-    };
+    }
+}
+
+fn remap_data_construction(
+    construction: &mut Arc<crate::modules::semantic_lowering::DataConstructionLoweringSpec>,
+    pool_id: crate::typing::MetadataPoolId,
+) {
+    let construction = Arc::make_mut(construction);
+    construction.type_recipe = remap_data_construction_type_recipe(construction.type_recipe, pool_id);
 }
 
 fn remap_invocation_target(
@@ -1010,6 +1017,35 @@ mod tests {
             occurrences: Box::new([]),
             extensions: Box::new([]),
         })
+    }
+
+    #[test]
+    fn data_construction_remap_distinguishes_p7_root_from_source_exact_placeholder() {
+        use crate::typing::{MetadataPoolId, RuntimeTypeRecipe, RuntimeTypeRef};
+        use phalcom_type_meta::type_node::TypeNodeId;
+
+        let target = MetadataPoolId(9);
+        let p7 = RuntimeTypeRecipe::Template(RuntimeTypeRef::Base {
+            pool: MetadataPoolId(0),
+            node: TypeNodeId(7),
+        });
+        assert_eq!(
+            remap_data_construction_type_recipe(p7, target),
+            RuntimeTypeRecipe::Template(RuntimeTypeRef::Base {
+                pool: target,
+                node: TypeNodeId(7),
+            })
+        );
+
+        let source_only = RuntimeTypeRecipe::Closed(RuntimeTypeRef::Base {
+            pool: MetadataPoolId(u32::MAX),
+            node: TypeNodeId(3),
+        });
+        assert_eq!(
+            remap_data_construction_type_recipe(source_only, target),
+            source_only,
+            "source-only exact metadata must never alias a P7 node by numeric index"
+        );
     }
 
     #[test]
