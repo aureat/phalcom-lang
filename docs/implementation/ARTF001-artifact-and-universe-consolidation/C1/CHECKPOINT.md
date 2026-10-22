@@ -1872,3 +1872,47 @@ the artifact. The corrected invocation completed both runs.
 The artifact is a local temporary-path fixture, not a checked-in deliverable.
 The reviewed correction is ready for a focused commit. Remaining T7 parity
 gates and full P2 acceptance stay open; no broad tests were run.
+
+
+### P2.R4 parity execution prepared — 2026-10-22
+
+Committed the canonical trait-requirement and caller-conformance corrections,
+their focused regressions, and the executable/reuse evidence as `f2d7ed29a`.
+No push was requested.
+
+The six existing T7 compiler/diagnostic parity checks now accept the same
+`PHALCOM_TEST_FULL_TELOSC_PATH` saved-artifact fixture as the executable gate.
+An explicitly supplied missing or invalid artifact fails instead of rebuilding.
+Without that environment variable, the previous compiler-image build/load
+fixture remains available. The strict program, constructor, and diagnostic
+comparators and invalid-program fixtures are unchanged. The positive test
+still compares the 4-module SlotMap package and 8-module runtime package. The
+five negative checks cover argument-type mismatch, constructor resolution,
+inaccessible declaration, invalid pattern arity, and unsatisfied trait evidence.
+
+Run these six exact test names together in one process so the existing
+canonical Universe singleton supplies the source reference once. The artifact
+side reuses `/tmp/phalcom-universe-executable.telosc`; the source side must
+compile its reference, so this is a parity run rather than another source-free
+timing run. Unset `PHALCOM_DENY_SOURCE_BOOTSTRAP` for this parity process. Direct
+binary execution needs `RUST_MIN_STACK=33554432`.
+
+Verification of this test-plumbing change: `cargo check -p phalcom-core --test
+core` passed in 0.83 seconds; `cargo test -p phalcom-core --test core --no-run`
+passed in 3.32 seconds. The built binary is
+`target/debug/deps/core-28f961ca102684e5`. Its `--list --exact` invocation selected
+all six intended checks and no others:
+
+- `modules_canonical_artifact::source_backed_and_artifact_backed_compiler_program_parity`
+- `modules_canonical_artifact::source_backed_and_artifact_backed_negative_diagnostic_parity`
+- `modules_canonical_artifact::negative_parity_constructor_resolution_failure`
+- `modules_canonical_artifact::negative_parity_inaccessible_declaration`
+- `modules_canonical_artifact::negative_parity_invalid_pattern_matching`
+- `modules_canonical_artifact::negative_parity_trait_resolution_failure`
+
+Behavioral execution is deferred to the user under the explicit no-long-tests
+instruction. T7 parity is prepared, not passed; P2.R4 remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`, and P3 remains blocked. No comparator
+relaxation, semantic correction, or new architectural amendment was needed in
+this continuation. The existing caller-evidence consultation remains the
+authority for the preceding validator correction.

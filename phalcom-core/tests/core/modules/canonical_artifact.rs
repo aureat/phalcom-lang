@@ -1117,13 +1117,24 @@ fn fresh_process_source_denied_artifact_compilation() {
     eprint!("{}", String::from_utf8_lossy(&output.stderr));
 }
 
+// Reuse a validated saved artifact for parity runs while keeping the source
+// compiler as an independent reference. An explicit missing/invalid path fails.
+fn load_parity_universe() -> std::sync::Arc<phalcom_core::modules::canonical_artifact::LoadedUniverseArtifact> {
+    let limits = ValidationLimits::default();
+    if let Some(path) = std::env::var_os("PHALCOM_TEST_FULL_TELOSC_PATH") {
+        return load_universe_telosc(std::path::Path::new(&path), &limits).expect("load saved Universe artifact for parity");
+    }
+    let program = canonical_universe_program().expect("canonical universe program");
+    let view = program.compiler_image_view().expect("compiler image view");
+    let built = build_universe_telosc(&view, &limits).expect("build parity Universe artifact");
+    load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load parity Universe artifact")
+}
+
 #[test]
 fn source_backed_and_artifact_backed_compiler_program_parity() {
     let program = canonical_universe_program().expect("canonical universe program");
     let view = program.compiler_image_view().expect("compiler image view");
-    let limits = ValidationLimits::default();
-    let built = build_universe_telosc(&view, &limits).expect("build");
-    let loaded = load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load");
+    let loaded = load_parity_universe();
 
     // 1. Real package: packages/slotmap (4 modules)
     let slotmap_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("packages/slotmap");
@@ -1183,11 +1194,7 @@ fn artifact_backed_compiler_output_runs_on_ordinary_vm() {
 
 #[test]
 fn source_backed_and_artifact_backed_negative_diagnostic_parity() {
-    let program = canonical_universe_program().expect("canonical universe program");
-    let view = program.compiler_image_view().expect("compiler image view");
-    let limits = ValidationLimits::default();
-    let built = build_universe_telosc(&view, &limits).expect("build");
-    let loaded = load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load");
+    let loaded = load_parity_universe();
     // Invalid program exercising canonical semantic authority:
     // Calling List.withCapacity with incompatible argument type String instead of Int
     let invalid_entry = EntrySelection::Inline(
@@ -1314,11 +1321,7 @@ fn entry_local_diagnostics(diagnostics: &ProgramSemanticDiagnostics) -> ProgramS
 }
 
 fn assert_negative_diagnostic_parity_for_source(source: &str, expected_code: DiagnosticCode) {
-    let program = canonical_universe_program().expect("canonical universe program");
-    let view = program.compiler_image_view().expect("compiler image view");
-    let limits = ValidationLimits::default();
-    let built = build_universe_telosc(&view, &limits).expect("build");
-    let loaded = load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load");
+    let loaded = load_parity_universe();
     let invalid_entry = EntrySelection::Inline(source.into());
     let src_res = ProgramCompiler::compile_entry_selection(invalid_entry.clone());
     let art_res = loaded.compile_user_entry(invalid_entry);
