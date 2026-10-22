@@ -48,6 +48,7 @@ pub(crate) fn bootstrap_vm(
     vm.sync_universe_class_aliases()?;
     vm.bind_semantic_roots_from_universe_exports()?;
     vm.universe.mark_leaf_tostring_pristine();
+    vm.verify_canonical_none_global()?;
     vm.universe.verify_invariants(&vm.heap).map_err(VmBootstrapError::Invariant)?;
     Ok(vm)
 }
