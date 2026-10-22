@@ -2256,9 +2256,9 @@ fn captured_cell_may_change(
 ) -> bool {
     use PortableInstructionV1 as I;
 
-    let Some(parent_prototype) = image.prototypes.get(parent) else {
+    if image.prototypes.get(parent).is_none() {
         return true;
-    };
+    }
     let mut aliases = Vec::new();
     match capture {
         UpvalueCaptureV1::Local(slot) => {
