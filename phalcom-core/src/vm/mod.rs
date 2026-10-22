@@ -313,6 +313,11 @@ pub struct VM {
 
     /// Named classes by identity [`ClassKey`], each a [`ClassId`] handle.
     pub classes: HashMap<ClassKey, ClassId>,
+    /// Validated executable classes allocated before their initializer bytecode
+    /// runs so portable semantic recipes can resolve exact nominal identity.
+    /// Entries are one-shot: only the defining artifact `Class`/Enum/Data
+    /// operation may consume them, with an exact superclass check.
+    pub(crate) artifact_preallocated_classes: HashMap<ClassKey, ClassId>,
     /// Kernel class names reserved to the Universe package (PDR-0001 ruling
     /// 3, U-CLASSCLOSE §4): exactly the names `VM::bind_primordial_universe`'s
     /// `add_class!` macro binds — the Rust-installed primitives (`Object`,
