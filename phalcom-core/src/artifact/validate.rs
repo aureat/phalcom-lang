@@ -2262,14 +2262,11 @@ fn captured_cell_may_change(
     let mut aliases = Vec::new();
     match capture {
         UpvalueCaptureV1::Local(slot) => {
-            // A closure creation in a loop may observe a different local value
-            // in another iteration while an earlier captured cell is live.
-            if instruction_site_is_cyclic(image, InstructionSite {
-                prototype: parent,
-                instruction: creation_instruction,
-            }).unwrap_or(true) {
-                return true;
-            }
+            // Looping over a closure site is not itself evidence that a captured
+            // cell changes. The provenance dataflow already joins every incoming
+            // iteration at the creation site, while this CFG walk proves whether
+            // the aliased local can actually be overwritten after any creation.
+            // Reject the mutation, not the cycle.
             if captured_local_has_reachable_write(image, InstructionSite {
                 prototype: parent,
                 instruction: creation_instruction,
@@ -3284,8 +3281,24 @@ fn unknown_field_receiver(
         |prototype_data| {
             let start = instruction.saturating_sub(6);
             let end = (instruction + 1).min(prototype_data.code.len());
+            let nested = match prototype_data.owner {
+                PrototypeOwnerV1::Nested { parent, .. } => image.prototypes.get(parent.0 as usize).map_or_else(
+                    || format!("; captures {:?}; parent prototype {} is absent", prototype_data.upvalues, parent.0),
+                    |parent_data| {
+                        format!(
+                            "; captures {:?}; parent {} owner {:?}, name {:?}, code {:?}",
+                            prototype_data.upvalues,
+                            parent.0,
+                            parent_data.owner,
+                            parent_data.name,
+                            parent_data.code
+                        )
+                    },
+                ),
+                _ => String::new(),
+            };
             format!(
-                "receiver provenance is {receiver:?}; owner {:?}, name {:?}, code around access {:?}",
+                "receiver provenance is {receiver:?}; owner {:?}, name {:?}, code around access {:?}{nested}",
                 prototype_data.owner,
                 prototype_data.name,
                 &prototype_data.code[start..end],
@@ -4714,6 +4727,28 @@ mod tests {
         let (mut image, context) = field_method_fixture(&["Foo"], false, 0, 1);
         image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
         image.prototypes[2].code = vec![I::GetUpvalue { operand0: 0 }, I::GetField { operand0: 0 }, I::Return {}];
+        validate_executable_provenance(&image, &context).unwrap();
+    }
+
+
+    #[test]
+    fn cyclic_closure_creation_preserves_immutable_exact_receiver_capture() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+
+        let (mut image, context) = field_method_fixture(&["Foo"], false, 0, 1);
+        image.prototypes[1].code = vec![
+            I::Closure { operand0: 0 },
+            I::Pop {},
+            I::True {},
+            I::JumpIfFalse { operand0: 1 },
+            I::Jump { operand0: -5 },
+            I::GetSelf {},
+            I::GetField { operand0: 0 },
+            I::Return {},
+        ];
+        image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
+        image.prototypes[2].code = vec![I::GetUpvalue { operand0: 0 }, I::GetField { operand0: 0 }, I::Return {}];
+
         validate_executable_provenance(&image, &context).unwrap();
     }
 
