@@ -70,6 +70,9 @@ impl VM {
 
             // Named class handles.
             classes,
+            // Duplicate handles also retained by `classes`; this table is
+            // one-shot artifact initialization bookkeeping, not an extra root.
+            artifact_preallocated_classes: _,
             // Symbols only (no object handles) — not a GC root.
             kernel_class_names: _,
             // The pinned kernel + the import registry (Invariant M5).
