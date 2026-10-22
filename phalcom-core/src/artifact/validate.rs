@@ -3955,6 +3955,26 @@ fn validate_semantic_pools(image: &ExecutableImageV1, context: &ExecutableValida
             }
             validate_trait_selection(pool_index, "trait invocation selection", row, context, &invocation.selection)?;
             validate_trait_requirement(pool_index, "trait invocation requirement", row, context, &invocation.requirement)?;
+            let identity_proves_trait_default = match &invocation.selection {
+                PortableTraitSelectionTargetV1::Callable { callable } => {
+                    matches!(
+                        &callable.owner,
+                        StableCallableOwnerRef::Declaration(owner)
+                            if owner == &invocation.requirement.owner
+                                && callable.selector.as_ref() == invocation.requirement.selector
+                                && callable.side == invocation.requirement.side
+                    )
+                }
+                PortableTraitSelectionTargetV1::DataComponent { .. } => false,
+            };
+            if invocation.selection_is_trait_default != identity_proves_trait_default {
+                return Err(ExecutableValidationError::InvalidSemanticProduct {
+                    pool: pool_index,
+                    family: "trait invocation",
+                    row,
+                    detail: "trait-default execution mode disagrees with stable selected-callable identity".to_owned(),
+                });
+            }
             let mut requirement_slots = BTreeSet::new();
             for slot in &invocation.requirement_slots {
                 validate_trait_requirement(pool_index, "trait requirement slot", row, context, &slot.requirement)?;
