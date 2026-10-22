@@ -86,6 +86,10 @@ impl VM {
         spec: &crate::modules::semantic_lowering::DataConstructionLoweringSpec,
     ) -> Result<RuntimeDataDescriptorId, RuntimeError> {
         use crate::typing::handle::{MetadataPoolId, RuntimeTypeRef};
+        let base = self
+            .data_registry
+            .behavior_class_for_declaration(&spec.constructor.owner)
+            .ok_or_else(|| RuntimeError::Internal("unregistered data declaration".into()))?;
         let type_recipe = if let Some(exact_type_metadata) = spec.exact_type.as_ref() {
             // Source-compiled lowering carries a private exact metadata bundle.
             // Install/reuse it to recover the bundle-local runtime root before
