@@ -5060,17 +5060,6 @@ mod tests {
             &ExecutableImageLimitsV1,
         ) -> Result<ValidatedExecutableImage, ExecutableValidationError> = validate_executable_image;
     }
-}
-
-fn hex_digest(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
-
     #[test]
     fn trait_default_mode_is_derived_from_exact_stable_callable_identity() {
         use phalcom_compiler_artifact::executable::semantic::{
@@ -5143,5 +5132,16 @@ fn hex_digest(bytes: &[u8]) -> String {
             }
         )));
     }
+}
 
+fn hex_digest(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+
+}
 }
