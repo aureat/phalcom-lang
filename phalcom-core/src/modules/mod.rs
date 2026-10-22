@@ -7,6 +7,7 @@
 pub mod artifact;
 pub mod builtin_materialize;
 pub mod canonical_artifact;
+mod telosc_staging;
 pub mod canonical_universe;
 pub mod compile;
 pub mod compile_session;
