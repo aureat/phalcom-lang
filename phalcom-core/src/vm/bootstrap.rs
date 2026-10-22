@@ -272,23 +272,7 @@ impl VM {
 
                 // Semantic roots are late-bound to the exact values exported by the
                 // universe sources. No Rust replacement is valid for these identities.
-                {
-                    let unsupported = vm
-                        .universe_global(&["errors", "unsupported"], "unsupported")
-                        .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export canonical unsupported".into()))?;
-                    let ellipsis = vm
-                        .universe_global(&["object", "ellipsis"], "ellipsis")
-                        .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export canonical ellipsis".into()))?;
-                    let ordering = vm
-                        .universe_global(&["object", "ordering"], "Ordering")
-                        .and_then(|value| value.as_obj())
-                        .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export Ordering class".into()))?;
-                    vm.semantic_roots = Some(crate::vm::SemanticRoots {
-                        unsupported,
-                        ellipsis,
-                        ordering_class: ordering,
-                    });
-                }
+                vm.bind_semantic_roots_from_universe_exports()?;
 
                 // Snapshot the leaf `toString` override-epoch flags now that
                 // universe reopens (e.g. `String`'s `toString => self`) have
@@ -325,6 +309,29 @@ impl VM {
             },
             |_| telos_observability::PerfOutcome::BootstrapError,
         )
+    }
+
+    /// Publishes the exact source-authored semantic singleton/class values
+    /// after canonical Universe module execution. Artifact bootstrap calls the
+    /// same projection after executing validated initializers; no source
+    /// provider or Rust replacement participates in these identities.
+    pub(crate) fn bind_semantic_roots_from_universe_exports(&mut self) -> Result<(), crate::error::VmBootstrapError> {
+        let unsupported = self
+            .universe_global(&["errors", "unsupported"], "unsupported")
+            .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export canonical unsupported".into()))?;
+        let ellipsis = self
+            .universe_global(&["object", "ellipsis"], "ellipsis")
+            .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export canonical ellipsis".into()))?;
+        let ordering = self
+            .universe_global(&["object", "ordering"], "Ordering")
+            .and_then(|value| value.as_obj())
+            .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export Ordering class".into()))?;
+        self.semantic_roots = Some(crate::vm::SemanticRoots {
+            unsupported,
+            ellipsis,
+            ordering_class: ordering,
+        });
+        Ok(())
     }
 
     /// Prepares canonical slots for source-only classes before the Universe
