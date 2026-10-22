@@ -26,6 +26,8 @@ pub(crate) enum TeloscStagingError {
     Capability(&'static str),
     #[error("metadata section error: {0}")]
     Metadata(#[from] phalcom_compiler_artifact::metadata::MetadataSectionError),
+    #[error("semantic query image error: {0}")]
+    SemanticImage(#[from] phalcom_semantic::canonical_image::CanonicalImageError),
 }
 
 /// Non-owning transport section views. All required sections have passed
