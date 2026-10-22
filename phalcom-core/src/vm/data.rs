@@ -86,35 +86,39 @@ impl VM {
         spec: &crate::modules::semantic_lowering::DataConstructionLoweringSpec,
     ) -> Result<RuntimeDataDescriptorId, RuntimeError> {
         use crate::typing::handle::{MetadataPoolId, RuntimeTypeRef};
-        let base = self
-            .data_registry
-            .behavior_class_for_declaration(&spec.constructor.owner)
-            .ok_or_else(|| RuntimeError::Internal("unregistered data declaration".into()))?;
-        let existing_pool = self
-            .typing_registry
-            .pools()
-            .iter()
-            .find(|pool| std::sync::Arc::ptr_eq(&pool.bundle, &spec.exact_type) || pool.bundle == spec.exact_type)
-            .map(|pool| pool.id);
-        let pool = match existing_pool {
-            Some(id) => id,
-            None => {
-                let id = MetadataPoolId(self.typing_registry.pool_count() as u32);
-                let loaded = crate::typing::loader::load_metadata_bundle(id, spec.exact_type.clone(), &Default::default())
-                    .map_err(|error| RuntimeError::Internal(error.to_string()))?;
-                self.typing_registry.register_pool(loaded)
+        let type_recipe = if let Some(exact_type_metadata) = spec.exact_type.as_ref() {
+            // Source-compiled lowering carries a private exact metadata bundle.
+            // Install/reuse it to recover the bundle-local runtime root before
+            // entering the shared runtime recipe path.
+            let existing_pool = self
+                .typing_registry
+                .pools()
+                .iter()
+                .find(|pool| std::sync::Arc::ptr_eq(&pool.bundle, exact_type_metadata) || pool.bundle.as_ref() == exact_type_metadata.as_ref())
+                .map(|pool| pool.id);
+            let pool = match existing_pool {
+                Some(id) => id,
+                None => {
+                    let id = MetadataPoolId(self.typing_registry.pool_count() as u32);
+                    let loaded = crate::typing::loader::load_metadata_bundle(id, exact_type_metadata.clone(), &Default::default())
+                        .map_err(|error| RuntimeError::Internal(error.to_string()))?;
+                    self.typing_registry.register_pool(loaded)
+                }
+            };
+            let node = exact_type_metadata
+                .runtime_roots
+                .first()
+                .ok_or_else(|| RuntimeError::Internal("missing exact data type".into()))?
+                .form;
+            let base_type = RuntimeTypeRef::Base { pool, node };
+            match spec.type_recipe {
+                crate::typing::RuntimeTypeRecipe::Closed(_) => crate::typing::RuntimeTypeRecipe::Closed(base_type),
+                crate::typing::RuntimeTypeRecipe::Template(_) => crate::typing::RuntimeTypeRecipe::Template(base_type),
             }
-        };
-        let node = spec
-            .exact_type
-            .runtime_roots
-            .first()
-            .ok_or_else(|| RuntimeError::Internal("missing exact data type".into()))?
-            .form;
-        let base_type = RuntimeTypeRef::Base { pool, node };
-        let type_recipe = match spec.type_recipe {
-            crate::typing::RuntimeTypeRecipe::Closed(_) => crate::typing::RuntimeTypeRecipe::Closed(base_type),
-            crate::typing::RuntimeTypeRecipe::Template(_) => crate::typing::RuntimeTypeRecipe::Template(base_type),
+        } else {
+            // Source-free executable materialization has already relocated the
+            // validated portable type recipe against installed P7 metadata.
+            spec.type_recipe
         };
         let env_id = self
             .frames
@@ -136,12 +140,14 @@ impl VM {
             .and_then(|id| self.data_registry.descriptor(id))
             .cloned();
         let component_slots = Some(spec.component_to_logical.clone());
-        let is_nominal_base_type = spec
-            .exact_type
-            .types
-            .get(node.0 as usize)
-            .is_some_and(|ty| matches!(ty.form, phalcom_type_meta::type_node::TypeNode::Nominal { .. }))
-            && matches!(&exact_type, RuntimeTypeRef::Base { .. });
+        let is_nominal_base_type = match exact_type {
+            RuntimeTypeRef::Base { pool, node } => self
+                .typing_registry
+                .get_pool(pool)
+                .and_then(|loaded| loaded.bundle.types.get(node.0 as usize))
+                .is_some_and(|ty| matches!(ty.form, phalcom_type_meta::type_node::TypeNode::Nominal { .. })),
+            RuntimeTypeRef::Overlay(_) => false,
+        };
         let descriptor = if is_nominal_base_type && let Some(base_descriptor) = base_descriptor {
             self.data_registry.bind_nominal_type(base_descriptor.runtime_id, exact_type);
             base_descriptor.runtime_id
