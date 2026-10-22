@@ -5144,4 +5144,3 @@ fn hex_digest(bytes: &[u8]) -> String {
     encoded
 
 }
-}
