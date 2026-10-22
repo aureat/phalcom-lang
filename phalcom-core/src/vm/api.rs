@@ -479,3 +479,41 @@ impl VM {
         records
     }
 }
+
+#[cfg(test)]
+mod artifact_preallocation_tests {
+    use super::*;
+
+    #[test]
+    fn artifact_class_preallocation_is_exact_superclass_checked_and_one_shot() {
+        let mut vm = VM::new_kernel();
+        let module = vm.create_module("artifact_preallocation_test", "artifact://preallocation-test");
+        let object = vm.universe.classes.object_class;
+        let wrong_superclass = vm.universe.classes.class_class;
+
+        let class = vm
+            .preallocate_artifact_class(module, "Fixture", Some(object))
+            .expect("artifact class preallocates");
+        let name = vm.interner.intern("Fixture");
+        let key = crate::vm::ClassKey { module, name };
+        assert_eq!(vm.classes.get(&key).copied(), Some(class));
+
+        assert!(
+            vm.consume_artifact_preallocated_class(module, name, Some(wrong_superclass))
+                .is_err(),
+            "wrong initializer superclass must not consume preallocation authority"
+        );
+        assert_eq!(
+            vm.consume_artifact_preallocated_class(module, name, Some(object))
+                .expect("matching superclass consumes preallocation"),
+            Some(class)
+        );
+        assert_eq!(
+            vm.consume_artifact_preallocated_class(module, name, Some(object))
+                .expect("consumed authority becomes ordinary source allocation path"),
+            None
+        );
+        assert_eq!(vm.classes.get(&key).copied(), Some(class));
+    }
+}
+
