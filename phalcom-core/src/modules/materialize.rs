@@ -85,8 +85,23 @@ fn remap_data_construction(
     construction: &mut Arc<crate::modules::semantic_lowering::DataConstructionLoweringSpec>,
     pool_id: crate::typing::MetadataPoolId,
 ) {
+    use crate::typing::{MetadataPoolId, RuntimeTypeRecipe, RuntimeTypeRef};
+
     let construction = Arc::make_mut(construction);
-    construction.type_recipe = remap_runtime_type_recipe(construction.type_recipe, pool_id);
+    construction.type_recipe = match construction.type_recipe {
+        RuntimeTypeRecipe::Closed(RuntimeTypeRef::Base {
+            pool: MetadataPoolId(0),
+            node,
+        }) => RuntimeTypeRecipe::Closed(RuntimeTypeRef::Base { pool: pool_id, node }),
+        RuntimeTypeRecipe::Template(RuntimeTypeRef::Base {
+            pool: MetadataPoolId(0),
+            node,
+        }) => RuntimeTypeRecipe::Template(RuntimeTypeRef::Base { pool: pool_id, node }),
+        // Source-only exact-metadata placeholders are intentionally not
+        // remapped. Source execution replaces them from exact_type; portable
+        // projection must reject them if the P7 root census missed a type.
+        recipe => recipe,
+    };
 }
 
 fn remap_invocation_target(
