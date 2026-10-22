@@ -55,6 +55,31 @@ pub(crate) fn project_semantic_pool(
         trait_requirement_invocations: _,
         type_parameter_class_receivers: _,
     } = source;
+    if source.trait_invocations.len() != source.runtime_trait_invocations.len() {
+        return fail(
+            "trait_invocations",
+            format!(
+                "semantic/runtime trait invocation slot counts diverge: semantic={}, runtime={}",
+                source.trait_invocations.len(),
+                source.runtime_trait_invocations.len()
+            ),
+        );
+    }
+    for (index, (semantic, runtime)) in source
+        .trait_invocations
+        .iter()
+        .zip(&source.runtime_trait_invocations)
+        .enumerate()
+    {
+        let expected = crate::chunk::ExecutableTraitInvocationSpec::from_semantic(semantic);
+        if &expected != runtime {
+            return fail(
+                "trait_invocations",
+                format!("semantic/runtime trait invocation slot {index} disagrees"),
+            );
+        }
+    }
+
     let mut project = SemanticPoolProjector {
         vm,
         snapshot,
