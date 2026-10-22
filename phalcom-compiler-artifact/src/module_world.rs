@@ -1671,8 +1671,10 @@ impl ModuleWorldV4 {
             return Err(invalid("bootstrap availability proof uses an unsupported authority/product/timing/target combination"));
         }
 
-        if proof.authority == Authority::FullyInitializedUniverse && !self.bootstrap_modules.contains(&module) {
-            return Err(invalid("fully initialized Universe proof targets a module outside the bootstrap schedule"));
+        let requires_bootstrap_membership = proof.authority == Authority::FullyInitializedUniverse
+            && matches!(proof.product, Product::RuntimeObject | Product::SourceInitializedValue);
+        if requires_bootstrap_membership && !self.bootstrap_modules.contains(&module) {
+            return Err(invalid("fully initialized Universe runtime/source proof targets a module outside the bootstrap schedule"));
         }
         Ok(())
     }

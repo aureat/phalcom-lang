@@ -62,6 +62,8 @@ impl CanonicalUniverseProgram {
             formal: &self.formal_image,
             linked: &self.program.linked,
             metadata,
+            bootstrap_order: &self.bootstrap_order,
+            availability_after_bootstrap: &self.availability_after_bootstrap,
             compatibility: CanonicalCompatibilityIdentity {
                 semantic_world: self.formal_image.world().clone(),
                 semantic_model_version: metadata.header.semantic_model_version,
@@ -114,6 +116,10 @@ pub struct CanonicalCompilerImageView<'a> {
     /// Finalized executable linkage paired with the formal semantic graph.
     pub linked: &'a ExecutableLinkedProgram,
     pub metadata: &'a phalcom_type_meta::SemanticMetadataBundle,
+    /// Exact canonical source-bootstrap schedule. Order is executable authority.
+    pub bootstrap_order: &'a [ModuleId],
+    /// Complete environment contract guaranteed after canonical bootstrap.
+    pub availability_after_bootstrap: &'a AvailabilityContract,
     pub compatibility: CanonicalCompatibilityIdentity,
 }
 

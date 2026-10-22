@@ -677,6 +677,51 @@ pub fn project_executable_module_world(
     executable: &ExecutableLinkedProgram,
     limits: &ValidationLimits,
 ) -> Result<ModuleWorldV3, ArtifactError> {
+    let (projected, _) = project_executable_module_world_with_ids(world, executable, limits)?;
+    Ok(projected)
+}
+
+/// Projects the finalized module world plus the complete canonical execution
+/// environment contract. The V4 schedule and proofs are relocated through the
+/// same closed module-id map that projected V3; targets outside that closure
+/// are publication errors.
+pub fn project_executable_module_world_v4(
+    world: &CanonicalExternalModuleWorld,
+    executable: &ExecutableLinkedProgram,
+    bootstrap_order: &[ModuleId],
+    availability: &AvailabilityContract,
+    limits: &ValidationLimits,
+) -> Result<ModuleWorldV4, ArtifactError> {
+    let (previous, ids) = project_executable_module_world_with_ids(world, executable, limits)?;
+
+    let bootstrap_modules = bootstrap_order
+        .iter()
+        .map(|module| portable_id(&ids, module))
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+
+    let mut bootstrap_availability = availability
+        .proofs()
+        .map(|proof| {
+            Ok(AvailabilityProofV1 {
+                target: availability_target_out(&proof.target, &ids)?,
+                product: availability_product_out(proof.product),
+                authority: availability_authority_out(proof.authority),
+                available_at: availability_timing_out(proof.available_at),
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    bootstrap_availability.sort_by(AvailabilityProofV1::canonical_cmp);
+
+    let projected = ModuleWorldV4::new(previous, bootstrap_modules, bootstrap_availability);
+    projected.validate(limits)?;
+    Ok(projected)
+}
+
+fn project_executable_module_world_with_ids(
+    world: &CanonicalExternalModuleWorld,
+    executable: &ExecutableLinkedProgram,
+    limits: &ValidationLimits,
+) -> Result<(ModuleWorldV3, BTreeMap<ModuleId, ArtifactModuleId>), ArtifactError> {
     let linked = world.linked();
     if linked.modules.len() != executable.modules.len()
         || linked.modules.keys().any(|module| !executable.modules.contains_key(module))
@@ -771,7 +816,7 @@ pub fn project_executable_module_world(
     availability_witnesses.sort_by(RuntimeAvailabilityWitnessV1::canonical_cmp);
     let projected = ModuleWorldV3::new(wire, availability_witnesses);
     projected.validate(limits)?;
-    Ok(projected)
+    Ok((projected, ids))
 }
 
 fn availability_target_out(
