@@ -452,4 +452,122 @@ mod tests {
             }
         }
     }
+
+    fn artifact_anchor(vm: &mut VM, descriptor: &PrimitiveDescriptor) -> phalcom_compiler_artifact::executable::compatibility::PortableNativeAnchorV1 {
+        use phalcom_compiler_artifact::executable::constant::StableClassRefV1;
+        use phalcom_type_meta::identity::StableDispatchSide;
+
+        let key = descriptor.surface.key;
+        let owner = StableClassRefV1 {
+            declaration: phalcom_semantic::metadata::stable_identity::to_stable_declaration(
+                &phalcom_semantic::core_surface::universe_declaration(key.owner),
+            ),
+            side: match key.side {
+                NativeDispatch::Instance => StableDispatchSide::Instance,
+                NativeDispatch::Class => StableDispatchSide::Class,
+            },
+        };
+        let selector = vm.interner.intern(key.selector);
+        let signature = crate::artifact::project::project_method_signature(&descriptor.runtime_signature(vm, selector), &vm.interner);
+        phalcom_compiler_artifact::executable::compatibility::PortableNativeAnchorV1 {
+            binding_key: format!("test:{}:{:?}:{}", key.owner.name(), key.side, key.selector),
+            owner,
+            signature,
+            contract_identity: None,
+        }
+    }
+
+    #[test]
+    fn artifact_source_owned_native_install_uses_stable_owner_without_source_catalog() {
+        let mut vm = VM::new_kernel();
+        let source_descriptors = PRIMITIVES
+            .iter()
+            .filter(|descriptor| !is_primordial_owner(descriptor.surface.key.owner))
+            .collect::<Vec<_>>();
+        assert!(!source_descriptors.is_empty(), "fixture requires source-owned native descriptors");
+
+        for descriptor in &source_descriptors {
+            let declaration = phalcom_semantic::core_surface::universe_declaration(descriptor.surface.key.owner);
+            let stable = phalcom_semantic::metadata::stable_identity::to_stable_declaration(&declaration);
+            if vm.typing_registry.resolve_nominal(&stable).is_some() {
+                continue;
+            }
+            let module = if let Some(record) = vm.module_registry.get(&declaration.module) {
+                record.object
+            } else {
+                let logical = declaration.module.to_string();
+                vm.create_module_with_id(
+                    declaration.module.clone(),
+                    crate::heap::ModuleKind::Module,
+                    &logical,
+                    &format!("artifact://{logical}"),
+                )
+            };
+            vm.typing_registry.register_declaration_identity(
+                declaration.module.clone(),
+                declaration.name.clone(),
+                stable,
+            );
+            vm.create_class(module, &declaration.name, Some(vm.universe.classes.object_class));
+        }
+
+        let anchors = source_descriptors
+            .iter()
+            .map(|descriptor| artifact_anchor(&mut vm, descriptor))
+            .collect::<Vec<_>>();
+        install_source_owned_primitives_from_artifact(&mut vm, &anchors).expect("artifact native installation must not need source catalog");
+
+        for descriptor in source_descriptors {
+            let declaration = phalcom_semantic::core_surface::universe_declaration(descriptor.surface.key.owner);
+            let stable = phalcom_semantic::metadata::stable_identity::to_stable_declaration(&declaration);
+            let owner = vm.typing_registry.resolve_nominal(&stable).expect("exact source-owned nominal binding");
+            let target = match descriptor.surface.key.side {
+                NativeDispatch::Instance => owner,
+                NativeDispatch::Class => vm.heap.class(owner).class,
+            };
+            let selector = vm.interner.intern(descriptor.surface.key.selector);
+            let method = vm.heap.class(target).get_method(selector).expect("source-owned native method installed");
+            let expected_module = vm.module_registry.get(&declaration.module).expect("owner module").object;
+            assert_eq!(
+                vm.heap.method(method).origin.module,
+                Some(expected_module),
+                "{} must retain exact canonical module origin",
+                descriptor.surface.key.selector
+            );
+        }
+    }
+
+    #[test]
+    fn artifact_primordial_origin_refresh_uses_validated_anchor_module() {
+        let mut vm = VM::new_native();
+        let primordial = PRIMITIVES
+            .iter()
+            .filter(|descriptor| is_primordial_owner(descriptor.surface.key.owner))
+            .collect::<Vec<_>>();
+        let anchors = primordial
+            .iter()
+            .map(|descriptor| artifact_anchor(&mut vm, descriptor))
+            .collect::<Vec<_>>();
+
+        refresh_registered_primitive_origins_from_artifact(&mut vm, &anchors).expect("artifact origin refresh");
+
+        for descriptor in primordial {
+            let declaration = phalcom_semantic::core_surface::universe_declaration(descriptor.surface.key.owner);
+            let owner = vm.universe.classes.resolve(descriptor.surface.key.owner);
+            let target = match descriptor.surface.key.side {
+                NativeDispatch::Instance => owner,
+                NativeDispatch::Class => vm.heap.class(owner).class,
+            };
+            let selector = vm.interner.intern(descriptor.surface.key.selector);
+            let method = vm.heap.class(target).get_method(selector).expect("primordial native method");
+            let expected_module = vm.module_registry.get(&declaration.module).expect("canonical owner module").object;
+            assert_eq!(
+                vm.heap.method(method).origin.module,
+                Some(expected_module),
+                "{} must be rebound to exact artifact module origin",
+                descriptor.surface.key.selector
+            );
+        }
+    }
+
 }
