@@ -201,6 +201,7 @@ impl From<super::telosc_staging::TeloscStagingError> for TeloscArtifactError {
         match error {
             super::telosc_staging::TeloscStagingError::Artifact(error) => Self::Artifact(error),
             super::telosc_staging::TeloscStagingError::Capability(message) => Self::Capability(message),
+            super::telosc_staging::TeloscStagingError::Metadata(error) => error.into(),
         }
     }
 }
