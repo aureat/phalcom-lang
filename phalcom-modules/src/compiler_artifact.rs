@@ -43,6 +43,16 @@ pub fn stage_artifact_project_authorities(
     if !entry.identity.path.is_empty() || !package_identity.matches_project(&entry.identity.project) {
         return Err(invalid("artifact header identity does not own its root entry module"));
     }
+    // The current V4 linked targets are artifact-local ordinals. A package
+    // importing another package must not embed that dependency as if it were
+    // locally owned. Cross-artifact references require an explicit versioned
+    // stable-reference wire format; otherwise the same native owner could be
+    // published twice by independently validated artifact worlds.
+    if matches!(package_identity, TeloscPackageIdentity::Package { .. })
+        && module_world.modules.iter().any(|module| module.identity.project != entry.identity.project)
+    {
+        return Err(invalid("package artifact embeds a foreign module owner; cross-artifact module references require a versioned schema"));
+    }
 
     let mut stable_projects = module_world.external_projects.iter().cloned().collect::<BTreeSet<_>>();
     stable_projects.extend(module_world.modules.iter().map(|module| module.identity.project.clone()));
