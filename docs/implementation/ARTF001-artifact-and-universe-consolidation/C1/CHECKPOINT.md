@@ -1625,3 +1625,67 @@ This slice does not weaken the invariant: every `GetField`/`SetField` still
 requires exact P7-owned layout authority and an in-range slot. It only removes
 cycle-ness as a substitute for actual mutation evidence. P2.R4 remains
 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
+
+### P2.R4 full executable discriminator: persist data-construction result types in P7 — 2026-10-22
+
+The focused executable validator is locally green at **24/24**, including
+`cyclic_closure_creation_preserves_immutable_exact_receiver_capture`. The
+subsequent full executable discriminator therefore advanced past prototype 89
+and failed at the next authority boundary:
+
+```text
+semantic pool 1633 type recipe 0 names an unknown canonical type
+```
+
+The failure occurs during executable validation, before artifact publication or
+VM materialization. The validator is correct to reject the recipe: canonical
+type digests are accepted only when they name a type retained in the persisted
+P7 RuntimePublic metadata bundle.
+
+Root-cause audit found that data-construction lowering built a fresh
+per-construction RuntimePublic metadata bundle for the exact specialized result
+type. Source execution needs that auxiliary bundle to establish an exact
+descriptor root, but executable projection previously fingerprinted that
+auxiliary root and serialized it as a digest-only `Canonical` type recipe.
+Because the auxiliary bundle is not part of the artifact's persisted P7
+metadata authority, its digest is necessarily unknown to executable validation.
+
+The correction preserves a single durable metadata authority rather than
+weakening validation or embedding secondary metadata bundles:
+
+- executable data-construction result `TypeId`s are now censused from the
+  semantic products that can produce constructions: associated values/calls/
+  families, callable references, first-class family applications, and
+  contextual-realization basis construction;
+- those roots are deterministically deduplicated and exported into the same
+  program RuntimePublic metadata bundle already persisted as P7, with root
+  partition `[anonymous product][data construction][call environment][trait
+  environment]`;
+- lowering receives a `TypeId -> RuntimeTypeRef` map for those P7 roots and
+  uses it as the portable data-construction type recipe;
+- artifact semantic-pool projection now serializes that relocated runtime
+  recipe instead of deriving canonical identity from the source-only exact
+  bundle;
+- ordinary program materialization recursively remaps data-construction recipes
+  embedded in associated lowering, callable references, frozen family
+  descriptors/candidates, family applications, and contextual basis
+  construction;
+- the source-only exact metadata fallback is assigned the sentinel metadata
+  pool `u32::MAX`, while only logical program pool `0` is eligible for P7
+  remapping. A missing root census therefore fails closed instead of aliasing a
+  P7 node solely because the numeric node index happens to match.
+
+A focused unit regression,
+`data_construction_remap_distinguishes_p7_root_from_source_exact_placeholder`,
+proves the pool-authority distinction. The auxiliary `exact_type` bundle is
+still retained for source VM behavior; artifact materialization continues with
+`exact_type = None` and consumes the P7-backed recipe directly.
+
+The separate trait-selection `DataComponent { specialized_type }` digest path
+was audited but not changed without failure evidence; if another unknown
+canonical-type error appears after this repair, that path is the next specific
+authority census to inspect. The executable validator's unknown-canonical-type
+rejection remains unchanged.
+
+This slice is committed but not yet locally compile/test verified. P2.R4 remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
