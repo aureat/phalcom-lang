@@ -135,7 +135,7 @@ impl<'a> SemanticPoolRelocator<'a> {
                 .map(|entry| {
                     Ok(ExecutableFamilyEntry {
                         operation: family_operation(&entry.operation),
-                        member_kind: match entry.member_kind {
+                        member_kind: match &entry.member_kind {
                             portable::PortableFamilyMemberKindV1::Value => FamilyMemberTypeKind::Value,
                             portable::PortableFamilyMemberKindV1::Callable => FamilyMemberTypeKind::Callable,
                         },
@@ -205,7 +205,7 @@ impl<'a> SemanticPoolRelocator<'a> {
 
     fn enum_spec(&self, row: &portable::PortableEnumSpecV1) -> PhResult<EnumLoweringSpec> {
         let owner = from_stable_declaration(&row.owner).map_err(internal)?;
-        let representation = match row.representation {
+        let representation = match &row.representation {
             portable::PortableAdtRepresentationV1::OptionImmediate => crate::adt::RuntimeAdtRepresentation::NativeOption,
             portable::PortableAdtRepresentationV1::TaggedHeap => crate::adt::RuntimeAdtRepresentation::General,
         };
@@ -365,7 +365,7 @@ impl<'a> SemanticPoolRelocator<'a> {
                 lookup_owner: from_stable_declaration(lookup_owner).map_err(internal)?,
                 callable: from_stable_callable(callable).map_err(internal)?,
                 operation: family_operation(operation),
-                rest_mode: rest_mode_value(*rest_mode),
+                rest_mode: rest_mode_value(rest_mode),
             },
             portable::PortableInvocationTargetV1::VariantConstructor { variant } => ExecutableInvocationTarget::VariantConstructor {
                 variant: from_stable_variant(variant).map_err(internal)?,
@@ -811,7 +811,7 @@ fn product_layout(row: &portable::PortableProductLayoutV1) -> ProductLayoutSpec 
             .iter()
             .map(|component| ProductComponentSpec {
                 logical_index: component.logical_index,
-                repr: match component.repr {
+                repr: match &component.repr {
                     portable::PortableProductSlotReprV1::Int64 => ProductSlotRepr::Int64,
                     portable::PortableProductSlotReprV1::Float64 => ProductSlotRepr::Float64,
                     portable::PortableProductSlotReprV1::Bool => ProductSlotRepr::Bool,
@@ -850,7 +850,7 @@ fn field_key(row: &portable::PortableFieldKeyV1) -> PhResult<phalcom_semantic::F
 
 fn family_operation(row: &portable::PortableFamilyOperationV1) -> FamilyOperationShape {
     FamilyOperationShape {
-        kind: match row.kind {
+        kind: match &row.kind {
             portable::PortableSelectorKindV1::Getter => phalcom_common::selector::SelectorKind::Getter,
             portable::PortableSelectorKindV1::Setter => phalcom_common::selector::SelectorKind::Setter,
             portable::PortableSelectorKindV1::Method => phalcom_common::selector::SelectorKind::Method,
@@ -869,7 +869,7 @@ fn family_operation(row: &portable::PortableFamilyOperationV1) -> FamilyOperatio
     }
 }
 
-fn rest_mode_value(row: portable::PortableRestModeV1) -> ExecutableRestMode {
+fn rest_mode_value(row: &portable::PortableRestModeV1) -> ExecutableRestMode {
     match row {
         portable::PortableRestModeV1::None => ExecutableRestMode::None,
         portable::PortableRestModeV1::Positional => ExecutableRestMode::Positional,
@@ -890,7 +890,7 @@ fn exact_selector_pattern(row: &SelectorPatternV1) -> PhResult<Selector> {
     if row.has_gap || !row.suffix.is_empty() {
         return Err(internal("runtime conformance selector must be an exact selector pattern"));
     }
-    let kind = match row.kind {
+    let kind = match &row.kind {
         SelectorKindPatternV1::Exact { kind } => match kind {
             SelectorKindV1::Getter => SelectorKind::Getter,
             SelectorKindV1::Setter => SelectorKind::Setter,
