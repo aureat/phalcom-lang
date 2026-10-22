@@ -33,6 +33,17 @@ pub fn stage_artifact_project_authorities(
     artifact_digest: ArtifactDigest,
     resolver: &dyn crate::TrustedPackageResolver,
 ) -> Result<Arc<ProjectUniverse>, ArtifactError> {
+    // A header cannot claim ownership solely through an external-project row:
+    // the actual linked root/entry must belong to that exact package. Dependency
+    // rows cannot grant publication authority to a foreign artifact.
+    let entry = module_world
+        .modules
+        .get(module_world.entry.0 as usize)
+        .ok_or_else(|| invalid("artifact entry module is absent"))?;
+    if !entry.identity.path.is_empty() || !package_identity.matches_project(&entry.identity.project) {
+        return Err(invalid("artifact header identity does not own its root entry module"));
+    }
+
     let mut stable_projects = module_world.external_projects.iter().cloned().collect::<BTreeSet<_>>();
     stable_projects.extend(module_world.modules.iter().map(|module| module.identity.project.clone()));
 
@@ -909,6 +920,11 @@ pub fn load_module_world_with_project_catalog_and_allocation_budget(
     transaction: &mut AllocationBudget,
     projects: Arc<ProjectUniverse>,
 ) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
+    // The caller-owned project catalog does not weaken the wire integrity
+    // contract enforced by the self-contained module-world import path.
+    if wire.portable_topology_fingerprint()? != wire.topology_fingerprint {
+        return Err(invalid("portable module topology fingerprint mismatch"));
+    }
     let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
     let mut allocations = transaction.child(section_limit);
     let world = load_module_world_inner(wire, limits, &mut allocations, projects)?;
