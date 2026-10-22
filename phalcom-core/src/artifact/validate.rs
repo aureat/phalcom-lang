@@ -2188,6 +2188,62 @@ fn activation_with_unknown_captures(
     }
 }
 
+/// Check writes reachable *after* closure creation by CFG, not textual
+/// instruction position. A branch may jump backward to an earlier assignment
+/// and exit without re-entering the closure creation instruction.
+fn captured_local_has_reachable_write(
+    image: &ExecutableImageV1,
+    site: InstructionSite,
+    slot: u32,
+) -> bool {
+    use PortableInstructionV1 as I;
+
+    let Some(prototype) = image.prototypes.get(site.prototype) else {
+        return true;
+    };
+    let mut pending = vec![site.instruction];
+    let mut visited = BTreeSet::new();
+    while let Some(index) = pending.pop() {
+        if !visited.insert(index) {
+            continue;
+        }
+        let Some(instruction) = prototype.code.get(index) else {
+            return true;
+        };
+        match instruction {
+            I::SetLocal { operand0 } if u32::from(*operand0) == slot => return true,
+            I::ReserveScratchLocal { operand0 } | I::ReleaseScratchLocal { operand0 }
+                if u32::from(*operand0) <= slot => return true,
+            _ => {}
+        }
+
+        let fallthrough = || index.checked_add(fallthrough_width(instruction)).filter(|target| *target < prototype.code.len());
+        let branch = || relative_jump_offset(instruction)
+            .and_then(|offset| branch_target(index, offset))
+            .filter(|target| *target < prototype.code.len());
+
+        match instruction.control_flow_kind() {
+            ControlFlowKindV1::Fallthrough => {
+                let Some(next) = fallthrough() else { return true };
+                pending.push(next);
+            }
+            ControlFlowKindV1::UnconditionalBranch => {
+                let Some(next) = branch() else { return true };
+                pending.push(next);
+            }
+            ControlFlowKindV1::ConditionalBranch => {
+                let (Some(next), Some(target)) = (index.checked_add(1).filter(|target| *target < prototype.code.len()), branch()) else {
+                    return true;
+                };
+                pending.push(next);
+                pending.push(target);
+            }
+            ControlFlowKindV1::FunctionExit | ControlFlowKindV1::NonLocalExit | ControlFlowKindV1::ExceptionalTermination => {}
+        }
+    }
+    false
+}
+
 /// A captured local is an aliased VM cell, not an immutable value snapshot.
 /// Only propagate the value at a closure instruction if neither its creating
 /// frame nor any nested closure capable of sharing the cell can overwrite it.
@@ -2214,14 +2270,10 @@ fn captured_cell_may_change(
             }).unwrap_or(true) {
                 return true;
             }
-            if parent_prototype.code.iter().enumerate().any(|(instruction, opcode)| {
-                instruction >= creation_instruction
-                    && match opcode {
-                        I::SetLocal { operand0 } => u32::from(*operand0) == slot,
-                        I::ReserveScratchLocal { operand0 } | I::ReleaseScratchLocal { operand0 } => u32::from(*operand0) <= slot,
-                        _ => false,
-                    }
-            }) {
+            if captured_local_has_reachable_write(image, InstructionSite {
+                prototype: parent,
+                instruction: creation_instruction,
+            }, slot) {
                 return true;
             }
             for (child_index, child) in image.prototypes.iter().enumerate() {
@@ -4718,6 +4770,31 @@ mod tests {
             I::GetSelf {},
             I::GetField { operand0: 0 },
             I::Return {},
+        ];
+        image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
+        image.prototypes[2].code = vec![I::GetUpvalue { operand0: 0 }, I::GetField { operand0: 0 }, I::Return {}];
+
+        assert!(matches!(
+            validate_executable_provenance(&image, &context),
+            Err(ExecutableValidationError::UnknownFieldReceiver { prototype: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn backward_branch_cannot_hide_post_capture_local_write() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+
+        let (mut image, context) = field_method_fixture(&["Foo"], false, 0, 1);
+        // The write is textually before Closure, but control flow reaches it
+        // afterwards without repeating the creation site.
+        image.prototypes[1].code = vec![
+            I::Jump { operand0: 3 },
+            I::Nil {},
+            I::SetLocal { operand0: 0 },
+            I::Return {},
+            I::Closure { operand0: 0 },
+            I::Pop {},
+            I::Jump { operand0: -6 },
         ];
         image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
         image.prototypes[2].code = vec![I::GetUpvalue { operand0: 0 }, I::GetField { operand0: 0 }, I::Return {}];
