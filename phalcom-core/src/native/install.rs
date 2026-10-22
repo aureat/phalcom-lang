@@ -63,6 +63,135 @@ pub fn refresh_registered_primitive_origins(vm: &mut VM, source_index: &NativeSo
     Ok(())
 }
 
+
+fn artifact_anchor_for_descriptor<'a>(
+    anchors: &'a [phalcom_compiler_artifact::executable::compatibility::PortableNativeAnchorV1],
+    desc: &PrimitiveDescriptor,
+) -> PhResult<&'a phalcom_compiler_artifact::executable::compatibility::PortableNativeAnchorV1> {
+    use phalcom_compiler_artifact::executable::constant::StableClassRefV1;
+    use phalcom_type_meta::identity::StableDispatchSide;
+
+    let expected_owner = StableClassRefV1 {
+        declaration: phalcom_semantic::metadata::stable_identity::to_stable_declaration(
+            &phalcom_semantic::core_surface::universe_declaration(desc.surface.key.owner),
+        ),
+        side: match desc.surface.key.side {
+            NativeDispatch::Instance => StableDispatchSide::Instance,
+            NativeDispatch::Class => StableDispatchSide::Class,
+        },
+    };
+    anchors
+        .iter()
+        .find(|anchor| anchor.owner == expected_owner && anchor.signature.selector == desc.surface.key.selector)
+        .ok_or_else(|| {
+            crate::error::PhError::StringError(format!(
+                "validated artifact native anchor is missing for {} {}",
+                desc.surface.key.owner.name(),
+                desc.surface.key.selector
+            ))
+        })
+}
+
+/// Rebinds primordial native methods to the exact canonical Universe module
+/// recorded by the validated artifact ABI. This is the source-free analogue
+/// of `refresh_registered_primitive_origins`; it reads no source index.
+pub(crate) fn refresh_registered_primitive_origins_from_artifact(
+    vm: &mut VM,
+    anchors: &[phalcom_compiler_artifact::executable::compatibility::PortableNativeAnchorV1],
+) -> PhResult<()> {
+    for desc in PRIMITIVES {
+        if !is_primordial_owner(desc.surface.key.owner) {
+            continue;
+        }
+        let anchor = artifact_anchor_for_descriptor(anchors, desc)?;
+        let declaration =
+            phalcom_semantic::metadata::stable_identity::from_stable_declaration(&anchor.owner.declaration)
+                .map_err(crate::error::PhError::StringError)?;
+        let module = vm
+            .module_registry
+            .get(&declaration.module)
+            .map(|record| record.object)
+            .ok_or_else(|| {
+                crate::error::PhError::StringError(format!(
+                    "artifact native declaration module {} is not materialized",
+                    declaration.module
+                ))
+            })?;
+        let owner = vm.universe.classes.resolve(desc.surface.key.owner);
+        let target = match desc.surface.key.side {
+            NativeDispatch::Instance => owner,
+            NativeDispatch::Class => vm.heap.class(owner).class,
+        };
+        let selector = vm.interner.intern(desc.surface.key.selector);
+        let method = vm
+            .heap
+            .class(target)
+            .get_method(selector)
+            .ok_or_else(|| crate::error::PhError::StringError(format!("installed native method {} is missing", desc.surface.key.selector)))?;
+        vm.heap.method_mut(method).origin = vm.access_origin_for_module(module);
+    }
+    Ok(())
+}
+
+/// Installs source-owned native descriptors after artifact eager initializers
+/// have materialized their exact owner classes. Owner and origin authority come
+/// from validated portable native anchors; no source catalog participates.
+pub(crate) fn install_source_owned_primitives_from_artifact(
+    vm: &mut VM,
+    anchors: &[phalcom_compiler_artifact::executable::compatibility::PortableNativeAnchorV1],
+) -> PhResult<()> {
+    let mut descriptors = PRIMITIVES
+        .iter()
+        .filter(|desc| !is_primordial_owner(desc.surface.key.owner))
+        .collect::<Vec<_>>();
+    descriptors.sort_by_key(|desc| desc.surface.key.sort_key());
+
+    for desc in descriptors {
+        let anchor = artifact_anchor_for_descriptor(anchors, desc)?;
+        let declaration =
+            phalcom_semantic::metadata::stable_identity::from_stable_declaration(&anchor.owner.declaration)
+                .map_err(crate::error::PhError::StringError)?;
+        let module = vm
+            .module_registry
+            .get(&declaration.module)
+            .map(|record| record.object)
+            .ok_or_else(|| {
+                crate::error::PhError::StringError(format!(
+                    "artifact native declaration module {} is not materialized",
+                    declaration.module
+                ))
+            })?;
+        let owner = vm
+            .typing_registry
+            .resolve_nominal(&anchor.owner.declaration)
+            .ok_or_else(|| {
+                crate::error::PhError::StringError(format!(
+                    "artifact native owner {:?} has no exact runtime nominal binding",
+                    anchor.owner.declaration
+                ))
+            })?;
+        install_one_on_owner(vm, desc, owner)?;
+
+        let target = match desc.surface.key.side {
+            NativeDispatch::Instance => owner,
+            NativeDispatch::Class => vm.heap.class(owner).class,
+        };
+        let selector = vm.interner.intern(desc.surface.key.selector);
+        let method = vm
+            .heap
+            .class(target)
+            .get_method(selector)
+            .ok_or_else(|| {
+                crate::error::PhError::StringError(format!(
+                    "installed artifact source native method {} is missing",
+                    desc.surface.key.selector
+                ))
+            })?;
+        vm.heap.method_mut(method).origin = vm.access_origin_for_module(module);
+    }
+    Ok(())
+}
+
 /// Installs descriptors whose canonical owner is an ordinary source-declared
 /// Universe class. The source module and class global are resolved only after
 /// canonical Universe initialization has compiled those declarations.
