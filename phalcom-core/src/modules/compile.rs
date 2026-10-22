@@ -2021,6 +2021,7 @@ impl ProgramCompiler {
 
     fn project_analyzed(analyzed: &AnalyzedProgram, options: &ProgramCompilationOptions) -> Result<CompiledProgram, ProgramCompileError> {
         let mut runtime_root_specs = Vec::<(ModuleId, SourceRange, phalcom_semantic::types::id::TypeId, String)>::new();
+        let mut runtime_data_root_specs = Vec::<(ModuleId, phalcom_semantic::types::id::TypeId, String)>::new();
         let mut runtime_call_root_specs = Vec::<(
             ModuleId,
             SourceRange,
@@ -2039,6 +2040,13 @@ impl ProgramCompiler {
                 for (range, ty) in super::semantic_lowering::anonymous_product_type_roots(id, &analyzed.semantic, &source.program) {
                     runtime_root_specs.push((id.clone(), range, ty, format!("anonymous-product-{}-{}", range.start, range.end)));
                 }
+            }
+            for (ordinal, ty) in super::semantic_lowering::data_construction_type_roots(id, &analyzed.semantic)
+                .map_err(|error| ProgramCompileError::Io(format!("data-construction root projection error in {id}: {error}")))?
+                .into_iter()
+                .enumerate()
+            {
+                runtime_data_root_specs.push((id.clone(), ty, format!("data-construction-{ordinal}")));
             }
             for (callable, analysis) in analyzed.semantic.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == id) {
                 for expression in analysis.expressions.values() {
@@ -2257,6 +2265,7 @@ impl ProgramCompiler {
         let runtime_root_refs = runtime_root_specs
             .iter()
             .map(|(module, _, ty, key)| (module, key.as_str(), *ty))
+            .chain(runtime_data_root_specs.iter().map(|(module, ty, key)| (module, key.as_str(), *ty)))
             .chain(runtime_call_root_specs.iter().map(|(module, _, _, _, ty, key)| (module, key.as_str(), *ty)))
             .chain(runtime_trait_root_specs.iter().map(|(module, _, _, _, _, ty, key)| (module, key.as_str(), *ty)))
             .collect::<Vec<_>>();
@@ -2319,6 +2328,24 @@ impl ProgramCompiler {
                 },
             );
         }
+        let mut runtime_data_type_roots = BTreeMap::<ModuleId, BTreeMap<phalcom_semantic::types::id::TypeId, RuntimeTypeRef>>::new();
+        for ((module, ty, _), root) in runtime_data_root_specs
+            .iter()
+            .zip(
+            metadata_bundle
+                .runtime_roots
+                .iter()
+                .skip(runtime_root_specs.len() + runtime_data_root_specs.len()),
+        )
+        {
+            runtime_data_type_roots.entry(module.clone()).or_default().insert(
+                *ty,
+                RuntimeTypeRef::Base {
+                    pool: MetadataPoolId(0),
+                    node: root.form,
+                },
+            );
+        }
         let mut runtime_call_environment_recipes = BTreeMap::<ModuleId, BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>>::new();
         let mut conditional_call_environment_recipes =
             BTreeMap::<ModuleId, BTreeMap<(SourceRange, phalcom_semantic::identity::CallableId), Arc<RuntimeCallEnvironmentRecipe>>>::new();
@@ -2365,7 +2392,7 @@ impl ProgramCompiler {
             metadata_bundle
                 .runtime_roots
                 .iter()
-                .skip(runtime_root_specs.len() + runtime_call_root_specs.len()),
+                .skip(runtime_root_specs.len() + runtime_data_root_specs.len() + runtime_call_root_specs.len()),
         ) {
             let recipe = if phalcom_semantic::checker::associated::contains_any_type_parameter(&analyzed.semantic.store, *ty) {
                 RuntimeTypeRecipe::Template(RuntimeTypeRef::Base {
@@ -3170,6 +3197,7 @@ impl ProgramCompiler {
                 &analyzed.semantic,
                 &analyzed.project_universe,
                 runtime_type_roots.get(id).unwrap_or(&BTreeMap::new()),
+                runtime_data_type_roots.get(id).unwrap_or(&BTreeMap::new()),
                 runtime_call_environment_recipes.get(id).unwrap_or(&BTreeMap::new()),
                 conditional_call_environment_recipes.get(id).unwrap_or(&BTreeMap::new()),
             )
