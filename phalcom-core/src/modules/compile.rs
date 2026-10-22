@@ -879,6 +879,91 @@ fn inherent_impl_domain_for_callable<'a>(
         .map(|member| member.domain.as_ref())
 }
 
+/// Reuses the compiler's canonical caller evidence layout for artifact checks.
+pub(crate) fn caller_generic_evidence(
+    snapshot: &phalcom_semantic::SemanticSnapshot,
+    callable: &phalcom_semantic::identity::CallableId,
+) -> Result<phalcom_semantic::generic_evidence::GenericEvidenceEnvironment, ProgramCompileError> {
+    let caller_owner_sig = match &callable.owner {
+        phalcom_semantic::identity::CallableOwnerId::Declaration(decl) => {
+            if callable.side == phalcom_semantic::identity::DispatchSide::Instance {
+                snapshot
+                    .declarations
+                    .generic_signature(decl)
+                    .or_else(|| snapshot.trait_headers.get(decl).and_then(|h| h.generic_signature.as_ref()))
+            } else {
+                None
+            }
+        }
+        phalcom_semantic::identity::CallableOwnerId::Variant(var) => {
+            if callable.side == phalcom_semantic::identity::DispatchSide::Instance {
+                snapshot.declarations.generic_signature(&var.owner)
+            } else {
+                None
+            }
+        }
+        phalcom_semantic::identity::CallableOwnerId::Conformance(impl_id) => snapshot
+            .conformance_witness_plans
+            .get(impl_id)
+            .and_then(|plan| plan.generic_signature.as_ref())
+            .or_else(|| {
+                snapshot
+                    .derived_conformance_rules
+                    .iter()
+                    .find(|r| &r.impl_id == impl_id)
+                    .map(|r| &r.generic_signature)
+            }),
+    };
+    let mut caller_evidence = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::empty();
+    if let Some(owner_sig) = caller_owner_sig {
+        let owner_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+            &owner_sig.constraints,
+            owner_sig.owner.clone(),
+            &snapshot.trait_surfaces,
+        )
+        .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+        caller_evidence = caller_evidence
+            .try_compose(&owner_env, &snapshot.trait_surfaces)
+            .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+    }
+    if callable.side == phalcom_semantic::identity::DispatchSide::Instance
+        && let phalcom_semantic::identity::CallableOwnerId::Declaration(declaration) = &callable.owner
+        && let Some(surface) = snapshot.trait_surfaces.get(declaration)
+    {
+        let receiver_env =
+            phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_for_trait_default(surface, snapshot.store.as_ref(), &snapshot.trait_surfaces)
+                .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+        caller_evidence = caller_evidence
+            .try_compose(&receiver_env, &snapshot.trait_surfaces)
+            .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+    }
+    if let Some(impl_signature) = inherent_impl_generic_signature(snapshot, callable, None) {
+        let impl_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+            &impl_signature.constraints,
+            impl_signature.owner.clone(),
+            &snapshot.trait_surfaces,
+        )
+        .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+        caller_evidence = caller_evidence
+            .try_compose(&impl_env, &snapshot.trait_surfaces)
+            .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+    }
+    if let Some(sig) = snapshot.callable_signatures.get(callable) {
+        if let Some(generics) = &sig.generics {
+            let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                &generics.constraints,
+                generics.owner.clone(),
+                &snapshot.trait_surfaces,
+            )
+            .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+            caller_evidence = caller_evidence
+                .try_compose(&callable_env, &snapshot.trait_surfaces)
+                .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+        }
+    }
+    Ok(caller_evidence)
+}
+
 fn inherent_impl_generic_signature<'a>(
     snapshot: &'a phalcom_semantic::SemanticSnapshot,
     callable: &phalcom_semantic::identity::CallableId,
@@ -2424,89 +2509,7 @@ impl ProgramCompiler {
             if !analyzed.runtime_modules.contains(callable.owner.module()) {
                 continue;
             }
-            let caller_owner_sig = match &callable.owner {
-                phalcom_semantic::identity::CallableOwnerId::Declaration(decl) => {
-                    if callable.side == phalcom_semantic::identity::DispatchSide::Instance {
-                        analyzed
-                            .semantic
-                            .declarations
-                            .generic_signature(decl)
-                            .or_else(|| analyzed.semantic.trait_headers.get(decl).and_then(|h| h.generic_signature.as_ref()))
-                    } else {
-                        None
-                    }
-                }
-                phalcom_semantic::identity::CallableOwnerId::Variant(var) => {
-                    if callable.side == phalcom_semantic::identity::DispatchSide::Instance {
-                        analyzed.semantic.declarations.generic_signature(&var.owner)
-                    } else {
-                        None
-                    }
-                }
-                phalcom_semantic::identity::CallableOwnerId::Conformance(impl_id) => analyzed
-                    .semantic
-                    .conformance_witness_plans
-                    .get(impl_id)
-                    .and_then(|plan| plan.generic_signature.as_ref())
-                    .or_else(|| {
-                        analyzed
-                            .semantic
-                            .derived_conformance_rules
-                            .iter()
-                            .find(|r| &r.impl_id == impl_id)
-                            .map(|r| &r.generic_signature)
-                    }),
-            };
-            let mut caller_evidence = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::empty();
-            if let Some(owner_sig) = caller_owner_sig {
-                let owner_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
-                    &owner_sig.constraints,
-                    owner_sig.owner.clone(),
-                    &analyzed.semantic.trait_surfaces,
-                )
-                .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
-                caller_evidence = caller_evidence
-                    .try_compose(&owner_env, &analyzed.semantic.trait_surfaces)
-                    .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
-            }
-            if callable.side == phalcom_semantic::identity::DispatchSide::Instance
-                && let phalcom_semantic::identity::CallableOwnerId::Declaration(declaration) = &callable.owner
-                && let Some(surface) = analyzed.semantic.trait_surfaces.get(declaration)
-            {
-                let receiver_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_for_trait_default(
-                    surface,
-                    analyzed.semantic.store.as_ref(),
-                    &analyzed.semantic.trait_surfaces,
-                )
-                .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
-                caller_evidence = caller_evidence
-                    .try_compose(&receiver_env, &analyzed.semantic.trait_surfaces)
-                    .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
-            }
-            if let Some(impl_signature) = inherent_impl_generic_signature(&analyzed.semantic, callable, None) {
-                let impl_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
-                    &impl_signature.constraints,
-                    impl_signature.owner.clone(),
-                    &analyzed.semantic.trait_surfaces,
-                )
-                .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
-                caller_evidence = caller_evidence
-                    .try_compose(&impl_env, &analyzed.semantic.trait_surfaces)
-                    .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
-            }
-            if let Some(sig) = analyzed.semantic.callable_signatures.get(callable) {
-                if let Some(generics) = &sig.generics {
-                    let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
-                        &generics.constraints,
-                        generics.owner.clone(),
-                        &analyzed.semantic.trait_surfaces,
-                    )
-                    .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
-                    caller_evidence = caller_evidence
-                        .try_compose(&callable_env, &analyzed.semantic.trait_surfaces)
-                        .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
-                }
-            }
+            let caller_evidence = caller_generic_evidence(&analyzed.semantic, callable)?;
 
             let mut conditional_applications = Vec::new();
             for expression in analysis.expressions.values() {

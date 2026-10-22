@@ -21,7 +21,7 @@ use phalcom_compiler_artifact::executable::semantic::{
 use phalcom_modules::linker::{LinkedModule, LinkedReadSpec};
 use phalcom_semantic::canonical_image::CanonicalUniverseFormalImage;
 use phalcom_semantic::metadata::stable_identity::{
-    to_stable_data_component, to_stable_declaration, to_stable_impl, to_stable_module, to_stable_variant, to_stable_variant_field,
+    to_stable_callable, to_stable_data_component, to_stable_declaration, to_stable_impl, to_stable_module, to_stable_variant, to_stable_variant_field,
 };
 use phalcom_type_meta::SemanticMetadataBundle;
 use phalcom_type_meta::fingerprint::Fingerprint128;
@@ -217,10 +217,12 @@ impl ValidatedExecutableImage {
 
 #[cfg_attr(test, derive(Default))]
 struct ExecutableValidationContext<'a> {
+    snapshot: Option<&'a phalcom_semantic::SemanticSnapshot>,
     linked_modules: BTreeMap<StableModuleRef, &'a LinkedModule>,
     declarations: BTreeSet<StableDeclarationRef>,
     class_declarations: BTreeSet<StableDeclarationRef>,
     callables: BTreeSet<phalcom_type_meta::identity::StableCallableRef>,
+    trait_requirements: BTreeSet<StableCallableRef>,
     fields: BTreeSet<StableFieldRef>,
     implementations: BTreeSet<StableImplRef>,
     type_parameters: BTreeSet<StableTypeParameterRef>,
@@ -267,6 +269,13 @@ impl<'a> ExecutableValidationContext<'a> {
         let fields = metadata.fields.iter().map(|record| record.field.clone()).collect();
         let mut implementations = BTreeSet::new();
         let snapshot = formal_image.snapshot();
+        // Abstract requirements are canonical trait-surface identities, not
+        // necessarily executable callables in RuntimePublic metadata.
+        let trait_requirements = snapshot
+            .trait_surfaces
+            .iter()
+            .flat_map(|(_, surface)| surface.iter().map(|(_, member)| to_stable_callable(&member.callable)))
+            .collect();
         implementations.extend(snapshot.conformance_index.iter().map(|(implementation, _)| to_stable_impl(implementation)));
         implementations.extend(
             snapshot
@@ -330,10 +339,12 @@ impl<'a> ExecutableValidationContext<'a> {
             .collect();
 
         Ok(Self {
+            snapshot: Some(snapshot),
             linked_modules,
             declarations,
             class_declarations,
             callables,
+            trait_requirements,
             fields,
             implementations,
             type_parameters,
@@ -2175,6 +2186,7 @@ struct ProvenanceState {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PrototypeActivationProvenance {
     receiver: ProvenanceFact<ActivationAuthority>,
+    conformance_caller: ProvenanceFact<Option<StableCallableRef>>,
     upvalues: Vec<ProvenanceFact<RuntimeValueProvenance>>,
 }
 
@@ -2184,6 +2196,7 @@ fn activation_with_unknown_captures(
 ) -> PrototypeActivationProvenance {
     PrototypeActivationProvenance {
         receiver,
+        conformance_caller: ProvenanceFact::Unknown,
         upvalues: vec![ProvenanceFact::Unknown; prototype.upvalues.len()],
     }
 }
@@ -2354,7 +2367,9 @@ fn validate_executable_provenance(image: &ExecutableImageV1, context: &Executabl
     let mut pending = std::collections::VecDeque::new();
     for (index, prototype) in image.prototypes.iter().enumerate() {
         if matches!(prototype.owner, PrototypeOwnerV1::ModuleInitializer { .. }) {
-            activations[index] = Some(activation_with_unknown_captures(prototype, ProvenanceFact::Unknown));
+            let mut activation = activation_with_unknown_captures(prototype, ProvenanceFact::Unknown);
+            activation.conformance_caller = ProvenanceFact::Exact(None);
+            activations[index] = Some(activation);
             pending.push_back(index);
         }
     }
@@ -2425,7 +2440,9 @@ fn validate_executable_provenance(image: &ExecutableImageV1, context: &Executabl
                 });
             }
             installs_by_body.entry(body).or_insert(record);
-            merge_activation(&mut activations, &mut pending, body, activation_with_unknown_captures(&image.prototypes[body], authority))?;
+            let mut activation = activation_with_unknown_captures(&image.prototypes[body], authority);
+            activation.conformance_caller = ProvenanceFact::Exact(Some(installation_callable(&route)));
+            merge_activation(&mut activations, &mut pending, body, activation)?;
         }
     }
 
@@ -2469,13 +2486,17 @@ fn validate_executable_provenance(image: &ExecutableImageV1, context: &Executabl
                     });
                 }
                 installs_by_body.entry(body_prototype).or_insert(record);
-                merge_activation(&mut activations, &mut pending, body_prototype, activation_with_unknown_captures(&image.prototypes[body_prototype], authority))?;
+                let mut activation = activation_with_unknown_captures(&image.prototypes[body_prototype], authority);
+                activation.conformance_caller = ProvenanceFact::Exact(Some(installation_callable(&route)));
+                merge_activation(&mut activations, &mut pending, body_prototype, activation)?;
             }
         }
         for (child, incoming) in effects.activations {
             merge_activation(&mut activations, &mut pending, child, incoming)?;
         }
     }
+
+    validate_forwarded_conformance_authority(image, context, &activations)?;
 
     for installation in installs_by_method.values() {
         if let InstallationTarget::Class {
@@ -2510,6 +2531,110 @@ fn validate_executable_provenance(image: &ExecutableImageV1, context: &Executabl
     Ok(())
 }
 
+fn installation_callable(route: &InstallationRoute) -> StableCallableRef {
+    let (owner, side) = match &route.target {
+        InstallationTarget::DetachedCallable { callable } => return callable.clone(),
+        InstallationTarget::Class { layout, .. } => (StableCallableOwnerRef::Declaration(layout.declaration.clone()), layout.side),
+        InstallationTarget::Variant(variant) => (StableCallableOwnerRef::Variant(variant.clone()), StableDispatchSide::Instance),
+    };
+    StableCallableRef {
+        owner,
+        side,
+        selector: route.selector.clone().into_boxed_str(),
+    }
+}
+
+fn conformance_slot_has_forwarding(slot: &PortableConformanceSlotV1) -> bool {
+    match slot {
+        PortableConformanceSlotV1::Forwarded { .. } => true,
+        PortableConformanceSlotV1::Selection { nested, .. } | PortableConformanceSlotV1::DerivedConditional { nested, .. } => {
+            nested.iter().any(|entry| conformance_slot_has_forwarding(&entry.recipe))
+        }
+    }
+}
+
+fn validate_forwarded_conformance_authority(
+    image: &ExecutableImageV1,
+    context: &ExecutableValidationContext<'_>,
+    activations: &[Option<PrototypeActivationProvenance>],
+) -> Result<(), ExecutableValidationError> {
+    let mut checked = BTreeSet::new();
+    let mut limits = BTreeMap::<StableCallableRef, usize>::new();
+    for (prototype_index, prototype) in image.prototypes.iter().enumerate() {
+        let pool_index = prototype.semantics.0 as usize;
+        let Some(pool) = image.semantic_pools.get(pool_index) else { continue };
+        for (row, environment) in pool.call_environments.iter().enumerate() {
+            if !environment.conformance_slots.iter().any(conformance_slot_has_forwarding) {
+                continue;
+            }
+            let invalid = |detail: String| ExecutableValidationError::InvalidSemanticProduct {
+                pool: pool_index,
+                family: "forwarded conformance slot",
+                row,
+                detail,
+            };
+            let caller = activations
+                .get(prototype_index)
+                .and_then(Option::as_ref)
+                .map(|activation| &activation.conformance_caller);
+            let limit = match caller {
+                Some(ProvenanceFact::Exact(None)) => 0,
+                Some(ProvenanceFact::Exact(Some(callable))) => {
+                    require_p7_callable(context, pool_index, "forwarding caller", row, callable)?;
+                    if let Some(limit) = limits.get(callable) {
+                        *limit
+                    } else {
+                        let snapshot = context.snapshot.ok_or_else(|| invalid("caller has no imported semantic authority".into()))?;
+                        let matches = snapshot
+                            .callable_signatures
+                            .iter()
+                            .filter(|(id, _)| to_stable_callable(id) == *callable)
+                            .map(|(id, _)| id)
+                            .collect::<Vec<_>>();
+                        if matches.len() != 1 {
+                            return Err(invalid(format!("caller {callable:?} has no unique canonical signature")));
+                        }
+                        let evidence = crate::modules::compile::caller_generic_evidence(snapshot, matches[0])
+                            .map_err(|error| invalid(format!("caller evidence layout failed: {error}")))?;
+                        let limit = evidence.len();
+                        limits.insert(callable.clone(), limit);
+                        limit
+                    }
+                }
+                _ => return Err(invalid(format!("prototype {prototype_index} has no exact caller conformance authority"))),
+            };
+            validate_conformance_slots(pool_index, row, pool, context, &environment.conformance_slots, Some(limit)).map_err(|error| match error {
+                ExecutableValidationError::InvalidSemanticProduct {
+                    pool,
+                    family: "forwarded conformance slot",
+                    row,
+                    detail,
+                } => ExecutableValidationError::InvalidSemanticProduct {
+                    pool,
+                    family: "forwarded conformance slot",
+                    row,
+                    detail: format!("{detail}; prototype {prototype_index}, authority {caller:?}, caller slot count {limit}"),
+                },
+                error => error,
+            })?;
+            checked.insert((pool_index, row));
+        }
+    }
+    for (pool_index, pool) in image.semantic_pools.iter().enumerate() {
+        for (row, environment) in pool.call_environments.iter().enumerate() {
+            if environment.conformance_slots.iter().any(conformance_slot_has_forwarding) && !checked.contains(&(pool_index, row)) {
+                return Err(ExecutableValidationError::InvalidSemanticProduct {
+                    pool: pool_index,
+                    family: "forwarded conformance slot",
+                    row,
+                    detail: "forwarding recipe has no proven consuming activation".into(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 fn merge_activation(
     activations: &mut [Option<PrototypeActivationProvenance>],
     pending: &mut std::collections::VecDeque<usize>,
@@ -2538,6 +2663,7 @@ fn merge_activation(
             }
             let merged = PrototypeActivationProvenance {
                 receiver: join_provenance(&existing.receiver, &incoming.receiver),
+                conformance_caller: join_provenance(&existing.conformance_caller, &incoming.conformance_caller),
                 upvalues: existing.upvalues.iter().zip(&incoming.upvalues)
                     .map(|(left, right)| join_provenance(left, right))
                     .collect(),
@@ -2647,6 +2773,8 @@ fn analyze_prototype_provenance(
                         }).collect();
                         effects.activations.push((child, PrototypeActivationProvenance {
                             receiver: child_authority,
+                            // Block frames do not capture the creator's conformance environment.
+                            conformance_caller: ProvenanceFact::Exact(None),
                             upvalues: captures,
                         }));
                     }
@@ -3926,7 +4054,7 @@ fn validate_semantic_pools(image: &ExecutableImageV1, context: &ExecutableValida
             for binding in &environment.bindings {
                 validate_type_parameter_identity(context, pool_index, "call-environment binding", row, &binding.parameter)?;
             }
-            validate_conformance_slots(pool_index, row, pool, context, &environment.conformance_slots)?;
+            validate_conformance_slots(pool_index, row, pool, context, &environment.conformance_slots, None)?;
         }
 
         for (row, target) in pool.associated_targets.iter().enumerate() {
@@ -4087,13 +4215,15 @@ fn validate_trait_requirement(
     context: &ExecutableValidationContext<'_>,
     requirement: &PortableTraitRequirementV1,
 ) -> Result<(), ExecutableValidationError> {
-    require_p7_declaration(context, pool, family, row, &requirement.owner)?;
     let callable = StableCallableRef {
         owner: StableCallableOwnerRef::Declaration(requirement.owner.clone()),
         side: requirement.side,
         selector: requirement.selector.clone().into_boxed_str(),
     };
-    require_p7_callable(context, pool, family, row, &callable)
+    if !context.has_p7_module(&requirement.owner.module) || !context.trait_requirements.contains(&callable) {
+        return Err(ExecutableValidationError::UnknownSemanticIdentity { pool, family, row });
+    }
+    Ok(())
 }
 
 fn validate_trait_selection(
@@ -4247,9 +4377,10 @@ fn validate_conformance_slots(
     pool: &PortableSemanticPoolV1,
     context: &ExecutableValidationContext<'_>,
     slots: &[PortableConformanceSlotV1],
+    forward_limit: Option<usize>,
 ) -> Result<(), ExecutableValidationError> {
     for slot in slots {
-        validate_conformance_slot(pool_index, row, pool, context, slot, slots.len())?;
+        validate_conformance_slot(pool_index, row, pool, context, slot, forward_limit)?;
     }
     Ok(())
 }
@@ -4260,7 +4391,7 @@ fn validate_conformance_slot(
     pool: &PortableSemanticPoolV1,
     context: &ExecutableValidationContext<'_>,
     slot: &PortableConformanceSlotV1,
-    forward_limit: usize,
+    forward_limit: Option<usize>,
 ) -> Result<(), ExecutableValidationError> {
     match slot {
         PortableConformanceSlotV1::Selection { callable, nested, .. } => {
@@ -4268,12 +4399,12 @@ fn validate_conformance_slot(
             validate_conformance_slot_entries(pool_index, row, pool, context, nested, forward_limit)
         }
         PortableConformanceSlotV1::Forwarded { slot } => {
-            if *slot as usize >= forward_limit {
+            if forward_limit.is_some_and(|limit| *slot as usize >= limit) {
                 return Err(ExecutableValidationError::InvalidSemanticProduct {
                     pool: pool_index,
                     family: "forwarded conformance slot",
                     row,
-                    detail: format!("slot {slot} is outside the enclosing call environment"),
+                    detail: format!("slot {slot} is outside the proven caller conformance environment"),
                 });
             }
             Ok(())
@@ -4296,7 +4427,7 @@ fn validate_conformance_slot_entries(
     pool: &PortableSemanticPoolV1,
     context: &ExecutableValidationContext<'_>,
     entries: &[PortableConformanceSlotEntryV1],
-    forward_limit: usize,
+    forward_limit: Option<usize>,
 ) -> Result<(), ExecutableValidationError> {
     let mut indices = BTreeSet::new();
     for entry in entries {
@@ -4899,6 +5030,7 @@ mod tests {
         for (index, declaration) in image.classes.iter().filter(|row| row.class.side == StableDispatchSide::Instance).enumerate() {
             let incoming = PrototypeActivationProvenance {
                 receiver: ProvenanceFact::Unknown,
+                conformance_caller: ProvenanceFact::Unknown,
                 upvalues: vec![ProvenanceFact::Exact(RuntimeValueProvenance::ClassObject {
                     declaration: declaration.class.declaration.clone(),
                     allocation: AllocationIdentity::Constant(index),
@@ -5095,6 +5227,146 @@ mod tests {
             &ExecutableImageLimitsV1,
         ) -> Result<ValidatedExecutableImage, ExecutableValidationError> = validate_executable_image;
     }
+    fn empty_semantic_pool() -> PortableSemanticPoolV1 {
+        PortableSemanticPoolV1 {
+            type_recipes: vec![],
+            kind_recipes: vec![],
+            enum_specs: vec![],
+            variant_targets: vec![],
+            data_specs: vec![],
+            data_targets: vec![],
+            data_constructions: vec![],
+            anonymous_products: vec![],
+            call_environments: vec![],
+            associated_targets: vec![],
+            family_descriptors: vec![],
+            conditional_families: vec![],
+            family_operations: vec![],
+            family_candidate_sets: vec![],
+            trait_invocations: vec![],
+            trait_requirement_invocations: vec![],
+            type_parameter_class_receivers: vec![],
+            provenance: None,
+        }
+    }
+
+    #[test]
+    fn forwarded_slots_use_caller_bounds_including_nested_recipes() {
+        let pool = empty_semantic_pool();
+        let context = ExecutableValidationContext::default();
+        let slots = [PortableConformanceSlotV1::Forwarded { slot: 26 }];
+        // One callee output slot can legally forward caller slot 26.
+        assert!(validate_conformance_slots(1446, 0, &pool, &context, &slots, Some(27)).is_ok());
+        assert!(validate_conformance_slots(1446, 0, &pool, &context, &slots, Some(26)).is_err());
+        assert!(validate_conformance_slots(1446, 0, &pool, &context, &slots, Some(0)).is_err());
+        let nested = [PortableConformanceSlotEntryV1 {
+            slot: 0,
+            recipe: PortableConformanceSlotV1::Forwarded { slot: 26 },
+        }];
+        assert!(validate_conformance_slot_entries(1446, 0, &pool, &context, &nested, Some(27)).is_ok());
+        assert!(validate_conformance_slot_entries(1446, 0, &pool, &context, &nested, Some(26)).is_err());
+    }
+
+    #[test]
+    fn forwarding_requires_proven_consuming_activation() {
+        use phalcom_compiler_artifact::executable::semantic::PortableCallEnvironmentV1;
+        let (mut image, context) = field_method_fixture(&["Foo"], false, 0, 1);
+        let pool = image.prototypes[0].semantics.0 as usize;
+        image.semantic_pools.push(empty_semantic_pool());
+        image.semantic_pools[pool].call_environments.push(PortableCallEnvironmentV1 {
+            callable: StableCallableRef {
+                owner: StableCallableOwnerRef::Declaration(image.classes[0].class.declaration.clone()),
+                side: StableDispatchSide::Instance,
+                selector: "callee".into(),
+            },
+            bindings: vec![],
+            conformance_slots: vec![PortableConformanceSlotV1::Forwarded { slot: 0 }],
+        });
+        let mut activations = vec![None; image.prototypes.len()];
+        assert!(validate_forwarded_conformance_authority(&image, &context, &activations).is_err());
+        let mut activation = activation_with_unknown_captures(&image.prototypes[0], ProvenanceFact::Unknown);
+        activation.conformance_caller = ProvenanceFact::Exact(None);
+        activations[0] = Some(activation);
+        assert!(validate_forwarded_conformance_authority(&image, &context, &activations).is_err());
+        // No prototype may lend authority to an orphan semantic pool.
+        image.prototypes.clear();
+        assert!(validate_forwarded_conformance_authority(&image, &context, &[]).is_err());
+    }
+
+    #[test]
+    fn conflicting_caller_activations_cannot_lend_forwarding_authority() {
+        let (image, _) = field_method_fixture(&["Foo"], false, 0, 1);
+        let mut activations = vec![None; image.prototypes.len()];
+        let mut pending = std::collections::VecDeque::new();
+        let mut method = activation_with_unknown_captures(&image.prototypes[1], ProvenanceFact::Unknown);
+        method.conformance_caller = ProvenanceFact::Exact(Some(StableCallableRef {
+            owner: StableCallableOwnerRef::Declaration(image.classes[0].class.declaration.clone()),
+            side: StableDispatchSide::Instance,
+            selector: "field".into(),
+        }));
+        let mut block = activation_with_unknown_captures(&image.prototypes[1], ProvenanceFact::Unknown);
+        block.conformance_caller = ProvenanceFact::Exact(None);
+        merge_activation(&mut activations, &mut pending, 1, method).unwrap();
+        merge_activation(&mut activations, &mut pending, 1, block).unwrap();
+        assert!(matches!(activations[1].as_ref().unwrap().conformance_caller, ProvenanceFact::Conflict));
+    }
+
+    #[test]
+    fn trait_requirement_identity_uses_canonical_surface_authority() {
+        let module = test_module();
+        let owner = StableDeclarationRef {
+            module: module.clone(),
+            path: Box::new(["Iterable".into()]),
+        };
+        let requirement = PortableTraitRequirementV1 {
+            owner: owner.clone(),
+            selector: "iterator".into(),
+            side: StableDispatchSide::Instance,
+        };
+        let identity = StableCallableRef {
+            owner: StableCallableOwnerRef::Declaration(owner),
+            side: requirement.side,
+            selector: requirement.selector.clone().into_boxed_str(),
+        };
+        let mut context = ExecutableValidationContext::default();
+        let linked = LinkedModule {
+            interface: phalcom_modules::interface::LinkedModuleInterface {
+                module: phalcom_semantic::metadata::stable_identity::from_stable_module(&module).unwrap(),
+                kind: phalcom_modules::source::ModuleKind::Module,
+                exports: Default::default(),
+                metadata: Default::default(),
+            },
+            bindings: Default::default(),
+            linked_reads: vec![],
+            runtime_dependencies: vec![],
+        };
+        context.linked_modules.insert(module, &linked);
+        context.trait_requirements.insert(identity.clone());
+        // A persisted abstract requirement needs no runtime declaration or body.
+        assert!(validate_trait_requirement(72, "trait requirement invocation", 0, &context, &requirement).is_ok());
+        assert!(require_p7_callable(&context, 72, "call target", 0, &identity).is_err());
+
+        let mut forged = requirement.clone();
+        forged.selector = "next".into();
+        assert!(validate_trait_requirement(72, "trait requirement invocation", 0, &context, &forged).is_err());
+        forged = requirement.clone();
+        forged.side = StableDispatchSide::Class;
+        assert!(validate_trait_requirement(72, "trait requirement invocation", 0, &context, &forged).is_err());
+        forged = requirement.clone();
+        forged.owner.path = Box::new(["OtherTrait".into()]);
+        assert!(validate_trait_requirement(72, "trait requirement invocation", 0, &context, &forged).is_err());
+
+        context.linked_modules.clear();
+        assert!(validate_trait_requirement(72, "trait requirement invocation", 0, &context, &requirement).is_err());
+        context.linked_modules.insert(requirement.owner.module.clone(), &linked);
+
+        // A callable record alone cannot authorize a trait requirement.
+        context.trait_requirements.clear();
+        context.callables.insert(identity);
+        context.declarations.insert(requirement.owner.clone());
+        assert!(validate_trait_requirement(72, "trait requirement invocation", 0, &context, &requirement).is_err());
+    }
+
     #[test]
     fn trait_default_mode_is_derived_from_exact_stable_callable_identity() {
         use phalcom_compiler_artifact::executable::semantic::{

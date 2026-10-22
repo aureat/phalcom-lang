@@ -25,13 +25,13 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 | `ARTF001.C1.P5` | PROPOSED | NOT_STARTED | UNVERIFIED | Universe source cutover from `phalcom-core/core/universe` to `packages/universe` retaining `ProjectIdentity::Universe`. |
 | `ARTF001.C1.P6` | PROPOSED | NOT_STARTED | UNVERIFIED | Universal artifact resolution across CLI, REPL, VM bootstrap, and tests with persistent cache ergonomics. |
 
-## Current continuation state (2026-10-20)
+## Current continuation state (2026-10-22)
 
-- Latest fetched revision: `48c47753b` on `feat/artifact-universe-consolidation`; the remote branch still matched that revision. The continuation source changes are committed at `22a95bbb1` and `4807ecaf2`. P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
+- Latest fetched and pulled revision: `26dc1752f` on `feat/artifact-universe-consolidation`. The local trait-requirement and forwarded-conformance corrections passed the full source-free SlotMap discriminator and saved-artifact reuse run. P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
 - Active plan: `ARTF001.C1.P2.R4`, superseding `ARTF001.C1.P2.R3`.
 - Current status: P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. P2 is open and P3 remains blocked pending R4 acceptance. R4.T3 is complete. The former R4.T5 canonical-query mutation blocker was resolved before `48c47753b`; the older incident entry below is historical. Full P2 acceptance has not been established.
 - Pack consultation: closed. Pack remains runtime owner and semantic application form without an eighth type-member owner.
-- Next action: close R4's compiler-image gates under P2.R4, then continue to P8's executable source-free VM path. P8 has started but is not complete; no source-free VM runtime proof exists. Keep R4 and P2 status separate from P8 progress.
+- Next action: close the remaining R4.T7 source/artifact compiler and negative-diagnostic parity gates. Source-free executable SlotMap runtime proof now exists for the focused working-tree state; broader P2/P8 acceptance remains open.
 - Branch rule: Continue on `feat/artifact-universe-consolidation`.
 
 ## Starting Baseline & Provenance
@@ -1689,3 +1689,186 @@ rejection remains unchanged.
 
 This slice is committed but not yet locally compile/test verified. P2.R4 remains
 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
+
+
+### P2.R4 remote repair compilation verified — 2026-10-22
+
+Fetched and fast-forwarded the clean artifact worktree from `f8451718d` to
+`26dc1752f` on `feat/artifact-universe-consolidation`. This includes the
+P7 data-construction result-type repair described above; no additional source
+change was needed for compilation.
+
+Completed with the pinned toolchain and `RUSTFLAGS='' RUSTC_WRAPPER=''`:
+
+- `cargo check -p phalcom-core --tests`: PASS, 27.73 seconds.
+- `cargo test -p phalcom-core --test core --no-run`: PASS, 10.10 seconds;
+  executable `target/debug/deps/core-28f961ca102684e5`.
+
+Existing compiler warnings remain. These results establish compilation and test
+executable construction, not successful artifact capture, loading, or execution.
+At the user's request, the long artifact discriminator was deferred to the user:
+
+```sh
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core \
+  modules_canonical_artifact::artifact_executable_bootstraps_and_runs_slotmap_without_universe_compilation \
+  -- --exact --nocapture --test-threads=1
+```
+
+Run from `.worktrees/artifact`. Use the default temporary artifact path for a
+fresh capture, or a new `PHALCOM_TEST_FULL_TELOSC_PATH`; an existing reusable
+artifact skips capture. The test also invokes a fresh source-denied child.
+P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
+Next action: obtain the discriminator result before any further corrective edit
+or promotion of runtime verification status. No broad tests or release gates
+were run during this continuation.
+
+
+### P2.R4 canonical trait requirement validation repair — 2026-10-22
+
+The user's full discriminator failed after 99.55 seconds during capture
+validation: `semantic pool 72 trait requirement invocation row 0 references an
+identity absent from P7 authority`. Artifact loading and VM execution were not
+reached.
+
+The validator required both a RuntimePublic declaration and a callable record
+for each trait requirement. Canonical trait requirements belong to the
+persisted `SemanticWorldV4` trait surfaces, whose members include abstract
+contracts and their complete signatures. RuntimePublic callable records are
+not a complete requirement census. The semantic exporter and importer already
+validate the trait surface's owner, selector, side, and member callable identity.
+
+`ExecutableValidationContext` now indexes those imported canonical members.
+`validate_trait_requirement` requires exact owner/selector/dispatch-side identity
+in that index and a linked P7 module. It no longer substitutes RuntimePublic
+callable membership for canonical requirement membership. Executable selection
+targets still require callable authority; a callable record alone cannot
+establish a trait requirement. No wire format, semantic identity, field-layout
+proof, or source-denial behavior changed.
+
+Completed evidence, with the pinned toolchain and cleared compiler flags:
+
+- `cargo check -p phalcom-core --tests`: PASS, 3.53 seconds.
+- `cargo test -p phalcom-core --lib artifact::validate::tests`: PASS,
+  25 tests, 0.01 seconds execution; 7.40 seconds build.
+- `cargo test -p phalcom-core --test core --no-run`: PASS, 7.31 seconds.
+
+The new regression accepts an abstract requirement without a runtime body and
+rejects forged owners, selectors, dispatch sides, unlinked modules, and
+callable-only authority. Existing warnings remain. The long full discriminator
+is deferred to the user under the existing execution constraint; rerun the
+fresh-capture command above. This correction is implemented and focused tested;
+P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`, and P3 remains blocked
+pending the remaining gates. No consultation or plan amendment was needed:
+the repair consumes the existing persisted semantic authority.
+
+
+### P2.R4 forwarded conformance caller authority repair — 2026-10-22
+
+Observed: the user's next full discriminator failed in 96.37 seconds during
+executable validation: semantic pool 1446, forwarded conformance slot row 0,
+slot 26 outside the enclosing call environment. Artifact loading and execution
+were not reached.
+
+Cause: `validate_conformance_slots` used the callee recipe's output length as
+the bound for a `Forwarded` source index. Compiler construction numbers those
+indices in the caller's generic evidence layout. The VM reads them from the
+current frame's conformance environment, including recursively nested recipes.
+A single callee slot can therefore legally forward caller slot 26.
+
+Consultation under the shared escalation protocol approved extending the
+existing activation fixed point rather than removing or widening the bound.
+The read-only adviser confirmed that persisted P7 signatures and trait surfaces
+supply the canonical layout. Ordinary blocks currently start with an empty
+conformance environment; lexical nesting does not establish forwarding
+authority. The subsequent read-only review found no weakening of bounds.
+
+Implemented:
+
+- Extracted the compiler's existing caller-evidence construction into
+  `caller_generic_evidence`, preserving owner, trait-default receiver,
+  inherent-impl, and callable composition order. Compilation and validation
+  reuse that helper.
+- Added conformance-caller authority to the existing prototype activation
+  proof. Initializers and ordinary blocks have empty environments; detached
+  methods retain their exact callable; class/variant installation routes
+  supply their exact stable installation identity. Conflicting routes join
+  to conflict.
+- Forwarded bounds are checked after the fixed point against each exact
+  caller layout. Shared pools are checked for every consuming prototype;
+  unknown activations and orphan forwarding recipes reject. Structural
+  identity and nested-slot duplicate checks remain unconditional.
+- Bound errors now include prototype, caller authority, and caller slot count.
+
+The adviser identified two conservative limits: class/selector installation
+cannot establish a conformance-owned callable automatically, and a body used
+both as an ordinary block and an installed method has conflicting environments.
+Both reject forwarding. Resolve a concrete failure in either route without
+substituting another callable or inheriting a lexical environment. No wire
+change, source fallback, or runtime environment capture was introduced.
+
+Verification:
+
+- `cargo check -p phalcom-core --tests`: PASS, 3.35 seconds at final source.
+- `cargo test -p phalcom-core --lib artifact::validate::tests`: PASS,
+  28 tests, 0.01 seconds execution, 6.86 seconds build. New cases cover caller
+  slot 26 with one callee output, equal-to-bound rejection, nested forwarding,
+  empty/unknown activations, orphan pools, and conflicting method/block routes.
+- `cargo test -p phalcom-core --test core --no-run`: PASS, 9.94 seconds.
+- Full artifact execution remains deferred to the user. Rerun the fresh-capture
+  command recorded above and retain the new contextual error if it fails.
+
+This correction is implemented and focused tested. P2.R4 remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked. Existing compiler
+warnings remain outside this correction. No broad or release tests were run.
+
+
+### P2.R4 source-free SlotMap discriminator passed — 2026-10-22
+
+The user ran the full executable discriminator against `26dc1752f` plus the
+local canonical trait-requirement and forwarded-conformance corrections:
+
+`modules_canonical_artifact::artifact_executable_bootstraps_and_runs_slotmap_without_universe_compilation`
+
+Result supplied by the user: **1 passed, 0 failed**, 116.79 seconds. The output
+confirms fresh Universe artifact capture, validation and loading; artifact-backed
+SlotMap runtime-test compilation; VM bootstrap with canonical semantic roots
+and all module initializer closures attached; and successful `slotmap-basic`
+and `dense-slotmap-basic` execution. No diagnostic error was reported.
+
+The passing parent also asserts success of its fresh child process with
+`PHALCOM_DENY_SOURCE_BOOTSTRAP=1`. The child asserts an empty source table,
+source-free semantic completeness, and zero canonical source bootstrap builds
+before loading, after loading, and after SlotMap compilation and VM execution.
+This establishes the requested source-free SlotMap execution objective for this
+working-tree state. The temporary artifact path was supplied by the test;
+no durable reusable artifact is claimed.
+
+The targeted correction is `IMPLEMENTED / FOCUSED_TESTED`. The broader P2.R4
+plan remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`, and P3 remains blocked
+on the other checkpoint gates. The user-executed result supersedes the deferred
+runtime verification status in the two preceding continuation entries. No test
+was rerun for this record. Source changes and this record remain uncommitted.
+
+
+### P2.R4 reusable executable artifact timing — 2026-10-22
+
+The user retained `/tmp/phalcom-universe-executable.telosc` and reran
+`fresh_process_artifact_executable_runner` in a new process with
+`PHALCOM_TEST_EXECUTABLE_TELOSC_PATH` pointing to that file and
+`PHALCOM_DENY_SOURCE_BOOTSTRAP=1`. Result: 1 passed, 0 failed; test duration
+5.81 seconds; external wall time 5.82 seconds, user CPU 5.63 seconds, system
+CPU 0.17 seconds. This single debug-build measurement includes artifact
+loading, SlotMap compilation, VM bootstrap, execution, and harness/process
+overhead. It excludes Universe compilation and artifact production. The
+source-denial and zero-bootstrap assertions passed. Individual stage timings
+were not measured. The preceding artifact-producing run passed in 115.40
+seconds and is separate from the reuse measurement.
+
+Direct execution of the test binary requires `RUST_MIN_STACK=33554432`, matching
+`.cargo/config.toml`; Cargo supplies that setting automatically. An earlier
+direct invocation omitted it and aborted with a stack overflow before writing
+the artifact. The corrected invocation completed both runs.
+
+The artifact is a local temporary-path fixture, not a checked-in deliverable.
+The reviewed correction is ready for a focused commit. Remaining T7 parity
+gates and full P2 acceptance stay open; no broad tests were run.
