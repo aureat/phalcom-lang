@@ -295,3 +295,33 @@ one-shot. This ordering/root continuation is not yet locally compile-verified.
 The next local discriminator is `cargo check -p phalcom-core --lib` followed
 by that focused VM unit test. The full SlotMap executable test remains deferred
 until those checks are green.
+
+## Source-free native/bootstrap parity continuation — 2026-10-22
+
+After the one-shot artifact class-preallocation proof passed locally, the
+bootstrap sequence was compared directly with canonical source bootstrap. The
+audit found that artifact VM construction installed the primordial native floor
+but had no counterpart for the source bootstrap's later
+`install_source_owned_primitives` phase. This would return a source-free VM
+without native methods owned by ordinary source-declared Universe classes.
+
+Artifact bootstrap now consumes the validated portable native-anchor table as
+the replacement authority for the source native index. Before initializer
+execution, primordial method origins are rebound to the exact module encoded by
+their stable owner declaration. After eager initializers execute, source-owned
+descriptors are installed on the exact runtime nominal class resolved from that
+same stable declaration, and their runtime access origin is reconstructed from
+the exact materialized module. The host primitive descriptor remains the ABI
+implementation authority; the validated artifact anchor supplies portable
+owner/origin identity. No source catalog, display-name class resolution, or
+fallback scan is used.
+
+The source-only `None` global bootstrap assertion was also factored into a
+shared VM invariant and added to artifact construction. Thus artifact bootstrap
+now applies the same canonical immediate-value check before returning a VM.
+
+Focused tests now cover both native phases without a source catalog. The full
+SlotMap executable test has additionally been strengthened to require canonical
+semantic roots and retained initializer closures for every linked Universe
+module after `new_vm()`, but that long-running gate remains deferred until the
+new compile and focused tests are green.
