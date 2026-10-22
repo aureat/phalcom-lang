@@ -68,6 +68,25 @@ impl<'a> ExecutableMaterializer<'a> {
 
     fn install(mut self) -> PhResult<()> {
         self.install_class_authority()?;
+
+        // Every captured module owns a validated initializer, including modules
+        // outside the eager bootstrap closure. Attach all of them now so a
+        // later lazy/import-driven initialization remains source-free.
+        for entry in self.image.modules.clone() {
+            let module_id = phalcom_semantic::metadata::stable_identity::from_stable_module(&entry.identity).map_err(internal)?;
+            let module = self
+                .vm
+                .module_registry
+                .get(&module_id)
+                .ok_or_else(|| internal(format!("artifact module {module_id} is not materialized")))?
+                .object;
+            if self.vm.heap.module(module).closure.is_some() {
+                return Err(internal(format!("artifact module {module_id} already has an initializer closure")));
+            }
+            let closure = self.materialize_closure(entry.initializer, module, None, None)?;
+            self.vm.heap.module_mut(module).closure = Some(closure);
+        }
+
         let eager = self.image.bootstrap.eager_modules.clone();
         for entry in eager {
             let module_id = phalcom_semantic::metadata::stable_identity::from_stable_module(&entry.module).map_err(internal)?;
@@ -77,8 +96,12 @@ impl<'a> ExecutableMaterializer<'a> {
                 .get(&module_id)
                 .ok_or_else(|| internal(format!("artifact module {module_id} is not materialized")))?
                 .object;
-            let closure = self.materialize_closure(entry.initializer, module, None, None)?;
-            self.vm.heap.module_mut(module).closure = Some(closure);
+            let closure = self
+                .vm
+                .heap
+                .module(module)
+                .closure
+                .ok_or_else(|| internal(format!("artifact module {module_id} has no materialized initializer")))?;
             self.vm.run_in_module(module, closure)?;
             self.vm
                 .module_registry
