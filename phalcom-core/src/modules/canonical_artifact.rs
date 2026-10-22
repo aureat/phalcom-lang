@@ -196,6 +196,15 @@ fn allocation_error(error: AllocationError, limit_bytes: usize) -> TeloscArtifac
     }
 }
 
+impl From<super::telosc_staging::TeloscStagingError> for TeloscArtifactError {
+    fn from(error: super::telosc_staging::TeloscStagingError) -> Self {
+        match error {
+            super::telosc_staging::TeloscStagingError::Artifact(error) => Self::Artifact(error),
+            super::telosc_staging::TeloscStagingError::Capability(message) => Self::Capability(message),
+        }
+    }
+}
+
 impl From<MetadataSectionError> for TeloscArtifactError {
     fn from(err: MetadataSectionError) -> Self {
         Self::Metadata(phalcom_compiler_artifact::metadata::MetadataTransportError::Envelope(err))
@@ -603,27 +612,15 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     timings.container_validation = t_container.elapsed();
 
     let t_section = Instant::now();
-    let module_world_sec = container
-        .require_section(SectionKind::ModuleWorld)
-        .map_err(|_| TeloscArtifactError::Capability("missing MODULE_WORLD section"))?;
-    let semantic_world_sec = container
-        .require_section(SectionKind::SemanticWorld)
-        .map_err(|_| TeloscArtifactError::Capability("missing SEMANTIC_WORLD section"))?;
-    let query_image_sec = container
-        .require_section(SectionKind::QueryImage)
-        .map_err(|_| TeloscArtifactError::Capability("missing QUERY_IMAGE section"))?;
-    let metadata_sec = container
-        .require_section(SectionKind::Metadata)
-        .map_err(|_| TeloscArtifactError::Capability("missing METADATA section"))?;
-    let portable_executable = container
-        .header()
-        .capabilities
-        .contains(phalcom_compiler_artifact::header::TeloscCapabilities::PORTABLE_EXECUTABLE);
-    let executable_sec = portable_executable
-        .then(|| container.require_section(SectionKind::Executable))
-        .transpose()
-        .map_err(|_| TeloscArtifactError::Capability("missing EXECUTABLE section"))?;
-    validate_section_provenance(container.header(), module_world_sec, semantic_world_sec, query_image_sec, metadata_sec)?;
+    // Stage generic transport without allocating or relocating native products.
+    // Universe bootstrap semantics remain a separate publication policy.
+    let staged = super::telosc_staging::StagedCompilerSections::from_compatible_container(&container)?;
+    let module_world_sec = staged.module_world;
+    let semantic_world_sec = staged.semantic_world;
+    let query_image_sec = staged.query_image;
+    let metadata_sec = staged.metadata;
+    let executable_sec = staged.executable;
+    let portable_executable = executable_sec.is_some();
     record_loader_allocation_diagnostic_stage(0, allocations);
 
     let module_world_v4 = ModuleWorldV4::decode_with_allocation_budget(module_world_sec, limits, allocations)?;
@@ -1097,94 +1094,19 @@ fn validate_executable_bootstrap_schedule(
 }
 
 
-/// Validate reader compatibility independently of digest integrity.
+/// Universe identity and bootstrap capability policy. Shared ABI and section
+/// provenance checks live in the package-neutral transport staging layer.
 fn validate_reader_header(header: &TeloscHeaderV2) -> Result<(), TeloscArtifactError> {
     use phalcom_compiler_artifact::ValidationError;
     use phalcom_compiler_artifact::header::TeloscCapabilities as WireCapabilities;
     if !header.package_identity.is_exact_universe() {
         return Err(phalcom_compiler_artifact::ArtifactError::from(ValidationError::IncompatibleWorld("unsupported Universe package identity".into())).into());
     }
-    for (kind, found, expected) in [
-        ("semantic_model_version", header.semantic_model_version, SEMANTIC_MODEL_VERSION),
-        ("stable_identity_schema", header.stable_identity_schema, STABLE_IDENTITY_SCHEMA_V1),
-        ("module_semantic_abi", header.module_semantic_abi, MODULE_SEMANTIC_ABI_V3),
-        ("semantic_artifact_abi", header.semantic_artifact_abi, SEMANTIC_ARTIFACT_ABI_V3),
-        ("query_fingerprint_abi", header.query_fingerprint_abi, QUERY_FINGERPRINT_ABI_V3),
-        (
-            "native_surface_schema_version",
-            header.native_surface_schema_version,
-            NATIVE_SURFACE_SCHEMA_VERSION,
-        ),
-        (
-            "type_metadata_schema_version",
-            header.type_metadata_schema_version,
-            TYPE_METADATA_SCHEMA_VERSION,
-        ),
-    ] {
-        if found != expected {
-            return Err(phalcom_compiler_artifact::ArtifactError::from(ValidationError::IncompatibleAbi { kind, found, expected }).into());
-        }
-    }
-    let expected_catalog = phalcom_native_surface::catalog_fingerprint().0;
-    if header.native_catalog_fingerprint != expected_catalog {
-        return Err(
-            phalcom_compiler_artifact::ArtifactError::from(ValidationError::NativeCatalogFingerprintMismatch {
-                found: header.native_catalog_fingerprint,
-                expected: expected_catalog,
-            })
-            .into(),
-        );
-    }
+    super::telosc_staging::validate_compiler_header_abi(header)?;
     let compiler = WireCapabilities::CANONICAL_COMPILER_IMAGE_V1 | WireCapabilities::RUNTIME_PUBLIC_METADATA;
     let full = compiler | WireCapabilities::PORTABLE_EXECUTABLE;
     if header.capabilities != compiler && header.capabilities != full {
         return Err(TeloscArtifactError::Capability("unsupported Universe artifact capability set"));
-    }
-    Ok(())
-}
-
-fn validate_section_provenance(
-    header: &TeloscHeaderV2,
-    module_world: &[u8],
-    semantic_world: &[u8],
-    query_image: &[u8],
-    metadata: &[u8],
-) -> Result<(), TeloscArtifactError> {
-    // Source text is intentionally absent from the portable sections, so the
-    // reader cannot recompute its provenance digest. It still rejects the old
-    // zero placeholder; the container digest binds this asserted identity to
-    // the exact serialized header.
-    if header.source_digest == ArtifactDigest::ZERO {
-        return Err(
-            phalcom_compiler_artifact::ArtifactError::from(phalcom_compiler_artifact::ValidationError::IncompatibleWorld(
-                "source provenance digest is missing".into(),
-            ))
-            .into(),
-        );
-    }
-    let expected = [
-        (
-            "interface",
-            header.interface_digest,
-            ArtifactDigest::digest_domain(DOMAIN_MODULE_WORLD, module_world),
-        ),
-        (
-            "semantic",
-            header.semantic_digest,
-            ArtifactDigest::digest_domain(DOMAIN_SEMANTIC_WORLD, semantic_world),
-        ),
-        ("query", header.query_digest, ArtifactDigest::digest_domain(DOMAIN_QUERY_IMAGE, query_image)),
-        ("metadata", header.metadata_digest, ArtifactDigest::digest_domain(DOMAIN_METADATA, metadata)),
-    ];
-    for (name, found, actual) in expected {
-        if found != actual {
-            return Err(
-                phalcom_compiler_artifact::ArtifactError::from(phalcom_compiler_artifact::ValidationError::IncompatibleWorld(format!(
-                    "{name} provenance digest mismatch"
-                )))
-                .into(),
-            );
-        }
     }
     Ok(())
 }
