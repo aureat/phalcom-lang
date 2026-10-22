@@ -45,6 +45,90 @@ pub struct ConditionalFamilyDescriptor {
     pub entries: Box<[ConditionalFamilyEntry]>,
 }
 
+/// Runtime-only trait target carried by executable chunks.
+///
+/// Semantic proof products are consumed before bytecode emission. The VM needs
+/// only the exact selected executable target; retaining the full semantic
+/// `RequirementSelectionTemplate` here would make source-free artifact load
+/// depend on checker-only evidence that is intentionally absent from .telosc.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ExecutableTraitSelectionTarget {
+    Callable(phalcom_semantic::identity::CallableId),
+    DataComponent(phalcom_semantic::identity::DataComponentId),
+}
+
+/// Runtime-only projection of one proven semantic trait invocation.
+///
+/// The source `TraitInvocationSpec` remains in the pool for artifact capture
+/// and diagnostics. This record is the VM contract and contains no semantic
+/// search/proof state.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ExecutableTraitInvocationSpec {
+    pub selection: ExecutableTraitSelectionTarget,
+    pub selection_is_trait_default: bool,
+    pub requirement: phalcom_semantic::traits::TraitRequirementId,
+    pub requirement_slot: u16,
+    pub requirement_slots: Box<[(phalcom_semantic::traits::TraitRequirementId, u16)]>,
+    pub requirement_targets: Box<[(phalcom_semantic::traits::TraitRequirementId, ExecutableTraitSelectionTarget)]>,
+    pub antecedent_slots: Box<[(u16, ExecutableTraitSelectionTarget, phalcom_common::selector::Selector)]>,
+    pub type_bindings: Box<[(StableTypeParameterRef, crate::typing::RuntimeTypeRecipe)]>,
+    pub call_environment_recipe: Option<Arc<RuntimeCallEnvironmentRecipe>>,
+}
+
+impl ExecutableTraitInvocationSpec {
+    fn from_semantic(spec: &TraitInvocationSpec) -> Self {
+        fn target(
+            selection: &phalcom_semantic::impls::RequirementSelectionTemplate,
+        ) -> ExecutableTraitSelectionTarget {
+            use phalcom_semantic::impls::RequirementSelectionTemplate as S;
+            match selection {
+                S::ConformanceCallable { callable }
+                | S::InherentCallable { callable, .. }
+                | S::TraitDefault { callable } => ExecutableTraitSelectionTarget::Callable(callable.clone()),
+                S::ConditionalInherent { candidate, .. } => ExecutableTraitSelectionTarget::Callable(candidate.callable.clone()),
+                S::DataComponent { component, .. } => ExecutableTraitSelectionTarget::DataComponent(component.clone()),
+            }
+        }
+
+        let mut requirement_targets = spec
+            .selection
+            .requirement_targets
+            .iter()
+            .map(|(requirement, selection)| (requirement.clone(), target(selection)))
+            .collect::<Vec<_>>();
+        requirement_targets.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+        Self {
+            selection: target(&spec.selection.selection),
+            selection_is_trait_default: matches!(
+                spec.selection.selection,
+                phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }
+            ),
+            requirement: spec.selection.requirement.clone(),
+            requirement_slot: spec.requirement_slot,
+            requirement_slots: spec.requirement_slots.clone(),
+            requirement_targets: requirement_targets.into_boxed_slice(),
+            antecedent_slots: spec
+                .antecedent_slots
+                .iter()
+                .map(|(slot, selection, selector)| (*slot, target(selection), selector.clone()))
+                .collect(),
+            type_bindings: spec.type_bindings.clone(),
+            call_environment_recipe: spec.call_environment_recipe.clone(),
+        }
+    }
+
+    pub fn requirement_target(
+        &self,
+        requirement: &phalcom_semantic::traits::TraitRequirementId,
+    ) -> Option<&ExecutableTraitSelectionTarget> {
+        self.requirement_targets
+            .binary_search_by(|(candidate, _)| candidate.cmp(requirement))
+            .ok()
+            .map(|index| &self.requirement_targets[index].1)
+    }
+}
+
 /// Typed executable semantic side table stored directly on Chunk.
 #[derive(Debug, Clone, Default)]
 pub struct ExecutableSemanticPool {
@@ -64,7 +148,10 @@ pub struct ExecutableSemanticPool {
     pub conditional_family_descriptors: Vec<ConditionalFamilyDescriptor>,
     pub family_operations: Vec<FamilyOperationShape>,
     pub family_candidate_sets: Vec<ExecutableFamilyCandidateSet>,
+    /// Full source semantic invocation retained for portable artifact capture.
     pub trait_invocations: Vec<TraitInvocationSpec>,
+    /// Runtime projection consumed by the VM and reconstructible from .telosc.
+    pub runtime_trait_invocations: Vec<ExecutableTraitInvocationSpec>,
     pub trait_requirement_invocations: Vec<TraitRequirementInvocationSpec>,
     pub type_parameter_class_receivers: Vec<StableTypeParameterRef>,
 }
@@ -231,12 +318,15 @@ impl ExecutableSemanticPool {
 
     pub fn add_trait_invocation(&mut self, spec: TraitInvocationSpec, span: SourceRange) -> Result<u16, CompilerError> {
         let index = u16::try_from(self.trait_invocations.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow { kind: "TraitInvocation", span })?;
+        let runtime = ExecutableTraitInvocationSpec::from_semantic(&spec);
         self.trait_invocations.push(spec);
+        self.runtime_trait_invocations.push(runtime);
+        debug_assert_eq!(self.trait_invocations.len(), self.runtime_trait_invocations.len());
         Ok(index)
     }
 
-    pub fn trait_invocation(&self, index: u16) -> &TraitInvocationSpec {
-        &self.trait_invocations[index as usize]
+    pub fn trait_invocation(&self, index: u16) -> &ExecutableTraitInvocationSpec {
+        &self.runtime_trait_invocations[index as usize]
     }
 
     pub fn add_trait_requirement_invocation(&mut self, spec: TraitRequirementInvocationSpec, span: SourceRange) -> Result<u16, CompilerError> {
