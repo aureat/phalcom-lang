@@ -1346,3 +1346,29 @@ fresh-process source-denied execution, parity, and allocation certification
 remain unverified. The source-mode SlotMap callable-metadata failure remains a
 separate unresolved blocker. Do not weaken field validation to advance the
 artifact gate.
+
+### P8.T3 focused closure-provenance verification and semantic-runtime split — 2026-10-22
+
+The locally run focused validator suite now passes **22/22** after the
+upvalue-provenance continuation. The new cases prove exact local and forwarded
+capture propagation, fail-closed mutation/conflict handling, CFG-visible
+post-capture writes, forged-parent rejection, dispatch-side correctness and
+field-slot bounds. The full-artifact SlotMap discriminator has not yet been
+rerun, so the former prototype-89 failure remains pending full-gate
+revalidation rather than being marked closed.
+
+Static review of the next artifact-runtime stage found that callable
+materialization rebuilt bytecode while leaving `Chunk::executable_semantics`
+empty. Work has started on the required relocation boundary by separating
+checker-only `TraitInvocationSpec` state from the runtime evidence actually
+consumed by the VM. The portable trait row now preserves whether the selected
+body is a trait default, because that bit controls exact requirement-slot
+installation and cannot be reconstructed from the collapsed portable callable
+target. Artifact projection also rejects divergence between the source semantic
+row and its same-index runtime projection.
+
+These runtime-boundary changes are committed but not yet compile-verified and
+do not yet complete `PortableSemanticPoolV1` materialization. P2.R4 remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked. The two deferred
+`Module.metadata` diagnostics, full executable artifact production/load,
+source-free VM execution, parity and allocation certification remain open.
