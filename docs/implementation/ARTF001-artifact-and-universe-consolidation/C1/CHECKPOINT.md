@@ -1488,3 +1488,54 @@ This continuation is committed but has not yet received a local compile
 discriminator. Run only the core library check and the focused preallocation
 unit test before the long full-artifact SlotMap gate. P2.R4 remains
 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
+
+### P2.R4 source-free native/bootstrap parity continuation — 2026-10-22
+
+The artifact class-preallocation lifecycle is locally verified: the core library
+compiled and
+`vm::api::artifact_preallocation_tests::artifact_class_preallocation_is_exact_superclass_checked_and_one_shot`
+passed **1/1**.
+
+The subsequent bootstrap-parity audit found and corrected two source-free gaps:
+
+1. **Source-owned native primitives were not installed by artifact bootstrap.**
+   The native floor intentionally installs only descriptors whose owners are
+   primordial runtime classes; source bootstrap later installs descriptors for
+   source-declared Universe classes after eager module execution. Artifact
+   bootstrap had no equivalent post-initializer phase. The source-free path now
+   uses the already-validated portable native-anchor table to:
+   - rebind primordial native method origins to the exact canonical Universe
+     module before initializer execution, mirroring the source
+     `refresh_registered_primitive_origins` phase; and
+   - install source-owned native descriptors after eager artifact initializers
+     have materialized/consumed their exact class identities.
+   Runtime owner lookup is by the anchor's stable declaration identity and
+   `RuntimeTypingRegistry::resolve_nominal`; runtime access origin is rebuilt
+   from the exact materialized owner module. No `NativeSourceIndex`, source
+   provider, class display-name search, or first-match runtime class lookup is
+   used.
+
+2. **The canonical `None` global invariant existed only on source bootstrap.**
+   The check is now factored as `VM::verify_canonical_none_global` and invoked
+   by both source and artifact VM construction after Universe initialization.
+   Artifact bootstrap therefore verifies that public `None` is the immediate
+   absence value and not the hidden behavior-class object before returning a VM.
+
+Two focused native regressions were added:
+- `artifact_source_owned_native_install_uses_stable_owner_without_source_catalog`
+  constructs exact stable owner/module bindings without a source catalog,
+  installs every non-primordial descriptor from portable-style anchors, and
+  proves method installation plus exact module origin.
+- `artifact_primordial_origin_refresh_uses_validated_anchor_module` proves
+  primordial methods are rebound to their exact canonical module from artifact
+  anchor authority.
+
+The eventual full executable SlotMap gate is strengthened after
+`LoadedUniverseArtifact::new_vm()`: it now requires `semantic_roots` to be
+published and requires every linked Universe module, including deferred modules,
+to retain an initializer closure. These are assertions only; the long gate has
+not yet been run.
+
+This continuation is committed but not yet locally compile-verified. Run the
+core library check, then only the two focused artifact-native tests. P2.R4
+remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
