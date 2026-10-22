@@ -212,6 +212,13 @@ impl<'a> ExecutableMaterializer<'a> {
         for constant in row.constants.iter().copied() {
             chunk.constants.push(self.materialize_constant(constant)?);
         }
+        let semantic_pool = self
+            .image
+            .semantic_pools
+            .get(row.semantics.0 as usize)
+            .ok_or_else(|| internal(format!("artifact semantic pool {} is absent", row.semantics.0)))?;
+        chunk.executable_semantics =
+            super::semantic_materialize::materialize_semantic_pool(self.vm, semantic_pool, &row.constants)?;
         for (index, instruction) in row.code.into_iter().enumerate() {
             let span = row.spans.get(index).map_or_else(SourceRange::default, |span| {
                 SourceRange::new(usize::try_from(span.start).unwrap_or(usize::MAX), usize::try_from(span.end).unwrap_or(usize::MAX))
