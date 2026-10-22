@@ -173,3 +173,50 @@ Additional remote commits:
 - `6cc21742e` — remove an unused parent binding after the CFG refactor.
 
 The full artifact, Rust compile checks and regressions remain **unrun**. The proposed upvalue transfer is not claimed to resolve prototype 89 until the local gate proves its captured producer and mutation constraints permit exact authority. Continue with the exact local gate commands above and report the first compiler error or executable validation failure.
+
+## Local verification and downstream semantic-pool boundary — 2026-10-22
+
+Local verification of the upvalue-provenance slice passed the complete focused
+validator selection: **22 passed, 0 failed, 0 ignored**. This includes exact
+instance/class-side captured receivers, nested forwarded upvalues, unknown and
+mutated captures, backward-branch mutation, conflicting activations, forged
+closure parentage, method-installation ownership, generated enum/data receivers,
+class-tower checks, and slot-range rejection. P8.T3's focused proof is therefore
+verified at the validator-test boundary. The full-artifact discriminator has
+not yet been rerun, so prototype 89 is not declared cleared until that gate
+observes the new analysis.
+
+Static audit of the next load/runtime stage identified an independent concrete
+materializer gap: `artifact/materialize.rs::materialize_callable` reconstructs
+portable constants and bytecode into a fresh `Chunk` but leaves
+`Chunk::executable_semantics` empty. Portable prototypes already reference an
+artifact semantic pool and capture serializes those pools, so silently executing
+with empty native side tables is incorrect.
+
+The first corrective downstream slice separates checker-only trait proof state
+from runtime executable evidence. `Chunk` now retains the source
+`TraitInvocationSpec` for artifact projection and a same-index
+`ExecutableTraitInvocationSpec` for VM execution. VM trait dispatch consumes
+only the exact selected callable/data-component target, requirement identity,
+requirement/antecedent slots, runtime type bindings and call-environment recipe.
+Artifact capture requires both source/runtime views to agree exactly before
+serializing. The unpublished portable trait row now retains the otherwise-lost
+`selection_is_trait_default` bit needed to preserve direct requirement-slot
+installation semantics after source-free load. No accepted full V1 executable
+artifact exists on this branch, so this corrects the unpublished schema draft
+rather than introducing compatibility with already-authorized bytes.
+
+Commits in this downstream slice through this record:
+
+- `e971c24d3` — split runtime trait invocation evidence from checker proof.
+- `186a0be7f` — explicitly classify the runtime projection during portable capture.
+- `d954cdb72` — make VM trait execution consume runtime-only evidence.
+- `abb60222e` / `c79019cc9` — persist and project exact trait-default execution mode.
+- `2c3c99953` / `a3346512c` — expose the canonical runtime projection internally and
+  fail artifact projection if semantic/runtime same-index views diverge.
+
+This downstream slice is **not compile-verified yet** and does not yet install
+`PortableSemanticPoolV1` on materialized chunks. Data-construction runtime
+projection and the remaining portable side-table relocation are deliberately
+left for the next bounded slice after compilation of this boundary is confirmed.
+P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
