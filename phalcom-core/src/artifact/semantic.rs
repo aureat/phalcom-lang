@@ -984,6 +984,10 @@ impl SemanticPoolProjector<'_> {
         Ok(PortableTraitInvocationV1 {
             source_impl: to_stable_impl(&spec.selection.source_impl),
             selection,
+            selection_is_trait_default: matches!(
+                spec.selection.selection,
+                phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }
+            ),
             requirement: portable_trait_requirement(&spec.selection.requirement),
             requirement_slot: spec.requirement_slot,
             requirement_slots: spec
