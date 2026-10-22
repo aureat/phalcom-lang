@@ -814,11 +814,15 @@ impl SemanticPoolProjector<'_> {
     }
 
     fn data_construction(&mut self, spec: &DataConstructionLoweringSpec) -> ProjectionResult<PortableDataConstructionV1> {
-        let root = spec.exact_type.runtime_roots.first().ok_or_else(|| SemanticProjectionError {
+        let exact_type = spec.exact_type.as_ref().ok_or_else(|| SemanticProjectionError {
+            family: "data_constructions",
+            reason: "portable projection requires source exact-type metadata".into(),
+        })?;
+        let root = exact_type.runtime_roots.first().ok_or_else(|| SemanticProjectionError {
             family: "data_constructions",
             reason: "exact type metadata has no runtime root".into(),
         })?;
-        let entry = spec.exact_type.types.get(root.form.0 as usize).ok_or_else(|| SemanticProjectionError {
+        let entry = exact_type.types.get(root.form.0 as usize).ok_or_else(|| SemanticProjectionError {
             family: "data_constructions",
             reason: "exact type metadata runtime root is outside its type table".into(),
         })?;
@@ -831,7 +835,7 @@ impl SemanticPoolProjector<'_> {
         };
         Ok(PortableDataConstructionV1 {
             constructor: to_stable_declaration(&spec.constructor.owner),
-            exact_type_digest: exact_metadata_digest(&spec.exact_type)?,
+            exact_type_digest: exact_metadata_digest(exact_type)?,
             type_recipe,
             layout: portable_layout(&spec.layout),
             argument_to_component: spec.argument_to_component.to_vec(),
