@@ -1465,41 +1465,34 @@ impl VM {
     fn trait_method_for_selection(
         &mut self,
         receiver: Value,
-        selection: &phalcom_semantic::impls::RequirementSelectionTemplate,
+        selection: &crate::chunk::ExecutableTraitSelectionTarget,
         requirement_selector: &phalcom_common::selector::Selector,
     ) -> PhResult<ObjRef> {
-        use phalcom_semantic::impls::RequirementSelectionTemplate;
-        if let RequirementSelectionTemplate::DataComponent { component, .. } = selection {
-            // Semantic evidence has already selected this exact data component.
-            // Runtime lookup only materializes the representation-level getter
-            // installed by register_data_from_spec; it does not select a witness.
-            let selector = self.interner.intern(&requirement_selector.encode());
-            return receiver
-                .lookup_method(self, selector)
-                .ok_or_else(|| {
-                    RuntimeError::Internal(format!(
-                        "trait-selected data component {component:?} has no runtime projection getter for `{}`",
-                        requirement_selector.encode()
-                    ))
-                })
-                .map_err(Into::into);
+        match selection {
+            crate::chunk::ExecutableTraitSelectionTarget::DataComponent(component) => {
+                // Semantic evidence has already selected this exact data
+                // component. Runtime lookup only materializes its getter.
+                let selector = self.interner.intern(&requirement_selector.encode());
+                receiver
+                    .lookup_method(self, selector)
+                    .ok_or_else(|| {
+                        RuntimeError::Internal(format!(
+                            "trait-selected data component {component:?} has no runtime projection getter for `{}`",
+                            requirement_selector.encode()
+                        ))
+                    })
+                    .map_err(Into::into)
+            }
+            crate::chunk::ExecutableTraitSelectionTarget::Callable(callable) => {
+                self.resolve_conformance_method(callable, &callable.selector, receiver)
+            }
         }
-        let callable = match selection {
-            RequirementSelectionTemplate::ConformanceCallable { callable } | RequirementSelectionTemplate::TraitDefault { callable } => Some(callable),
-            RequirementSelectionTemplate::InherentCallable { callable, .. } => Some(callable),
-            RequirementSelectionTemplate::ConditionalInherent { candidate, .. } => Some(&candidate.callable),
-            RequirementSelectionTemplate::DataComponent { .. } => None,
-        };
-        let Some(callable) = callable else {
-            return Err(RuntimeError::Internal("data component trait target requires projection lowering".into()).into());
-        };
-        self.resolve_conformance_method(callable, &callable.selector, receiver)
     }
 
     fn materialize_trait_environment(
         &mut self,
         receiver: Value,
-        spec: &crate::modules::semantic_lowering::TraitInvocationSpec,
+        spec: &crate::chunk::ExecutableTraitInvocationSpec,
     ) -> PhResult<(crate::typing::RuntimeConformanceEnvironmentId, ObjRef, crate::typing::RuntimeTypeEnvironmentId)> {
         let mut bindings = spec.type_bindings.iter().cloned().collect::<std::collections::BTreeMap<_, _>>();
         if let Some(recipe) = &spec.call_environment_recipe {
@@ -1510,10 +1503,7 @@ impl VM {
             }
         }
         let type_environment = self.materialize_type_bindings(&bindings.into_iter().collect::<Vec<_>>())?;
-        let is_trait_default = matches!(
-            spec.selection.selection,
-            phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }
-        );
+        let is_trait_default = spec.selection_is_trait_default;
         let max_req_slot = if is_trait_default {
             spec.requirement_slots.iter().map(|(_, slot)| *slot as usize + 1).max().unwrap_or(0)
         } else {
@@ -1552,7 +1542,7 @@ impl VM {
 
         if is_trait_default {
             for (requirement, slot) in spec.requirement_slots.iter() {
-                if let Some(target) = spec.selection.requirement_targets.get(requirement) {
+                if let Some(target) = spec.requirement_target(requirement) {
                     let method = self.trait_method_for_selection(receiver, target, &requirement.selector)?;
                     if (*slot as usize) < slots.len() {
                         slots[*slot as usize] = Some(crate::typing::RuntimeConformanceSlot {
@@ -1567,7 +1557,7 @@ impl VM {
         let environment = self
             .runtime_conformance_environments
             .intern(crate::typing::RuntimeConformanceEnvironment::new(slots));
-        let method = self.trait_method_for_selection(receiver, &spec.selection.selection, &spec.selection.signature.selector)?;
+        let method = self.trait_method_for_selection(receiver, &spec.selection, &spec.requirement.selector)?;
         if let Some(recipe) = &spec.call_environment_recipe {
             self.validate_specialized_call(recipe, method)?;
         }
@@ -1583,7 +1573,7 @@ impl VM {
             .ok_or(RuntimeError::Internal("trait invocation stack underflow".into()))?;
         let receiver = self.stack[receiver_idx];
         let (conformance_environment, method, type_environment) = self.materialize_trait_environment(receiver, &spec)?;
-        let selector = self.interner.intern(&spec.selection.signature.selector.encode());
+        let selector = self.interner.intern(&spec.requirement.selector.encode());
         let layout = self.invocation_layout_for_selector(selector, arity as usize)?;
         self.call_method_with_selector_as_and_environments(
             &receiver,
