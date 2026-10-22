@@ -194,7 +194,7 @@ impl<'a> ExecutableMaterializer<'a> {
             .iter()
             .filter(|recipe| {
                 recipe.class.side == StableDispatchSide::Instance
-                    && matches!(recipe.allocation, PortableClassAllocationV1::SourceDeclared)
+                    && matches!(&recipe.allocation, PortableClassAllocationV1::SourceDeclared)
             })
             .map(|recipe| recipe.class.declaration.clone())
             .collect::<Vec<_>>();
@@ -224,7 +224,7 @@ impl<'a> ExecutableMaterializer<'a> {
             .find(|recipe| {
                 recipe.class.declaration == *declaration
                     && recipe.class.side == StableDispatchSide::Instance
-                    && matches!(recipe.allocation, PortableClassAllocationV1::SourceDeclared)
+                    && matches!(&recipe.allocation, PortableClassAllocationV1::SourceDeclared)
             })
             .cloned()
             .ok_or_else(|| internal(format!("artifact source class recipe {declaration:?} is absent")))?;
