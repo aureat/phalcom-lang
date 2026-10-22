@@ -1411,3 +1411,28 @@ compile/test discriminator. Do not run the long full-artifact gate until
 `cargo check -p phalcom-core --lib` and the focused artifact validator tests
 are green. P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains
 blocked.
+
+### Semantic-pool relocation compile discriminator — 2026-10-22
+
+The first local discriminator after the source-free semantic-pool relocation
+failed before reaching relocation type checking on two mechanical integration
+errors:
+
+- `artifact/validate.rs`: the trait-default identity regression was inserted
+  after the `hex_digest` tail expression, making it an inner item and changing
+  the helper's return type to `()`.
+- `vm/data.rs`: the refactor preserved the descriptor specialization path but
+  accidentally dropped the declaration behavior-class lookup still required by
+  `RuntimeDataSpecialization.behavior_class`.
+
+Both are corrected on the remote branch. The validator test is again a normal
+member of the `#[cfg(test)]` module and `hex_digest` has its original tail
+return. `get_or_bind_data_descriptor` again resolves the registered data
+behavior class independently of whether exact type identity came from a source
+metadata bundle or a relocated artifact recipe. No validation or source-free
+authority was weakened.
+
+The local compiler has not yet been rerun after these fixes. Continue with
+`cargo check -p phalcom-core --lib`; only after that is green rerun the focused
+artifact validator tests. The long full-artifact discriminator remains deferred.
+P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
