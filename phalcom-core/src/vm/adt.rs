@@ -98,7 +98,10 @@ impl VM {
             .or_else(|| self.entry_module())
             .or_else(|| self.universe_module())
             .ok_or_else(|| RuntimeError::Internal(format!("enum declaration module {} is not materialized", spec.owner.module)))?;
-        let root_class_id = self.create_class(module, &spec.owner.name, Some(self.universe.classes.object_class));
+        let name_sym = self.interner.intern(&spec.owner.name);
+        let root_class_id = self
+            .consume_artifact_preallocated_class(module, name_sym, Some(self.universe.classes.object_class))?
+            .unwrap_or_else(|| self.create_class(module, &spec.owner.name, Some(self.universe.classes.object_class)));
         let variants = self.allocate_general_variant_classes(spec, root_class_id)?;
 
         Ok(RuntimeEnumClassBinding { root: root_class_id, variants })
