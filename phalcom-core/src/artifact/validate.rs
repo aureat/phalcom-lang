@@ -3955,19 +3955,7 @@ fn validate_semantic_pools(image: &ExecutableImageV1, context: &ExecutableValida
             }
             validate_trait_selection(pool_index, "trait invocation selection", row, context, &invocation.selection)?;
             validate_trait_requirement(pool_index, "trait invocation requirement", row, context, &invocation.requirement)?;
-            let identity_proves_trait_default = match &invocation.selection {
-                PortableTraitSelectionTargetV1::Callable { callable } => {
-                    matches!(
-                        &callable.owner,
-                        StableCallableOwnerRef::Declaration(owner)
-                            if owner == &invocation.requirement.owner
-                                && callable.selector.as_ref() == invocation.requirement.selector
-                                && callable.side == invocation.requirement.side
-                    )
-                }
-                PortableTraitSelectionTargetV1::DataComponent { .. } => false,
-            };
-            if invocation.selection_is_trait_default != identity_proves_trait_default {
+            if invocation.selection_is_trait_default != trait_selection_identity_proves_default(invocation) {
                 return Err(ExecutableValidationError::InvalidSemanticProduct {
                     pool: pool_index,
                     family: "trait invocation",
@@ -4182,6 +4170,23 @@ fn validate_data_construction_reference(
         });
     }
     Ok(())
+}
+
+fn trait_selection_identity_proves_default(
+    invocation: &phalcom_compiler_artifact::executable::semantic::PortableTraitInvocationV1,
+) -> bool {
+    match &invocation.selection {
+        PortableTraitSelectionTargetV1::Callable { callable } => {
+            matches!(
+                &callable.owner,
+                StableCallableOwnerRef::Declaration(owner)
+                    if owner == &invocation.requirement.owner
+                        && callable.selector.as_ref() == invocation.requirement.selector
+                        && callable.side == invocation.requirement.side
+            )
+        }
+        PortableTraitSelectionTargetV1::DataComponent { .. } => false,
+    }
 }
 
 fn validate_runtime_type_recipe(
