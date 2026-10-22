@@ -1288,7 +1288,15 @@ fn run_artifact_slotmap(loaded: &phalcom_core::modules::canonical_artifact::Load
         .expect("artifact-backed SlotMap runtime-test compilation");
     eprintln!("artifact-backed SlotMap compilation passed");
     let mut vm = loaded.new_vm().expect("source-free artifact VM bootstrap");
-    eprintln!("artifact VM bootstrap passed");
+    assert!(vm.semantic_roots.is_some(), "artifact VM must publish canonical semantic roots");
+    for id in loaded.formal_image.linked().modules.keys() {
+        let record = vm.module_registry.get(id).unwrap_or_else(|| panic!("artifact VM must materialize module {id}"));
+        assert!(
+            vm.heap.module(record.object).closure.is_some(),
+            "artifact module {id} must retain a source-free initializer closure even when deferred"
+        );
+    }
+    eprintln!("artifact VM bootstrap passed with semantic roots and all initializer closures attached");
     vm.run_compiled(&compiled).expect("source-free artifact VM must execute SlotMap runtime tests");
     eprintln!("artifact-backed SlotMap execution passed");
 }
