@@ -51,6 +51,7 @@ pub(crate) fn project_semantic_pool(
         family_operations: _,
         family_candidate_sets: _,
         trait_invocations: _,
+        runtime_trait_invocations: _,
         trait_requirement_invocations: _,
         type_parameter_class_receivers: _,
     } = source;
