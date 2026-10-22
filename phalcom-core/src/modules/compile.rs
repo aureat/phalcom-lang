@@ -2331,12 +2331,7 @@ impl ProgramCompiler {
         let mut runtime_data_type_roots = BTreeMap::<ModuleId, BTreeMap<phalcom_semantic::types::id::TypeId, RuntimeTypeRef>>::new();
         for ((module, ty, _), root) in runtime_data_root_specs
             .iter()
-            .zip(
-            metadata_bundle
-                .runtime_roots
-                .iter()
-                .skip(runtime_root_specs.len() + runtime_data_root_specs.len()),
-        )
+            .zip(metadata_bundle.runtime_roots.iter().skip(runtime_root_specs.len()))
         {
             runtime_data_type_roots.entry(module.clone()).or_default().insert(
                 *ty,
@@ -2365,7 +2360,12 @@ impl ProgramCompiler {
         >::new();
         for ((module, range, callable, stable_callable, parameter, stable_parameter, ty, key), root) in stable_call_root_specs
             .iter()
-            .zip(metadata_bundle.runtime_roots.iter().skip(runtime_root_specs.len()))
+            .zip(
+                metadata_bundle
+                    .runtime_roots
+                    .iter()
+                    .skip(runtime_root_specs.len() + runtime_data_root_specs.len()),
+            )
         {
             let recipe = if phalcom_semantic::checker::associated::contains_any_type_parameter(&analyzed.semantic.store, *ty) {
                 RuntimeTypeRecipe::Template(RuntimeTypeRef::Base {
