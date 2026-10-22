@@ -2170,6 +2170,101 @@ struct ProvenanceState {
     values: Vec<ProvenanceFact<RuntimeValueProvenance>>,
 }
 
+/// Receiver authority and the actual values of the closure's captured cells
+/// are separate proofs. Lexical method ownership never authorizes an upvalue.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PrototypeActivationProvenance {
+    receiver: ProvenanceFact<ActivationAuthority>,
+    upvalues: Vec<ProvenanceFact<RuntimeValueProvenance>>,
+}
+
+fn activation_with_unknown_captures(
+    prototype: &PortablePrototypeV1,
+    receiver: ProvenanceFact<ActivationAuthority>,
+) -> PrototypeActivationProvenance {
+    PrototypeActivationProvenance {
+        receiver,
+        upvalues: vec![ProvenanceFact::Unknown; prototype.upvalues.len()],
+    }
+}
+
+/// A captured local is an aliased VM cell, not an immutable value snapshot.
+/// Only propagate the value at a closure instruction if neither its creating
+/// frame nor any nested closure capable of sharing the cell can overwrite it.
+/// Conservative false positives become Unknown and fail closed at field uses.
+fn captured_cell_may_change(
+    image: &ExecutableImageV1,
+    parent: usize,
+    creation_instruction: usize,
+    capture: UpvalueCaptureV1,
+) -> bool {
+    use PortableInstructionV1 as I;
+
+    let Some(parent_prototype) = image.prototypes.get(parent) else {
+        return true;
+    };
+    let mut aliases = Vec::new();
+    match capture {
+        UpvalueCaptureV1::Local(slot) => {
+            // A closure creation in a loop may observe a different local value
+            // in another iteration while an earlier captured cell is live.
+            if instruction_site_is_cyclic(image, InstructionSite {
+                prototype: parent,
+                instruction: creation_instruction,
+            }).unwrap_or(true) {
+                return true;
+            }
+            if parent_prototype.code.iter().enumerate().any(|(instruction, opcode)| {
+                instruction >= creation_instruction
+                    && match opcode {
+                        I::SetLocal { operand0 } => u32::from(*operand0) == slot,
+                        I::ReserveScratchLocal { operand0 } | I::ReleaseScratchLocal { operand0 } => u32::from(*operand0) <= slot,
+                        _ => false,
+                    }
+            }) {
+                return true;
+            }
+            for (child_index, child) in image.prototypes.iter().enumerate() {
+                if matches!(child.owner, PrototypeOwnerV1::Nested { parent: owner, .. } if owner.0 as usize == parent) {
+                    for (slot_index, descriptor) in child.upvalues.iter().enumerate() {
+                        if *descriptor == UpvalueCaptureV1::Local(slot) {
+                            aliases.push((child_index, slot_index));
+                        }
+                    }
+                }
+            }
+        }
+        UpvalueCaptureV1::Upvalue(slot) => {
+            aliases.push((parent, slot as usize));
+        }
+    }
+
+    let mut visited = BTreeSet::new();
+    while let Some((owner_index, slot)) = aliases.pop() {
+        if !visited.insert((owner_index, slot)) {
+            continue;
+        }
+        let Some(owner) = image.prototypes.get(owner_index) else {
+            return true;
+        };
+        if owner.code.iter().any(|opcode| {
+            matches!(opcode, I::SetUpvalue { operand0 } if usize::from(*operand0) == slot)
+        }) {
+            return true;
+        }
+        for (child_index, child) in image.prototypes.iter().enumerate() {
+            if matches!(child.owner, PrototypeOwnerV1::Nested { parent: owner, .. } if owner.0 as usize == owner_index) {
+                for (child_slot, descriptor) in child.upvalues.iter().enumerate() {
+                    if *descriptor == UpvalueCaptureV1::Upvalue(slot as u32) {
+                        aliases.push((child_index, child_slot));
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum InstallationTarget {
     Class { allocation: AllocationIdentity, layout: StableClassRefV1 },
@@ -2199,18 +2294,18 @@ struct RecordedInstallation {
 
 #[derive(Default)]
 struct PrototypeProvenanceEffects {
-    activations: Vec<(usize, ProvenanceFact<ActivationAuthority>)>,
+    activations: Vec<(usize, PrototypeActivationProvenance)>,
     installations: Vec<(InstallationRoute, Option<usize>, InstructionSite, ProvenanceFact<ActivationAuthority>)>,
     class_allocations: Vec<(StableDeclarationRef, InstructionSite)>,
 }
 
 fn validate_executable_provenance(image: &ExecutableImageV1, context: &ExecutableValidationContext<'_>) -> Result<(), ExecutableValidationError> {
     let roles = classify_prototype_activation_roles(image)?;
-    let mut activations = vec![None::<ProvenanceFact<ActivationAuthority>>; image.prototypes.len()];
+    let mut activations = vec![None::<PrototypeActivationProvenance>; image.prototypes.len()];
     let mut pending = std::collections::VecDeque::new();
     for (index, prototype) in image.prototypes.iter().enumerate() {
         if matches!(prototype.owner, PrototypeOwnerV1::ModuleInitializer { .. }) {
-            activations[index] = Some(ProvenanceFact::Unknown);
+            activations[index] = Some(activation_with_unknown_captures(prototype, ProvenanceFact::Unknown));
             pending.push_back(index);
         }
     }
@@ -2281,7 +2376,7 @@ fn validate_executable_provenance(image: &ExecutableImageV1, context: &Executabl
                 });
             }
             installs_by_body.entry(body).or_insert(record);
-            merge_activation(&mut activations, &mut pending, body, authority)?;
+            merge_activation(&mut activations, &mut pending, body, activation_with_unknown_captures(&image.prototypes[body], authority))?;
         }
     }
 
@@ -2289,7 +2384,9 @@ fn validate_executable_provenance(image: &ExecutableImageV1, context: &Executabl
         let Some(prototype) = image.prototypes.get(prototype_index) else {
             continue;
         };
-        let activation = activations[prototype_index].clone().unwrap_or(ProvenanceFact::Unknown);
+        let activation = activations[prototype_index]
+            .clone()
+            .unwrap_or_else(|| activation_with_unknown_captures(prototype, ProvenanceFact::Unknown));
         let effects = analyze_prototype_provenance(image, context, prototype_index, prototype, &activation, roles[prototype_index])?;
 
         for (declaration, site) in effects.class_allocations {
@@ -2323,7 +2420,7 @@ fn validate_executable_provenance(image: &ExecutableImageV1, context: &Executabl
                     });
                 }
                 installs_by_body.entry(body_prototype).or_insert(record);
-                merge_activation(&mut activations, &mut pending, body_prototype, authority)?;
+                merge_activation(&mut activations, &mut pending, body_prototype, activation_with_unknown_captures(&image.prototypes[body_prototype], authority))?;
             }
         }
         for (child, incoming) in effects.activations {
@@ -2365,10 +2462,10 @@ fn validate_executable_provenance(image: &ExecutableImageV1, context: &Executabl
 }
 
 fn merge_activation(
-    activations: &mut [Option<ProvenanceFact<ActivationAuthority>>],
+    activations: &mut [Option<PrototypeActivationProvenance>],
     pending: &mut std::collections::VecDeque<usize>,
     child: usize,
-    incoming: ProvenanceFact<ActivationAuthority>,
+    incoming: PrototypeActivationProvenance,
 ) -> Result<(), ExecutableValidationError> {
     let Some(current) = activations.get_mut(child) else {
         return Err(ExecutableValidationError::InvalidExecutableReference {
@@ -2383,7 +2480,19 @@ fn merge_activation(
             pending.push_back(child);
         }
         Some(existing) => {
-            let merged = join_provenance(existing, &incoming);
+            if existing.upvalues.len() != incoming.upvalues.len() {
+                return Err(ExecutableValidationError::InvalidClosureCapture {
+                    child,
+                    parent: child,
+                    detail: "activation routes disagree on captured-cell count".to_owned(),
+                });
+            }
+            let merged = PrototypeActivationProvenance {
+                receiver: join_provenance(&existing.receiver, &incoming.receiver),
+                upvalues: existing.upvalues.iter().zip(&incoming.upvalues)
+                    .map(|(left, right)| join_provenance(left, right))
+                    .collect(),
+            };
             if &merged != existing {
                 *existing = merged;
                 pending.push_back(child);
@@ -2398,7 +2507,7 @@ fn analyze_prototype_provenance(
     context: &ExecutableValidationContext<'_>,
     prototype_index: usize,
     prototype: &PortablePrototypeV1,
-    activation: &ProvenanceFact<ActivationAuthority>,
+    activation: &PrototypeActivationProvenance,
     activation_roles: PrototypeActivationRoles,
 ) -> Result<PrototypeProvenanceEffects, ExecutableValidationError> {
     use PortableInstructionV1 as I;
@@ -2409,7 +2518,7 @@ fn analyze_prototype_provenance(
     }
     let mut entry_values = vec![ProvenanceFact::Unknown; entry_height];
     if let Some(local_self) = entry_values.first_mut() {
-        *local_self = activation.clone().map(RuntimeValueProvenance::Receiver);
+        *local_self = activation.receiver.clone().map(RuntimeValueProvenance::Receiver);
     }
     let mut states = vec![None::<ProvenanceState>; prototype.code.len()];
     let mut pending = vec![0usize];
@@ -2460,8 +2569,24 @@ fn analyze_prototype_provenance(
                     }) = image.constants.get(constant)
                     {
                         let child = child.0 as usize;
-                        let child_authority = explicit_template_authority(image, context, constant, lexical_class.as_ref(), super_anchor.as_ref(), activation);
-                        effects.activations.push((child, child_authority));
+                        let child_authority = explicit_template_authority(image, context, constant, lexical_class.as_ref(), super_anchor.as_ref(), &activation.receiver);
+                        let captures = image.prototypes.get(child).map(|child_prototype| {
+                            child_prototype.upvalues.iter().map(|descriptor| {
+                                if captured_cell_may_change(image, prototype_index, instruction_index, *descriptor) {
+                                    return ProvenanceFact::Unknown;
+                                }
+                                match descriptor {
+                                    UpvalueCaptureV1::Local(slot) =>
+                                        state.values.get(*slot as usize).cloned().unwrap_or(ProvenanceFact::Unknown),
+                                    UpvalueCaptureV1::Upvalue(slot) =>
+                                        activation.upvalues.get(*slot as usize).cloned().unwrap_or(ProvenanceFact::Unknown),
+                                }
+                            }).collect()
+                        }).unwrap_or_default();
+                        effects.activations.push((child, PrototypeActivationProvenance {
+                            receiver: child_authority,
+                            upvalues: captures,
+                        }));
                     }
                 }
             }
@@ -2552,7 +2677,11 @@ fn analyze_prototype_provenance(
                 special_push = Some(class_receiver_from_value(state.values.last()));
             }
             I::GetSelf {} => {
-                special_push = Some(activation.clone().map(RuntimeValueProvenance::Receiver));
+                special_push = Some(activation.receiver.clone().map(RuntimeValueProvenance::Receiver));
+            }
+            I::GetUpvalue { operand0 } | I::GetUpvalueChecked { operand0, .. } => {
+                special_push = Some(activation.upvalues.get(usize::from(operand0))
+                    .cloned().unwrap_or(ProvenanceFact::Unknown));
             }
             I::GetLocal { operand0 } | I::GetLocalChecked { operand0, .. } => {
                 special_push = Some(state.values.get(usize::from(operand0)).cloned().unwrap_or(ProvenanceFact::Unknown));
