@@ -155,6 +155,36 @@ R4.T6 audit: the legacy `ArtifactImportTransaction` / `ImportedCompilerImage` pa
 
 All subagents finished; none is editing files or running commands. No builds/tests are running. Stop points and unverified boundaries above are deliberate handoff state, not completion claims.
 
+## Current continuation report — 2026-10-22
+
+This is the current state for continuation. It supersedes earlier executable
+field-ownership failure text in this handoff; prior observations remain
+historical. Branch `feat/artifact-universe-consolidation` was at
+`9e1d342f598d55241ecd65a43883723615e92ab3` before this continuation's changes.
+
+| Gate | Current result |
+|---|---|
+| P8.T3 field/install/activation provenance | Implemented in the working tree, but incomplete for upvalue receiver provenance. No capture-owner or schema workaround was added. |
+| Focused validator regressions | PASS, 12/12. |
+| Positive/negative ownership checks | Focused provenance cases are included in the 12 passing validator tests; the full-artifact case remains blocked as below. |
+| Full executable artifact build | FAIL during executable validation, before artifact writing. |
+| Exact first failure | `Executable("prototype 89 instruction 1 has unknown receiver provenance for field slot 2: receiver provenance is Some(Unknown); owner Nested { parent: PrototypeId(88), ordinal: 0 }, name \"<closure>\", code around access [GetUpvalue { operand0: 0 }, GetField { operand0: 2 }]")` |
+| Cache artifact | Intended path `/tmp/artf001-p2r4-full-universe.telosc`; successful artifact creation: no; reusable validated bytes: no. |
+| Artifact load / user compilation / VM bootstrap / runtime | Not run; the build failed before writing. |
+| Fresh-process source denial | Not run; gate remains wired but not reached. |
+| Source-mode SlotMap callable-metadata blocker | Unresolved and separate from executable field ownership; not addressed in this continuation. |
+| Positive parity / negative parity | Not run. |
+| Allocation certification | Not run. |
+| Lifecycle | P2.R4 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 `BLOCKED`. |
+
+The consultation outcome is **PLAN ARCHITECTURE SOUND / IMPLEMENTATION GAP ONLY**.
+Next, carry exact provenance through `GetUpvalue` using the validated closure
+capture relationship, preserving fail-closed behavior for unknown or conflicting
+facts. Rerun the focused validator tests, then the exact full-artifact SlotMap
+gate. If it writes the intended artifact, retain and reuse those bytes for
+materializer/runtime work. Do not mark P2.R4 complete or unblock P3 from the
+focused test result.
+
 
 ## Delivery record
 

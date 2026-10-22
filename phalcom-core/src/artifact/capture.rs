@@ -330,6 +330,97 @@ impl ExecutableImageCapture {
                 return;
             }
         }
+        if let Err(error) = self.capture_generated_class_layouts(vm, module) {
+            self.failure = Some(error);
+        }
+    }
+
+    fn capture_generated_class_layouts(&mut self, vm: &VM, module: &phalcom_modules::ModuleId) -> Result<(), ExecutableCaptureError> {
+        let object_class = self.class_reference(vm, vm.universe.classes.object_class)?;
+        let object_class_side = self.class_reference(vm, vm.heap.class(vm.universe.classes.object_class).class)?;
+        let metaclass_instance = self.class_reference(vm, vm.universe.classes.metaclass_class)?;
+
+        let enum_owners = self
+            .semantic_snapshot
+            .enum_semantics
+            .iter_module(module)
+            .map(|(owner, _)| phalcom_semantic::metadata::stable_identity::to_stable_declaration(owner))
+            .collect::<Vec<_>>();
+        let data_owners = self
+            .semantic_snapshot
+            .data_semantics
+            .iter_module(module)
+            .map(|(owner, _)| phalcom_semantic::metadata::stable_identity::to_stable_declaration(owner))
+            .collect::<Vec<_>>();
+        for declaration in enum_owners {
+            self.capture_generated_nominal_layout(
+                declaration,
+                false,
+                &object_class,
+                &object_class_side,
+                &metaclass_instance,
+            );
+        }
+        for declaration in data_owners {
+            self.capture_generated_nominal_layout(
+                declaration,
+                true,
+                &object_class,
+                &object_class_side,
+                &metaclass_instance,
+            );
+        }
+        Ok(())
+    }
+
+    fn capture_generated_nominal_layout(
+        &mut self,
+        declaration: phalcom_type_meta::identity::StableDeclarationRef,
+        native_repr: bool,
+        object_class: &phalcom_compiler_artifact::executable::constant::StableClassRefV1,
+        object_class_side: &phalcom_compiler_artifact::executable::constant::StableClassRefV1,
+        metaclass_instance: &phalcom_compiler_artifact::executable::constant::StableClassRefV1,
+    ) {
+        use phalcom_compiler_artifact::executable::constant::StableClassRefV1;
+        use phalcom_compiler_artifact::executable::module::{PortableClassAllocationV1, PortableClassRecipeV1};
+        use phalcom_type_meta::identity::StableDispatchSide;
+
+        let instance = StableClassRefV1 {
+            declaration: declaration.clone(),
+            side: StableDispatchSide::Instance,
+        };
+        let class_side = StableClassRefV1 {
+            declaration,
+            side: StableDispatchSide::Class,
+        };
+        if !self.image.classes.iter().any(|row| row.class == instance) {
+            self.image.classes.push(PortableClassRecipeV1 {
+                class: instance.clone(),
+                allocation: PortableClassAllocationV1::SourceDeclared,
+                superclass: Some(object_class.clone()),
+                metaclass: Some(class_side.clone()),
+                fields: vec![],
+                field_count: 0,
+                immutable_slots: vec![],
+                native_repr,
+                sealed: false,
+                is_abstract: false,
+            });
+        }
+        if !self.image.classes.iter().any(|row| row.class == class_side) {
+            self.image.classes.push(PortableClassRecipeV1 {
+                class: class_side,
+                allocation: PortableClassAllocationV1::SourceDeclared,
+                superclass: Some(object_class_side.clone()),
+                metaclass: Some(metaclass_instance.clone()),
+                fields: vec![],
+                field_count: 0,
+                immutable_slots: vec![],
+                native_repr: false,
+                sealed: false,
+                is_abstract: false,
+            });
+        }
     }
 
     fn capture_class_layout(&mut self, vm: &VM, key: crate::vm::ClassKey, layout: &crate::vm::ClassLayout) -> Result<(), ExecutableCaptureError> {

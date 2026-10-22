@@ -624,17 +624,21 @@ Pushes the current activation's receiver.
 
 ### `ReserveScratchLocal`
 
-Reserves compiler-managed temporary local storage in the current activation.
-
-Scratch locals are not source-visible bindings. Their lifetime MUST obey the compiler's stack-layout discipline.
+Reserves a compiler-managed frame-local slot in the current activation. The
+slot may hold a hidden temporary or a source binding. Its lifetime MUST obey
+the compiler's stack-layout discipline.
 
 ---
 
 ### `ReleaseScratchLocal`
 
-Releases the most recently reserved scratch-local region according to the scratch-local discipline.
+Releases compiler-managed local storage at the end of its lifetime. This
+includes reserved scratch-local regions and source-binding slots whose lexical
+scope has ended. The instruction removes the physical frame slot in place, so
+operand values above that slot remain available.
 
-A bytecode producer MUST balance scratch reservations and releases across all reachable ordinary control-flow paths.
+A bytecode producer MUST balance local reservations and releases across all
+reachable ordinary control-flow paths.
 
 ---
 

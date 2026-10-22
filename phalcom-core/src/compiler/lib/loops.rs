@@ -19,6 +19,7 @@ impl<'vm> Compiler<'vm> {
     pub(crate) fn push_loop_context(&mut self) {
         self.loop_contexts.push(LoopContext {
             func_depth: self.functions.len(),
+            base_num_locals: self.functions.last().map_or(0, |function| function.num_locals),
             break_jumps: Vec::new(),
             continue_jumps: Vec::new(),
         });
@@ -149,7 +150,7 @@ impl<'vm> Compiler<'vm> {
         for statement in body {
             self.compile_statement_with_pop_control(statement, true)?;
         }
-        self.end_scope(range);
+        self.end_scope_releasing_locals(range);
 
         let step_label = self.chunk_len();
         if self.functions.last().unwrap().locals[binding_slot].is_captured {
@@ -317,7 +318,7 @@ impl<'vm> Compiler<'vm> {
         for statement in body {
             self.compile_statement_with_pop_control(statement, true)?;
         }
-        self.end_scope(range);
+        self.end_scope_releasing_locals(range);
         let step = self.chunk_len();
         for spec in &lane_specs {
             for b in spec.bindings.iter() {
@@ -412,7 +413,9 @@ impl<'vm> Compiler<'vm> {
         let Some(ctx) = self.loop_contexts.last() else {
             return Err(CompilerError::BreakOutsideLoop(range));
         };
-        if ctx.func_depth == self.functions.len() {
+        let (same_function, base_num_locals) = (ctx.func_depth == self.functions.len(), ctx.base_num_locals);
+        if same_function {
+            self.emit_current_loop_scope_cleanup(base_num_locals, range);
             let jump = self.emit_forward_jump(Bytecode::Jump, range);
             self.loop_contexts.last_mut().unwrap().break_jumps.push(jump);
         } else {
@@ -436,12 +439,22 @@ impl<'vm> Compiler<'vm> {
         let Some(ctx) = self.loop_contexts.last() else {
             return Err(CompilerError::ContinueOutsideLoop(range));
         };
-        if ctx.func_depth == self.functions.len() {
+        let (same_function, base_num_locals) = (ctx.func_depth == self.functions.len(), ctx.base_num_locals);
+        if same_function {
+            self.emit_current_loop_scope_cleanup(base_num_locals, range);
             let jump = self.emit_forward_jump(Bytecode::Jump, range);
             self.loop_contexts.last_mut().unwrap().continue_jumps.push(jump);
         } else {
             self.emit_deopt_block_control_trap(range)?;
         }
         Ok(())
+    }
+
+    fn emit_current_loop_scope_cleanup(&mut self, base_num_locals: usize, range: SourceRange) {
+        let current = self.functions.last().map_or(base_num_locals, |function| function.num_locals);
+        let count = current.saturating_sub(base_num_locals);
+        if count > 0 {
+            self.emit_release_scratch_range(base_num_locals as u16, count, range);
+        }
     }
 }

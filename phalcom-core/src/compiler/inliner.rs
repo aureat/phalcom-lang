@@ -308,7 +308,7 @@ impl<'vm> Compiler<'vm> {
         if !leaves_value && !tail_binding {
             self.emit(Bytecode::Nil, range);
         }
-        self.end_scope(range);
+        self.end_scope_releasing_locals(range);
         Ok(())
     }
 

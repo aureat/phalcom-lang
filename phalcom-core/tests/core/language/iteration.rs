@@ -633,6 +633,36 @@ let result = sum
 }
 
 #[test]
+fn inline_while_reuses_body_locals_across_continue_and_break() {
+    let source = r#"
+let mut i = 0
+let mut sum = 0
+while i < 6 {
+  let current = i
+  if current == 2 {
+    i = i + 1
+    continue
+  }
+  if current == 1 {
+    let branchOnly = current
+    sum = sum + branchOnly
+  } else {
+    sum = sum + current
+  }
+  i = i + 1
+  if current == 4 { break }
+}
+let result = sum
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("inline while compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("inline while executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    let symbol = vm.interner.find("result").expect("result symbol");
+    assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "8");
+}
+
+#[test]
 fn canonical_parallel_lanes_advance_in_lockstep() {
     let source = r#"
 let mut total = 0

@@ -1,6 +1,6 @@
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_core::modules::canonical_artifact::{
-    build_full_universe_telosc, build_universe_telosc, load_universe_telosc, load_universe_telosc_from_bytes, write_universe_telosc,
+    build_full_universe_telosc, build_universe_telosc, load_universe_telosc, load_universe_telosc_from_bytes, write_full_universe_telosc, write_universe_telosc,
 };
 use phalcom_core::modules::canonical_universe::canonical_universe_program;
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics};
@@ -1235,7 +1235,7 @@ fn artifact_executable_bootstraps_and_runs_slotmap_without_universe_compilation(
     } else {
         let program = canonical_universe_program().expect("canonical universe program");
         let built = build_full_universe_telosc(program, &limits).expect("build full Universe artifact");
-        write_universe_telosc(&artifact_path, &built).expect("write reusable full Universe artifact");
+        write_full_universe_telosc(&artifact_path, &built).expect("write reusable full Universe artifact");
         load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load full Universe artifact")
     };
     eprintln!("artifact capture/validation/load passed: {}", artifact_path.display());

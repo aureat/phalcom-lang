@@ -31,6 +31,18 @@ use phalcom_type_meta::identity::{
     StableModuleRef, StableStaticConstantRef, StableVariantFieldRef, StableVariantRef,
 };
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct InstructionSite {
+    prototype: usize,
+    instruction: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum FieldLayoutAuthority {
+    Class(StableClassRefV1),
+    Variant(StableVariantRef),
+}
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ExecutableValidationError {
     #[error("executable structural validation failed: {0}")]
@@ -108,15 +120,34 @@ pub(crate) enum ExecutableValidationError {
     #[error("prototype {prototype} instruction {instruction} falls through to invalid instruction index {target}")]
     InvalidFallthrough { prototype: usize, instruction: usize, target: i64 },
     #[error("prototype {prototype} instruction {instruction} needs {required} stack values but only {available} are available")]
-    StackUnderflow { prototype: usize, instruction: usize, required: usize, available: usize },
+    StackUnderflow {
+        prototype: usize,
+        instruction: usize,
+        required: usize,
+        available: usize,
+    },
     #[error("prototype {prototype} instruction {instruction} references local slot {slot} outside the live frame range 0..{limit}")]
-    InvalidLocalSlot { prototype: usize, instruction: usize, slot: usize, limit: usize },
+    InvalidLocalSlot {
+        prototype: usize,
+        instruction: usize,
+        slot: usize,
+        limit: usize,
+    },
     #[error("prototype {prototype} instruction {instruction} joins with incompatible stack heights {existing} and {incoming}")]
-    IncompatibleControlFlowState { prototype: usize, instruction: usize, existing: usize, incoming: usize },
+    IncompatibleControlFlowState {
+        prototype: usize,
+        instruction: usize,
+        existing: usize,
+        incoming: usize,
+    },
     #[error("prototype {prototype} instruction {instruction} stack height overflowed")]
     StackDepthOverflow { prototype: usize, instruction: usize },
     #[error("prototype {prototype} instruction {instruction} uses non-local return without exclusive block activation (owner {owner:?})")]
-    InvalidNonLocalReturn { prototype: usize, instruction: usize, owner: PrototypeOwnerV1 },
+    InvalidNonLocalReturn {
+        prototype: usize,
+        instruction: usize,
+        owner: PrototypeOwnerV1,
+    },
     #[error("prototype {prototype} has invalid executable frame or parameter layout: {detail}")]
     InvalidPrototypeLayout { prototype: usize, detail: String },
     #[error("nested prototype {child} has invalid capture from parent {parent}: {detail}")]
@@ -125,12 +156,45 @@ pub(crate) enum ExecutableValidationError {
     DuplicatePrototypeOwner { owner: PrototypeOwnerV1 },
     #[error("class recipe {class:?} has an invalid runtime field layout: {detail}")]
     InvalidClassLayout { class: StableClassRefV1, detail: String },
-    #[error("prototype {prototype} ({owner:?}) uses field slot {slot} without a P7-owned class layout (resolved class {class:?})")]
-    UnknownFieldLayout {
+    #[error("method installation at prototype {installer_prototype} instruction {instruction} has unknown method provenance")]
+    UnknownMethodInstallation { installer_prototype: usize, instruction: usize },
+    #[error("method installation at prototype {installer_prototype} instruction {instruction} has no exact P7 class receiver for body {body_prototype:?}: {detail}")]
+    UnknownMethodInstallationReceiver {
+        installer_prototype: usize,
+        instruction: usize,
+        body_prototype: Option<usize>,
+        detail: String,
+    },
+    #[error("method installations for body {body_prototype:?} conflict between {first_source:?} and {second_source:?}")]
+    ConflictingMethodInstallation {
+        body_prototype: Option<usize>,
+        first_source: InstallationSource,
+        second_source: InstallationSource,
+    },
+    #[error(
+        "method installation at prototype {installer_prototype} instruction {instruction} has conflicting class receiver provenance for body {body_prototype:?}"
+    )]
+    ConflictingMethodInstallationReceiver {
+        installer_prototype: usize,
+        instruction: usize,
+        body_prototype: Option<usize>,
+    },
+    #[error("prototype {prototype} instruction {instruction} has unknown receiver provenance for field slot {slot}: {detail}")]
+    UnknownFieldReceiver {
         prototype: usize,
+        instruction: usize,
         slot: u16,
-        owner: PrototypeOwnerV1,
-        class: Option<StableClassRefV1>,
+        detail: String,
+    },
+    #[error("prototype {prototype} instruction {instruction} has conflicting field authority for slot {slot}")]
+    ConflictingFieldAuthority { prototype: usize, instruction: usize, slot: u16 },
+    #[error("prototype {prototype} instruction {instruction} uses field slot {slot} outside {authority:?} field count {field_count}")]
+    FieldSlotOutOfRange {
+        prototype: usize,
+        instruction: usize,
+        authority: FieldLayoutAuthority,
+        slot: u16,
+        field_count: usize,
     },
     #[error("executable {table} row {index} is invalid: {detail}")]
     InvalidExecutableReference { table: &'static str, index: usize, detail: String },
@@ -301,6 +365,8 @@ impl<'a> ExecutableValidationContext<'a> {
 
     fn has_p7_class(&self, class: &StableClassRefV1) -> bool {
         self.class_declarations.contains(&class.declaration)
+            || self.enum_variants.contains_key(&class.declaration)
+            || self.data_declarations.contains(&class.declaration)
     }
 
     fn has_p7_variant(&self, variant: &StableVariantRef) -> bool {
@@ -359,6 +425,7 @@ pub(crate) fn validate_executable_image(
     validate_prototypes(&image, &context)?;
     validate_method_recipes(&image)?;
     validate_detached_methods(&image, &context)?;
+    validate_executable_provenance(&image, &context)?;
     validate_required_declarations(&image, &context)?;
     validate_canonical_semantic_roots(&image, &context)?;
     validate_semantic_pools(&image, &context)?;
@@ -835,7 +902,6 @@ fn validate_prototype_owners(image: &ExecutableImageV1, context: &ExecutableVali
 fn validate_method_recipes(image: &ExecutableImageV1) -> Result<(), ExecutableValidationError> {
     use phalcom_common::selector::{Selector, SelectorKind, SelectorSlot};
     use phalcom_compiler_artifact::executable::constant::{MethodBodyV1, MethodSignatureKindV1, RestModeV1};
-    use phalcom_compiler_artifact::executable::prototype::RestKindV1;
 
     for (index, constant) in image.constants.iter().enumerate() {
         let ConstantRecipeV1::Method { recipe } = constant else {
@@ -847,8 +913,8 @@ fn validate_method_recipes(image: &ExecutableImageV1) -> Result<(), ExecutableVa
             index,
             detail,
         };
-        let selector = Selector::try_decode_exact(&recipe.signature.selector)
-            .map_err(|error| invalid(format!("method recipe selector is invalid: {error}")))?;
+        let selector =
+            Selector::try_decode_exact(&recipe.signature.selector).map_err(|error| invalid(format!("method recipe selector is invalid: {error}")))?;
         let has_rest = recipe.signature.selector.contains("***");
         let fixed_slots = if has_rest {
             &selector.slots[..selector.slots.len().saturating_sub(1)]
@@ -875,7 +941,9 @@ fn validate_method_recipes(image: &ExecutableImageV1) -> Result<(), ExecutableVa
             SelectorKind::SubscriptSet => MethodSignatureKindV1::SubscriptSet { slots: slot_count },
         };
         if recipe.signature.kind != expected_kind || recipe.signature.positional_arity != positional_arity {
-            return Err(invalid("method signature kind or positional arity disagrees with its exact selector".to_owned()));
+            return Err(invalid(
+                "method signature kind or positional arity disagrees with its exact selector".to_owned(),
+            ));
         }
 
         let fixed_labels = fixed_slots
@@ -887,8 +955,7 @@ fn validate_method_recipes(image: &ExecutableImageV1) -> Result<(), ExecutableVa
             .collect::<Vec<_>>();
         match (&recipe.signature.rest, has_rest) {
             (Some(rest), true)
-                if rest.fixed_positionals == fixed_positionals
-                    && rest.fixed_labels.iter().map(String::as_str).eq(fixed_labels.iter().copied()) => {}
+                if rest.fixed_positionals == fixed_positionals && rest.fixed_labels.iter().map(String::as_str).eq(fixed_labels.iter().copied()) => {}
             (None, false) => {}
             _ => return Err(invalid("rest signature layout disagrees with the exact selector".to_owned())),
         }
@@ -946,23 +1013,35 @@ fn validate_method_recipes(image: &ExecutableImageV1) -> Result<(), ExecutableVa
                 let Some(prototype) = image.prototypes.get(prototype_index) else {
                     return Err(invalid(format!("closure body references absent prototype {prototype_index}")));
                 };
-                let expected_rest = recipe.signature.rest.as_ref().map(|rest| match rest.mode {
-                    phalcom_compiler_artifact::executable::constant::RestModeV1::Positional { .. } => RestKindV1::Positional,
-                    phalcom_compiler_artifact::executable::constant::RestModeV1::Labeled { .. } => RestKindV1::Labeled,
-                    phalcom_compiler_artifact::executable::constant::RestModeV1::Split { .. } => RestKindV1::Split,
-                    phalcom_compiler_artifact::executable::constant::RestModeV1::Complete { .. } => RestKindV1::Complete,
-                });
-                let expected_labels = recipe
-                    .signature
-                    .rest
-                    .as_ref()
-                    .map(|rest| rest.fixed_labels.iter().map(String::as_str).collect::<Vec<_>>())
-                    .unwrap_or_else(|| fixed_labels.clone());
-                if prototype.parameters.fixed_positionals != u32::from(recipe.signature.positional_arity)
-                    || prototype.parameters.fixed_labels.iter().map(String::as_str).ne(expected_labels.iter().copied())
-                    || prototype.parameters.rest != expected_rest
+                // Method dispatch validates selector labels and rest arguments
+                // before entering the body. The compiler then flattens those
+                // bound values into positional frame slots (including rest
+                // bindings); a method-body prototype is not itself an
+                // externally callable closure with the method's selector
+                // shape.
+                let expected_body_parameters = if let Some(rest) = &recipe.signature.rest {
+                    let rest_parameters = if matches!(rest.mode, RestModeV1::Split { .. }) { 2 } else { 1 };
+                    usize::from(rest.fixed_positionals)
+                        .checked_add(rest.fixed_labels.len())
+                        .and_then(|count| count.checked_add(rest_parameters))
+                        .ok_or_else(|| invalid("method body parameter count overflow".to_owned()))?
+                } else {
+                    fixed_slots
+                        .len()
+                        .checked_add(usize::from(setter_value))
+                        .ok_or_else(|| invalid("method body parameter count overflow".to_owned()))?
+                };
+                if prototype.parameters.fixed_positionals as usize != expected_body_parameters
+                    || !prototype.parameters.fixed_labels.is_empty()
+                    || prototype.parameters.rest.is_some()
                 {
-                    return Err(invalid(format!("closure prototype {prototype_index} parameter layout disagrees with its method signature")));
+                    let found = &prototype.parameters;
+                    return Err(invalid(format!(
+                        "closure prototype {prototype_index} frame parameters disagree with its method binding layout: expected {expected_body_parameters} positional slots, found {} positional slots, {} labeled slots, rest {:?}",
+                        found.fixed_positionals,
+                        found.fixed_labels.len(),
+                        found.rest,
+                    )));
                 }
             }
         }
@@ -1215,28 +1294,11 @@ fn validate_instruction_operand(
             }
         }
         OperandDomainV1::Field => {
-            let Some(slot) = unsigned_operand(value).and_then(|slot| u16::try_from(slot).ok()) else {
+            let Some(_slot) = unsigned_operand(value).and_then(|slot| u16::try_from(slot).ok()) else {
                 return Err(invalid("operand is not a portable field-slot index".to_owned()));
             };
-            let Some(class) = prototype_class(image, prototype_index)? else {
-                return Err(ExecutableValidationError::UnknownFieldLayout {
-                    prototype: prototype_index,
-                    slot,
-                    owner: prototype.owner.clone(),
-                    class: None,
-                });
-            };
-            let Some(layout) = image.classes.iter().find(|row| row.class == class) else {
-                return Err(ExecutableValidationError::UnknownFieldLayout {
-                    prototype: prototype_index,
-                    slot,
-                    owner: prototype.owner.clone(),
-                    class: Some(class),
-                });
-            };
-            if u32::from(slot) >= layout.field_count {
-                return Err(invalid(format!("field slot {slot} exceeds class field count {}", layout.field_count)));
-            }
+            // Field-layout authority is flow-sensitive and checked after
+            // method installation and closure activation provenance exists.
         }
         OperandDomainV1::RelativeJump => {
             let PortableOperandValueV1::Signed(offset) = value else {
@@ -1306,13 +1368,7 @@ struct ReachableStackState {
 }
 
 impl ReachableStackState {
-    fn adjust(
-        self,
-        prototype: usize,
-        instruction: usize,
-        pop: usize,
-        push: usize,
-    ) -> Result<Self, ExecutableValidationError> {
+    fn adjust(self, prototype: usize, instruction: usize, pop: usize, push: usize) -> Result<Self, ExecutableValidationError> {
         let Some(available) = self.height.checked_sub(self.floor) else {
             return Err(ExecutableValidationError::StackUnderflow {
                 prototype,
@@ -1333,14 +1389,8 @@ impl ReachableStackState {
             .height
             .checked_sub(pop)
             .and_then(|height| height.checked_add(push))
-            .ok_or(ExecutableValidationError::StackDepthOverflow {
-                prototype,
-                instruction,
-            })?;
-        Ok(Self {
-            height,
-            floor: self.floor,
-        })
+            .ok_or(ExecutableValidationError::StackDepthOverflow { prototype, instruction })?;
+        Ok(Self { height, floor: self.floor })
     }
 }
 
@@ -1365,12 +1415,7 @@ fn apply_stack_delta(
     state.adjust(prototype, instruction, delta.pop, delta.push)
 }
 
-fn require_stack_values(
-    state: ReachableStackState,
-    prototype: usize,
-    instruction: usize,
-    required: usize,
-) -> Result<(), ExecutableValidationError> {
+fn require_stack_values(state: ReachableStackState, prototype: usize, instruction: usize, required: usize) -> Result<(), ExecutableValidationError> {
     let Some(available) = state.height.checked_sub(state.floor) else {
         return Err(ExecutableValidationError::StackUnderflow {
             prototype,
@@ -1424,12 +1469,7 @@ impl PrototypeActivationRoles {
     }
 }
 
-fn activation_closure_target(
-    image: &ExecutableImageV1,
-    constant_id: u32,
-    table: &'static str,
-    index: usize,
-) -> Result<usize, ExecutableValidationError> {
+fn activation_closure_target(image: &ExecutableImageV1, constant_id: u32, table: &'static str, index: usize) -> Result<usize, ExecutableValidationError> {
     let Some(ConstantRecipeV1::ClosureTemplate { prototype, .. }) = image.constants.get(constant_id as usize) else {
         return Err(ExecutableValidationError::InvalidExecutableReference {
             table,
@@ -1448,9 +1488,7 @@ fn activation_closure_target(
     Ok(target)
 }
 
-fn classify_prototype_activation_roles(
-    image: &ExecutableImageV1,
-) -> Result<Vec<PrototypeActivationRoles>, ExecutableValidationError> {
+fn classify_prototype_activation_roles(image: &ExecutableImageV1) -> Result<Vec<PrototypeActivationRoles>, ExecutableValidationError> {
     let mut roles = vec![PrototypeActivationRoles::default(); image.prototypes.len()];
     for (index, prototype) in image.prototypes.iter().enumerate() {
         if matches!(prototype.owner, PrototypeOwnerV1::ModuleInitializer { .. } | PrototypeOwnerV1::Callable { .. }) {
@@ -1486,10 +1524,7 @@ fn classify_prototype_activation_roles(
     Ok(roles)
 }
 
-fn prototype_entry_slots(
-    prototype_index: usize,
-    prototype: &PortablePrototypeV1,
-) -> Result<usize, ExecutableValidationError> {
+fn prototype_entry_slots(prototype_index: usize, prototype: &PortablePrototypeV1) -> Result<usize, ExecutableValidationError> {
     match prototype.owner {
         PrototypeOwnerV1::ModuleInitializer { .. } => Ok(0),
         PrototypeOwnerV1::Callable { .. } | PrototypeOwnerV1::Nested { .. } => {
@@ -1535,14 +1570,15 @@ fn anonymous_product_stack_values(
         .ok_or_else(|| invalid(format!("semantic product {} is absent from pool {pool_index}", spec)))?;
     use phalcom_compiler_artifact::executable::semantic::PortableAnonymousProductKindV1 as K;
     let count = match (expected, &product.kind) {
-        (AnonymousProductShape::Tuple, K::Tuple { positional_len, labels })
-        | (AnonymousProductShape::Pack, K::Pack { positional_len, labels }) => usize::try_from(*positional_len)
-            .ok()
-            .and_then(|positionals| positionals.checked_add(labels.len()))
-            .ok_or(ExecutableValidationError::StackDepthOverflow {
-                prototype: prototype_index,
-                instruction: instruction_index,
-            })?,
+        (AnonymousProductShape::Tuple, K::Tuple { positional_len, labels }) | (AnonymousProductShape::Pack, K::Pack { positional_len, labels }) => {
+            usize::try_from(*positional_len)
+                .ok()
+                .and_then(|positionals| positionals.checked_add(labels.len()))
+                .ok_or(ExecutableValidationError::StackDepthOverflow {
+                    prototype: prototype_index,
+                    instruction: instruction_index,
+                })?
+        }
         (AnonymousProductShape::Record, K::Record { logical_keys, .. }) => logical_keys.len(),
         (AnonymousProductShape::Tuple, _) => return Err(invalid("static Tuple instruction references a non-Tuple product".to_owned())),
         (AnonymousProductShape::Record, _) => return Err(invalid("static Record instruction references a non-Record product".to_owned())),
@@ -1625,26 +1661,26 @@ fn instruction_stack_transfer(
             Ok(linear(2, 1))
         }
         I::Invoke { operand0: arity, .. } | I::SuperSend { operand0: arity, .. } => {
-            let operands = usize::from(arity)
-                .checked_add(1)
-                .ok_or(ExecutableValidationError::StackDepthOverflow {
-                    prototype,
-                    instruction: instruction_index,
-                })?;
+            let operands = usize::from(arity).checked_add(1).ok_or(ExecutableValidationError::StackDepthOverflow {
+                prototype,
+                instruction: instruction_index,
+            })?;
             require_stack_values(state, prototype, instruction_index, operands)?;
             Ok(linear(operands, 1))
         }
         I::InvokeCompilerInternal { operand0: arity, .. } | I::InvokeSpecialized { operand0: arity, .. } => {
-            let operands = usize::from(arity)
-                .checked_add(1)
-                .ok_or(ExecutableValidationError::StackDepthOverflow {
-                    prototype,
-                    instruction: instruction_index,
-                })?;
+            let operands = usize::from(arity).checked_add(1).ok_or(ExecutableValidationError::StackDepthOverflow {
+                prototype,
+                instruction: instruction_index,
+            })?;
             require_stack_values(state, prototype, instruction_index, operands)?;
             Ok(linear(operands, 1))
         }
-        I::InvokeLocal { operand0: slot, operand1: arity, .. } => {
+        I::InvokeLocal {
+            operand0: slot,
+            operand1: arity,
+            ..
+        } => {
             require_live_local_slot(state, prototype, instruction_index, usize::from(slot), false)?;
             let arguments = usize::from(arity);
             require_stack_values(state, prototype, instruction_index, arguments)?;
@@ -1672,12 +1708,10 @@ fn instruction_stack_transfer(
         | I::InvokeConditional { arity, .. }
         | I::InvokeTraitSelected { arity, .. }
         | I::InvokeTraitRequirement { arity, .. } => {
-            let operands = usize::from(arity)
-                .checked_add(1)
-                .ok_or(ExecutableValidationError::StackDepthOverflow {
-                    prototype,
-                    instruction: instruction_index,
-                })?;
+            let operands = usize::from(arity).checked_add(1).ok_or(ExecutableValidationError::StackDepthOverflow {
+                prototype,
+                instruction: instruction_index,
+            })?;
             require_stack_values(state, prototype, instruction_index, operands)?;
             Ok(linear(operands, 1))
         }
@@ -1754,12 +1788,10 @@ fn instruction_stack_transfer(
             Ok(linear(1, 0))
         }
         I::TryInvokeExact { arity, .. } => {
-            let arguments = usize::from(arity)
-                .checked_add(1)
-                .ok_or(ExecutableValidationError::StackDepthOverflow {
-                    prototype,
-                    instruction: instruction_index,
-                })?;
+            let arguments = usize::from(arity).checked_add(1).ok_or(ExecutableValidationError::StackDepthOverflow {
+                prototype,
+                instruction: instruction_index,
+            })?;
             require_stack_values(state, prototype, instruction_index, arguments)?;
             Ok(StackTransfer::Conditional {
                 taken: StackDelta { pop: arguments, push: 0 },
@@ -1774,12 +1806,10 @@ fn instruction_stack_transfer(
             })
         }
         I::BuildTuple { positional, labeled } => {
-            let labeled_values = usize::from(labeled)
-                .checked_mul(2)
-                .ok_or(ExecutableValidationError::StackDepthOverflow {
-                    prototype,
-                    instruction: instruction_index,
-                })?;
+            let labeled_values = usize::from(labeled).checked_mul(2).ok_or(ExecutableValidationError::StackDepthOverflow {
+                prototype,
+                instruction: instruction_index,
+            })?;
             let values = usize::from(positional)
                 .checked_add(labeled_values)
                 .ok_or(ExecutableValidationError::StackDepthOverflow {
@@ -1789,21 +1819,17 @@ fn instruction_stack_transfer(
             Ok(linear(values, 1))
         }
         I::BuildRecord { fields } => {
-            let values = usize::from(fields)
-                .checked_mul(2)
-                .ok_or(ExecutableValidationError::StackDepthOverflow {
-                    prototype,
-                    instruction: instruction_index,
-                })?;
+            let values = usize::from(fields).checked_mul(2).ok_or(ExecutableValidationError::StackDepthOverflow {
+                prototype,
+                instruction: instruction_index,
+            })?;
             Ok(linear(values, 1))
         }
         I::BuildPack { positional, labeled } => {
-            let labeled_values = usize::from(labeled)
-                .checked_mul(2)
-                .ok_or(ExecutableValidationError::StackDepthOverflow {
-                    prototype,
-                    instruction: instruction_index,
-                })?;
+            let labeled_values = usize::from(labeled).checked_mul(2).ok_or(ExecutableValidationError::StackDepthOverflow {
+                prototype,
+                instruction: instruction_index,
+            })?;
             let values = usize::from(positional)
                 .checked_add(labeled_values)
                 .ok_or(ExecutableValidationError::StackDepthOverflow {
@@ -1827,12 +1853,8 @@ fn instruction_stack_transfer(
             require_stack_values(state, prototype, instruction_index, values)?;
             Ok(linear(values, 1))
         }
-        I::BuildRange { has_lower, has_upper, .. } => {
-            Ok(linear(usize::from(has_lower) + usize::from(has_upper), 1))
-        }
-        I::BuildList { operand0: count }
-        | I::BuildArray { operand0: count }
-        | I::BuildVector { operand0: count } => Ok(linear(usize::from(count), 1)),
+        I::BuildRange { has_lower, has_upper, .. } => Ok(linear(usize::from(has_lower) + usize::from(has_upper), 1)),
+        I::BuildList { operand0: count } | I::BuildArray { operand0: count } | I::BuildVector { operand0: count } => Ok(linear(usize::from(count), 1)),
         I::BeginListLiteral {}
         | I::BeginSetLiteral {}
         | I::BeginMapLiteral {}
@@ -1965,7 +1987,7 @@ fn validate_prototype_stack(
         })?;
         let instruction = &prototype.code[instruction_index];
         let control_flow = instruction.control_flow_kind();
-        let transfer = instruction_stack_transfer(
+        let transfer = match instruction_stack_transfer(
             image,
             prototype_index,
             prototype,
@@ -1974,7 +1996,22 @@ fn validate_prototype_stack(
             &prototype.owner,
             activation_roles,
             state,
-        )?;
+        ) {
+            Ok(transfer) => transfer,
+            Err(error @ ExecutableValidationError::InvalidLocalSlot { .. }) => {
+                let start = instruction_index.saturating_sub(6);
+                let end = (instruction_index + 7).min(prototype.code.len());
+                eprintln!(
+                    "invalid-live-local prototype={prototype_index} owner={:?} name={:?} instruction={instruction_index} state={state:?} locals={:?} context={:#?}",
+                    prototype.owner,
+                    prototype.name,
+                    prototype.local_names,
+                    &prototype.code[start..end],
+                );
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
 
         match control_flow {
             ControlFlowKindV1::Fallthrough => {
@@ -1992,9 +2029,8 @@ fn validate_prototype_stack(
                             .checked_add(fallthrough_width(instruction))
                             .and_then(|target| i64::try_from(target).ok())
                             .unwrap_or(i64::MAX),
-                    },
-                )?;
-                enqueue_stack_state(&mut pending, &mut states, prototype_index, instruction_index, target, outgoing)?;
+                    })?;
+                enqueue_stack_state(&mut pending, &mut states, prototype_index, instruction_index, target, outgoing, prototype)?;
             }
             ControlFlowKindV1::UnconditionalBranch => {
                 let StackTransfer::Linear(delta) = transfer else {
@@ -2007,7 +2043,7 @@ fn validate_prototype_stack(
                 })?;
                 let target = validate_branch_target(prototype_index, instruction_index, code_len, offset)?;
                 let outgoing = apply_stack_delta(state, delta, prototype_index, instruction_index)?;
-                enqueue_stack_state(&mut pending, &mut states, prototype_index, instruction_index, target, outgoing)?;
+                enqueue_stack_state(&mut pending, &mut states, prototype_index, instruction_index, target, outgoing, prototype)?;
             }
             ControlFlowKindV1::ConditionalBranch => {
                 let offset = relative_jump_offset(instruction).ok_or(ExecutableValidationError::InvalidBranchTarget {
@@ -2016,24 +2052,34 @@ fn validate_prototype_stack(
                     target: i64::MAX,
                 })?;
                 let target = validate_branch_target(prototype_index, instruction_index, code_len, offset)?;
-                let fallthrough = instruction_index.checked_add(1).filter(|target| *target < code_len).ok_or(
-                    ExecutableValidationError::InvalidFallthrough {
-                        prototype: prototype_index,
-                        instruction: instruction_index,
-                        target: instruction_index
-                            .checked_add(1)
-                            .and_then(|target| i64::try_from(target).ok())
-                            .unwrap_or(i64::MAX),
-                    },
-                )?;
+                let fallthrough =
+                    instruction_index
+                        .checked_add(1)
+                        .filter(|target| *target < code_len)
+                        .ok_or(ExecutableValidationError::InvalidFallthrough {
+                            prototype: prototype_index,
+                            instruction: instruction_index,
+                            target: instruction_index
+                                .checked_add(1)
+                                .and_then(|target| i64::try_from(target).ok())
+                                .unwrap_or(i64::MAX),
+                        })?;
                 let (taken_delta, fallthrough_delta) = match transfer {
                     StackTransfer::Linear(delta) => (delta, delta),
                     StackTransfer::Conditional { taken, fallthrough } => (taken, fallthrough),
                 };
                 let taken_state = apply_stack_delta(state, taken_delta, prototype_index, instruction_index)?;
                 let fallthrough_state = apply_stack_delta(state, fallthrough_delta, prototype_index, instruction_index)?;
-                enqueue_stack_state(&mut pending, &mut states, prototype_index, instruction_index, target, taken_state)?;
-                enqueue_stack_state(&mut pending, &mut states, prototype_index, instruction_index, fallthrough, fallthrough_state)?;
+                enqueue_stack_state(&mut pending, &mut states, prototype_index, instruction_index, target, taken_state, prototype)?;
+                enqueue_stack_state(
+                    &mut pending,
+                    &mut states,
+                    prototype_index,
+                    instruction_index,
+                    fallthrough,
+                    fallthrough_state,
+                    prototype,
+                )?;
             }
             ControlFlowKindV1::FunctionExit | ControlFlowKindV1::NonLocalExit | ControlFlowKindV1::ExceptionalTermination => {
                 let StackTransfer::Linear(delta) = transfer else {
@@ -2045,6 +2091,1071 @@ fn validate_prototype_stack(
     }
 
     Ok(())
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum AllocationIdentity {
+    Instruction(InstructionSite),
+    Constant(usize),
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum ReceiverOrigin {
+    Method {
+        method_constant: usize,
+        allocation: AllocationIdentity,
+    },
+    VariantMethod {
+        method_constant: usize,
+        variant: StableVariantRef,
+    },
+    DetachedCallable {
+        method_constant: usize,
+        callable: phalcom_type_meta::identity::StableCallableRef,
+    },
+    Instance {
+        allocation: AllocationIdentity,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ActivationAuthority {
+    layout: FieldLayoutAuthority,
+    origin: ReceiverOrigin,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum RuntimeValueProvenance {
+    Method {
+        constant: usize,
+    },
+    ClassObject {
+        declaration: StableDeclarationRef,
+        allocation: AllocationIdentity,
+    },
+    Receiver(ActivationAuthority),
+    ClosureTemplate {
+        constant: usize,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ProvenanceFact<T> {
+    Unknown,
+    Exact(T),
+    Conflict,
+}
+
+impl<T> ProvenanceFact<T> {
+    fn map<U>(self, f: impl FnOnce(T) -> U) -> ProvenanceFact<U> {
+        match self {
+            Self::Unknown => ProvenanceFact::Unknown,
+            Self::Exact(value) => ProvenanceFact::Exact(f(value)),
+            Self::Conflict => ProvenanceFact::Conflict,
+        }
+    }
+}
+
+fn join_provenance<T: Clone + Eq>(left: &ProvenanceFact<T>, right: &ProvenanceFact<T>) -> ProvenanceFact<T> {
+    match (left, right) {
+        (ProvenanceFact::Conflict, _) | (_, ProvenanceFact::Conflict) => ProvenanceFact::Conflict,
+        (ProvenanceFact::Unknown, _) | (_, ProvenanceFact::Unknown) => ProvenanceFact::Unknown,
+        (ProvenanceFact::Exact(left), ProvenanceFact::Exact(right)) if left == right => ProvenanceFact::Exact(left.clone()),
+        (ProvenanceFact::Exact(_), ProvenanceFact::Exact(_)) => ProvenanceFact::Conflict,
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ProvenanceState {
+    values: Vec<ProvenanceFact<RuntimeValueProvenance>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum InstallationTarget {
+    Class { allocation: AllocationIdentity, layout: StableClassRefV1 },
+    Variant(StableVariantRef),
+    DetachedCallable { callable: phalcom_type_meta::identity::StableCallableRef },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct InstallationRoute {
+    method_constant: usize,
+    selector: String,
+    target: InstallationTarget,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum InstallationSource {
+    Bytecode(InstructionSite),
+    DetachedMethod { row: usize },
+}
+
+#[derive(Clone, Debug)]
+struct RecordedInstallation {
+    route: InstallationRoute,
+    first_source: InstallationSource,
+    body_prototype: Option<usize>,
+}
+
+#[derive(Default)]
+struct PrototypeProvenanceEffects {
+    activations: Vec<(usize, ProvenanceFact<ActivationAuthority>)>,
+    installations: Vec<(InstallationRoute, Option<usize>, InstructionSite, ProvenanceFact<ActivationAuthority>)>,
+    class_allocations: Vec<(StableDeclarationRef, InstructionSite)>,
+}
+
+fn validate_executable_provenance(image: &ExecutableImageV1, context: &ExecutableValidationContext<'_>) -> Result<(), ExecutableValidationError> {
+    let roles = classify_prototype_activation_roles(image)?;
+    let mut activations = vec![None::<ProvenanceFact<ActivationAuthority>>; image.prototypes.len()];
+    let mut pending = std::collections::VecDeque::new();
+    for (index, prototype) in image.prototypes.iter().enumerate() {
+        if matches!(prototype.owner, PrototypeOwnerV1::ModuleInitializer { .. }) {
+            activations[index] = Some(ProvenanceFact::Unknown);
+            pending.push_back(index);
+        }
+    }
+
+    let mut installs_by_method = BTreeMap::<usize, RecordedInstallation>::new();
+    let mut installs_by_body = BTreeMap::<usize, RecordedInstallation>::new();
+    let mut class_allocations = BTreeMap::<StableDeclarationRef, BTreeSet<InstructionSite>>::new();
+
+    // Callable ownership is not field authority by itself. A detached row
+    // supplies the exact callable <-> method constant <-> body relation; only
+    // that validated relation seeds this separate activation route.
+    for (row, detached) in image.detached_methods.iter().enumerate() {
+        let method_constant = detached.method_constant.0 as usize;
+        let Some(ConstantRecipeV1::Method { recipe }) = image.constants.get(method_constant) else {
+            continue; // validate_detached_methods has already rejected this.
+        };
+        let (body, _) = method_body_prototype(image, method_constant, &recipe.body)?;
+        let layout = match &detached.callable.owner {
+            StableCallableOwnerRef::Declaration(declaration) => {
+                let class = StableClassRefV1 {
+                    declaration: declaration.clone(),
+                    side: detached.callable.side,
+                };
+                (context.has_p7_class(&class) && image.classes.iter().any(|entry| entry.class == class)).then_some(FieldLayoutAuthority::Class(class))
+            }
+            StableCallableOwnerRef::Variant(variant) => context.has_p7_variant(variant).then_some(FieldLayoutAuthority::Variant(variant.clone())),
+            StableCallableOwnerRef::Conformance(_) => None,
+        };
+        let authority = layout.map_or(ProvenanceFact::Unknown, |layout| {
+            ProvenanceFact::Exact(ActivationAuthority {
+                layout,
+                origin: ReceiverOrigin::DetachedCallable {
+                    method_constant,
+                    callable: detached.callable.clone(),
+                },
+            })
+        });
+        let route = InstallationRoute {
+            method_constant,
+            selector: recipe.signature.selector.clone(),
+            target: InstallationTarget::DetachedCallable {
+                callable: detached.callable.clone(),
+            },
+        };
+        let record = RecordedInstallation {
+            route: route.clone(),
+            first_source: InstallationSource::DetachedMethod { row },
+            body_prototype: body,
+        };
+        if let Some(previous) = installs_by_method.get(&method_constant)
+            && previous.route != route
+        {
+            return Err(ExecutableValidationError::ConflictingMethodInstallation {
+                body_prototype: body.or(previous.body_prototype),
+                first_source: previous.first_source,
+                second_source: InstallationSource::DetachedMethod { row },
+            });
+        }
+        installs_by_method.entry(method_constant).or_insert_with(|| record.clone());
+        if let Some(body) = body {
+            if let Some(previous) = installs_by_body.get(&body)
+                && previous.route != route
+            {
+                return Err(ExecutableValidationError::ConflictingMethodInstallation {
+                    body_prototype: Some(body),
+                    first_source: previous.first_source,
+                    second_source: InstallationSource::DetachedMethod { row },
+                });
+            }
+            installs_by_body.entry(body).or_insert(record);
+            merge_activation(&mut activations, &mut pending, body, authority)?;
+        }
+    }
+
+    while let Some(prototype_index) = pending.pop_front() {
+        let Some(prototype) = image.prototypes.get(prototype_index) else {
+            continue;
+        };
+        let activation = activations[prototype_index].clone().unwrap_or(ProvenanceFact::Unknown);
+        let effects = analyze_prototype_provenance(image, context, prototype_index, prototype, &activation, roles[prototype_index])?;
+
+        for (declaration, site) in effects.class_allocations {
+            class_allocations.entry(declaration).or_default().insert(site);
+        }
+        for (route, body, site, authority) in effects.installations {
+            let record = RecordedInstallation {
+                route: route.clone(),
+                first_source: InstallationSource::Bytecode(site),
+                body_prototype: body,
+            };
+            if let Some(previous) = installs_by_method.get(&route.method_constant)
+                && previous.route != route
+            {
+                return Err(ExecutableValidationError::ConflictingMethodInstallation {
+                    body_prototype: body.or(previous.body_prototype),
+                    first_source: previous.first_source,
+                    second_source: InstallationSource::Bytecode(site),
+                });
+            }
+            installs_by_method.entry(route.method_constant).or_insert_with(|| record.clone());
+
+            if let Some(body_prototype) = body {
+                if let Some(previous) = installs_by_body.get(&body_prototype)
+                    && previous.route != route
+                {
+                    return Err(ExecutableValidationError::ConflictingMethodInstallation {
+                        body_prototype: Some(body_prototype),
+                        first_source: previous.first_source,
+                        second_source: InstallationSource::Bytecode(site),
+                    });
+                }
+                installs_by_body.entry(body_prototype).or_insert(record);
+                merge_activation(&mut activations, &mut pending, body_prototype, authority)?;
+            }
+        }
+        for (child, incoming) in effects.activations {
+            merge_activation(&mut activations, &mut pending, child, incoming)?;
+        }
+    }
+
+    for installation in installs_by_method.values() {
+        if let InstallationTarget::Class {
+            allocation: AllocationIdentity::Instruction(site),
+            layout,
+        } = &installation.route.target
+        {
+            let sites = class_allocations.get(&layout.declaration);
+            if sites.is_none_or(|sites| sites.len() != 1 || !sites.contains(site)) || instruction_site_is_cyclic(image, *site)? {
+                return Err(ExecutableValidationError::UnknownMethodInstallationReceiver {
+                    installer_prototype: match installation.first_source {
+                        InstallationSource::Bytecode(site) => site.prototype,
+                        InstallationSource::DetachedMethod { row } => row,
+                    },
+                    instruction: match installation.first_source {
+                        InstallationSource::Bytecode(site) => site.instruction,
+                        InstallationSource::DetachedMethod { .. } => 0,
+                    },
+                    body_prototype: installation.body_prototype,
+                detail: format!(
+                    "class {:?} allocation {:?} is not unique/non-cyclic; observed allocations {:?}, cyclic={}",
+                    layout.declaration,
+                    site,
+                    sites,
+                    instruction_site_is_cyclic(image, *site)?,
+                ),
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn merge_activation(
+    activations: &mut [Option<ProvenanceFact<ActivationAuthority>>],
+    pending: &mut std::collections::VecDeque<usize>,
+    child: usize,
+    incoming: ProvenanceFact<ActivationAuthority>,
+) -> Result<(), ExecutableValidationError> {
+    let Some(current) = activations.get_mut(child) else {
+        return Err(ExecutableValidationError::InvalidExecutableReference {
+            table: "closure activations",
+            index: child,
+            detail: "activation targets an absent prototype".to_owned(),
+        });
+    };
+    match current {
+        None => {
+            *current = Some(incoming);
+            pending.push_back(child);
+        }
+        Some(existing) => {
+            let merged = join_provenance(existing, &incoming);
+            if &merged != existing {
+                *existing = merged;
+                pending.push_back(child);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn analyze_prototype_provenance(
+    image: &ExecutableImageV1,
+    context: &ExecutableValidationContext<'_>,
+    prototype_index: usize,
+    prototype: &PortablePrototypeV1,
+    activation: &ProvenanceFact<ActivationAuthority>,
+    activation_roles: PrototypeActivationRoles,
+) -> Result<PrototypeProvenanceEffects, ExecutableValidationError> {
+    use PortableInstructionV1 as I;
+
+    let entry_height = prototype_entry_slots(prototype_index, prototype)?;
+    if prototype.code.is_empty() {
+        return Ok(PrototypeProvenanceEffects::default());
+    }
+    let mut entry_values = vec![ProvenanceFact::Unknown; entry_height];
+    if let Some(local_self) = entry_values.first_mut() {
+        *local_self = activation.clone().map(RuntimeValueProvenance::Receiver);
+    }
+    let mut states = vec![None::<ProvenanceState>; prototype.code.len()];
+    let mut pending = vec![0usize];
+    states[0] = Some(ProvenanceState { values: entry_values });
+    let mut effects = PrototypeProvenanceEffects::default();
+
+    while let Some(instruction_index) = pending.pop() {
+        let state = states[instruction_index].clone().ok_or(ExecutableValidationError::InvalidInstruction {
+            prototype: prototype_index,
+            instruction: instruction_index,
+            operand: "reachable provenance state",
+            detail: "reachable instruction has no incoming provenance state".to_owned(),
+        })?;
+        let instruction = &prototype.code[instruction_index];
+        let height = state.values.len();
+        let stack_state = ReachableStackState { height, floor: entry_height };
+        let transfer = instruction_stack_transfer(
+            image,
+            prototype_index,
+            prototype,
+            instruction_index,
+            instruction,
+            &prototype.owner,
+            activation_roles,
+            stack_state,
+        )?;
+
+        let site = InstructionSite {
+            prototype: prototype_index,
+            instruction: instruction_index,
+        };
+        let mut special_push = None::<ProvenanceFact<RuntimeValueProvenance>>;
+        let mut state_after_local_write = state.clone();
+
+        match *instruction {
+            I::Constant { operand0 } => {
+                let constant = local_constant_index(prototype, operand0);
+                special_push = Some(constant.map_or(ProvenanceFact::Unknown, |constant| constant_value_provenance(image, context, constant)));
+            }
+            I::Closure { operand0 } => {
+                if let Some(constant) = local_constant_index(prototype, operand0) {
+                    special_push = Some(ProvenanceFact::Exact(RuntimeValueProvenance::ClosureTemplate { constant }));
+                    if let Some(ConstantRecipeV1::ClosureTemplate {
+                        prototype: child,
+                        lexical_class,
+                        super_anchor,
+                        ..
+                    }) = image.constants.get(constant)
+                    {
+                        let child = child.0 as usize;
+                        let child_authority = explicit_template_authority(image, context, constant, lexical_class.as_ref(), super_anchor.as_ref(), activation);
+                        effects.activations.push((child, child_authority));
+                    }
+                }
+            }
+            I::Class { operand0 } => {
+                let declaration = local_symbol(prototype, image, operand0)
+                    .and_then(|name| source_declared_class(image, prototype_module(image, prototype_index).ok()?, name));
+                if let Some(declaration) = declaration {
+                    effects.class_allocations.push((declaration.clone(), site));
+                    special_push = Some(ProvenanceFact::Exact(RuntimeValueProvenance::ClassObject {
+                        declaration,
+                        allocation: AllocationIdentity::Instruction(site),
+                    }));
+                }
+            }
+            I::Enum { operand0 } => {
+                // Enum creates a fresh root class object at runtime. Its exact
+                // declaration comes from the bytecode-addressed semantic row,
+                // while the instruction site preserves runtime allocation
+                // identity for the same uniqueness and cycle checks as Class.
+                let pool_index = prototype.semantics.0 as usize;
+                let declaration = image
+                    .semantic_pools
+                    .get(pool_index)
+                    .and_then(|pool| pool.enum_specs.get(usize::from(operand0)))
+                    .map(|spec| spec.owner.clone());
+                let declaration = declaration.ok_or_else(|| ExecutableValidationError::InvalidInstruction {
+                    prototype: prototype_index,
+                    instruction: instruction_index,
+                    operand: "enum declaration provenance",
+                    detail: format!(
+                        "semantic pool {pool_index} has no enum specification at slot {operand0}"
+                    ),
+                })?;
+                let class = StableClassRefV1 {
+                    declaration: declaration.clone(),
+                    side: StableDispatchSide::Instance,
+                };
+                if !context.has_p7_class(&class) {
+                    return Err(ExecutableValidationError::UnknownSemanticIdentity {
+                        pool: pool_index,
+                        family: "enum root class owner",
+                        row: usize::from(operand0),
+                    });
+                }
+                if !image.classes.iter().any(|row| row.class == class) {
+                    return Err(ExecutableValidationError::MissingClassRecipe(class));
+                }
+                effects.class_allocations.push((declaration.clone(), site));
+                special_push = Some(ProvenanceFact::Exact(RuntimeValueProvenance::ClassObject {
+                    declaration,
+                    allocation: AllocationIdentity::Instruction(site),
+                }));
+            }
+            I::Data { operand0 } => {
+                let pool_index = prototype.semantics.0 as usize;
+                let declaration = image
+                    .semantic_pools
+                    .get(pool_index)
+                    .and_then(|pool| pool.data_specs.get(usize::from(operand0)))
+                    .map(|spec| spec.owner.clone())
+                    .ok_or_else(|| ExecutableValidationError::InvalidInstruction {
+                        prototype: prototype_index,
+                        instruction: instruction_index,
+                        operand: "data declaration provenance",
+                        detail: format!("semantic pool {pool_index} has no data specification at slot {operand0}"),
+                    })?;
+                let class = StableClassRefV1 {
+                    declaration: declaration.clone(),
+                    side: StableDispatchSide::Instance,
+                };
+                if !context.has_p7_class(&class) {
+                    return Err(ExecutableValidationError::UnknownSemanticIdentity {
+                        pool: pool_index,
+                        family: "data root class owner",
+                        row: usize::from(operand0),
+                    });
+                }
+                if !image.classes.iter().any(|row| row.class == class) {
+                    return Err(ExecutableValidationError::MissingClassRecipe(class));
+                }
+                effects.class_allocations.push((declaration.clone(), site));
+                special_push = Some(ProvenanceFact::Exact(RuntimeValueProvenance::ClassObject {
+                    declaration,
+                    allocation: AllocationIdentity::Instruction(site),
+                }));
+            }
+            I::NewInstance {} => {
+                special_push = Some(class_receiver_from_value(state.values.last()));
+            }
+            I::GetSelf {} => {
+                special_push = Some(activation.clone().map(RuntimeValueProvenance::Receiver));
+            }
+            I::GetLocal { operand0 } | I::GetLocalChecked { operand0, .. } => {
+                special_push = Some(state.values.get(usize::from(operand0)).cloned().unwrap_or(ProvenanceFact::Unknown));
+            }
+            I::SetLocal { operand0 } => {
+                if let (Some(target), Some(value)) = (state_after_local_write.values.get_mut(usize::from(operand0)), state.values.last()) {
+                    *target = value.clone();
+                }
+            }
+            I::Dup {} => {
+                special_push = Some(state.values.last().cloned().unwrap_or(ProvenanceFact::Unknown));
+            }
+            I::Method { operand0, operand1 } => {
+                let selector = local_symbol(prototype, image, operand0).unwrap_or_default();
+                let method_value = state.values.last();
+                let class_value = state.values.get(height.saturating_sub(2));
+                let (route, body, authority) = prove_method_installation(
+                    image,
+                    context,
+                    prototype_index,
+                    instruction_index,
+                    method_value,
+                    class_value,
+                    selector,
+                    operand1,
+                )?;
+                effects.installations.push((route, body, site, authority));
+            }
+            I::VariantMethod { variant, selector } => {
+                let selector = local_symbol(prototype, image, selector).unwrap_or_default();
+                let method_value = state.values.last();
+                let (route, body, authority) =
+                    prove_variant_method_installation(image, context, prototype_index, instruction_index, method_value, variant, selector)?;
+                effects.installations.push((route, body, site, authority));
+            }
+            I::GetField { operand0 } | I::GetFieldChecked { operand0, .. } => {
+                validate_field_receiver(image, context, prototype_index, instruction_index, operand0, state.values.last())?;
+            }
+            I::SetField { operand0 } => {
+                validate_field_receiver(
+                    image,
+                    context,
+                    prototype_index,
+                    instruction_index,
+                    operand0,
+                    state.values.get(height.saturating_sub(2)),
+                )?;
+            }
+            _ => {}
+        }
+
+        let control_flow = instruction.control_flow_kind();
+        match control_flow {
+            ControlFlowKindV1::Fallthrough => {
+                let StackTransfer::Linear(delta) = transfer else {
+                    return Err(invalid_stack_transfer_classification(prototype_index, instruction_index, control_flow));
+                };
+                let outgoing = apply_provenance_delta(&state_after_local_write, delta, special_push, instruction);
+                let target = instruction_index
+                    .checked_add(fallthrough_width(instruction))
+                    .filter(|target| *target < prototype.code.len())
+                    .ok_or(ExecutableValidationError::InvalidFallthrough {
+                        prototype: prototype_index,
+                        instruction: instruction_index,
+                        target: instruction_index
+                            .checked_add(fallthrough_width(instruction))
+                            .and_then(|target| i64::try_from(target).ok())
+                            .unwrap_or(i64::MAX),
+                    })?;
+                enqueue_provenance_state(&mut pending, &mut states, prototype_index, instruction_index, target, outgoing, prototype)?;
+            }
+            ControlFlowKindV1::UnconditionalBranch => {
+                let StackTransfer::Linear(delta) = transfer else {
+                    return Err(invalid_stack_transfer_classification(prototype_index, instruction_index, control_flow));
+                };
+                let offset = relative_jump_offset(instruction).ok_or(ExecutableValidationError::InvalidBranchTarget {
+                    prototype: prototype_index,
+                    instruction: instruction_index,
+                    target: i64::MAX,
+                })?;
+                let target = validate_branch_target(prototype_index, instruction_index, prototype.code.len(), offset)?;
+                let outgoing = apply_provenance_delta(&state_after_local_write, delta, special_push, instruction);
+                enqueue_provenance_state(&mut pending, &mut states, prototype_index, instruction_index, target, outgoing, prototype)?;
+            }
+            ControlFlowKindV1::ConditionalBranch => {
+                let offset = relative_jump_offset(instruction).ok_or(ExecutableValidationError::InvalidBranchTarget {
+                    prototype: prototype_index,
+                    instruction: instruction_index,
+                    target: i64::MAX,
+                })?;
+                let target = validate_branch_target(prototype_index, instruction_index, prototype.code.len(), offset)?;
+                let fallthrough =
+                    instruction_index
+                        .checked_add(1)
+                        .filter(|target| *target < prototype.code.len())
+                        .ok_or(ExecutableValidationError::InvalidFallthrough {
+                            prototype: prototype_index,
+                            instruction: instruction_index,
+                            target: instruction_index
+                                .checked_add(1)
+                                .and_then(|target| i64::try_from(target).ok())
+                                .unwrap_or(i64::MAX),
+                        })?;
+                let (taken, normal) = match transfer {
+                    StackTransfer::Linear(delta) => (delta, delta),
+                    StackTransfer::Conditional { taken, fallthrough } => (taken, fallthrough),
+                };
+                enqueue_provenance_state(
+                    &mut pending,
+                    &mut states,
+                    prototype_index,
+                    instruction_index,
+                    target,
+                    apply_provenance_delta(&state_after_local_write, taken, special_push.clone(), instruction),
+                    prototype,
+                )?;
+                enqueue_provenance_state(
+                    &mut pending,
+                    &mut states,
+                    prototype_index,
+                    instruction_index,
+                    fallthrough,
+                    apply_provenance_delta(&state_after_local_write, normal, special_push, instruction),
+                    prototype,
+                )?;
+            }
+            ControlFlowKindV1::FunctionExit | ControlFlowKindV1::NonLocalExit | ControlFlowKindV1::ExceptionalTermination => {}
+        }
+    }
+    Ok(effects)
+}
+
+fn apply_provenance_delta(
+    state: &ProvenanceState,
+    delta: StackDelta,
+    special_push: Option<ProvenanceFact<RuntimeValueProvenance>>,
+    instruction: &PortableInstructionV1,
+) -> ProvenanceState {
+    match *instruction {
+        PortableInstructionV1::ReserveScratchLocal { operand0 } => {
+            let mut values = state.values.clone();
+            values.insert(usize::from(operand0), ProvenanceFact::Unknown);
+            return ProvenanceState { values };
+        }
+        PortableInstructionV1::ReleaseScratchLocal { operand0 } => {
+            let mut values = state.values.clone();
+            values.remove(usize::from(operand0));
+            return ProvenanceState { values };
+        }
+        _ => {}
+    }
+    let mut values = state.values.clone();
+    values.truncate(values.len().saturating_sub(delta.pop));
+    for index in 0..delta.push {
+        if index == 0 {
+            values.push(special_push.clone().unwrap_or(ProvenanceFact::Unknown));
+        } else {
+            values.push(ProvenanceFact::Unknown);
+        }
+    }
+    ProvenanceState { values }
+}
+
+fn enqueue_provenance_state(
+    pending: &mut Vec<usize>,
+    states: &mut [Option<ProvenanceState>],
+    prototype: usize,
+    instruction: usize,
+    target: usize,
+    incoming: ProvenanceState,
+    prototype_data: &PortablePrototypeV1,
+) -> Result<(), ExecutableValidationError> {
+    let Some(existing) = states.get_mut(target) else {
+        return Err(ExecutableValidationError::InvalidBranchTarget {
+            prototype,
+            instruction,
+            target: i64::try_from(target).unwrap_or(i64::MAX),
+        });
+    };
+    let Some(existing_state) = existing else {
+        *existing = Some(incoming);
+        pending.push(target);
+        return Ok(());
+    };
+    if existing_state.values.len() != incoming.values.len() {
+        eprintln!(
+            "provenance-height mismatch prototype={prototype} owner={:?} name={:?} predecessor={instruction}:{:?} target={target}:{:?} existing={} incoming={}",
+            prototype_data.owner,
+            prototype_data.name,
+            prototype_data.code.get(instruction),
+            prototype_data.code.get(target),
+            existing_state.values.len(),
+            incoming.values.len(),
+        );
+        return Err(ExecutableValidationError::IncompatibleControlFlowState {
+            prototype,
+            instruction: target,
+            existing: existing_state.values.len(),
+            incoming: incoming.values.len(),
+        });
+    }
+    let merged = existing_state
+        .values
+        .iter()
+        .zip(&incoming.values)
+        .map(|(left, right)| join_provenance(left, right))
+        .collect::<Vec<_>>();
+    if merged != existing_state.values {
+        existing_state.values = merged;
+        pending.push(target);
+    }
+    Ok(())
+}
+
+fn local_constant_index(prototype: &PortablePrototypeV1, local: u16) -> Option<usize> {
+    prototype.constants.get(usize::from(local)).map(|constant| constant.0 as usize)
+}
+
+fn local_symbol<'a>(prototype: &PortablePrototypeV1, image: &'a ExecutableImageV1, local: u16) -> Option<&'a str> {
+    let constant = local_constant_index(prototype, local)?;
+    match image.constants.get(constant)? {
+        ConstantRecipeV1::Symbol { text } => Some(text),
+        _ => None,
+    }
+}
+
+fn constant_value_provenance(image: &ExecutableImageV1, context: &ExecutableValidationContext<'_>, constant: usize) -> ProvenanceFact<RuntimeValueProvenance> {
+    match image.constants.get(constant) {
+        Some(ConstantRecipeV1::Method { .. }) => ProvenanceFact::Exact(RuntimeValueProvenance::Method { constant }),
+        Some(ConstantRecipeV1::Class { reference })
+            if reference.side == StableDispatchSide::Instance && context.has_p7_class(reference) && image.classes.iter().any(|row| row.class == *reference) =>
+        {
+            ProvenanceFact::Exact(RuntimeValueProvenance::ClassObject {
+                declaration: reference.declaration.clone(),
+                allocation: AllocationIdentity::Constant(constant),
+            })
+        }
+        _ => ProvenanceFact::Unknown,
+    }
+}
+
+fn class_receiver_from_value(value: Option<&ProvenanceFact<RuntimeValueProvenance>>) -> ProvenanceFact<RuntimeValueProvenance> {
+    match value {
+        Some(ProvenanceFact::Exact(RuntimeValueProvenance::ClassObject { declaration, allocation })) => {
+            ProvenanceFact::Exact(RuntimeValueProvenance::Receiver(ActivationAuthority {
+                layout: FieldLayoutAuthority::Class(StableClassRefV1 {
+                    declaration: declaration.clone(),
+                    side: StableDispatchSide::Instance,
+                }),
+                origin: ReceiverOrigin::Instance {
+                    allocation: allocation.clone(),
+                },
+            }))
+        }
+        Some(ProvenanceFact::Conflict) => ProvenanceFact::Conflict,
+        _ => ProvenanceFact::Unknown,
+    }
+}
+
+fn source_declared_class(image: &ExecutableImageV1, module: &StableModuleRef, name: &str) -> Option<StableDeclarationRef> {
+    let mut matches = image.classes.iter().filter_map(|row| {
+        if row.class.side != StableDispatchSide::Instance
+            || row.class.declaration.module != *module
+            || row.class.declaration.path.len() != 1
+            || row.class.declaration.path[0].as_ref() != name
+            || !matches!(&row.allocation, PortableClassAllocationV1::SourceDeclared)
+        {
+            return None;
+        }
+        Some(row.class.declaration.clone())
+    });
+    let declaration = matches.next()?;
+    matches.next().is_none().then_some(declaration)
+}
+
+fn explicit_template_authority(
+    image: &ExecutableImageV1,
+    context: &ExecutableValidationContext<'_>,
+    _constant: usize,
+    lexical_class: Option<&StableClassRefV1>,
+    super_anchor: Option<&StableClassRefV1>,
+    inherited: &ProvenanceFact<ActivationAuthority>,
+) -> ProvenanceFact<ActivationAuthority> {
+    if let (Some(lexical), Some(anchor)) = (lexical_class, super_anchor) {
+        if lexical.declaration != anchor.declaration || !context.has_p7_class(anchor) || !image.classes.iter().any(|row| row.class == *anchor) {
+            return ProvenanceFact::Conflict;
+        }
+        return match inherited {
+            ProvenanceFact::Exact(authority) if authority.layout == FieldLayoutAuthority::Class(anchor.clone()) => inherited.clone(),
+            ProvenanceFact::Unknown => ProvenanceFact::Unknown,
+            ProvenanceFact::Conflict => ProvenanceFact::Conflict,
+            ProvenanceFact::Exact(_) => ProvenanceFact::Conflict,
+        };
+    }
+    inherited.clone()
+}
+
+fn prove_method_installation(
+    image: &ExecutableImageV1,
+    context: &ExecutableValidationContext<'_>,
+    installer_prototype: usize,
+    instruction: usize,
+    method_value: Option<&ProvenanceFact<RuntimeValueProvenance>>,
+    class_value: Option<&ProvenanceFact<RuntimeValueProvenance>>,
+    selector: &str,
+    is_static: bool,
+) -> Result<(InstallationRoute, Option<usize>, ProvenanceFact<ActivationAuthority>), ExecutableValidationError> {
+    let site = InstructionSite {
+        prototype: installer_prototype,
+        instruction,
+    };
+    let Some(ProvenanceFact::Exact(RuntimeValueProvenance::Method { constant })) = method_value else {
+        return Err(ExecutableValidationError::UnknownMethodInstallation {
+            installer_prototype,
+            instruction,
+        });
+    };
+    let Some(ConstantRecipeV1::Method { recipe }) = image.constants.get(*constant) else {
+        return Err(ExecutableValidationError::InvalidInstruction {
+            prototype: installer_prototype,
+            instruction,
+            operand: "method provenance",
+            detail: format!("exact method value points to non-method constant {constant}"),
+        });
+    };
+    if recipe.signature.selector != selector {
+        return Err(ExecutableValidationError::InvalidInstruction {
+            prototype: installer_prototype,
+            instruction,
+            operand: "method selector",
+            detail: format!("installation selector {selector:?} differs from method recipe {:?}", recipe.signature.selector),
+        });
+    }
+    let (body, template) = method_body_prototype(image, *constant, &recipe.body)?;
+    let (declaration, allocation) = match class_value {
+        Some(ProvenanceFact::Exact(RuntimeValueProvenance::ClassObject { declaration, allocation })) => (declaration.clone(), allocation.clone()),
+        Some(ProvenanceFact::Conflict) => {
+            return Err(ExecutableValidationError::ConflictingMethodInstallationReceiver {
+                installer_prototype,
+                instruction,
+                body_prototype: body,
+            });
+        }
+        _ => {
+            let detail = image.prototypes.get(installer_prototype).map_or_else(
+                || format!("class operand provenance is {class_value:?}; installer prototype is absent"),
+                |prototype| {
+                    let start = instruction.saturating_sub(6);
+                    let end = (instruction + 1).min(prototype.code.len());
+                    format!(
+                        "class operand provenance is {class_value:?}; installer {:?} {:?}, code before installation {:?}",
+                        prototype.owner,
+                        prototype.name,
+                        &prototype.code[start..end],
+                    )
+                },
+            );
+            return Err(ExecutableValidationError::UnknownMethodInstallationReceiver {
+                installer_prototype,
+                instruction,
+                body_prototype: body,
+                detail,
+            });
+        }
+    };
+    let layout = StableClassRefV1 {
+        declaration: declaration.clone(),
+        side: if is_static { StableDispatchSide::Class } else { StableDispatchSide::Instance },
+    };
+    if !context.has_p7_class(&layout) || !image.classes.iter().any(|row| row.class == layout) {
+        return Err(ExecutableValidationError::UnknownMethodInstallationReceiver {
+            installer_prototype,
+            instruction,
+            body_prototype: body,
+            detail: format!("class {declaration:?} has no exact P7-owned {layout:?} field layout"),
+        });
+    }
+    let route = InstallationRoute {
+        method_constant: *constant,
+        selector: selector.to_owned(),
+        target: InstallationTarget::Class {
+            allocation: allocation.clone(),
+            layout: layout.clone(),
+        },
+    };
+    let authority = ProvenanceFact::Exact(ActivationAuthority {
+        layout: FieldLayoutAuthority::Class(layout),
+        origin: ReceiverOrigin::Method {
+            method_constant: *constant,
+            allocation,
+        },
+    });
+    let _ = (site, template);
+    Ok((route, body, authority))
+}
+
+fn prove_variant_method_installation(
+    image: &ExecutableImageV1,
+    context: &ExecutableValidationContext<'_>,
+    installer_prototype: usize,
+    instruction: usize,
+    method_value: Option<&ProvenanceFact<RuntimeValueProvenance>>,
+    variant_index: u16,
+    selector: &str,
+) -> Result<(InstallationRoute, Option<usize>, ProvenanceFact<ActivationAuthority>), ExecutableValidationError> {
+    let Some(ProvenanceFact::Exact(RuntimeValueProvenance::Method { constant })) = method_value else {
+        return Err(ExecutableValidationError::UnknownMethodInstallation {
+            installer_prototype,
+            instruction,
+        });
+    };
+    let Some(ConstantRecipeV1::Method { recipe }) = image.constants.get(*constant) else {
+        return Err(ExecutableValidationError::InvalidInstruction {
+            prototype: installer_prototype,
+            instruction,
+            operand: "variant method provenance",
+            detail: format!("exact method value points to non-method constant {constant}"),
+        });
+    };
+    if recipe.signature.selector != selector {
+        return Err(ExecutableValidationError::InvalidInstruction {
+            prototype: installer_prototype,
+            instruction,
+            operand: "variant method selector",
+            detail: format!("installation selector {selector:?} differs from method recipe {:?}", recipe.signature.selector),
+        });
+    }
+    let pool_index = image.prototypes[installer_prototype].semantics.0 as usize;
+    let variant = image
+        .semantic_pools
+        .get(pool_index)
+        .and_then(|pool| pool.variant_targets.get(usize::from(variant_index)))
+        .filter(|variant| context.has_p7_variant(variant))
+        .cloned()
+        .ok_or(ExecutableValidationError::InvalidExecutableReference {
+            table: "variant method installation targets",
+            index: instruction,
+            detail: format!("variant target {variant_index} is not an exact P7 variant"),
+        })?;
+    let (body, _) = method_body_prototype(image, *constant, &recipe.body)?;
+    let authority = ProvenanceFact::Exact(ActivationAuthority {
+        layout: FieldLayoutAuthority::Variant(variant.clone()),
+        origin: ReceiverOrigin::VariantMethod {
+            method_constant: *constant,
+            variant: variant.clone(),
+        },
+    });
+    Ok((
+        InstallationRoute {
+            method_constant: *constant,
+            selector: selector.to_owned(),
+            target: InstallationTarget::Variant(variant),
+        },
+        body,
+        authority,
+    ))
+}
+
+fn method_body_prototype(
+    image: &ExecutableImageV1,
+    method_constant: usize,
+    body: &phalcom_compiler_artifact::executable::constant::MethodBodyV1,
+) -> Result<(Option<usize>, Option<usize>), ExecutableValidationError> {
+    use phalcom_compiler_artifact::executable::constant::MethodBodyV1;
+    let MethodBodyV1::Closure { template } = body else {
+        return Ok((None, None));
+    };
+    let template_index = template.0 as usize;
+    let Some(ConstantRecipeV1::ClosureTemplate { prototype, .. }) = image.constants.get(template_index) else {
+        return Err(ExecutableValidationError::InvalidExecutableReference {
+            table: "method installations",
+            index: method_constant,
+            detail: format!("method body template {template_index} is absent or not a closure template"),
+        });
+    };
+    let body = prototype.0 as usize;
+    if body >= image.prototypes.len() {
+        return Err(ExecutableValidationError::InvalidExecutableReference {
+            table: "method installations",
+            index: method_constant,
+            detail: format!("method body prototype {body} is absent"),
+        });
+    }
+    Ok((Some(body), Some(template_index)))
+}
+
+fn validate_field_receiver(
+    image: &ExecutableImageV1,
+    context: &ExecutableValidationContext<'_>,
+    prototype: usize,
+    instruction: usize,
+    slot: u16,
+    receiver: Option<&ProvenanceFact<RuntimeValueProvenance>>,
+) -> Result<(), ExecutableValidationError> {
+    let authority = match receiver {
+        Some(ProvenanceFact::Exact(RuntimeValueProvenance::Receiver(activation))) => activation.layout.clone(),
+        Some(ProvenanceFact::Exact(RuntimeValueProvenance::ClassObject { declaration, .. })) => FieldLayoutAuthority::Class(StableClassRefV1 {
+            declaration: declaration.clone(),
+            side: StableDispatchSide::Class,
+        }),
+        Some(ProvenanceFact::Conflict) => return Err(ExecutableValidationError::ConflictingFieldAuthority { prototype, instruction, slot }),
+        _ => return Err(unknown_field_receiver(image, prototype, instruction, slot, receiver)),
+    };
+    let field_count = match &authority {
+        FieldLayoutAuthority::Class(class) => {
+            if !context.has_p7_class(class) {
+                return Err(unknown_field_receiver(image, prototype, instruction, slot, receiver));
+            }
+            image.classes.iter().find(|row| row.class == *class).map(|row| row.field_count as usize)
+        }
+        FieldLayoutAuthority::Variant(variant) => context.variant_field_counts.get(variant).copied(),
+    }
+    .ok_or_else(|| unknown_field_receiver(image, prototype, instruction, slot, receiver))?;
+    if usize::from(slot) >= field_count {
+        return Err(ExecutableValidationError::FieldSlotOutOfRange {
+            prototype,
+            instruction,
+            authority,
+            slot,
+            field_count,
+        });
+    }
+    Ok(())
+}
+
+fn unknown_field_receiver(
+    image: &ExecutableImageV1,
+    prototype: usize,
+    instruction: usize,
+    slot: u16,
+    receiver: Option<&ProvenanceFact<RuntimeValueProvenance>>,
+) -> ExecutableValidationError {
+    let detail = image.prototypes.get(prototype).map_or_else(
+        || format!("receiver provenance is {receiver:?}; prototype is absent"),
+        |prototype_data| {
+            let start = instruction.saturating_sub(6);
+            let end = (instruction + 1).min(prototype_data.code.len());
+            format!(
+                "receiver provenance is {receiver:?}; owner {:?}, name {:?}, code around access {:?}",
+                prototype_data.owner,
+                prototype_data.name,
+                &prototype_data.code[start..end],
+            )
+        },
+    );
+    ExecutableValidationError::UnknownFieldReceiver {
+        prototype,
+        instruction,
+        slot,
+        detail,
+    }
+}
+
+fn instruction_site_is_cyclic(image: &ExecutableImageV1, site: InstructionSite) -> Result<bool, ExecutableValidationError> {
+    let Some(prototype) = image.prototypes.get(site.prototype) else {
+        return Ok(true);
+    };
+    if site.instruction >= prototype.code.len() {
+        return Ok(true);
+    }
+    let mut pending = vec![site.instruction];
+    let mut visited = BTreeSet::new();
+    while let Some(instruction_index) = pending.pop() {
+        if !visited.insert(instruction_index) {
+            continue;
+        }
+        let instruction = &prototype.code[instruction_index];
+        let successors = match instruction.control_flow_kind() {
+            ControlFlowKindV1::Fallthrough => instruction_index
+                .checked_add(fallthrough_width(instruction))
+                .filter(|target| *target < prototype.code.len())
+                .into_iter()
+                .collect::<Vec<_>>(),
+            ControlFlowKindV1::UnconditionalBranch => {
+                let offset = relative_jump_offset(instruction).ok_or(ExecutableValidationError::InvalidBranchTarget {
+                    prototype: site.prototype,
+                    instruction: instruction_index,
+                    target: i64::MAX,
+                })?;
+                vec![validate_branch_target(site.prototype, instruction_index, prototype.code.len(), offset)?]
+            }
+            ControlFlowKindV1::ConditionalBranch => {
+                let offset = relative_jump_offset(instruction).ok_or(ExecutableValidationError::InvalidBranchTarget {
+                    prototype: site.prototype,
+                    instruction: instruction_index,
+                    target: i64::MAX,
+                })?;
+                let mut targets = vec![validate_branch_target(site.prototype, instruction_index, prototype.code.len(), offset)?];
+                if let Some(next) = instruction_index.checked_add(1).filter(|target| *target < prototype.code.len()) {
+                    targets.push(next);
+                }
+                targets
+            }
+            ControlFlowKindV1::FunctionExit | ControlFlowKindV1::NonLocalExit | ControlFlowKindV1::ExceptionalTermination => vec![],
+        };
+        for successor in successors {
+            if successor == site.instruction {
+                return Ok(true);
+            }
+            pending.push(successor);
+        }
+    }
+    Ok(false)
 }
 
 fn relative_jump_offset(instruction: &PortableInstructionV1) -> Option<i32> {
@@ -2066,7 +3177,15 @@ fn enqueue_stack_state(
     instruction: usize,
     target: usize,
     incoming: ReachableStackState,
+    prototype_data: &PortablePrototypeV1,
 ) -> Result<(), ExecutableValidationError> {
+    let debug_heights = (prototype == 56).then(|| {
+        states
+            .iter()
+            .enumerate()
+            .filter_map(|(index, state)| state.map(|state| (index, state.height, &prototype_data.code[index])))
+            .collect::<Vec<_>>()
+    });
     let Some(existing) = states.get_mut(target) else {
         return Err(ExecutableValidationError::InvalidBranchTarget {
             prototype,
@@ -2075,12 +3194,26 @@ fn enqueue_stack_state(
         });
     };
     match existing {
-        Some(existing) if existing.height != incoming.height => Err(ExecutableValidationError::IncompatibleControlFlowState {
-            prototype,
-            instruction: target,
-            existing: existing.height,
-            incoming: incoming.height,
-        }),
+        Some(existing) if existing.height != incoming.height => {
+            eprintln!(
+                "stack-height mismatch prototype={prototype} owner={:?} name={:?} predecessor={instruction}:{:?} target={target}:{:?} existing={} incoming={}",
+                prototype_data.owner,
+                prototype_data.name,
+                prototype_data.code.get(instruction),
+                prototype_data.code.get(target),
+                existing.height,
+                incoming.height,
+            );
+            eprintln!("prototype {prototype} locals: {:#?}", prototype_data.local_names);
+            eprintln!("prototype {prototype} reachable stack heights: {debug_heights:#?}");
+            eprintln!("prototype {prototype} full code: {:#?}", prototype_data.code);
+            Err(ExecutableValidationError::IncompatibleControlFlowState {
+                prototype,
+                instruction: target,
+                existing: existing.height,
+                incoming: incoming.height,
+            })
+        }
         Some(_) => Ok(()),
         None => {
             *existing = Some(incoming);
@@ -2090,11 +3223,7 @@ fn enqueue_stack_state(
     }
 }
 
-fn invalid_stack_transfer_classification(
-    prototype: usize,
-    instruction: usize,
-    flow: ControlFlowKindV1,
-) -> ExecutableValidationError {
+fn invalid_stack_transfer_classification(prototype: usize, instruction: usize, flow: ControlFlowKindV1) -> ExecutableValidationError {
     ExecutableValidationError::InvalidInstruction {
         prototype,
         instruction,
@@ -2155,10 +3284,9 @@ fn validate_prototype_control_flow(
 
         let expects_relative_jump = match control_flow {
             ControlFlowKindV1::UnconditionalBranch | ControlFlowKindV1::ConditionalBranch => true,
-            ControlFlowKindV1::Fallthrough
-            | ControlFlowKindV1::FunctionExit
-            | ControlFlowKindV1::NonLocalExit
-            | ControlFlowKindV1::ExceptionalTermination => false,
+            ControlFlowKindV1::Fallthrough | ControlFlowKindV1::FunctionExit | ControlFlowKindV1::NonLocalExit | ControlFlowKindV1::ExceptionalTermination => {
+                false
+            }
         };
         if relative_jump_count != usize::from(expects_relative_jump) {
             return Err(ExecutableValidationError::InvalidInstruction {
@@ -2195,9 +3323,7 @@ fn validate_prototype_control_flow(
                 pending.push(target);
                 enqueue_fallthrough(&mut pending, prototype_index, instruction_index, code_len, 1)?;
             }
-            ControlFlowKindV1::FunctionExit
-            | ControlFlowKindV1::NonLocalExit
-            | ControlFlowKindV1::ExceptionalTermination => {}
+            ControlFlowKindV1::FunctionExit | ControlFlowKindV1::NonLocalExit | ControlFlowKindV1::ExceptionalTermination => {}
         }
     }
     Ok(())
@@ -2345,31 +3471,6 @@ fn prototype_module(image: &ExecutableImageV1, index: usize) -> Result<&StableMo
         PrototypeOwnerV1::ModuleInitializer { module } => Ok(module),
         PrototypeOwnerV1::Callable { callable } => Ok(callable_module(callable)),
         PrototypeOwnerV1::Nested { parent, .. } => prototype_module(image, parent.0 as usize),
-    }
-}
-
-fn prototype_class(image: &ExecutableImageV1, index: usize) -> Result<Option<StableClassRefV1>, ExecutableValidationError> {
-    let Some(prototype) = image.prototypes.get(index) else {
-        return Err(ExecutableValidationError::InvalidExecutableReference {
-            table: "prototypes",
-            index,
-            detail: "prototype index is absent".to_owned(),
-        });
-    };
-    match &prototype.owner {
-        PrototypeOwnerV1::ModuleInitializer { .. } => Ok(None),
-        PrototypeOwnerV1::Callable { callable } => {
-            let declaration = match &callable.owner {
-                StableCallableOwnerRef::Declaration(declaration) => Some(declaration.clone()),
-                StableCallableOwnerRef::Variant(variant) => Some(variant.owner.clone()),
-                StableCallableOwnerRef::Conformance(_) => None,
-            };
-            Ok(declaration.map(|declaration| StableClassRefV1 {
-                declaration,
-                side: callable.side,
-            }))
-        }
-        PrototypeOwnerV1::Nested { parent, .. } => prototype_class(image, parent.0 as usize),
     }
 }
 
@@ -2999,6 +4100,377 @@ fn stable_semantic_digest(fingerprint: Fingerprint128) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn field_method_fixture(
+        class_names: &[&str],
+        is_static: bool,
+        field_slot: u16,
+        field_count: u32,
+    ) -> (ExecutableImageV1, ExecutableValidationContext<'static>) {
+        use phalcom_compiler_artifact::executable::constant::{
+            MethodBodyV1, MethodOriginV1, MethodRecipeV1, MethodSignatureKindV1, MethodSignatureV1, VisibilityV1,
+        };
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+        use phalcom_compiler_artifact::executable::module::{PortableClassRecipeV1, PortableFieldLayoutV1};
+        use phalcom_compiler_artifact::executable::prototype::{ConstantId, ParameterShapeV1, PrototypeId, PrototypeOwnerV1, SemanticPoolId, SourceMapId};
+
+        let module = test_module();
+        let method_constant = class_names.len();
+        let template_constant = method_constant + 1;
+        let child_template_constant = method_constant + 2;
+        let selector_constant = method_constant + 3;
+        let mut constants = class_names
+            .iter()
+            .map(|name| ConstantRecipeV1::Symbol { text: (*name).to_owned() })
+            .collect::<Vec<_>>();
+        constants.push(ConstantRecipeV1::Method {
+            recipe: MethodRecipeV1 {
+                body: MethodBodyV1::Closure {
+                    template: ConstantId(template_constant as u32),
+                },
+                signature: MethodSignatureV1 {
+                    selector: "field".to_owned(),
+                    kind: MethodSignatureKindV1::Getter,
+                    positional_arity: 0,
+                    rest: None,
+                },
+                holder: None,
+                access_owner: None,
+                visibility: VisibilityV1::Public,
+                origin: MethodOriginV1 {
+                    module: Some(module.clone()),
+                    package: None,
+                    project: None,
+                },
+                contracts: None,
+                attributes: vec![],
+                attributes_frozen: false,
+            },
+        });
+        constants.push(ConstantRecipeV1::ClosureTemplate {
+            prototype: PrototypeId(1),
+            module: module.clone(),
+            lexical_class: None,
+            super_anchor: None,
+        });
+        constants.push(ConstantRecipeV1::ClosureTemplate {
+            prototype: PrototypeId(2),
+            module: module.clone(),
+            lexical_class: None,
+            super_anchor: None,
+        });
+        constants.push(ConstantRecipeV1::Symbol { text: "field".to_owned() });
+
+        let mut root_constants = (0..class_names.len()).map(|index| ConstantId(index as u32)).collect::<Vec<_>>();
+        root_constants.push(ConstantId(method_constant as u32));
+        root_constants.push(ConstantId(selector_constant as u32));
+        let selector_local = class_names.len() + 1;
+        let method_local = class_names.len();
+        let mut root_code = Vec::new();
+        for (index, _) in class_names.iter().enumerate() {
+            root_code.push(I::Nil {});
+            root_code.push(I::Class { operand0: index as u16 });
+            root_code.push(I::Constant { operand0: method_local as u16 });
+            root_code.push(I::Method {
+                operand0: selector_local as u16,
+                operand1: is_static,
+            });
+            if index + 1 != class_names.len() {
+                root_code.push(I::Pop {});
+            }
+        }
+        root_code.push(I::Return {});
+
+        let body = PortablePrototypeV1 {
+            owner: PrototypeOwnerV1::Nested {
+                parent: PrototypeId(0),
+                ordinal: 17,
+            },
+            code: vec![
+                I::Closure { operand0: 0 },
+                I::Pop {},
+                I::GetSelf {},
+                I::GetField { operand0: field_slot },
+                I::Return {},
+            ],
+            constants: vec![ConstantId(child_template_constant as u32)],
+            max_slots: 1,
+            arity: 0,
+            upvalues: vec![],
+            parameters: ParameterShapeV1 {
+                fixed_positionals: 0,
+                fixed_labels: vec![],
+                rest: None,
+            },
+            name: "field".to_owned(),
+            local_names: vec![],
+            source: SourceMapId(0),
+            semantics: SemanticPoolId(0),
+            spans: vec![],
+        };
+        let root = PortablePrototypeV1 {
+            owner: PrototypeOwnerV1::ModuleInitializer { module: module.clone() },
+            code: root_code,
+            constants: root_constants,
+            max_slots: 0,
+            arity: 0,
+            upvalues: vec![],
+            parameters: ParameterShapeV1 {
+                fixed_positionals: 0,
+                fixed_labels: vec![],
+                rest: None,
+            },
+            name: "<module>".to_owned(),
+            local_names: vec![],
+            source: SourceMapId(0),
+            semantics: SemanticPoolId(0),
+            spans: vec![],
+        };
+        let child = PortablePrototypeV1 {
+            owner: PrototypeOwnerV1::Nested {
+                parent: PrototypeId(1),
+                ordinal: 0,
+            },
+            code: vec![I::GetSelf {}, I::GetField { operand0: field_slot }, I::Return {}],
+            constants: vec![],
+            max_slots: 1,
+            arity: 0,
+            upvalues: vec![],
+            parameters: ParameterShapeV1 {
+                fixed_positionals: 0,
+                fixed_labels: vec![],
+                rest: None,
+            },
+            name: "field block".to_owned(),
+            local_names: vec![],
+            source: SourceMapId(0),
+            semantics: SemanticPoolId(0),
+            spans: vec![],
+        };
+        let mut image = empty_image();
+        image.prototypes = vec![root, body, child];
+        image.constants = constants;
+        let mut context = ExecutableValidationContext::default();
+        for name in class_names {
+            let declaration = StableDeclarationRef {
+                module: module.clone(),
+                path: vec![(*name).into()].into(),
+            };
+            context.class_declarations.insert(declaration.clone());
+            for side in [StableDispatchSide::Instance, StableDispatchSide::Class] {
+                let count = if (side == StableDispatchSide::Class) == is_static { field_count } else { 0 };
+                image.classes.push(PortableClassRecipeV1 {
+                    class: StableClassRefV1 {
+                        declaration: declaration.clone(),
+                        side,
+                    },
+                    allocation: PortableClassAllocationV1::SourceDeclared,
+                    superclass: None,
+                    metaclass: None,
+                    fields: if count == 0 {
+                        vec![]
+                    } else {
+                        vec![PortableFieldLayoutV1 {
+                            name: "field".to_owned(),
+                            slot: 0,
+                        }]
+                    },
+                    field_count: count,
+                    immutable_slots: vec![],
+                    native_repr: false,
+                    sealed: false,
+                    is_abstract: false,
+                });
+            }
+        }
+        (image, context)
+    }
+
+    #[test]
+    fn method_recipe_validates_flattened_body_parameter_slots() {
+        use phalcom_compiler_artifact::executable::constant::{ConstantRecipeV1, MethodSignatureKindV1};
+
+        let (mut image, _) = field_method_fixture(&[], false, 0, 0);
+        let ConstantRecipeV1::Method { recipe } = &mut image.constants[0] else {
+            panic!("fixture method recipe");
+        };
+        recipe.signature.selector = "combine(left,right)".to_owned();
+        recipe.signature.kind = MethodSignatureKindV1::Method { slots: 2 };
+        recipe.signature.positional_arity = 0;
+        image.prototypes[1].parameters.fixed_positionals = 2;
+
+        assert!(validate_method_recipes(&image).is_ok());
+
+        image.prototypes[1].parameters.fixed_positionals = 1;
+        assert!(matches!(
+            validate_method_recipes(&image),
+            Err(ExecutableValidationError::InvalidExecutableReference {
+                table: "method recipes",
+                detail,
+                ..
+            }) if detail.contains("frame parameters disagree")
+        ));
+    }
+
+    #[test]
+    fn method_installation_authorizes_nested_field_receiver() {
+        let (image, context) = field_method_fixture(&["Foo"], false, 0, 1);
+        validate_executable_provenance(&image, &context).unwrap();
+    }
+
+    #[test]
+    fn class_side_method_uses_static_portable_field_layout() {
+        let (image, context) = field_method_fixture(&["Foo"], true, 0, 1);
+        validate_executable_provenance(&image, &context).unwrap();
+    }
+
+    #[test]
+    fn enum_instruction_proves_exact_class_receiver_for_method_install() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+        use phalcom_compiler_artifact::executable::prototype::SemanticPoolId;
+        use phalcom_compiler_artifact::executable::semantic::{
+            PortableAdtRepresentationV1, PortableSemanticPoolV1, PortableEnumSpecV1,
+        };
+
+        let (mut image, mut context) = field_method_fixture(&["Foo"], true, 0, 1);
+        let declaration = image.classes[0].class.declaration.clone();
+        context.class_declarations.remove(&declaration);
+        context.enum_variants.insert(declaration.clone(), vec![]);
+        image.prototypes[0].code = vec![
+            I::Enum { operand0: 0 },
+            I::Constant { operand0: 1 },
+            I::Method {
+                operand0: 2,
+                operand1: true,
+            },
+            I::Return {},
+        ];
+        image.prototypes[0].semantics = SemanticPoolId(0);
+        image.semantic_pools = vec![PortableSemanticPoolV1 {
+            type_recipes: vec![],
+            kind_recipes: vec![],
+            enum_specs: vec![PortableEnumSpecV1 {
+                owner: declaration,
+                representation: PortableAdtRepresentationV1::TaggedHeap,
+                variants: vec![],
+            }],
+            variant_targets: vec![],
+            data_specs: vec![],
+            data_targets: vec![],
+            data_constructions: vec![],
+            anonymous_products: vec![],
+            call_environments: vec![],
+            associated_targets: vec![],
+            family_descriptors: vec![],
+            conditional_families: vec![],
+            family_operations: vec![],
+            family_candidate_sets: vec![],
+            trait_invocations: vec![],
+            trait_requirement_invocations: vec![],
+            type_parameter_class_receivers: vec![],
+            provenance: None,
+        }];
+
+        validate_executable_provenance(&image, &context).unwrap();
+    }
+
+    #[test]
+    fn data_instruction_proves_exact_class_receiver_for_method_install() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+        use phalcom_compiler_artifact::executable::prototype::SemanticPoolId;
+        use phalcom_compiler_artifact::executable::semantic::{PortableDataSpecV1, PortableSemanticPoolV1};
+
+        let (mut image, mut context) = field_method_fixture(&["Foo"], true, 0, 1);
+        let declaration = image.classes[0].class.declaration.clone();
+        context.class_declarations.remove(&declaration);
+        context.data_declarations.insert(declaration.clone());
+        image.prototypes[0].code = vec![
+            I::Data { operand0: 0 },
+            I::Constant { operand0: 1 },
+            I::Method {
+                operand0: 2,
+                operand1: true,
+            },
+            I::Return {},
+        ];
+        image.prototypes[0].semantics = SemanticPoolId(0);
+        image.semantic_pools = vec![PortableSemanticPoolV1 {
+            type_recipes: vec![],
+            kind_recipes: vec![],
+            enum_specs: vec![],
+            variant_targets: vec![],
+            data_specs: vec![PortableDataSpecV1 {
+                owner: declaration,
+                layout: None,
+                components: vec![],
+            }],
+            data_targets: vec![],
+            data_constructions: vec![],
+            anonymous_products: vec![],
+            call_environments: vec![],
+            associated_targets: vec![],
+            family_descriptors: vec![],
+            conditional_families: vec![],
+            family_operations: vec![],
+            family_candidate_sets: vec![],
+            trait_invocations: vec![],
+            trait_requirement_invocations: vec![],
+            type_parameter_class_receivers: vec![],
+            provenance: None,
+        }];
+
+        validate_executable_provenance(&image, &context).unwrap();
+    }
+
+    #[test]
+    fn scratch_local_release_preserves_exact_class_receiver_provenance() {
+        use phalcom_compiler_artifact::executable::instruction::PortableInstructionV1 as I;
+
+        let (mut image, context) = field_method_fixture(&["Foo"], false, 0, 1);
+        image.prototypes[0].code = vec![
+            I::Nil {},
+            I::Class { operand0: 0 },
+            I::ReserveScratchLocal { operand0: 0 },
+            I::ReleaseScratchLocal { operand0: 0 },
+            I::Constant { operand0: 1 },
+            I::Method {
+                operand0: 2,
+                operand1: false,
+            },
+            I::Return {},
+        ];
+
+        validate_executable_provenance(&image, &context).unwrap();
+    }
+
+    #[test]
+    fn unknown_method_installation_receiver_rejects_field_authority() {
+        let (mut image, context) = field_method_fixture(&["Missing"], false, 0, 1);
+        image.constants[0] = ConstantRecipeV1::Symbol { text: "Absent".to_owned() };
+        assert!(matches!(
+            validate_executable_provenance(&image, &context),
+            Err(ExecutableValidationError::UnknownMethodInstallationReceiver { body_prototype: Some(1), .. })
+        ));
+    }
+
+    #[test]
+    fn conflicting_method_installations_reject_shared_body() {
+        let (image, context) = field_method_fixture(&["Foo", "Bar"], false, 0, 1);
+        assert!(matches!(
+            validate_executable_provenance(&image, &context),
+            Err(ExecutableValidationError::ConflictingMethodInstallation { body_prototype: Some(1), .. })
+        ));
+    }
+
+    #[test]
+    fn field_slot_equal_to_field_count_is_rejected() {
+        let (image, context) = field_method_fixture(&["Foo"], false, 1, 1);
+        let result = validate_executable_provenance(&image, &context);
+        assert!(
+            matches!(result, Err(ExecutableValidationError::FieldSlotOutOfRange { slot: 1, field_count: 1, .. })),
+            "unexpected result: {result:?}"
+        );
+    }
 
     fn empty_image() -> ExecutableImageV1 {
         use phalcom_compiler_artifact::executable::{compatibility::ExecutableCompatibilityV1, module::PortableBootstrapPlanV1};

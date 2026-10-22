@@ -1319,4 +1319,30 @@ requested decision are in
 or source fallback was added. Next action: resolve that proof boundary, add
 focused ownership regressions, then resume the cached-artifact sequence. Strict
 parity, broad checks, materializer/runtime and allocation certification remain
-deferred. Changes are uncommitted and unpushed.
+deferred. At that continuation point, changes were uncommitted and unpushed.
+
+### P8.T3 installation-provenance continuation — 2026-10-22
+
+The consultation ruling is **PLAN ARCHITECTURE SOUND / IMPLEMENTATION GAP
+ONLY**. P8.T3 must derive field-layout authority from executable CFG/value
+provenance for reachable `Method`/`VariantMethod` installations and closure
+activation. Capture ownership, executable schema, and VM installation semantics
+remain unchanged. The consultation and implementation evidence are recorded in
+[`ARTF001.C1.P2.R4-source-free-field-ownership-incident.md`](ARTF001.C1.P2.R4-source-free-field-ownership-incident.md).
+
+The validator now separates structural field-operand checks from
+provenance-based receiver/layout authorization, tracks class/method/receiver
+provenance through CFG execution, derives method field contexts from proven
+installations, propagates closure contexts, and checks the actual receiver at
+field instructions. Capture also emits portable layouts for generated enum/data
+classes. The focused validator suite passed 12/12. The full-artifact SlotMap
+gate still fails during executable validation at prototype 89: its field
+receiver comes from `GetUpvalue(0)` and remains `Unknown`. This is the first
+failing phase; no successful full artifact has been written or loaded.
+
+P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
+Artifact load, artifact-backed user compilation, artifact VM bootstrap/runtime,
+fresh-process source-denied execution, parity, and allocation certification
+remain unverified. The source-mode SlotMap callable-metadata failure remains a
+separate unresolved blocker. Do not weaken field validation to advance the
+artifact gate.

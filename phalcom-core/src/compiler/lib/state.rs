@@ -96,6 +96,10 @@ pub(super) struct LoopContext {
     /// never-taken fallback closure's copy becomes a loud runtime error —
     /// never silently swallowed — should it somehow execute.
     pub(super) func_depth: usize,
+    /// Frame-local count established before this loop. Locals introduced by
+    /// an inlined loop body are removed before each back-edge/exit so repeated
+    /// iterations reuse the same activation slots.
+    pub(super) base_num_locals: usize,
     /// Chunk indices of `break` jumps, backpatched to the loop-exit label.
     pub(super) break_jumps: Vec<usize>,
     /// Chunk indices of `continue` jumps, backpatched to the cursor-step label.

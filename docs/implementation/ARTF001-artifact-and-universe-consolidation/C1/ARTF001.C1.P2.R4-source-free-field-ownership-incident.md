@@ -90,7 +90,8 @@ No consultation subagent was used.
   because direct validation has not passed.
 
 Strict parity, materializer/runtime tests, allocation certification and broad
-suites were deliberately deferred. All changes remain uncommitted and unpushed.
+suites were deliberately deferred. At this incident snapshot, changes remained
+uncommitted and unpushed.
 
 ## Next action after the ownership decision
 
@@ -100,3 +101,34 @@ allows the artifact to be written, reuse its bytes for runtime materialization
 work; rebuild only after capture, schema, linked authority, or artifact contents
 change. Semantic-pool reconstruction remains an expected later materializer gap;
 it has not been exercised or changed in this continuation.
+
+## Consultation resolution and implementation continuation — 2026-10-22
+
+**Consultation verdict: PLAN ARCHITECTURE SOUND / IMPLEMENTATION GAP ONLY.**
+The active P8.T3 plan already specifies the required CFG installation proof.
+Proceed with that proof before materialization or VM execution. Do not change
+`PrototypeOwnerV1`, the executable schema, capture-time owner assignment, or VM
+installation behavior. The authoritative field context is the source
+declaration plus portable dispatch side; for a class-side method it is the
+source class's `Class` layout, not its runtime metaclass holder.
+
+Implementation now includes conservative CFG value provenance for method
+recipes, class allocations, receiver values, method installations, closure
+activation, and field-opcode receivers. Structural operand checks remain
+whole-image; field authority is checked only from proven receiver/layout facts.
+The validator regression suite passed 12/12. The full artifact gate progressed
+past earlier failures but currently fails on an upvalue receiver. The exact
+latest failure is:
+
+```text
+Executable("prototype 89 instruction 1 has unknown receiver provenance for field slot 2: receiver provenance is Some(Unknown); owner Nested { parent: PrototypeId(88), ordinal: 0 }, name \"<closure>\", code around access [GetUpvalue { operand0: 0 }, GetField { operand0: 2 }]")
+```
+
+The first failing phase is executable validation during full Universe artifact
+construction. The intended cache path is
+`/tmp/artf001-p2r4-full-universe.telosc`; no successful artifact was created,
+so there is no artifact to load or reuse. Artifact-backed compilation, VM
+bootstrap, runtime execution, and fresh-process source-denied execution have
+not run. Continue by proving captured upvalue receiver provenance through the
+validated closure activation/capture relationship; preserve fail-closed
+behavior for unknown or conflicting authority.

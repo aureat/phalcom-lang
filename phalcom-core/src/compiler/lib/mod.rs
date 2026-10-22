@@ -913,6 +913,14 @@ impl<'vm> Compiler<'vm> {
                 // same-scope redeclaration of either kind (L-3/L-5).
                 let as_global = self.functions.last().unwrap().scope_depth == 0;
                 self.compile_pattern_bind_top_of_stack(&binding.pattern, mutable, as_global)?;
+                if !as_global {
+                    // Local binding copies the initializer into its frame
+                    // slot but leaves the evaluated value on the operand
+                    // stack. A binding statement has no value of its own;
+                    // discard that copy even for a tail `let` (which emits
+                    // Unit immediately after this statement).
+                    self.emit(Bytecode::Pop, range);
+                }
                 if !mutable {
                     if let (Pattern::Name { name, .. }, Some(facts)) = (&binding.pattern, facts) {
                         self.const_fact_scopes.last_mut().unwrap().insert(name.clone(), facts);

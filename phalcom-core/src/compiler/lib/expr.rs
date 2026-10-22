@@ -2789,7 +2789,7 @@ impl<'vm> Compiler<'vm> {
         for statement in node.body {
             self.compile_statement_with_pop_control(statement, true)?;
         }
-        self.end_scope(range);
+        self.end_scope_releasing_locals(range);
 
         let step = self.chunk_len();
         for b in spec.bindings.iter() {

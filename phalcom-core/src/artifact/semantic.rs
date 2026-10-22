@@ -78,8 +78,13 @@ pub(crate) fn project_semantic_pool(
         let product = project.anonymous_product(spec)?;
         project.output.anonymous_products.push(product);
     }
-    for index in 0..source.data_constructions.len() {
-        project.ensure_data_construction(&source.data_constructions[index])?;
+    // Data-construction operands are positional bytecode references. Preserve
+    // every source slot, including structurally equal recipes in distinct
+    // slots; nested family targets may reuse this prefix when their recipe is
+    // semantically identical.
+    for construction in &source.data_constructions {
+        let row = project.data_construction(construction)?;
+        project.output.data_constructions.push(row);
     }
 
     // Bytecode operands address source slots, including equal recipes in

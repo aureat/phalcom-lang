@@ -245,25 +245,45 @@ impl<'vm> Compiler<'vm> {
     ///
     /// The function-body scope is cleaned up by [`Bytecode::Return`], which
     /// truncates the whole frame window (see the VM's `Return`/`run_until`
-    /// handling). We therefore never `Pop` locals here — doing so would discard
-    /// the return value sitting on top of them (the calculator-getter bug). We
-    /// only emit [`Bytecode::CloseUpvalue`] for captured locals so their heap
-    /// cells are promoted (`Open` -> `Closed`) before the slot is reclaimed
-    /// ([ADR-0013](../../../docs/adr/accepted/0013-block-closure-upvalues.md)); the VM's
-    /// `Return` closes them again idempotently for the explicit-return path.
+    /// handling). Nested lexical scopes release their frame slots with
+    /// [`Bytecode::ReleaseScratchLocal`]; removing the slot in place preserves
+    /// any expression value above it. This also keeps inlined branch and loop
+    /// paths at the same frame height. The root scope still only closes
+    /// captured locals early, while `Return` handles the frame as a whole.
     pub(crate) fn end_scope(&mut self, range: SourceRange) {
+        self.end_scope_inner(range, false);
+    }
+
+    /// Ends a lexical body whose locals must leave the activation frame at
+    /// this point (for example, an inlined branch or loop body).
+    pub(crate) fn end_scope_releasing_locals(&mut self, range: SourceRange) {
+        self.end_scope_inner(range, true);
+    }
+
+    fn end_scope_inner(&mut self, range: SourceRange, release_locals: bool) {
         self.const_fact_scopes.pop();
         self.static_const_scopes.pop();
         let func = self.functions.last_mut().unwrap();
         func.scope_depth -= 1;
         let scope_depth = func.scope_depth;
         let mut to_close = Vec::new();
+        let mut to_release = Vec::new();
         while func.num_locals > 0 && func.locals[func.num_locals - 1].depth > scope_depth {
             func.num_locals -= 1;
+            let slot = func.num_locals as u16;
             let local = func.locals.pop().unwrap();
-            if local.is_captured {
-                to_close.push(func.num_locals as u16);
+            if release_locals {
+                // Nested lexical scopes and inlined loop bodies share the
+                // activation frame. Remove each dead slot in place so branch
+                // joins agree and repeated iterations can safely reuse the
+                // same local index.
+                to_release.push(slot);
+            } else if local.is_captured {
+                to_close.push(slot);
             }
+        }
+        for slot in to_release {
+            self.emit(Bytecode::ReleaseScratchLocal(slot), range);
         }
         for slot in to_close {
             self.emit(Bytecode::CloseUpvalue(slot), range);
