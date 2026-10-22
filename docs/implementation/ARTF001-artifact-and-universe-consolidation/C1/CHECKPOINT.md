@@ -1372,3 +1372,42 @@ do not yet complete `PortableSemanticPoolV1` materialization. P2.R4 remains
 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked. The two deferred
 `Module.metadata` diagnostics, full executable artifact production/load,
 source-free VM execution, parity and allocation certification remain open.
+
+### P2.R4 source-free semantic-pool relocation slice — 2026-10-22
+
+The preceding trait runtime/semantic boundary compiled successfully locally.
+The next materializer slice now relocates each validated
+`PortableSemanticPoolV1` into the `Chunk::executable_semantics` attached to
+its materialized callable instead of leaving the native side table empty.
+Relocation covers enum/data declarations, targets, data constructions,
+anonymous products, call environments and nested conformance slots, associated
+targets, family descriptors/candidates/conditional families, runtime trait
+invocations, trait-requirement invocations, type-parameter receivers, and
+portable type/kind recipes.
+
+`DataConstructionLoweringSpec.exact_type` is now explicitly source-owned
+metadata: source compilation stores `Some(bundle)`; source-free relocation
+stores `None` and uses the validated relocated `RuntimeTypeRecipe` directly.
+The VM preserves the existing source path when the bundle is present and no
+longer requires or fabricates a duplicate semantic metadata bundle for artifact
+execution.
+
+The portable trait-default execution flag is not trusted as independent
+authority. Executable validation derives the classification from the exact
+stable selected callable identity (requirement owner + selector + dispatch
+side) and rejects a mismatching bit. A focused unit regression covers exact
+identity plus selector, side, and data-component negative controls.
+
+The relocator deliberately fails closed for portable `Pack` type recipes
+because the current `RuntimeTypingOverlay` has no Pack node, and for portable
+named enum payloads because the current runtime `VariantShape` has no
+corresponding lowering form. No source fallback or name-based reconstruction
+was added. Source-defined nominal class recipes may expose a later ordering
+dependency if encountered before class initialization; that boundary remains
+unchanged until an actual validated artifact exercises it.
+
+This slice is committed on the remote branch but has not yet received a local
+compile/test discriminator. Do not run the long full-artifact gate until
+`cargo check -p phalcom-core --lib` and the focused artifact validator tests
+are green. P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains
+blocked.
