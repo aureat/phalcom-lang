@@ -80,10 +80,109 @@ fn remap_for_requirement(requirement: &mut crate::modules::semantic_lowering::Fo
     }
 }
 
+
+fn remap_data_construction(
+    construction: &mut Arc<crate::modules::semantic_lowering::DataConstructionLoweringSpec>,
+    pool_id: crate::typing::MetadataPoolId,
+) {
+    let construction = Arc::make_mut(construction);
+    construction.type_recipe = remap_runtime_type_recipe(construction.type_recipe, pool_id);
+}
+
+fn remap_invocation_target(
+    target: &mut crate::modules::semantic_lowering::ExecutableInvocationTarget,
+    pool_id: crate::typing::MetadataPoolId,
+) {
+    if let crate::modules::semantic_lowering::ExecutableInvocationTarget::DataConstructor { construction, .. } = target {
+        remap_data_construction(construction, pool_id);
+    }
+}
+
+fn remap_family_descriptor(
+    descriptor: &mut Arc<crate::modules::semantic_lowering::ExecutableFamilyDescriptor>,
+    pool_id: crate::typing::MetadataPoolId,
+) {
+    let descriptor = Arc::make_mut(descriptor);
+    for entry in descriptor.entries.iter_mut() {
+        match &mut entry.target {
+            crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral { target } => remap_invocation_target(target, pool_id),
+            crate::modules::semantic_lowering::ExecutableFamilyTarget::DataConstructor { construction, .. } => {
+                remap_data_construction(construction, pool_id);
+            }
+            crate::modules::semantic_lowering::ExecutableFamilyTarget::Singleton { .. }
+            | crate::modules::semantic_lowering::ExecutableFamilyTarget::VariantConstructor { .. } => {}
+        }
+    }
+}
+
+fn remap_family_candidates(
+    candidates: &mut [crate::modules::semantic_lowering::ExecutableFamilyCandidate],
+    pool_id: crate::typing::MetadataPoolId,
+) {
+    for candidate in candidates {
+        if let Some(target) = &mut candidate.target {
+            remap_invocation_target(target, pool_id);
+        }
+    }
+}
+
+fn remap_associated_data_recipes(
+    spec: &mut crate::modules::semantic_lowering::AssociatedLoweringSpec,
+    pool_id: crate::typing::MetadataPoolId,
+) {
+    use crate::modules::semantic_lowering::AssociatedLoweringSpec as A;
+    match spec {
+        A::ConstructData { construction, .. } | A::MakeDataConstructorThunk { construction, .. } => {
+            remap_data_construction(construction, pool_id);
+        }
+        A::InvokeResolvedAssociated { target, .. } | A::MakeResolvedBoundMethod { target } => {
+            remap_invocation_target(target, pool_id);
+        }
+        A::MakeAssociatedFamily { descriptor } => remap_family_descriptor(descriptor, pool_id),
+        A::DynamicInvoke { candidates } => remap_family_candidates(candidates, pool_id),
+        A::SingletonLoad { .. }
+        | A::ConstructVariant { .. }
+        | A::GetDataComponent { .. }
+        | A::GetDataProductSlot { .. }
+        | A::MakeVariantConstructorThunk { .. } => {}
+    }
+}
+
+fn remap_callable_reference_data_recipes(
+    spec: &mut crate::modules::semantic_lowering::CallableReferenceLoweringSpec,
+    pool_id: crate::typing::MetadataPoolId,
+) {
+    use crate::modules::semantic_lowering::CallableReferenceLoweringSpec as C;
+    match spec {
+        C::MakeResolvedBoundMethod { target } => remap_invocation_target(target, pool_id),
+        C::MakeDataConstructorThunk { construction, .. } => remap_data_construction(construction, pool_id),
+        C::MakeAssociatedFamily { descriptor } => remap_family_descriptor(descriptor, pool_id),
+        C::MakeBoundFamily { .. } | C::MakeTraitBoundMethod { .. } | C::MakeVariantConstructorThunk { .. } => {}
+    }
+}
+
+fn remap_family_application_data_recipes(
+    spec: &mut crate::modules::semantic_lowering::FamilyApplicationLoweringSpec,
+    pool_id: crate::typing::MetadataPoolId,
+) {
+    use crate::modules::semantic_lowering::FamilyApplicationLoweringSpec as F;
+    match spec {
+        F::Static { target: Some(target), .. } => remap_invocation_target(target, pool_id),
+        F::DynamicPack { candidates, .. } => remap_family_candidates(candidates, pool_id),
+        F::Static { target: None, .. } => {}
+    }
+}
+
 fn remap_lowering_metadata_pool(lowering: &mut crate::modules::semantic_lowering::ModuleLoweringSemantics, pool_id: crate::typing::MetadataPoolId) {
     for spec in lowering.anonymous_products.values_mut() {
         let spec = Arc::make_mut(spec);
         spec.type_recipe = remap_runtime_type_recipe(spec.type_recipe, pool_id);
+    }
+    for spec in lowering.associated.values_mut() {
+        remap_associated_data_recipes(spec, pool_id);
+    }
+    for spec in lowering.family_applications.values_mut() {
+        remap_family_application_data_recipes(spec, pool_id);
     }
     for recipe in lowering.call_environment_recipes.values_mut() {
         remap_call_environment_recipe(recipe, pool_id);
@@ -100,6 +199,7 @@ fn remap_lowering_metadata_pool(lowering: &mut crate::modules::semantic_lowering
         remap_trait_invocation(spec, pool_id);
     }
     for spec in lowering.callable_references.values_mut() {
+        remap_callable_reference_data_recipes(spec, pool_id);
         match spec {
             crate::modules::semantic_lowering::CallableReferenceLoweringSpec::MakeTraitBoundMethod { invocation } => {
                 remap_trait_invocation(invocation, pool_id);
@@ -126,11 +226,15 @@ fn remap_lowering_metadata_pool(lowering: &mut crate::modules::semantic_lowering
         let spec = Arc::make_mut(realization);
         remap_for_requirement(&mut spec.realization, pool_id);
         if let crate::modules::semantic_lowering::ContextualRealizationOperationLowering::Basis {
-            coefficient_one: Some(invocation),
+            basis_construction,
+            coefficient_one,
             ..
         } = &mut spec.operation
         {
-            remap_for_requirement(invocation, pool_id);
+            remap_data_construction(basis_construction, pool_id);
+            if let Some(invocation) = coefficient_one {
+                remap_for_requirement(invocation, pool_id);
+            }
         }
     }
 }
