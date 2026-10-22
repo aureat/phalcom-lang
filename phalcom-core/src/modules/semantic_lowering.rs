@@ -829,6 +829,7 @@ fn build_data_construction_spec(
     result_type: TypeId,
     arity: u8,
     argument_mapping: Option<Box<[u32]>>,
+    portable_runtime_type: Option<RuntimeTypeRef>,
 ) -> Result<Arc<DataConstructionLoweringSpec>, ProjectionError> {
     if contains_exact_case(&snapshot.store, result_type) {
         return Err(ProjectionError::OpenDataConstructionType {
@@ -894,10 +895,10 @@ fn build_data_construction_spec(
         .runtime_roots
         .first()
         .ok_or_else(|| ProjectionError::DataTypeMetadata("missing runtime data type root".to_string()))?;
-    let runtime_type = RuntimeTypeRef::Base {
+    let runtime_type = portable_runtime_type.unwrap_or(RuntimeTypeRef::Base {
         pool: crate::typing::MetadataPoolId(0),
         node: runtime_root.form,
-    };
+    });
     let type_recipe = if phalcom_semantic::checker::associated::contains_any_type_parameter(&snapshot.store, result_type) {
         RuntimeTypeRecipe::Template(runtime_type)
     } else {
@@ -2610,6 +2611,118 @@ pub fn anonymous_product_type_roots(module: &ModuleId, snapshot: &SemanticSnapsh
             }
         })
         .collect()
+}
+
+
+fn data_constructor_result_type(
+    snapshot: &SemanticSnapshot,
+    constructor: &DataConstructorId,
+    callable_type: TypeId,
+) -> Result<TypeId, ProjectionError> {
+    match snapshot.store.get(callable_type) {
+        TypeData::Callable(call) => Ok(call.return_type),
+        _ => snapshot
+            .data_semantics
+            .data_info(&constructor.owner)
+            .map(|info| info.constructor.result_type_template)
+            .ok_or_else(|| ProjectionError::MissingDataMetadata(constructor.owner.clone())),
+    }
+}
+
+fn collect_associated_data_construction_roots(
+    resolution: &AssociatedResolution,
+    snapshot: &SemanticSnapshot,
+    roots: &mut BTreeSet<TypeId>,
+) -> Result<(), ProjectionError> {
+    match &resolution.kind {
+        AssociatedResolutionKind::ExactValue {
+            member: AssociatedMemberId::DataConstructor(_),
+            value_type,
+        } => {
+            roots.insert(*value_type);
+        }
+        AssociatedResolutionKind::ExactCallable {
+            target: InvocationTargetId::DataConstructor(constructor),
+            callable_type,
+            ..
+        } => {
+            roots.insert(data_constructor_result_type(snapshot, constructor, *callable_type)?);
+        }
+        AssociatedResolutionKind::Family { members, .. } => {
+            for member in members.iter() {
+                let constructor = match (&member.member, &member.target) {
+                    (AssociatedMemberId::DataConstructor(constructor), _) => Some(constructor),
+                    (_, Some(InvocationTargetId::DataConstructor(constructor))) => Some(constructor),
+                    _ => None,
+                };
+                if let Some(constructor) = constructor {
+                    roots.insert(data_constructor_result_type(snapshot, constructor, member.value_type)?);
+                }
+            }
+        }
+        AssociatedResolutionKind::StaticInvoke {
+            target: InvocationTargetId::DataConstructor(_),
+            result_type,
+            ..
+        } => {
+            roots.insert(*result_type);
+        }
+        AssociatedResolutionKind::DynamicInvoke { candidates, .. } => {
+            for candidate in candidates.iter() {
+                if let Some(InvocationTargetId::DataConstructor(constructor)) = &candidate.target {
+                    roots.insert(data_constructor_result_type(snapshot, constructor, candidate.value_type)?);
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Returns every exact data-construction result type that executable lowering
+/// may materialize in this module. These roots are exported into the program's
+/// single RuntimePublic metadata bundle before lowering, so executable
+/// Canonical recipes never depend on source-only per-construction metadata.
+pub fn data_construction_type_roots(module: &ModuleId, snapshot: &SemanticSnapshot) -> Result<Vec<TypeId>, ProjectionError> {
+    let mut roots = BTreeSet::new();
+    for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == module) {
+        let _ = callable;
+        for resolution in analysis.associated_resolutions.values() {
+            collect_associated_data_construction_roots(resolution, snapshot, &mut roots)?;
+        }
+        for resolution in analysis.callable_reference_resolutions.values() {
+            if let CallableReferenceResolutionKind::Associated(associated) = &resolution.kind {
+                collect_associated_data_construction_roots(associated, snapshot, &mut roots)?;
+            }
+        }
+        for family in analysis.family_applications.values() {
+            match &family.selection {
+                FamilyApplicationSelection::Static {
+                    target: Some(InvocationTargetId::DataConstructor(constructor)),
+                    callable_type,
+                    ..
+                } => {
+                    roots.insert(data_constructor_result_type(snapshot, constructor, *callable_type)?);
+                }
+                FamilyApplicationSelection::Dynamic { candidates, .. } => {
+                    for candidate in candidates.iter() {
+                        if let Some(InvocationTargetId::DataConstructor(constructor)) = &candidate.target {
+                            roots.insert(data_constructor_result_type(snapshot, constructor, candidate.callable_type)?);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        for expression in analysis.expressions.values() {
+            if let Some(realization) = expression.contextual_realization.as_ref()
+                && let phalcom_semantic::checker::analysis::ContextualRealizationOperation::Basis { basis_type, .. } = &realization.operation
+            {
+                roots.insert(*basis_type);
+            }
+        }
+    }
+    Ok(roots.into_iter().collect())
 }
 
 fn project_slot_repr_type(ty: TypeId, store: &TypeStore) -> crate::product::ProductSlotRepr {
