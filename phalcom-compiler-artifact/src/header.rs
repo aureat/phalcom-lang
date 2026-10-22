@@ -12,6 +12,9 @@ pub const TELOSC_CONTAINER_SCHEMA_V2: u32 = 2;
 pub const TELOSC_MIN_READER_SCHEMA_V2: u32 = 2;
 
 pub const MODULE_SEMANTIC_ABI_V2: u32 = 2;
+/// Module semantic ABI v3 adds the canonical bootstrap schedule and complete
+/// post-bootstrap availability contract carried by ModuleWorldV4.
+pub const MODULE_SEMANTIC_ABI_V3: u32 = 3;
 /// Legacy query fingerprint ABI v2.
 pub const QUERY_FINGERPRINT_ABI_V2: u32 = 2;
 /// Query fingerprint ABI v3 includes physical product families in portable

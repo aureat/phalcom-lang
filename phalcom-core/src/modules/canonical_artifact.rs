@@ -8,14 +8,14 @@ use phalcom_compiler_artifact::digest::{
     ArtifactDigest, ArtifactHasher, DOMAIN_METADATA, DOMAIN_MODULE_WORLD, DOMAIN_QUERY_IMAGE, DOMAIN_SEMANTIC_WORLD, DOMAIN_SOURCE,
 };
 use phalcom_compiler_artifact::header::{
-    MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V3, SEMANTIC_ARTIFACT_ABI_V3, STABLE_IDENTITY_SCHEMA_V1, TELOSC_CONTAINER_SCHEMA_V2,
+    MODULE_SEMANTIC_ABI_V3, QUERY_FINGERPRINT_ABI_V3, SEMANTIC_ARTIFACT_ABI_V3, STABLE_IDENTITY_SCHEMA_V1, TELOSC_CONTAINER_SCHEMA_V2,
     TELOSC_MIN_READER_SCHEMA_V2, TeloscHeaderV2,
 };
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{METADATA_SECTION_SCHEMA_V1, MetadataPreflightLimits, MetadataSectionError, MetadataSectionV1};
 use phalcom_compiler_artifact::module_world::{
-    AvailabilityAuthorityV1, AvailabilityProductV1, AvailabilityTimingV1, MODULE_WORLD_SCHEMA_V3, ModuleWorldV3, TargetV1,
+    AvailabilityAuthorityV1, AvailabilityProductV1, AvailabilityTimingV1, ArtifactModuleId, MODULE_WORLD_SCHEMA_V4, ModuleWorldV4, TargetV1,
 };
 use phalcom_compiler_artifact::query::{QUERY_IMAGE_SCHEMA_V4, QueryImageV4};
 use phalcom_compiler_artifact::section::{SectionFlags, SectionKind};
@@ -303,8 +303,14 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
     let capabilities = TeloscCapabilities::compiler_only_v1();
 
     // 1. MODULE_WORLD
-    let module_world = phalcom_modules::compiler_artifact::project_executable_module_world(view.formal.modules(), view.linked, limits)
-        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    let module_world = phalcom_modules::compiler_artifact::project_executable_module_world_v4(
+        view.formal.modules(),
+        view.linked,
+        view.bootstrap_order,
+        view.availability_after_bootstrap,
+        limits,
+    )
+    .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
     let module_world_bytes = module_world
         .encode()
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
@@ -368,7 +374,7 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
         package_identity,
         semantic_model_version: SEMANTIC_MODEL_VERSION,
         stable_identity_schema: STABLE_IDENTITY_SCHEMA_V1,
-        module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
+        module_semantic_abi: MODULE_SEMANTIC_ABI_V3,
         semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V3,
         query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V3,
         native_surface_schema_version: NATIVE_SURFACE_SCHEMA_VERSION,
@@ -388,7 +394,7 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
     let mut builder = TeloscContainerBuilder::new(header);
     builder.add_section(
         SectionKind::ModuleWorld,
-        MODULE_WORLD_SCHEMA_V3,
+        MODULE_WORLD_SCHEMA_V4,
         SectionFlags::REQUIRED,
         module_world_bytes.clone(),
     );
@@ -458,7 +464,7 @@ pub fn build_full_universe_telosc(
     header.section_count = 5;
     let mut builder = TeloscContainerBuilder::new(header);
     for (kind, schema) in [
-        (SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V3),
+        (SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V4),
         (SectionKind::SemanticWorld, SEMANTIC_WORLD_SCHEMA_V4),
         (SectionKind::QueryImage, QUERY_IMAGE_SCHEMA_V4),
         (SectionKind::Metadata, METADATA_SECTION_SCHEMA_V1),
@@ -620,29 +626,31 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     validate_section_provenance(container.header(), module_world_sec, semantic_world_sec, query_image_sec, metadata_sec)?;
     record_loader_allocation_diagnostic_stage(0, allocations);
 
-    let module_world_v3 = ModuleWorldV3::decode_with_allocation_budget(module_world_sec, limits, allocations)?;
-    let availability = Arc::new(import_availability_contract(&module_world_v3)?);
+    let module_world_v4 = ModuleWorldV4::decode_with_allocation_budget(module_world_sec, limits, allocations)?;
     record_loader_allocation_diagnostic_stage(1, allocations);
-    let modules = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_world_v3.world, limits, allocations)?;
+    let modules =
+        phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_world_v4.previous.world, limits, allocations)?;
     record_loader_allocation_diagnostic_stage(2, allocations);
     #[cfg(test)]
     maybe_fail_after(LoaderTestBoundary::AfterModuleImport)?;
 
     let semantic_world_v4 = SemanticWorldV4::decode_with_allocation_budget(semantic_world_sec, limits, allocations)?;
-    module_world_v3.validate_execution_authority(&semantic_world_v4.module_execution_authority)?;
+    module_world_v4
+        .previous
+        .validate_execution_authority(&semantic_world_v4.module_execution_authority)?;
     record_loader_allocation_diagnostic_stage(3, allocations);
     let query_v4 = QueryImageV4::decode_with_allocation_budget(query_image_sec, limits, allocations)?;
     record_loader_allocation_diagnostic_stage(4, allocations);
     query_v4.validate(limits)?;
     record_loader_allocation_diagnostic_stage(5, allocations);
-    query_v4.validate_product_references(&module_world_v3.world, &semantic_world_v4)?;
+    query_v4.validate_product_references(&module_world_v4.previous.world, &semantic_world_v4)?;
     record_loader_allocation_diagnostic_stage(6, allocations);
     query_v4.validate_portable_structural_fingerprints_v4(&semantic_world_v4)?;
     record_loader_allocation_diagnostic_stage(7, allocations);
 
     let parts = validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget(
         semantic_world_v4,
-        &module_world_v3.world,
+        &module_world_v4.previous.world,
         modules.linked().universe.as_ref(),
         limits,
         allocations,
@@ -692,6 +700,8 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     let bundle_limits = phalcom_type_meta::ValidationLimits::default();
     let expected_package_digest = *container.header().package_identity.digest().as_bytes();
     let metadata_bundle = meta_v1.decode_bundle_with_allocation_budget(&preflight_limits, &bundle_limits, &expected_package_digest, allocations)?;
+    validate_bootstrap_availability_contract(&module_world_v4, &metadata_bundle)?;
+    let availability = import_bootstrap_availability_contract_with_budget(&module_world_v4, &modules, allocations)?;
     record_loader_allocation_diagnostic_stage(12, allocations);
     #[cfg(test)]
     maybe_fail_after(LoaderTestBoundary::AfterMetadataValidation)?;
@@ -705,7 +715,10 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     let metadata_bundle = allocations.arc(metadata_bundle).map_err(|error| allocation_error(error, transaction_limit))?;
     let executable = if let Some(bytes) = executable_sec {
         let executable_limits = ExecutableImageLimitsV1::default();
-        let image = Arc::new(ExecutableImageV1::decode(bytes, limits, &executable_limits, allocations)?);
+        let image = allocations
+            .arc(ExecutableImageV1::decode(bytes, limits, &executable_limits, allocations)?)
+            .map_err(|error| allocation_error(error, transaction_limit))?;
+        validate_executable_bootstrap_schedule(&module_world_v4, &image)?;
         Some(
             crate::artifact::validate::validate_executable_image(image, formal_image.linked(), &formal_image, &metadata_bundle, &executable_limits)
                 .map_err(|error| TeloscArtifactError::Executable(error.to_string()))?,
@@ -767,36 +780,269 @@ pub(crate) fn finish_loaded_universe_telosc(
     Ok(artifact)
 }
 
-fn import_availability_contract(module_world: &ModuleWorldV3) -> Result<phalcom_modules::AvailabilityContract, TeloscArtifactError> {
-    use phalcom_modules::{AvailabilityAuthority, AvailabilityProof, RuntimeRequirementProduct, RuntimeRequirementTarget, RuntimeRequirementTiming};
+fn availability_error(message: impl Into<String>) -> TeloscArtifactError {
+    TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(message.into()))
+}
 
-    let module_id = |id: phalcom_compiler_artifact::module_world::ArtifactModuleId| {
-        let stable = module_world
+fn has_bootstrap_proof(
+    module_world: &ModuleWorldV4,
+    module: ArtifactModuleId,
+    binding: Option<&str>,
+    product: AvailabilityProductV1,
+    authority: AvailabilityAuthorityV1,
+    available_at: AvailabilityTimingV1,
+) -> bool {
+    module_world.bootstrap_availability.iter().any(|proof| {
+        let target_matches = match (&proof.target, binding) {
+            (TargetV1::Module { module: candidate }, None) => *candidate == module,
+            (TargetV1::Binding { module: candidate, name }, Some(binding)) => *candidate == module && name == binding,
+            _ => false,
+        };
+        target_matches && proof.product == product && proof.authority == authority && proof.available_at == available_at
+    })
+}
+
+fn module_for_native_binding(module_world: &ModuleWorldV4, binding: &phalcom_native_meta::UniverseBinding) -> Option<ArtifactModuleId> {
+    let path = binding.key.source_path();
+    module_world
+        .previous
+        .world
+        .modules
+        .iter()
+        .position(|row| {
+            row.identity.path.len() == path.len()
+                && row
+                    .identity
+                    .path
+                    .iter()
+                    .zip(path.iter())
+                    .all(|(left, right)| left.as_ref() == *right)
+        })
+        .and_then(|index| u32::try_from(index).ok())
+        .map(ArtifactModuleId)
+}
+
+fn proof_targets_native_binding(module_world: &ModuleWorldV4, module: ArtifactModuleId, name: &str) -> bool {
+    phalcom_native_meta::UNIVERSE_BINDINGS.iter().any(|binding| {
+        binding.name == name && module_for_native_binding(module_world, binding).is_some_and(|candidate| candidate == module)
+    })
+}
+
+/// Cross-validates the complete reusable V4 contract against independent module
+/// slots, the native binding catalog, metadata roots and the transported
+/// bootstrap schedule. V3 requirement witnesses are intentionally not used as
+/// a source of reusable availability authority.
+fn validate_bootstrap_availability_contract(
+    module_world: &ModuleWorldV4,
+    metadata: &SemanticMetadataBundle,
+) -> Result<(), TeloscArtifactError> {
+    use phalcom_compiler_artifact::module_world::{
+        AvailabilityAuthorityV1 as Authority, AvailabilityProductV1 as Product, AvailabilityTimingV1 as Timing,
+    };
+
+    // Every transported proof must name a product independently justified by
+    // one of the canonical authorities.
+    for proof in &module_world.bootstrap_availability {
+        let (module, binding) = match &proof.target {
+            TargetV1::Module { module } => (*module, None),
+            TargetV1::Binding { module, name } => (*module, Some(name.as_str())),
+        };
+        let row = module_world
+            .previous
             .world
             .modules
-            .get(id.0 as usize)
-            .ok_or_else(|| TeloscArtifactError::Capability("availability witness module is absent"))?
-            .identity
-            .clone();
-        phalcom_semantic::metadata::stable_identity::from_stable_module(&stable)
-            .map_err(|error| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(error)))
-    };
-    let mut proofs = Vec::with_capacity(module_world.availability_witnesses.len());
-    for witness in &module_world.availability_witnesses {
-        let target = match &witness.target {
-            TargetV1::Module { module } => RuntimeRequirementTarget::Module(module_id(*module)?),
+            .get(module.0 as usize)
+            .ok_or_else(|| availability_error("bootstrap availability target module is absent"))?;
+        let is_local_global = |name: &str| row.globals.iter().any(|global| global.name == name);
+
+        let justified = match (&proof.authority, &proof.product, binding) {
+            (Authority::SemanticIdentityCatalog, Product::CanonicalIdentity, None) => true,
+            (Authority::SemanticIdentityCatalog, Product::CanonicalIdentity, Some(name)) => is_local_global(name),
+            (Authority::NativeModuleMaterialization, Product::RuntimeObject, None) => true,
+            (Authority::NativeBindingCatalog, Product::RuntimeObject, Some(name)) => proof_targets_native_binding(module_world, module, name),
+            (Authority::FullyInitializedUniverse, Product::RuntimeObject | Product::SourceInitializedValue, None) => {
+                module_world.bootstrap_modules.contains(&module)
+            }
+            (Authority::FullyInitializedUniverse, Product::SourceInitializedValue, Some(name)) => {
+                module_world.bootstrap_modules.contains(&module) && is_local_global(name)
+            }
+            (Authority::FullyInitializedUniverse, Product::MetadataDescriptor, None) => {
+                metadata.module_roots.iter().any(|root| root.module == row.identity)
+            }
+            _ => false,
+        };
+        if !justified {
+            return Err(availability_error(format!("bootstrap availability proof has no independent authority: {proof:?}")));
+        }
+    }
+
+    // Native floor completeness.
+    for (index, row) in module_world.previous.world.modules.iter().enumerate() {
+        let module = ArtifactModuleId(u32::try_from(index).map_err(|_| availability_error("module index exceeds u32"))?);
+        for (product, authority) in [
+            (Product::CanonicalIdentity, Authority::SemanticIdentityCatalog),
+            (Product::RuntimeObject, Authority::NativeModuleMaterialization),
+        ] {
+            if !has_bootstrap_proof(module_world, module, None, product, authority, Timing::BeforeSourceExecution) {
+                return Err(availability_error(format!("bootstrap availability is missing native-floor module proof for {:?}", row.identity)));
+            }
+        }
+        for global in &row.globals {
+            if !has_bootstrap_proof(
+                module_world,
+                module,
+                Some(&global.name),
+                Product::CanonicalIdentity,
+                Authority::SemanticIdentityCatalog,
+                Timing::BeforeSourceExecution,
+            ) {
+                return Err(availability_error(format!(
+                    "bootstrap availability is missing canonical identity proof for {:?}::{}",
+                    row.identity, global.name
+                )));
+            }
+        }
+    }
+
+    for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
+        let module = module_for_native_binding(module_world, binding)
+            .ok_or_else(|| availability_error(format!("native binding module is outside the closed module world: {:?}", binding.key)))?;
+        if !has_bootstrap_proof(
+            module_world,
+            module,
+            Some(binding.name),
+            Product::RuntimeObject,
+            Authority::NativeBindingCatalog,
+            Timing::BeforeSourceExecution,
+        ) {
+            return Err(availability_error(format!("bootstrap availability is missing native binding proof for {}", binding.name)));
+        }
+    }
+
+    // Post-bootstrap source/runtime completeness.
+    for module in &module_world.bootstrap_modules {
+        let row = module_world
+            .previous
+            .world
+            .modules
+            .get(module.0 as usize)
+            .ok_or_else(|| availability_error("bootstrap module is absent"))?;
+        for product in [Product::RuntimeObject, Product::SourceInitializedValue] {
+            if !has_bootstrap_proof(
+                module_world,
+                *module,
+                None,
+                product,
+                Authority::FullyInitializedUniverse,
+                Timing::AfterBootstrap,
+            ) {
+                return Err(availability_error(format!("bootstrap availability is missing post-bootstrap module proof for {:?}", row.identity)));
+            }
+        }
+        for global in &row.globals {
+            if !has_bootstrap_proof(
+                module_world,
+                *module,
+                Some(&global.name),
+                Product::SourceInitializedValue,
+                Authority::FullyInitializedUniverse,
+                Timing::AfterBootstrap,
+            ) {
+                return Err(availability_error(format!(
+                    "bootstrap availability is missing source-initialized binding proof for {:?}::{}",
+                    row.identity, global.name
+                )));
+            }
+        }
+    }
+
+    // Metadata roots are independent of whether the owning source initializer
+    // appears in the eager source-bootstrap schedule.
+    for root in metadata.module_roots.iter() {
+        let index = module_world
+            .previous
+            .world
+            .modules
+            .iter()
+            .position(|row| row.identity == root.module)
+            .ok_or_else(|| availability_error(format!("metadata root module is outside the closed module world: {:?}", root.module)))?;
+        let module = ArtifactModuleId(u32::try_from(index).map_err(|_| availability_error("module index exceeds u32"))?);
+        if !has_bootstrap_proof(
+            module_world,
+            module,
+            None,
+            Product::MetadataDescriptor,
+            Authority::FullyInitializedUniverse,
+            Timing::AfterBootstrap,
+        ) {
+            return Err(availability_error(format!("bootstrap availability is missing metadata descriptor proof for {:?}", root.module)));
+        }
+    }
+
+    Ok(())
+}
+
+fn live_module_id_with_budget(
+    module_world: &ModuleWorldV4,
+    modules: &phalcom_modules::CanonicalExternalModuleWorld,
+    id: ArtifactModuleId,
+    allocations: &mut AllocationBudget,
+) -> Result<phalcom_modules::ModuleId, TeloscArtifactError> {
+    let row = module_world
+        .previous
+        .world
+        .modules
+        .get(id.0 as usize)
+        .ok_or_else(|| availability_error("bootstrap availability module is absent"))?;
+    let live = modules
+        .linked()
+        .modules
+        .keys()
+        .find(|candidate| {
+            candidate.project.is_universe()
+                && candidate.path.components().len() == row.path.len()
+                && candidate
+                    .path
+                    .components()
+                    .iter()
+                    .zip(row.path.iter())
+                    .all(|(left, right)| left.as_str() == right)
+        })
+        .ok_or_else(|| availability_error("bootstrap availability module has no exact live identity"))?;
+    let transaction_limit = allocations.remaining().saturating_add(allocations.requested());
+    live.clone_with_allocation_budget(allocations)
+        .map_err(|error| allocation_error(error, transaction_limit))
+}
+
+fn import_bootstrap_availability_contract_with_budget(
+    module_world: &ModuleWorldV4,
+    modules: &phalcom_modules::CanonicalExternalModuleWorld,
+    allocations: &mut AllocationBudget,
+) -> Result<Arc<phalcom_modules::AvailabilityContract>, TeloscArtifactError> {
+    use phalcom_modules::{AvailabilityAuthority, AvailabilityProof, RuntimeRequirementProduct, RuntimeRequirementTarget, RuntimeRequirementTiming};
+
+    let transaction_limit = allocations.remaining().saturating_add(allocations.requested());
+    let mut proofs = allocations
+        .vector::<AvailabilityProof>(module_world.bootstrap_availability.len())
+        .map_err(|error| allocation_error(error, transaction_limit))?;
+
+    for wire in &module_world.bootstrap_availability {
+        let target = match &wire.target {
+            TargetV1::Module { module } => RuntimeRequirementTarget::Module(live_module_id_with_budget(module_world, modules, *module, allocations)?),
             TargetV1::Binding { module, name } => RuntimeRequirementTarget::Binding {
-                module: module_id(*module)?,
-                name: name.clone().into_boxed_str(),
+                module: live_module_id_with_budget(module_world, modules, *module, allocations)?,
+                name: allocations
+                    .boxed_str(name)
+                    .map_err(|error| allocation_error(error, transaction_limit))?,
             },
         };
-        let product = match witness.product {
+        let product = match wire.product {
             AvailabilityProductV1::CanonicalIdentity => RuntimeRequirementProduct::CanonicalIdentity,
             AvailabilityProductV1::MetadataDescriptor => RuntimeRequirementProduct::MetadataDescriptor,
             AvailabilityProductV1::RuntimeObject => RuntimeRequirementProduct::RuntimeObject,
             AvailabilityProductV1::SourceInitializedValue => RuntimeRequirementProduct::SourceInitializedValue,
         };
-        let authority = match witness.authority {
+        let authority = match wire.authority {
             AvailabilityAuthorityV1::SemanticIdentityCatalog => AvailabilityAuthority::SemanticIdentityCatalog,
             AvailabilityAuthorityV1::NativeBindingCatalog => AvailabilityAuthority::NativeBindingCatalog,
             AvailabilityAuthorityV1::NativeModuleMaterialization => AvailabilityAuthority::NativeModuleMaterialization,
@@ -804,7 +1050,7 @@ fn import_availability_contract(module_world: &ModuleWorldV3) -> Result<phalcom_
             AvailabilityAuthorityV1::CanonicalSourceInitializer => AvailabilityAuthority::CanonicalSourceInitializer,
             AvailabilityAuthorityV1::FullyInitializedUniverse => AvailabilityAuthority::FullyInitializedUniverse,
         };
-        let available_at = match witness.available_at {
+        let available_at = match wire.available_at {
             AvailabilityTimingV1::BeforeSourceExecution => RuntimeRequirementTiming::BeforeSourceExecution,
             AvailabilityTimingV1::DuringModuleInitializer => RuntimeRequirementTiming::DuringModuleInitializer,
             AvailabilityTimingV1::AfterBootstrap => RuntimeRequirementTiming::AfterBootstrap,
@@ -816,8 +1062,39 @@ fn import_availability_contract(module_world: &ModuleWorldV3) -> Result<phalcom_
             available_at,
         });
     }
-    Ok(phalcom_modules::AvailabilityContract::from_proofs(proofs))
+
+    let contract = phalcom_modules::AvailabilityContract::from_canonical_proofs(proofs).map_err(availability_error)?;
+    allocations
+        .arc(contract)
+        .map_err(|error| allocation_error(error, transaction_limit))
 }
+
+fn validate_executable_bootstrap_schedule(
+    module_world: &ModuleWorldV4,
+    image: &ExecutableImageV1,
+) -> Result<(), TeloscArtifactError> {
+    if module_world.bootstrap_modules.len() != image.bootstrap.eager_modules.len() {
+        return Err(TeloscArtifactError::Executable(
+            "executable eager bootstrap schedule length disagrees with ModuleWorldV4".into(),
+        ));
+    }
+    for (module, eager) in module_world.bootstrap_modules.iter().zip(image.bootstrap.eager_modules.iter()) {
+        let identity = &module_world
+            .previous
+            .world
+            .modules
+            .get(module.0 as usize)
+            .ok_or_else(|| TeloscArtifactError::Executable("ModuleWorldV4 bootstrap module is absent".into()))?
+            .identity;
+        if identity != &eager.module {
+            return Err(TeloscArtifactError::Executable(
+                "executable eager bootstrap schedule identity/order disagrees with ModuleWorldV4".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 
 /// Validate reader compatibility independently of digest integrity.
 fn validate_reader_header(header: &TeloscHeaderV2) -> Result<(), TeloscArtifactError> {
@@ -829,7 +1106,7 @@ fn validate_reader_header(header: &TeloscHeaderV2) -> Result<(), TeloscArtifactE
     for (kind, found, expected) in [
         ("semantic_model_version", header.semantic_model_version, SEMANTIC_MODEL_VERSION),
         ("stable_identity_schema", header.stable_identity_schema, STABLE_IDENTITY_SCHEMA_V1),
-        ("module_semantic_abi", header.module_semantic_abi, MODULE_SEMANTIC_ABI_V2),
+        ("module_semantic_abi", header.module_semantic_abi, MODULE_SEMANTIC_ABI_V3),
         ("semantic_artifact_abi", header.semantic_artifact_abi, SEMANTIC_ARTIFACT_ABI_V3),
         ("query_fingerprint_abi", header.query_fingerprint_abi, QUERY_FINGERPRINT_ABI_V3),
         (
@@ -1046,14 +1323,14 @@ mod temporary_loaded_publication_allocation_census {
         let metadata_bytes = parsed.require_section(SectionKind::Metadata).expect("METADATA section");
 
         let (module_dto_result, observed, signed) = measure_stage("B MODULE_WORLD DTO decode", &mut allocations, |budget| {
-            ModuleWorldV3::decode_with_allocation_budget(module_bytes, &limits, budget)
+            ModuleWorldV4::decode_with_allocation_budget(module_bytes, &limits, budget)
         });
         independent_total += observed;
         signed_stage_total += signed;
         let module_dto = module_dto_result.expect("MODULE_WORLD DTO decode must succeed");
 
         let (module_result, observed, signed) = measure_stage("C module native materialization", &mut allocations, |budget| {
-            phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_dto.world, &limits, budget)
+            phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_dto.previous.world, &limits, budget)
         });
         independent_total += observed;
         signed_stage_total += signed;
@@ -1074,7 +1351,7 @@ mod temporary_loaded_publication_allocation_census {
         let query_dto = query_dto_result.expect("QUERY_IMAGE DTO decode must succeed");
         query_dto.validate(&limits).expect("query_dto validate must succeed");
         query_dto
-            .validate_product_references(&module_dto, &semantic_dto)
+            .validate_product_references(&module_dto.previous.world, &semantic_dto)
             .expect("query_dto product references must succeed");
         query_dto
             .validate_portable_structural_fingerprints_v4(&semantic_dto)
@@ -1083,7 +1360,7 @@ mod temporary_loaded_publication_allocation_census {
         let (semantic_result, observed, signed) = measure_stage("E semantic native import", &mut allocations, |budget| {
             validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget(
                 semantic_dto,
-                &module_dto,
+                &module_dto.previous.world,
                 modules.linked().universe.as_ref(),
                 &limits,
                 budget,

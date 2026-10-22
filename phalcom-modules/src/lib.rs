@@ -32,7 +32,7 @@ pub use builtin::{UNIVERSE_NODES, UniverseNodeSpec, UniverseSourceProvider};
 pub use canonical_products::{CanonicalExternalModuleWorld, CanonicalModuleProducts};
 pub use compiler_artifact::{
     load_module_world, load_module_world_with_allocation_budget, load_module_world_with_project_catalog_and_allocation_budget,
-    project_executable_module_world, project_module_world, stage_artifact_project_authorities,
+    project_executable_module_world, project_executable_module_world_v4, project_module_world, stage_artifact_project_authorities,
 };
 pub use declaration::{DeclarationBlueprint, DeclarationId, DeclarationKind, DeclarationRealizationError, DeclarationShell, DeclarationShellTable, ShellState};
 pub use diagnostic::{ModuleDiagnostic, ModuleDiagnosticCode, ModuleDiagnosticKind};
