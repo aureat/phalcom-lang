@@ -284,6 +284,7 @@ record!(PortableTraitRequirementTargetV1 {
 record!(PortableTraitInvocationV1 {
     source_impl: StableImplRef,
     selection: PortableTraitSelectionTargetV1,
+    selection_is_trait_default: bool,
     requirement: PortableTraitRequirementV1,
     requirement_slot: u16,
     requirement_slots: Vec<PortableTraitRequirementSlotV1>,
