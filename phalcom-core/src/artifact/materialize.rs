@@ -34,11 +34,15 @@ pub(crate) fn bootstrap_vm(
     vm.materialize_universe_artifact_topology(&artifact.formal_image)
         .map_err(VmBootstrapError::Runtime)?;
     VM::install_native_runtime_on_artifact_topology(&mut vm, NativeInstallMode::DescriptorOnly)?;
+    crate::native::install::refresh_registered_primitive_origins_from_artifact(&mut vm, &executable.image().native_anchors)
+        .map_err(VmBootstrapError::Runtime)?;
     vm.install_semantic_metadata_bundle(Arc::clone(&artifact.metadata))
         .map_err(VmBootstrapError::Runtime)?;
     vm.materialize_universe_artifact_linkage(&artifact.formal_image)
         .map_err(VmBootstrapError::Runtime)?;
     ExecutableMaterializer::new(&mut vm, executable).install().map_err(VmBootstrapError::Runtime)?;
+    crate::native::install::install_source_owned_primitives_from_artifact(&mut vm, &executable.image().native_anchors)
+        .map_err(VmBootstrapError::Runtime)?;
     vm.bind_native_error_constructors();
     vm.bind_canonical_variant_aliases()?;
     vm.sync_universe_class_aliases()?;
