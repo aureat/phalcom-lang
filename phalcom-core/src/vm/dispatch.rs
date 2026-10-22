@@ -2469,7 +2469,9 @@ impl VM {
                         if let Some(sc_id) = superclass.as_obj() {
                             if self.heap.as_class(sc_id).is_some() {
                                 let closure_module = self.heap.closure(closure_id).module;
-                                let new_class = self.create_class(closure_module, &name, Some(sc_id));
+                                let new_class = self
+                                    .consume_artifact_preallocated_class(closure_module, name_sym, Some(sc_id))?
+                                    .unwrap_or_else(|| self.create_class(closure_module, &name, Some(sc_id)));
                                 let key = crate::vm::ClassKey {
                                     module: closure_module,
                                     name: name_sym,
