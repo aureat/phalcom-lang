@@ -3348,11 +3348,15 @@ The `fix/universe-semantic-source` continuation completed the bounded
 Universe-source diagnostic portion of R4. It is recorded separately from the
 larger artifact/session acceptance ledger because R4 itself remains open.
 
-At `5a68a1b6e`, the slice removed five unreachable `Future<T>` match arms,
-made the `Iterable.fold` requirement's callable generic explicit, and repaired
-generic associated-projection equality forwarding. The focused semantic target
-passed 8/8, the standalone `Module.packageInfo` unit test passed 1/1, and a
-fresh canonical Universe census passed with 48 classified residual rows.
+The slice started at `5a68a1b6edfbc22d94ec27b9a3ae0f3a4eef0539`; its semantic
+implementation commit is `a21aeb9d33b5f613eafd48e21457ac438b9502c3`. The
+previous delivery at `0206f2f6785f814252fc95a39f471f2caf35f02f` passed
+focused workflow run `39693098845`. Its semantic target passed 8/8, the
+standalone `Module.packageInfo` unit test passed 1/1, and a fresh canonical
+Universe census passed with 48 classified residual rows. The current
+continuation passes 11/11 Universe semantic regression tests locally and
+passes the standalone reflection regression 1/1; final focused workflow
+provenance is pending.
 
 The detailed evidence is in
 `ARTF001.C1.P2.R4-universe-semantic-source-walkthrough.md`; the takeover

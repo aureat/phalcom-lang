@@ -73,6 +73,15 @@ jobs:
           test -p phalcom-semantic --test semantic
           'semantic::integration::universe_diagnostics::'
           -- --nocapture
+      - name: Standalone Module.packageInfo regression
+        id: package_info
+        continue-on-error: true
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          test -p phalcom-core --lib
+          primitive::reflection::module_reflection_tests::standalone_module_package_info_is_none
+          -- --exact --nocapture
       - name: Require all focused checks
         if: always()
         run: |
@@ -81,3 +90,4 @@ jobs:
           test "${{ steps.option.outcome }}" = "success"
           test "${{ steps.result.outcome }}" = "success"
           test "${{ steps.universe.outcome }}" = "success"
+          test "${{ steps.package_info.outcome }}" = "success"

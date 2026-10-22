@@ -1,5 +1,5 @@
 use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
-use phalcom_semantic::{DiagnosticCode, SemanticWorkspaceSession};
+use phalcom_semantic::{DiagnosticCode, SemanticSnapshot, SemanticWorkspaceSession};
 use std::sync::Arc;
 
 fn analyze(source: &str) -> Arc<phalcom_semantic::SemanticSnapshot> {
@@ -17,6 +17,50 @@ fn analyze(source: &str) -> Arc<phalcom_semantic::SemanticSnapshot> {
         }])
         .expect("Universe diagnostic regression workspace publication")
         .snapshot
+}
+
+fn call_at_source<'a>(snapshot: &'a SemanticSnapshot, source: &str, call_text: &str) -> &'a phalcom_semantic::checker::analysis::ExpressionAnalysis {
+    let start = source.find(call_text).unwrap_or_else(|| panic!("missing call expression `{call_text}`"));
+    let end = start + call_text.len();
+    snapshot
+        .callable_analyses
+        .values()
+        .flat_map(|callable| callable.expressions.values())
+        .find(|expression| expression.range.start == start && expression.range.end == end)
+        .unwrap_or_else(|| panic!("missing semantic product for call `{call_text}` at {start}..{end}"))
+}
+
+fn projection_equality_source(where_item: &str, target_item: &str, extra_parameters: &str) -> String {
+    let type_parameters = if extra_parameters.is_empty() {
+        "I".to_owned()
+    } else {
+        format!("{extra_parameters}, I")
+    };
+    format!(
+        r#"
+trait ProbeIterable {{
+  type Item
+}}
+
+data ProbeChain<T>()
+impl<T> ProbeChain<T> {{
+  @class
+  fromIterable<I>(_ values: I) -> ProbeChain<T>
+    where I |= ProbeIterable, <I as ProbeIterable>::Item == T
+  {{ ProbeChain<T>() }}
+}}
+
+class ProbeEffects {{
+  @class
+  check<{type_parameters}>(source: I) -> Unit
+    where I |= ProbeIterable, <I as ProbeIterable>::Item == {where_item}
+  {{
+    let result = ProbeChain<{target_item}>.fromIterable(source)
+    ()
+  }}
+}}
+"#
+    )
 }
 
 #[test]
@@ -235,51 +279,88 @@ impl<T> ProbeIterable for ProbeChain<T> {
 }
 
 #[test]
-fn universe_higher_kinded_associated_equality_is_forwarded_structurally() {
-    let snapshot = analyze(
-        r#"
-trait ProbeIterable {
-  type Item
-}
+fn universe_higher_kinded_associated_equality_accepts_same_constructor_and_publishes_specialization() {
+    let source = projection_equality_source("F<A>", "F<A>", "F: Type -> Type, A");
+    let snapshot = analyze(&source);
+    let call_text = "ProbeChain<F<A>>.fromIterable(source)";
+    let call = call_at_source(&snapshot, &source, call_text);
 
-data ProbeChain<T>()
-impl<T> ProbeChain<T> {
-  @class
-  fromIterable<I>(_ values: I) -> ProbeChain<T>
-    where I |= ProbeIterable, <I as ProbeIterable>::Item == T
-  { ProbeChain<T>() }
-}
-
-class ProbeEffects {
-  @class
-  positive<F: Type -> Type, I, A>(_ source: I) -> Unit
-    where I |= ProbeIterable, <I as ProbeIterable>::Item == F<A>
-  {
-    let snapshot = ProbeChain<F<A>>.fromIterable(source)
-    ()
-  }
-
-  @class
-  negative<F: Type -> Type, G: Type -> Type, I, A>(_ source: I) -> Unit
-    where I |= ProbeIterable, <I as ProbeIterable>::Item == G<A>
-  {
-    let snapshot = ProbeChain<F<A>>.fromIterable(source)
-    ()
-  }
-}
-"#,
-    );
-
-    let equality_failures = snapshot
-        .all_diagnostics()
-        .filter(|diagnostic| diagnostic.code == DiagnosticCode::GenericConstraintUnsatisfied)
-        .count();
-    assert_eq!(
-        equality_failures, 1,
-        "the positive HKT equality must pass while the distinct-constructor negative control fails; diagnostics: {:#?}",
+    assert!(
+        !snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::GenericConstraintUnsatisfied),
+        "matching HKT projection equality must pass; diagnostics: {:#?}",
         snapshot.diagnostics
     );
-    assert!(snapshot.has_errors(), "the negative control must remain rejected: {:#?}", snapshot.diagnostics);
+    assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
+    assert!(call.call_specialization.is_some(), "accepted HKT call must publish specialization: {call:#?}");
+}
+
+#[test]
+fn universe_higher_kinded_associated_equality_rejects_distinct_constructor_at_target_call() {
+    let source = projection_equality_source("G<A>", "F<A>", "F: Type -> Type, G: Type -> Type, A");
+    let snapshot = analyze(&source);
+    let call_text = "ProbeChain<F<A>>.fromIterable(source)";
+    let call = call_at_source(&snapshot, &source, call_text);
+    let diagnostics = snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::GenericConstraintUnsatisfied)
+        .collect::<Vec<_>>();
+
+    assert_eq!(diagnostics.len(), 1, "expected one HKT equality rejection: {:#?}", snapshot.diagnostics);
+    assert_eq!(
+        diagnostics[0].primary_range, call.range,
+        "the diagnostic must identify the target call: {:#?}",
+        diagnostics[0]
+    );
+    assert!(
+        call.call_specialization.is_none(),
+        "rejected HKT call must not publish specialization: {call:#?}"
+    );
+}
+
+#[test]
+fn universe_scalar_associated_equality_accepts_matching_type_and_publishes_specialization() {
+    let source = projection_equality_source("Float", "Float", "");
+    let snapshot = analyze(&source);
+    let call_text = "ProbeChain<Float>.fromIterable(source)";
+    let call = call_at_source(&snapshot, &source, call_text);
+
+    assert!(
+        !snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::GenericConstraintUnsatisfied),
+        "matching scalar projection equality must pass; diagnostics: {:#?}",
+        snapshot.diagnostics
+    );
+    assert!(!snapshot.has_errors(), "diagnostics: {:#?}", snapshot.diagnostics);
+    assert!(
+        call.call_specialization.is_some(),
+        "accepted scalar call must publish specialization: {call:#?}"
+    );
+}
+
+#[test]
+fn universe_scalar_associated_equality_rejects_contradiction_at_target_call() {
+    let source = projection_equality_source("Int", "Float", "");
+    let snapshot = analyze(&source);
+    let call_text = "ProbeChain<Float>.fromIterable(source)";
+    let call = call_at_source(&snapshot, &source, call_text);
+    let diagnostics = snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::GenericConstraintUnsatisfied)
+        .collect::<Vec<_>>();
+
+    assert_eq!(diagnostics.len(), 1, "expected one scalar equality rejection: {:#?}", snapshot.diagnostics);
+    assert_eq!(
+        diagnostics[0].primary_range, call.range,
+        "the diagnostic must identify the target call: {:#?}",
+        diagnostics[0]
+    );
+    assert!(
+        call.call_specialization.is_none(),
+        "rejected scalar call must not publish specialization: {call:#?}"
+    );
 }
 
 

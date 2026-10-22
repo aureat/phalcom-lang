@@ -906,8 +906,14 @@ predecessor revision remains open.
 
 ### P2.R4 Universe semantic source-diagnostics closure — 2026-10-22
 
-The requested continuation ran on `fix/universe-semantic-source` after
-fast-forwarding from `origin/fix/universe-semantic-source` to `5a68a1b6e`.
+The requested continuation ran on `fix/universe-semantic-source`. The source
+correction started at `5a68a1b6edfbc22d94ec27b9a3ae0f3a4eef0539`, its
+substantive implementation is `a21aeb9d33b5f613eafd48e21457ac438b9502c3`,
+and its prior delivered tip was `0206f2f6785f814252fc95a39f471f2caf35f02f`.
+Focused workflow run `39693098845` passed on that prior tip. The current
+continuation strengthens projection-equality proof and adds the standalone
+reflection regression to CI; its final revision and workflow evidence will be
+recorded after the branch run completes.
 This is a bounded source-diagnostics correction slice; it does not close the
 larger P2.R4 artifact/session/runtime acceptance objective.
 
@@ -922,7 +928,9 @@ Implemented at this slice:
   compound type, then let lexical/structural generic evidence prove or reject
   that equality without inferring projection subjects backwards;
 - added focused positive/negative semantic regressions for the generic fold
-  witness and higher-kinded associated equality;
+  witness and higher-kinded associated equality; the combined HKT assertion
+  is being replaced by separate HKT and scalar cases with exact call-range and
+  specialization-publication assertions;
 - retained the standalone `Module.packageInfo` `None` unit regression.
 
 Current-head Universe census after the corrections:

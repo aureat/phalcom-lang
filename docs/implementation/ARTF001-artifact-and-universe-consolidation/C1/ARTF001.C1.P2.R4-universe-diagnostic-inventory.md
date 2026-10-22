@@ -13,9 +13,14 @@ No diagnostic was changed, suppressed, or fixed by this census. Each record stil
 ## Current-head closure census — 2026-10-22
 
 The 211-row table below is the initial discovery census and remains historical
-evidence. After implementing the bounded Universe-source correction slice on
-`fix/universe-semantic-source` at `5a68a1b6e`, a fresh canonical-image census
-reported **48 diagnostics**:
+evidence. After implementing the bounded Universe-source correction slice,
+whose starting revision was `5a68a1b6edfbc22d94ec27b9a3ae0f3a4eef0539` and
+substantive implementation commit was
+`a21aeb9d33b5f613eafd48e21457ac438b9502c3`, a fresh canonical-image census
+reported **48 diagnostics**. The prior delivered branch tip was
+`0206f2f6785f814252fc95a39f471f2caf35f02f`; its focused workflow run
+`39693098845` passed before the independent projection-equality proof cases
+were added:
 
 | Diagnostic code | Current count | Disposition |
 |---|---:|---|

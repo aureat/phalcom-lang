@@ -7,7 +7,10 @@ plan: ARTF001.C1.P2.R4
 status: COMPLETE
 completion: IMPLEMENTED
 verification: FOCUSED_TESTED
-revision: 5a68a1b6e
+starting_revision: 5a68a1b6edfbc22d94ec27b9a3ae0f3a4eef0539
+implementation_revision: a21aeb9d33b5f613eafd48e21457ac438b9502c3
+previous_delivered_tip: 0206f2f6785f814252fc95a39f471f2caf35f02f
+previous_focused_workflow_run: 39693098845
 branch: fix/universe-semantic-source
 ---
 
@@ -15,9 +18,12 @@ branch: fix/universe-semantic-source
 
 ## Inherited state
 
-The branch is `fix/universe-semantic-source` at `5a68a1b6e`, fetched from
-`origin/fix/universe-semantic-source`. The worktree contains the completed
-source-diagnostics slice and its focused records.
+The source-diagnostic correction started at
+`5a68a1b6edfbc22d94ec27b9a3ae0f3a4eef0539`. Its substantive implementation
+is `a21aeb9d33b5f613eafd48e21457ac438b9502c3`, and the previously delivered
+branch tip was `0206f2f6785f814252fc95a39f471f2caf35f02f`. The focused
+workflow run `39693098845` passed on that prior tip before the independent
+HKT/scalar proof cases and CI gate below were added.
 
 The worktree initially had a stale upstream configuration; it was corrected
 before delivery. The branch now tracks
@@ -54,6 +60,13 @@ RUSTFLAGS='' RUSTC_WRAPPER='' cargo +nightly-2026-07-10 test -p phalcom-core --l
 
 The temporary census probe used to collect the final count was removed from
 `phalcom-semantic/tests/semantic/integration/universe_diagnostics.rs`.
+
+The earlier HKT regression combined positive and negative cases and only
+counted one `GenericConstraintUnsatisfied` diagnostic. It did not identify
+which call failed or inspect specialization publication. The current
+continuation replaces it with separate HKT and scalar positive/negative tests
+that assert the exact call range and specialization state. Their final commit
+and workflow evidence are recorded after the focused branch run completes.
 
 ## Next work
 
