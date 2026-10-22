@@ -4698,6 +4698,10 @@ mod tests {
 
         let (mut image, context) = field_method_fixture(&["Foo"], true, 0, 1);
         image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
+        // Checked reads name their binding through the child's local
+        // constant table; keep the fixture valid at that structural boundary.
+        let name = *image.prototypes[0].constants.last().unwrap();
+        image.prototypes[2].constants = vec![name];
         image.prototypes[2].code = vec![I::GetUpvalueChecked { operand0: 0, operand1: 0 }, I::GetField { operand0: 0 }, I::Return {}];
         validate_executable_provenance(&image, &context).unwrap();
     }
@@ -4822,6 +4826,29 @@ mod tests {
         assert!(matches!(
             validate_executable_provenance(&image, &context),
             Err(ExecutableValidationError::UnknownFieldReceiver { prototype: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn conflicting_captured_values_do_not_select_first_activation() {
+        use phalcom_compiler_artifact::executable::prototype::UpvalueCaptureV1;
+        let (mut image, _) = field_method_fixture(&["Foo", "Bar"], false, 0, 1);
+        image.prototypes[2].upvalues = vec![UpvalueCaptureV1::Local(0)];
+        let mut activations = vec![None::<PrototypeActivationProvenance>; image.prototypes.len()];
+        let mut pending = std::collections::VecDeque::new();
+        for (index, declaration) in image.classes.iter().filter(|row| row.class.side == StableDispatchSide::Instance).enumerate() {
+            let incoming = PrototypeActivationProvenance {
+                receiver: ProvenanceFact::Unknown,
+                upvalues: vec![ProvenanceFact::Exact(RuntimeValueProvenance::ClassObject {
+                    declaration: declaration.class.declaration.clone(),
+                    allocation: AllocationIdentity::Constant(index),
+                })],
+            };
+            merge_activation(&mut activations, &mut pending, 2, incoming).unwrap();
+        }
+        assert!(matches!(
+            activations[2].as_ref().unwrap().upvalues[0],
+            ProvenanceFact::Conflict
         ));
     }
 
