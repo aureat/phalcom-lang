@@ -110,6 +110,24 @@ impl<'a> ExecutableMaterializer<'a> {
                 .state = crate::modules::registry::ModuleState::Initialized;
             self.vm.bind_canonical_variant_aliases().map_err(|error| internal(error.to_string()))?;
         }
+
+        let deferred = self
+            .image
+            .bootstrap
+            .deferred_modules
+            .iter()
+            .map(phalcom_semantic::metadata::stable_identity::from_stable_module)
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()
+            .map_err(internal)?;
+        for key in self.vm.artifact_preallocated_classes.keys() {
+            let module_id = &self.vm.heap.module(key.module).id;
+            if !deferred.contains(module_id) {
+                return Err(internal(format!(
+                    "artifact eager module {module_id} left preallocated class {} unconsumed",
+                    self.vm.resolve_symbol(key.name)
+                )));
+            }
+        }
         Ok(())
     }
 
