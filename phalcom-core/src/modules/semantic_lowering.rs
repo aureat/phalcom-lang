@@ -895,8 +895,12 @@ fn build_data_construction_spec(
         .runtime_roots
         .first()
         .ok_or_else(|| ProjectionError::DataTypeMetadata("missing runtime data type root".to_string()))?;
+    // Pool 0 is reserved here for roots owned by the program's persisted
+    // RuntimePublic metadata bundle. A source-only exact bundle is deliberately
+    // marked with an impossible placeholder so materialization cannot
+    // accidentally reinterpret its node index as a P7 node.
     let runtime_type = portable_runtime_type.unwrap_or(RuntimeTypeRef::Base {
-        pool: crate::typing::MetadataPoolId(0),
+        pool: crate::typing::MetadataPoolId(u32::MAX),
         node: runtime_root.form,
     });
     let type_recipe = if phalcom_semantic::checker::associated::contains_any_type_parameter(&snapshot.store, result_type) {
