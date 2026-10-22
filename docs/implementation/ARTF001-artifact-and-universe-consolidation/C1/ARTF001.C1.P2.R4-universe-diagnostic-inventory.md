@@ -20,7 +20,9 @@ substantive implementation commit was
 reported **48 diagnostics**. The prior delivered branch tip was
 `0206f2f6785f814252fc95a39f471f2caf35f02f`; its focused workflow run
 `39693098845` passed before the independent projection-equality proof cases
-were added:
+were added. Proof commit `bd4736743277da2dfd155e50120a48ab374b8e87` then
+passed focused workflow run `39713887081`, including HKT and scalar projection
+positive/negative cases and the standalone module reflection regression:
 
 | Diagnostic code | Current count | Disposition |
 |---|---:|---|

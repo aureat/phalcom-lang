@@ -10,7 +10,8 @@ verification: FOCUSED_TESTED
 starting_revision: 5a68a1b6edfbc22d94ec27b9a3ae0f3a4eef0539
 implementation_revision: a21aeb9d33b5f613eafd48e21457ac438b9502c3
 previous_delivered_tip: 0206f2f6785f814252fc95a39f471f2caf35f02f
-previous_focused_workflow_run: 39693098845
+proof_revision: bd4736743277da2dfd155e50120a48ab374b8e87
+proof_workflow_run: 39713887081
 branch: fix/universe-semantic-source
 ---
 
@@ -24,8 +25,9 @@ handoff. It does not close the larger P2.R4 artifact/session/runtime program.
 The work started from `5a68a1b6edfbc22d94ec27b9a3ae0f3a4eef0539`.
 The substantive semantic implementation is
 `a21aeb9d33b5f613eafd48e21457ac438b9502c3`. The prior delivery tip was
-`0206f2f6785f814252fc95a39f471f2caf35f02f`, and focused workflow run
-`39693098845` passed there before the added discriminating regressions.
+`0206f2f6785f814252fc95a39f471f2caf35f02f`. The added proof commit is
+`bd4736743277da2dfd155e50120a48ab374b8e87`, and workflow run `39713887081`
+passed on that commit.
 
 ## Implementation
 
@@ -83,8 +85,12 @@ Those warnings are outside this slice and were not repaired.
 The discriminating HKT/scalar regressions passed locally as part of the
 Universe semantic module target (11 passed, 0 failed). The standalone
 `Module.packageInfo` regression passed locally (1 passed, 0 failed) and is
-now included in the branch-specific CI aggregate gate. Final branch and
-workflow provenance is recorded after that workflow completes.
+included in the branch-specific CI aggregate gate. Workflow run
+`39713887081` passed all steps on proof commit
+`bd4736743277da2dfd155e50120a48ab374b8e87`: canonical parse/link 1/1,
+phase-aware cycle 1/1, enum native-root classification 1/1, Option regressions
+9/9, Result callback regressions 2/2, Universe diagnostics 11/11, and
+standalone `Module.packageInfo` 1/1.
 
 ## Deliberately deferred
 

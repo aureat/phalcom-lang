@@ -10,7 +10,8 @@ verification: FOCUSED_TESTED
 starting_revision: 5a68a1b6edfbc22d94ec27b9a3ae0f3a4eef0539
 implementation_revision: a21aeb9d33b5f613eafd48e21457ac438b9502c3
 previous_delivered_tip: 0206f2f6785f814252fc95a39f471f2caf35f02f
-previous_focused_workflow_run: 39693098845
+proof_revision: bd4736743277da2dfd155e50120a48ab374b8e87
+proof_workflow_run: 39713887081
 branch: fix/universe-semantic-source
 ---
 
@@ -21,9 +22,10 @@ branch: fix/universe-semantic-source
 The source-diagnostic correction started at
 `5a68a1b6edfbc22d94ec27b9a3ae0f3a4eef0539`. Its substantive implementation
 is `a21aeb9d33b5f613eafd48e21457ac438b9502c3`, and the previously delivered
-branch tip was `0206f2f6785f814252fc95a39f471f2caf35f02f`. The focused
-workflow run `39693098845` passed on that prior tip before the independent
-HKT/scalar proof cases and CI gate below were added.
+branch tip was `0206f2f6785f814252fc95a39f471f2caf35f02f`. The added proof
+commit is `bd4736743277da2dfd155e50120a48ab374b8e87`; focused workflow run
+`39713887081` passed on that commit. The earlier run `39693098845` remains
+historical evidence for the prior branch tip.
 
 The worktree initially had a stale upstream configuration; it was corrected
 before delivery. The branch now tracks
@@ -65,8 +67,8 @@ The earlier HKT regression combined positive and negative cases and only
 counted one `GenericConstraintUnsatisfied` diagnostic. It did not identify
 which call failed or inspect specialization publication. The current
 continuation replaces it with separate HKT and scalar positive/negative tests
-that assert the exact call range and specialization state. Their final commit
-and workflow evidence are recorded after the focused branch run completes.
+that assert the exact call range and specialization state. They passed as
+part of the focused workflow run recorded above.
 
 ## Next work
 

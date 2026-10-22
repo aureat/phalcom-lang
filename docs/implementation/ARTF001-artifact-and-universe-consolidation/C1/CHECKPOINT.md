@@ -910,10 +910,9 @@ The requested continuation ran on `fix/universe-semantic-source`. The source
 correction started at `5a68a1b6edfbc22d94ec27b9a3ae0f3a4eef0539`, its
 substantive implementation is `a21aeb9d33b5f613eafd48e21457ac438b9502c3`,
 and its prior delivered tip was `0206f2f6785f814252fc95a39f471f2caf35f02f`.
-Focused workflow run `39693098845` passed on that prior tip. The current
-continuation strengthens projection-equality proof and adds the standalone
-reflection regression to CI; its final revision and workflow evidence will be
-recorded after the branch run completes.
+The expanded proof commit is `bd4736743277da2dfd155e50120a48ab374b8e87`;
+focused workflow run `39713887081` passed on it. The earlier workflow run
+`39693098845` remains evidence for the prior tip.
 This is a bounded source-diagnostics correction slice; it does not close the
 larger P2.R4 artifact/session/runtime acceptance objective.
 
@@ -950,3 +949,9 @@ All 48 rows are classified; no unexpected or unclassified source diagnostic
 remains in this census. The complete current evidence is recorded in
 `ARTF001.C1.P2.R4-universe-semantic-source-walkthrough.md`, with the next
 handoff in `ARTF001.C1.P2.R4-universe-semantic-source-handoff.md`.
+
+The expanded focused workflow passed canonical parse/link (1/1), phase-aware
+type cycle (1/1), enum native-root classification (1/1), Option regressions
+(9/9), Result callback regressions (2/2), Universe diagnostics (11/11), and
+standalone `Module.packageInfo` (1/1). This verifies the source-diagnostic
+proof slice; P2.R4 remains open for artifact/session acceptance.
