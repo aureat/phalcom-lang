@@ -1,7 +1,11 @@
 //! Normalized compiler product and diagnostic parity verification (R.T5 / R.G5).
 
 use crate::modules::compile::{CompiledProgram, ProgramCompileError, ProgramSemanticDiagnostics};
-use crate::modules::semantic_lowering::{ForIterationLoweringSpec, ForIterationRequirementSpec};
+use crate::modules::semantic_lowering::{
+    AssociatedLoweringSpec, DataConstructionLoweringSpec, ExecutableFamilyCandidate, ExecutableFamilyDescriptor, ExecutableFamilyTarget,
+    ExecutableInvocationTarget, ForIterationLoweringSpec, ForIterationRequirementSpec,
+};
+use crate::typing::{LoadedSemanticMetadata, MetadataPoolId, RuntimeTypeRecipe, RuntimeTypeRef, RuntimeTypingRegistry, TypingContextData};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{DeclarationId, ModuleId};
 use phalcom_semantic::identity::ImplId;
@@ -17,6 +21,223 @@ fn format_set_difference<T: std::fmt::Debug + Ord>(src: &BTreeSet<T>, art: &BTre
         src.difference(art).collect::<Vec<_>>(),
         art.difference(src).collect::<Vec<_>>(),
     )
+}
+
+struct RuntimeTypeParity {
+    registry: RuntimeTypingRegistry,
+    context: TypingContextData,
+    source_pool: MetadataPoolId,
+    artifact_pool: MetadataPoolId,
+}
+
+impl RuntimeTypeParity {
+    fn new(source: &CompiledProgram, artifact: &CompiledProgram) -> Option<Self> {
+        let source_metadata = source.semantic_metadata.as_ref()?.clone();
+        let artifact_metadata = artifact.semantic_metadata.as_ref()?.clone();
+        let mut registry = RuntimeTypingRegistry::new();
+        let source_pool = registry.register_pool(LoadedSemanticMetadata::new(MetadataPoolId(0), source_metadata));
+        let artifact_pool = registry.register_pool(LoadedSemanticMetadata::new(MetadataPoolId(1), artifact_metadata));
+        let context = TypingContextData::new(Box::new([source_pool, artifact_pool]));
+        Some(Self {
+            registry,
+            context,
+            source_pool,
+            artifact_pool,
+        })
+    }
+
+    fn remap_program_local(&self, ty: RuntimeTypeRef, pool: MetadataPoolId) -> Option<RuntimeTypeRef> {
+        match ty {
+            RuntimeTypeRef::Base {
+                pool: MetadataPoolId(0),
+                node,
+            } => Some(RuntimeTypeRef::Base { pool, node }),
+            // Compiled lowering recipes are persisted against the program's
+            // metadata bundle and therefore must not contain VM-local overlay
+            // handles or references to any pre-existing runtime pool.
+            RuntimeTypeRef::Base { .. } | RuntimeTypeRef::Overlay(_) => None,
+        }
+    }
+
+    fn type_ref(&self, source: RuntimeTypeRef, artifact: RuntimeTypeRef) -> bool {
+        let Some(source) = self.remap_program_local(source, self.source_pool) else {
+            return false;
+        };
+        let Some(artifact) = self.remap_program_local(artifact, self.artifact_pool) else {
+            return false;
+        };
+        crate::typing::identity::equivalent(&self.context, &self.registry, source, artifact)
+    }
+
+    fn recipe(&self, source: RuntimeTypeRecipe, artifact: RuntimeTypeRecipe) -> bool {
+        match (source, artifact) {
+            (RuntimeTypeRecipe::Closed(source), RuntimeTypeRecipe::Closed(artifact))
+            | (RuntimeTypeRecipe::Template(source), RuntimeTypeRecipe::Template(artifact)) => self.type_ref(source, artifact),
+            _ => false,
+        }
+    }
+}
+
+fn data_construction_equivalent(
+    source: &DataConstructionLoweringSpec,
+    artifact: &DataConstructionLoweringSpec,
+    types: Option<&RuntimeTypeParity>,
+) -> bool {
+    source.constructor == artifact.constructor
+        && source.exact_type == artifact.exact_type
+        && source.layout == artifact.layout
+        && source.argument_to_component == artifact.argument_to_component
+        && source.component_to_logical == artifact.component_to_logical
+        && match types {
+            Some(types) => types.recipe(source.type_recipe, artifact.type_recipe),
+            None => source.type_recipe == artifact.type_recipe,
+        }
+}
+
+fn invocation_target_equivalent(
+    source: &ExecutableInvocationTarget,
+    artifact: &ExecutableInvocationTarget,
+    types: Option<&RuntimeTypeParity>,
+) -> bool {
+    match (source, artifact) {
+        (
+            ExecutableInvocationTarget::DataConstructor {
+                constructor: source_constructor,
+                construction: source_construction,
+            },
+            ExecutableInvocationTarget::DataConstructor {
+                constructor: artifact_constructor,
+                construction: artifact_construction,
+            },
+        ) => {
+            source_constructor == artifact_constructor
+                && data_construction_equivalent(source_construction, artifact_construction, types)
+        }
+        _ => source == artifact,
+    }
+}
+
+fn family_target_equivalent(
+    source: &ExecutableFamilyTarget,
+    artifact: &ExecutableFamilyTarget,
+    types: Option<&RuntimeTypeParity>,
+) -> bool {
+    match (source, artifact) {
+        (
+            ExecutableFamilyTarget::DataConstructor {
+                constructor: source_constructor,
+                construction: source_construction,
+            },
+            ExecutableFamilyTarget::DataConstructor {
+                constructor: artifact_constructor,
+                construction: artifact_construction,
+            },
+        ) => {
+            source_constructor == artifact_constructor
+                && data_construction_equivalent(source_construction, artifact_construction, types)
+        }
+        (
+            ExecutableFamilyTarget::Behavioral { target: source },
+            ExecutableFamilyTarget::Behavioral { target: artifact },
+        ) => invocation_target_equivalent(source, artifact, types),
+        _ => source == artifact,
+    }
+}
+
+fn family_descriptor_equivalent(
+    source: &ExecutableFamilyDescriptor,
+    artifact: &ExecutableFamilyDescriptor,
+    types: Option<&RuntimeTypeParity>,
+) -> bool {
+    source.entries.len() == artifact.entries.len()
+        && source.entries.iter().zip(artifact.entries.iter()).all(|(source, artifact)| {
+            source.operation == artifact.operation
+                && source.member_kind == artifact.member_kind
+                && family_target_equivalent(&source.target, &artifact.target, types)
+        })
+}
+
+fn family_candidate_equivalent(
+    source: &ExecutableFamilyCandidate,
+    artifact: &ExecutableFamilyCandidate,
+    types: Option<&RuntimeTypeParity>,
+) -> bool {
+    source.operation == artifact.operation
+        && match (&source.target, &artifact.target) {
+            (Some(source), Some(artifact)) => invocation_target_equivalent(source, artifact, types),
+            (None, None) => true,
+            _ => false,
+        }
+}
+
+fn associated_lowering_equivalent(
+    source: &AssociatedLoweringSpec,
+    artifact: &AssociatedLoweringSpec,
+    types: Option<&RuntimeTypeParity>,
+) -> bool {
+    match (source, artifact) {
+        (
+            AssociatedLoweringSpec::ConstructData {
+                constructor: source_constructor,
+                arity: source_arity,
+                construction: source_construction,
+            },
+            AssociatedLoweringSpec::ConstructData {
+                constructor: artifact_constructor,
+                arity: artifact_arity,
+                construction: artifact_construction,
+            },
+        ) => {
+            source_constructor == artifact_constructor
+                && source_arity == artifact_arity
+                && data_construction_equivalent(source_construction, artifact_construction, types)
+        }
+        (
+            AssociatedLoweringSpec::InvokeResolvedAssociated {
+                target: source_target,
+                arity: source_arity,
+            },
+            AssociatedLoweringSpec::InvokeResolvedAssociated {
+                target: artifact_target,
+                arity: artifact_arity,
+            },
+        ) => source_arity == artifact_arity && invocation_target_equivalent(source_target, artifact_target, types),
+        (
+            AssociatedLoweringSpec::MakeResolvedBoundMethod { target: source },
+            AssociatedLoweringSpec::MakeResolvedBoundMethod { target: artifact },
+        ) => invocation_target_equivalent(source, artifact, types),
+        (
+            AssociatedLoweringSpec::MakeDataConstructorThunk {
+                constructor: source_constructor,
+                operation: source_operation,
+                construction: source_construction,
+            },
+            AssociatedLoweringSpec::MakeDataConstructorThunk {
+                constructor: artifact_constructor,
+                operation: artifact_operation,
+                construction: artifact_construction,
+            },
+        ) => {
+            source_constructor == artifact_constructor
+                && source_operation == artifact_operation
+                && data_construction_equivalent(source_construction, artifact_construction, types)
+        }
+        (
+            AssociatedLoweringSpec::MakeAssociatedFamily { descriptor: source },
+            AssociatedLoweringSpec::MakeAssociatedFamily { descriptor: artifact },
+        ) => family_descriptor_equivalent(source, artifact, types),
+        (
+            AssociatedLoweringSpec::DynamicInvoke { candidates: source },
+            AssociatedLoweringSpec::DynamicInvoke { candidates: artifact },
+        ) => {
+            source.len() == artifact.len()
+                && source
+                    .iter()
+                    .zip(artifact.iter())
+                    .all(|(source, artifact)| family_candidate_equivalent(source, artifact, types))
+        }
+        _ => source == artifact,
+    }
 }
 
 #[derive(Default)]
@@ -238,6 +459,7 @@ fn normalize_for_iteration_spec(spec: &ForIterationLoweringSpec) -> NormalizedFo
 /// raw store IDs.
 pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -> ProgramParityReport {
     let mut report = ProgramParityReport::default();
+    let runtime_type_parity = RuntimeTypeParity::new(src, art);
 
     // 1. Entry logical module identity
     if normalize_module_id(&src.entry) != normalize_module_id(&art.entry) {
@@ -597,37 +819,25 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
         if src_mod.lowering.trait_requirement_invocations != art_mod.lowering.trait_requirement_invocations {
             report.differences.push(format!("Lowering trait requirement invocations mismatch for {:?}", id));
         }
-        // if src_mod.lowering.associated != art_mod.lowering.associated {
-        //     report.differences.push(format!("Lowering associated mismatch for {:?}", id));
-        // }
-        if src_mod.lowering.associated != art_mod.lowering.associated {
-            let source_only = src_mod
-                .lowering
-                .associated
-                .iter()
-                .filter(|(site, _)| !art_mod.lowering.associated.contains_key(*site))
-                .collect::<Vec<_>>();
-
-            let artifact_only = art_mod
-                .lowering
-                .associated
-                .iter()
-                .filter(|(site, _)| !src_mod.lowering.associated.contains_key(*site))
-                .collect::<Vec<_>>();
-
-            let changed = src_mod
-                .lowering
-                .associated
-                .iter()
-                .filter_map(|(site, source)| {
-                    let artifact = art_mod.lowering.associated.get(site)?;
-                    (source != artifact).then_some((site, source, artifact))
-                })
-                .collect::<Vec<_>>();
-
+        let source_associated_sites = src_mod.lowering.associated.keys().cloned().collect::<BTreeSet<_>>();
+        let artifact_associated_sites = art_mod.lowering.associated.keys().cloned().collect::<BTreeSet<_>>();
+        let changed_associated_sites = source_associated_sites
+            .intersection(&artifact_associated_sites)
+            .filter(|site| {
+                !associated_lowering_equivalent(
+                    &src_mod.lowering.associated[*site],
+                    &art_mod.lowering.associated[*site],
+                    runtime_type_parity.as_ref(),
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if source_associated_sites != artifact_associated_sites || !changed_associated_sites.is_empty() {
             report.differences.push(format!(
-                "Lowering associated mismatch for {:?}: source_only={:#?}, artifact_only={:#?}, changed={:#?}",
-                id, source_only, artifact_only, changed,
+                "Lowering associated mismatch for {:?}: sites={}, changed={:?}",
+                id,
+                format_set_difference(&source_associated_sites, &artifact_associated_sites),
+                changed_associated_sites,
             ));
         }
         if src_mod.lowering.bindings != art_mod.lowering.bindings {
