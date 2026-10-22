@@ -22,7 +22,10 @@ impl VM {
             .or_else(|| self.entry_module())
             .or_else(|| self.universe_module())
             .ok_or_else(|| RuntimeError::Internal(format!("data declaration module {} is not materialized", spec.owner.module)))?;
-        let class_id = self.create_class(module, &spec.owner.name, Some(self.universe.classes.object_class));
+        let name_sym = self.interner.intern(&spec.owner.name);
+        let class_id = self
+            .consume_artifact_preallocated_class(module, name_sym, Some(self.universe.classes.object_class))?
+            .unwrap_or_else(|| self.create_class(module, &spec.owner.name, Some(self.universe.classes.object_class)));
         self.heap.class_mut(class_id).native_repr = true;
         let class_id = self.data_registry.register_behavior_class(spec.owner.clone(), class_id);
 
