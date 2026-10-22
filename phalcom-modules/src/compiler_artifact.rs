@@ -1821,6 +1821,28 @@ mod package_entry_authority_tests {
     }
 
     #[test]
+    fn package_artifact_cannot_embed_a_second_project_owner() {
+        let owner = StableProjectRef::Package {
+            package: "actual".into(),
+            version: "1.0.0".into(),
+            artifact_fingerprint: Fingerprint128([1; 16]),
+        };
+        let mut wire = wire_with_entry_owner(owner.clone());
+        let mut foreign = wire.modules[0].clone();
+        foreign.identity.project = StableProjectRef::Package {
+            package: "dependency".into(),
+            version: "1.0.0".into(),
+            artifact_fingerprint: Fingerprint128([2; 16]),
+        };
+        wire.modules.push(foreign);
+        let header = TeloscPackageIdentity::Package { package: "actual".into(), version: "1.0.0".into() };
+        let error = stage_artifact_project_authorities(
+            &ProjectUniverse::new(), &wire, &header, ArtifactDigest([3; 32]), &NoPackageReceipts,
+        ).unwrap_err();
+        assert!(error.to_string().contains("embeds a foreign module owner"), "{error}");
+    }
+
+    #[test]
     fn artifact_header_cannot_claim_foreign_builtin_root() {
         let wire = wire_with_entry_owner(StableProjectRef::Builtin {
             namespace: "universe".into(),
