@@ -51,6 +51,11 @@ impl StagedTeloscCompilerWire {
         query_image.validate_portable_structural_fingerprints_v4(&semantic_world)?;
 
         let metadata = MetadataSectionV1::decode_with_allocation_budget(sections.metadata, limits, allocations)?;
+        if metadata.package_digest != *header.package_identity.digest().as_bytes() {
+            return Err(ArtifactError::from(ValidationError::IncompatibleWorld(
+                "metadata package digest does not match artifact header identity".into(),
+            )).into());
+        }
         Ok(Self { header, module_world, semantic_world, query_image, metadata })
     }
 
@@ -67,7 +72,7 @@ impl StagedTeloscCompilerWire {
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
     ) -> Result<CanonicalExternalModuleWorld, TeloscStagingError> {
-        if !matches!(self.header.package_identity, TeloscPackageIdentity::Package { .. }) {
+        if !matches!(&self.header.package_identity, TeloscPackageIdentity::Package { .. }) {
             return Err(ArtifactError::from(ValidationError::IncompatibleWorld(
                 "ordinary package module staging requires a package artifact identity".into(),
             )).into());
