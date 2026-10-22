@@ -1436,3 +1436,55 @@ The local compiler has not yet been rerun after these fixes. Continue with
 `cargo check -p phalcom-core --lib`; only after that is green rerun the focused
 artifact validator tests. The long full-artifact discriminator remains deferred.
 P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
+
+### P2.R4 artifact VM ordering and root-installation continuation — 2026-10-22
+
+The semantic-pool relocation boundary is locally green: `cargo check -p
+phalcom-core --lib` completed and the focused artifact validator suite now
+passes **23/23**. The added trait-default stable-identity regression is included
+in that count.
+
+Static continuation exposed three deterministic artifact-VM lifecycle gaps and
+corrects them without source fallback:
+
+1. **Nominal relocation before source-class allocation.** Portable semantic
+   pools are reconstructed while callable objects are materialized, before
+   module initializers run. A portable nominal type could therefore require a
+   source-owned `ClassId` that did not exist yet. The artifact installer now
+   preallocates validated source-owned instance classes in exact superclass
+   order after P7 declaration/layout authority is installed. These allocations
+   are keyed by exact `ClassKey { module, name }`, register the same stable
+   nominal binding, and are recorded in a one-shot artifact-only table.
+   `Bytecode::Class`, general enum registration, and data registration consume
+   only an exact preallocation and verify the initializer-requested superclass.
+   Ordinary source execution sees no preallocation entry and retains its
+   existing `create_class` behavior. A focused VM unit regression proves
+   exact-key reuse, superclass mismatch rejection without consumption, and
+   one-shot consumption.
+
+2. **Deferred module initializers.** Capture already records an initializer
+   prototype for every Universe module, but executable installation previously
+   attached closures only for eager modules. The installer now materializes and
+   attaches every validated module initializer up front while executing only the
+   canonical eager bootstrap order. Deferred modules remain `Prepared` with a
+   source-free executable closure available for later initialization. After the
+   eager pass, any unconsumed artifact class preallocation must belong to an
+   explicitly deferred module; an eager leftover is an invariant failure.
+
+3. **Semantic runtime roots.** Source bootstrap late-binds `unsupported`,
+   `ellipsis`, and the canonical `Ordering` class from exact Universe
+   exports. Artifact bootstrap previously left `VM::semantic_roots` absent.
+   The existing source binding has been factored into
+   `bind_semantic_roots_from_universe_exports` and both source and artifact
+   bootstrap now call that same identity projection after Universe module
+   execution. No Rust replacement singleton or source provider is introduced.
+
+The artifact preallocation map is GC-classified as duplicate bookkeeping only:
+every pending class is also retained by `VM::classes`, which remains the root
+authority. Class-side identity is still produced by the existing metaclass
+parallel rule; there is no second class-side allocation.
+
+This continuation is committed but has not yet received a local compile
+discriminator. Run only the core library check and the focused preallocation
+unit test before the long full-artifact SlotMap gate. P2.R4 remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
