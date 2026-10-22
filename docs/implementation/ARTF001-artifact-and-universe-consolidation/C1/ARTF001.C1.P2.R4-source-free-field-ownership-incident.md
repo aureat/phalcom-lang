@@ -132,3 +132,35 @@ bootstrap, runtime execution, and fresh-process source-denied execution have
 not run. Continue by proving captured upvalue receiver provenance through the
 validated closure activation/capture relationship; preserve fail-closed
 behavior for unknown or conflicting authority.
+
+## Remote P8.T3 upvalue-provenance implementation slice — 2026-10-22
+
+Remote `feat/artifact-universe-consolidation` receives three focused commits:
+
+- `cae2a50b4` — activation provenance now carries separate receiver authority and captured upvalue values; `GetUpvalue` and `GetUpvalueChecked` use captured values, not a method holder or lexical-class guess. `Local` resolves against the actual parent's abstract slot at the creating `Closure` instruction; `Upvalue` forwards the parent's captured value.
+- `20cecea6d` — focused regressions for instance/class-side captured receivers, forwarded captures, unknown and mutated cells, and out-of-range field slots.
+- `0004cbf24` — `Closure` rejects a template whose nested owner does not identify the executing parent, preventing forged parent-frame capture authority; regression added.
+
+This is a **bounded, unverified implementation slice**. No cargo tests, full-artifact test, CI action, or remote build has been run. The GitHub file integration cannot execute `cargo check`; the implementer requested local tests. The previous prototype 89 failure remains **pending revalidation** and must not be marked fixed solely because the transfer rule was added.
+
+The mutable capture guard conservatively drops exact provenance if the creating frame can write the captured local after closure creation, if the closure creation is cyclic, if scratch-slot rearrangement can invalidate the local, or if any nested closure sharing the cell can execute `SetUpvalue`. A per-prototype join requires agreement across every observed activation. This does **not** change `PrototypeOwnerV1`, executable wire schemas, P7 stable identities, VM installation, or source fallback policy.
+
+Local gate order:
+
+```sh
+RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' \
+cargo check -p phalcom-core --lib
+
+RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' \
+cargo test -p phalcom-core --lib artifact::validate::tests:: -- --nocapture
+
+PHALCOM_TEST_FULL_TELOSC_PATH=/tmp/artf001-p2r4-full-universe.telosc \
+RUSTUP_TOOLCHAIN=nightly-2026-07-10 RUSTFLAGS='' RUSTC_WRAPPER='' \
+cargo test -p phalcom-core --test core \
+  modules_canonical_artifact::artifact_executable_bootstraps_and_runs_slotmap_without_universe_compilation \
+  -- --exact --nocapture --test-threads=1
+```
+
+If compilation fails, correct the concrete compiler error before running the 100+-second full-artifact gate. If the full test fails, record the **first actual failure** with prototype, capture descriptor, creation-site parent state, runtime receiver and branch head; do not add speculative P7 authority. Two deferred `Module.metadata` semantic diagnostics and all unexercised source-free runtime/parity gates remain open.
+
+Lifecycle: P2.R4 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` (existing prior evidence only); P3 `BLOCKED`.
