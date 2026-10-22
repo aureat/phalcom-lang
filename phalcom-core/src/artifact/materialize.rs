@@ -176,7 +176,120 @@ impl<'a> ExecutableMaterializer<'a> {
                 },
             );
         }
+
+        // Portable semantic recipes are relocated while callables are built,
+        // before any module initializer executes. Preallocate every validated
+        // source-owned nominal now so those recipes resolve exact ClassIds.
+        self.preallocate_source_classes()?;
         Ok(())
+    }
+
+    fn preallocate_source_classes(&mut self) -> PhResult<()> {
+        use std::collections::BTreeSet;
+
+        let declarations = self
+            .image
+            .classes
+            .iter()
+            .filter(|recipe| {
+                recipe.class.side == StableDispatchSide::Instance
+                    && matches!(recipe.allocation, PortableClassAllocationV1::SourceDeclared)
+            })
+            .map(|recipe| recipe.class.declaration.clone())
+            .collect::<Vec<_>>();
+        let mut active = BTreeSet::new();
+        for declaration in declarations {
+            self.preallocate_source_class(&declaration, &mut active)?;
+        }
+        Ok(())
+    }
+
+    fn preallocate_source_class(
+        &mut self,
+        declaration: &phalcom_type_meta::identity::StableDeclarationRef,
+        active: &mut std::collections::BTreeSet<phalcom_type_meta::identity::StableDeclarationRef>,
+    ) -> PhResult<crate::heap::ClassId> {
+        if let Some(class) = self.vm.typing_registry.resolve_nominal(declaration) {
+            return Ok(class);
+        }
+        if !active.insert(declaration.clone()) {
+            return Err(internal(format!("artifact source class preallocation cycle at {declaration:?}")));
+        }
+
+        let recipe = self
+            .image
+            .classes
+            .iter()
+            .find(|recipe| {
+                recipe.class.declaration == *declaration
+                    && recipe.class.side == StableDispatchSide::Instance
+                    && matches!(recipe.allocation, PortableClassAllocationV1::SourceDeclared)
+            })
+            .cloned()
+            .ok_or_else(|| internal(format!("artifact source class recipe {declaration:?} is absent")))?;
+
+        let declaration_id = phalcom_semantic::metadata::stable_identity::from_stable_declaration(declaration).map_err(internal)?;
+        let module = self
+            .vm
+            .module_registry
+            .get(&declaration_id.module)
+            .ok_or_else(|| internal(format!("artifact class owner module {} is absent", declaration_id.module)))?
+            .object;
+        let superclass = recipe
+            .superclass
+            .as_ref()
+            .map(|superclass| self.preallocate_class_reference(superclass, active))
+            .transpose()?;
+
+        let name = declaration_id.name.to_string();
+        let class = self.vm.preallocate_artifact_class(module, &name, superclass)?;
+        {
+            let runtime = self.vm.heap.class_mut(class);
+            runtime.native_repr = recipe.native_repr;
+            runtime.is_abstract = recipe.is_abstract;
+        }
+
+        let key = ClassKey {
+            module,
+            name: self.vm.interner.intern(&name),
+        };
+        if recipe.sealed {
+            self.vm.sealed_classes.insert(key, module);
+        }
+        if let (Some(parent), Some(parent_class)) = (recipe.superclass.as_ref(), superclass)
+            && parent_class != self.vm.universe.classes.object_class
+        {
+            let parent_id = phalcom_semantic::metadata::stable_identity::from_stable_declaration(&parent.declaration).map_err(internal)?;
+            let parent_module = self
+                .vm
+                .module_registry
+                .get(&parent_id.module)
+                .ok_or_else(|| internal(format!("artifact superclass owner module {} is absent", parent_id.module)))?
+                .object;
+            let parent_key = ClassKey {
+                module: parent_module,
+                name: self.vm.interner.intern(&parent_id.name),
+            };
+            self.vm.class_parents.insert(key, parent_key);
+        }
+
+        active.remove(declaration);
+        Ok(class)
+    }
+
+    fn preallocate_class_reference(
+        &mut self,
+        reference: &StableClassRefV1,
+        active: &mut std::collections::BTreeSet<phalcom_type_meta::identity::StableDeclarationRef>,
+    ) -> PhResult<crate::heap::ClassId> {
+        let base = match self.vm.typing_registry.resolve_nominal(&reference.declaration) {
+            Some(class) => class,
+            None => self.preallocate_source_class(&reference.declaration, active)?,
+        };
+        Ok(match reference.side {
+            StableDispatchSide::Instance => base,
+            StableDispatchSide::Class => self.vm.heap.class(base).class,
+        })
     }
 
     fn materialize_closure(
