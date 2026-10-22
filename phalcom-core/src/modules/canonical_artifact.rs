@@ -802,7 +802,7 @@ fn has_bootstrap_proof(
     })
 }
 
-fn module_for_native_binding(module_world: &ModuleWorldV4, binding: &phalcom_native_meta::UniverseBinding) -> Option<ArtifactModuleId> {
+fn module_for_native_binding(module_world: &ModuleWorldV4, binding: &phalcom_native_meta::UniverseBindingSpec) -> Option<ArtifactModuleId> {
     let path = binding.key.source_path();
     module_world
         .previous
@@ -1006,7 +1006,7 @@ fn live_module_id_with_budget(
                     .components()
                     .iter()
                     .zip(row.path.iter())
-                    .all(|(left, right)| left.as_str() == right)
+                    .all(|(left, right)| left.as_str() == right.as_str())
         })
         .ok_or_else(|| availability_error("bootstrap availability module has no exact live identity"))?;
     let transaction_limit = allocations.remaining().saturating_add(allocations.requested());
