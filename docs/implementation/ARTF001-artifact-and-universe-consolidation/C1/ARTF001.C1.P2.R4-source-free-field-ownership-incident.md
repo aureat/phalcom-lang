@@ -164,3 +164,12 @@ cargo test -p phalcom-core --test core \
 If compilation fails, correct the concrete compiler error before running the 100+-second full-artifact gate. If the full test fails, record the **first actual failure** with prototype, capture descriptor, creation-site parent state, runtime receiver and branch head; do not add speculative P7 authority. Two deferred `Module.metadata` semantic diagnostics and all unexercised source-free runtime/parity gates remain open.
 
 Lifecycle: P2.R4 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` (existing prior evidence only); P3 `BLOCKED`.
+
+### CFG mutation-reachability hardening (same unverified slice)
+
+Additional remote commits:
+
+- `2630efb1a` — replace textual-index comparisons with reachable CFG successor traversal when searching for post-capture local writes. This rejects a backward branch that mutates a captured local after `Closure` without revisiting the creation instruction. A focused negative regression covers that topology.
+- `6cc21742e` — remove an unused parent binding after the CFG refactor.
+
+The full artifact, Rust compile checks and regressions remain **unrun**. The proposed upvalue transfer is not claimed to resolve prototype 89 until the local gate proves its captured producer and mutation constraints permit exact authority. Continue with the exact local gate commands above and report the first compiler error or executable validation failure.
