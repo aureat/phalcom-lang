@@ -288,7 +288,7 @@ fn test_decision_engine_pure_cases() {
                 constructor: ctor_id.clone(),
                 construction: Arc::new(phalcom_core::modules::semantic_lowering::DataConstructionLoweringSpec {
                     constructor: ctor_id,
-                    exact_type: bundle,
+                    exact_type: Some(bundle),
                     type_recipe: phalcom_core::typing::RuntimeTypeRecipe::Closed(phalcom_core::typing::RuntimeTypeRef::Base {
                         pool: phalcom_core::typing::MetadataPoolId(0),
                         node: phalcom_type_meta::type_node::TypeNodeId(0),
