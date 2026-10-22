@@ -220,3 +220,43 @@ This downstream slice is **not compile-verified yet** and does not yet install
 projection and the remaining portable side-table relocation are deliberately
 left for the next bounded slice after compilation of this boundary is confirmed.
 P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
+
+## Source-free semantic side-table relocation continuation — 2026-10-22
+
+The prior runtime/semantic trait split was compile-verified locally. The next
+bounded continuation now reconstructs the validated portable semantic pool
+during executable callable materialization. `materialize_callable` assigns
+the relocated pool to `Chunk::executable_semantics`; artifact execution no
+longer proceeds with an empty semantic side table.
+
+Data construction now has an explicit dual boundary. Source lowering retains
+its private exact metadata bundle as `Some(bundle)` only long enough to
+project durable type identity. Artifact relocation sets that field to `None`
+and restores the validated portable runtime type recipe against the installed
+P7 typing registry. VM descriptor binding consumes the relocated recipe
+directly in that path. No metadata bundle is synthesized from source, class
+names, or runtime values.
+
+Portable type/kind recipes are relocated by canonical structural digest or by
+constructing bounded runtime overlay nodes. Stable semantic identities are
+converted through the existing strict Universe stable-identity adapters.
+Call-environment and trait rows preserve positional bytecode addressing. The
+conditional-family fallback global constant reference is mapped back only
+through the materialized prototype's explicit constant table.
+
+The persisted `selection_is_trait_default` bit is now validated from exact
+stable callable identity before execution authority is granted. A forged bit
+cannot enable trait-default requirement-slot installation. The focused pure
+identity regression proves exact owner/selector/side acceptance and rejects
+selector, dispatch-side, and data-component mismatches.
+
+Known explicit stops remain: a portable Pack recipe has no current runtime
+overlay representation, and a portable named enum payload has no current
+`VariantShape` representation; both fail closed. The possible ordering
+dependency for source-defined nominal class recipes is intentionally not
+worked around speculatively.
+
+This continuation is not yet locally compile-verified. The next discriminator
+is the core library check followed by the focused artifact validator suite.
+The full artifact gate remains deferred until those are green. P2.R4 remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked.
