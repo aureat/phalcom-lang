@@ -2929,7 +2929,7 @@ fn project_associated_resolution(
                         .data_info(&dc.owner)
                         .ok_or_else(|| ProjectionError::MissingDataMetadata(dc.owner.clone()))?;
                     let arity = u8::try_from(dinfo.components.len()).map_err(|_| ProjectionError::ArityOverflow(dinfo.components.len()))?;
-                    let construction = build_data_construction_spec(snapshot, projects, dc, *value_type, arity, None)?;
+                    let construction = build_data_construction_spec(snapshot, projects, dc, *value_type, arity, None, runtime_data_type_roots.get(value_type).copied())?;
                     AssociatedLoweringSpec::ConstructData {
                         constructor: dc.clone(),
                         arity,
@@ -2961,7 +2961,7 @@ fn project_associated_resolution(
                     operation: variant_constructor_operation(snapshot, &vc.variant)?,
                 },
                 InvocationTargetId::DataConstructor(dc) => {
-                    let target = project_data_constructor_target(snapshot, projects, dc, *callable_type, None)?;
+                    let target = project_data_constructor_target(snapshot, projects, dc, *callable_type, None, runtime_data_type_roots)?;
                     let construction = match target {
                         ExecutableInvocationTarget::DataConstructor { construction, .. } => construction,
                         _ => unreachable!(),
@@ -2983,7 +2983,7 @@ fn project_associated_resolution(
                         (ExecutableFamilyTarget::Singleton { variant: variant.clone() }, FamilyMemberTypeKind::Value)
                     }
                     (AssociatedMemberId::DataConstructor(dc), _) | (_, Some(InvocationTargetId::DataConstructor(dc))) => {
-                        let target = project_data_constructor_target(snapshot, projects, dc, member.value_type, None)?;
+                        let target = project_data_constructor_target(snapshot, projects, dc, member.value_type, None, runtime_data_type_roots)?;
                         let construction = match target {
                             ExecutableInvocationTarget::DataConstructor { construction, .. } => construction,
                             _ => unreachable!(),
@@ -3057,7 +3057,7 @@ fn project_associated_resolution(
                         .ok_or_else(|| ProjectionError::MissingDataMetadata(dc.owner.clone()))?;
                     let arity = u8::try_from(argument_mapping.as_ref().map_or(dinfo.components.len(), |mapping| mapping.len()))
                         .map_err(|_| ProjectionError::ArityOverflow(argument_mapping.as_ref().map_or(dinfo.components.len(), |mapping| mapping.len())))?;
-                    let construction = build_data_construction_spec(snapshot, projects, dc, *result_type, arity, argument_mapping.clone())?;
+                    let construction = build_data_construction_spec(snapshot, projects, dc, *result_type, arity, argument_mapping.clone(), runtime_data_type_roots.get(result_type).copied())?;
                     AssociatedLoweringSpec::ConstructData {
                         constructor: dc.clone(),
                         arity,
@@ -3090,7 +3090,7 @@ fn project_associated_resolution(
                         rest_mode: executable_rest_mode(snapshot, cid),
                     }),
                     Some(InvocationTargetId::VariantConstructor(vc)) => Some(ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() }),
-                    Some(InvocationTargetId::DataConstructor(dc)) => Some(project_data_constructor_target(snapshot, projects, dc, c.value_type, None)?),
+                    Some(InvocationTargetId::DataConstructor(dc)) => Some(project_data_constructor_target(snapshot, projects, dc, c.value_type, None, runtime_data_type_roots)?),
                     None => None,
                 };
                 exec_candidates.push(ExecutableFamilyCandidate {
@@ -3526,7 +3526,15 @@ fn project_contextual_realization(
                 .cloned()
                 .ok_or(ProjectionError::MissingContextualRealizationClass(realization.source_expression))?;
             let basis_construction =
-                build_data_construction_spec(snapshot, projects, &DataConstructorId::new(basis_class), *basis_type, 0, Some(Box::new([])))?;
+                build_data_construction_spec(
+                    snapshot,
+                    projects,
+                    &DataConstructorId::new(basis_class),
+                    *basis_type,
+                    0,
+                    Some(Box::new([])),
+                    runtime_data_type_roots.get(basis_type).copied(),
+                )?;
             let (coefficient_receiver, coefficient_one) = match coefficient {
                 RealizationCoefficientSource::One { scalar_type, one } => {
                     let (receiver, invocation) = project_capability(realization.source_expression, *scalar_type, one, generic_evidence, snapshot, projects)?;
@@ -3806,7 +3814,7 @@ fn project_family_application(
             ..
         } => {
             let exec_target = match target {
-                Some(target) => Some(executable_invocation_target(snapshot, projects, target, operation, *callable_type)?),
+                Some(target) => Some(executable_invocation_target(snapshot, projects, target, operation, *callable_type, runtime_data_type_roots)?),
                 None => None,
             };
             let arity = u8::try_from(operation.slots.len()).map_err(|_| ProjectionError::ArityOverflow(operation.slots.len()))?;
@@ -3828,6 +3836,7 @@ fn project_family_application(
                             target,
                             &candidate.operation,
                             candidate.callable_type,
+                            runtime_data_type_roots,
                         )?),
                         None => None,
                     };
@@ -3877,7 +3886,7 @@ fn executable_invocation_target(
             })
         }
         InvocationTargetId::VariantConstructor(vc) => Ok(ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() }),
-        InvocationTargetId::DataConstructor(dc) => project_data_constructor_target(snapshot, projects, dc, callable_type, None),
+        InvocationTargetId::DataConstructor(dc) => project_data_constructor_target(snapshot, projects, dc, callable_type, None, runtime_data_type_roots),
     }
 }
 
