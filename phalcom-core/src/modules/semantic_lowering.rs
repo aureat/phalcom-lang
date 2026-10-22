@@ -2645,24 +2645,34 @@ fn data_constructor_result_type(
     }
 }
 
+fn push_data_construction_root(ty: TypeId, seen: &mut BTreeSet<TypeId>, roots: &mut Vec<TypeId>) {
+    // TypeId is a store-local coordinate. It is valid for duplicate detection
+    // within one snapshot, but must never determine portable runtime-root order.
+    if seen.insert(ty) {
+        roots.push(ty);
+    }
+}
+
 fn collect_associated_data_construction_roots(
     resolution: &AssociatedResolution,
     snapshot: &SemanticSnapshot,
-    roots: &mut BTreeSet<TypeId>,
+    seen: &mut BTreeSet<TypeId>,
+    roots: &mut Vec<TypeId>,
 ) -> Result<(), ProjectionError> {
     match &resolution.kind {
         AssociatedResolutionKind::ExactValue {
             member: AssociatedMemberId::DataConstructor(_),
             value_type,
         } => {
-            roots.insert(*value_type);
+            push_data_construction_root(*value_type, seen, roots);
         }
         AssociatedResolutionKind::ExactCallable {
             target: InvocationTargetId::DataConstructor(constructor),
             callable_type,
             ..
         } => {
-            roots.insert(data_constructor_result_type(snapshot, constructor, *callable_type)?);
+            let result_type = data_constructor_result_type(snapshot, constructor, *callable_type)?;
+            push_data_construction_root(result_type, seen, roots);
         }
         AssociatedResolutionKind::Family { members, .. } => {
             for member in members.iter() {
@@ -2672,7 +2682,8 @@ fn collect_associated_data_construction_roots(
                     _ => None,
                 };
                 if let Some(constructor) = constructor {
-                    roots.insert(data_constructor_result_type(snapshot, constructor, member.value_type)?);
+                    let result_type = data_constructor_result_type(snapshot, constructor, member.value_type)?;
+                    push_data_construction_root(result_type, seen, roots);
                 }
             }
         }
@@ -2681,12 +2692,13 @@ fn collect_associated_data_construction_roots(
             result_type,
             ..
         } => {
-            roots.insert(*result_type);
+            push_data_construction_root(*result_type, seen, roots);
         }
         AssociatedResolutionKind::DynamicInvoke { candidates, .. } => {
             for candidate in candidates.iter() {
                 if let Some(InvocationTargetId::DataConstructor(constructor)) = &candidate.target {
-                    roots.insert(data_constructor_result_type(snapshot, constructor, candidate.value_type)?);
+                    let result_type = data_constructor_result_type(snapshot, constructor, candidate.value_type)?;
+                    push_data_construction_root(result_type, seen, roots);
                 }
             }
         }
@@ -2696,19 +2708,20 @@ fn collect_associated_data_construction_roots(
 }
 
 /// Returns every exact data-construction result type that executable lowering
-/// may materialize in this module. These roots are exported into the program's
-/// single RuntimePublic metadata bundle before lowering, so executable
-/// Canonical recipes never depend on source-only per-construction metadata.
+/// may materialize in this module. Root order follows canonical semantic
+/// traversal/first occurrence. Store-local TypeId values are used only for
+/// same-snapshot duplicate detection and never as a portable ordering key.
 pub fn data_construction_type_roots(module: &ModuleId, snapshot: &SemanticSnapshot) -> Result<Vec<TypeId>, ProjectionError> {
-    let mut roots = BTreeSet::new();
+    let mut seen = BTreeSet::new();
+    let mut roots = Vec::new();
     for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == module) {
         let _ = callable;
         for resolution in analysis.associated_resolutions.values() {
-            collect_associated_data_construction_roots(resolution, snapshot, &mut roots)?;
+            collect_associated_data_construction_roots(resolution, snapshot, &mut seen, &mut roots)?;
         }
         for resolution in analysis.callable_reference_resolutions.values() {
             if let CallableReferenceResolutionKind::Associated(associated) = &resolution.kind {
-                collect_associated_data_construction_roots(associated, snapshot, &mut roots)?;
+                collect_associated_data_construction_roots(associated, snapshot, &mut seen, &mut roots)?;
             }
         }
         for family in analysis.family_applications.values() {
@@ -2718,12 +2731,14 @@ pub fn data_construction_type_roots(module: &ModuleId, snapshot: &SemanticSnapsh
                     callable_type,
                     ..
                 } => {
-                    roots.insert(data_constructor_result_type(snapshot, constructor, *callable_type)?);
+                    let result_type = data_constructor_result_type(snapshot, constructor, *callable_type)?;
+                    push_data_construction_root(result_type, &mut seen, &mut roots);
                 }
                 FamilyApplicationSelection::Dynamic { candidates, .. } => {
                     for candidate in candidates.iter() {
                         if let Some(InvocationTargetId::DataConstructor(constructor)) = &candidate.target {
-                            roots.insert(data_constructor_result_type(snapshot, constructor, candidate.callable_type)?);
+                            let result_type = data_constructor_result_type(snapshot, constructor, candidate.callable_type)?;
+                            push_data_construction_root(result_type, &mut seen, &mut roots);
                         }
                     }
                 }
@@ -2734,11 +2749,11 @@ pub fn data_construction_type_roots(module: &ModuleId, snapshot: &SemanticSnapsh
             if let Some(realization) = expression.contextual_realization.as_ref()
                 && let phalcom_semantic::checker::analysis::ContextualRealizationOperation::Basis { basis_type, .. } = &realization.operation
             {
-                roots.insert(*basis_type);
+                push_data_construction_root(*basis_type, &mut seen, &mut roots);
             }
         }
     }
-    Ok(roots.into_iter().collect())
+    Ok(roots)
 }
 
 fn project_slot_repr_type(ty: TypeId, store: &TypeStore) -> crate::product::ProductSlotRepr {

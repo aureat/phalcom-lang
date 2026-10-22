@@ -1317,6 +1317,65 @@ pub(super) fn finalize_analyzed_link(
     finalize_analyzed_link_with_availability(linker, semantic, snapshot, sources, runtime_modules, None)
 }
 
+fn semantic_node_owner(node: &phalcom_modules::graph::SemanticNodeId) -> &ModuleId {
+    match node {
+        phalcom_modules::graph::SemanticNodeId::Module(module)
+        | phalcom_modules::graph::SemanticNodeId::Declaration { module, .. } => module,
+    }
+}
+
+/// Projects the source-backed semantic support closure to the exact local
+/// executable closure. Canonical Universe modules remain valid external
+/// reference/read targets, but they are already initialized by the VM and must
+/// not become local linked modules, semantic ownership rows, or runtime nodes.
+fn executable_semantic_projection(
+    semantic: &phalcom_modules::SemanticLinkedProgram,
+    runtime_modules: &BTreeSet<ModuleId>,
+) -> phalcom_modules::SemanticLinkedProgram {
+    let modules = semantic
+        .modules
+        .iter()
+        .filter(|(module, _)| runtime_modules.contains(*module))
+        .map(|(module, linked)| (module.clone(), linked.clone()))
+        .collect::<BTreeMap<_, _>>();
+
+    // Reference edges describe authored source references. Preserve external
+    // targets while dropping rows owned by source-seeded Universe support.
+    let mut references = phalcom_modules::graph::ReferenceGraph::default();
+    for module in runtime_modules {
+        if semantic.modules.contains_key(module) {
+            references.replace(module.clone(), semantic.references.edges_from(module).to_vec());
+        }
+    }
+
+    // Semantic ownership belongs to the local executable closure. Imported
+    // canonical Universe semantics are supplied by the external image, so
+    // source-backed support rows and edges to those external nodes do not
+    // participate in the executable program's semantic topology.
+    let mut semantics = phalcom_modules::graph::SemanticGraph::default();
+    for node in semantic.semantics.nodes() {
+        if !runtime_modules.contains(semantic_node_owner(&node)) {
+            continue;
+        }
+        let edges = semantic
+            .semantics
+            .edges_from(&node)
+            .iter()
+            .filter(|edge| runtime_modules.contains(semantic_node_owner(&edge.to)))
+            .cloned()
+            .collect::<Vec<_>>();
+        semantics.replace(node, edges);
+    }
+
+    phalcom_modules::SemanticLinkedProgram {
+        universe: semantic.universe.clone(),
+        modules,
+        references,
+        semantics,
+        entry: semantic.entry.clone(),
+    }
+}
+
 fn finalize_analyzed_link_with_availability(
     linker: &ModuleLinker,
     semantic: &phalcom_modules::SemanticLinkedProgram,
@@ -1347,8 +1406,9 @@ fn finalize_analyzed_link_with_availability(
             .map_err(|error| ProgramCompileError::AvailabilityContract(error.to_string()))?
             .availability_after_bootstrap()
     };
+    let executable_semantic = executable_semantic_projection(semantic, runtime_modules);
     let executable = linker.finalize_executable_with_availability(
-        semantic.clone(),
+        executable_semantic,
         &snapshot.import_phase_products,
         &generated_requirements,
         canonical_availability,
