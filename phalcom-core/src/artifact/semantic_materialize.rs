@@ -27,14 +27,13 @@ use phalcom_compiler_artifact::executable::semantic as portable;
 use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::{DataComponentId, DataConstructorId, VariantFieldId};
 use phalcom_semantic::metadata::stable_identity::{
-    from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_impl, from_stable_variant,
+    from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_variant,
 };
 use phalcom_semantic::traits::TraitRequirementId;
 use phalcom_semantic::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::generic::{StableTypeParameterOwnerRef, StableTypeParameterRef};
 use std::cell::Cell;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 fn internal(message: impl Into<String>) -> PhError {
@@ -106,29 +105,29 @@ impl<'a> SemanticPoolRelocator<'a> {
             output.data_targets.push(constructor);
         }
 
-        for row in &self.source.data_constructions {
-            let construction = Arc::new(self.data_construction(row)?);
+        for row in self.source.data_constructions.clone() {
+            let construction = Arc::new(self.data_construction(&row)?);
             self.data_constructions.push(Arc::clone(&construction));
             output.data_constructions.push(construction);
             output.data_construction_caches.push(Cell::new(None));
         }
 
-        for row in &self.source.anonymous_products {
-            output.anonymous_product_specs.push(Arc::new(self.anonymous_product(row)?));
+        for row in self.source.anonymous_products.clone() {
+            output.anonymous_product_specs.push(Arc::new(self.anonymous_product(&row)?));
         }
 
-        for row in &self.source.call_environments {
-            let recipe = Arc::new(self.call_environment(row)?);
+        for row in self.source.call_environments.clone() {
+            let recipe = Arc::new(self.call_environment(&row)?);
             self.call_environments.push(Arc::clone(&recipe));
             output.call_environment_recipes.push(recipe);
         }
 
-        for row in &self.source.associated_targets {
-            output.associated_targets.push(self.invocation_target(row)?);
+        for row in self.source.associated_targets.clone() {
+            output.associated_targets.push(self.invocation_target(&row)?);
             output.associated_target_caches.push(Cell::new(None));
         }
 
-        for row in &self.source.family_descriptors {
+        for row in self.source.family_descriptors.clone() {
             let entries = row
                 .entries
                 .iter()
@@ -148,7 +147,7 @@ impl<'a> SemanticPoolRelocator<'a> {
             }));
         }
 
-        for row in &self.source.conditional_families {
+        for row in self.source.conditional_families.clone() {
             let entries = row
                 .entries
                 .iter()
@@ -161,7 +160,7 @@ impl<'a> SemanticPoolRelocator<'a> {
 
         output.family_operations = self.source.family_operations.iter().map(family_operation).collect();
 
-        for row in &self.source.family_candidate_sets {
+        for row in self.source.family_candidate_sets.clone() {
             let candidates = row
                 .candidates
                 .iter()
@@ -177,8 +176,8 @@ impl<'a> SemanticPoolRelocator<'a> {
             });
         }
 
-        for row in &self.source.trait_invocations {
-            output.runtime_trait_invocations.push(self.trait_invocation(row)?);
+        for row in self.source.trait_invocations.clone() {
+            output.runtime_trait_invocations.push(self.trait_invocation(&row)?);
         }
 
         for row in &self.source.trait_requirement_invocations {
