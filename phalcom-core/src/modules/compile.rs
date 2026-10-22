@@ -614,6 +614,7 @@ pub(super) fn runtime_metadata_type_requirements(
     snapshot: &phalcom_semantic::SemanticSnapshot,
     sources: &BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
     runtime_modules: &BTreeSet<ModuleId>,
+    existing_requirements: &[RuntimeDependencyRequirement],
 ) -> Vec<RuntimeDependencyRequirement> {
     use phalcom_semantic::checker::analysis::{ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource};
     use phalcom_semantic::generic_evidence::GenericConformanceEvidence;
@@ -729,7 +730,7 @@ pub(super) fn runtime_metadata_type_requirements(
         .collect::<BTreeMap<_, _>>();
 
     let mut seen = BTreeSet::new();
-    let mut requirements = contextual_receiver_requirements;
+    let mut metadata_type_requirements = Vec::new();
     for (importer, range, ty) in roots {
         let mut owners = RuntimeMetadataTypeOwnerCollector::new(snapshot.store(), &static_domain_constructors, &associated_domain_constructors);
         owners.add_type(ty);
@@ -737,7 +738,7 @@ pub(super) fn runtime_metadata_type_requirements(
             if dependency == importer || !seen.insert((importer.clone(), dependency.clone(), range)) {
                 continue;
             }
-            requirements.push(RuntimeDependencyRequirement {
+            metadata_type_requirements.push(RuntimeDependencyRequirement {
                 importer: importer.clone(),
                 dependency: dependency.clone(),
                 range,
@@ -753,7 +754,25 @@ pub(super) fn runtime_metadata_type_requirements(
             });
         }
     }
+    let metadata_type_requirements = retain_unowned_metadata_requirements(existing_requirements, metadata_type_requirements);
+    let mut requirements = contextual_receiver_requirements;
+    requirements.extend(metadata_type_requirements);
     requirements
+}
+
+fn retain_unowned_metadata_requirements(
+    existing_requirements: &[RuntimeDependencyRequirement],
+    metadata_requirements: Vec<RuntimeDependencyRequirement>,
+) -> Vec<RuntimeDependencyRequirement> {
+    let mut existing_obligations = existing_requirements
+        .iter()
+        .map(RuntimeDependencyRequirement::obligation_key)
+        .collect::<Vec<_>>();
+    existing_obligations.sort_unstable();
+    metadata_requirements
+        .into_iter()
+        .filter(|requirement| existing_obligations.binary_search(&requirement.obligation_key()).is_err())
+        .collect()
 }
 
 fn add_runtime_trait_environment_roots(
@@ -1233,7 +1252,8 @@ fn finalize_analyzed_link_with_availability(
         .filter(|requirement| runtime_modules.contains(&requirement.importer))
         .cloned()
         .collect::<Vec<_>>();
-    generated_requirements.extend(runtime_metadata_type_requirements(snapshot, sources, runtime_modules));
+    let metadata_requirements = runtime_metadata_type_requirements(snapshot, sources, runtime_modules, &generated_requirements);
+    generated_requirements.extend(metadata_requirements);
 
     let canonical_availability = if let Some(availability) = availability {
         availability
@@ -1713,6 +1733,14 @@ impl ProgramAnalyzer {
         entry: EntrySelection,
         image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
     ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        Self::analyze_entry_selection_with_image_and_availability(entry, image, Arc::new(phalcom_modules::AvailabilityContract::default()))
+    }
+
+    pub(crate) fn analyze_entry_selection_with_image_and_availability(
+        entry: EntrySelection,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+        availability: Arc<phalcom_modules::AvailabilityContract>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
         match entry {
             EntrySelection::ModuleId(entry_id) => Err(ProgramCompileError::Io(format!(
                 "EntrySelection::ModuleId({entry_id}) cannot be analyzed without an existing linked project universe"
@@ -1739,7 +1767,7 @@ impl ProgramAnalyzer {
                     project: root_id.into(),
                     path: entry_path,
                 };
-                Self::discover_and_analyze_with_image(Arc::new(universe), entry_id, image)
+                Self::discover_and_analyze_with_image(Arc::new(universe), entry_id, image, availability)
             }
             EntrySelection::Package(pkg_dir) => {
                 let canonical_pkg = pkg_dir
@@ -1759,7 +1787,7 @@ impl ProgramAnalyzer {
                         ModuleComponent::from_identifier("main").map_err(|error| ProgramCompileError::Io(error.to_string()))?,
                     ]),
                 };
-                Self::discover_and_analyze_with_image(Arc::new(universe), entry_id, image)
+                Self::discover_and_analyze_with_image(Arc::new(universe), entry_id, image, availability)
             }
             EntrySelection::Module(file_path) => {
                 let canonical = file_path
@@ -1776,7 +1804,7 @@ impl ProgramAnalyzer {
                             project: root_id.into(),
                             path: relative_path_to_module_path(rel_path)?,
                         };
-                        Self::discover_and_analyze_with_image(Arc::new(universe), entry_id, image)
+                        Self::discover_and_analyze_with_image(Arc::new(universe), entry_id, image, availability)
                     }
                     EntryOwnership::StandalonePackageOwned { package_root } => {
                         let root_id = universe.load_standalone_package(&package_root, None)?;
@@ -1788,13 +1816,13 @@ impl ProgramAnalyzer {
                             project: root_id.into(),
                             path: relative_path_to_module_path(rel_path)?,
                         };
-                        Self::discover_and_analyze_with_image(Arc::new(universe), entry_id, image)
+                        Self::discover_and_analyze_with_image(Arc::new(universe), entry_id, image, availability)
                     }
-                    EntryOwnership::StandaloneModule { file } => Self::analyze_standalone_module_with_image(file, image),
-                    EntryOwnership::Inline { .. } => Self::analyze_standalone_module_with_image(file_path, image),
+                    EntryOwnership::StandaloneModule { file } => Self::analyze_standalone_module_with_image(file, image, availability),
+                    EntryOwnership::Inline { .. } => Self::analyze_standalone_module_with_image(file_path, image, availability),
                 }
             }
-            EntrySelection::Inline(source_text) => Self::analyze_inline_with_image(source_text, image),
+            EntrySelection::Inline(source_text) => Self::analyze_inline_with_image(source_text, image, availability),
         }
     }
 
@@ -1802,17 +1830,19 @@ impl ProgramAnalyzer {
         universe: Arc<ProjectUniverse>,
         entry: ModuleId,
         image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+        availability: Arc<phalcom_modules::AvailabilityContract>,
     ) -> Result<AnalyzedProgram, ProgramCompileError> {
         let mut pending = vec![entry.clone()];
         if let Some(project_id) = entry.project.as_resolved() {
             pending.push(ModuleId::resolved(project_id, ModulePath::root()));
         }
-        Self::discover_image_closure(universe, entry, image, BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), pending, None)
+        Self::discover_image_closure(universe, entry, image, availability, BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), pending, None)
     }
 
     fn analyze_standalone_module_with_image(
         file_path: PathBuf,
         image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+        availability: Arc<phalcom_modules::AvailabilityContract>,
     ) -> Result<AnalyzedProgram, ProgramCompileError> {
         let canonical = file_path
             .canonicalize()
@@ -1846,6 +1876,7 @@ impl ProgramAnalyzer {
             universe,
             entry.clone(),
             image,
+            availability,
             BTreeMap::from([(entry.clone(), interface)]),
             BTreeMap::from([(entry.clone(), parsed_unit)]),
             BTreeMap::new(),
@@ -1857,6 +1888,7 @@ impl ProgramAnalyzer {
     fn analyze_inline_with_image(
         source_text: Arc<str>,
         image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+        availability: Arc<phalcom_modules::AvailabilityContract>,
     ) -> Result<AnalyzedProgram, ProgramCompileError> {
         let parsed = phalcom_ast::parse(&source_text, 0);
         if let Some(error) = parsed.errors.first() {
@@ -1888,6 +1920,7 @@ impl ProgramAnalyzer {
             universe,
             entry.clone(),
             image,
+            availability,
             BTreeMap::from([(entry.clone(), interface)]),
             BTreeMap::from([(entry.clone(), parsed_unit)]),
             BTreeMap::new(),
@@ -1901,6 +1934,7 @@ impl ProgramAnalyzer {
         universe: Arc<ProjectUniverse>,
         entry: ModuleId,
         image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+        availability: Arc<phalcom_modules::AvailabilityContract>,
         interfaces: BTreeMap<ModuleId, phalcom_modules::UnlinkedModuleInterface>,
         sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
         resolved: BTreeMap<(ModuleId, String), ModuleId>,
@@ -1918,10 +1952,6 @@ impl ProgramAnalyzer {
             .collect::<BTreeSet<_>>();
         let linker = ModuleLinker::new(universe.clone(), discovered.interfaces.clone()).with_external_modules(image.modules().clone());
         let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::from_image(phalcom_semantic::identity::WorkspaceId(1), image);
-        // The imported image does not transport claims about which source
-        // initializers already ran. Empty availability evidence is conservative
-        // and avoids consulting the source-backed canonical compiler singleton.
-        let availability = phalcom_modules::AvailabilityContract::default();
         let (linked, semantic) = link_analyze_finalize(
             &linker,
             entry.clone(),
@@ -3199,6 +3229,17 @@ impl ProgramCompiler {
         let analyzed = ProgramAnalyzer::analyze_entry_selection_with_image(entry, image)?;
         Self::compile_analyzed_with_options(&analyzed, options)
     }
+
+    pub(crate) fn compile_entry_selection_with_options_image_and_availability(
+        entry: EntrySelection,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+        availability: Arc<phalcom_modules::AvailabilityContract>,
+        options: &ProgramCompilationOptions,
+    ) -> Result<CompiledProgram, ProgramCompileError> {
+        phalcom_semantic::prelude::PreludeTypeMap::initialize_from_snapshot(image.snapshot());
+        let analyzed = ProgramAnalyzer::analyze_entry_selection_with_image_and_availability(entry, image, availability)?;
+        Self::compile_analyzed_with_options(&analyzed, options)
+    }
 }
 
 fn relative_path_to_module_path(rel_path: &Path) -> Result<ModulePath, ProgramCompileError> {
@@ -3263,7 +3304,10 @@ fn compile_module(
 
 #[cfg(test)]
 mod tests {
-    use super::{ProgramCompileError, RuntimeMetadataTypeOwnerCollector, SourceRange, contextual_receiver_read_requirement, semantic_attribute_execution_mode};
+    use super::{
+        ProgramCompileError, RuntimeMetadataTypeOwnerCollector, SourceRange, contextual_receiver_read_requirement,
+        retain_unowned_metadata_requirements, semantic_attribute_execution_mode,
+    };
     use crate::compiler::attributes::CompileMode;
     use crate::typing::RuntimeTypeRecipe;
     use phalcom_modules::{
@@ -3299,6 +3343,60 @@ mod tests {
         assert!(
             matches!(error, ProgramCompileError::SemanticUpdate(phalcom_semantic::SemanticUpdateFailure::Failed(message)) if message == "injected update failure")
         );
+    }
+
+    #[test]
+    fn metadata_projection_defers_only_to_an_exact_existing_runtime_obligation() {
+        let importer = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("collections").expect("valid module component"),
+            ModuleComponent::from_identifier("range").expect("valid module component"),
+        ]));
+        let dependency = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("scalar").expect("valid module component"),
+            ModuleComponent::from_identifier("number").expect("valid module component"),
+        ]));
+        let range = SourceRange { start: 5348, end: 5361 };
+        let make_requirement = |producer, product, timing| RuntimeDependencyRequirement {
+            importer: importer.clone(),
+            dependency: dependency.clone(),
+            range,
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            read_target: None,
+            provenance: RuntimeRequirementProvenance {
+                consumer: importer.clone(),
+                producer,
+                target: RuntimeRequirementTarget::Module(dependency.clone()),
+                product,
+                timing,
+            },
+        };
+        let callable_owner = make_requirement(
+            RuntimeRequirementProducer::CallableOwner,
+            RuntimeRequirementProduct::CanonicalIdentity,
+            RuntimeRequirementTiming::BeforeSourceExecution,
+        );
+        let exact_metadata_observation = make_requirement(
+            RuntimeRequirementProducer::MetadataTypeOwner,
+            RuntimeRequirementProduct::CanonicalIdentity,
+            RuntimeRequirementTiming::BeforeSourceExecution,
+        );
+        let distinct_product = make_requirement(
+            RuntimeRequirementProducer::MetadataTypeOwner,
+            RuntimeRequirementProduct::MetadataDescriptor,
+            RuntimeRequirementTiming::BeforeSourceExecution,
+        );
+        let distinct_timing = make_requirement(
+            RuntimeRequirementProducer::MetadataTypeOwner,
+            RuntimeRequirementProduct::CanonicalIdentity,
+            RuntimeRequirementTiming::AfterBootstrap,
+        );
+
+        let retained = retain_unowned_metadata_requirements(
+            std::slice::from_ref(&callable_owner),
+            vec![exact_metadata_observation, distinct_product.clone(), distinct_timing.clone()],
+        );
+
+        assert_eq!(retained, vec![distinct_product, distinct_timing]);
     }
 
     #[test]

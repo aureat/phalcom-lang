@@ -546,8 +546,12 @@ fn push_binding_owner_requirement(
             timing: phalcom_modules::RuntimeRequirementTiming::DuringModuleInitializer,
         },
     };
-    // Pattern site and resolved pattern views can name the same owner binding.
-    if producer != RuntimeRequirementProducer::PatternOwner || !requirements.contains(&requirement) {
+    // Pattern sites/resolved patterns and expression/iteration conformance
+    // views can observe the same owner binding. Coalesce exact repetitions
+    // within those producer families only; other producers remain independent.
+    if !matches!(producer, RuntimeRequirementProducer::PatternOwner | RuntimeRequirementProducer::ConformanceTypeOwner)
+        || !requirements.contains(&requirement)
+    {
         requirements.push(requirement);
     }
 }
@@ -2199,6 +2203,21 @@ mod native_prelude_tests {
         push_declaration_read_requirement(&module, &distinct, range, &mut requirements);
         push_binding_owner_requirement(&module, &distinct, range, RuntimeRequirementProducer::PatternOwner, &mut requirements);
         assert_eq!(requirements.len(), 5, "different exact bindings at one span are distinct obligations");
+    }
+
+    #[test]
+    fn overlapping_conformance_type_owner_views_publish_one_exact_obligation() {
+        let (module, _, declaration, range) = fixture();
+        let mut requirements = Vec::new();
+        for _ in 0..4 {
+            push_binding_owner_requirement(&module, &declaration, range, RuntimeRequirementProducer::ConformanceTypeOwner, &mut requirements);
+        }
+        assert_eq!(requirements.len(), 1, "repeated exact conformance type-owner views are one obligation");
+        assert_eq!(requirements[0].provenance.producer, RuntimeRequirementProducer::ConformanceTypeOwner);
+
+        let distinct = DeclarationId::new(declaration.module.clone(), "OtherError".into());
+        push_binding_owner_requirement(&module, &distinct, range, RuntimeRequirementProducer::ConformanceTypeOwner, &mut requirements);
+        assert_eq!(requirements.len(), 2, "a distinct binding at the same span remains a separate obligation");
     }
 
     #[test]

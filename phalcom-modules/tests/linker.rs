@@ -529,6 +529,71 @@ fn generated_requirement_read_slots_are_ordered_independently_of_input_order() {
 }
 
 #[test]
+fn finalizer_rejects_exact_and_producer_only_runtime_obligation_duplicates() {
+    let importer = module("importer");
+    let dependency = module("dependency");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[(importer.clone(), "class Importer {}\n"), (dependency.clone(), "class Dependency {}\n")]),
+    );
+    let semantic = linker.link_semantic(importer.clone(), &BTreeMap::new()).expect("symbolic linking should succeed");
+    let callable_owner = requirement(
+        &importer,
+        &dependency,
+        None,
+        RuntimeRequirementProducer::CallableOwner,
+        RuntimeRequirementProduct::CanonicalIdentity,
+        RuntimeRequirementTiming::BeforeSourceExecution,
+    );
+    let exact_duplicate = callable_owner.clone();
+    let mut producer_only_duplicate = callable_owner.clone();
+    producer_only_duplicate.provenance.producer = RuntimeRequirementProducer::MetadataTypeOwner;
+
+    for duplicates in [vec![callable_owner.clone(), exact_duplicate], vec![callable_owner.clone(), producer_only_duplicate]] {
+        let error = linker
+            .finalize_executable_with_requirements(semantic.clone(), &BTreeMap::new(), &duplicates)
+            .expect_err("one semantic obligation cannot be owned twice");
+        assert!(matches!(error, LinkError::DuplicateRuntimeDependencyRequirement { .. }), "unexpected error: {error:?}");
+    }
+}
+
+#[test]
+fn finalizer_preserves_distinct_runtime_capabilities_at_one_source_span() {
+    let importer = module("importer");
+    let dependency = module("dependency");
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        interfaces(&[(importer.clone(), "class Importer {}\n"), (dependency.clone(), "class Dependency {}\n")]),
+    );
+    let semantic = linker.link_semantic(importer.clone(), &BTreeMap::new()).expect("symbolic linking should succeed");
+    let module_identity = requirement(
+        &importer,
+        &dependency,
+        None,
+        RuntimeRequirementProducer::MetadataTypeOwner,
+        RuntimeRequirementProduct::CanonicalIdentity,
+        RuntimeRequirementTiming::BeforeSourceExecution,
+    );
+    let binding_value = requirement(
+        &importer,
+        &dependency,
+        Some(LinkedReadSpec::Binding(SymbolId {
+            module: dependency.clone(),
+            name: "Dependency".into(),
+        })),
+        RuntimeRequirementProducer::CallableOwner,
+        RuntimeRequirementProduct::RuntimeObject,
+        RuntimeRequirementTiming::DuringModuleInitializer,
+    );
+
+    let executable = linker
+        .finalize_executable_with_requirements(semantic, &BTreeMap::new(), &[module_identity.clone(), binding_value.clone()])
+        .expect("distinct target/product/timing obligations at one source span remain legal");
+
+    assert_eq!(executable.runtime_requirements(), &[module_identity, binding_value]);
+}
+
+#[test]
 fn finalization_rejects_cycles_created_by_generated_runtime_requirements() {
     let a = module("a");
     let b = module("b");

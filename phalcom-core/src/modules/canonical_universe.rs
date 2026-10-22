@@ -296,11 +296,13 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
 
     let runtime_modules = symbolic.modules.keys().cloned().collect();
     let mut requirements = semantic.generated_runtime_requirements.to_vec();
-    requirements.extend(crate::modules::compile::runtime_metadata_type_requirements(
+    let metadata_requirements = crate::modules::compile::runtime_metadata_type_requirements(
         &semantic,
         &sources,
         &runtime_modules,
-    ));
+        &requirements,
+    );
+    requirements.extend(metadata_requirements);
     let native_floor_availability = native_floor_availability(&symbolic)?;
     let linked = Arc::new(
         linker

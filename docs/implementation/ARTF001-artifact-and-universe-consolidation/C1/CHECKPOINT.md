@@ -1296,3 +1296,27 @@ semantic duplicate-obligation validator; inspect the complete finalizer
 requirement set and align its canonicalization with the persisted authority
 before retrying parity. P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`;
 P3 remains blocked.
+
+### Source-free continuation: validator evidence and ownership stop — 2026-10-22
+
+Active work remains P2.R4, `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains
+blocked. The continuation added class-tower and fused-invoke regressions and
+updated the validator signature test; these pass 3/3. A separate projection
+regression passes 1/1 after preserving duplicate equal call-environment source
+slots addressed by bytecode. This clears the full-image index-1/table-length-1
+failure without relaxing validation.
+
+The exact full-artifact SlotMap discriminator now fails before artifact writing:
+prototype 43, Nested parent 13 ordinal 17, uses field slot 0 but resolves to no
+P7-owned class layout. No reusable full artifact exists and no artifact VM
+execution has passed. The fresh-process denial/zero-bootstrap execution gate is
+implemented in the test but remains unrun.
+
+The ownership issue requires consultation under the shared escalation protocol.
+The evidence, proposed CFG installation-provenance direction, and precise
+requested decision are in
+`ARTF001.C1.P2.R4-source-free-field-ownership-incident.md`. No ownership workaround
+or source fallback was added. Next action: resolve that proof boundary, add
+focused ownership regressions, then resume the cached-artifact sequence. Strict
+parity, broad checks, materializer/runtime and allocation certification remain
+deferred. Changes are uncommitted and unpushed.

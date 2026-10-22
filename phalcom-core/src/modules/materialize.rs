@@ -399,10 +399,19 @@ impl VM {
             self.heap.module_mut(object).root_package = Some(root);
         }
 
+        self.runtime_roots = Some(RuntimeRoots { universe: root, entry: None });
+        Ok(())
+    }
+
+    /// Relocates finalized artifact reads after canonical metadata is installed,
+    /// so static constants resolve through the same authority as source bootstrap.
+    pub(crate) fn materialize_universe_artifact_linkage(
+        &mut self,
+        image: &phalcom_semantic::canonical_image::CanonicalUniverseFormalImage,
+    ) -> PhResult<()> {
         for (id, linked) in image.linked().modules.iter() {
             self.materialize_linked_authority_for_module(id, &linked.linked_reads, &linked.interface)?;
         }
-        self.runtime_roots = Some(RuntimeRoots { universe: root, entry: None });
         Ok(())
     }
 

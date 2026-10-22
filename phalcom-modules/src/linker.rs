@@ -50,6 +50,24 @@ pub struct RuntimeDependencyRequirement {
 }
 
 impl RuntimeDependencyRequirement {
+    /// Returns the semantic obligation identity, excluding observation producer.
+    ///
+    /// The consumer is intentionally absent because valid requirements separately
+    /// require `provenance.consumer == importer`. Distinct reads, targets, products,
+    /// timings, reasons, and source spans remain distinct obligations.
+    pub fn obligation_key(&self) -> RuntimeDependencyObligationKey<'_> {
+        RuntimeDependencyObligationKey {
+            importer: &self.importer,
+            dependency: &self.dependency,
+            range: self.range,
+            reason: self.reason,
+            read_target: self.read_target.as_ref(),
+            target: &self.provenance.target,
+            product: self.provenance.product,
+            timing: self.provenance.timing,
+        }
+    }
+
     /// Orders the complete record, including read effect and observation
     /// provenance, independently of producer traversal order.
     pub fn canonical_cmp(&self, other: &Self) -> std::cmp::Ordering {
@@ -88,6 +106,22 @@ impl RuntimeDependencyRequirement {
             provenance: Some(self.provenance.clone()),
         }
     }
+}
+
+/// Borrowed semantic identity for a generated runtime requirement.
+///
+/// Producer provenance is not part of this key: it records how an obligation
+/// was observed, not a separate runtime obligation.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeDependencyObligationKey<'a> {
+    importer: &'a ModuleId,
+    dependency: &'a ModuleId,
+    range: SourceRange,
+    reason: RuntimeDependencyReason,
+    read_target: Option<&'a LinkedReadSpec>,
+    target: &'a RuntimeRequirementTarget,
+    product: RuntimeRequirementProduct,
+    timing: RuntimeRequirementTiming,
 }
 
 /// Authority that guarantees an exact product is installed by a given stage.
@@ -550,6 +584,13 @@ pub enum LinkError {
     /// Generated requirement provenance does not describe its actual canonical target.
     #[error("runtime requirement from {importer} has provenance inconsistent with dependency {dependency}")]
     RuntimeRequirementProvenanceMismatch { importer: ModuleId, dependency: ModuleId },
+    /// More than one producer claims the same semantic runtime obligation.
+    #[error("duplicate runtime dependency obligation from {importer} to {dependency} at {range:?}")]
+    DuplicateRuntimeDependencyRequirement {
+        importer: ModuleId,
+        dependency: ModuleId,
+        range: SourceRange,
+    },
     /// A re-export loop cannot produce a canonical symbol.
     #[error("cyclic re-export involving module {module} and '{name}'")]
     CyclicReExport { module: ModuleId, name: String },
@@ -571,6 +612,7 @@ impl LinkError {
             Self::UncoveredRuntimeRead { importer, .. }
             | Self::RuntimeReadTargetMismatch { importer, .. }
             | Self::RuntimeRequirementProvenanceMismatch { importer, .. } => Some(importer),
+            Self::DuplicateRuntimeDependencyRequirement { importer, .. } => Some(importer),
             Self::RuntimeCycle(ModuleGraphError::RuntimeCycle { cycle, .. }) => cycle.first(),
         }
     }
@@ -581,6 +623,7 @@ impl LinkError {
             | Self::MissingExport { range, .. }
             | Self::MissingBinding { range, .. }
             | Self::BindingCollision { range, .. } => *range,
+            Self::DuplicateRuntimeDependencyRequirement { range, .. } => *range,
             _ => SourceRange::default(),
         }
     }
@@ -985,7 +1028,16 @@ impl ModuleLinker {
         let known_modules = modules.keys().cloned().collect::<BTreeSet<_>>();
         let mut ordered_requirements = requirements.to_vec();
         ordered_requirements.sort_by(RuntimeDependencyRequirement::canonical_cmp);
-        ordered_requirements.dedup();
+        let mut seen_obligations = BTreeSet::new();
+        for requirement in &ordered_requirements {
+            if !seen_obligations.insert(requirement.obligation_key()) {
+                return Err(LinkError::DuplicateRuntimeDependencyRequirement {
+                    importer: requirement.importer.clone(),
+                    dependency: requirement.dependency.clone(),
+                    range: requirement.range,
+                });
+            }
+        }
         for requirement in &ordered_requirements {
             if !known_modules.contains(&requirement.importer) {
                 return Err(LinkError::MissingModule {

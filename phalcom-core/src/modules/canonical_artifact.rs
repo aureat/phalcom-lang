@@ -14,7 +14,9 @@ use phalcom_compiler_artifact::header::{
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{METADATA_SECTION_SCHEMA_V1, MetadataPreflightLimits, MetadataSectionError, MetadataSectionV1};
-use phalcom_compiler_artifact::module_world::{MODULE_WORLD_SCHEMA_V3, ModuleWorldV3};
+use phalcom_compiler_artifact::module_world::{
+    AvailabilityAuthorityV1, AvailabilityProductV1, AvailabilityTimingV1, MODULE_WORLD_SCHEMA_V3, ModuleWorldV3, TargetV1,
+};
 use phalcom_compiler_artifact::query::{QUERY_IMAGE_SCHEMA_V4, QueryImageV4};
 use phalcom_compiler_artifact::section::{SectionFlags, SectionKind};
 use phalcom_compiler_artifact::semantic::world::{SEMANTIC_WORLD_SCHEMA_V4, SemanticWorldV4};
@@ -206,6 +208,7 @@ pub struct LoadedUniverseArtifact {
     pub formal_image: Arc<CanonicalUniverseFormalImage>,
     pub metadata: Arc<SemanticMetadataBundle>,
     pub timings: TeloscLoadTimings,
+    availability: Arc<phalcom_modules::AvailabilityContract>,
     executable: Option<crate::artifact::validate::ValidatedExecutableImage>,
 }
 
@@ -214,16 +217,27 @@ impl LoadedUniverseArtifact {
         self.executable.is_some()
     }
 
+    /// Constructs a fresh VM entirely from the validated artifact topology,
+    /// metadata, native ABI, and portable executable image.
+    pub fn new_vm(&self) -> Result<crate::vm::VM, crate::error::VmBootstrapError> {
+        crate::artifact::materialize::bootstrap_vm(self)
+    }
+
     pub(crate) fn executable(&self) -> Option<&crate::artifact::validate::ValidatedExecutableImage> {
         self.executable.as_ref()
     }
 
     pub fn compile_user_entry(&self, entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
-        ProgramCompiler::compile_entry_selection_with_image(entry, self.formal_image.clone())
+        self.compile_user_entry_with_options(entry, &ProgramCompilationOptions::default())
     }
 
     pub fn compile_user_entry_with_options(&self, entry: EntrySelection, options: &ProgramCompilationOptions) -> Result<CompiledProgram, ProgramCompileError> {
-        ProgramCompiler::compile_entry_selection_with_options_and_image(entry, self.formal_image.clone(), options)
+        ProgramCompiler::compile_entry_selection_with_options_image_and_availability(
+            entry,
+            self.formal_image.clone(),
+            Arc::clone(&self.availability),
+            options,
+        )
     }
 }
 
@@ -434,7 +448,7 @@ pub fn build_full_universe_telosc(
     let executable_limits = ExecutableImageLimitsV1::default();
     let mut budget = AllocationBudget::new(usize::try_from(limits.max_total_allocation_bytes).unwrap_or(usize::MAX));
     let image = Arc::new(ExecutableImageV1::decode(staged.payload(), limits, &executable_limits, &mut budget)?);
-    crate::artifact::validate::validate_executable_image(image, view.formal, view.metadata, &executable_limits)
+    crate::artifact::validate::validate_executable_image(image, view.linked.as_program(), view.formal, view.metadata, &executable_limits)
         .map_err(|error| TeloscArtifactError::Executable(error.to_string()))?;
 
     let compiler_view = TeloscContainerView::parse(&compiler.bytes, limits)?;
@@ -607,6 +621,7 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     record_loader_allocation_diagnostic_stage(0, allocations);
 
     let module_world_v3 = ModuleWorldV3::decode_with_allocation_budget(module_world_sec, limits, allocations)?;
+    let availability = Arc::new(import_availability_contract(&module_world_v3)?);
     record_loader_allocation_diagnostic_stage(1, allocations);
     let modules = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_world_v3.world, limits, allocations)?;
     record_loader_allocation_diagnostic_stage(2, allocations);
@@ -692,7 +707,7 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
         let executable_limits = ExecutableImageLimitsV1::default();
         let image = Arc::new(ExecutableImageV1::decode(bytes, limits, &executable_limits, allocations)?);
         Some(
-            crate::artifact::validate::validate_executable_image(image, &formal_image, &metadata_bundle, &executable_limits)
+            crate::artifact::validate::validate_executable_image(image, formal_image.linked(), &formal_image, &metadata_bundle, &executable_limits)
                 .map_err(|error| TeloscArtifactError::Executable(error.to_string()))?,
         )
     } else {
@@ -710,6 +725,7 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
         allocations,
         formal_image,
         metadata_bundle,
+        availability,
         executable,
         *timings,
     )?;
@@ -726,6 +742,7 @@ pub(crate) fn finish_loaded_universe_telosc(
     allocation_budget: &mut AllocationBudget,
     formal_image: Arc<CanonicalUniverseFormalImage>,
     metadata: Arc<SemanticMetadataBundle>,
+    availability: Arc<phalcom_modules::AvailabilityContract>,
     executable: Option<crate::artifact::validate::ValidatedExecutableImage>,
     mut timings: TeloscLoadTimings,
 ) -> Result<Arc<LoadedUniverseArtifact>, TeloscArtifactError> {
@@ -739,6 +756,7 @@ pub(crate) fn finish_loaded_universe_telosc(
             capabilities,
             formal_image,
             metadata,
+            availability,
             timings: {
                 timings.publication = t_pub.elapsed();
                 timings
@@ -747,6 +765,58 @@ pub(crate) fn finish_loaded_universe_telosc(
         })
         .map_err(|error| allocation_error(error, transaction_limit))?;
     Ok(artifact)
+}
+
+fn import_availability_contract(module_world: &ModuleWorldV3) -> Result<phalcom_modules::AvailabilityContract, TeloscArtifactError> {
+    use phalcom_modules::{AvailabilityAuthority, AvailabilityProof, RuntimeRequirementProduct, RuntimeRequirementTarget, RuntimeRequirementTiming};
+
+    let module_id = |id: phalcom_compiler_artifact::module_world::ArtifactModuleId| {
+        let stable = module_world
+            .world
+            .modules
+            .get(id.0 as usize)
+            .ok_or_else(|| TeloscArtifactError::Capability("availability witness module is absent"))?
+            .identity
+            .clone();
+        phalcom_semantic::metadata::stable_identity::from_stable_module(&stable)
+            .map_err(|error| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(error)))
+    };
+    let mut proofs = Vec::with_capacity(module_world.availability_witnesses.len());
+    for witness in &module_world.availability_witnesses {
+        let target = match &witness.target {
+            TargetV1::Module { module } => RuntimeRequirementTarget::Module(module_id(*module)?),
+            TargetV1::Binding { module, name } => RuntimeRequirementTarget::Binding {
+                module: module_id(*module)?,
+                name: name.clone().into_boxed_str(),
+            },
+        };
+        let product = match witness.product {
+            AvailabilityProductV1::CanonicalIdentity => RuntimeRequirementProduct::CanonicalIdentity,
+            AvailabilityProductV1::MetadataDescriptor => RuntimeRequirementProduct::MetadataDescriptor,
+            AvailabilityProductV1::RuntimeObject => RuntimeRequirementProduct::RuntimeObject,
+            AvailabilityProductV1::SourceInitializedValue => RuntimeRequirementProduct::SourceInitializedValue,
+        };
+        let authority = match witness.authority {
+            AvailabilityAuthorityV1::SemanticIdentityCatalog => AvailabilityAuthority::SemanticIdentityCatalog,
+            AvailabilityAuthorityV1::NativeBindingCatalog => AvailabilityAuthority::NativeBindingCatalog,
+            AvailabilityAuthorityV1::NativeModuleMaterialization => AvailabilityAuthority::NativeModuleMaterialization,
+            AvailabilityAuthorityV1::SemanticMetadataBundle => AvailabilityAuthority::SemanticMetadataBundle,
+            AvailabilityAuthorityV1::CanonicalSourceInitializer => AvailabilityAuthority::CanonicalSourceInitializer,
+            AvailabilityAuthorityV1::FullyInitializedUniverse => AvailabilityAuthority::FullyInitializedUniverse,
+        };
+        let available_at = match witness.available_at {
+            AvailabilityTimingV1::BeforeSourceExecution => RuntimeRequirementTiming::BeforeSourceExecution,
+            AvailabilityTimingV1::DuringModuleInitializer => RuntimeRequirementTiming::DuringModuleInitializer,
+            AvailabilityTimingV1::AfterBootstrap => RuntimeRequirementTiming::AfterBootstrap,
+        };
+        proofs.push(AvailabilityProof {
+            target,
+            product,
+            authority,
+            available_at,
+        });
+    }
+    Ok(phalcom_modules::AvailabilityContract::from_proofs(proofs))
 }
 
 /// Validate reader compatibility independently of digest integrity.
@@ -1209,6 +1279,7 @@ mod temporary_loaded_publication_allocation_census {
                 budget,
                 formal_image,
                 metadata,
+                Arc::new(phalcom_modules::AvailabilityContract::default()),
                 None,
                 TeloscLoadTimings::default(),
             )

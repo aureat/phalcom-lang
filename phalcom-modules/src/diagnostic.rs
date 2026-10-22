@@ -387,12 +387,13 @@ impl ModuleDiagnostic {
             error @ (LinkError::InvalidImportSlot { .. }
             | LinkError::UncoveredRuntimeRead { .. }
             | LinkError::RuntimeReadTargetMismatch { .. }
-            | LinkError::RuntimeRequirementProvenanceMismatch { .. }) => {
+            | LinkError::RuntimeRequirementProvenanceMismatch { .. }
+            | LinkError::DuplicateRuntimeDependencyRequirement { .. }) => {
                 let module = error.module().cloned().unwrap_or_else(ModuleId::universe_root);
                 Self {
                     module,
                     kind: ModuleDiagnosticKind::InterfaceError(error.to_string()),
-                    range: SourceRange::default(),
+                    range: error.range(),
                     message: error.to_string(),
                 }
             }

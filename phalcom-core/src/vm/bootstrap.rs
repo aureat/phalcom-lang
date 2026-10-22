@@ -383,7 +383,7 @@ impl VM {
         Self::finish_native_runtime(vm, native_install_mode, universe_pkg)
     }
 
-    fn install_native_runtime_on_artifact_topology(
+    pub(crate) fn install_native_runtime_on_artifact_topology(
         vm: &mut Self,
         native_install_mode: NativeInstallMode,
     ) -> Result<(), crate::error::VmBootstrapError> {
@@ -853,7 +853,7 @@ impl VM {
         Ok(())
     }
 
-    fn sync_universe_class_aliases(&mut self) -> Result<(), crate::error::VmBootstrapError> {
+    pub(crate) fn sync_universe_class_aliases(&mut self) -> Result<(), crate::error::VmBootstrapError> {
         let root = self.universe_root_module()?;
         self.prelude_bindings.clear();
         for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
@@ -1007,7 +1007,7 @@ impl VM {
     /// These are semantic targets, not a second runtime name registry: the
     /// compiler uses the retained `VariantId` to emit the existing exact ADT
     /// lowering. `Err` is the historical spelling for canonical `Result::Error`.
-    fn bind_canonical_variant_aliases(&mut self) -> Result<(), crate::error::VmBootstrapError> {
+    pub(crate) fn bind_canonical_variant_aliases(&mut self) -> Result<(), crate::error::VmBootstrapError> {
         let aliases = [
             (
                 "Some",
@@ -1078,7 +1078,7 @@ impl VM {
     /// native declarations, so their metaclass rows do not receive the
     /// source constructor methods during class-body compilation even though
     /// their instance-side superclass is `Error`.
-    fn bind_native_error_constructors(&mut self) {
+    pub(crate) fn bind_native_error_constructors(&mut self) {
         let error = self.universe.classes.error_class;
         let error_meta = self.heap.class(error).class;
         let constructors = ["new()", "new(_)"]

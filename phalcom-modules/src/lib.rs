@@ -59,7 +59,7 @@ pub use interface::{
 pub use linker::{
     AvailabilityAuthority, AvailabilityContract, AvailabilityProof, ExecutableLinkedProgram, GlobalBindingId, ImportBindingId, ImportPhaseSummary, LinkError,
     LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, ModuleImportPhaseProduct, ModuleLinker, PhaseEvidenceCoverage,
-    RuntimeAvailabilityWitness, RuntimeDependencyRequirement, SemanticLinkedModule, SemanticLinkedProgram, SymbolId, SymbolicImportBinding,
+    RuntimeAvailabilityWitness, RuntimeDependencyObligationKey, RuntimeDependencyRequirement, SemanticLinkedModule, SemanticLinkedProgram, SymbolId, SymbolicImportBinding,
     SymbolicImportTable, SymbolicImportTarget,
     dependency_phase, module_path, resolution_key,
 };

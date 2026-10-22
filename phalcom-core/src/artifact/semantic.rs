@@ -82,8 +82,12 @@ pub(crate) fn project_semantic_pool(
         project.ensure_data_construction(&source.data_constructions[index])?;
     }
 
+    // Bytecode operands address source slots, including equal recipes in
+    // distinct slots. Only recipes reached through nested products may reuse
+    // an existing entry after this source-indexed prefix is complete.
     for recipe in &source.call_environment_recipes {
-        project.ensure_call_environment(recipe)?;
+        let row = project.call_environment(recipe)?;
+        project.output.call_environments.push(row);
     }
     for target in &source.associated_targets {
         let target = project.invocation_target(target)?;
@@ -1301,6 +1305,47 @@ fn empty_pool() -> PortableSemanticPoolV1 {
 #[cfg(test)]
 mod type_recipe_canonicalization_tests {
     use super::*;
+
+    #[test]
+    fn projection_preserves_equal_call_environment_slots_addressed_by_bytecode() {
+        use phalcom_semantic::identity::{SemanticRevision, WorkspaceId};
+        use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide};
+        let snapshot = SemanticSnapshot::new(
+            WorkspaceId(0),
+            SemanticRevision(0),
+            0,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
+        let vm = crate::vm::VM::new_kernel();
+        let recipe = Arc::new(RuntimeCallEnvironmentRecipe {
+            callable: StableCallableRef {
+                owner: StableCallableOwnerRef::Declaration(StableDeclarationRef {
+                    module: phalcom_semantic::metadata::stable_identity::to_stable_module(&phalcom_modules::ModuleId::universe_root()),
+                    path: vec!["Probe".into()].into(),
+                }),
+                side: StableDispatchSide::Instance,
+                selector: "probe".into(),
+            },
+            bindings: Box::new([]),
+            conformance_slots: Box::new([]),
+        });
+        let mut source = ExecutableSemanticPool::new();
+        let span = phalcom_common::range::SourceRange::default();
+        let first = source.add_call_environment_recipe(recipe.clone(), span).unwrap();
+        let second = source.add_call_environment_recipe(recipe, span).unwrap();
+        assert_ne!(first, second);
+        let projected = project_semantic_pool(&vm, &snapshot, &source, &[]).unwrap();
+        assert_eq!(projected.call_environments.len(), 2);
+        assert_eq!(projected.call_environments[first as usize], projected.call_environments[second as usize]);
+    }
 
     fn canonical(digest: u8) -> PortableTypeRecipeV1 {
         PortableTypeRecipeV1::Canonical { digest: [digest; 32] }

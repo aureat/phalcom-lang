@@ -125,8 +125,13 @@ pub(crate) enum ExecutableValidationError {
     DuplicatePrototypeOwner { owner: PrototypeOwnerV1 },
     #[error("class recipe {class:?} has an invalid runtime field layout: {detail}")]
     InvalidClassLayout { class: StableClassRefV1, detail: String },
-    #[error("prototype {prototype} uses field slot {slot} without a P7-owned class layout")]
-    UnknownFieldLayout { prototype: usize, slot: u16 },
+    #[error("prototype {prototype} ({owner:?}) uses field slot {slot} without a P7-owned class layout (resolved class {class:?})")]
+    UnknownFieldLayout {
+        prototype: usize,
+        slot: u16,
+        owner: PrototypeOwnerV1,
+        class: Option<StableClassRefV1>,
+    },
     #[error("executable {table} row {index} is invalid: {detail}")]
     InvalidExecutableReference { table: &'static str, index: usize, detail: String },
     #[error("prototype {prototype} instruction {instruction} uses opcode tag {tag} absent from the manifest")]
@@ -146,6 +151,7 @@ impl ValidatedExecutableImage {
     }
 }
 
+#[cfg_attr(test, derive(Default))]
 struct ExecutableValidationContext<'a> {
     linked_modules: BTreeMap<StableModuleRef, &'a LinkedModule>,
     declarations: BTreeSet<StableDeclarationRef>,
@@ -168,9 +174,13 @@ struct ExecutableValidationContext<'a> {
 }
 
 impl<'a> ExecutableValidationContext<'a> {
-    fn new(formal_image: &'a CanonicalUniverseFormalImage, metadata: &SemanticMetadataBundle) -> Result<Self, ExecutableValidationError> {
+    fn new(
+        linked_program: &'a phalcom_modules::LinkedProgram,
+        formal_image: &'a CanonicalUniverseFormalImage,
+        metadata: &SemanticMetadataBundle,
+    ) -> Result<Self, ExecutableValidationError> {
         let mut linked_modules = BTreeMap::new();
-        for (module, linked) in formal_image.linked().modules.iter() {
+        for (module, linked) in linked_program.modules.iter() {
             let stable = to_stable_module(module);
             if linked_modules.insert(stable.clone(), linked).is_some() {
                 return Err(ExecutableValidationError::DuplicateP7Module(stable));
@@ -326,6 +336,7 @@ impl<'a> ExecutableValidationContext<'a> {
 /// control-flow, runtime-object, and P2 semantic-reference checks pass.
 pub(crate) fn validate_executable_image(
     image: Arc<ExecutableImageV1>,
+    linked_program: &phalcom_modules::LinkedProgram,
     formal_image: &CanonicalUniverseFormalImage,
     metadata: &SemanticMetadataBundle,
     limits: &ExecutableImageLimitsV1,
@@ -338,7 +349,7 @@ pub(crate) fn validate_executable_image(
         return Err(ExecutableValidationError::UnsupportedProfile(image.compatibility.compilation_profile.clone()));
     }
 
-    let context = ExecutableValidationContext::new(formal_image, metadata)?;
+    let context = ExecutableValidationContext::new(linked_program, formal_image, metadata)?;
     validate_module_coverage(&image, &context)?;
     validate_bootstrap_dependencies(&image, &context)?;
     validate_native_anchors(&image)?;
@@ -654,24 +665,20 @@ fn validate_classes(image: &ExecutableImageV1, context: &ExecutableValidationCon
         if !context.has_p7_class(&row.class) {
             return Err(ExecutableValidationError::UnknownP7Declaration(row.class.declaration.clone()));
         }
-        if let Some(superclass) = &row.superclass
-            && superclass.side != row.class.side
-        {
-            return Err(ExecutableValidationError::InvalidClassLayout {
-                class: row.class.clone(),
-                detail: "superclass dispatch side differs from the class recipe".to_owned(),
-            });
-        }
         let Some(metaclass) = &row.metaclass else {
             return Err(ExecutableValidationError::InvalidClassLayout {
                 class: row.class.clone(),
                 detail: "class recipe has no metaclass".to_owned(),
             });
         };
-        if metaclass.side != StableDispatchSide::Class {
+        let expected_metaclass_side = match row.class.side {
+            StableDispatchSide::Instance => StableDispatchSide::Class,
+            StableDispatchSide::Class => StableDispatchSide::Instance,
+        };
+        if metaclass.side != expected_metaclass_side {
             return Err(ExecutableValidationError::InvalidClassLayout {
                 class: row.class.clone(),
-                detail: "metaclass reference is not on the class dispatch side".to_owned(),
+                detail: format!("metaclass reference is not on the expected {expected_metaclass_side:?} dispatch side"),
             });
         }
         for reference in row.superclass.iter().chain(row.metaclass.iter()) {
@@ -826,9 +833,9 @@ fn validate_prototype_owners(image: &ExecutableImageV1, context: &ExecutableVali
 }
 
 fn validate_method_recipes(image: &ExecutableImageV1) -> Result<(), ExecutableValidationError> {
+    use phalcom_common::selector::{Selector, SelectorKind, SelectorSlot};
     use phalcom_compiler_artifact::executable::constant::{MethodBodyV1, MethodSignatureKindV1, RestModeV1};
     use phalcom_compiler_artifact::executable::prototype::RestKindV1;
-    use phalcom_common::selector::{Selector, SelectorKind, SelectorSlot};
 
     for (index, constant) in image.constants.iter().enumerate() {
         let ConstantRecipeV1::Method { recipe } = constant else {
@@ -1215,12 +1222,16 @@ fn validate_instruction_operand(
                 return Err(ExecutableValidationError::UnknownFieldLayout {
                     prototype: prototype_index,
                     slot,
+                    owner: prototype.owner.clone(),
+                    class: None,
                 });
             };
             let Some(layout) = image.classes.iter().find(|row| row.class == class) else {
                 return Err(ExecutableValidationError::UnknownFieldLayout {
                     prototype: prototype_index,
                     slot,
+                    owner: prototype.owner.clone(),
+                    class: Some(class),
                 });
             };
             if u32::from(slot) >= layout.field_count {
@@ -1389,10 +1400,7 @@ fn require_live_local_slot(
     let limit = state
         .height
         .checked_add(usize::from(insertion))
-        .ok_or(ExecutableValidationError::StackDepthOverflow {
-            prototype,
-            instruction,
-        })?;
+        .ok_or(ExecutableValidationError::StackDepthOverflow { prototype, instruction })?;
     if slot >= limit {
         return Err(ExecutableValidationError::InvalidLocalSlot {
             prototype,
@@ -1974,12 +1982,14 @@ fn validate_prototype_stack(
                     return Err(invalid_stack_transfer_classification(prototype_index, instruction_index, control_flow));
                 };
                 let outgoing = apply_stack_delta(state, delta, prototype_index, instruction_index)?;
-                let target = instruction_index.checked_add(1).filter(|target| *target < code_len).ok_or(
-                    ExecutableValidationError::InvalidFallthrough {
+                let target = instruction_index
+                    .checked_add(fallthrough_width(instruction))
+                    .filter(|target| *target < code_len)
+                    .ok_or(ExecutableValidationError::InvalidFallthrough {
                         prototype: prototype_index,
                         instruction: instruction_index,
                         target: instruction_index
-                            .checked_add(1)
+                            .checked_add(fallthrough_width(instruction))
                             .and_then(|target| i64::try_from(target).ok())
                             .unwrap_or(i64::MAX),
                     },
@@ -2164,7 +2174,7 @@ fn validate_prototype_control_flow(
 
         match control_flow {
             ControlFlowKindV1::Fallthrough => {
-                enqueue_fallthrough(&mut pending, prototype_index, instruction_index, code_len)?;
+                enqueue_fallthrough(&mut pending, prototype_index, instruction_index, code_len, fallthrough_width(instruction))?;
             }
             ControlFlowKindV1::UnconditionalBranch => {
                 let offset = relative_jump_offset.ok_or(ExecutableValidationError::InvalidBranchTarget {
@@ -2183,7 +2193,7 @@ fn validate_prototype_control_flow(
                 })?;
                 let target = validate_branch_target(prototype_index, instruction_index, code_len, offset)?;
                 pending.push(target);
-                enqueue_fallthrough(&mut pending, prototype_index, instruction_index, code_len)?;
+                enqueue_fallthrough(&mut pending, prototype_index, instruction_index, code_len, 1)?;
             }
             ControlFlowKindV1::FunctionExit
             | ControlFlowKindV1::NonLocalExit
@@ -2193,13 +2203,8 @@ fn validate_prototype_control_flow(
     Ok(())
 }
 
-fn enqueue_fallthrough(
-    pending: &mut Vec<usize>,
-    prototype: usize,
-    instruction: usize,
-    code_len: usize,
-) -> Result<(), ExecutableValidationError> {
-    let target = instruction.checked_add(1);
+fn enqueue_fallthrough(pending: &mut Vec<usize>, prototype: usize, instruction: usize, code_len: usize, width: usize) -> Result<(), ExecutableValidationError> {
+    let target = instruction.checked_add(width);
     if let Some(target) = target.filter(|target| *target < code_len) {
         pending.push(target);
         return Ok(());
@@ -2209,6 +2214,13 @@ fn enqueue_fallthrough(
         instruction,
         target: target.and_then(|target| i64::try_from(target).ok()).unwrap_or(i64::MAX),
     })
+}
+
+fn fallthrough_width(instruction: &PortableInstructionV1) -> usize {
+    match instruction {
+        PortableInstructionV1::InvokeLocal { .. } | PortableInstructionV1::InvokeConst { .. } => 2,
+        _ => 1,
+    }
 }
 
 fn validate_branch_target(prototype: usize, instruction: usize, code_len: usize, offset: i32) -> Result<usize, ExecutableValidationError> {
@@ -2988,10 +3000,165 @@ fn stable_semantic_digest(fingerprint: Fingerprint128) -> [u8; 32] {
 mod tests {
     use super::*;
 
+    fn empty_image() -> ExecutableImageV1 {
+        use phalcom_compiler_artifact::executable::{compatibility::ExecutableCompatibilityV1, module::PortableBootstrapPlanV1};
+        ExecutableImageV1 {
+            compatibility: ExecutableCompatibilityV1::current(CompilationProfileV1::Debug, &[], &[]).unwrap(),
+            modules: vec![],
+            prototypes: vec![],
+            constants: vec![],
+            semantic_pools: vec![],
+            classes: vec![],
+            native_anchors: vec![],
+            primordial_roles: vec![],
+            source_maps: vec![],
+            detached_methods: vec![],
+            bootstrap: PortableBootstrapPlanV1 {
+                native_runtime_roles: vec![],
+                eager_modules: vec![],
+                deferred_modules: vec![],
+                required_declarations: vec![],
+            },
+        }
+    }
+
+    fn test_module() -> StableModuleRef {
+        StableModuleRef {
+            project: phalcom_type_meta::identity::StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: vec!["object".into()].into(),
+        }
+    }
+
+    #[test]
+    fn fused_invokes_skip_dead_invoke_in_both_validator_traversals() {
+        use PortableInstructionV1 as I;
+        use phalcom_compiler_artifact::executable::prototype::{ParameterShapeV1, PrototypeId, SemanticPoolId, SourceMapId};
+        let image = empty_image();
+        let context = ExecutableValidationContext::default();
+        for fused in [
+            I::InvokeConst {
+                operand0: 0,
+                operand1: 0,
+                operand2: 0,
+            },
+            I::InvokeLocal {
+                operand0: 0,
+                operand1: 0,
+                operand2: 0,
+            },
+        ] {
+            let mut prototype = PortablePrototypeV1 {
+                owner: PrototypeOwnerV1::Nested {
+                    parent: PrototypeId(0),
+                    ordinal: 0,
+                },
+                code: vec![fused, I::Invoke { operand0: 255, operand1: 0 }, I::Return {}],
+                constants: vec![],
+                max_slots: 2,
+                arity: 0,
+                upvalues: vec![],
+                parameters: ParameterShapeV1 {
+                    fixed_positionals: 0,
+                    fixed_labels: vec![],
+                    rest: None,
+                },
+                name: "fused".into(),
+                local_names: vec![],
+                source: SourceMapId(0),
+                semantics: SemanticPoolId(0),
+                spans: vec![],
+            };
+            validate_prototype_control_flow(&image, &context, 0, &prototype).unwrap();
+            validate_prototype_stack(&image, 0, &prototype, PrototypeActivationRoles::default()).unwrap();
+            prototype.code[2] = I::Pop {};
+            prototype.code.push(I::Pop {});
+            prototype.code.push(I::Return {});
+            assert!(matches!(
+                validate_prototype_stack(&image, 0, &prototype, PrototypeActivationRoles::default()),
+                Err(ExecutableValidationError::StackUnderflow { instruction: 3, .. })
+            ));
+            prototype.code.truncate(2);
+            assert!(matches!(
+                validate_prototype_control_flow(&image, &context, 0, &prototype),
+                Err(ExecutableValidationError::InvalidFallthrough { instruction: 0, target: 2, .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn class_tower_accepts_metaclass_instances_and_object_class_superclass() {
+        use phalcom_compiler_artifact::executable::module::PortableClassRecipeV1;
+        use phalcom_modules::{interface::LinkedModuleInterface, linker::ModuleBindingLayout, source::ModuleKind};
+        let module = test_module();
+        let linked = LinkedModule {
+            interface: LinkedModuleInterface {
+                module: phalcom_semantic::metadata::stable_identity::from_stable_module(&module).unwrap(),
+                kind: ModuleKind::Module,
+                exports: Default::default(),
+                metadata: Default::default(),
+            },
+            bindings: ModuleBindingLayout::default(),
+            linked_reads: vec![],
+            runtime_dependencies: vec![],
+        };
+        let mut context = ExecutableValidationContext::default();
+        context.linked_modules.insert(module.clone(), &linked);
+        let reference = |name: &str, side| StableClassRefV1 {
+            declaration: StableDeclarationRef {
+                module: module.clone(),
+                path: vec![name.into()].into(),
+            },
+            side,
+        };
+        let object = reference("Object", StableDispatchSide::Instance);
+        let object_class = reference("Object", StableDispatchSide::Class);
+        let class = reference("Class", StableDispatchSide::Instance);
+        let class_class = reference("Class", StableDispatchSide::Class);
+        let meta = reference("Metaclass", StableDispatchSide::Instance);
+        let meta_class = reference("Metaclass", StableDispatchSide::Class);
+        let mut image = empty_image();
+        for (class_ref, superclass, metaclass) in [
+            (object.clone(), None, object_class.clone()),
+            (object_class, Some(class.clone()), meta.clone()),
+            (class.clone(), Some(object.clone()), class_class.clone()),
+            (class_class, None, meta.clone()),
+            (meta.clone(), Some(class), meta_class.clone()),
+            (meta_class, None, meta),
+        ] {
+            context.declarations.insert(class_ref.declaration.clone());
+            context.class_declarations.insert(class_ref.declaration.clone());
+            image.classes.push(PortableClassRecipeV1 {
+                class: class_ref,
+                allocation: PortableClassAllocationV1::SourceDeclared,
+                superclass,
+                metaclass: Some(metaclass),
+                fields: vec![],
+                field_count: 0,
+                immutable_slots: vec![],
+                native_repr: false,
+                sealed: false,
+                is_abstract: false,
+            });
+        }
+        validate_classes(&image, &context).unwrap();
+        image.classes[1].metaclass.as_mut().unwrap().side = StableDispatchSide::Class;
+        assert!(matches!(
+            validate_classes(&image, &context),
+            Err(ExecutableValidationError::InvalidClassLayout { .. })
+        ));
+        image.classes[1].metaclass.as_mut().unwrap().side = StableDispatchSide::Instance;
+        image.classes[0].superclass = Some(object);
+        assert!(matches!(validate_classes(&image, &context), Err(ExecutableValidationError::SuperclassCycle(_))));
+    }
+
     #[test]
     fn validator_contract_uses_unpublished_p2_authority_and_returns_private_authority() {
         let _validator: fn(
             Arc<ExecutableImageV1>,
+            &phalcom_modules::LinkedProgram,
             &phalcom_semantic::canonical_image::CanonicalUniverseFormalImage,
             &phalcom_type_meta::SemanticMetadataBundle,
             &ExecutableImageLimitsV1,

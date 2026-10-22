@@ -77,3 +77,18 @@ Continue P2 closure remediation under the decisions recorded in `CHECKPOINT.md`:
 - Rerun the focused artifact/semantic tests and the P2.T12 source regressions. Broader workspace certification remains separate unless explicitly required.
 
 P3 remains `PROPOSED / NOT_STARTED / UNVERIFIED` until these P2 exit conditions pass and the P2 checkpoint record is updated.
+
+## Source-free validator continuation — 2026-10-22
+
+The inline continuation advanced full executable validation through fused calls
+and call-environment pool indices. Validator regressions pass 3/3; the new
+call-environment projection regression passes 1/1. Preserve every source pool
+slot addressed by bytecode even when two recipes compare equal.
+
+The latest full run fails before caching at prototype 43, Nested parent 13
+ordinal 17, field slot 0, resolved class None. Read
+`ARTF001.C1.P2.R4-source-free-field-ownership-incident.md` before further edits.
+The next required action is the ownership-proof consultation, not another full
+run or a guessed class mapping. No full artifact bytes exist yet. Source-free
+execution remains unproven; P2.R4 stays partial and P3 blocked. The fresh-process
+execution gate is wired but not reached. No commit or push was made.

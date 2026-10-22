@@ -1,5 +1,7 @@
 use phalcom_compiler_artifact::limits::ValidationLimits;
-use phalcom_core::modules::canonical_artifact::{build_universe_telosc, load_universe_telosc, load_universe_telosc_from_bytes, write_universe_telosc};
+use phalcom_core::modules::canonical_artifact::{
+    build_full_universe_telosc, build_universe_telosc, load_universe_telosc, load_universe_telosc_from_bytes, write_universe_telosc,
+};
 use phalcom_core::modules::canonical_universe::canonical_universe_program;
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics};
 use phalcom_core::modules::parity::{assert_semantic_diagnostics_parity, compare_compiled_programs};
@@ -1219,6 +1221,76 @@ let list = List.withCapacity("not an int");
         }
         _ => panic!("Expected semantic errors, got src: {:?}, art: {:?}", src_err, art_err),
     }
+}
+
+#[test]
+fn artifact_executable_bootstraps_and_runs_slotmap_without_universe_compilation() {
+    let limits = ValidationLimits::default();
+    let temporary_artifact = tempfile::tempdir().expect("artifact directory");
+    let artifact_path = std::env::var_os("PHALCOM_TEST_FULL_TELOSC_PATH")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| temporary_artifact.path().join("universe.telosc"));
+    let loaded = if artifact_path.is_file() {
+        load_universe_telosc(&artifact_path, &limits).expect("load reusable full Universe artifact")
+    } else {
+        let program = canonical_universe_program().expect("canonical universe program");
+        let built = build_full_universe_telosc(program, &limits).expect("build full Universe artifact");
+        write_universe_telosc(&artifact_path, &built).expect("write reusable full Universe artifact");
+        load_universe_telosc_from_bytes(&built.bytes, &limits).expect("load full Universe artifact")
+    };
+    eprintln!("artifact capture/validation/load passed: {}", artifact_path.display());
+    run_artifact_slotmap(&loaded);
+
+    let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+        .args([
+            "modules_canonical_artifact::fresh_process_artifact_executable_runner",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("PHALCOM_TEST_EXECUTABLE_TELOSC_PATH", &artifact_path)
+        .env("PHALCOM_DENY_SOURCE_BOOTSTRAP", "1")
+        .output()
+        .expect("run source-denied artifact execution in fresh process");
+    assert!(
+        output.status.success(),
+        "fresh process failed; stdout: {}; stderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn fresh_process_artifact_executable_runner() {
+    let Some(path) = std::env::var_os("PHALCOM_TEST_EXECUTABLE_TELOSC_PATH") else {
+        return;
+    };
+    assert_eq!(std::env::var("PHALCOM_DENY_SOURCE_BOOTSTRAP").as_deref(), Ok("1"));
+    let bootstrap_count = phalcom_semantic::canonical_image::canonical_universe_formal_image_build_count;
+    assert_eq!(bootstrap_count(), 0, "before artifact load");
+    let loaded =
+        load_universe_telosc(&std::path::PathBuf::from(path), &ValidationLimits::default()).expect("load full Universe artifact in source-denied child");
+    assert!(loaded.formal_image.sources().is_empty(), "loaded image must contain no sources");
+    assert!(loaded.formal_image.snapshot().is_source_free_artifact_complete());
+    assert_eq!(bootstrap_count(), 0, "after artifact load");
+    run_artifact_slotmap(&loaded);
+    assert_eq!(bootstrap_count(), 0, "after SlotMap compilation, VM bootstrap, and execution");
+}
+
+fn run_artifact_slotmap(loaded: &phalcom_core::modules::canonical_artifact::LoadedUniverseArtifact) {
+    assert!(loaded.has_portable_executable());
+    let slotmap_tests = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("packages/slotmap/tests/runtime");
+    let compiled = loaded
+        .compile_user_entry(EntrySelection::Project(slotmap_tests))
+        .expect("artifact-backed SlotMap runtime-test compilation");
+    eprintln!("artifact-backed SlotMap compilation passed");
+    let mut vm = loaded.new_vm().expect("source-free artifact VM bootstrap");
+    eprintln!("artifact VM bootstrap passed");
+    vm.run_compiled(&compiled).expect("source-free artifact VM must execute SlotMap runtime tests");
+    eprintln!("artifact-backed SlotMap execution passed");
 }
 
 fn entry_local_diagnostics(diagnostics: &ProgramSemanticDiagnostics) -> ProgramSemanticDiagnostics {
