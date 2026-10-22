@@ -282,26 +282,7 @@ impl VM {
                 // not in `Universe::new`.
                 vm.universe.mark_leaf_tostring_pristine();
 
-                // R-INV-0.3 (global half) — the `None` **global** resolves to the immediate
-                // value, not the `None` class object (ADR-0007/0010). This
-                // half needs the Universe module globals table, so it lives here rather
-                // than in `verify_invariants`, which is heap-structural (`&Heap` only) and
-                // cannot read module globals (U-CORE-1 spec SD-1).
-                {
-                    let none_value = vm
-                        .universe_global(&["option", "option"], "None")
-                        .ok_or_else(|| crate::error::VmBootstrapError::Invariant("None global must be bound by canonical Option module".into()))?;
-                    if none_value != Value::none() {
-                        return Err(crate::error::VmBootstrapError::Invariant(
-                            "None global must resolve to immediate absence".into(),
-                        ));
-                    }
-                    if none_value == Value::obj(vm.universe.classes.none_class) {
-                        return Err(crate::error::VmBootstrapError::Invariant(
-                            "None global must not resolve to the None class object".into(),
-                        ));
-                    }
-                }
+                vm.verify_canonical_none_global()?;
 
                 vm.universe.verify_invariants(&vm.heap).map_err(crate::error::VmBootstrapError::Invariant)?;
 
@@ -309,6 +290,27 @@ impl VM {
             },
             |_| telos_observability::PerfOutcome::BootstrapError,
         )
+    }
+
+    /// Verifies the canonical Option singleton binding after Universe module
+    /// execution. This invariant is shared by source and artifact bootstrap:
+    /// the public `None` global is the immediate absence value, never the
+    /// hidden runtime behavior class.
+    pub(crate) fn verify_canonical_none_global(&mut self) -> Result<(), crate::error::VmBootstrapError> {
+        let none_value = self
+            .universe_global(&["option", "option"], "None")
+            .ok_or_else(|| crate::error::VmBootstrapError::Invariant("None global must be bound by canonical Option module".into()))?;
+        if none_value != Value::none() {
+            return Err(crate::error::VmBootstrapError::Invariant(
+                "None global must resolve to immediate absence".into(),
+            ));
+        }
+        if none_value == Value::obj(self.universe.classes.none_class) {
+            return Err(crate::error::VmBootstrapError::Invariant(
+                "None global must not resolve to the None class object".into(),
+            ));
+        }
+        Ok(())
     }
 
     /// Publishes the exact source-authored semantic singleton/class values
