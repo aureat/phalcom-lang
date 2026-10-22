@@ -155,17 +155,33 @@ pub struct AvailabilityProof {
 }
 
 /// Immutable exact availability facts accepted during executable finalization.
+///
+/// Proofs are retained as one sorted, deduplicated vector. Source-backed
+/// construction may canonicalize an arbitrary iterator; artifact import can
+/// instead consume an already budgeted, validated canonical vector without
+/// allocating a second tree-shaped collection.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AvailabilityContract {
-    proofs: BTreeSet<AvailabilityProof>,
+    proofs: Vec<AvailabilityProof>,
 }
 
 impl AvailabilityContract {
     /// Builds a contract from immutable exact proofs.
     pub fn from_proofs(proofs: impl IntoIterator<Item = AvailabilityProof>) -> Self {
-        Self {
-            proofs: proofs.into_iter().collect(),
+        let mut proofs = proofs.into_iter().collect::<Vec<_>>();
+        proofs.sort();
+        proofs.dedup();
+        Self { proofs }
+    }
+
+    /// Adopts an already canonical proof vector without another collection
+    /// allocation. Artifact import must validate and budget the vector before
+    /// calling this constructor.
+    pub fn from_canonical_proofs(proofs: Vec<AvailabilityProof>) -> Result<Self, &'static str> {
+        if proofs.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err("availability proofs must be strictly sorted and unique");
         }
+        Ok(Self { proofs })
     }
 
     /// Returns the exact proofs carried by this contract.

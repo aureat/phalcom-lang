@@ -11,6 +11,7 @@ use phalcom_type_meta::identity::{
 pub const MODULE_WORLD_SCHEMA_V1: u32 = 1;
 pub const MODULE_WORLD_SCHEMA_V2: u32 = 2;
 pub const MODULE_WORLD_SCHEMA_V3: u32 = 3;
+pub const MODULE_WORLD_SCHEMA_V4: u32 = 4;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ArtifactModuleId(pub u32);
@@ -1027,6 +1028,23 @@ tagged!(AvailabilityRequirementProducerV1 {
     8 => StaticConstantRead,
 });
 
+/// One reusable availability guarantee supplied by the canonical execution
+/// environment. Unlike a V3 runtime witness, this is not tied to one consumer
+/// requirement or source range.
+record!(AvailabilityProofV1 {
+    target: TargetV1,
+    product: AvailabilityProductV1,
+    authority: AvailabilityAuthorityV1,
+    available_at: AvailabilityTimingV1,
+});
+
+impl AvailabilityProofV1 {
+    /// Orders complete environment proofs in canonical wire order.
+    pub fn canonical_cmp(&self, other: &Self) -> std::cmp::Ordering {
+        availability_proof_key(self).cmp(&availability_proof_key(other))
+    }
+}
+
 /// One exact availability proof applied to a finalized runtime requirement.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RuntimeAvailabilityWitnessV1 {
@@ -1168,23 +1186,32 @@ impl ModuleWorldV3 {
         if self.availability_witnesses.len() > limits.max_semantic_entries_per_family {
             return Err(invalid("availability witness count exceeds limit"));
         }
-        let keys = self.availability_witnesses.iter().map(availability_witness_key).collect::<Vec<_>>();
-        if keys.windows(2).any(|pair| pair[0] >= pair[1]) {
+        if self
+            .availability_witnesses
+            .windows(2)
+            .any(|pair| pair[0].canonical_cmp(&pair[1]) != std::cmp::Ordering::Less)
+        {
             return Err(invalid("availability witnesses are not uniquely sorted"));
         }
 
         for (module_index, module) in self.world.modules.iter().enumerate() {
             let module_index = u32::try_from(module_index).map_err(|_| invalid("module index exceeds u32"))?;
-            let runtime_dependencies = module.runtime_dependencies.iter().map(|id| id.0).collect::<std::collections::BTreeSet<_>>();
-            let edge_dependencies = module.runtime_edges.iter().map(|edge| edge.dependency.0).collect::<std::collections::BTreeSet<_>>();
-            if runtime_dependencies != edge_dependencies {
+            let dependencies_match = module
+                .runtime_dependencies
+                .iter()
+                .all(|dependency| module.runtime_edges.iter().any(|edge| edge.dependency == *dependency))
+                && module
+                    .runtime_edges
+                    .iter()
+                    .all(|edge| module.runtime_dependencies.contains(&edge.dependency));
+            if !dependencies_match {
                 return Err(invalid(format!("runtime dependencies and edges disagree for module {module_index}")));
             }
             for read in &module.linked_reads {
                 let dependency = match read {
                     TargetV1::Module { module } | TargetV1::Binding { module, .. } => *module,
                 };
-                if !runtime_dependencies.contains(&dependency.0)
+                if !module.runtime_dependencies.contains(&dependency)
                     && !self.availability_witnesses.iter().any(|witness| {
                         witness.importer.0 == module_index
                             && witness.dependency == dependency
@@ -1483,26 +1510,240 @@ impl Wire for ModuleWorldV3 {
     }
 }
 
-fn availability_witness_key(
-    witness: &RuntimeAvailabilityWitnessV1,
-) -> (u32, u32, u64, u64, u8, Option<(u8, u32, String)>, (u8, u32, String), u8, u8, u8, u8, u8) {
-    fn target_key(target: &TargetV1) -> (u8, u32, String) {
-        match target {
-            TargetV1::Module { module } => (0, module.0, String::new()),
-            TargetV1::Binding { module, name } => (1, module.0, name.clone()),
+/// Module-world schema carrying the canonical post-bootstrap execution
+/// environment contract in addition to V3's requirement-specific witnesses.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModuleWorldV4 {
+    /// Prior schema products and exact requirement-specific witnesses.
+    pub previous: ModuleWorldV3,
+    /// Canonical Universe bootstrap schedule. Order is semantic and must never
+    /// be sorted during canonicalization.
+    pub bootstrap_modules: Vec<ArtifactModuleId>,
+    /// Complete reusable environment contract, uniquely sorted in canonical
+    /// proof order.
+    pub bootstrap_availability: Vec<AvailabilityProofV1>,
+}
+
+impl std::ops::Deref for ModuleWorldV4 {
+    type Target = ModuleWorldV3;
+
+    fn deref(&self) -> &Self::Target {
+        &self.previous
+    }
+}
+
+impl ModuleWorldV4 {
+    pub fn new(
+        previous: ModuleWorldV3,
+        bootstrap_modules: Vec<ArtifactModuleId>,
+        bootstrap_availability: Vec<AvailabilityProofV1>,
+    ) -> Self {
+        Self {
+            previous,
+            bootstrap_modules,
+            bootstrap_availability,
         }
     }
+
+    /// Serializes the current module-world wire schema.
+    pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
+        let mut out = BinaryWriter::new();
+        out.write_u32(MODULE_WORLD_SCHEMA_V4);
+        self.write(&mut out)?;
+        Ok(out.into_vec())
+    }
+
+    /// Decodes and validates V4 under the caller's cumulative allocation
+    /// transaction. Cross-section completeness checks remain the loader's
+    /// responsibility because they require metadata and native catalogs.
+    pub fn decode_with_allocation_budget(
+        bytes: &[u8],
+        limits: &ValidationLimits,
+        transaction: &mut AllocationBudget,
+    ) -> Result<Self, ArtifactError> {
+        let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut section = transaction.child(section_limit);
+        let world = {
+            let mut input = Decode {
+                reader: BinaryReader::new(bytes),
+                limits: *limits,
+                allocations: &mut section,
+                items_left: limits.max_semantic_entries_per_family,
+                depth: 0,
+            };
+            let schema = input.reader.read_u32()?;
+            if schema != MODULE_WORLD_SCHEMA_V4 {
+                return Err(crate::error::ValidationError::IncompatibleAbi {
+                    kind: "module_world_schema",
+                    found: schema,
+                    expected: MODULE_WORLD_SCHEMA_V4,
+                }
+                .into());
+            }
+            let world = Self::read(&mut input)?;
+            if input.reader.has_remaining() {
+                return Err(invalid("trailing module-world payload bytes"));
+            }
+            world
+        };
+        world.validate(limits)?;
+        transaction.commit_child(section).map_err(allocation_error)?;
+        Ok(world)
+    }
+
+    /// Validates V4-local authority. Completeness against native bindings and
+    /// metadata roots is intentionally performed by the canonical artifact
+    /// loader, which owns those independent authorities.
+    pub fn validate(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+        self.previous.validate(limits)?;
+        if self.bootstrap_modules.len() > limits.max_modules {
+            return Err(invalid("bootstrap module count exceeds limit"));
+        }
+        if self.bootstrap_availability.len() > limits.max_semantic_entries_per_family {
+            return Err(invalid("bootstrap availability proof count exceeds limit"));
+        }
+
+        for (index, module) in self.bootstrap_modules.iter().enumerate() {
+            let row = self
+                .previous
+                .world
+                .modules
+                .get(module.0 as usize)
+                .ok_or_else(|| invalid("bootstrap schedule references an out-of-bounds module"))?;
+            if self.bootstrap_modules[..index].contains(module) {
+                return Err(invalid("bootstrap schedule contains a duplicate module"));
+            }
+            if !matches!(&row.identity.project, StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe") {
+                return Err(invalid("bootstrap schedule contains a non-Universe module"));
+            }
+        }
+
+        if self
+            .bootstrap_availability
+            .windows(2)
+            .any(|pair| pair[0].canonical_cmp(&pair[1]) != std::cmp::Ordering::Less)
+        {
+            return Err(invalid("bootstrap availability proofs are not uniquely sorted"));
+        }
+
+        for proof in &self.bootstrap_availability {
+            self.validate_bootstrap_proof(proof)?;
+        }
+        Ok(())
+    }
+
+    fn validate_bootstrap_proof(&self, proof: &AvailabilityProofV1) -> Result<(), ArtifactError> {
+        let module = match &proof.target {
+            TargetV1::Module { module } => *module,
+            TargetV1::Binding { module, name } => {
+                if name.is_empty() {
+                    return Err(invalid("bootstrap availability binding name is empty"));
+                }
+                *module
+            }
+        };
+        let row = self
+            .previous
+            .world
+            .modules
+            .get(module.0 as usize)
+            .ok_or_else(|| invalid("bootstrap availability proof references an out-of-bounds module"))?;
+        if !matches!(&row.identity.project, StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe") {
+            return Err(invalid("bootstrap availability proof targets a non-Universe module"));
+        }
+
+        use AvailabilityAuthorityV1 as Authority;
+        use AvailabilityProductV1 as Product;
+        use AvailabilityTimingV1 as Timing;
+
+        let valid = match (&proof.authority, &proof.product, &proof.available_at, &proof.target) {
+            (Authority::SemanticIdentityCatalog, Product::CanonicalIdentity, Timing::BeforeSourceExecution, TargetV1::Module { .. })
+            | (Authority::SemanticIdentityCatalog, Product::CanonicalIdentity, Timing::BeforeSourceExecution, TargetV1::Binding { .. })
+            | (Authority::NativeModuleMaterialization, Product::RuntimeObject, Timing::BeforeSourceExecution, TargetV1::Module { .. })
+            | (Authority::NativeBindingCatalog, Product::RuntimeObject, Timing::BeforeSourceExecution, TargetV1::Binding { .. })
+            | (Authority::FullyInitializedUniverse, Product::RuntimeObject, Timing::AfterBootstrap, TargetV1::Module { .. })
+            | (Authority::FullyInitializedUniverse, Product::SourceInitializedValue, Timing::AfterBootstrap, TargetV1::Module { .. })
+            | (Authority::FullyInitializedUniverse, Product::SourceInitializedValue, Timing::AfterBootstrap, TargetV1::Binding { .. })
+            | (Authority::FullyInitializedUniverse, Product::MetadataDescriptor, Timing::AfterBootstrap, TargetV1::Module { .. }) => true,
+            _ => false,
+        };
+        if !valid {
+            return Err(invalid("bootstrap availability proof uses an unsupported authority/product/timing/target combination"));
+        }
+
+        if proof.authority == Authority::FullyInitializedUniverse && !self.bootstrap_modules.contains(&module) {
+            return Err(invalid("fully initialized Universe proof targets a module outside the bootstrap schedule"));
+        }
+        Ok(())
+    }
+}
+
+impl Wire for ModuleWorldV4 {
+    fn collection_limit(limits: &ValidationLimits) -> usize {
+        limits.max_modules
+    }
+
+    fn write(&self, out: &mut BinaryWriter) -> Result<(), ArtifactError> {
+        self.previous.write(out)?;
+        self.bootstrap_modules.write(out)?;
+        self.bootstrap_availability.write(out)
+    }
+
+    fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
+        input.nested(|input| {
+            Ok(Self {
+                previous: ModuleWorldV3::read(input)?,
+                bootstrap_modules: Vec::<ArtifactModuleId>::read(input)?,
+                bootstrap_availability: Vec::<AvailabilityProofV1>::read(input)?,
+            })
+        })
+    }
+}
+
+fn availability_target_key(target: &TargetV1) -> (u8, u32, &str) {
+    match target {
+        TargetV1::Module { module } => (0, module.0, ""),
+        TargetV1::Binding { module, name } => (1, module.0, name.as_str()),
+    }
+}
+
+fn availability_product_tag(product: &AvailabilityProductV1) -> u8 {
+    match product {
+        AvailabilityProductV1::CanonicalIdentity => 0,
+        AvailabilityProductV1::MetadataDescriptor => 1,
+        AvailabilityProductV1::RuntimeObject => 2,
+        AvailabilityProductV1::SourceInitializedValue => 3,
+    }
+}
+
+fn availability_authority_tag(authority: &AvailabilityAuthorityV1) -> u8 {
+    match authority {
+        AvailabilityAuthorityV1::SemanticIdentityCatalog => 0,
+        AvailabilityAuthorityV1::NativeBindingCatalog => 1,
+        AvailabilityAuthorityV1::NativeModuleMaterialization => 2,
+        AvailabilityAuthorityV1::SemanticMetadataBundle => 3,
+        AvailabilityAuthorityV1::CanonicalSourceInitializer => 4,
+        AvailabilityAuthorityV1::FullyInitializedUniverse => 5,
+    }
+}
+
+fn availability_proof_key(proof: &AvailabilityProofV1) -> ((u8, u32, &str), u8, u8, u8) {
+    (
+        availability_target_key(&proof.target),
+        availability_product_tag(&proof.product),
+        availability_authority_tag(&proof.authority),
+        availability_timing_tag(&proof.available_at),
+    )
+}
+
+fn availability_witness_key(
+    witness: &RuntimeAvailabilityWitnessV1,
+) -> (u32, u32, u64, u64, u8, Option<(u8, u32, &str)>, (u8, u32, &str), u8, u8, u8, u8, u8) {
     let reason = match &witness.reason {
         RuntimeReasonV1::WholeModuleImport => 0,
         RuntimeReasonV1::SelectiveValueImport => 1,
         RuntimeReasonV1::ReExport => 2,
         RuntimeReasonV1::RuntimeDeclarationReference => 3,
-    };
-    let product = match &witness.product {
-        AvailabilityProductV1::CanonicalIdentity => 0,
-        AvailabilityProductV1::MetadataDescriptor => 1,
-        AvailabilityProductV1::RuntimeObject => 2,
-        AvailabilityProductV1::SourceInitializedValue => 3,
     };
     let producer = match &witness.producer {
         AvailabilityRequirementProducerV1::DeclarationRead => 0,
@@ -1515,26 +1756,18 @@ fn availability_witness_key(
         AvailabilityRequirementProducerV1::MetadataTypeOwner => 7,
         AvailabilityRequirementProducerV1::StaticConstantRead => 8,
     };
-    let authority = match &witness.authority {
-        AvailabilityAuthorityV1::SemanticIdentityCatalog => 0,
-        AvailabilityAuthorityV1::NativeBindingCatalog => 1,
-        AvailabilityAuthorityV1::NativeModuleMaterialization => 2,
-        AvailabilityAuthorityV1::SemanticMetadataBundle => 3,
-        AvailabilityAuthorityV1::CanonicalSourceInitializer => 4,
-        AvailabilityAuthorityV1::FullyInitializedUniverse => 5,
-    };
     (
         witness.importer.0,
         witness.dependency.0,
         witness.range.start,
         witness.range.end,
         reason,
-        witness.read_target.as_ref().map(target_key),
-        target_key(&witness.target),
-        product,
+        witness.read_target.as_ref().map(availability_target_key),
+        availability_target_key(&witness.target),
+        availability_product_tag(&witness.product),
         producer,
         availability_timing_tag(&witness.required_at),
-        authority,
+        availability_authority_tag(&witness.authority),
         availability_timing_tag(&witness.available_at),
     )
 }
