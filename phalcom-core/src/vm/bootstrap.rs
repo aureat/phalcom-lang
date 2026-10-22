@@ -97,6 +97,7 @@ impl VM {
                 privileged_modules: std::collections::HashSet::new(),
                 semantic_roots: None,
                 classes: HashMap::new(),
+                artifact_preallocated_classes: HashMap::new(),
                 kernel_class_names: std::collections::HashSet::new(),
                 prelude_bindings: HashMap::new(),
                 prelude_variant_bindings: HashMap::new(),
