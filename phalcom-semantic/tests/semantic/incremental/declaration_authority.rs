@@ -111,3 +111,75 @@ fn editor_type_hint_eligibility_is_compiler_owned() {
         "EditorSemanticQuery must decide which canonical type hints exist before the LSP presentation layer runs"
     );
 }
+
+#[test]
+fn defining_source_preserves_canonical_allocator_contract_on_replay() {
+    use crate::semantic::incremental::support::single_module_input;
+    use phalcom_common::selector::Selector;
+    use phalcom_native_meta::UniverseKey;
+    use phalcom_semantic::SemanticWorkspaceSession;
+    use phalcom_semantic::declaration_type::DeclaredTypeBasis;
+    use phalcom_semantic::dispatch::CallableSemanticKind;
+    use phalcom_semantic::identity::{CallableId, DispatchSide};
+    use phalcom_semantic::types::parameter::SelfRole;
+    use phalcom_semantic::types::store::TypeData;
+
+    let class = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Class);
+    let selector = Selector::method("new", []).unwrap();
+    let callable = CallableId::new(class.clone(), selector.clone(), DispatchSide::Instance);
+    let source = "native primitive class Class { new() { self } }\n";
+    let edited = source.replace("new() { self }", "new() { let instance = self; instance }");
+    assert_ne!(source, edited);
+    let mut session = SemanticWorkspaceSession::new();
+    for (revision, source) in [(1, source), (2, edited.as_str())] {
+        let update = session
+            .update(single_module_input(class.module.clone(), source, revision))
+            .expect("publish canonical allocator source");
+        let signature = update.snapshot.callable_signatures.get(&callable).expect("published allocator signature");
+        assert!(signature.source.is_some(), "source metadata must survive canonical contract publication");
+        assert_eq!(signature.declared_return.basis, DeclaredTypeBasis::ConstructorSemantics);
+        let result = signature.published_return_knowledge().ty().expect("canonical allocator result");
+        assert!(matches!(update.snapshot.store.get(result), TypeData::SelfType(term)
+            if term.owner == class && term.side == DispatchSide::Instance && term.role == SelfRole::InstanceType));
+        let projected = update
+            .snapshot
+            .dispatch
+            .surface(&class)
+            .unwrap()
+            .get_callable(DispatchSide::Instance, &selector)
+            .unwrap();
+        assert_eq!(projected.kind, CallableSemanticKind::Constructor);
+        assert_eq!(projected.return_type.ty(), Some(result));
+    }
+    let annotated = source.replace("new()", "new() -> Dynamic");
+    let update = session
+        .update(single_module_input(class.module.clone(), &annotated, 3))
+        .expect("publish explicit allocator annotation");
+    assert_eq!(
+        update.snapshot.callable_signatures.get(&callable).unwrap().declared_return.basis,
+        DeclaredTypeBasis::SourceAnnotation,
+        "canonical bootstrap fallback must not erase an explicit source annotation"
+    );
+}
+
+#[test]
+fn user_class_new_method_does_not_gain_allocator_constructor_contract() {
+    use crate::semantic::support::Fixture;
+    use phalcom_semantic::declaration_type::DeclaredTypeBasis;
+    use phalcom_semantic::dispatch::CallableSemanticKind;
+    use phalcom_semantic::identity::DispatchSide;
+
+    let fixture = Fixture::new("class Class { new() { 42 } }\n");
+    let callable = &fixture.callable("Class", "new", DispatchSide::Instance).callable;
+    let signature = fixture.analysis.snapshot.callable_signatures.get(callable).unwrap();
+    assert_ne!(signature.declared_return.basis, DeclaredTypeBasis::ConstructorSemantics);
+    let projected = fixture
+        .analysis
+        .snapshot
+        .dispatch
+        .surface(callable.declaration_owner())
+        .unwrap()
+        .get_callable(callable.side, &callable.selector)
+        .unwrap();
+    assert_eq!(projected.kind, CallableSemanticKind::Ordinary);
+}

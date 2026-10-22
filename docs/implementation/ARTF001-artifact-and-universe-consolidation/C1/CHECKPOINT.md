@@ -1916,3 +1916,72 @@ instruction. T7 parity is prepared, not passed; P2.R4 remains
 relaxation, semantic correction, or new architectural amendment was needed in
 this continuation. The existing caller-evidence consultation remains the
 authority for the preceding validator correction.
+
+
+### P2.R4 T7 constructor diagnostic parity correction — 2026-10-22
+
+Observed: the user's six-check parity run against the saved executable artifact
+failed its constructor case. Source compilation reported only
+`ConstructorSuperInvalid` for `Child.super.new(42)`; artifact compilation also
+reported `IncompatibleOverride` at `Parent.new()`, naming inherited `Class.new()`.
+The strict diagnostic comparator exposed a lost canonical callable contract.
+
+Causal evidence: `canonical_core_class_new_signature` already defines root
+`Class.new()` as an instance-side allocator returning receiver-specialized
+`Self` with `DeclaredTypeBasis::ConstructorSemantics`. Bootstrap sessions retain
+that product. Publishing the defining source module instead rebuilt an ordinary
+unannotated method signature, replacing its declared return basis with
+`Unspecified`. Artifact export/import preserved that source snapshot faithfully;
+the imported override checker therefore compared a constructor to an ordinary
+method. A small source-publication regression reproduced the lost basis before
+the correction in 2.23 seconds, without a full Universe build.
+
+Consultation under the mandatory semantic-authority/oracle protocol approved
+restoring the established bootstrap contract during source signature formation.
+Primary class callables enter the signature query without an effective-definition
+record, so the shared source-signature builder is the owning correction point.
+The existing canonical factory remains the authority: a private identity helper
+is shared by it and source formation. Exact callable identity, empty parameters,
+absence of method generics, and absence of an explicit return annotation select
+its existing declared-return contract.
+Source span, implementation, and body metadata remain source-owned. No name-only
+match, constructor override exemption, wire change, import-side patch, or
+comparator relaxation was introduced. This restores an established invariant;
+no language-rule or numbered-plan amendment was required.
+
+The new semantic regressions prove the published signature and dispatch retain
+the same canonical constructor/Self contract, including after a body-only edit,
+and that a user declaration named `Class` with ordinary `new()` does not acquire
+that contract. The two exact tests passed in 4.27 seconds.
+`cargo check -p phalcom-core --tests` passed in 6.08 seconds.
+
+An initial directly affected module run also exposed the unchanged
+`field_signature_is_a_first_class_incremental_product` source-text assertion:
+it expects `FieldSignature(Arc<FieldSemanticSignature>)`, while committed HEAD
+already contains `FieldSignature(Arc<FieldSignatureProduct>)`. This is classified
+D, an unrelated stale structural test. It was not repaired or weakened. The
+two new behavioral tests pass independently.
+
+The existing saved artifact still contains the old callable contract. Rebuild
+once to a fresh path, then run the full executable discriminator and six strict
+parity checks in one process. The executable test sorts before the parity cases,
+writes the new artifact, and proves fresh-process source denial. The following
+parity checks reuse that artifact and the process-shared source reference.
+Long behavioral verification remains deferred to the user. P2.R4 remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; T7 is not closed, and P3 remains blocked.
+
+The read-only patch review confirmed the ownership correction and identified
+one additional guard: explicit source return annotations must not be silently
+replaced. The canonical fallback now applies only to unannotated source. The
+publication/replay regression additionally checks an explicit `Dynamic` return
+annotation remains `SourceAnnotation`; that extended test passed in 2.55
+seconds. The existing canonical identity and contract are shared without adding
+a new authority table. The core test executable build passed before this final
+guard in 6.43 seconds; final compiler/build verification follows below.
+
+Final guarded source verification: `cargo check -p phalcom-core --tests` passed
+in 5.27 seconds; `cargo test -p phalcom-core --test core --no-run` passed in
+6.65 seconds. The combined selection was checked with `--list`: exactly seven
+tests, comprising artifact regeneration/source-free execution and the six parity
+cases. The correction is `IMPLEMENTED / FOCUSED_TESTED`; full parity against a
+regenerated artifact remains unverified.

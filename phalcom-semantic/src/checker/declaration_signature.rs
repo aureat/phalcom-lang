@@ -464,6 +464,14 @@ fn declaration_type_level_bindings(ctx: &mut CheckingContext<'_>, owner: &Declar
         .collect()
 }
 
+fn canonical_core_class_new_callable() -> CallableId {
+    CallableId::new(
+        crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Class),
+        Selector::method("new", Vec::new()).expect("root Class.new selector must be valid"),
+        DispatchSide::Instance,
+    )
+}
+
 /// Canonical declaration for the root `Class.new()` allocator behavior.
 ///
 /// The member is inherited by class objects through ordinary instance-side
@@ -471,9 +479,9 @@ fn declaration_type_level_bindings(ctx: &mut CheckingContext<'_>, owner: &Declar
 /// Standalone checker contexts project this declaration into dispatch, while
 /// workspace sessions also retain it in `CallableSignatureTable`.
 pub(crate) fn canonical_core_class_new_signature(store: &mut crate::types::store::TypeStore) -> CallableSemanticSignature {
-    let owner = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Class);
-    let selector = Selector::method("new", Vec::new()).expect("root Class.new selector must be valid");
-    let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
+    let callable = canonical_core_class_new_callable();
+    let owner = callable.declaration_owner().clone();
+    let selector = callable.selector.clone();
     let self_type = store.self_type(crate::types::parameter::SelfTypeTerm {
         owner: owner.clone(),
         side: DispatchSide::Instance,
@@ -698,7 +706,15 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
             let is_constructor = method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor");
-            let declared_return = if is_constructor {
+            let declared_return = if callable == canonical_core_class_new_callable()
+                && generic_signature.is_none()
+                && parameters.is_empty()
+                && method.return_annotation.is_none()
+            {
+                // Source publication supplies the allocator body without replacing
+                // the existing canonical receiver-specialized constructor contract.
+                canonical_core_class_new_signature(ctx.store).declared_return
+            } else if is_constructor {
                 let self_type = ctx.store.self_type(crate::types::parameter::SelfTypeTerm {
                     owner: declaration_owner.clone(),
                     side: DispatchSide::Class,
