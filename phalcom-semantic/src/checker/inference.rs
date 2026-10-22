@@ -5,6 +5,7 @@
 
 use super::context::CheckerControl;
 use super::row_inference::{InferenceRecord, InferenceRecordField, InferenceRecordTail};
+use crate::generic_evidence::GenericEquivalenceProof;
 use crate::identity::{CallableId, DeclarationId, ExplanationId, ExpressionId, InferVarId};
 use crate::traits::AssociatedTypeRequirementId;
 use crate::types::application::TypeApplicationError;
@@ -652,6 +653,10 @@ pub struct InferenceSession {
     /// Mandatory constraints that are currently neither proven nor refuted.
     /// The key is the stable index in `constraints`.
     residual_obligations: HashMap<u32, ResidualInferenceObligation>,
+    /// Declaration equalities discharged by exact lexical generic evidence.
+    /// These remain in the stable constraint list but must not be re-deferred
+    /// when a shared inference session propagates again.
+    lexically_proven_constraints: HashMap<u32, GenericEquivalenceProof>,
     /// Constraint currently being evaluated. Projection unification uses this
     /// only to attach a residual proof obligation to its owning relation.
     active_constraint_index: Option<u32>,
@@ -682,6 +687,7 @@ impl Default for InferenceSession {
             pending_row_equations: Vec::new(),
             queued_row_equations: Vec::new(),
             residual_obligations: HashMap::new(),
+            lexically_proven_constraints: HashMap::new(),
             active_constraint_index: None,
         }
     }
@@ -708,6 +714,36 @@ impl InferenceSession {
         let mut obligations = self.residual_obligations.values().cloned().collect::<Vec<_>>();
         obligations.sort_by_key(|obligation| obligation.constraint_index);
         obligations
+    }
+
+    /// Discharges one residual generic equality only after its owner has
+    /// proved the exact materialized relation from lexical generic evidence.
+    /// The proof is retained so later propagation cannot re-defer it.
+    pub(crate) fn discharge_residual_equivalence_with_lexical_proof(
+        &mut self,
+        constraint_index: u32,
+        expected_relation: &InferenceRelation,
+        proof: GenericEquivalenceProof,
+    ) -> bool {
+        if !proof.is_proven() || !matches!(expected_relation, InferenceRelation::Equivalent(_, _)) {
+            return false;
+        }
+        let Some(obligation) = self.residual_obligations.get(&constraint_index) else {
+            return false;
+        };
+        if obligation.relation != *expected_relation || !matches!(obligation.origin, ConstraintOrigin::GenericWhere { .. }) {
+            return false;
+        }
+        let Some(constraint) = self.constraints.get(constraint_index as usize) else {
+            return false;
+        };
+        if constraint.relation != *expected_relation || constraint.origin != obligation.origin {
+            return false;
+        }
+
+        self.lexically_proven_constraints.insert(constraint_index, proof);
+        self.residual_obligations.remove(&constraint_index);
+        true
     }
 
     /// Stable append-only constraint position for application-local readiness.
@@ -2543,6 +2579,14 @@ impl InferenceSession {
                     return Err(Box::new(InferenceOutcome::BudgetExceeded(report)));
                 }
                 let constraint_index = constraint_index as u32;
+                if self
+                    .lexically_proven_constraints
+                    .get(&constraint_index)
+                    .is_some_and(GenericEquivalenceProof::is_proven)
+                {
+                    self.residual_obligations.remove(&constraint_index);
+                    continue;
+                }
                 // Retrying a constraint invalidates its previous residual
                 // state. If it is still unresolved, the projection branch
                 // records it again during this evaluation.

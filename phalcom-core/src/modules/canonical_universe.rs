@@ -8,7 +8,8 @@ use crate::modules::{AnalyzedProgram, CompiledProgram, ProgramCompiler};
 use crate::native::{NativeSourceIndex, PRIMITIVES, verify_native_contracts};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{
-    AvailabilityAuthority, AvailabilityContract, AvailabilityProof, FilesystemSourceProvider, ImportSurface, ModuleComponent, ModuleId, ModuleLinker,
+    AvailabilityAuthority, AvailabilityContract, AvailabilityProof, ExecutableLinkedProgram, FilesystemSourceProvider, ImportSurface, ModuleComponent,
+    ModuleId, ModuleLinker,
     ModulePath, ModuleResolver, ProjectUniverse, RuntimeRequirementProduct, RuntimeRequirementTarget, RuntimeRequirementTiming,
 };
 use phalcom_semantic::identity::{CallableId, ExpressionId};
@@ -59,6 +60,7 @@ impl CanonicalUniverseProgram {
         let metadata = self.program.semantic_metadata.as_deref()?;
         Some(CanonicalCompilerImageView {
             formal: &self.formal_image,
+            linked: &self.program.linked,
             metadata,
             compatibility: CanonicalCompatibilityIdentity {
                 semantic_world: self.formal_image.world().clone(),
@@ -109,6 +111,8 @@ pub struct CanonicalCompatibilityIdentity {
 #[derive(Clone, Debug)]
 pub struct CanonicalCompilerImageView<'a> {
     pub formal: &'a phalcom_semantic::canonical_image::CanonicalUniverseFormalImage,
+    /// Finalized executable linkage paired with the formal semantic graph.
+    pub linked: &'a ExecutableLinkedProgram,
     pub metadata: &'a phalcom_type_meta::SemanticMetadataBundle,
     pub compatibility: CanonicalCompatibilityIdentity,
 }
@@ -323,16 +327,19 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
         .reachable_units_from_roots(std::slice::from_ref(&root))
         .map_err(CanonicalUniverseBuildError::BootstrapPlanning)?;
     let bootstrap_roots = source_index.bootstrap_roots();
-    let authored_bootstrap_order = source_index
-        .initialization_order_from_roots(&bootstrap_roots)
+    // Source imports determine the complete execution candidate set, but
+    // they may contain legal interface-only cycles. Keep a deterministic
+    // provisional order here; the finalized semantic runtime graph below is
+    // the authority for dependency-first initializer order and cycle checks.
+    let provisional_bootstrap_order = source_index
+        .reachable_units_from_roots(&bootstrap_roots)
         .map_err(CanonicalUniverseBuildError::BootstrapPlanning)?
         .into_iter()
-        .map(|unit| unit.id.clone())
         .collect::<Vec<_>>();
     // Module discovery owns the source initializer closure, while the
-    // finalized runtime DAG owns dependency-first execution constraints.
-    // Preserve the old authored order wherever runtime dependencies permit.
-    let bootstrap_order = align_bootstrap_order_with_runtime_dependencies(&program.linked.as_program().graphs.runtime, &authored_bootstrap_order)?;
+    // finalized runtime DAG owns dependency-first execution constraints. Use
+    // the provisional order only to break ties between unrelated initializers.
+    let bootstrap_order = align_bootstrap_order_with_runtime_dependencies(&program.linked.as_program().graphs.runtime, &provisional_bootstrap_order)?;
 
     validate_canonical_product(&source_index, &program, &root_reachable, &bootstrap_order)?;
 
@@ -570,8 +577,9 @@ fn validate_canonical_product(
 /// against *effective*, finalized runtime dependencies. The source index
 /// determines which modules execute; its authored-import-only order is not
 /// authoritative when semantic-generated reads introduce additional edges.
-/// Use the authored order as a deterministic tie-breaker to avoid reordering
-/// unrelated source initializers.
+/// Use the provisional order as a deterministic tie-breaker for unrelated
+/// source initializers. It may itself include modules in an interface-only
+/// source-import cycle; finalized runtime edges still must form a DAG.
 fn align_bootstrap_order_with_runtime_dependencies(
     graph: &phalcom_modules::RuntimeDependencyGraph,
     authored_order: &[ModuleId],
@@ -714,6 +722,34 @@ mod tests {
             }) if actual_importer == importer && actual_dependency == dependency
         ));
         super::validate_bootstrap_runtime_order(&graph, &[dependency, importer]).expect("dependency-first order must pass");
+    }
+
+    #[test]
+    fn finalized_bootstrap_order_rejects_runtime_cycles() {
+        use phalcom_modules::{RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason};
+
+        let left = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("left").expect("module component"),
+        ]));
+        let right = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("right").expect("module component"),
+        ]));
+        let mut graph = RuntimeDependencyGraph::default();
+        for (importer, dependency) in [(&left, &right), (&right, &left)] {
+            graph.add(RuntimeDependencyEdge {
+                importer: importer.clone(),
+                dependency: dependency.clone(),
+                range: Default::default(),
+                reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+                provenance: None,
+            });
+        }
+
+        assert!(matches!(
+            super::align_bootstrap_order_with_runtime_dependencies(&graph, &[left, right]),
+            Err(CanonicalUniverseBuildError::BootstrapPlanning(message))
+                if message.contains("runtime dependencies are cyclic")
+        ));
     }
 
     #[test]

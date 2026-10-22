@@ -1558,7 +1558,7 @@ fn loader_rejects_rehashed_incompatible_header_fields() {
             SectionKind::Metadata,
         ] {
             let schema = match kind {
-                SectionKind::ModuleWorld => phalcom_compiler_artifact::module_world::MODULE_WORLD_SCHEMA_V2,
+                SectionKind::ModuleWorld => phalcom_compiler_artifact::module_world::MODULE_WORLD_SCHEMA_V3,
                 SectionKind::SemanticWorld => phalcom_compiler_artifact::semantic::world::SEMANTIC_WORLD_SCHEMA_V4,
                 SectionKind::QueryImage => phalcom_compiler_artifact::query::QUERY_IMAGE_SCHEMA_V4,
                 SectionKind::Metadata => phalcom_compiler_artifact::metadata::METADATA_SECTION_SCHEMA_V1,

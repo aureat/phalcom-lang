@@ -1398,6 +1398,20 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                 .try_compose(&owner_env, &snapshot.trait_surfaces)
                 .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
         }
+        if callable_id.side == phalcom_semantic::identity::DispatchSide::Instance
+            && let phalcom_semantic::identity::CallableOwnerId::Declaration(declaration) = &callable_id.owner
+            && let Some(surface) = snapshot.trait_surfaces.get(declaration)
+        {
+            let receiver_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_for_trait_default(
+                surface,
+                snapshot.store.as_ref(),
+                &snapshot.trait_surfaces,
+            )
+            .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+            generic_evidence = generic_evidence
+                .try_compose(&receiver_env, &snapshot.trait_surfaces)
+                .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+        }
         if let Some(phalcom_semantic::impls::EffectiveCallableDefinition {
             origin: phalcom_semantic::impls::CallableDefinitionOrigin::InherentImpl(source_impl),
             ..
@@ -1543,6 +1557,9 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                     let call_environment_recipe = runtime_call_environment_recipes.get(&expression.range).cloned();
                     let callee_generic_evidence_len = if let Some(recipe) = &call_environment_recipe {
                         u16::try_from(recipe.conformance_slots.len()).map_err(|_| ProjectionError::SlotOverflow(recipe.conformance_slots.len()))?
+                    } else if let phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { callable } = &selection.selection {
+                        let layout = trait_default_body_evidence_layout(callable, snapshot)?;
+                        u16::try_from(layout.len()).map_err(|_| ProjectionError::SlotOverflow(layout.len()))?
                     } else {
                         snapshot
                             .trait_headers
@@ -1834,19 +1851,13 @@ fn project_for_iteration_requirement(
                     .get(requirement)
                     .copied()
                     .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
-                let callee_generic_evidence_len = snapshot
-                    .trait_headers
-                    .get(&requirement.owner)
-                    .and_then(|h| h.generic_signature.as_ref())
-                    .and_then(|sig| {
-                        phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
-                            &sig.constraints,
-                            sig.owner.clone(),
-                            &snapshot.trait_surfaces,
-                        )
-                        .ok()
-                    })
-                    .map_or(0, |env| env.len() as u16);
+                let callee_generic_evidence_len = match &selection.selection {
+                    phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { callable } => {
+                        let layout = trait_default_body_evidence_layout(callable, snapshot)?;
+                        u16::try_from(layout.len()).map_err(|_| ProjectionError::SlotOverflow(layout.len()))?
+                    }
+                    _ => 0,
+                };
                 let requirement_slot = callee_generic_evidence_len + raw_slot;
                 let req_slots = requirement_slots
                     .iter()
@@ -1898,19 +1909,13 @@ fn project_for_iteration_requirement(
                     .get(requirement)
                     .copied()
                     .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(requirement.clone()))?;
-                let callee_generic_evidence_len = snapshot
-                    .trait_headers
-                    .get(&requirement.owner)
-                    .and_then(|h| h.generic_signature.as_ref())
-                    .and_then(|sig| {
-                        phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
-                            &sig.constraints,
-                            sig.owner.clone(),
-                            &snapshot.trait_surfaces,
-                        )
-                        .ok()
-                    })
-                    .map_or(0, |env| env.len() as u16);
+                let callee_generic_evidence_len = match &selection.selection {
+                    phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { callable } => {
+                        let layout = trait_default_body_evidence_layout(callable, snapshot)?;
+                        u16::try_from(layout.len()).map_err(|_| ProjectionError::SlotOverflow(layout.len()))?
+                    }
+                    _ => 0,
+                };
                 let requirement_slot = callee_generic_evidence_len + raw_slot;
                 let req_slots = requirement_slots
                     .iter()
@@ -3219,6 +3224,55 @@ pub(crate) fn trait_default_requirement_slots(
     Ok(slots)
 }
 
+/// Returns the canonical evidence layout used while compiling a trait-default
+/// callable body. Abstract requirement slots are offset by this complete
+/// layout, including owner bounds, the implicit receiver conformance, and
+/// callable-local bounds.
+fn trait_default_body_evidence_layout(
+    callable: &phalcom_semantic::identity::CallableId,
+    snapshot: &SemanticSnapshot,
+) -> Result<phalcom_semantic::generic_evidence::GenericEvidenceEnvironment, ProjectionError> {
+    use phalcom_semantic::generic_evidence::GenericEvidenceEnvironment;
+    use phalcom_semantic::identity::{CallableOwnerId, DispatchSide};
+
+    let CallableOwnerId::Declaration(owner) = &callable.owner else {
+        return Err(ProjectionError::GenericEvidenceLayout(format!(
+            "trait-default callable {callable:?} has no declaration owner"
+        )));
+    };
+    let mut layout = GenericEvidenceEnvironment::empty();
+    if let Some(signature) = snapshot
+        .declarations
+        .generic_signature(owner)
+        .or_else(|| snapshot.trait_headers.get(owner).and_then(|header| header.generic_signature.as_ref()))
+    {
+        let owner_layout = GenericEvidenceEnvironment::try_from_constraints(&signature.constraints, signature.owner.clone(), &snapshot.trait_surfaces)
+            .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+        layout = layout
+            .try_compose(&owner_layout, &snapshot.trait_surfaces)
+            .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+    }
+    if callable.side == DispatchSide::Instance
+        && let Some(surface) = snapshot.trait_surfaces.get(owner)
+    {
+        let receiver_layout = GenericEvidenceEnvironment::try_for_trait_default(surface, snapshot.store.as_ref(), &snapshot.trait_surfaces)
+            .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+        layout = layout
+            .try_compose(&receiver_layout, &snapshot.trait_surfaces)
+            .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+    }
+    if let Some(signature) = snapshot.callable_signatures.get(callable)
+        && let Some(generics) = &signature.generics
+    {
+        let callable_layout = GenericEvidenceEnvironment::try_from_constraints(&generics.constraints, generics.owner.clone(), &snapshot.trait_surfaces)
+            .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+        layout = layout
+            .try_compose(&callable_layout, &snapshot.trait_surfaces)
+            .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+    }
+    Ok(layout)
+}
+
 fn project_trait_invocation_spec(
     selection: &phalcom_semantic::trait_dispatch::TraitDispatchSelection,
     snapshot: &SemanticSnapshot,
@@ -3227,15 +3281,13 @@ fn project_trait_invocation_spec(
     let Some(&raw_slot) = default_requirement_slots.get(&selection.requirement) else {
         return Err(ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()));
     };
-    let callee_generic_evidence_len = snapshot
-        .trait_headers
-        .get(&selection.requirement.owner)
-        .and_then(|h| h.generic_signature.as_ref())
-        .and_then(|sig| {
-            phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(&sig.constraints, sig.owner.clone(), &snapshot.trait_surfaces)
-                .ok()
-        })
-        .map_or(0, |env| env.len() as u16);
+    let callee_generic_evidence_len = match &selection.selection {
+        phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { callable } => {
+            let layout = trait_default_body_evidence_layout(callable, snapshot)?;
+            u16::try_from(layout.len()).map_err(|_| ProjectionError::SlotOverflow(layout.len()))?
+        }
+        _ => 0,
+    };
     let requirement_slot = callee_generic_evidence_len + raw_slot;
     let requirement_slots = default_requirement_slots
         .into_iter()

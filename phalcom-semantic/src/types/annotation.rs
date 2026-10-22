@@ -4588,7 +4588,7 @@ pub fn resolve_generic_signature(
 
     let where_site = if let Some(context) = &site.associated_type_context {
         let mut updated_context = context.clone();
-        if updated_context.trait_ref.arguments.is_empty() && !binders.parameters.is_empty() {
+        if binder_site == GenericBinderSite::Trait && updated_context.trait_ref.arguments.is_empty() && !binders.parameters.is_empty() {
             updated_context.trait_ref.arguments = binders
                 .parameters
                 .iter()

@@ -131,7 +131,10 @@ rounding. Neither conformance nor static type equality proves these laws.
 | First<T> / Last<T> | first / last present Option | None |
 | Dual<M> | reversed underlying combination | underlying empty |
 | Endo<T> | right-to-left function composition | identity function |
-| Chain<T> / Journal<T> | ordered concatenation | empty sequence/log |
+
+Chain and Journal expose direct class-side `empty` constructors and conform to
+Semigroup. They do not conform to Monoid because enum conformances cannot
+satisfy class-side trait requirements under the current language rules.
 
 NonEmpty supplies Semigroup without an empty identity. Numeric wrapper
 operations require only their corresponding Addable/Multipliable and Zero/One

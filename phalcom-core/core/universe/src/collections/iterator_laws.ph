@@ -23,7 +23,7 @@ trait Iterator {
   skip(_ n) { SkipIterator.new(self, n) }
   skipWhile(_ pred) { SkipWhileIterator.new(self, pred) }
   take(_ n) { TakeIterator.new(self, n) }
-  takeWhile(_ pred) { TakeWhileIterator.new(self, pred) }
+  takeWhile(_ pred: (Self::Item) -> Bool) { TakeWhileIterator.new(self, pred) }
   mapWhile(_ f) { MapWhileIterator.new(self, f) }
   inspect(_ f) { InspectIterator.new(self, f) }
   zip<J>(_ other: J) -> StrictZipIterator<Self, J>

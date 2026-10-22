@@ -140,13 +140,26 @@ impl AvailabilityContract {
     }
 
     fn satisfies(&self, provenance: &RuntimeRequirementProvenance) -> bool {
-        self.proofs.iter().any(|proof| {
+        self.witness_for(provenance).is_some()
+    }
+
+    fn witness_for(&self, provenance: &RuntimeRequirementProvenance) -> Option<&AvailabilityProof> {
+        self.proofs.iter().find(|proof| {
             let available_for_consumer = proof.available_at <= provenance.timing
                 || (proof.authority == AvailabilityAuthority::FullyInitializedUniverse
                     && provenance.timing == RuntimeRequirementTiming::DuringModuleInitializer);
             proof.target == provenance.target && proof.product == provenance.product && available_for_consumer
         })
     }
+}
+
+/// Exact availability evidence that caused an executable runtime edge to be omitted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeAvailabilityWitness {
+    /// The dependency obligation discharged by the proof.
+    pub requirement: RuntimeDependencyRequirement,
+    /// The exact proof selected by executable finalization.
+    pub proof: AvailabilityProof,
 }
 
 /// Canonical semantic target, independent of runtime read allocation.
@@ -357,6 +370,7 @@ pub struct ExecutableLinkedProgram {
     program: LinkedProgram,
     canonical_runtime_reads: BTreeMap<(ModuleId, LinkedReadSpec), ImportBindingId>,
     runtime_requirements: Vec<RuntimeDependencyRequirement>,
+    runtime_availability_witnesses: Vec<RuntimeAvailabilityWitness>,
 }
 
 impl ExecutableLinkedProgram {
@@ -374,6 +388,11 @@ impl ExecutableLinkedProgram {
         self.canonical_runtime_reads
             .iter()
             .filter_map(move |((module, target), slot)| (module == importer).then_some((target, *slot)))
+    }
+
+    /// Returns exact availability proofs used to omit eager runtime edges.
+    pub fn runtime_availability_witnesses(&self) -> &[RuntimeAvailabilityWitness] {
+        &self.runtime_availability_witnesses
     }
 
     /// Validates a legacy conservative link product before wrapping it in the
@@ -425,6 +444,7 @@ impl ExecutableLinkedProgram {
             program,
             canonical_runtime_reads,
             runtime_requirements: Vec::new(),
+            runtime_availability_witnesses: Vec::new(),
         })
     }
 
@@ -869,6 +889,7 @@ impl ModuleLinker {
             runtime: crate::graph::RuntimeDependencyGraph::default(),
         };
         let mut canonical_runtime_reads = BTreeMap::new();
+        let mut runtime_availability_witnesses = Vec::new();
         for (module, symbolic) in semantic_modules {
             graphs.runtime.add_node(module.clone());
             let evidence = phase_products.get(&module);
@@ -925,15 +946,29 @@ impl ModuleLinker {
                 let unsatisfied_provenance = import_provenances.iter().find(|provenance| !availability.satisfies(provenance)).cloned();
                 let unsatisfied_default = import_provenances
                     .is_empty()
-                    .then(|| (!availability.satisfies(&default_provenance)).then_some(default_provenance));
+                    .then(|| (!availability.satisfies(&default_provenance)).then_some(default_provenance.clone()));
                 if let Some(provenance) = unsatisfied_provenance.or_else(|| unsatisfied_default.flatten()) {
                     graphs.runtime.add(RuntimeDependencyEdge {
                         importer: module.clone(),
-                        dependency: target_module,
+                        dependency: target_module.clone(),
                         range: import.range,
                         reason: runtime_reason(import.kind),
                         provenance: Some(provenance),
                     });
+                } else if import_provenances.is_empty() {
+                    if let Some(proof) = availability.witness_for(&default_provenance) {
+                        runtime_availability_witnesses.push(RuntimeAvailabilityWitness {
+                            requirement: RuntimeDependencyRequirement {
+                                importer: module.clone(),
+                                dependency: target_module,
+                                range: import.range,
+                                reason: runtime_reason(import.kind),
+                                read_target: Some(read.clone()),
+                                provenance: default_provenance,
+                            },
+                            proof: proof.clone(),
+                        });
+                    }
                 }
             }
             modules.insert(
@@ -950,6 +985,7 @@ impl ModuleLinker {
         let known_modules = modules.keys().cloned().collect::<BTreeSet<_>>();
         let mut ordered_requirements = requirements.to_vec();
         ordered_requirements.sort_by(RuntimeDependencyRequirement::canonical_cmp);
+        ordered_requirements.dedup();
         for requirement in &ordered_requirements {
             if !known_modules.contains(&requirement.importer) {
                 return Err(LinkError::MissingModule {
@@ -996,10 +1032,22 @@ impl ModuleLinker {
                     dependency: requirement.dependency.clone(),
                 });
             }
-            if !availability.satisfies(&requirement.provenance) {
+            if let Some(proof) = availability.witness_for(&requirement.provenance) {
+                runtime_availability_witnesses.push(RuntimeAvailabilityWitness {
+                    requirement: requirement.clone(),
+                    proof: proof.clone(),
+                });
+            } else {
                 graphs.runtime.add(requirement.edge());
             }
         }
+
+        runtime_availability_witnesses.sort_by(|left, right| {
+            left.requirement
+                .canonical_cmp(&right.requirement)
+                .then_with(|| left.proof.cmp(&right.proof))
+        });
+        runtime_availability_witnesses.dedup();
 
         for (module, linked) in &mut modules {
             linked.runtime_dependencies = graphs.runtime.dependencies(module);
@@ -1015,6 +1063,7 @@ impl ModuleLinker {
             },
             canonical_runtime_reads,
             runtime_requirements: ordered_requirements,
+            runtime_availability_witnesses,
         })
     }
 

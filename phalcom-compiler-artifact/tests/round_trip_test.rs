@@ -6,7 +6,10 @@ use phalcom_compiler_artifact::header::{
 use phalcom_compiler_artifact::identity::{CanonicalCompatibilityIdentity, TeloscPackageIdentity};
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
-use phalcom_compiler_artifact::module_world::{ArtifactModuleId, ModuleKindV1, ModuleV2, ModuleWorldV2};
+use phalcom_compiler_artifact::module_world::{
+    ArtifactModuleId, AvailabilityAuthorityV1, AvailabilityProductV1, AvailabilityRequirementProducerV1, AvailabilityTimingV1, ModuleKindV1, ModuleV2,
+    ModuleWorldV2, ModuleWorldV3, RuntimeAvailabilityWitnessV1, RuntimeReasonV1, SpanV1, TargetV1,
+};
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
 use phalcom_compiler_artifact::query::{
     DependencyEvidenceEntryV4, PortableQueryKeyV1, PortableQueryKindV1, PortableQueryOwnerKeyV1, PortableQueryProductFamilyV1, QueryImageV4, QueryProductRefV3,
@@ -468,7 +471,6 @@ fn complete_compiler_artifact_round_trips_through_binary_container() {
 }
 
 fn runtime_requirement() -> phalcom_compiler_artifact::semantic::world::RuntimeDependencyRequirementV1 {
-    use phalcom_compiler_artifact::module_world::SpanV1;
     use phalcom_compiler_artifact::semantic::world::*;
     use phalcom_type_meta::identity::StableDeclarationRef;
     let world = sample_module_world();
@@ -496,6 +498,68 @@ fn runtime_requirement() -> phalcom_compiler_artifact::semantic::world::RuntimeD
             timing: RuntimeRequirementTimingV1::DuringModuleInitializer,
         },
     }
+}
+
+#[test]
+fn metadata_type_owner_availability_requires_its_persisted_runtime_requirement() {
+    use phalcom_compiler_artifact::semantic::world::{
+        RuntimeDependencyReasonV1, RuntimeDependencyRequirementV1, RuntimeRequirementProducerV1, RuntimeRequirementProductV1,
+        RuntimeRequirementProvenanceV1, RuntimeRequirementTargetV1, RuntimeRequirementTimingV1,
+    };
+
+    let modules = sample_module_world();
+    let importer = modules.modules[0].identity.clone();
+    let dependency = modules.modules[1].identity.clone();
+    let requirement = RuntimeDependencyRequirementV1 {
+        importer: importer.clone(),
+        dependency: dependency.clone(),
+        range: SpanV1 { start: 1181, end: 1216 },
+        reason: RuntimeDependencyReasonV1::RuntimeDeclarationReference,
+        read_target: None,
+        provenance: RuntimeRequirementProvenanceV1 {
+            consumer: importer,
+            producer: RuntimeRequirementProducerV1::MetadataTypeOwner,
+            target: RuntimeRequirementTargetV1::Module { module: dependency },
+            product: RuntimeRequirementProductV1::CanonicalIdentity,
+            timing: RuntimeRequirementTimingV1::BeforeSourceExecution,
+        },
+    };
+    let mut semantic = sample_semantic_world();
+    semantic.module_execution_authority.runtime_requirements = vec![requirement.clone()];
+
+    let semantic_bytes = semantic.encode().expect("semantic execution authority encodes");
+    let restored_semantic = SemanticWorldV4::decode(&semantic_bytes, &ValidationLimits::default()).expect("semantic execution authority round-trips");
+    assert_eq!(restored_semantic.module_execution_authority.runtime_requirements, vec![requirement.clone()]);
+
+    let module_world = ModuleWorldV3::new(
+        modules,
+        vec![RuntimeAvailabilityWitnessV1 {
+            importer: ArtifactModuleId(0),
+            dependency: ArtifactModuleId(1),
+            range: SpanV1 { start: 1181, end: 1216 },
+            reason: RuntimeReasonV1::RuntimeDeclarationReference,
+            read_target: None,
+            target: TargetV1::Module { module: ArtifactModuleId(1) },
+            product: AvailabilityProductV1::CanonicalIdentity,
+            producer: AvailabilityRequirementProducerV1::MetadataTypeOwner,
+            required_at: AvailabilityTimingV1::BeforeSourceExecution,
+            authority: AvailabilityAuthorityV1::SemanticIdentityCatalog,
+            available_at: AvailabilityTimingV1::BeforeSourceExecution,
+        }],
+    );
+    let module_bytes = module_world.encode().expect("finalized module world encodes");
+    let mut budget = AllocationBudget::new(1024 * 1024);
+    let restored_module = ModuleWorldV3::decode_with_allocation_budget(&module_bytes, &ValidationLimits::default(), &mut budget)
+        .expect("finalized module world round-trips");
+    assert_eq!(restored_module, module_world);
+    restored_module
+        .validate_execution_authority(&restored_semantic.module_execution_authority)
+        .expect("persisted compiler-derived requirement authorizes its exact omitted edge");
+
+    let mut missing_authority = restored_semantic.module_execution_authority.clone();
+    missing_authority.runtime_requirements.clear();
+    let error = restored_module.validate_execution_authority(&missing_authority).unwrap_err();
+    assert!(error.to_string().contains("availability witness has no matching runtime requirement"), "{error}");
 }
 
 fn assert_v4_validation_matches_projected_v3(world: &SemanticWorldV4, case: &str, expected_valid: bool) {

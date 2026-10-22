@@ -191,14 +191,16 @@ impl<'a> TeloscContainerView<'a> {
                 return Err(ContainerError::UnsupportedSectionFlags(flags_bits).into());
             }
             let supported_schema = match kind {
-                SectionKind::ModuleWorld => Some(crate::module_world::MODULE_WORLD_SCHEMA_V2),
-                SectionKind::SemanticWorld => Some(crate::semantic::world::SEMANTIC_WORLD_SCHEMA_V4),
-                SectionKind::QueryImage => Some(crate::query::QUERY_IMAGE_SCHEMA_V4),
-                SectionKind::Metadata => Some(crate::metadata::METADATA_SECTION_SCHEMA_V1),
-                SectionKind::Unknown(_) => None,
-                _ => Some(1),
+                SectionKind::ModuleWorld => {
+                    schema_version == crate::module_world::MODULE_WORLD_SCHEMA_V2 || schema_version == crate::module_world::MODULE_WORLD_SCHEMA_V3
+                }
+                SectionKind::SemanticWorld => schema_version == crate::semantic::world::SEMANTIC_WORLD_SCHEMA_V4,
+                SectionKind::QueryImage => schema_version == crate::query::QUERY_IMAGE_SCHEMA_V4,
+                SectionKind::Metadata => schema_version == crate::metadata::METADATA_SECTION_SCHEMA_V1,
+                SectionKind::Unknown(_) => true,
+                _ => schema_version == 1,
             };
-            if supported_schema.is_some_and(|supported| schema_version != supported) {
+            if !supported_schema {
                 return Err(ContainerError::UnsupportedSectionSchema {
                     section: kind,
                     schema: schema_version,

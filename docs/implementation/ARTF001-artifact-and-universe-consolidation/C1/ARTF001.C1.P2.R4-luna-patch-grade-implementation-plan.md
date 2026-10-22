@@ -714,7 +714,7 @@ No second production semantic import model survives beside this flow.
 | R4.T4 | Finish dependency-bearing current query profile and fail-closed required-root completeness | NOT_STARTED | required root census exact; query hostile matrix passes |
 | R4.T5 | Certify ordinary imported `SemanticWorkspaceSession` with overlays/invalidation/rollback | NOT_STARTED | source-free session + edits/recompile pass |
 | R4.T6 | Consolidate duplicate consumer/import staging architecture and stabilize APIs | NOT_STARTED | one production consumer; disposition ledger has zero unknowns |
-| R4.T7 | Fresh-process source denial, compiler parity, diagnostics parity, real package/runtime functionality | NOT_STARTED | source-free parity and SlotMap/parse gates pass |
+| R4.T7 | Fresh-process source denial, compiler parity, diagnostics parity, real package/runtime functionality | IN_PROGRESS | all source-denial, parity, SlotMap/parse, and CLI gates pass |
 | R4.T8 | Broad regression, schema freeze, manifest closure, cleanup | NOT_STARTED | broad checks run; P2-owned failures zero |
 | R4.T9 | P2 acceptance, walkthrough, checkpoint closure, P3 handoff | NOT_STARTED | P2 COMPLETE; P3 contract explicit |
 
@@ -2264,6 +2264,120 @@ SlotMap
 
 A test where both modes fail is not positive parity.
 
+### T7.2 amendment — preserve semantic imports and finalized runtime layout
+
+The formal image's module products come from
+`SemanticLinkedProgram::to_unfinalized_program()`. That compatibility view
+retains every source import as a provisional runtime read and edge. It is not
+the executable runtime layout: phase-aware finalization can classify an import
+as interface-only, and legal semantic import cycles may therefore be absent
+from the finalized runtime graph.
+
+Artifact projection must keep the complete source import and semantic graph
+authority, but take runtime read slots, import bindings, dependencies, graph,
+and initialization order together from the finalized executable link. Record a
+phase disposition for every source import. An interface-only import remains
+available to semantic consumers without a runtime slot. A runtime read whose
+eager edge is removed by availability evidence retains its runtime slot and
+the exact witness for its target, product, authority, and availability time.
+The loader must reject missing, mismatched, or incomplete disposition and
+availability evidence. Keep strict runtime DAG validation.
+
+Add focused checks that round-trip the `reflection.module` /
+`reflection.package_object` semantic import cycle while preserving an acyclic
+runtime graph; reject a version where both directions are runtime dependencies;
+and reject a runtime read whose eager edge is omitted without an exact
+availability witness. Then rerun the unchanged strict source/artifact parity
+comparator and T7 gates. Do not normalize away module, read, dependency, or
+constructor products to obtain parity.
+
+### T7.2 amendment — persist compiler-derived availability requirements
+
+The finalized graph also receives `MetadataTypeOwner` requirements from
+`runtime_metadata_type_requirements`. These requirements are derived from
+canonical semantic products during executable finalization, but the existing
+semantic execution authority only persisted requirements produced by semantic
+analysis. Consequently an exact finalized witness for a metadata type owner
+could not be matched by the source-free loader. Do not exempt that producer:
+the witness currently has no independent catalog proof, and such an exemption
+could let a forged witness remove an eager runtime edge.
+
+Compute and canonicalize the complete generated requirement set once, pass the
+same set to executable finalization and semantic-world export, and persist it in
+`ModuleExecutionAuthorityV1.runtime_requirements`. Keep exact witness-to-
+requirement matching and strict DAG validation. The focused discriminator must
+round-trip a `MetadataTypeOwner` witness with its exact persisted requirement,
+reject a missing or altered requirement, and preserve the existing missing-
+witness and runtime-cycle rejections. Then rerun the unchanged T7 parity gates.
+
+### T7 semantic identity amendment — callable-local binders and trait projections
+
+The focused iterator compile exposed a canonical type-formation defect in
+`resolve_generic_signature`: an empty associated-type trait context was being
+filled with the current callable's binders. For `Iterator.chain<J>`, this
+changed `<J as Iterator>::Item` from the owning `Iterator<>` application to
+`Iterator<J>`. Trait application is part of associated-projection identity,
+so equality must retain the exact `TraitRef` rather than ignore its arguments.
+
+The fallback is now restricted to `GenericBinderSite::Trait`, where the
+binders form the trait's own generic header. Callable-local binders leave the
+provided trait context unchanged. This is the narrow semantic correction
+required by the T7 iterator gate; it does not alter equality orientation or
+infer projection subjects backwards.
+
+Focused proof obligations are: the non-generic `Iterator.chain<I, J>`
+projections carry no trait arguments; method binders preserve a generic
+`Converter<Target>` application; matching associated items permit constructor
+specialization; and a caller without the equality is rejected at the
+constructor call. The existing iterator-adapter regression also verifies the
+valid chain and precise negative diagnostic. Run these semantic gates before
+retrying the core iterator runtime gate. The core runtime and remaining T7
+gates are still required for P2.R4 completion.
+
+### T7 semantic completion amendment — discharge only proved call equalities
+
+After the projection-identity correction, the exact `Iterator.chain` runtime
+gate receives argument evidence for both constructor parameters but ends as
+underconstrained. The associated-projection equality is intentionally deferred
+by inference rather than solved by reversing the projection subject. Advisory
+review confirms that symbolic `Self` is valid value-argument evidence here; the
+remaining question is whether call completion can validate an already-proved
+declaration equality after materializing the argument bindings.
+
+Before changing completion, capture the failing call's argument knowledge and
+inference terms, parameter bindings, unsolved variables, residual relation and
+origin, and whether the exact lexical generic evidence proves the materialized
+equality. If and only if every relevant parameter is materialized and the only
+remaining blocker is a `GenericWhere` associated equality proven by the current
+lexical evidence, completion may discharge that residual and proceed through
+the existing specialization path. Any unsolved variable, unrelated residual,
+or absent proof must remain fail-closed. Do not infer projection subjects
+backwards, weaken trait-application identity, or treat an unproved equality as
+selection evidence.
+
+Focused acceptance: a positive chain from distinct iterator types with equal
+items retains distinct `I`/`J` bindings; the existing missing-equality case
+still reports `GenericConstraintUnsatisfied`; and a result-only generic without
+value evidence remains underconstrained. Re-run the exact iterator CLI gate
+after the semantic regressions. The broader iterator corpus failures for
+missing array `map` and `iter` remain independently classified.
+
+The lexical-equality completion amendment is implemented. It discharges a
+residual only when the call has no unsolved variables, every generic binding
+materializes, every residual is an associated equality from the same
+callable's `GenericWhere`, and the existing lexical evidence proves each exact
+materialized relation. The inference session retains that proof marker so a
+later propagation pass cannot recreate the residual. The positive generic
+chain regression preserves distinct constructor bindings; the missing-equality
+regression still reports `GenericConstraintUnsatisfied`; and the result-only
+generic remains underconstrained.
+
+The exact CLI now compiles and reaches execution, where it fails because the
+active runtime conformance environment has no target for the abstract
+`Iterable.iterator` requirement inside the `Iterable.iter` default method.
+This is a separate runtime slot/propagation incident. Do not change that
+contract until the active requirement target and slot path are identified.
+
 ## T7.3 Negative diagnostic parity
 
 Exercise representative invalid programs:
@@ -3367,3 +3481,84 @@ The detailed evidence is in
 boundary is in
 `ARTF001.C1.P2.R4-universe-semantic-source-handoff.md`. This slice does not
 promote R4/T9, close P2, or establish source-free VM execution.
+
+### T7 iterator default-body evidence layout amendment — 2026-10-22
+
+The failure-only trace establishes that canonical semantic selection is
+complete: the selected `Iterable.iter` default carries the concrete
+`Array.iterator` conformance target. The compiled default body's abstract
+`Iterable.iterator` invocation reads slot 55 (`41` callee-body evidence slots
+plus raw requirement slot 14). The selected caller projection places that
+same target at slot 29, the lexical `Self |= Iterable` evidence entry. The
+runtime creates a 41-slot environment containing slot 29 and passes that same
+environment to the `Iterable.iter` frame; slot 55 is outside the vector.
+
+The architectural ruling assigns this mismatch to compiler lowering/runtime
+layout projection. Preserve two distinct layout roles: the canonical generic
+evidence slot keyed by the exact `GenericEvidenceSlotKey` for the default
+body's implicit receiver conformance, and the direct abstract requirement
+slot keyed by the exact `TraitRequirementId`. Project the same selected
+`requirement_targets` entry into both mapped slots. Do not replace slot 29 with
+slot 55, infer a target from the receiver/name, or weaken fail-closed runtime
+reads. Use the canonical callee-body generic-evidence layout, including owner,
+implicit receiver, and callable constraints, and the trait requirement table
+to derive both maps. Keep the semantic target authoritative.
+
+The focused discriminator must inspect the lowered default-body requirement
+slot (55 for this fixture), prove that runtime materialization places the
+exact selected `Array.iterator` target at both slot 29 and slot 55, preserve a
+generic forwarded call through slot 29, and show that a missing target still
+fails closed. Then run the exact `iterator_skip_take_takewhile.ph` CLI gate.
+This is a compiler/runtime layout contract amendment within T7; do not close
+T7 or P2.R4 until its focused runtime and artifact-backed acceptance passes.
+
+### Universe diagnostic continuation — 2026-10-22
+
+The active worktree continues from `4f0861428d82b962a094f588450e9d0577960e68`.
+The correction removes 21 unused inherent associated-type declarations and
+the two unsupported enum `Monoid` conformances, while preserving direct
+`Chain.empty` and `Journal.empty`. Both source-data declaration-shell passes
+now refresh without discarding registered intrinsic projections. A fresh
+canonical regression verifies that `UnorderedShape` retains its owner and all
+three intrinsic type-member products.
+
+The canonical source snapshot has two remaining errors: the unsaturated
+`Map` annotations on `Module.metadata` and `Module.__metadata__` in
+`reflection.module` lines 21 and 28. The earlier 43 inherent-associated,
+two enum class-side, and one intrinsic-owner diagnostics are gone. The exact
+two errors are asserted by
+`canonical_universe_has_only_deferred_module_metadata_errors_and_retains_unordered_shape_intrinsics`.
+
+Do not add a public `ModuleMetadata` surface in this plan. The live normative
+specification corpus does not define one, and the runtime's current
+documentation-only `Option<String>` behavior does not settle the source API.
+Keep these two diagnostics classified as a deferred contract blocker until
+the owning specification adopts a public representation. The source cleanup
+is focused-tested; P2.R4 remains open for T7, artifact/session publication,
+parity, allocation, and certification gates.
+
+### T7 `takeWhile(...).toList` inference continuation — 2026-10-22
+
+After projecting the exact selected `Iterable.iterator` target into both the
+callee generic-evidence slot and direct trait-requirement slot, the original
+iterator failure disappeared. The exact source fixture then failed later at
+`TakeWhileIterator.toList`. A focused semantic trace showed that the
+`Iterator.takeWhile` default body accepted an untyped `pred`; the call to
+`TakeWhileIterator.new(self, pred)` was `Blocked(UnknownType(NoTypeEvidence))`,
+and the method had no inferred return. The following `.toList` therefore had
+no canonical `Iterable::toList` selection.
+
+The Universe method now declares `pred: (Self::Item) -> Bool`, matching the
+existing constructor's contract. No trait evidence or dispatch rule changed.
+The new regression
+`language::iteration::take_while_to_list_keeps_guarded_iterable_dispatch_evidence`
+proves the constructor result and inferred method return, the derived
+`Iterable::toList` target, the lowering projection, and runtime output. It
+passed 1/1 in 157.66 seconds. The exact fixture CLI then passed and printed
+`4`, `5`, `4`, `[1, 2, 3]`, `[1, 2]`. A fresh canonical Universe census passed
+1/1 in 99.13 seconds and retained exactly the two deferred metadata
+diagnostics listed above.
+
+This closes the exact source iterator runtime discriminator. It does not close
+T7's artifact-backed runtime and positive/negative parity gates or R4.T8/T9;
+keep P2.R4 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` until those gates pass.

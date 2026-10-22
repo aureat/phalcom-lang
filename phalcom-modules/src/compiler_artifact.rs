@@ -671,6 +671,167 @@ pub fn project_module_world(world: &CanonicalExternalModuleWorld, limits: &Valid
     Ok(wire)
 }
 
+/// Projects source and semantic products together with the finalized executable runtime graph.
+pub fn project_executable_module_world(
+    world: &CanonicalExternalModuleWorld,
+    executable: &ExecutableLinkedProgram,
+    limits: &ValidationLimits,
+) -> Result<ModuleWorldV3, ArtifactError> {
+    let linked = world.linked();
+    if linked.modules.len() != executable.modules.len()
+        || linked.modules.keys().any(|module| !executable.modules.contains_key(module))
+        || executable.modules.keys().any(|module| !linked.modules.contains_key(module))
+    {
+        return Err(invalid("formal and finalized executable module closures differ"));
+    }
+    if linked.entry != executable.entry {
+        return Err(invalid("formal and finalized executable entry modules differ"));
+    }
+    let ids = linked
+        .modules
+        .keys()
+        .enumerate()
+        .map(|(index, module)| {
+            Ok((module.clone(), ArtifactModuleId(u32::try_from(index).map_err(|_| invalid("module index exceeds u32"))?)))
+        })
+        .collect::<Result<BTreeMap<_, _>, ArtifactError>>()?;
+
+    let mut wire = project_module_world(world, limits)?;
+    for ((id, _), module_row) in linked.modules.iter().zip(wire.modules.iter_mut()) {
+        let finalized = executable.modules.get(id).ok_or_else(|| invalid("finalized executable module is missing"))?;
+        module_row.import_bindings = finalized
+            .bindings
+            .imports
+            .iter()
+            .map(|(name, slot)| BindingV1 {
+                name: name.to_string(),
+                index: slot.0,
+            })
+            .collect();
+        module_row.linked_reads = finalized
+            .linked_reads
+            .iter()
+            .map(|read| target_out(read, &ids))
+            .collect::<Result<_, _>>()?;
+        module_row.runtime_dependencies = finalized
+            .runtime_dependencies
+            .iter()
+            .map(|dependency| portable_id(&ids, dependency))
+            .collect::<Result<_, _>>()?;
+        module_row.runtime_edges = executable
+            .graphs
+            .runtime
+            .edges_from(id)
+            .iter()
+            .map(|edge| {
+                if &edge.importer != id {
+                    return Err(invalid("finalized runtime graph source mismatch"));
+                }
+                Ok(RuntimeEdgeV1 {
+                    dependency: portable_id(&ids, &edge.dependency)?,
+                    reason: runtime_out(edge.reason),
+                    span: span(edge.range),
+                })
+            })
+            .collect::<Result<_, ArtifactError>>()?;
+        module_row.dependency_fingerprint = crate::fingerprint::linked_dependency_fingerprint(finalized).raw();
+    }
+    wire.entry = portable_id(&ids, &executable.entry)?;
+    wire.initialization_order = executable
+        .initialization_order
+        .iter()
+        .map(|module| portable_id(&ids, module))
+        .collect::<Result<_, _>>()?;
+    wire.refresh_portable_topology_fingerprint()?;
+
+    let mut availability_witnesses = executable
+        .runtime_availability_witnesses()
+        .iter()
+        .map(|witness| {
+            let requirement = &witness.requirement;
+            let provenance = &requirement.provenance;
+            if provenance.consumer != requirement.importer || provenance.target != witness.proof.target || provenance.product != witness.proof.product {
+                return Err(invalid("finalized availability witness disagrees with its runtime requirement"));
+            }
+            Ok(RuntimeAvailabilityWitnessV1 {
+                importer: portable_id(&ids, &requirement.importer)?,
+                dependency: portable_id(&ids, &requirement.dependency)?,
+                range: span(requirement.range),
+                reason: runtime_out(requirement.reason),
+                read_target: requirement.read_target.as_ref().map(|target| target_out(target, &ids)).transpose()?,
+                target: availability_target_out(&witness.proof.target, &ids)?,
+                product: availability_product_out(witness.proof.product),
+                producer: availability_producer_out(provenance.producer),
+                required_at: availability_timing_out(provenance.timing),
+                authority: availability_authority_out(witness.proof.authority),
+                available_at: availability_timing_out(witness.proof.available_at),
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    availability_witnesses.sort_by(RuntimeAvailabilityWitnessV1::canonical_cmp);
+    let projected = ModuleWorldV3::new(wire, availability_witnesses);
+    projected.validate(limits)?;
+    Ok(projected)
+}
+
+fn availability_target_out(
+    target: &RuntimeRequirementTarget,
+    ids: &BTreeMap<ModuleId, ArtifactModuleId>,
+) -> Result<TargetV1, ArtifactError> {
+    match target {
+        RuntimeRequirementTarget::Module(module) => target_out(&LinkedReadSpec::Module(module.clone()), ids),
+        RuntimeRequirementTarget::Binding { module, name } => target_out(
+            &LinkedReadSpec::Binding(SymbolId {
+                module: module.clone(),
+                name: name.clone(),
+            }),
+            ids,
+        ),
+    }
+}
+
+fn availability_product_out(product: RuntimeRequirementProduct) -> AvailabilityProductV1 {
+    match product {
+        RuntimeRequirementProduct::CanonicalIdentity => AvailabilityProductV1::CanonicalIdentity,
+        RuntimeRequirementProduct::MetadataDescriptor => AvailabilityProductV1::MetadataDescriptor,
+        RuntimeRequirementProduct::RuntimeObject => AvailabilityProductV1::RuntimeObject,
+        RuntimeRequirementProduct::SourceInitializedValue => AvailabilityProductV1::SourceInitializedValue,
+    }
+}
+
+fn availability_authority_out(authority: AvailabilityAuthority) -> AvailabilityAuthorityV1 {
+    match authority {
+        AvailabilityAuthority::SemanticIdentityCatalog => AvailabilityAuthorityV1::SemanticIdentityCatalog,
+        AvailabilityAuthority::NativeBindingCatalog => AvailabilityAuthorityV1::NativeBindingCatalog,
+        AvailabilityAuthority::NativeModuleMaterialization => AvailabilityAuthorityV1::NativeModuleMaterialization,
+        AvailabilityAuthority::SemanticMetadataBundle => AvailabilityAuthorityV1::SemanticMetadataBundle,
+        AvailabilityAuthority::CanonicalSourceInitializer => AvailabilityAuthorityV1::CanonicalSourceInitializer,
+        AvailabilityAuthority::FullyInitializedUniverse => AvailabilityAuthorityV1::FullyInitializedUniverse,
+    }
+}
+
+fn availability_timing_out(timing: RuntimeRequirementTiming) -> AvailabilityTimingV1 {
+    match timing {
+        RuntimeRequirementTiming::BeforeSourceExecution => AvailabilityTimingV1::BeforeSourceExecution,
+        RuntimeRequirementTiming::DuringModuleInitializer => AvailabilityTimingV1::DuringModuleInitializer,
+        RuntimeRequirementTiming::AfterBootstrap => AvailabilityTimingV1::AfterBootstrap,
+    }
+}
+
+fn availability_producer_out(producer: RuntimeRequirementProducer) -> AvailabilityRequirementProducerV1 {
+    match producer {
+        RuntimeRequirementProducer::DeclarationRead => AvailabilityRequirementProducerV1::DeclarationRead,
+        RuntimeRequirementProducer::ImportRead => AvailabilityRequirementProducerV1::ImportRead,
+        RuntimeRequirementProducer::CompilerGeneratedRead => AvailabilityRequirementProducerV1::CompilerGeneratedRead,
+        RuntimeRequirementProducer::CallableOwner => AvailabilityRequirementProducerV1::CallableOwner,
+        RuntimeRequirementProducer::PatternOwner => AvailabilityRequirementProducerV1::PatternOwner,
+        RuntimeRequirementProducer::ConformanceTypeOwner => AvailabilityRequirementProducerV1::ConformanceTypeOwner,
+        RuntimeRequirementProducer::ContextualReceiverRead => AvailabilityRequirementProducerV1::ContextualReceiverRead,
+        RuntimeRequirementProducer::MetadataTypeOwner => AvailabilityRequirementProducerV1::MetadataTypeOwner,
+        RuntimeRequirementProducer::StaticConstantRead => AvailabilityRequirementProducerV1::StaticConstantRead,
+    }
+}
+
 /// Loads completed canonical products directly, with no source parsing or linking.
 pub fn load_module_world(wire: &ModuleWorldV2, limits: &ValidationLimits) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
     let budget_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
@@ -1288,10 +1449,20 @@ fn validate_binding_target(
     name: &str,
     interfaces: &ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>>,
 ) -> Result<(), ArtifactError> {
-    if !interfaces
+    let interface_binding = interfaces
         .get(module)
-        .is_some_and(|interface| interface.declarations.contains_key(name) || interface.exports.contains_key(name))
-    {
+        .is_some_and(|interface| interface.declarations.contains_key(name) || interface.exports.contains_key(name));
+    let catalog_binding = module.project.is_universe()
+        && phalcom_native_meta::UNIVERSE_BINDINGS.iter().any(|binding| {
+            binding.name == name
+                && binding
+                    .key
+                    .source_path()
+                    .iter()
+                    .copied()
+                    .eq(module.path.components().iter().map(|component| component.as_str()))
+        });
+    if !interface_binding && !catalog_binding {
         return Err(invalid(format!("linked binding has no owning declaration: {module:?}::{name}")));
     }
     Ok(())

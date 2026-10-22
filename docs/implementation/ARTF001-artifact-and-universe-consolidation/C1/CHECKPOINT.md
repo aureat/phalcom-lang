@@ -260,7 +260,7 @@ The separate `ArtifactImportTransaction::stage_payload_with_digest` path still r
 | R4.T4 | Finish dependency-bearing current query profile and fail-closed required-root completeness | COMPLETE |
 | R4.T5 | Certify ordinary imported SemanticWorkspaceSession with overlays/invalidation/rollback | COMPLETE |
 | R4.T6 | Consolidate duplicate consumer/import staging architecture and stabilize APIs | IN_PROGRESS — legacy staged importer is now `cfg(test)`; its 20 semantic artifact tests and `cargo check -p phalcom-semantic --lib` pass; T2–T5 post-consolidation recertification remains |
-| R4.T7 | Fresh-process source denial, compiler parity, diagnostics parity, real package/runtime functionality | IN_PROGRESS — source-denied, ordinary-VM runtime, and source CLI gates pass; strict positive parity fails and is under architecture diagnosis |
+| R4.T7 | Fresh-process source denial, compiler parity, diagnostics parity, real package/runtime functionality | IN_PROGRESS — source-denied, ordinary-VM runtime, source CLI, and exact iterator runtime gates pass; artifact-backed positive/negative parity and remaining T7 closure gates remain |
 | R4.T8 | Broad regression, schema freeze, manifest closure, cleanup | IN_PROGRESS — query allocation fixture passes; workspace `--no-run` was executed but is blocked by an existing example target with no `main`; crate gates remain |
 | R4.T9 | P2 acceptance, walkthrough, checkpoint closure, P3 handoff | PENDING |
 
@@ -932,7 +932,7 @@ Implemented at this slice:
   specialization-publication assertions;
 - retained the standalone `Module.packageInfo` `None` unit regression.
 
-Current-head Universe census after the corrections:
+Universe census at the prior source-fix delivery tip:
 
 ```text
 total = 48
@@ -955,3 +955,344 @@ type cycle (1/1), enum native-root classification (1/1), Option regressions
 (9/9), Result callback regressions (2/2), Universe diagnostics (11/11), and
 standalone `Module.packageInfo` (1/1). This verifies the source-diagnostic
 proof slice; P2.R4 remains open for artifact/session acceptance.
+
+### P2.R4 T7 generic-evidence runtime incident — 2026-10-22
+
+After fast-forward integration of `fix/universe-semantic-source`, the selected
+positive SlotMap parity test fails before comparison. `canonical_universe_program()`
+reports a missing runtime conformance recipe for slot 0 at
+`Universe/collections.iterator_laws::IndexedIterator.new`. At the pre-integration
+artifact tip `272c8862e`, the same test reached the strict comparator and
+reported 12 differences. The source proof workflow remains green, but it does
+not exercise this compiler lowering path.
+
+Read-only inspection found that runtime recipe construction can leave a slot
+empty when forwarded caller evidence has no matching slot or when a proof
+source has no recipe conversion. The failing slot's exact semantic proof
+source has not been captured, so no local repair is authorized yet. The
+incident packet is
+[`ARTF001.C1.P2.R4-T7-generic-evidence-runtime-incident.md`](ARTF001.C1.P2.R4-T7-generic-evidence-runtime-incident.md).
+Compiler/runtime evidence materialization is under mandatory architecture
+consultation. Keep P2.R4 IN_PROGRESS / PARTIAL / FOCUSED_TESTED, preserve the
+strict comparator and accepted projection-equality invariant, and leave P3
+blocked.
+
+### T7 consultation ruling — 2026-10-22
+
+The architectural consultation found that the missing-recipe error does not
+identify whether the source is a missing semantic binding, a forwarded caller
+slot lookup miss, or a proof form without a runtime projection. First add a
+failure-only trace containing the slot key, proof-source kind, and forwarded
+caller lookup result. Preserve fail-closed behavior and the parity comparator.
+Do not add a compiler-derived runtime recipe or relax semantic proof rules
+without evidence that the identified proof requires it. No plan amendment is
+needed for this diagnostic step; request further guidance only if the trace
+shows a nonlocal ownership or compiler/runtime contract decision.
+
+The first detailed reproduction completed in 105.35 seconds and identified
+the earliest unresolved slot at `SkipIterator.new`: the callee layout requires
+`I |= Iterator`, but the call has a published specialization with zero
+conformance bindings and no conditional capability bindings. The source call
+is `Iterator.skip -> SkipIterator.new(self, n)`. This shifts the immediate
+question from a forwarded lookup miss to whether the semantic call
+specialization is incomplete or the runtime layout includes an obligation
+outside the constructor's executable contract. The incident packet records
+the exact slot and requests a focused boundary ruling. No runtime recipe or
+checker behavior was changed.
+
+### P2.R4 T7 constructor evidence publication continuation — 2026-10-22
+
+The adviser ruled that the constructor's explicit `I |= Iterator` constraint
+must stay in its executable contract and that semantic call-specialization
+publication should carry a `Forwarded` proof from `Iterator.skip`'s `Self |=
+Iterator` authority. A focused regression now checks this exact positive call
+and an unconstrained negative caller.
+
+The canonical constructor signature and raw dispatch signature retain the
+constraint. The current `specialize_dispatch_signature` filtered the
+constraint-only generic signature because it had no callable-owned parameters;
+one focused attempt now preserves any non-empty constraint list. That makes
+the constructor requirement visible to the call checker, which reports
+`GenericConstraintUnsatisfied` because the trait default-method body evidence
+environment does not currently contain its implicit `Self |= Iterator`
+assumption. Compiler caller-evidence construction also composes explicit
+owner/callable/impl constraints without such an entry.
+
+This is a new cross-layer authority question, so the semantic edit is paused at
+the retained regression and the scoped incident packet has been extended for
+consultation. The precise decision needed is the canonical source/identity of
+trait-default implicit receiver evidence and how it becomes a caller runtime
+slot. No runtime recipe or implicit conformance was synthesized. P2.R4 remains
+IN_PROGRESS / PARTIAL / FOCUSED_TESTED; P3 remains blocked.
+
+The follow-up advisory ruling establishes that a trait default's implicit
+`Self |= Trait` is a lexical `GenericEvidenceEnvironment` assumption keyed by
+the owning trait's symbolic `SelfTypeTerm` and exact `TraitRef`. One shared
+semantic constructor must seed it for semantic body checking and compiler
+caller-layout construction. The assumption stays local to trait default
+bodies; it is not added to published generic signatures or unrelated bodies.
+The existing assumed-proof, forwarded-provenance, and evidence-slot paths
+remain authoritative. Constraint-only generic-signature preservation stays
+in place. The incident packet records the minimal positive semantic,
+unconstrained negative semantic, and `skip(...).next` runtime gates. P2.R4
+continues IN_PROGRESS / PARTIAL / FOCUSED_TESTED; P3 remains blocked.
+
+The first focused implementation of that ruling seeds a shared symbolic
+trait-default `Self` assumption in semantic checking, compiler caller layout,
+and semantic lowering. Its positive semantic test still reports
+`GenericConstraintUnsatisfied`: the call checker currently wraps a materialized
+canonical `SelfType` as `TypeTerm::Canonical`, while the assumption key is the
+symbolic `TypeTerm::SelfType`. This crosses canonical identity at the proof
+boundary, so the implementer has stopped for a narrow follow-up ruling rather
+than add a second key or weaken proof behavior. See incident section 21. P2.R4
+remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED; P3 remains blocked.
+
+**INC — T7 receiver-key identity:** the follow-up adviser ruled that the
+generic-evidence proof path must map only canonical `TypeData::SelfType` values
+to their exact symbolic `SelfTypeTerm` before memoization and lexical lookup.
+The mapping preserves owner, side, role, and `TraitRef`; arbitrary nominal
+types stay canonical, and no duplicate assumption key is added. This is a
+representation bridge within the existing generic-evidence authority; no plan
+amendment is required. Verification: direct proof queries for both exact
+representations return the same assumed proof, while changed owner/side/role/
+trait do not; then the `Forwarded` call assertion and `skip(...).next` runtime
+gate. The incident packet records the failed first discriminator and ruling.
+
+The normalization unit test and focused positive/negative semantic call test
+now pass. The `skip(...).next` runtime discriminator is blocked before fixture
+execution: canonical VM bootstrap finds a cycle in the expanded eager-root
+source order, specifically `reflection.module` ↔ `reflection.package_object`;
+the explicit Universe-root closure still orders. The other blocked reflection
+modules and edge evidence are recorded in the P2.R4 T7 incident packet. This
+is a source initialization contract decision, so no ordering/import change has
+been made pending consultation. P2.R4 remains IN_PROGRESS / PARTIAL /
+FOCUSED_TESTED; P3 remains blocked.
+
+### P2.R4 T7.2 artifact runtime graph ruling — 2026-10-22
+
+After the source closure change used source imports for discovery and the
+finalized semantic runtime graph for execution order, the positive parity test
+advanced to artifact loading and failed at `validate_runtime_dag` with
+`cyclic runtime dependency graph`. The formal image captures
+`SemanticLinkedProgram::to_unfinalized_program()`, which deliberately retains
+every import as a provisional runtime read and edge. The TELOSC builder
+projects those fields directly, even though phase-aware executable
+finalization omits interface-only edges and returns a strict runtime DAG.
+
+The architectural ruling is to preserve source imports and semantic
+relationships while sourcing runtime slots, import bindings, dependencies,
+graph, and initialization order together from the finalized executable link.
+Persist a phase disposition for every source import. Interface-only imports
+remain semantic imports without runtime slots. Runtime reads whose eager edge
+is omitted by availability evidence retain their slot and an exact witness for
+target, product, authority, and availability time. Missing or mismatched
+evidence must fail validation. Keep the strict DAG validator; the reflection
+interface cycle must round-trip, while the same two runtime edges must be
+rejected.
+
+This changes the R4.T7.2 artifact representation contract. The active plan now
+records the added evidence and focused discriminators. Wire-version details
+must follow TELOSC compatibility rules; no old validation gate or parity
+field is waived. See
+[`ARTF001.C1.P2.R4-T7-finalized-runtime-artifact-graph-incident.md`](ARTF001.C1.P2.R4-T7-finalized-runtime-artifact-graph-incident.md).
+
+The focused compiler test now also records a separate unresolved `Some`
+canonical-constructor lowering failure during Universe source compilation.
+Its semantic target and runtime-requirement evidence are being checked under
+the earlier generic-evidence incident. P2.R4 remains
+IN_PROGRESS / PARTIAL / FOCUSED_TESTED; P3 remains blocked.
+
+### P2.R4 T7 callable-binder projection identity amendment — 2026-10-22
+
+The focused iterator regression exposed that generic signature formation
+copied callable-local binders into an empty associated-type trait context.
+For `Iterator.chain<I, J>`, that changed the identity of
+`<J as Iterator>::Item` by turning `Iterator<>` into `Iterator<I, J>`. The
+associated-types specification includes the applied trait reference in
+projection identity; equality matching must preserve it.
+
+The consulted ruling is to keep the existing fallback only for
+`GenericBinderSite::Trait`, which forms the trait's own generic header.
+Callable methods retain the exact applied trait reference already supplied by
+their context. The implementation and focused semantic regressions are in the
+active plan amendment. Verified so far: trait-method projections retain the
+empty `Iterator<>` application; method binders preserve `Converter<Target>`;
+equal concrete associated items publish constructor specialization; missing
+caller equality fails at the constructor with
+`GenericConstraintUnsatisfied`; and the existing iterator-adapter regression
+passes with that precise negative diagnostic.
+
+This closes the projection-identity semantic defect only. The core iterator
+runtime gate, finalized runtime artifact graph amendment, fresh-process source
+denial, parity, real package functionality, and T8/T9 acceptance remain open.
+P2.R4 stays IN_PROGRESS / PARTIAL / FOCUSED_TESTED; P3 remains blocked.
+
+### P2.R4 T7 iterator default constructor inference boundary — 2026-10-22
+
+After the projection-identity correction, the exact
+`iterator_skip_take_takewhile.ph` CLI gate advances past the previous
+associated-equality rejection but stops at
+`Iterator.chain`'s `ChainIterator.new(self, other)` in
+`core/universe/src/collections/iterator_laws.ph:22` with
+`GenericInferenceUnderconstrained`. The explanation shows both constructor
+type variables receive argument evidence, then formal type evidence becomes
+unavailable at an `UnderconstrainedTypeVariable` boundary.
+
+An experiment spelling `ChainIterator<Self, J>.new(...)` was rejected during
+type formation because expression-level `Self` is outside its permitted
+context; that source edit was reverted. No inference or proof rule has been
+changed. The exact symbolic-`Self` inference boundary is under architecture
+consultation. Preserve projection identity and fail-closed equality behavior
+while this is unresolved.
+
+The broader `language-corpus iterator` selection still fails in two separate
+fixtures before these chain checks, with `[1] does not understand iter` and
+`[1, 2, 3] does not understand map(_)`. Those failures predate the projection
+fix and are recorded independently from the exact chain gate. P2.R4 remains
+IN_PROGRESS / PARTIAL / FOCUSED_TESTED; P3 remains blocked.
+
+Advisory review now confirms that the symbolic `Self` value should contribute
+argument evidence to `ChainIterator.new`. The remaining suspected boundary is
+call completion: inference defers the associated equality, and completion may
+be seeing the residual before consulting a proof already available in the
+lexical generic evidence. No solver or completion behavior has changed. A
+failure-only trace is being collected for argument knowledge, inference terms,
+materialized parameter bindings, unsolved variables, residual relation/origin,
+and the exact lexical proof result. The active plan now permits a narrow
+completion change only if all bindings materialize and that proven
+`GenericWhere` equality is the sole residual; every other unresolved case must
+remain underconstrained. Required positive-chain, missing-equality, and
+result-only-underconstrained regressions are recorded in the plan amendment.
+
+The trace established the exact call state: both argument `TypeKnowledge`
+values were present; constructor `I` and `J` each materialized; no inference
+variables remained unsolved; and the sole residual was the constructor's
+`GenericWhere` associated equality. The lexical generic evidence proved the
+materialized relation. The amended call completion records that proof in the
+inference session, clears only that residual, and continues through normal
+specialization publication. The generic default-method test retains two
+distinct constructor bindings. The missing-equality case still reports
+`GenericConstraintUnsatisfied`, and the result-only higher-kinded generic still
+reports `GenericInferenceUnderconstrained`.
+
+The exact iterator CLI now compiles and enters VM execution. It fails inside
+the default `Iterable.iter` body at `self.iterator` because the active runtime
+conformance environment lacks the `Iterable.iterator` target. No runtime
+selection or environment behavior has changed. A separate T7 incident records
+the failure and requests a ruling on the next evidence trace. P2.R4 remains
+IN_PROGRESS / PARTIAL / FOCUSED_TESTED, and P3 remains blocked.
+
+The failure-only trace completed on 2026-10-22. Semantic selection contains
+`Iterable.iterator` mapped to the concrete `Array` conformance getter
+(`ImplLocalId(3)`). Caller-side projection places it at slot 29. VM
+materialization creates environment 1 with 41 slots and slot 29 populated;
+the compiled abstract requirement in `Iterable.iter` reads slot 55, computed
+as raw slot 14 plus a 41-slot generic-evidence prefix. The same environment
+reaches the failing frame, so current evidence localizes the defect to
+caller/body slot-layout disagreement rather than missing semantic selection
+or environment-ID propagation. Temporary trace code was removed. The follow-up
+architectural ruling assigns ownership to compiler lowering/runtime layout
+projection: slot 29 remains the lexical `Self |= Iterable` evidence entry,
+while slot 55 is the direct abstract requirement entry. Both must receive the
+same exact selected semantic target through canonical callee-body evidence-key
+and requirement-ID mappings. Do not replace slot 29 with 55, infer targets
+from receiver/name, or weaken fail-closed reads. The plan records the focused
+assertions for both slots, generic forwarding through slot 29, and missing-
+target rejection. P2.R4 remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED; P3
+remains blocked.
+
+### P2.R4 Universe diagnostic continuation — 2026-10-22
+
+The active artifact worktree started this continuation at
+`4f0861428d82b962a094f588450e9d0577960e68` and retains all existing dirty
+P2.R4 changes. It removes 21 unused inherent associated-type declarations
+from Universe and removes the unsupported enum `Monoid` conformances for
+`Chain` and `Journal`, retaining their direct class-side `empty` methods. It
+also changes both source-data shell-formation passes in
+`phalcom-semantic/src/session.rs` to preserve registered projections during
+refresh. The canonical snapshot retains `UnorderedShape`'s intrinsic owner
+and its `Lookup`, `View`, and `Tail` products.
+
+The fresh canonical-image regression passed 1/1 in 99.45 seconds and found
+exactly two errors, both in `universe:reflection.module`:
+`AnnotationUnsaturatedConstructor` on line 21 (`metadata -> Map`) and line 28
+(`__metadata__ -> Map`). All 43 former inherent-associated errors, both enum
+class-side trait errors, and the `UnorderedShape::Lookup` error are cleared.
+Focused negative regressions passed 1/1 each for inherent associated-type
+bindings and enum class-side trait requirements. `git diff --check` passed.
+
+The supplied analysis states that normative documentation promises a public
+`ModuleMetadata` type, but the live `docs/specs/` corpus contains no such type
+or `Module.metadata` contract. The Universe architecture spec defers the full
+API surface, and the runtime's current `Option<String>` return does not
+establish one. Adviser ruling: retain the two diagnostics as deferred and
+resolve the contract in the owning spec before changing source or runtime
+behavior. The fresh regression asserts these exact two errors and rejects any
+additional Universe semantic errors. The diagnostic inventory records the
+complete list and source locations.
+
+This correction does not close R4 or P2. P2.R4 remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains blocked. Continue with the
+T7 runtime evidence-layout gate and the remaining artifact/session, parity,
+allocation, and certification rows.
+
+### P2.R4 T7.2 persisted availability authority ruling — 2026-10-22
+
+The first finalized-runtime artifact projection advanced past strict DAG
+validation but failed source-free load because a `MetadataTypeOwner` witness
+had no corresponding semantic execution-authority requirement. The owning
+compiler derives these requirements from canonical type/conformance products
+in `runtime_metadata_type_requirements` during finalization; the artifact
+producer previously serialized only `SemanticSnapshot.generated_runtime_requirements`.
+
+The architectural ruling is to persist the exact compiler-derived requirements
+in `ModuleExecutionAuthorityV1.runtime_requirements` and pass the same
+canonicalized list to executable finalization and semantic-world export. Do not
+exempt `MetadataTypeOwner` witnesses from exact matching: their current
+producer/product labels do not independently prove the target, so an exemption
+could allow a forged witness to remove a runtime DAG edge. The focused
+round-trip/tampering discriminator passes 1/1. Semantic and core library checks
+pass with existing warnings. The exact SlotMap parity rerun is pending after
+this change. P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P3 remains
+blocked.
+
+### P2.R4 T7 iterator continuation — 2026-10-22
+
+The complete default-body evidence layout now projects the exact selected
+`Iterable.iterator` target through both the lexical generic-evidence slot and
+the direct abstract requirement slot. The original `iterator` failure is gone,
+but the exact fixture initially stopped later at `TakeWhileIterator.toList`.
+The canonical `Iterator.takeWhile` body had an untyped `pred`, so its
+`TakeWhileIterator.new(self, pred)` call was blocked with
+`UnknownType(NoTypeEvidence)` and the method published no inferred return. The
+source parameter is now typed as `(Self::Item) -> Bool`, matching the existing
+constructor contract.
+
+The focused regression
+`language::iteration::take_while_to_list_keeps_guarded_iterable_dispatch_evidence`
+passed 1/1 in 157.66 seconds. It verifies the constructor result and inferred
+method return, derived `Iterable::toList` selection, its lowering projection,
+and runtime output. The exact CLI fixture
+`phalcom-core/tests/fixtures/language/iterator/iterator_skip_take_takewhile.ph`
+then passed with output `4`, `5`, `4`, `[1, 2, 3]`, `[1, 2]`. A fresh canonical
+Universe census passed 1/1 in 99.13 seconds and still reports exactly the two
+deferred `Module.metadata` and `Module.__metadata__` errors.
+
+This closes the exact source iterator discriminator only. Artifact-backed
+runtime compatibility, positive and negative compiler parity, the remaining
+T7 gates, and T8 certification remain open; P2.R4 remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED` and P3 remains blocked.
+
+### P2.R4 T7.2 metadata-owner authority integration attempt — 2026-10-22
+
+The focused synthetic round-trip/tampering regression for a persisted
+`MetadataTypeOwner` witness passed 1/1. `cargo check -p phalcom-semantic --lib`
+and `cargo check -p phalcom-core --lib` passed with existing warnings. The
+source/artifact SlotMap parity rerun then failed during artifact construction,
+before loading or comparison, with
+`CanonicalImage(IncompletePublication("limit exceeded: duplicate runtime dependency requirement"))`.
+The conflicting requirement rows have not yet been identified. Preserve the
+semantic duplicate-obligation validator; inspect the complete finalizer
+requirement set and align its canonicalization with the persisted authority
+before retrying parity. P2.R4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`;
+P3 remains blocked.

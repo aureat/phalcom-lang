@@ -8,10 +8,6 @@ from .lens import Lens
 data StateResult<S, T, E> private(_ transition: (S) -> StateStep<S, Result<T, E>>)
 
 impl<S, T, E> StateResult<S, T, E> {
-  type StateType = S
-  type Value = T
-  type ErrorType = E
-
   @class new(_ transition: (S) -> StateStep<S, Result<T, E>>) -> StateResult<S, T, E> {
     StateResult<S, T, E>(transition)
   }

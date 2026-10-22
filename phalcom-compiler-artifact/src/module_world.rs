@@ -10,6 +10,7 @@ use phalcom_type_meta::identity::{
 
 pub const MODULE_WORLD_SCHEMA_V1: u32 = 1;
 pub const MODULE_WORLD_SCHEMA_V2: u32 = 2;
+pub const MODULE_WORLD_SCHEMA_V3: u32 = 3;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ArtifactModuleId(pub u32);
@@ -992,6 +993,557 @@ impl ModuleWorldV2 {
     pub fn decode(bytes: &[u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {
         let mut budget = limits.max_decoded_section_bytes;
         Self::decode_with_budget(bytes, limits, &mut budget)
+    }
+}
+
+tagged!(AvailabilityProductV1 {
+    0 => CanonicalIdentity,
+    1 => MetadataDescriptor,
+    2 => RuntimeObject,
+    3 => SourceInitializedValue,
+});
+tagged!(AvailabilityAuthorityV1 {
+    0 => SemanticIdentityCatalog,
+    1 => NativeBindingCatalog,
+    2 => NativeModuleMaterialization,
+    3 => SemanticMetadataBundle,
+    4 => CanonicalSourceInitializer,
+    5 => FullyInitializedUniverse,
+});
+tagged!(AvailabilityTimingV1 {
+    0 => BeforeSourceExecution,
+    1 => DuringModuleInitializer,
+    2 => AfterBootstrap,
+});
+tagged!(AvailabilityRequirementProducerV1 {
+    0 => DeclarationRead,
+    1 => ImportRead,
+    2 => CompilerGeneratedRead,
+    3 => CallableOwner,
+    4 => PatternOwner,
+    5 => ConformanceTypeOwner,
+    6 => ContextualReceiverRead,
+    7 => MetadataTypeOwner,
+    8 => StaticConstantRead,
+});
+
+/// One exact availability proof applied to a finalized runtime requirement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeAvailabilityWitnessV1 {
+    /// Importer whose eager dependency was omitted.
+    pub importer: ArtifactModuleId,
+    /// Runtime dependency whose product is required.
+    pub dependency: ArtifactModuleId,
+    /// Source location of the runtime requirement.
+    pub range: SpanV1,
+    /// Runtime reason that produced the requirement.
+    pub reason: RuntimeReasonV1,
+    /// Canonical read retained for the requirement, when it has one.
+    pub read_target: Option<TargetV1>,
+    /// Exact target of the availability proof.
+    pub target: TargetV1,
+    /// Product guaranteed by the proof.
+    pub product: AvailabilityProductV1,
+    /// Producer of the runtime requirement.
+    pub producer: AvailabilityRequirementProducerV1,
+    /// Stage at which the requirement needs the product.
+    pub required_at: AvailabilityTimingV1,
+    /// Authority that guarantees the product.
+    pub authority: AvailabilityAuthorityV1,
+    /// Latest stage at which the product is guaranteed to be available.
+    pub available_at: AvailabilityTimingV1,
+}
+
+impl Wire for RuntimeAvailabilityWitnessV1 {
+    fn write(&self, out: &mut BinaryWriter) -> Result<(), ArtifactError> {
+        self.importer.write(out)?;
+        self.dependency.write(out)?;
+        self.range.write(out)?;
+        self.reason.write(out)?;
+        self.read_target.write(out)?;
+        self.target.write(out)?;
+        self.product.write(out)?;
+        self.producer.write(out)?;
+        self.required_at.write(out)?;
+        self.authority.write(out)?;
+        self.available_at.write(out)
+    }
+
+    fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
+        input.nested(|input| {
+            Ok(Self {
+                importer: ArtifactModuleId::read(input)?,
+                dependency: ArtifactModuleId::read(input)?,
+                range: SpanV1::read(input)?,
+                reason: RuntimeReasonV1::read(input)?,
+                read_target: Option::<TargetV1>::read(input)?,
+                target: TargetV1::read(input)?,
+                product: AvailabilityProductV1::read(input)?,
+                producer: AvailabilityRequirementProducerV1::read(input)?,
+                required_at: AvailabilityTimingV1::read(input)?,
+                authority: AvailabilityAuthorityV1::read(input)?,
+                available_at: AvailabilityTimingV1::read(input)?,
+            })
+        })
+    }
+}
+
+impl RuntimeAvailabilityWitnessV1 {
+    /// Orders complete witness records in canonical wire order.
+    pub fn canonical_cmp(&self, other: &Self) -> std::cmp::Ordering {
+        availability_witness_key(self).cmp(&availability_witness_key(other))
+    }
+}
+
+/// Module-world schema carrying exact availability evidence for finalized runtime edges.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModuleWorldV3 {
+    /// Source and semantic module authority, including the finalized runtime projection.
+    pub world: ModuleWorldV2,
+    /// Exact proofs that justify omitted eager edges.
+    pub availability_witnesses: Vec<RuntimeAvailabilityWitnessV1>,
+}
+
+impl std::ops::Deref for ModuleWorldV3 {
+    type Target = ModuleWorldV2;
+
+    fn deref(&self) -> &Self::Target {
+        &self.world
+    }
+}
+
+impl ModuleWorldV3 {
+    /// Wraps a module world with finalized availability evidence.
+    pub fn new(world: ModuleWorldV2, availability_witnesses: Vec<RuntimeAvailabilityWitnessV1>) -> Self {
+        Self { world, availability_witnesses }
+    }
+
+    /// Serializes the current module-world wire schema.
+    pub fn encode(&self) -> Result<Vec<u8>, ArtifactError> {
+        let mut out = BinaryWriter::new();
+        out.write_u32(MODULE_WORLD_SCHEMA_V3);
+        self.write(&mut out)?;
+        Ok(out.into_vec())
+    }
+
+    /// Decodes and validates the current module-world wire schema under a cumulative allocation budget.
+    pub fn decode_with_allocation_budget(
+        bytes: &[u8],
+        limits: &ValidationLimits,
+        transaction: &mut AllocationBudget,
+    ) -> Result<Self, ArtifactError> {
+        let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut section = transaction.child(section_limit);
+        let world = {
+            let mut input = Decode {
+                reader: BinaryReader::new(bytes),
+                limits: *limits,
+                allocations: &mut section,
+                items_left: limits.max_semantic_entries_per_family,
+                depth: 0,
+            };
+            let schema = input.reader.read_u32()?;
+            if schema != MODULE_WORLD_SCHEMA_V3 {
+                return Err(crate::error::ValidationError::IncompatibleAbi {
+                    kind: "module_world_schema",
+                    found: schema,
+                    expected: MODULE_WORLD_SCHEMA_V3,
+                }
+                .into());
+            }
+            let world = Self::read(&mut input)?;
+            if input.reader.has_remaining() {
+                return Err(invalid("trailing module-world payload bytes"));
+            }
+            world
+        };
+        world.validate(limits)?;
+        transaction.commit_child(section).map_err(allocation_error)?;
+        Ok(world)
+    }
+
+    /// Validates the source-free module products and their exact availability witnesses.
+    pub fn validate(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+        self.world.validate(limits)?;
+        if self.availability_witnesses.len() > limits.max_semantic_entries_per_family {
+            return Err(invalid("availability witness count exceeds limit"));
+        }
+        let keys = self.availability_witnesses.iter().map(availability_witness_key).collect::<Vec<_>>();
+        if keys.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err(invalid("availability witnesses are not uniquely sorted"));
+        }
+
+        for (module_index, module) in self.world.modules.iter().enumerate() {
+            let module_index = u32::try_from(module_index).map_err(|_| invalid("module index exceeds u32"))?;
+            let runtime_dependencies = module.runtime_dependencies.iter().map(|id| id.0).collect::<std::collections::BTreeSet<_>>();
+            let edge_dependencies = module.runtime_edges.iter().map(|edge| edge.dependency.0).collect::<std::collections::BTreeSet<_>>();
+            if runtime_dependencies != edge_dependencies {
+                return Err(invalid(format!("runtime dependencies and edges disagree for module {module_index}")));
+            }
+            for read in &module.linked_reads {
+                let dependency = match read {
+                    TargetV1::Module { module } | TargetV1::Binding { module, .. } => *module,
+                };
+                if !runtime_dependencies.contains(&dependency.0)
+                    && !self.availability_witnesses.iter().any(|witness| {
+                        witness.importer.0 == module_index
+                            && witness.dependency == dependency
+                            && witness.read_target.as_ref() == Some(read)
+                            && witness.target == *read
+                    })
+                {
+                    return Err(invalid(format!("runtime read in module {module_index} has neither an eager edge nor an exact availability witness")));
+                }
+            }
+        }
+
+        for witness in &self.availability_witnesses {
+            let importer = self
+                .world
+                .modules
+                .get(witness.importer.0 as usize)
+                .ok_or_else(|| invalid("availability witness importer is out of bounds"))?;
+            if (witness.dependency.0 as usize) >= self.world.modules.len() {
+                return Err(invalid("availability witness dependency is out of bounds"));
+            }
+            let target_module = match &witness.target {
+                TargetV1::Module { module } | TargetV1::Binding { module, .. } => *module,
+            };
+            if target_module != witness.dependency {
+                return Err(invalid("availability witness target and dependency disagree"));
+            }
+            if let Some(read_target) = &witness.read_target {
+                if read_target != &witness.target || !importer.linked_reads.contains(read_target) {
+                    return Err(invalid("availability witness does not match a finalized runtime read"));
+                }
+            }
+            let available = availability_timing_tag(&witness.available_at) <= availability_timing_tag(&witness.required_at)
+                || (witness.authority == AvailabilityAuthorityV1::FullyInitializedUniverse
+                    && witness.required_at == AvailabilityTimingV1::DuringModuleInitializer);
+            if !available {
+                return Err(invalid("availability witness is later than its runtime requirement"));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validates availability witnesses against the semantic runtime requirements and import phases.
+    pub fn validate_execution_authority(
+        &self,
+        authority: &crate::semantic::world::ModuleExecutionAuthorityV1,
+    ) -> Result<(), ArtifactError> {
+        for requirement in &authority.runtime_requirements {
+            let importer = self
+                .world
+                .modules
+                .iter()
+                .position(|module| module.identity == requirement.importer)
+                .ok_or_else(|| invalid("runtime requirement importer is absent from module world"))?;
+            let dependency = self
+                .world
+                .modules
+                .iter()
+                .position(|module| module.identity == requirement.dependency)
+                .ok_or_else(|| invalid("runtime requirement dependency is absent from module world"))?;
+            let importer_id = ArtifactModuleId(u32::try_from(importer).map_err(|_| invalid("module index exceeds u32"))?);
+            let dependency_id = ArtifactModuleId(u32::try_from(dependency).map_err(|_| invalid("module index exceeds u32"))?);
+            if !self.world.modules[importer].runtime_dependencies.contains(&dependency_id)
+                && !self.availability_witnesses.iter().any(|witness| {
+                    witness_matches_requirement(witness, requirement, &self.world.modules)
+                })
+            {
+                return Err(invalid("runtime requirement has neither an eager edge nor an exact availability witness"));
+            }
+            if requirement.provenance.consumer != requirement.importer || importer_id.0 as usize != importer || dependency_id.0 as usize != dependency {
+                return Err(invalid("runtime requirement ownership is inconsistent with module world"));
+            }
+        }
+
+        for witness in &self.availability_witnesses {
+            let matches_requirement = authority
+                .runtime_requirements
+                .iter()
+                .any(|requirement| witness_matches_requirement(witness, requirement, &self.world.modules));
+            if !matches_requirement && !is_source_import_witness(witness, authority, &self.world.modules) {
+                return Err(invalid(format!("availability witness has no matching runtime requirement or runtime source import: {witness:?}")));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn witness_matches_requirement(
+    witness: &RuntimeAvailabilityWitnessV1,
+    requirement: &crate::semantic::world::RuntimeDependencyRequirementV1,
+    modules: &[ModuleV2],
+) -> bool {
+    let Some(importer) = modules.get(witness.importer.0 as usize) else {
+        return false;
+    };
+    let Some(dependency) = modules.get(witness.dependency.0 as usize) else {
+        return false;
+    };
+    if importer.identity != requirement.importer
+        || dependency.identity != requirement.dependency
+        || witness.range != requirement.range
+        || !runtime_reason_matches(&witness.reason, &requirement.reason)
+        || !availability_producer_matches(&witness.producer, &requirement.provenance.producer)
+        || !availability_product_matches(&witness.product, &requirement.provenance.product)
+        || !availability_timing_matches(&witness.required_at, &requirement.provenance.timing)
+    {
+        return false;
+    }
+    let Some(target) = stable_requirement_target(&witness.target, modules) else {
+        return false;
+    };
+    if target != requirement.provenance.target {
+        return false;
+    }
+    let read_target = match &witness.read_target {
+        Some(target) => match stable_linked_read(target, modules) {
+            Some(target) => Some(target),
+            None => return false,
+        },
+        None => None,
+    };
+    match (&read_target, &requirement.read_target) {
+        (Some(left), Some(right)) if left == right => {}
+        (None, None) => {}
+        _ => return false,
+    }
+    true
+}
+
+fn stable_requirement_target(
+    target: &TargetV1,
+    modules: &[ModuleV2],
+) -> Option<crate::semantic::world::RuntimeRequirementTargetV1> {
+    use crate::semantic::world::RuntimeRequirementTargetV1 as Target;
+    match target {
+        TargetV1::Module { module } => Some(Target::Module {
+            module: modules.get(module.0 as usize)?.identity.clone(),
+        }),
+        TargetV1::Binding { module, name } => Some(Target::Binding {
+            module: modules.get(module.0 as usize)?.identity.clone(),
+            name: name.clone().into_boxed_str(),
+        }),
+    }
+}
+
+fn stable_linked_read(target: &TargetV1, modules: &[ModuleV2]) -> Option<crate::semantic::world::LinkedReadSpecV1> {
+    use crate::semantic::world::LinkedReadSpecV1 as Read;
+    match target {
+        TargetV1::Module { module } => Some(Read::Module {
+            module: modules.get(module.0 as usize)?.identity.clone(),
+        }),
+        TargetV1::Binding { module, name } => Some(Read::Binding {
+            symbol: StableDeclarationRef {
+                module: modules.get(module.0 as usize)?.identity.clone(),
+                path: vec![name.as_str().into()].into_boxed_slice(),
+            },
+        }),
+    }
+}
+
+fn runtime_reason_matches(left: &RuntimeReasonV1, right: &crate::semantic::world::RuntimeDependencyReasonV1) -> bool {
+    use crate::semantic::world::RuntimeDependencyReasonV1 as Reason;
+    matches!(
+        (left, right),
+        (RuntimeReasonV1::WholeModuleImport, Reason::WholeModuleImport)
+            | (RuntimeReasonV1::SelectiveValueImport, Reason::SelectiveValueImport)
+            | (RuntimeReasonV1::ReExport, Reason::ReExport)
+            | (RuntimeReasonV1::RuntimeDeclarationReference, Reason::RuntimeDeclarationReference)
+    )
+}
+
+fn availability_producer_matches(
+    left: &AvailabilityRequirementProducerV1,
+    right: &crate::semantic::world::RuntimeRequirementProducerV1,
+) -> bool {
+    use crate::semantic::world::RuntimeRequirementProducerV1 as Producer;
+    matches!(
+        (left, right),
+        (AvailabilityRequirementProducerV1::DeclarationRead, Producer::DeclarationRead)
+            | (AvailabilityRequirementProducerV1::ImportRead, Producer::ImportRead)
+            | (AvailabilityRequirementProducerV1::CompilerGeneratedRead, Producer::CompilerGeneratedRead)
+            | (AvailabilityRequirementProducerV1::CallableOwner, Producer::CallableOwner)
+            | (AvailabilityRequirementProducerV1::PatternOwner, Producer::PatternOwner)
+            | (AvailabilityRequirementProducerV1::ConformanceTypeOwner, Producer::ConformanceTypeOwner)
+            | (AvailabilityRequirementProducerV1::ContextualReceiverRead, Producer::ContextualReceiverRead)
+            | (AvailabilityRequirementProducerV1::MetadataTypeOwner, Producer::MetadataTypeOwner)
+            | (AvailabilityRequirementProducerV1::StaticConstantRead, Producer::StaticConstantRead)
+    )
+}
+
+fn availability_product_matches(left: &AvailabilityProductV1, right: &crate::semantic::world::RuntimeRequirementProductV1) -> bool {
+    use crate::semantic::world::RuntimeRequirementProductV1 as Product;
+    matches!(
+        (left, right),
+        (AvailabilityProductV1::CanonicalIdentity, Product::CanonicalIdentity)
+            | (AvailabilityProductV1::MetadataDescriptor, Product::MetadataDescriptor)
+            | (AvailabilityProductV1::RuntimeObject, Product::RuntimeObject)
+            | (AvailabilityProductV1::SourceInitializedValue, Product::SourceInitializedValue)
+    )
+}
+
+fn availability_timing_matches(left: &AvailabilityTimingV1, right: &crate::semantic::world::RuntimeRequirementTimingV1) -> bool {
+    use crate::semantic::world::RuntimeRequirementTimingV1 as Timing;
+    matches!(
+        (left, right),
+        (AvailabilityTimingV1::BeforeSourceExecution, Timing::BeforeSourceExecution)
+            | (AvailabilityTimingV1::DuringModuleInitializer, Timing::DuringModuleInitializer)
+            | (AvailabilityTimingV1::AfterBootstrap, Timing::AfterBootstrap)
+    )
+}
+
+fn is_source_import_witness(
+    witness: &RuntimeAvailabilityWitnessV1,
+    authority: &crate::semantic::world::ModuleExecutionAuthorityV1,
+    modules: &[ModuleV2],
+) -> bool {
+    if witness.producer != AvailabilityRequirementProducerV1::ImportRead {
+        return false;
+    }
+    let Some(read_target) = witness.read_target.as_ref() else {
+        return false;
+    };
+    let Some(importer) = modules.get(witness.importer.0 as usize) else {
+        return false;
+    };
+    let Some(phase_product) = authority.import_phase_products.iter().find(|product| product.module == importer.identity) else {
+        return false;
+    };
+    let mut ordinal = 0u32;
+    for import in &importer.imports {
+        let local_names = source_import_local_names(import);
+        for local_name in &local_names {
+            let current = ordinal;
+            ordinal = match ordinal.checked_add(1) {
+                Some(next) => next,
+                None => return false,
+            };
+            let Some(binding) = importer.import_bindings.iter().find(|binding| binding.name == local_name.as_str()) else {
+                continue;
+            };
+            if importer.linked_reads.get(binding.index as usize) != Some(read_target) {
+                continue;
+            }
+            let phase_runtime = phase_product.bindings.iter().find(|binding| binding.binding == current).is_some_and(|binding| {
+                phase_product.coverage == crate::semantic::world::PhaseEvidenceCoverageV1::Incomplete
+                    || !binding.summary.observed
+                    || binding.summary.phase == crate::semantic::world::DependencyPhaseV1::Runtime
+            });
+            let force_runtime = matches!(import, ImportV1::Module { .. } | ImportV1::ReExport { .. });
+            if force_runtime || phase_runtime {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn source_import_local_names(import: &ImportV1) -> Vec<String> {
+    match import {
+        ImportV1::Module { path, alias, .. } => {
+            let name = alias
+                .as_ref()
+                .map(|alias| alias.name.clone())
+                .or_else(|| path.segments.last().map(|segment| segment.name.clone()))
+                .or_else(|| match &path.root {
+                    ImportRootV1::Absolute { segment } => Some(segment.name.clone()),
+                    ImportRootV1::Relative { .. } => None,
+                });
+            name.into_iter().collect()
+        }
+        ImportV1::Selective { items, .. } | ImportV1::ReExport { items, .. } => items
+            .iter()
+            .map(|item| item.alias.as_ref().map_or_else(|| item.name.clone(), |alias| alias.name.clone()))
+            .collect(),
+    }
+}
+
+impl Wire for ModuleWorldV3 {
+    fn collection_limit(limits: &ValidationLimits) -> usize {
+        limits.max_modules
+    }
+
+    fn write(&self, out: &mut BinaryWriter) -> Result<(), ArtifactError> {
+        self.world.write(out)?;
+        self.availability_witnesses.write(out)
+    }
+
+    fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
+        input.nested(|input| {
+            Ok(Self {
+                world: ModuleWorldV2::read(input)?,
+                availability_witnesses: Vec::<RuntimeAvailabilityWitnessV1>::read(input)?,
+            })
+        })
+    }
+}
+
+fn availability_witness_key(
+    witness: &RuntimeAvailabilityWitnessV1,
+) -> (u32, u32, u64, u64, u8, Option<(u8, u32, String)>, (u8, u32, String), u8, u8, u8, u8, u8) {
+    fn target_key(target: &TargetV1) -> (u8, u32, String) {
+        match target {
+            TargetV1::Module { module } => (0, module.0, String::new()),
+            TargetV1::Binding { module, name } => (1, module.0, name.clone()),
+        }
+    }
+    let reason = match &witness.reason {
+        RuntimeReasonV1::WholeModuleImport => 0,
+        RuntimeReasonV1::SelectiveValueImport => 1,
+        RuntimeReasonV1::ReExport => 2,
+        RuntimeReasonV1::RuntimeDeclarationReference => 3,
+    };
+    let product = match &witness.product {
+        AvailabilityProductV1::CanonicalIdentity => 0,
+        AvailabilityProductV1::MetadataDescriptor => 1,
+        AvailabilityProductV1::RuntimeObject => 2,
+        AvailabilityProductV1::SourceInitializedValue => 3,
+    };
+    let producer = match &witness.producer {
+        AvailabilityRequirementProducerV1::DeclarationRead => 0,
+        AvailabilityRequirementProducerV1::ImportRead => 1,
+        AvailabilityRequirementProducerV1::CompilerGeneratedRead => 2,
+        AvailabilityRequirementProducerV1::CallableOwner => 3,
+        AvailabilityRequirementProducerV1::PatternOwner => 4,
+        AvailabilityRequirementProducerV1::ConformanceTypeOwner => 5,
+        AvailabilityRequirementProducerV1::ContextualReceiverRead => 6,
+        AvailabilityRequirementProducerV1::MetadataTypeOwner => 7,
+        AvailabilityRequirementProducerV1::StaticConstantRead => 8,
+    };
+    let authority = match &witness.authority {
+        AvailabilityAuthorityV1::SemanticIdentityCatalog => 0,
+        AvailabilityAuthorityV1::NativeBindingCatalog => 1,
+        AvailabilityAuthorityV1::NativeModuleMaterialization => 2,
+        AvailabilityAuthorityV1::SemanticMetadataBundle => 3,
+        AvailabilityAuthorityV1::CanonicalSourceInitializer => 4,
+        AvailabilityAuthorityV1::FullyInitializedUniverse => 5,
+    };
+    (
+        witness.importer.0,
+        witness.dependency.0,
+        witness.range.start,
+        witness.range.end,
+        reason,
+        witness.read_target.as_ref().map(target_key),
+        target_key(&witness.target),
+        product,
+        producer,
+        availability_timing_tag(&witness.required_at),
+        authority,
+        availability_timing_tag(&witness.available_at),
+    )
+}
+
+fn availability_timing_tag(timing: &AvailabilityTimingV1) -> u8 {
+    match timing {
+        AvailabilityTimingV1::BeforeSourceExecution => 0,
+        AvailabilityTimingV1::DuringModuleInitializer => 1,
+        AvailabilityTimingV1::AfterBootstrap => 2,
     }
 }
 

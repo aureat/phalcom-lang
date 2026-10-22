@@ -2577,7 +2577,7 @@ fn apply_generic_callable_in_context(
         _ => None,
     };
 
-    let outcome = if matches!(
+    let mut outcome = if matches!(
         &argument_outcome,
         crate::checker::inference::InferenceOutcome::Solved(_) | crate::checker::inference::InferenceOutcome::Underconstrained(_)
     ) && !expected.is_none()
@@ -2708,6 +2708,59 @@ fn apply_generic_callable_in_context(
     if let Some(row_outcome) = row_outcome.as_ref() {
         record_row_solve_outcome(ctx, row_outcome, call_range);
     }
+    let proven_lexical_equalities = match (&outcome, callable.as_ref()) {
+        (crate::checker::inference::InferenceOutcome::Underconstrained(underconstrained), Some(callable))
+            if underconstrained.unsolved_vars.is_empty() && !ctx.call_status_is_recorded() && !matches!(expected, ExpectedType::Inference { .. }) =>
+        {
+            let session = session_handle.borrow();
+            let residuals = session.residual_obligations();
+            if residuals.is_empty() || !var_map.values().all(|term| session.materialize(term, ctx.store).is_ok()) {
+                None
+            } else {
+                residuals
+                    .iter()
+                    .map(|obligation| {
+                        if !matches!(
+                            &obligation.origin,
+                            ConstraintOrigin::GenericWhere { callable: owner, .. } if owner == callable
+                        ) {
+                            return None;
+                        }
+                        let InferenceRelation::Equivalent(left, right) = &obligation.relation else {
+                            return None;
+                        };
+                        if !matches!(left, InferenceTerm::AssociatedProjection { .. }) && !matches!(right, InferenceTerm::AssociatedProjection { .. }) {
+                            return None;
+                        }
+                        let (Ok(left_ty), Ok(right_ty)) = (session.materialize(left, ctx.store), session.materialize(right, ctx.store)) else {
+                            return None;
+                        };
+                        let left_term = crate::types::parameter::TypeTerm::Canonical(left_ty);
+                        let right_term = crate::types::parameter::TypeTerm::Canonical(right_ty);
+                        let proof = ctx.generic_evidence.are_equivalent(&left_term, &right_term);
+                        let proof = if proof.is_proven() {
+                            proof
+                        } else {
+                            ctx.generic_evidence.are_types_equivalent(ctx.store, left_ty, right_ty)
+                        };
+                        proof.is_proven().then(|| (obligation.constraint_index, obligation.relation.clone(), proof))
+                    })
+                    .collect::<Option<Vec<_>>>()
+                    .filter(|proofs| !proofs.is_empty())
+            }
+        }
+        _ => None,
+    };
+    if let Some(proven_equalities) = proven_lexical_equalities {
+        let mut session = session_handle.borrow_mut();
+        let all_discharged = proven_equalities
+            .into_iter()
+            .all(|(index, relation, proof)| session.discharge_residual_equivalence_with_lexical_proof(index, &relation, proof));
+        if all_discharged {
+            outcome = session.finish_frame(frame);
+        }
+    }
+
     let context_resolved = match (&argument_underconstrained, &outcome) {
         (Some(initial), crate::checker::inference::InferenceOutcome::Solved(solution)) => {
             initial.unsolved_vars.iter().all(|variable| solution.substitutions.contains_key(variable))

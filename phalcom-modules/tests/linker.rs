@@ -300,6 +300,9 @@ fn exact_availability_proof_removes_edge_but_keeps_canonical_read_slot() {
     assert_eq!(executable.modules[&importer].linked_reads, vec![read.clone()]);
     assert_eq!(executable.runtime_read(&importer, &read), Some(ImportBindingId(0)));
     assert_eq!(executable.runtime_requirements(), &[requirement]);
+    assert_eq!(executable.runtime_availability_witnesses().len(), 1);
+    assert_eq!(executable.runtime_availability_witnesses()[0].requirement.read_target, Some(read));
+    assert_eq!(executable.runtime_availability_witnesses()[0].proof.authority, AvailabilityAuthority::NativeBindingCatalog);
 }
 
 #[test]
@@ -374,6 +377,8 @@ fn metadata_descriptor_requirement_uses_exact_metadata_proof_without_a_read_slot
         .expect("exact metadata proof should remove only the metadata edge");
     assert!(executable.graphs.runtime.edges_from(&importer).is_empty());
     assert!(executable.modules[&importer].linked_reads.is_empty());
+    assert_eq!(executable.runtime_availability_witnesses().len(), 1);
+    assert_eq!(executable.runtime_availability_witnesses()[0].proof.product, RuntimeRequirementProduct::MetadataDescriptor);
 }
 
 #[test]
@@ -400,6 +405,11 @@ fn module_proof_can_satisfy_whole_module_import_but_binding_proof_cannot() {
         .expect("module proof should satisfy whole-module object availability");
     assert!(executable.graphs.runtime.edges_from(&importer).is_empty());
     assert_eq!(executable.modules[&importer].linked_reads, vec![LinkedReadSpec::Module(exporter.clone())]);
+    assert_eq!(executable.runtime_availability_witnesses().len(), 1);
+    assert_eq!(
+        executable.runtime_availability_witnesses()[0].proof.authority,
+        AvailabilityAuthority::FullyInitializedUniverse
+    );
 
     let binding_proof = AvailabilityContract::from_proofs([proof(
         RuntimeRequirementTarget::Binding {

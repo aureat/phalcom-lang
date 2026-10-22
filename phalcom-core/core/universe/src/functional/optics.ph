@@ -5,8 +5,6 @@ from universe.reflection.structural import Product
 /// A reversible typed conversion. Round-trip laws are callback obligations.
 data Iso<S, T> private(_ forward: (S) -> T, _ backward: (T) -> S)
 impl<S, T> Iso<S, T> {
-  type Source = S
-  type Focus = T
   @class new(forward: (S) -> T, backward: (T) -> S) -> Iso<S, T> { Iso<S, T>(forward, backward) }
   convert(_ source: S) -> T { self.forward.call(source) }
   restore(_ target: T) -> S { self.backward.call(target) }
@@ -33,8 +31,6 @@ impl<S, T> Iso<S, T>
 /// A focus that can be absent. Replacement happens only for a present focus.
 data Optional<S, T> private(_ read: (S) -> Option<T>, _ replace: (S, T) -> S)
 impl<S, T> Optional<S, T> {
-  type Source = S
-  type Focus = T
   @class new(get: (S) -> Option<T>, set: (S, T) -> S) -> Optional<S, T> { Optional<S, T>(get, set) }
   get(_ source: S) -> Option<T> { self.read.call(source) }
   set(_ source: S, to value: T) -> S {
@@ -61,8 +57,6 @@ impl<S, T> Optional<S, T> {
 /// preview(review(t)) == Some(t) is an obligation of the callbacks.
 data Prism<S, T> private(_ select: (S) -> Option<T>, _ inject: (T) -> S)
 impl<S, T> Prism<S, T> {
-  type Source = S
-  type Focus = T
   @class new(preview: (S) -> Option<T>, review: (T) -> S) -> Prism<S, T> { Prism<S, T>(preview, review) }
   preview(_ source: S) -> Option<T> { self.select.call(source) }
   review(_ value: T) -> S { self.inject.call(value) }

@@ -350,7 +350,7 @@ class Probe {
         .expect("heterogeneous chain must be rejected at the call site");
     assert_eq!(
         chain_diagnostic.code,
-        phalcom_semantic::diagnostic::DiagnosticCode::GenericInferenceUnderconstrained,
+        phalcom_semantic::diagnostic::DiagnosticCode::GenericConstraintUnsatisfied,
         "unexpected chain rejection: {chain_diagnostic:#?}"
     );
 }

@@ -1,6 +1,94 @@
 use phalcom_semantic::canonical_image::{CanonicalUniverseFormalImage, canonical_universe_formal_image};
 
 #[test]
+fn canonical_universe_has_only_deferred_module_metadata_errors_and_retains_unordered_shape_intrinsics() {
+    use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
+    use phalcom_semantic::declarations::IntrinsicTypeOwner;
+    use phalcom_semantic::diagnostic::{DiagnosticCode, DiagnosticSeverity};
+    use phalcom_semantic::identity::DeclarationId;
+    use phalcom_semantic::types::type_member::{IntrinsicTypeOperation, TypeMemberDeclarationId, TypeMemberSelector};
+
+    let image = canonical_universe_formal_image().expect("canonical Universe formal image");
+    let snapshot = image.snapshot();
+    let structural = ModuleId::universe(ModulePath::from_components(
+        ["reflection", "structural"]
+            .into_iter()
+            .map(|component| ModuleComponent::from_identifier(component).expect("valid module component"))
+            .collect::<Vec<_>>(),
+    ));
+    let unordered_shape = DeclarationId::new(structural, "UnorderedShape".into());
+
+    assert_eq!(
+        snapshot.declarations.intrinsic_type_owner(&unordered_shape),
+        Some(IntrinsicTypeOwner::UnorderedShape),
+        "source data header formation must preserve the canonical intrinsic owner"
+    );
+    for (name, expected) in [
+        ("Lookup", IntrinsicTypeOperation::UnorderedShapeLookup),
+        ("View", IntrinsicTypeOperation::UnorderedShapeView),
+        ("Tail", IntrinsicTypeOperation::UnorderedShapeTail),
+    ] {
+        let id = TypeMemberDeclarationId::new(unordered_shape.clone(), TypeMemberSelector::named(name));
+        let product = snapshot
+            .type_member_declarations
+            .get(&id)
+            .unwrap_or_else(|| panic!("canonical UnorderedShape::{name} declaration product is missing"));
+        assert_eq!(product.signature.intrinsic, Some(expected), "wrong intrinsic for UnorderedShape::{name}");
+    }
+
+    let errors = snapshot
+        .diagnostics
+        .iter()
+        .flat_map(|(module, diagnostics)| {
+            diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+                .map(move |diagnostic| (module, diagnostic))
+        })
+        .collect::<Vec<_>>();
+
+    let module = ModuleId::universe(ModulePath::from_components(
+        ["reflection", "module"]
+            .into_iter()
+            .map(|component| ModuleComponent::from_identifier(component).expect("valid module component"))
+            .collect::<Vec<_>>(),
+    ));
+    let source = &snapshot.sources.get(&module).expect("module reflection source").text;
+    let mut expected_ranges = ["native metadata -> Map", "native __metadata__ -> Map"]
+        .into_iter()
+        .map(|declaration| {
+            let start = source.find(declaration).expect("expected Module metadata declaration") + declaration.rfind("Map").unwrap();
+            start..start + "Map".len()
+        })
+        .collect::<Vec<_>>();
+    expected_ranges.sort_by_key(|range| range.start);
+
+    let mut actual_ranges = errors
+        .iter()
+        .map(|(owner, diagnostic)| {
+            assert_eq!(
+                owner, &&module,
+                "only Module reflection's currently unspecified metadata signature may remain: {:?}: {}",
+                diagnostic.code, diagnostic.message
+            );
+            assert_eq!(
+                diagnostic.code,
+                DiagnosticCode::AnnotationUnsaturatedConstructor,
+                "unexpected canonical Universe error: {}",
+                diagnostic.message
+            );
+            diagnostic.primary_range.start..diagnostic.primary_range.end
+        })
+        .collect::<Vec<_>>();
+    actual_ranges.sort_by_key(|range| range.start);
+
+    assert_eq!(
+        actual_ranges, expected_ranges,
+        "canonical Universe must retain only the two classified Module.metadata errors"
+    );
+}
+
+#[test]
 fn canonical_formal_image_is_complete_and_process_shared() {
     let start = std::time::Instant::now();
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
@@ -96,20 +184,23 @@ fn canonical_formal_image_source_parity_and_provider_isolation() {
                 .callable_analyses
                 .get(id)
                 .map(|analysis| (analysis.return_validation, analysis.status, analysis.exits.normal_returns.len())),
-            reference
-                .callable_analyses
-                .get(id)
-                .map(|analysis| analysis.exits.normal_returns.iter().map(|fact| (&fact.knowledge, &fact.status, &fact.causal_invalidity)).collect::<Vec<_>>()),
+            reference.callable_analyses.get(id).map(|analysis| analysis
+                .exits
+                .normal_returns
+                .iter()
+                .map(|fact| (&fact.knowledge, &fact.status, &fact.causal_invalidity))
+                .collect::<Vec<_>>()),
             image
                 .snapshot()
                 .callable_analyses
                 .get(id)
                 .map(|analysis| (analysis.return_validation, analysis.status, analysis.exits.normal_returns.len())),
-            image
-                .snapshot()
-                .callable_analyses
-                .get(id)
-                .map(|analysis| analysis.exits.normal_returns.iter().map(|fact| (&fact.knowledge, &fact.status, &fact.causal_invalidity)).collect::<Vec<_>>())
+            image.snapshot().callable_analyses.get(id).map(|analysis| analysis
+                .exits
+                .normal_returns
+                .iter()
+                .map(|fact| (&fact.knowledge, &fact.status, &fact.causal_invalidity))
+                .collect::<Vec<_>>())
         );
         assert_eq!(
             signature.declared_return.canonical_type().map(|ty| reference.store.format_type(ty)),

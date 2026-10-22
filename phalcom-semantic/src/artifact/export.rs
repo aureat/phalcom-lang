@@ -4872,11 +4872,36 @@ pub fn export_semantic_world_v4(
     module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::semantic::world::SemanticWorldV4, ArtifactError> {
+    export_semantic_world_v4_with_runtime_requirements(
+        snapshot,
+        types,
+        statics,
+        module_world,
+        &snapshot.generated_runtime_requirements,
+        limits,
+    )
+}
+
+/// Exports current-main semantic authority with the exact executable runtime
+/// requirements used to finalize the module graph.
+///
+/// Compiler-derived requirements belong in the persisted execution authority
+/// whenever the corresponding finalized graph uses them to omit eager edges.
+/// Passing the finalizer's canonical requirement slice keeps artifact
+/// validation on the same authority as source compilation.
+pub fn export_semantic_world_v4_with_runtime_requirements(
+    snapshot: &SemanticSnapshot,
+    types: &TypeExportContext,
+    statics: &StaticExportContext,
+    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    runtime_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
+    limits: &ValidationLimits,
+) -> Result<phalcom_compiler_artifact::semantic::world::SemanticWorldV4, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world as wire;
 
     let base = export_semantic_world(snapshot, types, statics, limits)?;
     let structural_contracts = export_structural_primary_contracts_v2(snapshot, types, base.structural_contracts, limits)?;
-    let module_execution_authority = export_module_execution_authority(snapshot, module_world)?;
+    let module_execution_authority = export_module_execution_authority(snapshot, module_world, runtime_requirements)?;
 
     let mut native_analyses = BTreeMap::new();
     for (callable, analysis) in snapshot.callable_analyses.iter() {
@@ -5253,6 +5278,7 @@ pub(crate) fn export_runtime_dependency_requirements(
 fn export_module_execution_authority(
     snapshot: &SemanticSnapshot,
     module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    runtime_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
 ) -> Result<phalcom_compiler_artifact::semantic::world::ModuleExecutionAuthorityV1, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world as wire;
 
@@ -5305,7 +5331,7 @@ fn export_module_execution_authority(
         return Err(referential("import phase products contain modules outside the serialized module world"));
     }
 
-    let runtime_requirements = export_runtime_dependency_requirements(&snapshot.generated_runtime_requirements)?;
+    let runtime_requirements = export_runtime_dependency_requirements(runtime_requirements)?;
 
     Ok(wire::ModuleExecutionAuthorityV1 {
         import_phase_products,

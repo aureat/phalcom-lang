@@ -2409,7 +2409,7 @@ impl SemanticWorkspaceSession {
                     let class_object_type = Arc::make_mut(&mut self.store).class_object_type(decl_id.clone());
                     let binding = crate::declarations::intrinsic_binding_for_source(module_id, data_def.name.as_str())
                         .unwrap_or_else(crate::declarations::DeclarationTypeBinding::ordinary);
-                    declarations.replace_authoritative(DeclarationTypeInfo {
+                    declarations.refresh_shell_preserving_registered_projections(DeclarationTypeInfo {
                         declaration: decl_id,
                         form,
                         class_object_type,
@@ -3852,7 +3852,7 @@ impl SemanticWorkspaceSession {
 
                     let binding = crate::declarations::intrinsic_binding_for_source(&module_id, data_def.name.as_str())
                         .unwrap_or_else(crate::declarations::DeclarationTypeBinding::ordinary);
-                    declarations.replace_authoritative(header.into_type_info_with_binding(None, binding));
+                    declarations.refresh_shell_preserving_registered_projections(header.into_type_info_with_binding(None, binding));
                 }
             }
         }

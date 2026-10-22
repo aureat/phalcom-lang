@@ -581,6 +581,36 @@ impl Box {
 }
 
 #[test]
+fn enum_conformance_keeps_class_side_trait_requirement_error() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait ProbeIdentity {
+  @class empty -> Self
+}
+
+data ProbeEnum {
+  Empty
+}
+
+impl ProbeIdentity for ProbeEnum {
+  @class empty -> ProbeEnum { ProbeEnum::Empty }
+}
+"#,
+        )
+        .analyze();
+
+    assert!(
+        fixture
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::EnumCaseStaticBehaviorUnsupported),
+        "enum targets must continue to reject class-side trait requirements"
+    );
+}
+
+#[test]
 fn associated_type_names_are_trait_local_and_duplicate_declarations_are_rejected() {
     let fixture = WorkspaceFixture::new()
         .module(

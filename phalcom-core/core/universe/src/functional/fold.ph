@@ -10,10 +10,6 @@ from universe.numbers.capabilities import Addable, Zero
 data Fold<S, A, B> private(_ initialize: () -> S, _ step: (S, A) -> S, _ finish: (S) -> B)
 
 impl<S, A, B> Fold<S, A, B> {
-  type StateType = S
-  type Input = A
-  type Output = B
-
   @class new(initialize: () -> S, step: (S, A) -> S, finish: (S) -> B) -> Fold<S, A, B> {
     Fold<S, A, B>(initialize, step, finish)
   }

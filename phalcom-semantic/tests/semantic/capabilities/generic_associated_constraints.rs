@@ -700,3 +700,249 @@ impl<T> Iterable for Iter<T> {
         ProjectionNormalizationResult::Normalized(item_ty)
     );
 }
+
+#[test]
+fn trait_method_binders_do_not_become_associated_projection_trait_arguments() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+  type Item
+  chain<I, J>(_ first: I, _ second: J) -> ChainIterator<I, J>
+    where I |= Iterator, J |= Iterator, <J as Iterator>::Item == <I as Iterator>::Item
+}
+
+class ChainIterator<I, J> {
+  @constructor
+  new(_ first: I, _ second: J)
+    where I |= Iterator, J |= Iterator, <J as Iterator>::Item == <I as Iterator>::Item
+  {}
+}
+"#,
+    );
+
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "diagnostics: {:#?}",
+        fixture.analysis.snapshot.diagnostics
+    );
+
+    let iterator = fixture.decl("Iterator");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&iterator).expect("Iterator surface");
+    let chain = surface
+        .members
+        .values()
+        .find(|member| member.signature.generics.is_some())
+        .expect("generic chain member");
+    let generics = chain.signature.generics.as_ref().expect("chain generics");
+    let equivalent = generics
+        .constraints
+        .iter()
+        .find_map(|constraint| match constraint {
+            GenericConstraint::Equivalent { left, right } => Some((left, right)),
+            _ => None,
+        })
+        .expect("associated equality");
+    for term in [equivalent.0, equivalent.1] {
+        let TypeTerm::Canonical(ty) = term else {
+            panic!("associated equality must use canonical terms: {term:?}");
+        };
+        let TypeData::AssociatedProjection(projection) = fixture.analysis.snapshot.store.get(*ty) else {
+            panic!("expected associated projection, got {:?}", fixture.analysis.snapshot.store.get(*ty));
+        };
+        assert!(
+            projection.trait_ref.arguments.is_empty(),
+            "the non-generic Iterator application must remain empty for method-local J: {projection:#?}"
+        );
+    }
+}
+
+#[test]
+fn matching_associated_equality_proves_generic_constructor_call() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator { type Item }
+
+class NumberValue {}
+class LeftIterator { @constructor new() {} }
+class RightIterator { @constructor new() {} }
+
+impl Iterator for LeftIterator { type Item = NumberValue }
+impl Iterator for RightIterator { type Item = NumberValue }
+
+class ChainIterator<I, J> {
+  @constructor
+  new(_ first: I, _ second: J)
+    where I |= Iterator, J |= Iterator, <J as Iterator>::Item == <I as Iterator>::Item
+  {}
+}
+
+class Probe {
+  @class
+  build() {
+    ChainIterator<LeftIterator, RightIterator>.new(LeftIterator.new(), RightIterator.new())
+  }
+}
+"#,
+    );
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "diagnostics: {:#?}",
+        fixture.analysis.snapshot.diagnostics
+    );
+    let callable = fixture.callable("Probe", "build", DispatchSide::Class);
+    let constructor_call = fixture.expression(
+        callable,
+        "ChainIterator<LeftIterator, RightIterator>.new(LeftIterator.new(), RightIterator.new())",
+    );
+    assert!(
+        constructor_call.call_specialization.is_some(),
+        "the constructor equality should be proven from concrete associated types: {constructor_call:#?}"
+    );
+}
+
+#[test]
+fn generic_iterator_chain_uses_distinct_argument_bindings_with_lexical_equality() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+  type Item
+  chain<J>(_ other: J) -> ChainIterator<Self, J>
+    where J |= Iterator, <J as Iterator>::Item == Self::Item
+  { ChainIterator.new(self, other) }
+}
+
+class ChainIterator<I, J> {
+  @constructor
+  new(_ first: I, _ second: J)
+    where I |= Iterator, J |= Iterator, <J as Iterator>::Item == <I as Iterator>::Item
+  {}
+}
+"#,
+    );
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "diagnostics: {:#?}",
+        fixture.analysis.snapshot.diagnostics
+    );
+    let chain = fixture.callable("Iterator", "chain", DispatchSide::Instance);
+    let call = fixture.expression(chain, "ChainIterator.new(self, other)");
+    let specialization = call.call_specialization.as_ref().expect("chain constructor specialization");
+    assert_eq!(
+        specialization.bindings.len(),
+        2,
+        "both constructor parameters must be inferred: {specialization:#?}"
+    );
+    let arguments = specialization
+        .bindings
+        .iter()
+        .map(|(_, argument)| match argument {
+            phalcom_semantic::types::store::StaticArgument::Term(ty) => *ty,
+            other => panic!("constructor type parameter must have a proper type binding: {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert_ne!(arguments[0], arguments[1], "the I and J constructor bindings must remain distinct");
+}
+
+#[test]
+fn associated_projection_identity_keeps_generic_trait_arguments_with_method_binders() {
+    let fixture = Fixture::new(
+        r#"
+trait Converter<Target> {
+  type Item
+  compare<J>(_ other: J) -> Bool
+    where J |= Converter<Target>, <J as Converter<Target>>::Item == Self::Item
+}
+"#,
+    );
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "diagnostics: {:#?}",
+        fixture.analysis.snapshot.diagnostics
+    );
+
+    let surface = fixture
+        .analysis
+        .snapshot
+        .trait_surfaces
+        .get(&fixture.decl("Converter"))
+        .expect("Converter surface");
+    let target = surface.generic_signature.as_ref().expect("trait generics").parameters[0];
+    let compare = surface.members.values().next().expect("compare member");
+    let method_generics = compare.signature.generics.as_ref().expect("method-local J");
+    let method_parameter = method_generics.parameters[0];
+    let equivalent = method_generics
+        .constraints
+        .iter()
+        .find_map(|constraint| match constraint {
+            GenericConstraint::Equivalent { left, right } => Some((left, right)),
+            _ => None,
+        })
+        .expect("associated equality");
+
+    let mut projection_count = 0;
+    for term in [equivalent.0, equivalent.1] {
+        let TypeTerm::Canonical(ty) = term else {
+            panic!("associated equality must use canonical terms: {term:?}");
+        };
+        let TypeData::AssociatedProjection(projection) = fixture.analysis.snapshot.store.get(*ty) else {
+            panic!("expected associated projection, got {:?}", fixture.analysis.snapshot.store.get(*ty));
+        };
+        assert_eq!(projection.trait_ref.declaration, fixture.decl("Converter"));
+        assert_eq!(projection.trait_ref.arguments.len(), 1, "trait application must be retained: {projection:#?}");
+        let trait_argument = projection.trait_ref.arguments[0];
+        assert!(
+            matches!(fixture.analysis.snapshot.store.get(trait_argument), TypeData::Parameter(parameter) if *parameter == target),
+            "trait argument must remain Target and must not be replaced by method-local J: {projection:#?}"
+        );
+        assert_ne!(target, method_parameter);
+        projection_count += 1;
+    }
+    assert_eq!(projection_count, 2, "both sides of the equality should be associated projections");
+}
+
+#[test]
+fn chain_constructor_equality_without_caller_evidence_is_rejected() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator { type Item }
+
+class ChainIterator<I, J> {
+  @constructor
+  new(_ first: I, _ second: J)
+    where I |= Iterator, J |= Iterator, <J as Iterator>::Item == <I as Iterator>::Item
+  {}
+}
+
+class Probe {
+  @class
+  build<I, J>(_ first: I, _ second: J) -> ChainIterator<I, J>
+    where I |= Iterator, J |= Iterator
+  { ChainIterator<I, J>.new(first, second) }
+}
+"#,
+    );
+
+    let callable = fixture.callable("Probe", "build", DispatchSide::Class);
+    let constructor_call = fixture.expression(callable, "ChainIterator<I, J>.new(first, second)");
+    assert!(
+        constructor_call.call_specialization.is_none(),
+        "rejected constructor must not publish specialization: {constructor_call:#?}"
+    );
+    let diagnostics = fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::GenericConstraintUnsatisfied)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        diagnostics.len(),
+        1,
+        "expected one failed constructor equality: {:#?}",
+        fixture.analysis.snapshot.diagnostics
+    );
+    assert_eq!(
+        diagnostics[0].primary_range, constructor_call.range,
+        "failure must point to the constructor call: {:#?}",
+        diagnostics[0]
+    );
+}

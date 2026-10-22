@@ -1,6 +1,6 @@
 //! Persistent append trees for logs, audit trails, and batched output.
 from .chain import Chain
-from .algebra import Semigroup, Monoid
+from .algebra import Semigroup
 
 /// Constant-time concatenation without copying accumulated entries.
 /// Entries are materialized using an explicit work stack, not tree recursion.
@@ -11,6 +11,8 @@ data Journal<T> {
 }
 
 impl<T> Journal<T> {
+  @class empty -> Journal<T> { Journal<T>::Empty }
+
   isEmpty -> Bool {
     // A user-created Concat may contain only empty subtrees.
     let emptyPending: Chain<Journal<T>> = Chain<Journal<T>>::Empty
@@ -107,6 +109,5 @@ impl<T> Semigroup for Journal<T> {
     }
   }
 }
-impl<T> Monoid for Journal<T> { @class empty -> Journal<T> { Journal<T>::Empty } }
 
 export Journal

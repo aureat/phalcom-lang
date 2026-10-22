@@ -13,9 +13,6 @@ trait Monoid where Self |= Semigroup { @class empty -> Self }
 impl<T> Semigroup for Chain<T> {
   combine(_ other: Chain<T>) -> Chain<T> { self.append(other) }
 }
-impl<T> Monoid for Chain<T> {
-  @class empty -> Chain<T> { Chain<T>::Empty }
-}
 impl<T> Semigroup for NonEmpty<T> {
   combine(_ other: NonEmpty<T>) -> NonEmpty<T> { self.append(other) }
 }

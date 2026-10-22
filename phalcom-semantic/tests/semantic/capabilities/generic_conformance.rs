@@ -939,6 +939,102 @@ class Forwarder {
 }
 
 #[test]
+fn trait_default_method_forwards_evidence_to_bounded_constructor() {
+    use phalcom_semantic::checker::analysis::GenericCallConformanceSource;
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let positive = Fixture::new(
+        r#"
+trait Iterator {
+  type Item
+  skip(_ n: Int) { SkipIterator.new(self, n) }
+}
+class SkipIterator<I> {
+  @constructor
+  new(_ upstream: I, _ n: Int) where I |= Iterator {}
+}
+"#,
+    );
+    positive.assert_no_error_diagnostics();
+    let skip = positive.callable("Iterator", "skip", DispatchSide::Instance);
+    let call = positive.expression(skip, "SkipIterator.new(self, n)");
+    let specialization = call
+        .call_specialization
+        .as_ref()
+        .expect("bounded constructor call must publish its specialization");
+    let canonical_signature = positive
+        .analysis
+        .snapshot
+        .callable_signatures
+        .get(&specialization.callable)
+        .expect("canonical constructor signature");
+    assert!(
+        canonical_signature.generics.as_ref().is_some_and(|signature| signature.constraints.iter().any(
+            |constraint| matches!(constraint, GenericConstraint::Conforms { .. })
+        )),
+        "constructor constraint must remain in its canonical signature: {canonical_signature:#?}"
+    );
+    let constructor_selector = phalcom_common::selector::Selector::method(
+        "new",
+        vec![phalcom_common::selector::SelectorSlot::Positional; 2],
+    )
+    .expect("constructor selector");
+    let dispatch_signature = positive
+        .analysis
+        .snapshot
+        .dispatch
+        .resolve_dispatch_on_owner(
+            positive.analysis.snapshot.hierarchy.as_ref(),
+            &positive.decl("SkipIterator"),
+            DispatchSide::Class,
+            &constructor_selector,
+        );
+    let phalcom_semantic::dispatch::DispatchResult::Found(dispatch_signature) = dispatch_signature else {
+        panic!("constructor must be present in the class-side dispatch surface");
+    };
+    assert!(
+        dispatch_signature.generics.as_ref().is_some_and(|signature| signature.constraints.iter().any(
+            |constraint| matches!(constraint, GenericConstraint::Conforms { .. })
+        )),
+        "dispatch signature must preserve constructor constraints: {dispatch_signature:#?}"
+    );
+    assert_eq!(specialization.conformances.len(), 1, "{specialization:#?}");
+    let GenericCallConformanceSource::Forwarded { caller_conformance } = &specialization.conformances[0].source else {
+        panic!("expected the trait receiver conformance to be forwarded: {specialization:#?}");
+    };
+    assert_eq!(
+        caller_conformance.subject,
+        TypeTerm::SelfType(phalcom_semantic::types::parameter::SelfTypeTerm {
+            owner: positive.decl("Iterator"),
+            side: DispatchSide::Instance,
+            role: phalcom_semantic::types::parameter::SelfRole::InstanceType,
+        })
+    );
+    assert_eq!(caller_conformance.trait_ref.declaration, positive.decl("Iterator"));
+
+    let negative = Fixture::new_allowing_internal_incidents(
+        r#"
+trait Iterator { type Item }
+class SkipIterator<I> {
+  @constructor
+  new(_ upstream: I) where I |= Iterator {}
+}
+class Probe {
+  @class
+  run<T>(_ upstream: T) { SkipIterator.new(upstream) }
+}
+"#,
+    );
+    negative.assert_diagnostic(DiagnosticCode::GenericConstraintUnsatisfied, 1);
+    let run = negative.callable("Probe", "run", DispatchSide::Class);
+    let call = negative.expression(run, "SkipIterator.new(upstream)");
+    assert!(
+        call.call_specialization.is_none(),
+        "unproved constructor constraint must not publish runtime evidence: {call:#?}"
+    );
+}
+
+#[test]
 fn dynamic_does_not_discharge_static_conformance_bound() {
     let fixture = Fixture::new_allowing_internal_incidents(
         r#"

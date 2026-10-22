@@ -241,6 +241,101 @@ class Caller {
 }
 
 #[test]
+fn take_while_to_list_keeps_guarded_iterable_dispatch_evidence() {
+    let source = r#"
+let prefix = [1, 2, 3, 1].iter.takeWhile |x| { x < 3 }.toList
+let result = prefix.size == 2 and prefix.at(0) == 1 and prefix.at(1) == 2
+"#;
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("canonical Universe source should analyze");
+    assert!(!analyzed.semantic.has_errors(), "semantic diagnostics: {:#?}", analyzed.semantic.diagnostics);
+
+    let (take_while_callable, take_while_analysis) = analyzed
+        .semantic
+        .callable_analyses
+        .iter()
+        .find(|(callable, _)| {
+            callable.try_declaration_owner().is_some_and(|owner| owner.name == "Iterator".into()) && callable.selector.encode() == "takeWhile(_)"
+        })
+        .expect("canonical Iterator.takeWhile body analysis");
+    let constructor_call = take_while_analysis
+        .expressions
+        .values()
+        .find(|expression| {
+            expression.callable.as_ref().is_some_and(|callable| {
+                callable.try_declaration_owner().is_some_and(|owner| owner.name == "TakeWhileIterator".into()) && callable.selector.encode() == "new(_,_)"
+            })
+        })
+        .expect("TakeWhileIterator.new call in canonical Iterator.takeWhile body");
+    let signature = analyzed
+        .semantic
+        .callable_signatures
+        .get_for_body(take_while_callable)
+        .expect("canonical Iterator.takeWhile signature");
+    assert_eq!(
+        constructor_call.status,
+        phalcom_semantic::checker::analysis::AnalysisStatus::Ready,
+        "typed takeWhile predicate should let the constructor infer its result: {constructor_call:#?}"
+    );
+    let constructor_result = constructor_call.knowledge.ty().expect("specialized TakeWhileIterator constructor result");
+    assert_eq!(
+        signature.inferred_return.as_ref().and_then(phalcom_semantic::TypeKnowledge::ty),
+        Some(constructor_result),
+        "Iterator.takeWhile should publish its constructor result"
+    );
+    assert!(
+        analyzed.semantic.store.format_type(constructor_result).starts_with("TakeWhileIterator<"),
+        "unexpected inferred takeWhile result: {}",
+        analyzed.semantic.store.format_type(constructor_result)
+    );
+
+    let (range, selection) = analyzed
+        .semantic
+        .callable_analyses
+        .iter()
+        .filter(|(callable, _)| callable.owner.module() == &analyzed.entry)
+        .flat_map(|(_, analysis)| analysis.expressions.values())
+        .find_map(|expression| {
+            let text = source.get(expression.range.start..expression.range.end)?;
+            if !text.ends_with(".toList") {
+                return None;
+            }
+            let phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection) = expression.trait_dispatch.as_ref()? else {
+                return None;
+            };
+            (selection.requirement.selector.encode() == "toList").then_some((expression.range, selection))
+        })
+        .expect("takeWhile(...).toList must publish evidenced Iterable::toList dispatch");
+    assert_eq!(selection.requirement.owner.name, "Iterable".into());
+    assert!(matches!(
+        selection.selection,
+        phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }
+    ));
+    assert!(matches!(
+        selection.evidence,
+        phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(_)
+    ));
+
+    let program = ProgramCompiler::compile_analyzed(&analyzed).expect("selected takeWhile Iterable dispatch should lower");
+    let invocation = program
+        .modules
+        .get(&program.entry)
+        .expect("entry module")
+        .lowering
+        .trait_invocations
+        .iter()
+        .find(|(site, _)| site.range == range)
+        .map(|(_, spec)| spec)
+        .expect("selected takeWhile Iterable dispatch must survive semantic lowering");
+    assert_eq!(invocation.selection.requirement.selector.encode(), "toList");
+
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("TakeWhileIterator should execute Iterable::toList");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    let symbol = vm.interner.find("result").expect("result symbol");
+    assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "true");
+}
+
+#[test]
 fn known_list_iterator_source_receiver_gets_guarded_iterable_to_list_evidence() {
     let source = r#"
 class Caller {

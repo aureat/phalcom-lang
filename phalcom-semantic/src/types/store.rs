@@ -904,6 +904,23 @@ impl TypeStore {
         self.intern_with_kind(TypeData::Parameter(id), kind)
     }
 
+    /// Returns an already-interned canonical form for a type parameter without
+    /// mutating the store. This is useful when projecting signatures from an
+    /// immutable semantic snapshot.
+    pub fn find_parameter_form(&self, id: TypeParameterId) -> Option<TypeId> {
+        let kind = self.type_parameter(id).kind;
+        if kind == KindId::RECORD_ROW {
+            return None;
+        }
+        let data = TypeData::Parameter(id);
+        if let Some(frozen) = &self.frozen
+            && let Some(form) = frozen.find_type(&data, kind)
+        {
+            return Some(form);
+        }
+        self.type_to_id.get(&(data, kind)).copied()
+    }
+
     pub fn contains_parameter_type(&self, parameter: TypeParameterId) -> bool {
         if let Some(frozen) = &self.frozen {
             if frozen.types.iter().any(|ty| matches!(ty, TypeData::Parameter(id) if *id == parameter)) {

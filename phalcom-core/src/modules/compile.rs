@@ -2412,6 +2412,20 @@ impl ProgramCompiler {
                     .try_compose(&owner_env, &analyzed.semantic.trait_surfaces)
                     .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
             }
+            if callable.side == phalcom_semantic::identity::DispatchSide::Instance
+                && let phalcom_semantic::identity::CallableOwnerId::Declaration(declaration) = &callable.owner
+                && let Some(surface) = analyzed.semantic.trait_surfaces.get(declaration)
+            {
+                let receiver_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_for_trait_default(
+                    surface,
+                    analyzed.semantic.store.as_ref(),
+                    &analyzed.semantic.trait_surfaces,
+                )
+                .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+                caller_evidence = caller_evidence
+                    .try_compose(&receiver_env, &analyzed.semantic.trait_surfaces)
+                    .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+            }
             if let Some(impl_signature) = inherent_impl_generic_signature(&analyzed.semantic, callable, None) {
                 let impl_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
                     &impl_signature.constraints,
@@ -2524,6 +2538,20 @@ impl ProgramCompiler {
                         .try_compose(&owner_env, &analyzed.semantic.trait_surfaces)
                         .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
                 }
+                if callee.side == phalcom_semantic::identity::DispatchSide::Instance
+                    && let phalcom_semantic::identity::CallableOwnerId::Declaration(declaration) = &callee.owner
+                    && let Some(surface) = analyzed.semantic.trait_surfaces.get(declaration)
+                {
+                    let receiver_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_for_trait_default(
+                        surface,
+                        analyzed.semantic.store.as_ref(),
+                        &analyzed.semantic.trait_surfaces,
+                    )
+                    .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+                    callee_evidence = callee_evidence
+                        .try_compose(&receiver_env, &analyzed.semantic.trait_surfaces)
+                        .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+                }
                 if let Some(capability) = capability {
                     let provenance = capability.applicability.conformance_provenance.as_deref().ok_or_else(|| {
                         ProgramCompileError::GenericEvidenceLayout(format!(
@@ -2583,6 +2611,14 @@ impl ProgramCompiler {
 
                 let layout_len = callee_evidence.layout().len();
                 let mut slots: Vec<Option<crate::typing::RuntimeConformanceSlotRecipe>> = vec![None; layout_len];
+                let selection_kind = |selection: Option<&phalcom_semantic::impls::RequirementSelectionTemplate>| match selection {
+                    Some(phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { .. }) => "conformance-callable",
+                    Some(phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }) => "trait-default",
+                    Some(phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable { .. }) => "inherent-callable",
+                    Some(phalcom_semantic::impls::RequirementSelectionTemplate::ConditionalInherent { .. }) => "conditional-inherent",
+                    Some(phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. }) => "data-component",
+                    None => "missing",
+                };
                 let mut callee_instantiation = phalcom_semantic::types::instantiation::GenericInstantiation::default();
                 if let Some(specialization) = specialization {
                     for &(parameter, argument) in specialization.bindings.iter() {
@@ -2648,7 +2684,8 @@ impl ProgramCompiler {
                     if let Some(binding) = binding {
                         match &binding.source {
                             phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
-                                if let Some(selection) = evidence.requirements.get(&slot_key.requirement) {
+                                let selection = evidence.requirements.get(&slot_key.requirement);
+                                if let Some(selection) = selection {
                                     let selector = analyzed
                                         .semantic
                                         .trait_surfaces
@@ -2667,35 +2704,50 @@ impl ProgramCompiler {
                                     };
                                     if let Some(callable) = callable {
                                         if idx < slots.len() {
-                                            let nested_slots =
-                                                if matches!(selection, phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }) {
-                                                    evidence
-                                                        .requirements
-                                                        .iter()
-                                                        .filter_map(|(requirement, selected)| {
-                                                            let callable = phalcom_semantic::trait_dispatch::selected_callable(selected)?;
-                                                            let selector = analyzed
-                                                                .semantic
-                                                                .trait_surfaces
-                                                                .get(&slot_key.conformance.trait_ref.declaration)
-                                                                .and_then(|surface| surface.get(requirement))
-                                                                .map(|member| member.requirement.selector.clone())
-                                                                .unwrap_or_else(|| callable.selector.clone());
-                                                            default_requirement_slots.get(requirement).copied().map(|slot| {
-                                                                (
-                                                                    slot,
-                                                                    crate::typing::RuntimeConformanceSlotRecipe::Selection {
-                                                                        callable,
-                                                                        selector,
-                                                                        nested_slots: Box::new([]),
-                                                                    },
-                                                                )
-                                                            })
-                                                        })
-                                                        .collect::<Box<[(u16, crate::typing::RuntimeConformanceSlotRecipe)]>>()
-                                                } else {
-                                                    Box::new([])
-                                                };
+                                            let nested_slots = if matches!(
+                                                selection,
+                                                phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }
+                                            ) {
+                                                let evidence_prefix = u16::try_from(layout_len).map_err(|_| {
+                                                    ProgramCompileError::GenericEvidenceLayout(format!(
+                                                        "trait-default evidence layout exceeds executable slot capacity: {layout_len}"
+                                                    ))
+                                                })?;
+                                                let mut nested_slots = Vec::new();
+                                                for (requirement, selected) in evidence.requirements.iter() {
+                                                    let Some(callable) = phalcom_semantic::trait_dispatch::selected_callable(selected) else {
+                                                        continue;
+                                                    };
+                                                    let raw_slot = default_requirement_slots.get(requirement).copied().ok_or_else(|| {
+                                                        ProgramCompileError::GenericEvidenceLayout(format!(
+                                                            "missing default requirement slot for {requirement:?}"
+                                                        ))
+                                                    })?;
+                                                    let slot = evidence_prefix.checked_add(raw_slot).ok_or_else(|| {
+                                                            ProgramCompileError::GenericEvidenceLayout(format!(
+                                                                "trait-default requirement slot overflows executable capacity: prefix={evidence_prefix}, raw={raw_slot}"
+                                                            ))
+                                                        })?;
+                                                    let selector = analyzed
+                                                        .semantic
+                                                        .trait_surfaces
+                                                        .get(&slot_key.conformance.trait_ref.declaration)
+                                                        .and_then(|surface| surface.get(requirement))
+                                                        .map(|member| member.requirement.selector.clone())
+                                                        .unwrap_or_else(|| callable.selector.clone());
+                                                    nested_slots.push((
+                                                        slot,
+                                                        crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                            callable,
+                                                            selector,
+                                                            nested_slots: Box::new([]),
+                                                        },
+                                                    ));
+                                                }
+                                                nested_slots.into_boxed_slice()
+                                            } else {
+                                                Box::new([])
+                                            };
                                             slots[idx] = Some(crate::typing::RuntimeConformanceSlotRecipe::Selection {
                                                 callable,
                                                 selector,
@@ -2715,7 +2767,8 @@ impl ProgramCompiler {
                                 }
                             }
                             phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence } => {
-                                if let Some(selection) = evidence.requirements().get(&slot_key.requirement) {
+                                let selection = evidence.requirements().get(&slot_key.requirement);
+                                if let Some(selection) = selection {
                                     let selector = analyzed
                                         .semantic
                                         .trait_surfaces
@@ -2749,20 +2802,11 @@ impl ProgramCompiler {
 
                                         let mut nested_slots = Vec::new();
                                         if is_trait_default {
-                                            let callee_generic_evidence_len = analyzed
-                                                .semantic
-                                                .trait_headers
-                                                .get(&slot_key.conformance.trait_ref.declaration)
-                                                .and_then(|h| h.generic_signature.as_ref())
-                                                .and_then(|sig| {
-                                                    phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
-                                                        &sig.constraints,
-                                                        sig.owner.clone(),
-                                                        &analyzed.semantic.trait_surfaces,
-                                                    )
-                                                    .ok()
-                                                })
-                                                .map_or(0, |env| env.len() as u16);
+                                            let evidence_prefix = u16::try_from(layout_len).map_err(|_| {
+                                                ProgramCompileError::GenericEvidenceLayout(format!(
+                                                    "trait-default evidence layout exceeds executable slot capacity: {layout_len}"
+                                                ))
+                                            })?;
                                             // A selected default executes its own compiled
                                             // requirement slots. Populate that callee layout
                                             // from the already-proven sibling selections of
@@ -2771,6 +2815,11 @@ impl ProgramCompiler {
                                             for (requirement, default_selection) in evidence.requirements().iter() {
                                                 let default_slot = default_requirement_slots.get(requirement).copied().ok_or_else(|| {
                                                     ProgramCompileError::GenericEvidenceLayout(format!("missing default requirement slot for {requirement:?}"))
+                                                })?;
+                                                let slot = evidence_prefix.checked_add(default_slot).ok_or_else(|| {
+                                                    ProgramCompileError::GenericEvidenceLayout(format!(
+                                                        "trait-default requirement slot overflows executable capacity: prefix={evidence_prefix}, raw={default_slot}"
+                                                    ))
                                                 })?;
                                                 let default_callable = match default_selection {
                                                     phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { callable }
@@ -2792,7 +2841,7 @@ impl ProgramCompiler {
                                                         .map(|member| member.requirement.selector.clone())
                                                         .unwrap_or_else(|| default_callable.selector.clone());
                                                     nested_slots.push((
-                                                        callee_generic_evidence_len + default_slot,
+                                                        slot,
                                                         crate::typing::RuntimeConformanceSlotRecipe::Selection {
                                                             callable: default_callable,
                                                             selector: default_selector,
@@ -2979,6 +3028,54 @@ impl ProgramCompiler {
                             }
                             phalcom_semantic::checker::analysis::GenericCallConformanceSource::CompilerDerived { .. } => {}
                         }
+                    }
+                    if slots[idx].is_none() {
+                        let source_detail = match binding.map(|binding| &binding.source) {
+                            None => {
+                                let binding_source_kind = |binding: &phalcom_semantic::checker::analysis::GenericCallConformanceBinding| match &binding.source {
+                                    phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { .. } => "Exact",
+                                    phalcom_semantic::checker::analysis::GenericCallConformanceSource::Forwarded { .. } => "Forwarded",
+                                    phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { .. } => "Derived",
+                                    phalcom_semantic::checker::analysis::GenericCallConformanceSource::CompilerDerived { .. } => "CompilerDerived",
+                                };
+                                let specialization_bindings = specialization
+                                    .into_iter()
+                                    .flat_map(|specialization| specialization.conformances.iter())
+                                    .map(|binding| format!("{:?} ({})", binding.callee_conformance, binding_source_kind(binding)))
+                                    .collect::<Vec<_>>();
+                                let capability_bindings = capability
+                                    .into_iter()
+                                    .flat_map(|capability| capability.applicability.conformance_provenance.iter().flatten())
+                                    .map(|binding| format!("{:?} ({})", binding.callee_conformance, binding_source_kind(binding)))
+                                    .collect::<Vec<_>>();
+                                format!(
+                                    "no matching semantic conformance binding; specialization_present={}; specialization_bindings={specialization_bindings:?}; capability_bindings={capability_bindings:?}",
+                                    specialization.is_some()
+                                )
+                            }
+                            Some(phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { evidence }) => format!(
+                                "source=Exact; requirement_selection={}",
+                                selection_kind(evidence.requirements.get(&slot_key.requirement))
+                            ),
+                            Some(phalcom_semantic::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance }) => {
+                                let caller_slot_key =
+                                    phalcom_semantic::generic_evidence::GenericEvidenceSlotKey::new(caller_conformance.clone(), slot_key.requirement.clone());
+                                format!(
+                                    "source=Forwarded; caller_slot_key={caller_slot_key:?}; caller_slot={:?}",
+                                    caller_evidence.slot_for(&caller_slot_key)
+                                )
+                            }
+                            Some(phalcom_semantic::checker::analysis::GenericCallConformanceSource::Derived { evidence }) => format!(
+                                "source=Derived; requirement_selection={}",
+                                selection_kind(evidence.requirements().get(&slot_key.requirement))
+                            ),
+                            Some(phalcom_semantic::checker::analysis::GenericCallConformanceSource::CompilerDerived { evidence }) => {
+                                format!("source=CompilerDerived; kind={:?}", evidence.kind)
+                            }
+                        };
+                        return Err(ProgramCompileError::GenericEvidenceLayout(format!(
+                            "missing runtime conformance recipe for semantic slot {idx} (key={slot_key:?}; {source_detail}) at call to {callee:?}"
+                        )));
                     }
                 }
                 let resolved_slots = slots

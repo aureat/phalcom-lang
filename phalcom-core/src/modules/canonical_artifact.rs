@@ -14,12 +14,12 @@ use phalcom_compiler_artifact::header::{
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::limits::ValidationLimits;
 use phalcom_compiler_artifact::metadata::{METADATA_SECTION_SCHEMA_V1, MetadataPreflightLimits, MetadataSectionError, MetadataSectionV1};
-use phalcom_compiler_artifact::module_world::{MODULE_WORLD_SCHEMA_V2, ModuleWorldV2};
+use phalcom_compiler_artifact::module_world::{MODULE_WORLD_SCHEMA_V3, ModuleWorldV3};
 use phalcom_compiler_artifact::query::{QUERY_IMAGE_SCHEMA_V4, QueryImageV4};
 use phalcom_compiler_artifact::section::{SectionFlags, SectionKind};
 use phalcom_compiler_artifact::semantic::world::{SEMANTIC_WORLD_SCHEMA_V4, SemanticWorldV4};
 use phalcom_native_meta::NATIVE_SURFACE_SCHEMA_VERSION;
-use phalcom_semantic::artifact::export::{export_query_image_v4, export_semantic_world_v4};
+use phalcom_semantic::artifact::export::{export_query_image_v4, export_semantic_world_v4_with_runtime_requirements};
 use phalcom_semantic::artifact::import::validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget;
 use phalcom_semantic::artifact::query::reconstruct_query_image_v4_with_allocation_budget;
 use phalcom_semantic::canonical_image::{CanonicalImageError, CanonicalSemanticWorldId, CanonicalUniverseFormalImage, CanonicalWorldProvenance};
@@ -289,7 +289,7 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
     let capabilities = TeloscCapabilities::compiler_only_v1();
 
     // 1. MODULE_WORLD
-    let module_world = phalcom_modules::compiler_artifact::project_module_world(view.formal.modules(), limits)
+    let module_world = phalcom_modules::compiler_artifact::project_executable_module_world(view.formal.modules(), view.linked, limits)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
     let module_world_bytes = module_world
         .encode()
@@ -304,8 +304,15 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
     statics
         .close_graph(view.formal.snapshot().static_values.as_ref(), &types, limits)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
-    let semantic_world = export_semantic_world_v4(view.formal.snapshot(), &types, &statics, &module_world, limits)
-        .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
+    let semantic_world = export_semantic_world_v4_with_runtime_requirements(
+        view.formal.snapshot(),
+        &types,
+        &statics,
+        &module_world,
+        view.linked.runtime_requirements(),
+        limits,
+    )
+    .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
     let semantic_world_bytes = semantic_world
         .encode()
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
@@ -367,7 +374,7 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
     let mut builder = TeloscContainerBuilder::new(header);
     builder.add_section(
         SectionKind::ModuleWorld,
-        MODULE_WORLD_SCHEMA_V2,
+        MODULE_WORLD_SCHEMA_V3,
         SectionFlags::REQUIRED,
         module_world_bytes.clone(),
     );
@@ -437,7 +444,7 @@ pub fn build_full_universe_telosc(
     header.section_count = 5;
     let mut builder = TeloscContainerBuilder::new(header);
     for (kind, schema) in [
-        (SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V2),
+        (SectionKind::ModuleWorld, MODULE_WORLD_SCHEMA_V3),
         (SectionKind::SemanticWorld, SEMANTIC_WORLD_SCHEMA_V4),
         (SectionKind::QueryImage, QUERY_IMAGE_SCHEMA_V4),
         (SectionKind::Metadata, METADATA_SECTION_SCHEMA_V1),
@@ -599,27 +606,28 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     validate_section_provenance(container.header(), module_world_sec, semantic_world_sec, query_image_sec, metadata_sec)?;
     record_loader_allocation_diagnostic_stage(0, allocations);
 
-    let module_world_v2 = ModuleWorldV2::decode_with_allocation_budget(module_world_sec, limits, allocations)?;
+    let module_world_v3 = ModuleWorldV3::decode_with_allocation_budget(module_world_sec, limits, allocations)?;
     record_loader_allocation_diagnostic_stage(1, allocations);
-    let modules = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_world_v2, limits, allocations)?;
+    let modules = phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_world_v3.world, limits, allocations)?;
     record_loader_allocation_diagnostic_stage(2, allocations);
     #[cfg(test)]
     maybe_fail_after(LoaderTestBoundary::AfterModuleImport)?;
 
     let semantic_world_v4 = SemanticWorldV4::decode_with_allocation_budget(semantic_world_sec, limits, allocations)?;
+    module_world_v3.validate_execution_authority(&semantic_world_v4.module_execution_authority)?;
     record_loader_allocation_diagnostic_stage(3, allocations);
     let query_v4 = QueryImageV4::decode_with_allocation_budget(query_image_sec, limits, allocations)?;
     record_loader_allocation_diagnostic_stage(4, allocations);
     query_v4.validate(limits)?;
     record_loader_allocation_diagnostic_stage(5, allocations);
-    query_v4.validate_product_references(&module_world_v2, &semantic_world_v4)?;
+    query_v4.validate_product_references(&module_world_v3.world, &semantic_world_v4)?;
     record_loader_allocation_diagnostic_stage(6, allocations);
     query_v4.validate_portable_structural_fingerprints_v4(&semantic_world_v4)?;
     record_loader_allocation_diagnostic_stage(7, allocations);
 
     let parts = validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget(
         semantic_world_v4,
-        &module_world_v2,
+        &module_world_v3.world,
         modules.linked().universe.as_ref(),
         limits,
         allocations,
@@ -968,14 +976,14 @@ mod temporary_loaded_publication_allocation_census {
         let metadata_bytes = parsed.require_section(SectionKind::Metadata).expect("METADATA section");
 
         let (module_dto_result, observed, signed) = measure_stage("B MODULE_WORLD DTO decode", &mut allocations, |budget| {
-            ModuleWorldV2::decode_with_allocation_budget(module_bytes, &limits, budget)
+            ModuleWorldV3::decode_with_allocation_budget(module_bytes, &limits, budget)
         });
         independent_total += observed;
         signed_stage_total += signed;
         let module_dto = module_dto_result.expect("MODULE_WORLD DTO decode must succeed");
 
         let (module_result, observed, signed) = measure_stage("C module native materialization", &mut allocations, |budget| {
-            phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_dto, &limits, budget)
+            phalcom_modules::compiler_artifact::load_module_world_with_allocation_budget(&module_dto.world, &limits, budget)
         });
         independent_total += observed;
         signed_stage_total += signed;

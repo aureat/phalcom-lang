@@ -10,8 +10,6 @@ trait Profunctor<P: Type -> Type -> Type> {
 
 data Arrow<A, B> private(_ transform: (A) -> B)
 impl<A, B> Arrow<A, B> {
-  type Input = A
-  type Output = B
   @class new(_ transform: (A) -> B) -> Arrow<A, B> { Arrow<A, B>(transform) }
   @class identity() -> Arrow<A, B> where A == B { Arrow<A, A>.new(|value| { value }) }
   call(_ value: A) -> B { self.transform.call(value) }

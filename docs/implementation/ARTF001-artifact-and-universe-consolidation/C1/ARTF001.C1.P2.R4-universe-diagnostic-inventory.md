@@ -39,6 +39,49 @@ unexpected or unclassified current-head rows. This closure census does not
 retroactively rewrite the historical 211-row discovery list; it records the
 post-correction state used by the focused acceptance receipt.
 
+## Artifact-branch continuation census — 2026-10-22
+
+The active `feat/artifact-universe-consolidation` worktree began this
+continuation at `4f0861428d82b962a094f588450e9d0577960e68`. It removes 21
+unused inherent associated-type declarations, removes the unsupported `Chain`
+and `Journal` enum `Monoid` conformances while retaining direct `empty`
+constructors, and preserves the canonical `UnorderedShape` intrinsic owner
+through both source-data shell passes.
+
+The focused canonical-image regression passed 1/1 after 99.45 seconds. It
+verified the `UnorderedShape` owner and its `Lookup`, `View`, and `Tail`
+intrinsics, then found exactly two remaining semantic errors:
+
+| Diagnostic | Location | Disposition |
+|---|---|---|
+| `AnnotationUnsaturatedConstructor` | `reflection.module:21`, `native metadata -> Map` | Deferred; the normative corpus does not define the public `Module.metadata` contract. |
+| `AnnotationUnsaturatedConstructor` | `reflection.module:28`, `native __metadata__ -> Map` | Same deferred contract as `metadata`. |
+
+The other 46 rows from the earlier 48-row census are cleared. Current counts
+are `AssociatedTypeInherentUnsupported = 0`,
+`EnumCaseStaticBehaviorUnsupported = 0`, `AnnotationUnresolved = 0`, and
+`AnnotationUnsaturatedConstructor = 2`. No other canonical Universe error
+diagnostics appear in this census.
+
+The supplied analysis says the normative specification promises a public
+`ModuleMetadata` type, but the live `docs/specs/` corpus defines no such type
+or `Module.metadata` return contract. The runtime currently returns only the
+documentation string as `Option<String>`, which also does not establish the
+public contract. Adviser ruling: keep both source diagnostics visible as a
+deferred contract blocker; do not invent a descriptor, change the signature to
+`Option<String>`, or alter runtime behavior to manufacture a clean census.
+Resolve the API in the owning specification before implementation.
+
+The regression
+`canonical_universe_has_only_deferred_module_metadata_errors_and_retains_unordered_shape_intrinsics`
+asserts exactly these two error codes and source ranges. It passed on the
+current dirty worktree, then passed again after the `Iterator.takeWhile`
+signature correction in 99.13 seconds with the same two errors. Separate
+focused regressions passed for rejecting
+inherent associated-type bindings (1/1) and enum class-side trait requirements
+(1/1). This is source-semantic evidence only; P2.R4 remains open for
+artifact/session/runtime acceptance.
+
 ## Counts by diagnostic code
 
 | Diagnostic code | Count |

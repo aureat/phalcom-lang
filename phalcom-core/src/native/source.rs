@@ -947,6 +947,33 @@ mod tests {
     }
 
     #[test]
+    fn reachable_source_closure_keeps_interface_import_cycles_as_candidates() {
+        let index = NativeSourceIndex::build().expect("bundled universe source must parse");
+        let module = ModuleId::universe(ModulePath::from_components(
+            ["reflection", "module"]
+                .into_iter()
+                .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).expect("module component"))
+                .collect::<Vec<_>>(),
+        ));
+        let package_object = ModuleId::universe(ModulePath::from_components(
+            ["reflection", "package_object"]
+                .into_iter()
+                .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).expect("module component"))
+                .collect::<Vec<_>>(),
+        ));
+
+        assert!(index
+            .initialization_order_from_roots(std::slice::from_ref(&module))
+            .expect_err("raw source import order cannot order a cycle")
+            .contains("initialization cycle"));
+        let reachable = index
+            .reachable_units_from_roots(std::slice::from_ref(&module))
+            .expect("source closure traversal terminates across import cycles");
+        assert!(reachable.contains(&module));
+        assert!(reachable.contains(&package_object));
+    }
+
+    #[test]
     fn native_class_with_familiar_name_at_wrong_path_is_not_associated() {
         let program = parse_program("native class String { }\n");
         let error = NativeSourceIndex::from_program(&program).expect_err("wrong-path native class must fail closed");

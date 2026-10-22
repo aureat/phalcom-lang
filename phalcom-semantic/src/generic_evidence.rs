@@ -9,7 +9,7 @@ use crate::traits::{TraitRef, TraitRequirementId, TraitSurfaceTable};
 use crate::types::evidence::UnknownReason;
 use crate::types::id::TypeId;
 use crate::types::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationOutcome};
-use crate::types::parameter::{GenericConstraint, TypeParameterOwner, TypeTerm};
+use crate::types::parameter::{GenericConstraint, SelfRole, SelfTypeTerm, TypeParameterOwner, TypeTerm};
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::TypeStore;
 use crate::types::substitution::TypeSubstitution;
@@ -201,6 +201,7 @@ impl GenericEvidenceSlotKey {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GenericEvidenceLayoutError {
     SlotCapacityExceeded(usize),
+    MissingTraitParameterForm(crate::types::id::TypeParameterId),
 }
 
 /// Deterministic executable evidence slot layout.
@@ -384,6 +385,51 @@ impl GenericEvidenceEnvironment {
             refinements,
             layout,
         })
+    }
+
+    /// Builds the lexical receiver-conformance assumption available inside an
+    /// instance default body owned by `surface`.
+    ///
+    /// The trait reference carries the owner's exact generic parameters so
+    /// body checking and compiler layout construction use the same stable key.
+    /// This environment assumption is intentionally not added to a published
+    /// trait or callable generic signature.
+    pub fn try_for_trait_default(
+        surface: &crate::traits::TraitSurface,
+        store: &TypeStore,
+        trait_surfaces: &TraitSurfaceTable,
+    ) -> Result<Self, GenericEvidenceLayoutError> {
+        let arguments = surface
+            .generic_signature
+            .as_ref()
+            .map(|signature| {
+                signature
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        store
+                            .find_parameter_form(*parameter)
+                            .ok_or(GenericEvidenceLayoutError::MissingTraitParameterForm(*parameter))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default()
+            .into_boxed_slice();
+        let trait_ref = TraitRef::new(surface.declaration.clone(), arguments);
+        let constraint = GenericConstraint::Conforms {
+            subject: TypeTerm::SelfType(SelfTypeTerm {
+                owner: surface.declaration.clone(),
+                side: crate::identity::DispatchSide::Instance,
+                role: SelfRole::InstanceType,
+            }),
+            trait_ref,
+        };
+        Self::try_from_constraints(
+            &[constraint],
+            TypeParameterOwner::Declaration(surface.declaration.clone()),
+            trait_surfaces,
+        )
     }
 
     /// Composes two evidence environments, returning an error if combined layout capacity is exceeded.
@@ -1346,6 +1392,19 @@ fn evaluate_conformance_goal(key: &GenericConformanceKey, context: &mut Conforma
 
 /// Recursive conformance proof query evaluated under an explicit session context.
 pub fn prove_conformance_with_context(key: &GenericConformanceKey, context: &mut ConformanceProofContext) -> GenericConformanceProof {
+    // A canonical Self type is the store representation of the same
+    // owner-relative identity used by lexical assumptions. Normalize only
+    // this representation before memoization and assumption lookup so both
+    // routes share one key.
+    let normalized_key = match &key.subject {
+        TypeTerm::Canonical(ty) => context.store.as_deref().and_then(|store| match store.get(*ty) {
+            crate::types::store::TypeData::SelfType(term) => Some(GenericConformanceKey::new(TypeTerm::SelfType(term.clone()), key.trait_ref.clone())),
+            _ => None,
+        }),
+        TypeTerm::SelfType(_) | TypeTerm::Infer(_) => None,
+    };
+    let key = normalized_key.as_ref().unwrap_or(key);
+
     #[cfg(feature = "perf-observability")]
     {
         let perf = telos_observability::PerfContext::current_thread();
@@ -1620,5 +1679,81 @@ mod refinement_tests {
             environment.refine_type(&mut store, t, &mut context),
             GenericTypeRefinement::Unavailable(ProjectionNormalizationResult::BudgetExceeded(_))
         ));
+    }
+
+    #[test]
+    fn assumed_trait_default_self_matches_its_canonical_store_form_only() {
+        fn prove(
+            subject: &TypeTerm,
+            trait_ref: &TraitRef,
+            environment: &GenericEvidenceEnvironment,
+            surfaces: &TraitSurfaceTable,
+            store: &mut TypeStore,
+        ) -> GenericConformanceProof {
+            query_generic_conformance_proof(
+                subject,
+                trait_ref,
+                Some(environment),
+                None,
+                None,
+                Some(surfaces),
+                None,
+                None,
+                None,
+                Some(store),
+            )
+        }
+
+        let mut store = TypeStore::new();
+        let owner = declaration("Iterator");
+        let trait_ref = TraitRef::new(owner.clone(), Vec::<TypeId>::new());
+        let surface = crate::traits::TraitSurface::new(owner.clone(), None);
+        let mut surfaces = TraitSurfaceTable::new();
+        surfaces.insert(Arc::new(surface.clone()));
+        let environment = GenericEvidenceEnvironment::try_for_trait_default(&surface, &store, &surfaces).unwrap();
+        let self_term = SelfTypeTerm {
+            owner: owner.clone(),
+            side: crate::identity::DispatchSide::Instance,
+            role: SelfRole::InstanceType,
+        };
+        let symbolic_subject = TypeTerm::SelfType(self_term.clone());
+        let canonical_self = store.self_type(self_term.clone());
+        let canonical_subject = TypeTerm::Canonical(canonical_self);
+
+        let symbolic = prove(&symbolic_subject, &trait_ref, &environment, &surfaces, &mut store);
+        let canonical = prove(&canonical_subject, &trait_ref, &environment, &surfaces, &mut store);
+        assert_eq!(symbolic, canonical);
+        assert!(matches!(
+            canonical,
+            GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(ref evidence))
+                if evidence.key == GenericConformanceKey::new(symbolic_subject.clone(), trait_ref.clone())
+        ));
+
+        for changed_subject in [
+            TypeTerm::SelfType(SelfTypeTerm {
+                owner: declaration("OtherIterator"),
+                ..self_term.clone()
+            }),
+            TypeTerm::SelfType(SelfTypeTerm {
+                side: crate::identity::DispatchSide::Class,
+                ..self_term.clone()
+            }),
+            TypeTerm::SelfType(SelfTypeTerm {
+                role: SelfRole::ReceiverValue,
+                ..self_term.clone()
+            }),
+        ] {
+            assert_eq!(
+                prove(&changed_subject, &trait_ref, &environment, &surfaces, &mut store),
+                GenericConformanceProof::Missing,
+                "receiver assumption must not cross owner, side, or role: {changed_subject:?}"
+            );
+        }
+        let other_trait = TraitRef::new(declaration("OtherTrait"), Vec::<TypeId>::new());
+        assert_eq!(
+            prove(&symbolic_subject, &other_trait, &environment, &surfaces, &mut store),
+            GenericConformanceProof::Missing,
+            "receiver assumption must preserve exact trait identity"
+        );
     }
 }

@@ -31,8 +31,8 @@ pub use artifact::{PackageArtifactProvider, ResolvedPackageArtifact, ResolvedPac
 pub use builtin::{UNIVERSE_NODES, UniverseNodeSpec, UniverseSourceProvider};
 pub use canonical_products::{CanonicalExternalModuleWorld, CanonicalModuleProducts};
 pub use compiler_artifact::{
-    load_module_world, load_module_world_with_allocation_budget, load_module_world_with_project_catalog_and_allocation_budget, project_module_world,
-    stage_artifact_project_authorities,
+    load_module_world, load_module_world_with_allocation_budget, load_module_world_with_project_catalog_and_allocation_budget,
+    project_executable_module_world, project_module_world, stage_artifact_project_authorities,
 };
 pub use declaration::{DeclarationBlueprint, DeclarationId, DeclarationKind, DeclarationRealizationError, DeclarationShell, DeclarationShellTable, ShellState};
 pub use diagnostic::{ModuleDiagnostic, ModuleDiagnosticCode, ModuleDiagnosticKind};
@@ -59,7 +59,8 @@ pub use interface::{
 pub use linker::{
     AvailabilityAuthority, AvailabilityContract, AvailabilityProof, ExecutableLinkedProgram, GlobalBindingId, ImportBindingId, ImportPhaseSummary, LinkError,
     LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, ModuleImportPhaseProduct, ModuleLinker, PhaseEvidenceCoverage,
-    RuntimeDependencyRequirement, SemanticLinkedModule, SemanticLinkedProgram, SymbolId, SymbolicImportBinding, SymbolicImportTable, SymbolicImportTarget,
+    RuntimeAvailabilityWitness, RuntimeDependencyRequirement, SemanticLinkedModule, SemanticLinkedProgram, SymbolId, SymbolicImportBinding,
+    SymbolicImportTable, SymbolicImportTarget,
     dependency_phase, module_path, resolution_key,
 };
 pub use manifest::{DependencyProvider, DependencySpec, NullDependencyProvider, ProjectManifest, ValidatedProjectManifest};

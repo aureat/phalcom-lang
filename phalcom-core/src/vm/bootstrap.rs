@@ -600,6 +600,12 @@ impl VM {
                 .get_mut(id)
                 .ok_or_else(|| crate::error::RuntimeError::Internal(format!("bootstrapped Universe module {id} is not registered")))?
                 .state = crate::modules::registry::ModuleState::Initialized;
+            // A source module may use the short spelling of a canonical ADT
+            // constructor as soon as its owner enum has been registered. Keep
+            // the existing exact-VariantId alias authority current before the
+            // next module is compiled.
+            self.bind_canonical_variant_aliases()
+                .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to refresh canonical variant aliases: {error}")))?;
         }
         if let Some(capture) = capture.as_deref_mut() {
             for id in canonical.program().modules.keys().filter(|id| !canonical.bootstrap_order().contains(id)) {
@@ -1045,13 +1051,23 @@ impl VM {
             ),
         ];
 
-        self.prelude_variant_bindings.clear();
         for (alias, owner_key, selector) in aliases {
             let selector =
                 selector.map_err(|error| crate::error::VmBootstrapError::Invariant(format!("invalid canonical variant alias `{alias}`: {error}")))?;
             let variant = phalcom_semantic::identity::VariantId::new(phalcom_semantic::core_surface::universe_declaration(owner_key), selector);
             if self.adt_registry.variant_by_semantic(&variant).is_some() {
-                self.prelude_variant_bindings.insert(self.interner.intern(alias), variant);
+                let alias_symbol = self.interner.intern(alias);
+                match self.prelude_variant_bindings.get(&alias_symbol) {
+                    Some(existing) if existing != &variant => {
+                        return Err(crate::error::VmBootstrapError::Invariant(format!(
+                            "canonical variant alias `{alias}` changed identity from {existing:?} to {variant:?}"
+                        )));
+                    }
+                    Some(_) => {}
+                    None => {
+                        self.prelude_variant_bindings.insert(alias_symbol, variant);
+                    }
+                }
             }
         }
         Ok(())

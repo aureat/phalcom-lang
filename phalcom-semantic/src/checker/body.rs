@@ -190,6 +190,23 @@ fn analyze_callable_body_with_attribute_context(
         parent: resolver,
         type_parameters,
     };
+    let empty_surfaces = crate::traits::TraitSurfaceTable::new();
+    let trait_surfaces = conformance_semantics
+        .or(request_conformance_semantics)
+        .map(|v| v.trait_surfaces)
+        .unwrap_or(&empty_surfaces);
+    let implicit_trait_receiver_env = if callable.side == crate::identity::DispatchSide::Instance
+        && let Some(surface) = trait_surface
+        && matches!(&callable.owner, crate::identity::CallableOwnerId::Declaration(owner) if owner == &surface.declaration)
+    {
+        Some(crate::generic_evidence::GenericEvidenceEnvironment::try_for_trait_default(
+            surface,
+            store,
+            trait_surfaces,
+        ))
+    } else {
+        None
+    };
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, &scoped_resolver, declarations, dispatch, module, control);
     if let Some(package) = caller_package {
         ctx.set_caller_package(package);
@@ -228,12 +245,6 @@ fn analyze_callable_body_with_attribute_context(
         ctx.receiver_value_override = Some(domain.head_type);
     }
 
-    let empty_surfaces = crate::traits::TraitSurfaceTable::new();
-    let trait_surfaces = conformance_semantics
-        .or(request_conformance_semantics)
-        .map(|v| v.trait_surfaces)
-        .unwrap_or(&empty_surfaces);
-
     let mut generic_evidence = crate::generic_evidence::GenericEvidenceEnvironment::empty();
     let owner_sig = owner_generic_signature.or_else(|| {
         if callable.side == crate::identity::DispatchSide::Instance {
@@ -247,6 +258,10 @@ fn analyze_callable_body_with_attribute_context(
             let owner_env =
                 crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(&owner_sig.constraints, owner_sig.owner.clone(), trait_surfaces)?;
             generic_evidence = generic_evidence.try_compose(&owner_env, trait_surfaces)?;
+        }
+        if let Some(receiver_env) = implicit_trait_receiver_env {
+            let receiver_env = receiver_env?;
+            generic_evidence = generic_evidence.try_compose(&receiver_env, trait_surfaces)?;
         }
         if let Some((_, signature)) = declared_signature {
             if let Some(generics) = &signature.generics {

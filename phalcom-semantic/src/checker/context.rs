@@ -3258,7 +3258,12 @@ impl<'a> CheckingContext<'a> {
                         }
                     })
             });
-            signature.generics = remains_in_signature.then_some(generics);
+            // A callable may have no callable-owned binders while its `where`
+            // clause constrains a declaration-owned parameter (for example, a
+            // generic class constructor requiring `I |= Iterator`). Keep that
+            // contract through receiver specialization so call checking can
+            // discharge and publish its proof even when `parameters` is empty.
+            signature.generics = (remains_in_signature || !generics.constraints.is_empty()).then_some(generics);
         }
         Ok((signature, specialization))
     }
