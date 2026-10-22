@@ -217,7 +217,10 @@ pub struct IntrinsicRuntimeFacadeLoweringSpec {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DataConstructionLoweringSpec {
     pub constructor: DataConstructorId,
-    pub exact_type: Arc<phalcom_type_meta::SemanticMetadataBundle>,
+    /// Source-compilation metadata used to establish the exact runtime root.
+    /// Validated executable artifacts relocate the canonical `type_recipe`
+    /// directly and therefore carry no duplicate metadata bundle here.
+    pub exact_type: Option<Arc<phalcom_type_meta::SemanticMetadataBundle>>,
     /// Closed constructions can cache their descriptor. Generic source
     /// methods carry a template which is instantiated against the active
     /// runtime type environment at each construction site.
