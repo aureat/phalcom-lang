@@ -1742,3 +1742,98 @@ fn runtime_in(value: &RuntimeReasonV1) -> RuntimeDependencyReason {
         RuntimeReasonV1::RuntimeDeclarationReference => RuntimeDependencyReason::RuntimeDeclarationReference,
     }
 }
+
+#[cfg(test)]
+mod package_entry_authority_tests {
+    use super::*;
+    use phalcom_type_meta::fingerprint::Fingerprint128;
+
+    struct NoPackageReceipts;
+
+    impl crate::TrustedPackageResolver for NoPackageReceipts {
+        fn package_authority_receipt(&self, _: &StableProjectRef) -> Option<crate::ValidatedPackageAuthorityReceipt> {
+            None
+        }
+    }
+
+    fn wire_with_entry_owner(project: StableProjectRef) -> ModuleWorldV2 {
+        ModuleWorldV2 {
+            entry: ArtifactModuleId(0),
+            initialization_order: vec![],
+            modules: vec![ModuleV2 {
+                identity: StableModuleRef { project, path: Box::new([]) },
+                path: vec![],
+                kind: ModuleKindV1::Package,
+                declarations: vec![],
+                exports: vec![],
+                imports: vec![],
+                exposed_children: vec![],
+                metadata: vec![],
+                linked_exports: vec![],
+                globals: vec![],
+                import_bindings: vec![],
+                linked_reads: vec![],
+                runtime_dependencies: vec![],
+                references: vec![],
+                runtime_edges: vec![],
+                topology_parent: None,
+                topology_children: vec![],
+                interface_fingerprint: 0,
+                linked_interface_fingerprint: 0,
+                dependency_fingerprint: 0,
+            }],
+            semantic_rows: vec![],
+            external_projects: vec![],
+            topology_fingerprint: 0,
+        }
+    }
+
+    #[test]
+    fn artifact_header_cannot_claim_foreign_root_through_project_list() {
+        let actual = StableProjectRef::Package {
+            package: "actual".into(),
+            version: "1.0.0".into(),
+            artifact_fingerprint: Fingerprint128([1; 16]),
+        };
+        let mut wire = wire_with_entry_owner(actual);
+        // A forged header's package identity is present in external_projects
+        // but does not own the actual entry/root module.
+        wire.external_projects.push(StableProjectRef::Package {
+            package: "forged".into(),
+            version: "1.0.0".into(),
+            artifact_fingerprint: Fingerprint128([2; 16]),
+        });
+        let header = TeloscPackageIdentity::Package { package: "forged".into(), version: "1.0.0".into() };
+        let error = stage_artifact_project_authorities(
+            &ProjectUniverse::new(), &wire, &header, ArtifactDigest([3; 32]), &NoPackageReceipts,
+        ).unwrap_err();
+        assert!(error.to_string().contains("does not own its root entry"), "{error}");
+    }
+
+    #[test]
+    fn artifact_header_cannot_claim_foreign_builtin_root() {
+        let wire = wire_with_entry_owner(StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        });
+        let header = TeloscPackageIdentity::Package { package: "ordinary".into(), version: "1.0.0".into() };
+        let error = stage_artifact_project_authorities(
+            &ProjectUniverse::new(), &wire, &header, ArtifactDigest([4; 32]), &NoPackageReceipts,
+        ).unwrap_err();
+        assert!(error.to_string().contains("does not own its root entry"), "{error}");
+    }
+
+    #[test]
+    fn artifact_header_requires_an_entry_module() {
+        let mut wire = wire_with_entry_owner(StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        });
+        wire.entry = ArtifactModuleId(1);
+        let header = TeloscPackageIdentity::Builtin { namespace: "universe".into(), version: "0.1.0".into() };
+        let error = stage_artifact_project_authorities(
+            &ProjectUniverse::new(), &wire, &header, ArtifactDigest([5; 32]), &NoPackageReceipts,
+        ).unwrap_err();
+        assert!(error.to_string().contains("entry module is absent"), "{error}");
+    }
+}
