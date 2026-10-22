@@ -1148,6 +1148,10 @@ fn source_backed_and_artifact_backed_compiler_program_parity() {
     report_user_universe_runtime_requirements("source slot_map", &src_slotmap);
     report_user_universe_runtime_requirements("artifact slot_map", &art_slotmap);
     let slotmap_parity = compare_compiled_programs(&src_slotmap, &art_slotmap);
+    assert!(
+        slotmap_parity.is_empty(),
+        "SlotMap parity: {slotmap_parity:#?}"
+    );
 
     // 2. Real package: packages/slotmap/tests/runtime (8 modules)
     let slotmap_tests_pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

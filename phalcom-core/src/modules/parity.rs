@@ -597,8 +597,38 @@ pub fn compare_compiled_programs(src: &CompiledProgram, art: &CompiledProgram) -
         if src_mod.lowering.trait_requirement_invocations != art_mod.lowering.trait_requirement_invocations {
             report.differences.push(format!("Lowering trait requirement invocations mismatch for {:?}", id));
         }
+        // if src_mod.lowering.associated != art_mod.lowering.associated {
+        //     report.differences.push(format!("Lowering associated mismatch for {:?}", id));
+        // }
         if src_mod.lowering.associated != art_mod.lowering.associated {
-            report.differences.push(format!("Lowering associated mismatch for {:?}", id));
+            let source_only = src_mod
+                .lowering
+                .associated
+                .iter()
+                .filter(|(site, _)| !art_mod.lowering.associated.contains_key(*site))
+                .collect::<Vec<_>>();
+
+            let artifact_only = art_mod
+                .lowering
+                .associated
+                .iter()
+                .filter(|(site, _)| !src_mod.lowering.associated.contains_key(*site))
+                .collect::<Vec<_>>();
+
+            let changed = src_mod
+                .lowering
+                .associated
+                .iter()
+                .filter_map(|(site, source)| {
+                    let artifact = art_mod.lowering.associated.get(site)?;
+                    (source != artifact).then_some((site, source, artifact))
+                })
+                .collect::<Vec<_>>();
+
+            report.differences.push(format!(
+                "Lowering associated mismatch for {:?}: source_only={:#?}, artifact_only={:#?}, changed={:#?}",
+                id, source_only, artifact_only, changed,
+            ));
         }
         if src_mod.lowering.bindings != art_mod.lowering.bindings {
             report.differences.push(format!("Lowering bindings mismatch for {:?}", id));

@@ -192,7 +192,9 @@ impl<'a> TeloscContainerView<'a> {
             }
             let supported_schema = match kind {
                 SectionKind::ModuleWorld => {
-                    schema_version == crate::module_world::MODULE_WORLD_SCHEMA_V2 || schema_version == crate::module_world::MODULE_WORLD_SCHEMA_V3
+                    schema_version == crate::module_world::MODULE_WORLD_SCHEMA_V2
+                        || schema_version == crate::module_world::MODULE_WORLD_SCHEMA_V3
+                        || schema_version == crate::module_world::MODULE_WORLD_SCHEMA_V4
                 }
                 SectionKind::SemanticWorld => schema_version == crate::semantic::world::SEMANTIC_WORLD_SCHEMA_V4,
                 SectionKind::QueryImage => schema_version == crate::query::QUERY_IMAGE_SCHEMA_V4,

@@ -715,8 +715,9 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     let metadata_bundle = allocations.arc(metadata_bundle).map_err(|error| allocation_error(error, transaction_limit))?;
     let executable = if let Some(bytes) = executable_sec {
         let executable_limits = ExecutableImageLimitsV1::default();
-        let image = allocations
-            .arc(ExecutableImageV1::decode(bytes, limits, &executable_limits, allocations)?)
+        let decoded = ExecutableImageV1::decode(bytes, limits, &executable_limits, allocations)?;
+                let image = allocations
+                    .arc(decoded)
             .map_err(|error| allocation_error(error, transaction_limit))?;
         validate_executable_bootstrap_schedule(&module_world_v4, &image)?;
         Some(
