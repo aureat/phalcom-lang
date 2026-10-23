@@ -135,3 +135,44 @@ fn artifact_project_receipts_survive_root_updates_and_source_edits() {
     assert_eq!(session.generation(), generation, "rejected artifact overlay must not publish");
     assert!(external.interface(&ModuleId::resolved(dep_id, ModulePath::root())).unwrap().exports.contains_key("Model"));
 }
+
+
+#[test]
+fn trusted_package_receipts_are_bijective_over_native_project_ids() {
+    let temp = TempDir::new().unwrap();
+    let dep = project(temp.path(), "artifact_owner", "");
+    let mut projects = ProjectUniverse::new();
+    let id = projects.load_root(dep.join("project.toml")).unwrap();
+    let first = StableProjectRef::Package {
+        package: "artifact_owner".into(),
+        version: "1.0.0".into(),
+        artifact_fingerprint: Fingerprint128([10; 16]),
+    };
+    let conflicting_fingerprint = StableProjectRef::Package {
+        package: "artifact_owner".into(),
+        version: "1.0.0".into(),
+        artifact_fingerprint: Fingerprint128([11; 16]),
+    };
+    let conflicting_package = StableProjectRef::Package {
+        package: "another_package".into(),
+        version: "1.0.0".into(),
+        artifact_fingerprint: Fingerprint128([12; 16]),
+    };
+    let digest = ArtifactDigest([13; 32]);
+
+    let receipt = ValidatedPackageAuthorityReceipt::from_trusted_resolver(first.clone(), digest, id).unwrap();
+    projects.register_package_authority_receipt(&first, receipt.clone(), Some(digest)).unwrap();
+    assert_eq!(projects.stable_package_owner(id), Some(&first));
+    // Idempotent replay is permitted, but replacing the owner is not.
+    projects.register_package_authority_receipt(&first, receipt, Some(digest)).unwrap();
+    assert_eq!(projects.stable_package_owner(id), Some(&first));
+    for conflicting in [conflicting_fingerprint, conflicting_package] {
+        let forged = ValidatedPackageAuthorityReceipt::from_trusted_resolver(conflicting.clone(), digest, id).unwrap();
+        assert!(matches!(
+            projects.register_package_authority_receipt(&conflicting, forged, Some(digest)),
+            Err(phalcom_modules::PackageAuthorityRegistrationError::ConflictingBinding)
+        ));
+        assert!(projects.resolve_stable_project(&conflicting).is_none());
+        assert_eq!(projects.stable_package_owner(id), Some(&first));
+    }
+}
