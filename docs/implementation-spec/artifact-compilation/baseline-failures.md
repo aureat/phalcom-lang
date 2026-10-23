@@ -43,3 +43,18 @@ exercises a non-Universe scope yet (see 04).
 fails with `Allocation(UnaccountedBoundary)` in the decode of enum requirement
 records. It does not touch the module world and is unrelated to this program.
 All other tests of the crate pass.
+
+## `phalcom-modules` test target
+
+`tests/package_authority.rs::artifact_package_authority_is_staged_from_resolver_and_validated_bytes`
+fails with `artifact entry module is absent`: its fixture world has no modules,
+and `stage_artifact_project_authorities` checks the entry first. The check
+predates this program (it is in the anchor code). Slice G adds a real package
+fixture and should repair this test.
+
+## Missing test target
+
+`phalcom-semantic/Cargo.toml` declares `[[test]] semantic-artifact` with path
+`tests/semantic_artifact_test.rs`, which `592b0aaa4` removed. `cargo test -p
+phalcom-semantic` (without `--lib`) therefore fails at target resolution.
+Use `--lib` or `--test <name>`.
