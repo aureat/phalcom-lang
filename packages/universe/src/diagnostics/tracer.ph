@@ -1,5 +1,3 @@
-from universe.errors.error import Error
-
 /// Observability and execution trace sink.
 class Tracer {
 
