@@ -5,7 +5,7 @@ mod store;
 
 pub use artifact::{
     BudgetedDeclarationResolver, BudgetedVariantResolver, StaticExportContext, StaticRelocation, import_static_value_graph,
-    import_static_value_graph_with_allocation_budget,
+    import_static_value_graph_into_store_with_allocation_budget, import_static_value_graph_with_allocation_budget,
 };
 pub use store::{
     StaticDataValue, StaticDataValueId, StaticFloat, StaticInt, StaticPackBacking, StaticPackBackingId, StaticPackData, StaticPackId, StaticRecordField,
