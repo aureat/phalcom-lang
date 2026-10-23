@@ -3582,6 +3582,56 @@ mod artifact_owner_catalog_regressions {
     }
 
     #[test]
+    fn failed_shared_receiver_import_does_not_publish_partial_type_nodes() {
+        let limits = ValidationLimits::default();
+        let owner = DeclarationId::new(ModuleId::universe_root(), "RollbackOwner".into());
+        let mut source = TypeStore::new();
+        source.nominal_type(owner.clone());
+        source.intern_type_parameter(TypeParameterData::new(
+            TypeParameterOwner::Declaration(owner),
+            0,
+            "T",
+            KindId::TYPE,
+        ));
+        let mut graph = source.project_artifact(&limits).unwrap();
+        assert!(!graph.current_parameters.is_empty());
+        graph.current_parameters.push(graph.current_parameters[0]);
+
+        let mut receiver = TypeStore::new();
+        let before = (
+            receiver.type_count(),
+            receiver.parameter_count(),
+            receiver.row_count(),
+            receiver.family_count(),
+            receiver.variant_count(),
+            receiver.static_domain_count(),
+            receiver.static_constructor_count(),
+        );
+        let mut allocations = AllocationBudget::new(8 * 1024 * 1024);
+        assert!(TypeStore::import_type_graph_into_store_with_owner_catalog_and_allocation_budget(
+            &mut receiver,
+            &graph,
+            None,
+            &limits,
+            &mut allocations,
+        )
+        .is_err());
+        assert_eq!(
+            before,
+            (
+                receiver.type_count(),
+                receiver.parameter_count(),
+                receiver.row_count(),
+                receiver.family_count(),
+                receiver.variant_count(),
+                receiver.static_domain_count(),
+                receiver.static_constructor_count(),
+            ),
+            "failed shared relocation must not replace the receiving store",
+        );
+    }
+
+    #[test]
     fn universe_owner_requires_explicit_module_authority_when_catalog_is_supplied() {
         let (mut wire, projects) = empty_owner_inputs();
         let stable = StableModuleRef {
