@@ -195,6 +195,7 @@ impl<'a> TeloscContainerView<'a> {
                     schema_version == crate::module_world::MODULE_WORLD_SCHEMA_V2
                         || schema_version == crate::module_world::MODULE_WORLD_SCHEMA_V3
                         || schema_version == crate::module_world::MODULE_WORLD_SCHEMA_V4
+                        || schema_version == crate::module_world_v5::MODULE_WORLD_SCHEMA_V5
                 }
                 SectionKind::SemanticWorld => schema_version == crate::semantic::world::SEMANTIC_WORLD_SCHEMA_V4,
                 SectionKind::QueryImage => schema_version == crate::query::QUERY_IMAGE_SCHEMA_V4,
