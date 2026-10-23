@@ -16,12 +16,16 @@ use phalcom_compiler_artifact::semantic::world::SemanticWorldV4;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_modules::{CanonicalExternalModuleWorld, ProjectUniverse, TrustedPackageResolver};
 use phalcom_type_meta::allocation::AllocationBudget;
-use phalcom_semantic::artifact::import::validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget;
+use phalcom_semantic::artifact::import::{
+    validate_and_import_semantic_world_into_type_store_with_module_world_and_project_universe_and_allocation_budget,
+    validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget,
+};
 use phalcom_semantic::artifact::query::reconstruct_query_image_v4_with_project_catalog_and_allocation_budget;
 use phalcom_semantic::canonical_image::{
     CanonicalDependencyFingerprints, CanonicalSemanticQueryImage, CanonicalSemanticWorldId,
 };
 use phalcom_semantic::snapshot::SemanticSnapshot;
+use phalcom_semantic::types::store::TypeStore;
 use std::sync::Arc;
 
 /// A single privately imported package generation. This is deliberately not
@@ -194,6 +198,79 @@ impl StagedTeloscCompilerWire {
             fingerprints,
         };
         allocations.commit_child(generation_budget).map_err(ArtifactError::Allocation)?;
+        Ok(staged)
+    }
+
+    /// Completes one package import against a shared receiving type
+    /// generation. The caller-visible receiver is replaced only after module,
+    /// semantic, query, reader, and allocation-transaction validation succeed.
+    ///
+    /// Static values remain package-local in this A4 increment, so the returned
+    /// generation is still private and not a composed workspace authority.
+    pub(crate) fn stage_package_semantic_generation_into_type_store(
+        self,
+        projects: &ProjectUniverse,
+        resolver: &dyn TrustedPackageResolver,
+        receiving_types: &mut TypeStore,
+        limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
+    ) -> Result<StagedPackageSemanticGeneration, TeloscStagingError> {
+        use phalcom_compiler_artifact::header::TeloscCapabilities;
+        if self.header.capabilities.contains(TeloscCapabilities::PORTABLE_EXECUTABLE) {
+            return Err(TeloscStagingError::Capability(
+                "ordinary package executable authority is not supported by compiler-only staging",
+            ));
+        }
+
+        let mut generation_budget = allocations.child(allocations.remaining());
+        let mut type_candidate = receiving_types.clone();
+        let module_products = self.stage_package_modules(projects, resolver, limits, &mut generation_budget)?;
+        let modules = generation_budget.arc(module_products).map_err(ArtifactError::Allocation)?;
+        let parts =
+            validate_and_import_semantic_world_into_type_store_with_module_world_and_project_universe_and_allocation_budget(
+                self.semantic_world,
+                &self.module_world.previous.world,
+                modules.linked().universe.as_ref(),
+                &mut type_candidate,
+                limits,
+                &mut generation_budget,
+            )?;
+        let header = self.header;
+        let compatibility = phalcom_compiler_artifact::CanonicalCompatibilityIdentity {
+            package: header.package_identity,
+            source_digest: header.source_digest,
+            interface_digest: header.interface_digest,
+            semantic_digest: header.semantic_digest,
+            semantic_model_version: header.semantic_model_version,
+            stable_identity_schema: header.stable_identity_schema,
+            module_semantic_abi: header.module_semantic_abi,
+            semantic_artifact_abi: header.semantic_artifact_abi,
+            query_fingerprint_abi: header.query_fingerprint_abi,
+            native_surface_schema_version: header.native_surface_schema_version,
+            native_catalog_fingerprint: header.native_catalog_fingerprint,
+            type_metadata_schema_version: header.type_metadata_schema_version,
+        };
+        let world = CanonicalSemanticWorldId::for_artifact_world(1, header.source_digest, compatibility);
+        let (queries, fingerprints) = reconstruct_query_image_v4_with_project_catalog_and_allocation_budget(
+            self.query_image,
+            &parts.snapshot,
+            &world,
+            &modules,
+            &self.module_world.previous.world,
+            limits,
+            &mut generation_budget,
+        )?;
+        queries.reader(&world, &parts.snapshot.store, &parts.snapshot.static_values)?;
+
+        let staged = StagedPackageSemanticGeneration {
+            world,
+            modules,
+            snapshot: parts.snapshot,
+            queries,
+            fingerprints,
+        };
+        allocations.commit_child(generation_budget).map_err(ArtifactError::Allocation)?;
+        *receiving_types = type_candidate;
         Ok(staged)
     }
 
