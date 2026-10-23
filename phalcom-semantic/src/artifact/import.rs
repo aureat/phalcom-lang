@@ -5737,7 +5737,8 @@ fn import_module_execution_authority(
         .map_err(allocation_error)?;
     for requirement in &authority.runtime_requirements {
         if !module_world.modules.iter().any(|row| row.identity == requirement.importer)
-            || !module_world.modules.iter().any(|row| row.identity == requirement.dependency)
+            || (!module_world.modules.iter().any(|row| row.identity == requirement.dependency)
+                && module_world.external_modules.binary_search(&requirement.dependency).is_err())
         {
             return Err(referential("runtime dependency requirement references a module absent from the module world"));
         }

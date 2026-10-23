@@ -188,7 +188,7 @@ impl ExecutableImageV1 {
                     | super::module::PortableLinkedReadV1::Binding { module, .. }
                     | super::module::PortableLinkedReadV1::StaticConstant { module, .. } => module,
                 };
-                if self.module(target).is_none() {
+                if !self.has_module_or_upstream(target) {
                     return Err(invalid(format!("module row {index} has a linked read to an absent module")));
                 }
             }
@@ -313,7 +313,7 @@ impl ExecutableImageV1 {
                 super_anchor,
             } => {
                 self.prototype(prototype.0, "closure template prototype")?;
-                if self.module(module).is_none() {
+                if !self.has_module_or_upstream(module) {
                     return Err(invalid(format!("constant {index} closure template references an absent module")));
                 }
                 if lexical_class.as_ref().is_some_and(|class| !self.has_class(class)) || super_anchor.as_ref().is_some_and(|class| !self.has_class(class)) {
@@ -323,7 +323,7 @@ impl ExecutableImageV1 {
             ConstantRecipeV1::Class { reference } if !self.has_class(reference) => {
                 return Err(invalid(format!("constant {index} references an absent class")));
             }
-            ConstantRecipeV1::Module { module } if self.module(module).is_none() => {
+            ConstantRecipeV1::Module { module } if !self.has_module_or_upstream(module) => {
                 return Err(invalid(format!("constant {index} references an absent module")));
             }
             ConstantRecipeV1::Method { recipe } => {
@@ -418,6 +418,19 @@ impl ExecutableImageV1 {
             .binary_search_by(|candidate| (&candidate.class.declaration, candidate.class.side).cmp(&(&identity.declaration, identity.side)))
             .is_ok()
             || self.primordial_roles.iter().any(|role| &role.class == identity)
+            || self.is_upstream(&identity.declaration.module)
+    }
+
+    /// Reports whether `module` belongs to a project with no module row in
+    /// this image: a package image references its prefix (Universe and earlier
+    /// packages) without carrying it, and the installer resolves those
+    /// references against the already-installed VM.
+    fn is_upstream(&self, module: &phalcom_type_meta::identity::StableModuleRef) -> bool {
+        !self.modules.iter().any(|row| row.identity.project == module.project)
+    }
+
+    fn has_module_or_upstream(&self, identity: &phalcom_type_meta::identity::StableModuleRef) -> bool {
+        self.module(identity).is_some() || self.is_upstream(identity)
     }
 }
 

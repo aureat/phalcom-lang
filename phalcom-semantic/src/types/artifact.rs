@@ -3301,7 +3301,9 @@ impl TypeStore {
         }) {
             return Err(invalid("duplicate current parameter slot after relocation"));
         }
-        for parameter in import_parameters.iter().filter_map(|value| *value) {
+        // Prefix parameters keep the binder selection their own artifact proved.
+        let prefix_parameters = candidate.frozen_type_parameter_count();
+        for parameter in import_parameters.iter().filter_map(|value| *value).filter(|id| id.index() >= prefix_parameters) {
             let parameter = candidate.type_parameter(parameter);
             if current_parameters
                 .binary_search_by(|parameter_id| {

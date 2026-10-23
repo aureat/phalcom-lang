@@ -1958,7 +1958,7 @@ fn load_module_world_inner_with_prefix(
                 let parent_components = id.path.components();
                 if !children.get(id).is_some_and(|set| {
                     set.iter().any(|child| {
-                        child.project == crate::ProjectIdentity::Universe
+                        child.project == id.project
                             && child.path.components().len() == parent_components.len() + 1
                             && child.path.components()[..parent_components.len()] == *parent_components
                             && child.path.components().last() == Some(component)

@@ -870,6 +870,11 @@ impl TypeStore {
     }
 
     #[inline]
+    /// Number of type parameters owned by the frozen prefix, if any.
+    pub(crate) fn frozen_type_parameter_count(&self) -> usize {
+        self.frozen.as_ref().map_or(0, |frozen| frozen.type_parameters.len())
+    }
+
     pub fn type_parameter(&self, id: TypeParameterId) -> &TypeParameterData {
         let index = id.index();
         if let Some(frozen) = &self.frozen {

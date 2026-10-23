@@ -124,6 +124,11 @@ pub(crate) trait CaptureSource {
     fn logical_uri(&self, id: &phalcom_modules::ModuleId) -> String;
     /// Semantic snapshot that owns the captured executable semantics.
     fn snapshot(&self) -> std::sync::Arc<phalcom_semantic::snapshot::SemanticSnapshot>;
+    /// Whether classes owned by projects outside [`Self::owned_modules`] are
+    /// upstream references the image must name but never carry.
+    fn bounded_by_owned_projects(&self) -> bool {
+        false
+    }
 }
 
 impl CaptureSource for crate::modules::CanonicalUniverseProgram {
@@ -177,6 +182,9 @@ impl CaptureSource for PackageCaptureSource<'_> {
     fn snapshot(&self) -> std::sync::Arc<phalcom_semantic::snapshot::SemanticSnapshot> {
         self.snapshot.clone()
     }
+    fn bounded_by_owned_projects(&self) -> bool {
+        true
+    }
 }
 
 pub(crate) struct ExecutableImageCapture {
@@ -192,6 +200,8 @@ pub(crate) struct ExecutableImageCapture {
     rooted_objects: HashSet<ObjRef>,
     native_anchor_by_key: HashMap<phalcom_native_meta::PrimitiveKey, NativeAnchorId>,
     root_depth: Option<usize>,
+    /// Projects whose classes this image carries; `None` carries every class.
+    local_projects: Option<BTreeSet<phalcom_type_meta::identity::StableProjectRef>>,
     failure: Option<ExecutableCaptureError>,
 }
 
@@ -251,6 +261,9 @@ impl ExecutableImageCapture {
             rooted_objects: HashSet::new(),
             native_anchor_by_key: HashMap::new(),
             root_depth: None,
+            local_projects: canonical
+                .bounded_by_owned_projects()
+                .then(|| canonical.owned_modules().iter().map(|id| to_stable_module(id).project).collect()),
             failure: None,
         }
     }
@@ -1050,7 +1063,12 @@ impl ExecutableImageCapture {
         class: ObjRef,
         reference: &phalcom_compiler_artifact::executable::constant::StableClassRefV1,
     ) -> Result<(), ExecutableCaptureError> {
-        if self.image.classes.iter().any(|row| row.class == *reference) {
+        if self.image.classes.iter().any(|row| row.class == *reference)
+            || self
+                .local_projects
+                .as_ref()
+                .is_some_and(|local| !local.contains(&reference.declaration.module.project))
+        {
             return Ok(());
         }
         let (superclass_id, metaclass_id, fields, field_count, mut immutable_slots, native_repr, is_abstract) = {

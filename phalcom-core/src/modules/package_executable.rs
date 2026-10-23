@@ -218,6 +218,7 @@ pub fn load_package_telosc_from_bytes(
     let mut projects: ProjectUniverse = universe.formal_image.modules().projects().as_ref().clone();
     let namespace = ModuleComponent::from_identifier(&package).map_err(|_| TeloscArtifactError::Capability("package name is not a valid namespace"))?;
     let project = projects.register_artifact_package(&package, namespace, &format!("telos-artifact://{package}@{version}/{}", digest.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect::<String>()));
+    let _identity = ArtifactIdentityScope::enter(&projects, Some((project, identity.clone())));
     let resolver = ArtifactDigestResolver {
         identity: identity.clone(),
         digest,
@@ -290,7 +291,7 @@ impl LoadedPackageArtifact {
             initialization_order: linked.initialization_order.clone(),
             semantic_metadata: None,
         };
-        let _identity = ArtifactIdentityScope::enter(self.base.projects().as_ref(), None);
+        let _identity = ArtifactIdentityScope::enter(self.base.projects().as_ref(), Some((self.project, self.identity.clone())));
         vm.materialize_program(&program)?;
         crate::artifact::materialize::install_package_executable(vm, executable)
     }
@@ -301,7 +302,7 @@ impl LoadedPackageArtifact {
             .as_ref()
             .map(|executable| executable.image().modules.iter().map(|module| module.identity.clone()).collect())
             .unwrap_or_else(|| {
-                let _identity = ArtifactIdentityScope::enter(self.base.projects().as_ref(), None);
+                let _identity = ArtifactIdentityScope::enter(self.base.projects().as_ref(), Some((self.project, self.identity.clone())));
                 self.base
                     .generations()
                     .iter()
