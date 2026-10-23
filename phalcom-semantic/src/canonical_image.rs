@@ -1137,6 +1137,181 @@ pub struct CanonicalImageCapabilities {
     pub portable_artifact_available: bool,
 }
 
+/// One immutable artifact generation admitted to a generic external query
+/// catalogue. Products remain owned by their original query image; this wrapper
+/// only carries exact provenance and dependency evidence.
+#[derive(Debug)]
+pub struct ExternalSemanticQueryGeneration {
+    world: CanonicalSemanticWorldId,
+    snapshot: Arc<SemanticSnapshot>,
+    queries: Arc<CanonicalSemanticQueryImage>,
+    dependency_fingerprints: Arc<CanonicalDependencyFingerprints>,
+}
+
+impl ExternalSemanticQueryGeneration {
+    pub fn from_validated_parts_with_allocation_budget(
+        world: &CanonicalSemanticWorldId,
+        snapshot: Arc<SemanticSnapshot>,
+        queries: Arc<CanonicalSemanticQueryImage>,
+        dependency_fingerprints: Arc<CanonicalDependencyFingerprints>,
+        final_store: &TypeStore,
+        final_static_values: &StaticValueStore,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, CanonicalImageError> {
+        queries.reader(world, final_store, final_static_values)?;
+        Ok(Self {
+            world: world.clone_with_allocation_budget(allocations)?,
+            snapshot,
+            queries,
+            dependency_fingerprints,
+        })
+    }
+
+    pub fn world(&self) -> &CanonicalSemanticWorldId { &self.world }
+    pub fn snapshot(&self) -> &Arc<SemanticSnapshot> { &self.snapshot }
+    pub fn queries(&self) -> &Arc<CanonicalSemanticQueryImage> { &self.queries }
+    pub fn dependency_fingerprints(&self) -> &Arc<CanonicalDependencyFingerprints> { &self.dependency_fingerprints }
+}
+
+/// Generic immutable external query authority for one or more artifact worlds.
+///
+/// The catalogue never copies products into mutable database state. Exact query
+/// keys route to one owning artifact generation, while dependency-only evidence
+/// is merged only when every contributing artifact reports the same fingerprint.
+#[derive(Debug)]
+pub struct ExternalSemanticQueryCatalogue {
+    generations: Vec<ExternalSemanticQueryGeneration>,
+    query_owners: Arc<BudgetedSortedMap<QueryKey, usize>>,
+    dependency_fingerprints: Arc<BudgetedSortedMap<QueryKey, ProductFingerprint>>,
+}
+
+impl ExternalSemanticQueryCatalogue {
+    pub fn from_generations_with_allocation_budget(
+        generations: Vec<ExternalSemanticQueryGeneration>,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, CanonicalImageError> {
+        let query_count = generations.iter().try_fold(0usize, |total, generation| {
+            total.checked_add(generation.queries.len()).ok_or(CanonicalImageError::Allocation(
+                phalcom_type_meta::allocation::AllocationError::Overflow,
+            ))
+        })?;
+        let dependency_count = generations.iter().try_fold(query_count, |total, generation| {
+            total.checked_add(generation.dependency_fingerprints.iter().count()).ok_or(CanonicalImageError::Allocation(
+                phalcom_type_meta::allocation::AllocationError::Overflow,
+            ))
+        })?;
+
+        let mut owners = allocations.vector::<(QueryKey, usize)>(query_count)?;
+        let mut evidence = allocations.vector::<(QueryKey, ProductFingerprint)>(dependency_count)?;
+        for (index, generation) in generations.iter().enumerate() {
+            for (key, entry) in generation.queries.entries() {
+                owners.push((key.clone_with_allocation_budget(allocations)?, index));
+                evidence.push((key.clone_with_allocation_budget(allocations)?, entry.product_fingerprint));
+            }
+            for (key, fingerprint) in generation.dependency_fingerprints.iter() {
+                evidence.push((key.clone_with_allocation_budget(allocations)?, *fingerprint));
+            }
+        }
+
+        owners.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        if owners.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(CanonicalImageError::IncompletePublication(
+                "query key is owned by multiple immutable artifact generations".into(),
+            ));
+        }
+        let query_owners = BudgetedSortedMap::from_sorted_entries(owners).map_err(|error| match error {
+            SortedMapEntriesError::DuplicateKey => CanonicalImageError::IncompletePublication(
+                "duplicate immutable query owner".into(),
+            ),
+            SortedMapEntriesError::OutOfOrder => unreachable!("query owners were sorted before frozen construction"),
+        })?;
+
+        evidence.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let mut merged = allocations.vector::<(QueryKey, ProductFingerprint)>(evidence.len())?;
+        for (key, fingerprint) in evidence {
+            if let Some((previous_key, previous_fingerprint)) = merged.last() {
+                if previous_key == &key {
+                    if previous_fingerprint != &fingerprint {
+                        return Err(CanonicalImageError::IncompletePublication(
+                            "immutable artifact generations disagree on dependency fingerprint".into(),
+                        ));
+                    }
+                    continue;
+                }
+            }
+            merged.push((key, fingerprint));
+        }
+        let dependency_fingerprints = BudgetedSortedMap::from_sorted_entries(merged).map_err(|error| match error {
+            SortedMapEntriesError::DuplicateKey => CanonicalImageError::IncompletePublication(
+                "duplicate immutable dependency fingerprint".into(),
+            ),
+            SortedMapEntriesError::OutOfOrder => unreachable!("dependency evidence was sorted before frozen construction"),
+        })?;
+
+        Ok(Self {
+            generations,
+            query_owners: allocations.arc(query_owners)?,
+            dependency_fingerprints: allocations.arc(dependency_fingerprints)?,
+        })
+    }
+
+    pub fn generations(&self) -> &[ExternalSemanticQueryGeneration] { &self.generations }
+
+    pub(crate) fn entry(&self, key: &QueryKey) -> Option<&CanonicalQueryEntry> {
+        let owner = *self.query_owners.get(key)?;
+        self.generations.get(owner)?.queries.entry(key)
+    }
+
+    pub fn dependency_fingerprint(&self, key: &QueryKey) -> Option<ProductFingerprint> {
+        self.dependency_fingerprints.get(key).copied()
+    }
+
+    pub fn world_for_query(&self, key: &QueryKey) -> Option<&CanonicalSemanticWorldId> {
+        let owner = *self.query_owners.get(key)?;
+        self.generations.get(owner).map(|generation| &generation.world)
+    }
+}
+
+/// Backward-compatible immutable query authority used by SemanticDb.
+#[derive(Clone, Debug)]
+pub enum ImmutableSemanticQueryAuthority {
+    Universe(Arc<CanonicalUniverseFormalImage>),
+    External(Arc<ExternalSemanticQueryCatalogue>),
+}
+
+impl ImmutableSemanticQueryAuthority {
+    pub fn from_universe(image: Arc<CanonicalUniverseFormalImage>) -> Self { Self::Universe(image) }
+    pub fn from_external(catalogue: Arc<ExternalSemanticQueryCatalogue>) -> Self { Self::External(catalogue) }
+
+    pub fn as_universe(&self) -> Option<&Arc<CanonicalUniverseFormalImage>> {
+        match self {
+            Self::Universe(image) => Some(image),
+            Self::External(_) => None,
+        }
+    }
+
+    pub(crate) fn entry(&self, key: &QueryKey) -> Option<&CanonicalQueryEntry> {
+        match self {
+            Self::Universe(image) => image.query_image().entry(key),
+            Self::External(catalogue) => catalogue.entry(key),
+        }
+    }
+
+    pub fn dependency_fingerprint(&self, key: &QueryKey) -> Option<ProductFingerprint> {
+        match self {
+            Self::Universe(image) => image.dependency_fingerprint(key),
+            Self::External(catalogue) => catalogue.dependency_fingerprint(key),
+        }
+    }
+
+    pub fn world_for_query(&self, key: &QueryKey) -> Option<&CanonicalSemanticWorldId> {
+        match self {
+            Self::Universe(image) => image.query_image().entry(key).map(|_| image.world()),
+            Self::External(catalogue) => catalogue.world_for_query(key),
+        }
+    }
+}
+
 /// A successfully committed complete semantic publication and its immutable roots.
 #[derive(Debug)]
 pub struct CanonicalUniverseFormalImage {
