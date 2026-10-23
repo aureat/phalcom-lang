@@ -17,7 +17,7 @@ use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits
 use phalcom_modules::{CanonicalExternalModuleWorld, ProjectUniverse, TrustedPackageResolver};
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_semantic::artifact::import::validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget;
-use phalcom_semantic::artifact::query::reconstruct_query_image_v4_with_allocation_budget;
+use phalcom_semantic::artifact::query::reconstruct_query_image_v4_with_project_catalog_and_allocation_budget;
 use phalcom_semantic::canonical_image::{
     CanonicalDependencyFingerprints, CanonicalSemanticQueryImage, CanonicalSemanticWorldId,
 };
@@ -123,11 +123,12 @@ impl StagedTeloscCompilerWire {
             type_metadata_schema_version: header.type_metadata_schema_version,
         };
         let world = CanonicalSemanticWorldId::for_artifact_world(1, header.source_digest, compatibility);
-        let (queries, fingerprints) = reconstruct_query_image_v4_with_allocation_budget(
+        let (queries, fingerprints) = reconstruct_query_image_v4_with_project_catalog_and_allocation_budget(
             self.query_image,
             &parts.snapshot,
             &world,
             &modules,
+            &self.module_world.previous.world,
             limits,
             allocations,
         )?;
