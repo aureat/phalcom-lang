@@ -1,11 +1,12 @@
 //! Program-level compiler seam for closed linked module plans.
 
 use super::artifact::ModuleMaterializationPlan;
+use super::telosc_compiler_wire::ComposedArtifactSemanticBase;
 use crate::compiler::attributes::CompileMode;
 use crate::typing::{MetadataPoolId, RuntimeCallEnvironmentRecipe, RuntimeTypeRecipe, RuntimeTypeRef};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{
-    EntryOwnership, ExecutableLinkedProgram, FilesystemSourceProvider, ImportSurface, InterfaceBuilder, InterfaceError, LinkError, LinkedModule,
+    EntryOwnership, ExecutableLinkedProgram, ExternalModuleAuthority, FilesystemSourceProvider, ImportSurface, InterfaceBuilder, InterfaceError, LinkError, LinkedModule,
     LinkedReadSpec, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse,
     RuntimeDependencyReason, RuntimeDependencyRequirement, RuntimeRequirementProducer, RuntimeRequirementProduct, RuntimeRequirementProvenance,
     RuntimeRequirementTarget, RuntimeRequirementTiming, SourceError, SourceId, SourceLocation, SourceProvider, SymbolId, UniverseSourceProvider,
@@ -1150,6 +1151,10 @@ pub enum ProgramCompileError {
     /// Semantic update failed without publishing a current executable snapshot.
     #[error(transparent)]
     SemanticUpdate(#[from] phalcom_semantic::SemanticUpdateFailure),
+    /// Immutable artifact generations could not be composed into one semantic
+    /// authority for this source compilation.
+    #[error("external artifact semantic authority error: {0}")]
+    ExternalSemanticAuthority(#[from] phalcom_semantic::canonical_image::CanonicalImageError),
     /// Generic I/O error.
     #[error("io error: {0}")]
     Io(String),
@@ -1969,6 +1974,288 @@ impl ProgramAnalyzer {
             }
             EntrySelection::Inline(source_text) => Self::analyze_inline_with_image(source_text, image, availability),
         }
+    }
+
+    pub(crate) fn analyze_entry_selection_with_artifact_base_and_availability(
+        entry: EntrySelection,
+        base: Arc<ComposedArtifactSemanticBase>,
+        availability: Arc<phalcom_modules::AvailabilityContract>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        match entry {
+            EntrySelection::ModuleId(entry_id) => Err(ProgramCompileError::Io(format!(
+                "EntrySelection::ModuleId({entry_id}) cannot be analyzed without an existing linked project universe"
+            ))),
+            EntrySelection::Project(root_dir) => {
+                let manifest_path = if root_dir.ends_with("project.toml") {
+                    root_dir
+                } else {
+                    root_dir.join("project.toml")
+                };
+                if !manifest_path.exists() {
+                    return Err(ProgramCompileError::Io(format!("project manifest not found at {}", manifest_path.display())));
+                }
+                let mut universe = base.projects().as_ref().clone();
+                let root_id = universe.load_root(&manifest_path)?;
+                let project = universe
+                    .get_project(root_id)
+                    .ok_or_else(|| ProgramCompileError::Io(format!("project {root_id:?} not found")))?;
+                let entry_path = project
+                    .entry
+                    .clone()
+                    .ok_or_else(|| ProgramCompileError::ProjectNotExecutable(manifest_path.display().to_string()))?;
+                let entry_id = ModuleId {
+                    project: root_id.into(),
+                    path: entry_path,
+                };
+                Self::discover_and_analyze_with_artifact_base(
+                    Arc::new(universe),
+                    entry_id,
+                    base,
+                    availability,
+                )
+            }
+            EntrySelection::Package(pkg_dir) => {
+                let canonical_pkg = pkg_dir
+                    .canonicalize()
+                    .map_err(|error| ProgramCompileError::Io(format!("{}: {error}", pkg_dir.display())))?;
+                if !canonical_pkg.join("package.ph").is_file() {
+                    return Err(ProgramCompileError::Project(ProjectError::MissingRootPackage(canonical_pkg)));
+                }
+                if !canonical_pkg.join("main.ph").is_file() {
+                    return Err(ProgramCompileError::PackageNotExecutable(canonical_pkg.display().to_string()));
+                }
+                let mut universe = base.projects().as_ref().clone();
+                let root_id = universe.load_standalone_package(&canonical_pkg, Some("main"))?;
+                let entry_id = ModuleId {
+                    project: root_id.into(),
+                    path: ModulePath::from_components(vec![
+                        ModuleComponent::from_identifier("main").map_err(|error| ProgramCompileError::Io(error.to_string()))?,
+                    ]),
+                };
+                Self::discover_and_analyze_with_artifact_base(
+                    Arc::new(universe),
+                    entry_id,
+                    base,
+                    availability,
+                )
+            }
+            EntrySelection::Module(file_path) => {
+                let canonical = file_path
+                    .canonicalize()
+                    .map_err(|error| ProgramCompileError::Io(format!("{}: {error}", file_path.display())))?;
+                let mut universe = base.projects().as_ref().clone();
+                match classify_entry_ownership(&canonical, &mut universe)? {
+                    EntryOwnership::ProjectOwned { project: root_id } => {
+                        let project = universe.get_project(root_id).expect("classified project remains registered");
+                        let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
+                            ProgramCompileError::Io(format!("file {} not under source root {}", file_path.display(), project.source_root.display()))
+                        })?;
+                        let entry_id = ModuleId {
+                            project: root_id.into(),
+                            path: relative_path_to_module_path(rel_path)?,
+                        };
+                        Self::discover_and_analyze_with_artifact_base(
+                            Arc::new(universe),
+                            entry_id,
+                            base,
+                            availability,
+                        )
+                    }
+                    EntryOwnership::StandalonePackageOwned { package_root } => {
+                        let root_id = universe.load_standalone_package(&package_root, None)?;
+                        let project = universe.get_project(root_id).expect("loaded package remains registered");
+                        let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
+                            ProgramCompileError::Io(format!("file {} not under package root {}", file_path.display(), project.source_root.display()))
+                        })?;
+                        let entry_id = ModuleId {
+                            project: root_id.into(),
+                            path: relative_path_to_module_path(rel_path)?,
+                        };
+                        Self::discover_and_analyze_with_artifact_base(
+                            Arc::new(universe),
+                            entry_id,
+                            base,
+                            availability,
+                        )
+                    }
+                    EntryOwnership::StandaloneModule { file } => {
+                        Self::analyze_standalone_module_with_artifact_base(file, base, availability)
+                    }
+                    EntryOwnership::Inline { .. } => {
+                        Self::analyze_standalone_module_with_artifact_base(file_path, base, availability)
+                    }
+                }
+            }
+            EntrySelection::Inline(source_text) => {
+                Self::analyze_inline_with_artifact_base(source_text, base, availability)
+            }
+        }
+    }
+
+    fn discover_and_analyze_with_artifact_base(
+        universe: Arc<ProjectUniverse>,
+        entry: ModuleId,
+        base: Arc<ComposedArtifactSemanticBase>,
+        availability: Arc<phalcom_modules::AvailabilityContract>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        let mut pending = vec![entry.clone()];
+        if let Some(project_id) = entry.project.as_resolved() {
+            pending.push(ModuleId::resolved(project_id, ModulePath::root()));
+        }
+        Self::discover_artifact_closure(
+            universe,
+            entry,
+            base,
+            availability,
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+            pending,
+            None,
+        )
+    }
+
+    fn analyze_standalone_module_with_artifact_base(
+        file_path: PathBuf,
+        base: Arc<ComposedArtifactSemanticBase>,
+        availability: Arc<phalcom_modules::AvailabilityContract>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        let canonical = file_path
+            .canonicalize()
+            .map_err(|error| ProgramCompileError::Io(format!("{}: {error}", file_path.display())))?;
+        if !canonical.is_file() {
+            return Err(ProgramCompileError::Io(format!("{} is not a module file", canonical.display())));
+        }
+        let source_text: Arc<str> =
+            Arc::from(std::fs::read_to_string(&canonical).map_err(|error| ProgramCompileError::Io(format!("{}: {error}", canonical.display())))?);
+        let parsed = phalcom_ast::parse(&source_text, 0);
+        if let Some(error) = parsed.errors.first() {
+            return Err(ProgramCompileError::Parse(error.clone()));
+        }
+        validate_standalone_image_imports(&parsed.program)?;
+
+        let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
+        let entry = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+        let universe = Arc::new(base.projects().as_ref().clone());
+        let interface = InterfaceBuilder::build(entry.clone(), ModuleKind::Module, &parsed.program)?;
+        let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
+            entry.clone(),
+            ModuleKind::Module,
+            Some(SourceLocation {
+                source_id: SourceId(canonical.to_string_lossy().into()),
+                display_path: canonical,
+            }),
+            source_text,
+            Arc::new(parsed.program),
+        ));
+        Self::discover_artifact_closure(
+            universe,
+            entry.clone(),
+            base,
+            availability,
+            BTreeMap::from([(entry.clone(), interface)]),
+            BTreeMap::from([(entry.clone(), parsed_unit)]),
+            BTreeMap::new(),
+            [entry.clone()],
+            Some(entry),
+        )
+    }
+
+    fn analyze_inline_with_artifact_base(
+        source_text: Arc<str>,
+        base: Arc<ComposedArtifactSemanticBase>,
+        availability: Arc<phalcom_modules::AvailabilityContract>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        let parsed = phalcom_ast::parse(&source_text, 0);
+        if let Some(error) = parsed.errors.first() {
+            return Err(ProgramCompileError::Parse(error.clone()));
+        }
+        if let Some(dependency) = parsed.program.preamble.dependencies.first() {
+            let import_name = match dependency {
+                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(module)) => module.path.to_string(),
+                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(selective)) => selective.path.to_string(),
+                phalcom_ast::ast::DependencyDecl::ReExport(reexport) => reexport.path.to_string(),
+                phalcom_ast::ast::DependencyDecl::Expose(expose) => expose.child.name.clone(),
+            };
+            return Err(ProgramCompileError::ReplImportRequiresProjectContext {
+                import_name: import_name.into(),
+            });
+        }
+
+        let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
+        let entry = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+        let universe = Arc::new(base.projects().as_ref().clone());
+        let interface = InterfaceBuilder::build(entry.clone(), ModuleKind::Module, &parsed.program)?;
+        let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
+            entry.clone(),
+            ModuleKind::Module,
+            None,
+            source_text,
+            Arc::new(parsed.program),
+        ));
+        Self::discover_artifact_closure(
+            universe,
+            entry.clone(),
+            base,
+            availability,
+            BTreeMap::from([(entry.clone(), interface)]),
+            BTreeMap::from([(entry.clone(), parsed_unit)]),
+            BTreeMap::new(),
+            [entry],
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn discover_artifact_closure(
+        universe: Arc<ProjectUniverse>,
+        entry: ModuleId,
+        base: Arc<ComposedArtifactSemanticBase>,
+        availability: Arc<phalcom_modules::AvailabilityContract>,
+        interfaces: BTreeMap<ModuleId, phalcom_modules::UnlinkedModuleInterface>,
+        sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+        resolved: BTreeMap<(ModuleId, String), ModuleId>,
+        pending: impl IntoIterator<Item = ModuleId>,
+        standalone_entry: Option<ModuleId>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        let provider = FilesystemSourceProvider::new();
+        let external_modules: Arc<dyn ExternalModuleAuthority> = base.modules().clone();
+        let mut resolver = ModuleResolver::with_external_modules(&universe, &provider, Arc::clone(&external_modules));
+        let discovered = discover_reachable_dependencies(
+            &mut resolver,
+            &universe,
+            interfaces,
+            sources,
+            resolved,
+            pending,
+            standalone_entry.as_ref(),
+        )?;
+        let runtime_modules = discovered.interfaces.keys().cloned().collect::<BTreeSet<_>>();
+        let linker = ModuleLinker::new(universe.clone(), discovered.interfaces.clone())
+            .with_external_modules(external_modules);
+        let mut semantic_session = base.semantic_session(phalcom_semantic::identity::WorkspaceId(1))?;
+        let (linked, semantic) = link_analyze_finalize(
+            &linker,
+            entry.clone(),
+            &discovered.resolved,
+            &discovered.sources,
+            &runtime_modules,
+            SemanticAnalysisSettings {
+                generation: 0,
+                compile_mode: CompileMode::Debug,
+                session: Some(&mut semantic_session),
+            },
+            Some(&availability),
+        )?;
+        Ok(AnalyzedProgram {
+            compile_mode: CompileMode::Debug,
+            project_universe: universe,
+            linked,
+            semantic,
+            sources: discovered.sources,
+            runtime_modules,
+            entry,
+        })
     }
 
     fn discover_and_analyze_with_image(
@@ -3329,6 +3616,27 @@ impl ProgramCompiler {
     ) -> Result<CompiledProgram, ProgramCompileError> {
         phalcom_semantic::prelude::PreludeTypeMap::initialize_from_snapshot(image.snapshot());
         let analyzed = ProgramAnalyzer::analyze_entry_selection_with_image_and_availability(entry, image, availability)?;
+        Self::compile_analyzed_with_options(&analyzed, options)
+    }
+
+    /// Compiles local source against one unified immutable artifact base.
+    /// Universe and package artifacts are resolved through the same external
+    /// module/query authority; no canonical Universe source provider is used.
+    pub(crate) fn compile_entry_selection_with_options_artifact_base_and_availability(
+        entry: EntrySelection,
+        base: Arc<ComposedArtifactSemanticBase>,
+        availability: Arc<phalcom_modules::AvailabilityContract>,
+        options: &ProgramCompilationOptions,
+    ) -> Result<CompiledProgram, ProgramCompileError> {
+        let universe_snapshot = base
+            .universe_snapshot()
+            .ok_or_else(|| ProgramCompileError::Io("composed artifact base has no Universe semantic generation".into()))?;
+        phalcom_semantic::prelude::PreludeTypeMap::initialize_from_snapshot(universe_snapshot);
+        let analyzed = ProgramAnalyzer::analyze_entry_selection_with_artifact_base_and_availability(
+            entry,
+            base,
+            availability,
+        )?;
         Self::compile_analyzed_with_options(&analyzed, options)
     }
 }
