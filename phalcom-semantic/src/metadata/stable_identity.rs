@@ -71,6 +71,9 @@ pub mod artifact_scope {
     pub(super) struct AmbientIdentity {
         pub(super) projects: ProjectUniverse,
         pub(super) publishing: Option<(ResolvedProjectId, StableProjectRef)>,
+        /// Further native ids of the publishing project (e.g. from a separate
+        /// compilation of the same package) that export as its identity.
+        pub(super) aliases: Vec<ResolvedProjectId>,
     }
 
     thread_local! {
@@ -83,10 +86,21 @@ pub mod artifact_scope {
     impl ArtifactIdentityScope {
         /// Resolves through `projects`; `publishing` exports that project as the given identity.
         pub fn enter(projects: &ProjectUniverse, publishing: Option<(ResolvedProjectId, StableProjectRef)>) -> Self {
+            Self::enter_with_aliases(projects, publishing, Vec::new())
+        }
+
+        /// Like [`Self::enter`], also exporting every id in `aliases` as the
+        /// publishing identity.
+        pub fn enter_with_aliases(
+            projects: &ProjectUniverse,
+            publishing: Option<(ResolvedProjectId, StableProjectRef)>,
+            aliases: Vec<ResolvedProjectId>,
+        ) -> Self {
             ACTIVE.with(|active| {
                 active.borrow_mut().push(Rc::new(AmbientIdentity {
                     projects: projects.clone(),
                     publishing,
+                    aliases,
                 }))
             });
             Self(())
@@ -110,6 +124,11 @@ pub fn to_stable_project(proj: &ProjectIdentity) -> StableProjectRef {
     if let ProjectIdentity::Resolved(_) = proj
         && let Some(ambient) = artifact_scope::current()
     {
+        if let (ProjectIdentity::Resolved(id), Some((_, identity))) = (proj, &ambient.publishing)
+            && ambient.aliases.contains(id)
+        {
+            return identity.clone();
+        }
         let context = match &ambient.publishing {
             Some((project, identity)) => StableIdentityContext::publishing(&ambient.projects, *project, identity),
             None => StableIdentityContext::new(&ambient.projects),
@@ -135,6 +154,14 @@ pub fn to_stable_project_with_context(proj: &ProjectIdentity, context: &StableId
                 if *id == publishing_project {
                     return identity.clone();
                 }
+            }
+            // An active publishing scope also governs explicit contexts built
+            // deep inside lowering and materialization.
+            if let Some(ambient) = artifact_scope::current()
+                && let Some((publishing_project, identity)) = &ambient.publishing
+                && (id == publishing_project || ambient.aliases.contains(id))
+            {
+                return identity.clone();
             }
             // The unique resolver-authorized package identity, including
             // fingerprint, takes precedence over mutable source-manifest
@@ -354,7 +381,7 @@ pub fn from_stable_project(project: &StableProjectRef) -> Result<ProjectIdentity
             ambient
                 .projects
                 .resolve_stable_project(project)
-                .ok_or_else(|| "stable project has no exact binding in the active artifact identity scope".to_owned())
+                .ok_or_else(|| format!("stable project {project:?} has no exact binding in the active artifact identity scope"))
         }
     }
 }

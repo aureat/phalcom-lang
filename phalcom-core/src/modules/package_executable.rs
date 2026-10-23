@@ -83,7 +83,7 @@ pub fn build_full_package_telosc(
     let staged = {
         // Publishing scope: package-owned identities export as the exact
         // published package identity; Universe identities stay builtin.
-        let _identity = ArtifactIdentityScope::enter(compiled.project_universe.as_ref(), Some((project, compiler.identity.clone())));
+        let _identity = ArtifactIdentityScope::enter_with_aliases(compiled.project_universe.as_ref(), Some((project, compiler.identity.clone())), vec![image.project]);
         capture_package_executable(universe, &compiled, scope, Arc::clone(&image.snapshot))?
     };
 
