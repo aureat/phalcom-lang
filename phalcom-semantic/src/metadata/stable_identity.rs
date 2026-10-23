@@ -54,7 +54,68 @@ impl<'a> StableIdentityContext<'a> {
     }
 }
 
+/// Thread-scoped artifact identity authority for the context-free
+/// `to_stable_*` / `from_stable_*` conversions.
+///
+/// The executable capture, validation and materialization layers were written
+/// for the self-contained Universe identity and convert owners without a
+/// [`StableIdentityContext`]. A package artifact generation installs its exact
+/// composed project catalog (and, while publishing, its own export identity)
+/// for the duration of that work; outside a scope the conversions keep their
+/// Universe-only contract.
+pub mod artifact_scope {
+    use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    pub(super) struct AmbientIdentity {
+        pub(super) projects: ProjectUniverse,
+        pub(super) publishing: Option<(ResolvedProjectId, StableProjectRef)>,
+    }
+
+    thread_local! {
+        static ACTIVE: RefCell<Vec<Rc<AmbientIdentity>>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Guard installing artifact identity authority until it drops.
+    pub struct ArtifactIdentityScope(());
+
+    impl ArtifactIdentityScope {
+        /// Resolves through `projects`; `publishing` exports that project as the given identity.
+        pub fn enter(projects: &ProjectUniverse, publishing: Option<(ResolvedProjectId, StableProjectRef)>) -> Self {
+            ACTIVE.with(|active| {
+                active.borrow_mut().push(Rc::new(AmbientIdentity {
+                    projects: projects.clone(),
+                    publishing,
+                }))
+            });
+            Self(())
+        }
+    }
+
+    impl Drop for ArtifactIdentityScope {
+        fn drop(&mut self) {
+            ACTIVE.with(|active| {
+                active.borrow_mut().pop();
+            });
+        }
+    }
+
+    pub(super) fn current() -> Option<Rc<AmbientIdentity>> {
+        ACTIVE.with(|active| active.borrow().last().cloned())
+    }
+}
+
 pub fn to_stable_project(proj: &ProjectIdentity) -> StableProjectRef {
+    if let ProjectIdentity::Resolved(_) = proj
+        && let Some(ambient) = artifact_scope::current()
+    {
+        let context = match &ambient.publishing {
+            Some((project, identity)) => StableIdentityContext::publishing(&ambient.projects, *project, identity),
+            None => StableIdentityContext::new(&ambient.projects),
+        };
+        return to_stable_project_with_context(proj, &context);
+    }
     match proj {
         ProjectIdentity::Universe => StableProjectRef::Builtin {
             namespace: "universe".into(),
@@ -283,7 +344,18 @@ pub fn to_stable_data_component(comp: &crate::identity::DataComponentId) -> phal
 pub fn from_stable_project(project: &StableProjectRef) -> Result<ProjectIdentity, String> {
     match project {
         StableProjectRef::Builtin { namespace, version } if namespace.as_ref() == "universe" && version.as_ref() == "0.1.0" => Ok(ProjectIdentity::Universe),
-        _ => Err("stable project requires an exact StableOwnerCatalog binding".into()),
+        _ => {
+            let ambient = artifact_scope::current().ok_or_else(|| "stable project requires an exact StableOwnerCatalog binding".to_owned())?;
+            if let Some((id, identity)) = &ambient.publishing
+                && identity == project
+            {
+                return Ok(ProjectIdentity::Resolved(*id));
+            }
+            ambient
+                .projects
+                .resolve_stable_project(project)
+                .ok_or_else(|| "stable project has no exact binding in the active artifact identity scope".to_owned())
+        }
     }
 }
 
