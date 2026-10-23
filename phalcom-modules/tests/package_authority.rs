@@ -44,11 +44,38 @@ fn package_module_world(package: StableProjectRef) -> phalcom_compiler_artifact:
         initialization_order: Vec::new(),
         modules: Vec::new(),
         semantic_rows: Vec::new(),
-        external_projects: vec![package],
+        external_projects: vec![package.clone()],
         topology_fingerprint: 0,
     };
     world.refresh_portable_topology_fingerprint().unwrap();
-    world.into()
+    let mut world: phalcom_compiler_artifact::module_world_v5::ModuleWorldV5 = world.into();
+    // Staging requires the entry to be the package's own root module.
+    world.modules.push(phalcom_compiler_artifact::module_world_v5::ModuleV3 {
+        path: vec![],
+        identity: phalcom_type_meta::identity::StableModuleRef {
+            project: package,
+            path: Box::new([]),
+        },
+        kind: phalcom_compiler_artifact::module_world::ModuleKindV1::Package,
+        declarations: vec![],
+        exports: vec![],
+        imports: vec![],
+        exposed_children: vec![],
+        metadata: vec![],
+        linked_exports: vec![],
+        globals: vec![],
+        import_bindings: vec![],
+        linked_reads: vec![],
+        runtime_dependencies: vec![],
+        references: vec![],
+        runtime_edges: vec![],
+        topology_parent: None,
+        topology_children: vec![],
+        interface_fingerprint: 0,
+        linked_interface_fingerprint: 0,
+        dependency_fingerprint: 0,
+    });
+    world
 }
 
 #[test]

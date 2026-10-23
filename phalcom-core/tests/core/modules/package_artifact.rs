@@ -96,7 +96,15 @@ pub(super) fn build_and_verify_slotmap_package(
     );
 
     let metadata = container.get_section(SectionKind::Metadata).expect("metadata section");
-    let metadata_text = std::str::from_utf8(metadata).expect("metadata section is UTF-8");
-    assert!(!metadata_text.contains("SourceArtifact"), "metadata section must not carry checkout identities");
+    // The metadata section is a binary encoding; checkout identities would
+    // still surface as their variant name or the checkout path.
+    let contains = |needle: &[u8]| !needle.is_empty() && metadata.windows(needle.len()).any(|window| window == needle);
+    assert!(!contains(b"SourceArtifact"), "metadata section must not carry checkout identities");
+    if let Some(checkout) = std::env::var_os("PHALCOM_TEST_SLOTMAP_PATH").and_then(|path| std::fs::canonicalize(path).ok()) {
+        assert!(
+            !contains(checkout.to_string_lossy().as_bytes()),
+            "metadata section must not carry the SlotMap checkout path"
+        );
+    }
     built
 }

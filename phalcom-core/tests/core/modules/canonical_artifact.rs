@@ -1512,7 +1512,7 @@ fn foreign_native_catalog_fingerprint_is_rejected_before_section_materialization
         ArtifactDigest,
         container::TeloscContainerBuilder,
         header::{
-            MODULE_SEMANTIC_ABI_V2, QUERY_FINGERPRINT_ABI_V3, SEMANTIC_ARTIFACT_ABI_V3, STABLE_IDENTITY_SCHEMA_V1, TELOSC_CONTAINER_SCHEMA_V2,
+            MODULE_SEMANTIC_ABI_V3, QUERY_FINGERPRINT_ABI_V3, SEMANTIC_ARTIFACT_ABI_V3, STABLE_IDENTITY_SCHEMA_V1, TELOSC_CONTAINER_SCHEMA_V2,
             TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities, TeloscHeaderV2,
         },
         identity::TeloscPackageIdentity,
@@ -1527,7 +1527,7 @@ fn foreign_native_catalog_fingerprint_is_rejected_before_section_materialization
         package_identity: TeloscPackageIdentity::universe(),
         semantic_model_version: phalcom_type_meta::SEMANTIC_MODEL_VERSION,
         stable_identity_schema: STABLE_IDENTITY_SCHEMA_V1,
-        module_semantic_abi: MODULE_SEMANTIC_ABI_V2,
+        module_semantic_abi: MODULE_SEMANTIC_ABI_V3,
         semantic_artifact_abi: SEMANTIC_ARTIFACT_ABI_V3,
         query_fingerprint_abi: QUERY_FINGERPRINT_ABI_V3,
         native_surface_schema_version: phalcom_native_meta::NATIVE_SURFACE_SCHEMA_VERSION,
@@ -1549,10 +1549,13 @@ fn foreign_native_catalog_fingerprint_is_rejected_before_section_materialization
         SectionKind::QueryImage,
         SectionKind::Metadata,
     ] {
-        let schema = if kind == SectionKind::SemanticWorld {
-            phalcom_compiler_artifact::semantic::world::SEMANTIC_WORLD_SCHEMA_V3
-        } else {
-            1
+        // Current schemas, so the container admits every section and only
+        // the header's native catalog can be what rejects the artifact.
+        let schema = match kind {
+            SectionKind::ModuleWorld => phalcom_compiler_artifact::module_world_v5::MODULE_WORLD_SCHEMA_V5,
+            SectionKind::SemanticWorld => phalcom_compiler_artifact::semantic::world::SEMANTIC_WORLD_SCHEMA_V4,
+            SectionKind::QueryImage => phalcom_compiler_artifact::query::QUERY_IMAGE_SCHEMA_V4,
+            _ => phalcom_compiler_artifact::metadata::METADATA_SECTION_SCHEMA_V1,
         };
         builder.add_section(kind, schema, SectionFlags::REQUIRED, vec![0xff]);
     }
