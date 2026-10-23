@@ -1689,7 +1689,8 @@ enum Node {
     Scoped(u32),
     Lambda(u32),
 }
-struct Import<'a, 'b> {
+struct Import<'a, 'b, 'c> {
+    owner_catalog: Option<&'c crate::artifact::identity::StableOwnerCatalog<'c>>,
     graph: &'a TypeGraphV1,
     limits: &'a ValidationLimits,
     allocations: &'b mut AllocationBudget,
@@ -1733,8 +1734,13 @@ macro_rules! resolve_node {
         }
     )* };
 }
-impl<'a, 'b> Import<'a, 'b> {
-    fn new(graph: &'a TypeGraphV1, limits: &'a ValidationLimits, allocations: &'b mut AllocationBudget) -> Result<Self, ArtifactError> {
+impl<'a, 'b, 'c> Import<'a, 'b, 'c> {
+    fn new(
+        graph: &'a TypeGraphV1,
+        owner_catalog: Option<&'c crate::artifact::identity::StableOwnerCatalog<'c>>,
+        limits: &'a ValidationLimits,
+        allocations: &'b mut AllocationBudget,
+    ) -> Result<Self, ArtifactError> {
         fn make_options<T: Clone>(len: usize, allocations: &mut AllocationBudget) -> Result<Vec<Option<T>>, ArtifactError> {
             let mut v = allocations.vector(len).map_err(|e| ArtifactError::Allocation(e))?;
             v.resize(len, None);
@@ -1767,6 +1773,7 @@ impl<'a, 'b> Import<'a, 'b> {
 
         Ok(Self {
             graph,
+            owner_catalog,
             limits,
             allocations,
             active,
@@ -1965,7 +1972,7 @@ impl<'a, 'b> Import<'a, 'b> {
     }
     fn build_parameter(&mut self, id: ArtifactTypeParameterId) -> Result<TypeParameterId, ArtifactError> {
         let data = &self.graph.parameters[id.0 as usize];
-        let owner = owner_in_with_allocation_budget(&data.owner, self.allocations)?;
+        let owner = owner_in_with_allocation_budget(&data.owner, self.allocations, self.owner_catalog)?;
         let kind = self.kind(data.kind)?;
         if !crate::types::parameter::expansion_mode_accepts_kind(mode_in(&data.mode), kind) {
             return Err(invalid("parameter expansion mode has incompatible kind"));
@@ -1987,11 +1994,11 @@ impl<'a, 'b> Import<'a, 'b> {
         let data = match &self.graph.static_domains[id.0 as usize] {
             StaticDomainV1::ConstInt => StaticDomainData::ConstInt,
             StaticDomainV1::Nominal { declaration } => StaticDomainData::Nominal {
-                declaration: declaration_in_with_allocation_budget(declaration, self.allocations)?,
+                declaration: declaration_in_with_allocation_budget(declaration, self.allocations, self.owner_catalog)?,
             },
             StaticDomainV1::Associated { declaration, arguments } => StaticDomainData::Associated {
                 declaration: AssociatedStaticDomainDeclarationId::new(
-                    declaration_in_with_allocation_budget(&declaration.owner, self.allocations)?,
+                    declaration_in_with_allocation_budget(&declaration.owner, self.allocations, self.owner_catalog)?,
                     self.allocations.boxed_str(&declaration.name).map_err(ArtifactError::Allocation)?,
                 ),
                 owner_arguments: self.args(arguments)?,
@@ -2003,7 +2010,7 @@ impl<'a, 'b> Import<'a, 'b> {
     fn build_constructor(&mut self, id: ArtifactStaticConstructorId) -> Result<AlgebraicStaticConstructorId, ArtifactError> {
         let data = &self.graph.static_constructors[id.0 as usize];
         let domain = self.domain(data.domain)?;
-        let declaration = declaration_in_with_allocation_budget(&data.declaration, self.allocations)?;
+        let declaration = declaration_in_with_allocation_budget(&data.declaration, self.allocations, self.owner_catalog)?;
         let kinds = self.kind_list(&data.parameter_kinds)?;
         if data.case_name.is_empty() {
             return Err(invalid("empty static constructor name"));
@@ -2020,7 +2027,7 @@ impl<'a, 'b> Import<'a, 'b> {
     }
     fn build_variant(&mut self, id: ArtifactVariantTypeId) -> Result<VariantTypeId, ArtifactError> {
         let data = &self.graph.variants[id.0 as usize];
-        let owner = declaration_in_with_allocation_budget(&data.owner, self.allocations)?;
+        let owner = declaration_in_with_allocation_budget(&data.owner, self.allocations, self.owner_catalog)?;
         let selector = crate::artifact::import::import_stable_selector_with_allocation_budget(&data.selector, self.allocations)?;
         let variant = VariantId::new(owner, selector);
         self.decoded_variants[id.0 as usize] = Some(variant);
@@ -2089,10 +2096,10 @@ impl<'a, 'b> Import<'a, 'b> {
             TypeV1::Never => TypeData::Never,
             TypeV1::Unit => TypeData::Unit,
             TypeV1::ClassObject { declaration } => TypeData::ClassObject {
-                declaration: declaration_in_with_allocation_budget(declaration, self.allocations)?,
+                declaration: declaration_in_with_allocation_budget(declaration, self.allocations, self.owner_catalog)?,
             },
             TypeV1::Nominal { declaration } => TypeData::Nominal {
-                declaration: declaration_in_with_allocation_budget(declaration, self.allocations)?,
+                declaration: declaration_in_with_allocation_budget(declaration, self.allocations, self.owner_catalog)?,
             },
             TypeV1::StaticDomainForm { domain } => TypeData::StaticDomainForm { domain: self.domain(*domain)? },
             TypeV1::Applied { origin, arguments } => TypeData::Applied {
@@ -2175,7 +2182,7 @@ impl<'a, 'b> Import<'a, 'b> {
             TypeV1::Parameter { parameter } => TypeData::Parameter(self.parameter(*parameter)?),
             TypeV1::Lambda { lambda } => TypeData::Lambda(self.lambda(*lambda)?),
             TypeV1::SelfType { self_type } => TypeData::SelfType(SelfTypeTerm {
-                owner: declaration_in_with_allocation_budget(&self_type.owner, self.allocations)?,
+                owner: declaration_in_with_allocation_budget(&self_type.owner, self.allocations, self.owner_catalog)?,
                 side: match self_type.side {
                     StableDispatchSide::Instance => crate::identity::DispatchSide::Instance,
                     StableDispatchSide::Class => crate::identity::DispatchSide::Class,
@@ -2186,8 +2193,8 @@ impl<'a, 'b> Import<'a, 'b> {
                 },
             }),
             TypeV1::AssociatedProjection { projection } => {
-                let trait_owner = declaration_in_with_allocation_budget(&projection.trait_owner, self.allocations)?;
-                let requirement_owner = declaration_in_with_allocation_budget(&projection.requirement_owner, self.allocations)?;
+                let trait_owner = declaration_in_with_allocation_budget(&projection.trait_owner, self.allocations, self.owner_catalog)?;
+                let requirement_owner = declaration_in_with_allocation_budget(&projection.requirement_owner, self.allocations, self.owner_catalog)?;
                 if trait_owner != requirement_owner {
                     return Err(invalid("associated requirement owner differs from its trait"));
                 }
@@ -2225,7 +2232,7 @@ impl<'a, 'b> Import<'a, 'b> {
                         .as_ref()
                         .map(|source| {
                             Ok::<_, ArtifactError>(TypeMemberDeclarationId::new(
-                                declaration_in_with_allocation_budget(&source.owner, self.allocations)?,
+                                declaration_in_with_allocation_budget(&source.owner, self.allocations, self.owner_catalog)?,
                                 if source.selector.as_ref() == "[]" {
                                     TypeMemberSelector::Subscript
                                 } else {
@@ -2516,29 +2523,38 @@ impl<'a, 'b> Import<'a, 'b> {
         Ok(())
     }
 }
-fn declaration_in_with_allocation_budget(value: &StableDeclarationRef, allocations: &mut AllocationBudget) -> Result<DeclarationId, ArtifactError> {
+fn declaration_in_with_allocation_budget(value: &StableDeclarationRef, allocations: &mut AllocationBudget, owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>) -> Result<DeclarationId, ArtifactError> {
     if value.path.len() != 1 || value.path[0].is_empty() {
         return Err(invalid("invalid canonical declaration path"));
     }
-    let module = module_in_with_allocation_budget(&value.module, allocations)?;
+    let module = module_in_with_allocation_budget(&value.module, allocations, owner_catalog)?;
     let name = allocations.boxed_str(&value.path[0]).map_err(ArtifactError::Allocation)?;
     Ok(DeclarationId::new(module, name))
 }
-fn module_in_with_allocation_budget(value: &StableModuleRef, allocations: &mut AllocationBudget) -> Result<ModuleId, ArtifactError> {
+fn module_in_with_allocation_budget(
+    value: &StableModuleRef,
+    allocations: &mut AllocationBudget,
+    owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+) -> Result<ModuleId, ArtifactError> {
+    if let Some(catalog) = owner_catalog {
+        // A stable package owner becomes native only through the exact
+        // module rows/external allowlist and the trusted project catalog.
+        return catalog.module_parts_with_allocation_budget(&value.project, &value.path, allocations);
+    }
     if !matches!(&value.project, StableProjectRef::Builtin { namespace, version } if namespace.as_ref() == "universe" && version.as_ref() == "0.1.0") {
         return Err(invalid("canonical type owner has incompatible project identity"));
     }
     crate::artifact::import::import_stable_module_with_allocation_budget(value, allocations)
 }
-fn callable_in_with_allocation_budget(value: &StableCallableRef, allocations: &mut AllocationBudget) -> Result<CallableId, ArtifactError> {
+fn callable_in_with_allocation_budget(value: &StableCallableRef, allocations: &mut AllocationBudget, owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>) -> Result<CallableId, ArtifactError> {
     let owner = match &value.owner {
-        StableCallableOwnerRef::Declaration(owner) => CallableOwnerId::Declaration(declaration_in_with_allocation_budget(owner, allocations)?),
+        StableCallableOwnerRef::Declaration(owner) => CallableOwnerId::Declaration(declaration_in_with_allocation_budget(owner, allocations, owner_catalog)?),
         StableCallableOwnerRef::Variant(variant) => CallableOwnerId::Variant(VariantId::new(
-            declaration_in_with_allocation_budget(&variant.owner, allocations)?,
+            declaration_in_with_allocation_budget(&variant.owner, allocations, owner_catalog)?,
             crate::artifact::import::import_stable_selector_with_allocation_budget(&variant.selector, allocations)?,
         )),
         StableCallableOwnerRef::Conformance(owner) => {
-            let module = module_in_with_allocation_budget(&owner.module, allocations)?;
+            let module = module_in_with_allocation_budget(&owner.module, allocations, owner_catalog)?;
             CallableOwnerId::Conformance(crate::identity::ImplId::new(module, crate::identity::ImplLocalId(owner.local_id)))
         }
     };
@@ -2551,12 +2567,12 @@ fn callable_in_with_allocation_budget(value: &StableCallableRef, allocations: &m
         selector: crate::artifact::import::import_stable_selector_with_allocation_budget(&value.selector, allocations)?,
     })
 }
-fn owner_in_with_allocation_budget(value: &ParameterOwnerV1, allocations: &mut AllocationBudget) -> Result<TypeParameterOwner, ArtifactError> {
+fn owner_in_with_allocation_budget(value: &ParameterOwnerV1, allocations: &mut AllocationBudget, owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>) -> Result<TypeParameterOwner, ArtifactError> {
     Ok(match value {
-        ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(declaration_in_with_allocation_budget(owner, allocations)?),
-        ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(callable_in_with_allocation_budget(owner, allocations)?),
+        ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(declaration_in_with_allocation_budget(owner, allocations, owner_catalog)?),
+        ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(callable_in_with_allocation_budget(owner, allocations, owner_catalog)?),
         ParameterOwnerV1::Impl { owner } => {
-            let module = module_in_with_allocation_budget(&owner.module, allocations)?;
+            let module = module_in_with_allocation_budget(&owner.module, allocations, owner_catalog)?;
             TypeParameterOwner::Impl(crate::identity::ImplId::new(module, crate::identity::ImplLocalId(owner.local_id)))
         }
     })
@@ -2723,7 +2739,19 @@ impl TypeStore {
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
     ) -> Result<(Self, TypeRelocation), ArtifactError> {
-        let mut import = Import::new(graph, limits, allocations)?;
+        Self::import_type_graph_with_owner_catalog_and_allocation_budget(graph, None, limits, allocations)
+    }
+
+    /// Relocate a type graph with exact owner authority supplied by the
+    /// caller. This is not a multi-artifact store-composition operation.
+    /// Existing Universe-only callers retain the strict legacy entry point.
+    pub(crate) fn import_type_graph_with_owner_catalog_and_allocation_budget(
+        graph: &TypeGraphV1,
+        owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+        limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
+    ) -> Result<(Self, TypeRelocation), ArtifactError> {
+        let mut import = Import::new(graph, owner_catalog, limits, allocations)?;
         for index in 0..graph.kinds.len() {
             import.kind(ArtifactKindId(index as u32))?;
         }
@@ -3044,7 +3072,7 @@ impl TypeStore {
         // Variances
         let mut variances_vec = allocations.vector(graph.variance_overrides.len()).map_err(ArtifactError::Allocation)?;
         for value in &graph.variance_overrides {
-            let owner = declaration_in_with_allocation_budget(&value.owner, allocations)?;
+            let owner = declaration_in_with_allocation_budget(&value.owner, allocations, owner_catalog)?;
             variances_vec.push(((owner, value.index), variance_in(&value.variance)));
         }
         variances_vec.sort_unstable_by(|a, b| a.0.cmp(&b.0));
