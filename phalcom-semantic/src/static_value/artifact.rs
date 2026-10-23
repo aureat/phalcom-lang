@@ -1276,3 +1276,160 @@ fn referential(message: impl Into<String>) -> ArtifactError {
 fn store_error(error: StaticValueStoreError) -> ArtifactError {
     ValidationError::ReferentialIntegrity(error.to_string()).into()
 }
+
+
+#[cfg(test)]
+mod shared_static_store_tests {
+    use super::*;
+    use crate::types::store::TypeStore;
+    use phalcom_modules::ModuleId;
+
+    fn shared_types(limits: &ValidationLimits, allocations: &mut AllocationBudget) -> (TypeStore, TypeRelocation) {
+        let source = TypeStore::new();
+        let graph = source.project_artifact(limits).unwrap();
+        let mut receiver = TypeStore::new();
+        let relocation = TypeStore::import_type_graph_into_store_with_owner_catalog_and_allocation_budget(
+            &mut receiver,
+            &graph,
+            None,
+            limits,
+            allocations,
+        )
+        .unwrap();
+        (receiver, relocation)
+    }
+
+    fn no_declaration(
+        stable: &StableDeclarationRef,
+        allocations: &mut AllocationBudget,
+    ) -> Result<DeclarationId, ArtifactError> {
+        crate::artifact::import::import_stable_declaration_with_allocation_budget(stable, allocations)
+    }
+
+    fn no_variant(
+        stable: &StableVariantRef,
+        allocations: &mut AllocationBudget,
+    ) -> Result<VariantId, ArtifactError> {
+        crate::artifact::import::import_stable_variant_with_allocation_budget(stable, allocations)
+    }
+
+    #[test]
+    fn shared_static_receiver_reuses_native_values_on_reimport() {
+        let limits = ValidationLimits::default();
+        let mut allocations = AllocationBudget::new(16 * 1024 * 1024);
+        let (types, type_relocation) = shared_types(&limits, &mut allocations);
+        let graph = StaticValueGraphV1 {
+            values: vec![
+                StaticValueV1::Unit,
+                StaticValueV1::Bool { value: true },
+                StaticValueV1::Tuple { id: ArtifactStaticTupleId(0) },
+            ],
+            strings: vec![],
+            symbols: vec![],
+            tuples: vec![vec![ArtifactStaticValueId(0), ArtifactStaticValueId(1)]],
+            sequences: vec![],
+            records: vec![],
+            data_values: vec![],
+            variant_values: vec![],
+            pack_backings: vec![],
+            packs: vec![],
+        };
+        let data = DataSemanticTable::new();
+        let enums = EnumSemanticTable::new();
+        let mut receiver = StaticValueStore::new();
+
+        let first = import_static_value_graph_into_store_with_allocation_budget(
+            &mut receiver,
+            &graph,
+            &types,
+            &type_relocation,
+            &data,
+            &enums,
+            &no_declaration,
+            &no_variant,
+            &limits,
+            &mut allocations,
+        )
+        .unwrap();
+        let tuple = first.value(ArtifactStaticValueId(2)).unwrap();
+        let counts = (receiver.value_count(), receiver.tuple_count(), receiver.symbol_count());
+
+        let second = import_static_value_graph_into_store_with_allocation_budget(
+            &mut receiver,
+            &graph,
+            &types,
+            &type_relocation,
+            &data,
+            &enums,
+            &no_declaration,
+            &no_variant,
+            &limits,
+            &mut allocations,
+        )
+        .unwrap();
+        assert_eq!(second.value(ArtifactStaticValueId(2)).unwrap(), tuple);
+        assert_eq!(counts, (receiver.value_count(), receiver.tuple_count(), receiver.symbol_count()));
+        first.verify_store(&receiver).unwrap();
+        second.verify_store(&receiver).unwrap();
+    }
+
+    #[test]
+    fn failed_shared_static_import_does_not_publish_partial_values() {
+        let limits = ValidationLimits::default();
+        let mut allocations = AllocationBudget::new(16 * 1024 * 1024);
+        let (types, type_relocation) = shared_types(&limits, &mut allocations);
+        let missing = to_stable_declaration(&DeclarationId::new(ModuleId::universe_root(), "MissingStaticDataOwner".into()));
+        let graph = StaticValueGraphV1 {
+            values: vec![
+                StaticValueV1::Unit,
+                StaticValueV1::Data { id: ArtifactStaticDataId(0) },
+            ],
+            strings: vec![],
+            symbols: vec![],
+            tuples: vec![],
+            sequences: vec![],
+            records: vec![],
+            data_values: vec![StaticDataValueV1 {
+                owner: missing.clone(),
+                constructor_owner: missing,
+                result_type: ArtifactTypeId(0),
+                components: vec![],
+            }],
+            variant_values: vec![],
+            pack_backings: vec![],
+            packs: vec![],
+        };
+        let data = DataSemanticTable::new();
+        let enums = EnumSemanticTable::new();
+        let mut receiver = StaticValueStore::new();
+        let before = (
+            receiver.value_count(),
+            receiver.tuple_count(),
+            receiver.data_value_count(),
+            receiver.pack_count(),
+        );
+
+        assert!(import_static_value_graph_into_store_with_allocation_budget(
+            &mut receiver,
+            &graph,
+            &types,
+            &type_relocation,
+            &data,
+            &enums,
+            &no_declaration,
+            &no_variant,
+            &limits,
+            &mut allocations,
+        )
+        .is_err());
+        assert_eq!(
+            before,
+            (
+                receiver.value_count(),
+                receiver.tuple_count(),
+                receiver.data_value_count(),
+                receiver.pack_count(),
+            ),
+        );
+    }
+}
