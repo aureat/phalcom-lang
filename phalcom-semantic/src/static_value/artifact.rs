@@ -1001,6 +1001,232 @@ pub fn import_static_value_graph_with_allocation_budget(
     Ok((store, relocation))
 }
 
+/// Relocates one validated static-value graph into an existing receiving
+/// store lineage. Reconstruction uses the same checked factories as ordinary
+/// semantic evaluation and commits only after the entire artifact graph passes.
+pub fn import_static_value_graph_into_store_with_allocation_budget(
+    receiver: &mut StaticValueStore,
+    graph: &StaticValueGraphV1,
+    types: &crate::types::store::TypeStore,
+    type_relocation: &TypeRelocation,
+    data: &DataSemanticTable,
+    enums: &EnumSemanticTable,
+    resolve_declaration: BudgetedDeclarationResolver<'_>,
+    resolve_variant: BudgetedVariantResolver<'_>,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<StaticRelocation, ArtifactError> {
+    type_relocation
+        .verify_store(types)
+        .map_err(|error| referential(error.to_string()))?;
+    let order = graph.validate_with_allocation_budget(limits, allocations)?;
+    let mut candidate = receiver.clone();
+    let store_id = candidate.id();
+
+    let mut symbols = allocations
+        .vector::<StaticSymbolId>(graph.symbols.len())
+        .map_err(ArtifactError::Allocation)?;
+    for spelling in &graph.symbols {
+        symbols.push(candidate.intern_symbol_id(spelling));
+    }
+
+    let mut values = allocations
+        .vector::<Option<StaticValueRef>>(graph.values.len())
+        .map_err(ArtifactError::Allocation)?;
+    values.resize(graph.values.len(), None);
+
+    let relocated = |values: &[Option<StaticValueRef>], id: ArtifactStaticValueId| -> Result<StaticValueRef, ArtifactError> {
+        values
+            .get(id.0 as usize)
+            .and_then(|value| *value)
+            .ok_or_else(|| referential("static dependency was not reconstructed before its consumer"))
+    };
+
+    for artifact_id in order {
+        let value = match &graph.values[artifact_id.0 as usize] {
+            StaticValueV1::Unit => candidate.intern_unit(),
+            StaticValueV1::Bool { value } => candidate.intern_bool(*value),
+            StaticValueV1::Char { scalar } => {
+                let value = char::from_u32(*scalar).ok_or_else(|| referential("invalid static character scalar"))?;
+                candidate.intern_char(value)
+            }
+            StaticValueV1::Int { decimal } => {
+                let value = crate::types::store::artifact::integer_in_with_allocation_budget(decimal, limits, allocations)?;
+                candidate.intern_int(value.to_bigint())
+            }
+            StaticValueV1::Float { bits } => candidate.intern_float(StaticFloat::from_bits(*bits)),
+            StaticValueV1::String { id } => {
+                let spelling = graph
+                    .strings
+                    .get(id.0 as usize)
+                    .ok_or_else(|| referential("static string identity is out of range"))?;
+                candidate.intern_string(spelling)
+            }
+            StaticValueV1::Symbol { id } => {
+                let spelling = graph
+                    .symbols
+                    .get(id.0 as usize)
+                    .ok_or_else(|| referential("static symbol identity is out of range"))?;
+                candidate.intern_symbol(spelling)
+            }
+            StaticValueV1::Type { ty } => candidate
+                .intern_type(type_relocation.ty(*ty)?, types)
+                .map_err(store_error)?,
+            StaticValueV1::StaticTerm { ty } => candidate
+                .intern_static_term(type_relocation.ty(*ty)?, types)
+                .map_err(store_error)?,
+            StaticValueV1::Tuple { id } => {
+                let wire = graph
+                    .tuples
+                    .get(id.0 as usize)
+                    .ok_or_else(|| referential("static tuple identity is out of range"))?;
+                let mut children = Vec::with_capacity(wire.len());
+                for child in wire {
+                    children.push(relocated(&values, *child)?);
+                }
+                candidate.intern_tuple(children).map_err(store_error)?
+            }
+            StaticValueV1::Sequence { id } => {
+                let wire = graph
+                    .sequences
+                    .get(id.0 as usize)
+                    .ok_or_else(|| referential("static sequence identity is out of range"))?;
+                let mut children = Vec::with_capacity(wire.elements.len());
+                for child in &wire.elements {
+                    children.push(relocated(&values, *child)?);
+                }
+                let value = candidate
+                    .intern_sequence(type_relocation.ty(wire.result_type)?, children, types)
+                    .map_err(store_error)?;
+                let StaticValueData::Sequence(sequence_id) = candidate.get(value).map_err(store_error)? else {
+                    return Err(referential("sequence factory did not return a sequence value"));
+                };
+                let sequence = candidate.get_sequence(*sequence_id).map_err(store_error)?;
+                let expected = match wire.family {
+                    SequenceFamilyV1::Array => StaticSequenceFamily::Array,
+                    SequenceFamilyV1::Vector => StaticSequenceFamily::Vector,
+                };
+                if sequence.family != expected {
+                    return Err(referential("static sequence family disagrees with relocated result type"));
+                }
+                value
+            }
+            StaticValueV1::Record { id } => {
+                let wire = graph
+                    .records
+                    .get(id.0 as usize)
+                    .ok_or_else(|| referential("static record identity is out of range"))?;
+                let mut fields = Vec::with_capacity(wire.len());
+                for field in wire {
+                    fields.push((
+                        key_from_wire_budgeted(&field.key, limits, allocations)?,
+                        relocated(&values, field.value)?,
+                    ));
+                }
+                candidate.intern_record(fields).map_err(store_error)?
+            }
+            StaticValueV1::Data { id } => {
+                let wire = graph
+                    .data_values
+                    .get(id.0 as usize)
+                    .ok_or_else(|| referential("static data identity is out of range"))?;
+                let owner = resolve_declaration(&wire.owner, allocations)?;
+                let info = data
+                    .data_info(&owner)
+                    .ok_or_else(|| referential("static data owner has no loaded contract"))?;
+                if wire.components.len() != info.components.len() {
+                    return Err(referential("static data component count disagrees with loaded contract"));
+                }
+                let mut components = Vec::with_capacity(info.components.len());
+                for (component, wire_component) in info.components.iter().zip(wire.components.iter()) {
+                    components.push((component.id.clone(), relocated(&values, wire_component.value)?));
+                }
+                candidate
+                    .intern_data(info, type_relocation.ty(wire.result_type)?, components, types)
+                    .map_err(store_error)?
+            }
+            StaticValueV1::Variant { id } => {
+                let wire = graph
+                    .variant_values
+                    .get(id.0 as usize)
+                    .ok_or_else(|| referential("static variant identity is out of range"))?;
+                let variant = resolve_variant(&wire.variant, allocations)?;
+                let info = enums
+                    .variant_info(&variant)
+                    .ok_or_else(|| referential("static variant has no loaded contract"))?;
+                if wire.fields.len() != info.fields.len() {
+                    return Err(referential("static variant field count disagrees with loaded contract"));
+                }
+                let mut fields = Vec::with_capacity(info.fields.len());
+                for (field, wire_field) in info.fields.iter().zip(wire.fields.iter()) {
+                    fields.push((field.id.clone(), relocated(&values, wire_field.value)?));
+                }
+                candidate
+                    .intern_variant(info, type_relocation.ty(wire.result_type)?, fields, types)
+                    .map_err(store_error)?
+            }
+            StaticValueV1::Pack { id } => {
+                let wire = graph
+                    .packs
+                    .get(id.0 as usize)
+                    .ok_or_else(|| referential("static pack identity is out of range"))?;
+                let backing = graph
+                    .pack_backings
+                    .get(wire.backing.0 as usize)
+                    .ok_or_else(|| referential("static pack backing identity is out of range"))?;
+                let mut positionals = Vec::with_capacity(backing.positionals.len());
+                for child in &backing.positionals {
+                    positionals.push(relocated(&values, *child)?);
+                }
+                let mut labels = Vec::with_capacity(backing.labels.len());
+                for label in &backing.labels {
+                    labels.push(
+                        *symbols
+                            .get(label.0 as usize)
+                            .ok_or_else(|| referential("static pack label identity is out of range"))?,
+                    );
+                }
+                let mut labeled_values = Vec::with_capacity(backing.labeled_values.len());
+                for child in &backing.labeled_values {
+                    labeled_values.push(relocated(&values, *child)?);
+                }
+                let backing_id = candidate
+                    .intern_pack_backing_reconstructed(StaticPackBacking {
+                        positionals: positionals.into_boxed_slice(),
+                        labels: labels.into_boxed_slice(),
+                        labeled_values: labeled_values.into_boxed_slice(),
+                    })
+                    .map_err(store_error)?;
+                candidate
+                    .intern_pack_slice_reconstructed(StaticPackData {
+                        backing: backing_id,
+                        positional_start: wire.positional_start,
+                        positional_len: wire.positional_len,
+                        labeled_start: wire.labeled_start,
+                        labeled_len: wire.labeled_len,
+                    })
+                    .map_err(store_error)?
+            }
+        };
+        values[artifact_id.0 as usize] = Some(value);
+    }
+
+    let mut relocated_values = allocations
+        .vector::<StaticValueRef>(values.len())
+        .map_err(ArtifactError::Allocation)?;
+    for value in values {
+        relocated_values.push(value.ok_or_else(|| referential("incomplete shared static-value relocation"))?);
+    }
+
+    let relocation = StaticRelocation {
+        store_id,
+        values: allocations.boxed_slice(relocated_values).map_err(ArtifactError::Allocation)?,
+        symbols: allocations.boxed_slice(symbols).map_err(ArtifactError::Allocation)?,
+    };
+    *receiver = candidate;
+    Ok(relocation)
+}
+
 pub fn import_static_value_graph(
     graph: &StaticValueGraphV1,
     types: &crate::types::store::TypeStore,
