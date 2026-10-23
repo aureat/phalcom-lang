@@ -19,8 +19,8 @@ pub mod semantic;
 pub use codec::{BinaryReader, BinaryWriter};
 pub use container::{TeloscContainerBuilder, TeloscContainerView};
 pub use digest::{
-    ArtifactDigest, ArtifactHasher, DOMAIN_ARTIFACT, DOMAIN_METADATA, DOMAIN_MODULE_WORLD, DOMAIN_PACKAGE_IDENTITY, DOMAIN_PACKAGE_SOURCE,
-    DOMAIN_QUERY_IMAGE, DOMAIN_SECTION, DOMAIN_SEMANTIC_WORLD, DOMAIN_SOURCE,
+    ArtifactDigest, ArtifactHasher, DOMAIN_ARTIFACT, DOMAIN_METADATA, DOMAIN_MODULE_WORLD, DOMAIN_PACKAGE_IDENTITY, DOMAIN_PACKAGE_SOURCE, DOMAIN_QUERY_IMAGE,
+    DOMAIN_SECTION, DOMAIN_SEMANTIC_WORLD, DOMAIN_SOURCE,
 };
 pub use error::{ArtifactError, CodecError, ContainerError, ValidationError};
 pub use header::{TELOSC_CONTAINER_SCHEMA_V2, TELOSC_MAGIC, TELOSC_MIN_READER_SCHEMA_V2, TeloscCapabilities, TeloscHeaderV2};

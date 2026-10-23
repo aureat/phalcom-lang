@@ -74,9 +74,8 @@ pub fn package_identity_fingerprint(
 
     let mut external_projects = external_projects.to_vec();
     external_projects.sort_unstable();
-    writer.write_u32(
-        u32::try_from(external_projects.len()).map_err(|_| ArtifactError::LimitExceeded("package external project count exceeds wire u32".into()))?,
-    );
+    writer
+        .write_u32(u32::try_from(external_projects.len()).map_err(|_| ArtifactError::LimitExceeded("package external project count exceeds wire u32".into()))?);
     for project in &external_projects {
         project.write(&mut writer)?;
     }

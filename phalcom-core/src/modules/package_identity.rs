@@ -9,10 +9,7 @@ use phalcom_modules::{ModuleId, ProjectIdentity, ResolvedProjectId};
 /// The resolved project number and all source locations are excluded. Modules
 /// are sorted by their canonical `ModuleId`; only path components and source
 /// bytes enter the digest.
-pub(super) fn package_source_digest<'a>(
-    owner: ResolvedProjectId,
-    sources: impl IntoIterator<Item = (&'a ModuleId, &'a str)>,
-) -> ArtifactDigest {
+pub(super) fn package_source_digest<'a>(owner: ResolvedProjectId, sources: impl IntoIterator<Item = (&'a ModuleId, &'a str)>) -> ArtifactDigest {
     let mut owned = sources
         .into_iter()
         .filter(|(module, _)| module.project == ProjectIdentity::Resolved(owner))
@@ -89,8 +86,14 @@ mod tests {
             package_identity_fingerprint("slotmap", "2.1.0", moved_source_digest, &externals, &abi).unwrap(),
             "resolved-project slots and checkout locations do not enter either digest"
         );
-        assert_ne!(base, package_identity_fingerprint("other", "2.1.0", first_source_digest, &externals, &abi).unwrap());
-        assert_ne!(base, package_identity_fingerprint("slotmap", "2.1.1", first_source_digest, &externals, &abi).unwrap());
+        assert_ne!(
+            base,
+            package_identity_fingerprint("other", "2.1.0", first_source_digest, &externals, &abi).unwrap()
+        );
+        assert_ne!(
+            base,
+            package_identity_fingerprint("slotmap", "2.1.1", first_source_digest, &externals, &abi).unwrap()
+        );
         assert_ne!(
             base,
             package_identity_fingerprint("slotmap", "2.1.0", ArtifactDigest::from_bytes([10; 32]), &externals, &abi).unwrap()
@@ -101,32 +104,59 @@ mod tests {
             version: "1.2.3".into(),
             artifact_fingerprint: Fingerprint128([10; 16]),
         };
-        assert_ne!(base, package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &[changed_dependency], &abi).unwrap());
+        assert_ne!(
+            base,
+            package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &[changed_dependency], &abi).unwrap()
+        );
 
         let mut changed_abi = abi;
         changed_abi.semantic_model_version += 1;
-        assert_ne!(base, package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap());
+        assert_ne!(
+            base,
+            package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap()
+        );
         let mut changed_abi = abi;
         changed_abi.stable_identity_schema += 1;
-        assert_ne!(base, package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap());
+        assert_ne!(
+            base,
+            package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap()
+        );
         let mut changed_abi = abi;
         changed_abi.module_semantic_abi += 1;
-        assert_ne!(base, package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap());
+        assert_ne!(
+            base,
+            package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap()
+        );
         let mut changed_abi = abi;
         changed_abi.semantic_artifact_abi += 1;
-        assert_ne!(base, package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap());
+        assert_ne!(
+            base,
+            package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap()
+        );
         let mut changed_abi = abi;
         changed_abi.query_fingerprint_abi += 1;
-        assert_ne!(base, package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap());
+        assert_ne!(
+            base,
+            package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap()
+        );
         let mut changed_abi = abi;
         changed_abi.native_surface_schema_version += 1;
-        assert_ne!(base, package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap());
+        assert_ne!(
+            base,
+            package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap()
+        );
         let mut changed_abi = abi;
         changed_abi.native_catalog_fingerprint[0] ^= 1;
-        assert_ne!(base, package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap());
+        assert_ne!(
+            base,
+            package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap()
+        );
         let mut changed_abi = abi;
         changed_abi.type_metadata_schema_version += 1;
-        assert_ne!(base, package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap());
+        assert_ne!(
+            base,
+            package_identity_fingerprint("slotmap", "2.1.0", first_source_digest, &externals, &changed_abi).unwrap()
+        );
     }
 
     #[test]
