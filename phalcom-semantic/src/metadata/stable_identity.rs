@@ -48,7 +48,14 @@ pub fn to_stable_project(proj: &ProjectIdentity) -> StableProjectRef {
 
 pub fn to_stable_project_with_context(proj: &ProjectIdentity, context: &StableIdentityContext<'_>) -> StableProjectRef {
     match proj {
-        ProjectIdentity::Resolved(id) => context.projects.get_project(*id).map_or_else(
+        ProjectIdentity::Resolved(id) => {
+            // The unique resolver-authorized package identity, including
+            // fingerprint, takes precedence over mutable source-manifest
+            // provenance for imported immutable project owners.
+            if let Some(package) = context.projects.stable_package_owner(*id) {
+                return package.clone();
+            }
+            context.projects.get_project(*id).map_or_else(
             || to_stable_project(proj),
             |project| StableProjectRef::SourceArtifact {
                 logical_uri: project.source_identity.0.to_string_lossy().into_owned().into_boxed_str(),
@@ -60,7 +67,8 @@ pub fn to_stable_project_with_context(proj: &ProjectIdentity, context: &StableId
                     Fingerprint128(project.revision_fingerprint().0)
                 },
             },
-        ),
+        )
+        }
         _ => to_stable_project(proj),
     }
 }
