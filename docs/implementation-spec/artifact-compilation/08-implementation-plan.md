@@ -106,6 +106,11 @@ staging), `phalcom-semantic/src/artifact/identity.rs` (catalog),
 
 Steps:
 
+0. Complete semantic importer identity threading (LD-C4), including nested
+   structural/callable/static/proof products. Prove package-owned row import
+   with an exact receipt and rejection without it. **Commit.** This omitted
+   prerequisite was identified after F1; see
+   `incident-package-import-identity.md`.
 1. V5 loader + external table resolution (LD-M*). **Commit.**
 2. Cross-artifact witnesses (LD-W*). **Commit.**
 3. Catalog external existence (LD-C*). **Commit.**

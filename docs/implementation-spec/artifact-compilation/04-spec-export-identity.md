@@ -129,8 +129,10 @@ Universe identity is `ProjectIdentity::Universe`, for which the context
 variants return exactly what the context-free ones return. Gate: VER-R1
 (byte-identical Universe artifact).
 
-**EXP-C4. Import side is unchanged.** Import resolves stable refs through
-`StableOwnerCatalog`. No change in this slice beyond `06` LD-C2.
+**EXP-C4. Import work belongs to G.** F1 changes export only. G MUST thread
+`StableOwnerCatalog` through every semantic import family under `06` LD-C4.
+The previous assumption that these imports already used the catalog was
+disproved by live source; see `incident-package-import-identity.md`.
 
 ## 4. Tests
 

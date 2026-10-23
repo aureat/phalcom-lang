@@ -99,10 +99,32 @@ authority (Universe), the current behavior is kept.
 
 **LD-C3.** Declaration-level existence for external owners (for example
 `DeclarationId(slotmap.main, "SlotMap")` referenced by a downstream package)
-is enforced where the importer resolves the declaration in the shared
-receiving stores. Hostile test LDH-7 asserts that a forged external
-declaration fails import. If the importer accepts it silently, that is an
-incident: report it, and do not patch around it.
+MUST be checked against previously loaded canonical semantic authority.
+VERIFY-FIRST: shared type-store interning alone does not prove that a
+declaration exists. Hostile test LDH-7 MUST reject a forged external
+declaration. If it is accepted, record the incident and obtain an architectural
+decision before adding the missing validation.
+
+**LD-C4. All semantic owner imports use the catalog.** The production path
+MUST pass the same `StableOwnerCatalog` through structural contracts, generic
+signatures, callable signatures and analyses, proofs, explanations, static
+values/programs, diagnostics, and other nested semantic products. Both
+budgeted `import_stable_*` helpers and context-free `from_stable_*` calls are
+covered. The current helpers accept only Universe identities; package
+support cannot stop at type-graph and query-owner import.
+
+Use explicit borrowed context through the existing import helpers. The
+catalog remains the owner-resolution authority. Do not add thread-local or
+global owner state, convert package identities to synthetic/Universe
+identities, or weaken exact resolver receipts. Compatibility entry points
+without a catalog retain their existing Universe-only behavior. Preserve
+allocation charging and publication transactions.
+
+Before adding external references, prove a package-owned structural row and
+callable signature import through an exact project receipt. A missing or wrong
+receipt must fail without publishing candidate stores. Then run VER-H3 and
+the LDH matrix through the complete composition path. See
+`incident-package-import-identity.md` for the source evidence and amendment.
 
 ## 4. Composition
 
