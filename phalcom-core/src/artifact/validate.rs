@@ -418,14 +418,17 @@ impl<'a> ExecutableValidationContext<'a> {
 /// Enforces the structural, ABI and profile contract and the package trust
 /// boundary: the image owns exactly `scope`, claims no native anchors or
 /// primordial roles (those belong to Universe), and every eager module is
-/// package-owned. Cross-artifact owner resolution is checked at installation,
-/// where every stable owner must resolve through admitted authority.
+/// package-owned. Every module and class reference owned by an upstream
+/// project must resolve to a row of `prefix`, the Universe image the package
+/// composes over; semantic owner resolution is checked at installation.
 pub(crate) fn validate_package_executable_image(
     image: Arc<ExecutableImageV1>,
     scope: &std::collections::BTreeSet<phalcom_type_meta::identity::StableModuleRef>,
+    prefix: &ExecutableImageV1,
     limits: &ExecutableImageLimitsV1,
 ) -> Result<ValidatedExecutableImage, ExecutableValidationError> {
     image.validate_structure(limits)?;
+    image.validate_upstream_over(prefix)?;
     image.validate_native_abi_digest()?;
     if image.compatibility.compilation_profile != CompilationProfileV1::Debug {
         return Err(ExecutableValidationError::UnsupportedProfile(image.compatibility.compilation_profile.clone()));

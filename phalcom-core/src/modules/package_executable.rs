@@ -96,7 +96,10 @@ pub fn build_full_package_telosc(
     let mut budget = total_budget(limits);
     let decoded = Arc::new(ExecutableImageV1::decode(staged.payload(), limits, &executable_limits, &mut budget)?);
     let expected = decoded.modules.iter().map(|module| module.identity.clone()).collect::<BTreeSet<_>>();
-    crate::artifact::validate::validate_package_executable_image(decoded, &expected, &executable_limits).map_err(executable_error)?;
+    let prefix = universe
+        .executable()
+        .ok_or(TeloscArtifactError::Capability("package executable requires a Universe artifact with a portable executable"))?;
+    crate::artifact::validate::validate_package_executable_image(decoded, &expected, prefix.image(), &executable_limits).map_err(executable_error)?;
 
     let view = TeloscContainerView::parse(&compiler.bytes, limits)?;
     let mut header = view.header().clone();
@@ -258,7 +261,10 @@ pub fn load_package_telosc_from_bytes(
         let payload = container.require_section(SectionKind::Executable).map_err(phalcom_compiler_artifact::ArtifactError::from)?;
         let executable_limits = ExecutableImageLimitsV1::default();
         let image = Arc::new(ExecutableImageV1::decode(payload, limits, &executable_limits, &mut budget)?);
-        Some(crate::artifact::validate::validate_package_executable_image(image, &scope, &executable_limits).map_err(executable_error)?)
+        let prefix = universe
+            .executable()
+            .ok_or(TeloscArtifactError::Capability("package executable requires a Universe artifact with a portable executable"))?;
+        Some(crate::artifact::validate::validate_package_executable_image(image, &scope, prefix.image(), &executable_limits).map_err(executable_error)?)
     } else {
         None
     };

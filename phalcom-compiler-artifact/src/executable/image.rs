@@ -432,6 +432,83 @@ impl ExecutableImageV1 {
     fn has_module_or_upstream(&self, identity: &phalcom_type_meta::identity::StableModuleRef) -> bool {
         self.module(identity).is_some() || self.is_upstream(identity)
     }
+
+    fn has_local_class(&self, identity: &super::constant::StableClassRefV1) -> bool {
+        self.classes
+            .binary_search_by(|candidate| (&candidate.class.declaration, candidate.class.side).cmp(&(&identity.declaration, identity.side)))
+            .is_ok()
+            || self.primordial_roles.iter().any(|role| &role.class == identity)
+    }
+
+    /// Resolves every upstream reference of this package image against the
+    /// `prefix` image it is composed over.
+    ///
+    /// Structural validation admits module and class references owned by
+    /// projects this image does not carry. Composition closes that gap: each
+    /// such module must be a module row of `prefix`, and each such class must
+    /// be a class row or primordial role of `prefix`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ArtifactError`] naming the first upstream reference that
+    /// `prefix` does not provide.
+    pub fn validate_upstream_over(&self, prefix: &Self) -> Result<(), ArtifactError> {
+        use super::constant::StableClassRefV1;
+        use phalcom_type_meta::identity::StableModuleRef;
+        let module = |identity: &StableModuleRef| -> Result<(), ArtifactError> {
+            if self.is_upstream(identity) && prefix.module(identity).is_none() {
+                return Err(invalid(format!("upstream module {identity:?} is absent from the prefix image")));
+            }
+            Ok(())
+        };
+        let class = |identity: &StableClassRefV1| -> Result<(), ArtifactError> {
+            if self.is_upstream(&identity.declaration.module) && !prefix.has_local_class(identity) {
+                return Err(invalid(format!("upstream class {identity:?} is absent from the prefix image")));
+            }
+            Ok(())
+        };
+        for row in &self.modules {
+            for linked in &row.linked_reads {
+                match linked {
+                    super::module::PortableLinkedReadV1::Module { module: target }
+                    | super::module::PortableLinkedReadV1::Binding { module: target, .. }
+                    | super::module::PortableLinkedReadV1::StaticConstant { module: target, .. } => module(target)?,
+                }
+            }
+        }
+        for row in &self.classes {
+            for target in row.superclass.iter().chain(row.metaclass.iter()) {
+                class(target)?;
+            }
+        }
+        for anchor in &self.native_anchors {
+            class(&anchor.owner)?;
+        }
+        for constant in &self.constants {
+            match constant {
+                ConstantRecipeV1::ClosureTemplate {
+                    module: owner,
+                    lexical_class,
+                    super_anchor,
+                    ..
+                } => {
+                    module(owner)?;
+                    for target in lexical_class.iter().chain(super_anchor.iter()) {
+                        class(target)?;
+                    }
+                }
+                ConstantRecipeV1::Class { reference } => class(reference)?,
+                ConstantRecipeV1::Module { module: owner } => module(owner)?,
+                ConstantRecipeV1::Method { recipe } => {
+                    for target in recipe.holder.iter().chain(recipe.access_owner.iter()) {
+                        class(target)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
 }
 
 fn decode_inner(
