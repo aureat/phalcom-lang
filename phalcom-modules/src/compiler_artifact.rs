@@ -52,7 +52,9 @@ pub fn stage_artifact_project_authorities(
     if matches!(package_identity, TeloscPackageIdentity::Package { .. })
         && module_world.modules.iter().any(|module| module.identity.project != entry.identity.project)
     {
-        return Err(invalid("package artifact embeds a foreign module owner; cross-artifact module references require a versioned schema"));
+        return Err(invalid(
+            "package artifact embeds a foreign module owner; cross-artifact module references require a versioned schema",
+        ));
     }
 
     let mut stable_projects = module_world.external_projects.iter().cloned().collect::<BTreeSet<_>>();
@@ -739,6 +741,524 @@ pub fn project_executable_module_world_v4(
     Ok(projected)
 }
 
+/// Projects package-owned modules and their references to external module
+/// identities into schema 5. `stable_module_ref` is supplied by the caller so
+/// this crate can project wire identities without owning semantic identity
+/// policy.
+pub fn project_package_module_world_v5(
+    world: &CanonicalExternalModuleWorld,
+    executable: &ExecutableLinkedProgram,
+    external: &dyn crate::ExternalModuleAuthority,
+    stable_module_ref: &dyn Fn(&ModuleId) -> StableModuleRef,
+    availability: &AvailabilityContract,
+    limits: &ValidationLimits,
+) -> Result<ModuleWorldV5, ArtifactError> {
+    use phalcom_compiler_artifact::module_world_v5 as v5;
+
+    let linked = world.linked();
+    if linked.modules.len() != executable.modules.len()
+        || linked.modules.keys().any(|module| !executable.modules.contains_key(module))
+        || executable.modules.keys().any(|module| !linked.modules.contains_key(module))
+    {
+        return Err(invalid("formal and finalized executable module closures differ"));
+    }
+    if linked.entry != executable.entry {
+        return Err(invalid("formal and finalized executable entry modules differ"));
+    }
+    if linked.modules.len() > limits.max_modules {
+        return Err(invalid("too many canonical modules"));
+    }
+
+    let local_ids = linked
+        .modules
+        .keys()
+        .enumerate()
+        .map(|(index, module)| {
+            Ok((
+                module.clone(),
+                ArtifactModuleId(u32::try_from(index).map_err(|_| invalid("module index exceeds u32"))?),
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>, ArtifactError>>()?;
+    let package_owner = linked.entry.project;
+    if !matches!(package_owner, crate::ProjectIdentity::Resolved(_)) {
+        return Err(invalid("package entry module must belong to a resolved package project"));
+    }
+    if local_ids.keys().any(|module| module.project != package_owner) {
+        return Err(invalid("package module world contains a foreign local module owner"));
+    }
+
+    // Inventory only references that have a wire position capable of naming
+    // an external module. Entry, schedule, topology, and semantic row owners
+    // are checked as local-only during projection.
+    let mut referenced = linked.modules.keys().cloned().collect::<BTreeSet<_>>();
+    for (id, module) in &linked.modules {
+        let interface = world.interfaces().get(id).ok_or_else(|| invalid("missing canonical interface"))?;
+        for export in interface.exports.values() {
+            if let UnlinkedExportTarget::CanonicalDeclaration { module, .. } = &export.target {
+                referenced.insert(module.clone());
+            }
+        }
+        for export in module.interface.exports.values() {
+            match &export.target {
+                LinkedExportTarget::Binding(symbol) => {
+                    referenced.insert(symbol.module.clone());
+                }
+                LinkedExportTarget::Module(module) => {
+                    referenced.insert(module.clone());
+                }
+            }
+        }
+        let finalized = executable.modules.get(id).ok_or_else(|| invalid("finalized executable module is missing"))?;
+        for read in &finalized.linked_reads {
+            collect_linked_read_modules(read, &mut referenced);
+        }
+        referenced.extend(finalized.runtime_dependencies.iter().cloned());
+        for edge in linked.graphs.references.edges_from(id) {
+            referenced.insert(edge.to.clone());
+        }
+        for edge in linked.graphs.runtime.edges_from(id) {
+            referenced.insert(edge.dependency.clone());
+        }
+    }
+    for node in linked.graphs.semantics.nodes() {
+        for edge in linked.graphs.semantics.edges_from(&node) {
+            collect_semantic_node_modules(&edge.to, &mut referenced);
+        }
+    }
+    for witness in executable.runtime_availability_witnesses() {
+        if let Some(target) = &witness.requirement.read_target {
+            collect_linked_read_modules(target, &mut referenced);
+        }
+        referenced.insert(witness.requirement.dependency.clone());
+        referenced.insert(witness.proof.target.module().clone());
+    }
+
+    let mut stable_by_module = BTreeMap::new();
+    for module in &referenced {
+        if !local_ids.contains_key(module) && !external.contains(module) {
+            return Err(invalid(format!("module {module} is neither owned nor provided by the dependency base")));
+        }
+        let stable = stable_module_ref(module);
+        if stable.path.len() != module.path.components().len()
+            || !stable
+                .path
+                .iter()
+                .zip(module.path.components())
+                .all(|(stable, local)| stable.as_ref() == local.as_str())
+        {
+            return Err(invalid(format!("stable module conversion changed the path for {module}")));
+        }
+        stable_by_module.insert(module.clone(), stable);
+    }
+
+    let mut owned_project = None;
+    let mut owned_identities = BTreeSet::new();
+    for module in local_ids.keys() {
+        let stable = stable_by_module
+            .get(module)
+            .ok_or_else(|| invalid("owned module is absent from the stable identity map"))?;
+        if owned_project.as_ref().is_some_and(|project| project != &stable.project) {
+            return Err(invalid("package modules map to multiple publishing projects"));
+        }
+        if !matches!(&stable.project, StableProjectRef::Package { .. }) {
+            return Err(invalid("package-owned modules must use a persistent package identity"));
+        }
+        owned_project = Some(stable.project.clone());
+        if !owned_identities.insert(stable.clone()) {
+            return Err(invalid("multiple owned modules map to the same stable module identity"));
+        }
+    }
+
+    // External ordinals are independent of traversal and source registration
+    // order. The set is minimal because it contains only wire-capable refs.
+    let external_modules = stable_by_module
+        .iter()
+        .filter(|(module, _)| !local_ids.contains_key(*module))
+        .map(|(_, stable)| stable.clone())
+        .collect::<BTreeSet<_>>();
+    let external_ids = external_modules
+        .iter()
+        .enumerate()
+        .map(|(index, module)| {
+            Ok((
+                module.clone(),
+                v5::ExternalModuleIndex(u32::try_from(index).map_err(|_| invalid("external module index exceeds u32"))?),
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>, ArtifactError>>()?;
+    let mut external_project_set = external_modules.iter().map(|module| module.project.clone()).collect::<BTreeSet<_>>();
+    if let Some(owned_project) = owned_project.as_ref() {
+        if external_project_set.contains(owned_project) {
+            return Err(invalid("package-owned and external modules have the same stable project identity"));
+        }
+    }
+
+    let modules = linked
+        .modules
+        .iter()
+        .map(|(id, module)| {
+            let finalized = executable.modules.get(id).ok_or_else(|| invalid("finalized executable module is missing"))?;
+            let interface = world.interfaces().get(id).ok_or_else(|| invalid("missing canonical interface"))?;
+            if interface.metadata != module.interface.metadata {
+                return Err(invalid("unlinked and linked metadata differ"));
+            }
+            let node = world.topology().nodes.get(id).ok_or_else(|| invalid("missing canonical topology node"))?;
+            let identity = stable_by_module.get(id).ok_or_else(|| invalid("owned module identity is absent"))?.clone();
+            let exports = interface
+                .exports
+                .iter()
+                .map(|(name, export)| {
+                    if name != &export.exported_name {
+                        return Err(invalid("export key/name mismatch"));
+                    }
+                    Ok(v5::ExportV2 {
+                        exported_name: export.exported_name.clone(),
+                        internal_name: export.internal_name.clone(),
+                        target: match &export.target {
+                            UnlinkedExportTarget::Local(name) => v5::UnlinkedTargetV2::Local { name: name.clone() },
+                            UnlinkedExportTarget::ReExport { path, remote } => v5::UnlinkedTargetV2::ReExport {
+                                path: path_out(path),
+                                remote: remote.clone(),
+                            },
+                            UnlinkedExportTarget::CanonicalDeclaration { module, name } => v5::UnlinkedTargetV2::CanonicalDeclaration {
+                                module: package_module_ref(module, &local_ids, &stable_by_module, &external_ids)?,
+                                name: name.clone(),
+                            },
+                        },
+                        span: span(export.range),
+                    })
+                })
+                .collect::<Result<Vec<_>, ArtifactError>>()?;
+            let linked_exports = module
+                .interface
+                .exports
+                .iter()
+                .map(|(name, export)| {
+                    if name != &export.public_name {
+                        return Err(invalid("linked export key/name mismatch"));
+                    }
+                    let read = match &export.target {
+                        LinkedExportTarget::Binding(symbol) => LinkedReadSpec::Binding(symbol.clone()),
+                        LinkedExportTarget::Module(module) => LinkedReadSpec::Module(module.clone()),
+                    };
+                    Ok(v5::LinkedExportV2 {
+                        name: name.to_string(),
+                        target: package_target(&read, &local_ids, &stable_by_module, &external_ids)?,
+                        span: span(export.range),
+                    })
+                })
+                .collect::<Result<Vec<_>, ArtifactError>>()?;
+            let references = linked
+                .graphs
+                .references
+                .edges_from(id)
+                .iter()
+                .map(|edge| {
+                    if &edge.from != id {
+                        return Err(invalid("reference graph source mismatch"));
+                    }
+                    Ok(v5::ReferenceV2 {
+                        target: package_module_ref(&edge.to, &local_ids, &stable_by_module, &external_ids)?,
+                        kind: reference_out(edge.kind),
+                        span: span(edge.range),
+                    })
+                })
+                .collect::<Result<Vec<_>, ArtifactError>>()?;
+            let runtime_edges = executable
+                .graphs
+                .runtime
+                .edges_from(id)
+                .iter()
+                .map(|edge| {
+                    if &edge.importer != id {
+                        return Err(invalid("finalized runtime graph source mismatch"));
+                    }
+                    Ok(v5::RuntimeEdgeV2 {
+                        dependency: package_module_ref(&edge.dependency, &local_ids, &stable_by_module, &external_ids)?,
+                        reason: runtime_out(edge.reason),
+                        span: span(edge.range),
+                    })
+                })
+                .collect::<Result<Vec<_>, ArtifactError>>()?;
+            Ok(v5::ModuleV3 {
+                identity,
+                path: id.path.components().iter().map(|part| part.as_str().to_owned()).collect(),
+                kind: kind_out(interface.kind),
+                declarations: interface
+                    .declarations
+                    .iter()
+                    .map(|(name, declaration)| {
+                        if name != &declaration.name {
+                            return Err(invalid("declaration key/name mismatch"));
+                        }
+                        Ok(DeclarationV1 {
+                            name: name.clone(),
+                            semantics: match declaration.semantics {
+                                ModuleBindingSemantics::Runtime { mutable } => BindingSemanticsV1::Runtime { mutable },
+                                ModuleBindingSemantics::StaticConstant => BindingSemanticsV1::StaticConstant,
+                                ModuleBindingSemantics::Declaration => BindingSemanticsV1::Declaration,
+                            },
+                            span: span(declaration.range),
+                        })
+                    })
+                    .collect::<Result<_, _>>()?,
+                exports,
+                imports: interface.imports.iter().map(import_out).collect(),
+                exposed_children: interface.exposed_children.iter().map(|part| part.as_str().to_owned()).collect(),
+                metadata: metadata_out(&interface.metadata, limits)?,
+                linked_exports,
+                globals: module
+                    .bindings
+                    .local_globals
+                    .iter()
+                    .map(|(name, index)| BindingV1 {
+                        name: name.to_string(),
+                        index: index.0,
+                    })
+                    .collect(),
+                import_bindings: finalized
+                    .bindings
+                    .imports
+                    .iter()
+                    .map(|(name, index)| BindingV1 {
+                        name: name.to_string(),
+                        index: index.0,
+                    })
+                    .collect(),
+                linked_reads: finalized
+                    .linked_reads
+                    .iter()
+                    .map(|read| package_target(read, &local_ids, &stable_by_module, &external_ids))
+                    .collect::<Result<_, _>>()?,
+                runtime_dependencies: finalized
+                    .runtime_dependencies
+                    .iter()
+                    .map(|dependency| package_module_ref(dependency, &local_ids, &stable_by_module, &external_ids))
+                    .collect::<Result<_, _>>()?,
+                references,
+                runtime_edges,
+                topology_parent: node
+                    .parent
+                    .as_ref()
+                    .map(|parent| package_local_id(&local_ids, parent, "topology parent"))
+                    .transpose()?,
+                topology_children: world
+                    .topology()
+                    .children
+                    .get(id)
+                    .into_iter()
+                    .flatten()
+                    .map(|child| package_local_id(&local_ids, child, "topology child"))
+                    .collect::<Result<_, _>>()?,
+                interface_fingerprint: interface.fingerprint().raw(),
+                linked_interface_fingerprint: module.interface.fingerprint().raw(),
+                dependency_fingerprint: crate::fingerprint::linked_dependency_fingerprint(finalized).raw(),
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+
+    let semantic_rows = linked
+        .graphs
+        .semantics
+        .nodes()
+        .iter()
+        .map(|node| {
+            let row_node = package_semantic_row_node(node, &local_ids)?;
+            let edges = linked
+                .graphs
+                .semantics
+                .edges_from(node)
+                .iter()
+                .map(|edge| {
+                    if &edge.from != node {
+                        return Err(invalid("semantic graph source mismatch"));
+                    }
+                    Ok(v5::SemanticEdgeV2 {
+                        target: package_semantic_target(&edge.to, &local_ids, &stable_by_module, &external_ids)?,
+                        kind: semantic_out(edge.kind),
+                        span: span(edge.range),
+                    })
+                })
+                .collect::<Result<_, ArtifactError>>()?;
+            Ok(v5::SemanticRowV2 { node: row_node, edges })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+
+    let mut availability_witnesses = executable
+        .runtime_availability_witnesses()
+        .iter()
+        .map(|witness| {
+            let requirement = &witness.requirement;
+            let provenance = &requirement.provenance;
+            if provenance.consumer != requirement.importer || provenance.target != witness.proof.target || provenance.product != witness.proof.product {
+                return Err(invalid("finalized availability witness disagrees with its runtime requirement"));
+            }
+            if !local_ids.contains_key(&requirement.dependency) {
+                if !requirement.dependency.project.is_universe() {
+                    return Err(invalid("external package availability witnesses are not supported"));
+                }
+                if !availability.proofs().any(|proof| proof == &witness.proof) {
+                    return Err(invalid("external Universe availability witness is absent from the package image base contract"));
+                }
+            }
+            Ok(v5::RuntimeAvailabilityWitnessV2 {
+                importer: package_local_id(&local_ids, &requirement.importer, "availability witness importer")?,
+                dependency: package_module_ref(&requirement.dependency, &local_ids, &stable_by_module, &external_ids)?,
+                range: span(requirement.range),
+                reason: runtime_out(requirement.reason),
+                read_target: requirement
+                    .read_target
+                    .as_ref()
+                    .map(|target| package_target(target, &local_ids, &stable_by_module, &external_ids))
+                    .transpose()?,
+                target: package_availability_target(&witness.proof.target, &local_ids, &stable_by_module, &external_ids)?,
+                product: availability_product_out(witness.proof.product),
+                producer: availability_producer_out(provenance.producer),
+                required_at: availability_timing_out(provenance.timing),
+                authority: availability_authority_out(witness.proof.authority),
+                available_at: availability_timing_out(witness.proof.available_at),
+            })
+        })
+        .collect::<Result<Vec<_>, ArtifactError>>()?;
+    availability_witnesses.sort_by(v5::RuntimeAvailabilityWitnessV2::canonical_cmp);
+
+    let mut projected = ModuleWorldV5 {
+        entry: package_local_id(&local_ids, &executable.entry, "entry module")?,
+        initialization_order: executable
+            .initialization_order
+            .iter()
+            .map(|module| package_local_id(&local_ids, module, "initialization order"))
+            .collect::<Result<_, _>>()?,
+        modules,
+        semantic_rows,
+        external_projects: std::mem::take(&mut external_project_set).into_iter().collect(),
+        external_modules: external_modules.into_iter().collect(),
+        topology_fingerprint: 0,
+        availability_witnesses,
+        bootstrap_modules: vec![],
+        bootstrap_availability: vec![],
+    };
+    projected.refresh_portable_topology_fingerprint()?;
+    projected.validate(limits)?;
+    Ok(projected)
+}
+
+fn collect_linked_read_modules(read: &LinkedReadSpec, modules: &mut BTreeSet<ModuleId>) {
+    match read {
+        LinkedReadSpec::Module(module) => {
+            modules.insert(module.clone());
+        }
+        LinkedReadSpec::Binding(symbol) => {
+            modules.insert(symbol.module.clone());
+        }
+    }
+}
+
+fn collect_semantic_node_modules(node: &SemanticNodeId, modules: &mut BTreeSet<ModuleId>) {
+    match node {
+        SemanticNodeId::Module(module) | SemanticNodeId::Declaration { module, .. } => {
+            modules.insert(module.clone());
+        }
+    }
+}
+
+fn package_local_id(ids: &BTreeMap<ModuleId, ArtifactModuleId>, module: &ModuleId, position: &str) -> Result<ArtifactModuleId, ArtifactError> {
+    ids.get(module)
+        .copied()
+        .ok_or_else(|| invalid(format!("{position} must reference an owned package module: {module}")))
+}
+
+fn package_module_ref(
+    module: &ModuleId,
+    local_ids: &BTreeMap<ModuleId, ArtifactModuleId>,
+    stable_by_module: &BTreeMap<ModuleId, StableModuleRef>,
+    external_ids: &BTreeMap<StableModuleRef, phalcom_compiler_artifact::module_world_v5::ExternalModuleIndex>,
+) -> Result<phalcom_compiler_artifact::module_world_v5::ModuleRefV1, ArtifactError> {
+    use phalcom_compiler_artifact::module_world_v5::ModuleRefV1;
+
+    if let Some(local) = local_ids.get(module) {
+        return Ok(ModuleRefV1::Local { module: *local });
+    }
+    let stable = stable_by_module
+        .get(module)
+        .ok_or_else(|| invalid(format!("external module identity is absent: {module}")))?;
+    let external = external_ids
+        .get(stable)
+        .copied()
+        .ok_or_else(|| invalid(format!("external module index is absent: {stable:?}")))?;
+    Ok(ModuleRefV1::External { module: external })
+}
+
+fn package_target(
+    target: &LinkedReadSpec,
+    local_ids: &BTreeMap<ModuleId, ArtifactModuleId>,
+    stable_by_module: &BTreeMap<ModuleId, StableModuleRef>,
+    external_ids: &BTreeMap<StableModuleRef, phalcom_compiler_artifact::module_world_v5::ExternalModuleIndex>,
+) -> Result<phalcom_compiler_artifact::module_world_v5::TargetV2, ArtifactError> {
+    use phalcom_compiler_artifact::module_world_v5::TargetV2;
+
+    Ok(match target {
+        LinkedReadSpec::Module(module) => TargetV2::Module {
+            module: package_module_ref(module, local_ids, stable_by_module, external_ids)?,
+        },
+        LinkedReadSpec::Binding(symbol) => TargetV2::Binding {
+            module: package_module_ref(&symbol.module, local_ids, stable_by_module, external_ids)?,
+            name: symbol.name.to_string(),
+        },
+    })
+}
+
+fn package_semantic_target(
+    node: &SemanticNodeId,
+    local_ids: &BTreeMap<ModuleId, ArtifactModuleId>,
+    stable_by_module: &BTreeMap<ModuleId, StableModuleRef>,
+    external_ids: &BTreeMap<StableModuleRef, phalcom_compiler_artifact::module_world_v5::ExternalModuleIndex>,
+) -> Result<phalcom_compiler_artifact::module_world_v5::SemanticNodeV2, ArtifactError> {
+    use phalcom_compiler_artifact::module_world_v5::SemanticNodeV2;
+
+    Ok(match node {
+        SemanticNodeId::Module(module) => SemanticNodeV2::Module {
+            module: package_module_ref(module, local_ids, stable_by_module, external_ids)?,
+        },
+        SemanticNodeId::Declaration { module, name } => SemanticNodeV2::Declaration {
+            module: package_module_ref(module, local_ids, stable_by_module, external_ids)?,
+            name: name.to_string(),
+        },
+    })
+}
+
+fn package_semantic_row_node(node: &SemanticNodeId, local_ids: &BTreeMap<ModuleId, ArtifactModuleId>) -> Result<SemanticNodeV1, ArtifactError> {
+    Ok(match node {
+        SemanticNodeId::Module(module) => SemanticNodeV1::Module {
+            module: package_local_id(local_ids, module, "semantic row node")?,
+        },
+        SemanticNodeId::Declaration { module, name } => SemanticNodeV1::Declaration {
+            module: package_local_id(local_ids, module, "semantic row node")?,
+            name: name.to_string(),
+        },
+    })
+}
+
+fn package_availability_target(
+    target: &RuntimeRequirementTarget,
+    local_ids: &BTreeMap<ModuleId, ArtifactModuleId>,
+    stable_by_module: &BTreeMap<ModuleId, StableModuleRef>,
+    external_ids: &BTreeMap<StableModuleRef, phalcom_compiler_artifact::module_world_v5::ExternalModuleIndex>,
+) -> Result<phalcom_compiler_artifact::module_world_v5::TargetV2, ArtifactError> {
+    use phalcom_compiler_artifact::module_world_v5::TargetV2;
+
+    Ok(match target {
+        RuntimeRequirementTarget::Module(module) => TargetV2::Module {
+            module: package_module_ref(module, local_ids, stable_by_module, external_ids)?,
+        },
+        RuntimeRequirementTarget::Binding { module, name } => TargetV2::Binding {
+            module: package_module_ref(module, local_ids, stable_by_module, external_ids)?,
+            name: name.to_string(),
+        },
+    })
+}
+
 fn project_executable_module_world_with_ids(
     world: &CanonicalExternalModuleWorld,
     executable: &ExecutableLinkedProgram,
@@ -759,7 +1279,10 @@ fn project_executable_module_world_with_ids(
         .keys()
         .enumerate()
         .map(|(index, module)| {
-            Ok((module.clone(), ArtifactModuleId(u32::try_from(index).map_err(|_| invalid("module index exceeds u32"))?)))
+            Ok((
+                module.clone(),
+                ArtifactModuleId(u32::try_from(index).map_err(|_| invalid("module index exceeds u32"))?),
+            ))
         })
         .collect::<Result<BTreeMap<_, _>, ArtifactError>>()?;
 
@@ -775,11 +1298,7 @@ fn project_executable_module_world_with_ids(
                 index: slot.0,
             })
             .collect();
-        module_row.linked_reads = finalized
-            .linked_reads
-            .iter()
-            .map(|read| target_out(read, &ids))
-            .collect::<Result<_, _>>()?;
+        module_row.linked_reads = finalized.linked_reads.iter().map(|read| target_out(read, &ids)).collect::<Result<_, _>>()?;
         module_row.runtime_dependencies = finalized
             .runtime_dependencies
             .iter()
@@ -841,10 +1360,7 @@ fn project_executable_module_world_with_ids(
     Ok((projected, ids))
 }
 
-fn availability_target_out(
-    target: &RuntimeRequirementTarget,
-    ids: &BTreeMap<ModuleId, ArtifactModuleId>,
-) -> Result<TargetV1, ArtifactError> {
+fn availability_target_out(target: &RuntimeRequirementTarget, ids: &BTreeMap<ModuleId, ArtifactModuleId>) -> Result<TargetV1, ArtifactError> {
     match target {
         RuntimeRequirementTarget::Module(module) => target_out(&LinkedReadSpec::Module(module.clone()), ids),
         RuntimeRequirementTarget::Binding { module, name } => target_out(
@@ -1826,10 +2342,18 @@ mod package_entry_authority_tests {
             version: "1.0.0".into(),
             artifact_fingerprint: Fingerprint128([2; 16]),
         });
-        let header = TeloscPackageIdentity::Package { package: "forged".into(), version: "1.0.0".into() };
+        let header = TeloscPackageIdentity::Package {
+            package: "forged".into(),
+            version: "1.0.0".into(),
+        };
         let error = stage_artifact_project_authorities(
-            &ProjectUniverse::new(), &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(wire.clone()), &header, ArtifactDigest([3; 32]), &NoPackageReceipts,
-        ).unwrap_err();
+            &ProjectUniverse::new(),
+            &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(wire.clone()),
+            &header,
+            ArtifactDigest([3; 32]),
+            &NoPackageReceipts,
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("does not own its root entry"), "{error}");
     }
 
@@ -1848,10 +2372,18 @@ mod package_entry_authority_tests {
             artifact_fingerprint: Fingerprint128([2; 16]),
         };
         wire.modules.push(foreign);
-        let header = TeloscPackageIdentity::Package { package: "actual".into(), version: "1.0.0".into() };
+        let header = TeloscPackageIdentity::Package {
+            package: "actual".into(),
+            version: "1.0.0".into(),
+        };
         let error = stage_artifact_project_authorities(
-            &ProjectUniverse::new(), &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(wire.clone()), &header, ArtifactDigest([3; 32]), &NoPackageReceipts,
-        ).unwrap_err();
+            &ProjectUniverse::new(),
+            &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(wire.clone()),
+            &header,
+            ArtifactDigest([3; 32]),
+            &NoPackageReceipts,
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("embeds a foreign module owner"), "{error}");
     }
 
@@ -1861,10 +2393,18 @@ mod package_entry_authority_tests {
             namespace: "universe".into(),
             version: "0.1.0".into(),
         });
-        let header = TeloscPackageIdentity::Package { package: "ordinary".into(), version: "1.0.0".into() };
+        let header = TeloscPackageIdentity::Package {
+            package: "ordinary".into(),
+            version: "1.0.0".into(),
+        };
         let error = stage_artifact_project_authorities(
-            &ProjectUniverse::new(), &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(wire.clone()), &header, ArtifactDigest([4; 32]), &NoPackageReceipts,
-        ).unwrap_err();
+            &ProjectUniverse::new(),
+            &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(wire.clone()),
+            &header,
+            ArtifactDigest([4; 32]),
+            &NoPackageReceipts,
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("does not own its root entry"), "{error}");
     }
 
@@ -1875,10 +2415,18 @@ mod package_entry_authority_tests {
             version: "0.1.0".into(),
         });
         wire.entry = ArtifactModuleId(1);
-        let header = TeloscPackageIdentity::Builtin { namespace: "universe".into(), version: "0.1.0".into() };
+        let header = TeloscPackageIdentity::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        };
         let error = stage_artifact_project_authorities(
-            &ProjectUniverse::new(), &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(wire.clone()), &header, ArtifactDigest([5; 32]), &NoPackageReceipts,
-        ).unwrap_err();
+            &ProjectUniverse::new(),
+            &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(wire.clone()),
+            &header,
+            ArtifactDigest([5; 32]),
+            &NoPackageReceipts,
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("entry module is absent"), "{error}");
     }
 }

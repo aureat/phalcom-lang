@@ -54,6 +54,9 @@ pub struct PackageCompilerImage {
     pub external: Arc<dyn ExternalModuleAuthority>,
     /// Path-free digest of all package-owned module paths and source text.
     pub source_digest: phalcom_compiler_artifact::ArtifactDigest,
+    pub(crate) entry: ModuleId,
+    pub(crate) sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    pub(crate) identity_external_projects: Vec<StableProjectRef>,
     base_header: Arc<TeloscHeaderV2>,
     base: Arc<ComposedArtifactSemanticBase>,
     availability: Arc<phalcom_modules::AvailabilityContract>,
@@ -174,7 +177,7 @@ impl PackageCompilerImage {
         )?;
 
         let source_digest = package_source_digest(project, discovered.sources.iter().map(|(module, source)| (module, source.text.as_ref())));
-        let external_projects = discovered
+        let identity_external_projects = discovered
             .resolved
             .values()
             .filter(|module| module.project != phalcom_modules::ProjectIdentity::Resolved(project))
@@ -187,7 +190,7 @@ impl PackageCompilerImage {
             &package_name,
             &package_version,
             source_digest,
-            &external_projects,
+            &identity_external_projects,
             &PackageIdentityAbi::from_header(&base_header),
         )
         .map_err(|error| PackageCompilerImageError::Identity(error.to_string()))?;
@@ -244,6 +247,7 @@ impl PackageCompilerImage {
         );
 
         reject_owned_errors(&snapshot, &scope)?;
+        let sources = discovered.sources.clone();
         let analyzed = AnalyzedProgram {
             compile_mode: CompileMode::Debug,
             project_universe: Arc::clone(&projects),
@@ -251,7 +255,7 @@ impl PackageCompilerImage {
             semantic: Arc::clone(&snapshot),
             sources: discovered.sources,
             runtime_modules,
-            entry,
+            entry: entry.clone(),
         };
         let compiled = ProgramCompiler::project_analyzed_for_package_image(
             &analyzed,
@@ -277,6 +281,9 @@ impl PackageCompilerImage {
             metadata,
             external: external_modules,
             source_digest,
+            entry,
+            sources,
+            identity_external_projects,
             base_header,
             base,
             availability,

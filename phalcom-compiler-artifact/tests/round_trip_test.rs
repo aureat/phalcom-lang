@@ -242,6 +242,34 @@ fn sample_semantic_world() -> SemanticWorldV4 {
     }
 }
 
+#[test]
+fn semantic_world_project_inventory_matches_wire_bytes_and_finds_nested_foreign_owner() {
+    let mut world = sample_semantic_world();
+    let foreign = StableProjectRef::Package {
+        package: "dependency-only-owner".into(),
+        version: "2.3.4".into(),
+        artifact_fingerprint: Fingerprint128([0x5a; 16]),
+    };
+    world
+        .module_execution_authority
+        .import_phase_products
+        .push(phalcom_compiler_artifact::semantic::world::ModuleImportPhaseProductV1 {
+            module: StableModuleRef {
+                project: foreign.clone(),
+                path: vec!["nested".into(), "owner".into()].into_boxed_slice(),
+            },
+            bindings: vec![],
+            coverage: phalcom_compiler_artifact::semantic::world::PhaseEvidenceCoverageV1::Full,
+        });
+    world.module_execution_authority.import_phase_products.sort_by(|left, right| left.module.cmp(&right.module));
+
+    let ordinary = world.encode().expect("ordinary semantic world encoding");
+    let (with_inventory, projects) = world.encode_with_project_inventory().expect("semantic world encoding with project inventory");
+
+    assert_eq!(with_inventory, ordinary, "project collection must not change canonical bytes");
+    assert!(projects.contains(&foreign), "nested semantic-only project owner must be inventoried");
+}
+
 fn sample_query_image() -> QueryImageV4 {
     QueryImageV4 {
         supported_roots: vec![QueryRootEntryV4 {

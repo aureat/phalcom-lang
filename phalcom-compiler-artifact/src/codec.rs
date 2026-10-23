@@ -2,6 +2,8 @@
 
 use crate::digest::{ArtifactDigest, ArtifactHasher};
 use crate::error::CodecError;
+use phalcom_type_meta::identity::StableProjectRef;
+use std::collections::BTreeSet;
 
 #[derive(Clone, Debug)]
 enum BinaryWriterSink {
@@ -18,6 +20,7 @@ enum BinaryWriterSink {
 pub struct BinaryWriter {
     sink: BinaryWriterSink,
     len: usize,
+    project_inventory: Option<BTreeSet<StableProjectRef>>,
 }
 
 impl Default for BinaryWriter {
@@ -31,6 +34,17 @@ impl BinaryWriter {
         Self {
             sink: BinaryWriterSink::Buffer(Vec::new()),
             len: 0,
+            project_inventory: None,
+        }
+    }
+
+    /// Creates a buffer writer that also records every stable project reference
+    /// emitted through the canonical `Wire` implementation.
+    pub fn collecting_project_refs() -> Self {
+        Self {
+            sink: BinaryWriterSink::Buffer(Vec::new()),
+            len: 0,
+            project_inventory: Some(BTreeSet::new()),
         }
     }
 
@@ -38,6 +52,7 @@ impl BinaryWriter {
         Self {
             sink: BinaryWriterSink::Buffer(Vec::with_capacity(capacity)),
             len: 0,
+            project_inventory: None,
         }
     }
 
@@ -47,6 +62,15 @@ impl BinaryWriter {
         Self {
             sink: BinaryWriterSink::Digest(ArtifactHasher::new_domain(domain)),
             len: 0,
+            project_inventory: None,
+        }
+    }
+
+    pub(crate) fn record_project_ref(&mut self, project: &StableProjectRef) {
+        if let Some(inventory) = &mut self.project_inventory {
+            if !inventory.contains(project) {
+                inventory.insert(project.clone());
+            }
         }
     }
 
@@ -134,6 +158,18 @@ impl BinaryWriter {
             BinaryWriterSink::Buffer(buffer) => buffer,
             BinaryWriterSink::Digest(_) => panic!("digest BinaryWriter cannot produce encoded bytes"),
         }
+    }
+
+    /// Returns encoded bytes and the complete project-reference inventory.
+    /// This is available only on a writer created by
+    /// [`BinaryWriter::collecting_project_refs`].
+    pub fn into_vec_and_project_refs(self) -> (Vec<u8>, BTreeSet<StableProjectRef>) {
+        let inventory = self.project_inventory.expect("project-reference collection was not enabled");
+        let bytes = match self.sink {
+            BinaryWriterSink::Buffer(buffer) => buffer,
+            BinaryWriterSink::Digest(_) => panic!("digest BinaryWriter cannot produce encoded bytes"),
+        };
+        (bytes, inventory)
     }
 
     pub fn into_digest(self) -> ArtifactDigest {

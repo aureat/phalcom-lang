@@ -3233,6 +3233,16 @@ impl SemanticWorldV4 {
         Ok(out.into_vec())
     }
 
+    /// Encodes the semantic world and inventories every stable project
+    /// reference written anywhere in its canonical wire representation.
+    pub fn encode_with_project_inventory(&self) -> Result<(Vec<u8>, std::collections::BTreeSet<StableProjectRef>), ArtifactError> {
+        self.validate(&ValidationLimits::default())?;
+        let mut out = BinaryWriter::collecting_project_refs();
+        out.write_u32(SEMANTIC_WORLD_SCHEMA_V4);
+        self.write(&mut out)?;
+        Ok(out.into_vec_and_project_refs())
+    }
+
     pub fn decode_with_allocation_budget(bytes: &[u8], limits: &ValidationLimits, transaction: &mut AllocationBudget) -> Result<Self, ArtifactError> {
         let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
         let mut section = transaction.child(section_limit);

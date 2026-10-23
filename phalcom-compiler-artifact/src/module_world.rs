@@ -178,6 +178,7 @@ impl Wire for Box<str> {
 }
 impl Wire for StableProjectRef {
     fn write(&self, out: &mut BinaryWriter) -> Result<(), ArtifactError> {
+        out.record_project_ref(self);
         match self {
             Self::Builtin { namespace, version } => {
                 out.write_u8(0);

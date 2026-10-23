@@ -1053,6 +1053,7 @@ fn fresh_process_target_runner() {
         expected_slotmap_modules,
         "package executable linked set must exactly match SlotMap ownership"
     );
+    let _built_package = super::modules_package_artifact::build_and_verify_slotmap_package(&package_image, &expected_slotmap_modules, &limits);
     assert_eq!(
         phalcom_semantic::canonical_image::canonical_universe_formal_image_build_count(),
         0,
