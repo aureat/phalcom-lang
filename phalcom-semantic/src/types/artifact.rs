@@ -2823,7 +2823,7 @@ impl TypeStore {
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
     ) -> Result<(Self, TypeRelocation), ArtifactError> {
-        let mut import = Import::new(graph, owner_catalog, limits, allocations)?;
+        let mut import = Import::new(graph, owner_catalog, None, limits, allocations)?;
         for index in 0..graph.kinds.len() {
             import.kind(ArtifactKindId(index as u32))?;
         }
@@ -3198,6 +3198,146 @@ impl TypeStore {
         };
 
         Ok((store, relocation))
+    }
+
+    /// Relocates one validated artifact type graph into an existing receiving
+    /// TypeStore. Every returned coordinate belongs to the receiver's lineage;
+    /// artifact-local ordinals remain confined to the relocation table.
+    ///
+    /// Callers compose artifacts dependency-first and must not publish the
+    /// receiver until all dependent semantic families have validated.
+    pub(crate) fn import_type_graph_into_store_with_owner_catalog_and_allocation_budget(
+        receiver: &mut TypeStore,
+        graph: &TypeGraphV1,
+        owner_catalog: Option<&crate::artifact::StableOwnerCatalog<'_>>,
+        limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
+    ) -> Result<TypeRelocation, ArtifactError> {
+        let store_id = receiver.id();
+        let (
+            import_types,
+            import_kinds,
+            import_parameters,
+            import_rows,
+            import_families,
+            import_variants,
+            import_domains,
+            import_constructors,
+            import_scoped,
+            import_lambdas,
+        ) = {
+            let mut import = Import::new(graph, owner_catalog, Some(receiver), limits, allocations)?;
+            for index in 0..graph.kinds.len() {
+                import.kind(ArtifactKindId(index as u32))?;
+            }
+            for index in 0..graph.parameters.len() {
+                import.parameter(ArtifactTypeParameterId(index as u32))?;
+            }
+            for index in 0..graph.types.len() {
+                import.ty(ArtifactTypeId(index as u32))?;
+            }
+            for index in 0..graph.rows.len() {
+                import.row(ArtifactRecordRowId(index as u32))?;
+            }
+            for index in 0..graph.families.len() {
+                import.family(ArtifactFamilyTypeId(index as u32))?;
+            }
+            for index in 0..graph.variants.len() {
+                import.variant(ArtifactVariantTypeId(index as u32))?;
+            }
+            for index in 0..graph.static_domains.len() {
+                import.domain(ArtifactStaticDomainId(index as u32))?;
+            }
+            for index in 0..graph.static_constructors.len() {
+                import.constructor(ArtifactStaticConstructorId(index as u32))?;
+            }
+            for index in 0..graph.scoped.len() {
+                import.scoped(ArtifactScopedTypeId(index as u32))?;
+            }
+            for index in 0..graph.lambdas.len() {
+                import.lambda(ArtifactTypeLambdaId(index as u32))?;
+            }
+            let Import {
+                types,
+                kinds,
+                parameters,
+                rows,
+                families,
+                variants,
+                domains,
+                constructors,
+                scoped,
+                lambdas,
+                ..
+            } = import;
+            (types, kinds, parameters, rows, families, variants, domains, constructors, scoped, lambdas)
+        };
+
+        // Preserve the current-binder selection invariant independently of
+        // artifact ordinals. Two wire slots that relocate to the same native
+        // parameter are still a duplicate current binding.
+        let mut current_parameters = allocations.vector::<TypeParameterId>(graph.current_parameters.len()).map_err(ArtifactError::Allocation)?;
+        for wire_id in &graph.current_parameters {
+            current_parameters.push(
+                import_parameters
+                    .get(wire_id.0 as usize)
+                    .and_then(|value| *value)
+                    .ok_or_else(|| invalid("unresolved current parameter"))?,
+            );
+        }
+        current_parameters.sort_unstable_by(|left, right| {
+            let left = receiver.type_parameter(*left);
+            let right = receiver.type_parameter(*right);
+            (&left.owner, left.index).cmp(&(&right.owner, right.index))
+        });
+        if current_parameters.windows(2).any(|pair| {
+            let left = receiver.type_parameter(pair[0]);
+            let right = receiver.type_parameter(pair[1]);
+            (&left.owner, left.index) == (&right.owner, right.index)
+        }) {
+            return Err(invalid("duplicate current parameter slot after relocation"));
+        }
+        for parameter in import_parameters.iter().filter_map(|value| *value) {
+            let parameter = receiver.type_parameter(parameter);
+            if current_parameters
+                .binary_search_by(|candidate| {
+                    let candidate = receiver.type_parameter(*candidate);
+                    (&candidate.owner, candidate.index).cmp(&(&parameter.owner, parameter.index))
+                })
+                .is_err()
+            {
+                return Err(invalid("missing current binder selection after relocation"));
+            }
+        }
+
+        let mut variance_overrides = allocations.vector(graph.variance_overrides.len()).map_err(ArtifactError::Allocation)?;
+        for value in &graph.variance_overrides {
+            let owner = declaration_in_with_allocation_budget(&value.owner, allocations, owner_catalog)?;
+            variance_overrides.push(((owner, value.index), variance_in(&value.variance)));
+        }
+        variance_overrides.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        if variance_overrides.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(invalid("duplicate parameter variance override"));
+        }
+        for ((owner, index), variance) in variance_overrides {
+            receiver.set_parameter_variance(owner, index, variance);
+        }
+
+        validate_scoped_roots(receiver, limits, allocations)?;
+
+        Ok(TypeRelocation {
+            store_id,
+            types: complete(import_types, allocations)?,
+            kinds: complete(import_kinds, allocations)?,
+            parameters: complete(import_parameters, allocations)?,
+            rows: complete(import_rows, allocations)?,
+            families: complete(import_families, allocations)?,
+            variants: complete(import_variants, allocations)?,
+            domains: complete(import_domains, allocations)?,
+            constructors: complete(import_constructors, allocations)?,
+            scoped: complete(import_scoped, allocations)?,
+            lambdas: complete(import_lambdas, allocations)?,
+        })
     }
 }
 
