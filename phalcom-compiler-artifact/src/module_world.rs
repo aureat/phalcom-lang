@@ -1373,7 +1373,7 @@ fn stable_linked_read(target: &TargetV1, modules: &[ModuleV2]) -> Option<crate::
     }
 }
 
-fn runtime_reason_matches(left: &RuntimeReasonV1, right: &crate::semantic::world::RuntimeDependencyReasonV1) -> bool {
+pub(crate) fn runtime_reason_matches(left: &RuntimeReasonV1, right: &crate::semantic::world::RuntimeDependencyReasonV1) -> bool {
     use crate::semantic::world::RuntimeDependencyReasonV1 as Reason;
     matches!(
         (left, right),
@@ -1384,7 +1384,7 @@ fn runtime_reason_matches(left: &RuntimeReasonV1, right: &crate::semantic::world
     )
 }
 
-fn availability_producer_matches(
+pub(crate) fn availability_producer_matches(
     left: &AvailabilityRequirementProducerV1,
     right: &crate::semantic::world::RuntimeRequirementProducerV1,
 ) -> bool {
@@ -1403,7 +1403,7 @@ fn availability_producer_matches(
     )
 }
 
-fn availability_product_matches(left: &AvailabilityProductV1, right: &crate::semantic::world::RuntimeRequirementProductV1) -> bool {
+pub(crate) fn availability_product_matches(left: &AvailabilityProductV1, right: &crate::semantic::world::RuntimeRequirementProductV1) -> bool {
     use crate::semantic::world::RuntimeRequirementProductV1 as Product;
     matches!(
         (left, right),
@@ -1414,7 +1414,7 @@ fn availability_product_matches(left: &AvailabilityProductV1, right: &crate::sem
     )
 }
 
-fn availability_timing_matches(left: &AvailabilityTimingV1, right: &crate::semantic::world::RuntimeRequirementTimingV1) -> bool {
+pub(crate) fn availability_timing_matches(left: &AvailabilityTimingV1, right: &crate::semantic::world::RuntimeRequirementTimingV1) -> bool {
     use crate::semantic::world::RuntimeRequirementTimingV1 as Timing;
     matches!(
         (left, right),
@@ -1470,7 +1470,7 @@ fn is_source_import_witness(
     false
 }
 
-fn source_import_local_names(import: &ImportV1) -> Vec<String> {
+pub(crate) fn source_import_local_names(import: &ImportV1) -> Vec<String> {
     match import {
         ImportV1::Module { path, alias, .. } => {
             let name = alias
@@ -1709,7 +1709,7 @@ fn availability_target_key(target: &TargetV1) -> (u8, u32, &str) {
     }
 }
 
-fn availability_product_tag(product: &AvailabilityProductV1) -> u8 {
+pub(crate) fn availability_product_tag(product: &AvailabilityProductV1) -> u8 {
     match product {
         AvailabilityProductV1::CanonicalIdentity => 0,
         AvailabilityProductV1::MetadataDescriptor => 1,
@@ -1718,7 +1718,7 @@ fn availability_product_tag(product: &AvailabilityProductV1) -> u8 {
     }
 }
 
-fn availability_authority_tag(authority: &AvailabilityAuthorityV1) -> u8 {
+pub(crate) fn availability_authority_tag(authority: &AvailabilityAuthorityV1) -> u8 {
     match authority {
         AvailabilityAuthorityV1::SemanticIdentityCatalog => 0,
         AvailabilityAuthorityV1::NativeBindingCatalog => 1,
@@ -1774,7 +1774,7 @@ fn availability_witness_key(
     )
 }
 
-fn availability_timing_tag(timing: &AvailabilityTimingV1) -> u8 {
+pub(crate) fn availability_timing_tag(timing: &AvailabilityTimingV1) -> u8 {
     match timing {
         AvailabilityTimingV1::BeforeSourceExecution => 0,
         AvailabilityTimingV1::DuringModuleInitializer => 1,
@@ -1782,7 +1782,7 @@ fn availability_timing_tag(timing: &AvailabilityTimingV1) -> u8 {
     }
 }
 
-fn source_import_binding_count(import: &ImportV1) -> Result<u32, ArtifactError> {
+pub(crate) fn source_import_binding_count(import: &ImportV1) -> Result<u32, ArtifactError> {
     let count = match import {
         ImportV1::Module { .. } => 1,
         ImportV1::Selective { items, .. } | ImportV1::ReExport { items, .. } => {
@@ -1792,37 +1792,37 @@ fn source_import_binding_count(import: &ImportV1) -> Result<u32, ArtifactError> 
     Ok(count)
 }
 
-struct PortableTopologyHasher {
+pub(crate) struct PortableTopologyHasher {
     hasher: ArtifactHasher,
 }
 
 impl PortableTopologyHasher {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             hasher: ArtifactHasher::new_domain("telos.telosc.v2.portable-module-topology"),
         }
     }
 
-    fn u8(&mut self, value: u8) {
+    pub(crate) fn u8(&mut self, value: u8) {
         self.hasher.write_u8(value);
     }
 
-    fn u32(&mut self, value: u32) {
+    pub(crate) fn u32(&mut self, value: u32) {
         self.hasher.write_u32(value);
     }
 
-    fn count(&mut self, value: usize) -> Result<(), ArtifactError> {
+    pub(crate) fn count(&mut self, value: usize) -> Result<(), ArtifactError> {
         self.u32(u32::try_from(value).map_err(|_| invalid("portable topology collection exceeds u32"))?);
         Ok(())
     }
 
-    fn text(&mut self, value: &str) -> Result<(), ArtifactError> {
+    pub(crate) fn text(&mut self, value: &str) -> Result<(), ArtifactError> {
         self.count(value.len())?;
         self.hasher.write(value.as_bytes());
         Ok(())
     }
 
-    fn project(&mut self, project: &StableProjectRef) -> Result<(), ArtifactError> {
+    pub(crate) fn project(&mut self, project: &StableProjectRef) -> Result<(), ArtifactError> {
         match project {
             StableProjectRef::Builtin { namespace, version } => {
                 self.u8(0);
@@ -1852,7 +1852,7 @@ impl PortableTopologyHasher {
         Ok(())
     }
 
-    fn module_identity(&mut self, module: &StableModuleRef) -> Result<(), ArtifactError> {
+    pub(crate) fn module_identity(&mut self, module: &StableModuleRef) -> Result<(), ArtifactError> {
         self.project(&module.project)?;
         self.count(module.path.len())?;
         for segment in &module.path {
@@ -1896,7 +1896,7 @@ impl PortableTopologyHasher {
         Ok(())
     }
 
-    fn finish(self) -> u64 {
+    pub(crate) fn finish(self) -> u64 {
         let digest = self.hasher.finalize();
         u64::from_le_bytes(digest.as_bytes()[..8].try_into().expect("digest prefix is eight bytes"))
     }

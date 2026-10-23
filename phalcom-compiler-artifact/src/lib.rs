@@ -10,6 +10,7 @@ pub mod identity;
 pub mod limits;
 pub mod metadata;
 pub mod module_world;
+pub mod module_world_v5;
 pub mod payload;
 pub mod query;
 pub mod section;

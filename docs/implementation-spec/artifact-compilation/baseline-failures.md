@@ -36,3 +36,10 @@ and no other failure.
 
 `artifact::projection::tests::*` (2 tests) pass. No slice-C/D export test
 exercises a non-Universe scope yet (see 04).
+
+## `phalcom-compiler-artifact` test target
+
+`semantic_world_enum_requirements_test::enum_requirement_rows_round_trip_all_statuses_and_source_order`
+fails with `Allocation(UnaccountedBoundary)` in the decode of enum requirement
+records. It does not touch the module world and is unrelated to this program.
+All other tests of the crate pass.
