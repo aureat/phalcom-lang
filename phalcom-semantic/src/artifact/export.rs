@@ -4998,7 +4998,7 @@ pub fn export_semantic_world_v4(
     snapshot: &SemanticSnapshot,
     types: &TypeExportContext,
     statics: &StaticExportContext,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::semantic::world::SemanticWorldV4, ArtifactError> {
     export_semantic_world_v4_with_runtime_requirements(
@@ -5022,7 +5022,7 @@ pub fn export_semantic_world_v4_with_runtime_requirements(
     snapshot: &SemanticSnapshot,
     types: &TypeExportContext,
     statics: &StaticExportContext,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     runtime_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::semantic::world::SemanticWorldV4, ArtifactError> {
@@ -5045,7 +5045,7 @@ pub fn export_semantic_world_v4_scoped(
     projection: super::projection::ArtifactSemanticProjection<'_>,
     types: &TypeExportContext,
     statics: &StaticExportContext,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     runtime_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::semantic::world::SemanticWorldV4, ArtifactError> {
@@ -5433,7 +5433,7 @@ pub(crate) fn export_runtime_dependency_requirements(
 fn export_module_execution_authority(
     snapshot: &SemanticSnapshot,
     scope: &super::projection::ArtifactProjectionScope,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     runtime_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
 ) -> Result<phalcom_compiler_artifact::semantic::world::ModuleExecutionAuthorityV1, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world as wire;
@@ -5710,7 +5710,7 @@ mod query_export_required_root_tests {
 pub fn export_query_image_v4(
     queries: &crate::canonical_image::CanonicalSemanticQueryImage,
     dependency_fingerprints: &crate::canonical_image::CanonicalDependencyFingerprints,
-    modules: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    modules: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::query::QueryImageV4, ArtifactError> {
@@ -5735,7 +5735,7 @@ pub fn export_query_image_v4_scoped(
     scope: &super::projection::ArtifactProjectionScope,
     queries: &crate::canonical_image::CanonicalSemanticQueryImage,
     dependency_fingerprints: &crate::canonical_image::CanonicalDependencyFingerprints,
-    modules: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    modules: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::query::QueryImageV4, ArtifactError> {
@@ -5952,7 +5952,7 @@ fn portable_query_owner_v4(key: &crate::db::QueryKey) -> Result<phalcom_compiler
 fn portable_query_product_ref(
     key: &phalcom_compiler_artifact::query::PortableQueryKeyV1,
     native_product: &crate::db::SemanticProduct,
-    modules: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    modules: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
 ) -> Result<phalcom_compiler_artifact::query::QueryProductRefV3, ArtifactError> {
     use phalcom_compiler_artifact::query::{

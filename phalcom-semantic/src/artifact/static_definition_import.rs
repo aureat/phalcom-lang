@@ -197,7 +197,8 @@ mod tests {
             topology_fingerprint: 0,
         };
         let projects = ProjectUniverse::new();
-        let owners = StableOwnerCatalog::new(&module_world, &projects).unwrap();
+        let module_world_v5 = phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(module_world.clone());
+        let owners = StableOwnerCatalog::new(&module_world_v5, &projects).unwrap();
         let empty_contracts = || StructuralPrimaryContractsV2 {
             declaration_shells: vec![],
             intrinsic_static_domains: vec![],

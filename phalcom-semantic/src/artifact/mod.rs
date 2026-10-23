@@ -482,7 +482,8 @@ impl<'a> ArtifactImportTransaction<'a> {
             .project_catalog
             .as_deref()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged project catalog".into())))?;
-        let owners = identity::StableOwnerCatalog::new(&payload.module_world, projects)?;
+        let module_world = phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(payload.module_world.clone());
+        let owners = identity::StableOwnerCatalog::new(&module_world, projects)?;
         query_import::validate_query_owner_authority(&payload.query_image, &owners)?;
         query_import::validate_structural_root_row_ownership(&payload.query_image, &payload.semantic_world)?;
         let reconstructed = type_import::reconstruct_type_graph(&payload.semantic_world.type_graph, &self.limits, &owners, child)?;

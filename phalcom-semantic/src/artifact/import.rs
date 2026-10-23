@@ -5571,7 +5571,7 @@ pub(super) fn import_callable_resolution_authority(
 fn import_callable_observed_import_phases(
     record: &phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2,
     callable: &CallableId,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     import_phase_products: &impl phalcom_modules::linker::ModuleImportPhaseProductLookup,
     allocations: &mut AllocationBudget,
 ) -> Result<crate::checker::analysis_map::AnalysisMap<phalcom_modules::identity::SourceImportBindingId, phalcom_modules::graph::DependencyPhase>, ArtifactError>
@@ -5646,7 +5646,7 @@ fn stable_callable_module(callable: &phalcom_type_meta::identity::StableCallable
 
 fn import_module_execution_authority(
     authority: &phalcom_compiler_artifact::semantic::world::ModuleExecutionAuthorityV1,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     allocations: &mut AllocationBudget,
 ) -> Result<
     (
@@ -5837,7 +5837,7 @@ pub(super) fn import_callable_analysis_records(
     relocation: &TypeRelocation,
     store: &TypeStore,
     source_plan_fingerprints: &[(crate::identity::ImplId, crate::db::ProductFingerprint)],
-    module_world: Option<&phalcom_compiler_artifact::module_world::ModuleWorldV2>,
+    module_world: Option<&phalcom_compiler_artifact::module_world_v5::ModuleWorldV5>,
     import_phase_products: &impl phalcom_modules::linker::ModuleImportPhaseProductLookup,
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
@@ -6557,7 +6557,7 @@ pub fn validate_and_import_semantic_world_with_allocation_budget(
 /// the exact module rows that accompany the semantic world.
 pub fn validate_and_import_semantic_world_with_module_world_and_allocation_budget(
     world: SemanticWorldV4,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     limits: &ValidationLimits,
     transaction: &mut AllocationBudget,
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
@@ -6569,7 +6569,7 @@ pub fn validate_and_import_semantic_world_with_module_world_and_allocation_budge
 /// against the exact project graph retained by the loaded module world.
 pub fn validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget(
     world: SemanticWorldV4,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     projects: &phalcom_modules::ProjectUniverse,
     limits: &ValidationLimits,
     transaction: &mut AllocationBudget,
@@ -6584,7 +6584,7 @@ pub fn validate_and_import_semantic_world_with_module_world_and_project_universe
 /// remains a separate A4 step; this API shares type identity only.
 pub fn validate_and_import_semantic_world_into_type_store_with_module_world_and_project_universe_and_allocation_budget(
     world: SemanticWorldV4,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     projects: &phalcom_modules::ProjectUniverse,
     receiving_type_store: &mut TypeStore,
     limits: &ValidationLimits,
@@ -6612,7 +6612,7 @@ pub fn validate_and_import_semantic_world_into_type_store_with_module_world_and_
 /// semantic import and allocation child transaction both commit.
 pub fn validate_and_import_semantic_world_into_shared_stores_with_module_world_and_project_universe_and_allocation_budget(
     world: SemanticWorldV4,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     projects: &phalcom_modules::ProjectUniverse,
     receiving_type_store: &mut TypeStore,
     receiving_static_values: &mut StaticValueStore,
@@ -6643,7 +6643,7 @@ pub fn validate_and_import_semantic_world_into_shared_stores_with_module_world_a
 #[cfg(feature = "allocation-diagnostics")]
 pub fn validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget_for_diagnostics(
     world: SemanticWorldV4,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     projects: &phalcom_modules::ProjectUniverse,
     limits: &ValidationLimits,
     transaction: &mut AllocationBudget,
@@ -6653,7 +6653,7 @@ pub fn validate_and_import_semantic_world_with_module_world_and_project_universe
 
 fn validate_and_import_semantic_world_with_optional_module_world(
     world: SemanticWorldV4,
-    module_world: Option<&phalcom_compiler_artifact::module_world::ModuleWorldV2>,
+    module_world: Option<&phalcom_compiler_artifact::module_world_v5::ModuleWorldV5>,
     projects: Option<&phalcom_modules::ProjectUniverse>,
     limits: &ValidationLimits,
     transaction: &mut AllocationBudget,
@@ -6674,7 +6674,7 @@ fn allocation_error(error: AllocationError) -> ArtifactError {
 
 fn validate_and_import_semantic_world_inner(
     world: SemanticWorldV4,
-    module_world: Option<&phalcom_compiler_artifact::module_world::ModuleWorldV2>,
+    module_world: Option<&phalcom_compiler_artifact::module_world_v5::ModuleWorldV5>,
     projects: Option<&phalcom_modules::ProjectUniverse>,
     mut receiving_type_store: Option<&mut TypeStore>,
     mut receiving_static_values: Option<&mut StaticValueStore>,
@@ -9312,7 +9312,7 @@ mod tests {
         let products = std::collections::BTreeMap::from([(module.clone(), product)]);
         let mut allocations = AllocationBudget::new(4096);
         let callable = import_stable_callable_with_allocation_budget(&record.callable, &mut allocations).unwrap();
-        let phases = import_callable_observed_import_phases(&record, &callable, &module_world, &products, &mut allocations)
+        let phases = import_callable_observed_import_phases(&record, &callable, &module_world.clone().into(), &products, &mut allocations)
             .expect("a runtime aggregate summary covers an interface-only callable observation");
         assert_eq!(phases.get(&binding), Some(&DependencyPhase::InterfaceOnly));
 
@@ -9335,7 +9335,7 @@ mod tests {
             import_callable_observed_import_phases(
                 &uncovered_record,
                 &callable,
-                &module_world,
+                &module_world.clone().into(),
                 &stricter_products,
                 &mut AllocationBudget::new(4096),
             )
@@ -9593,7 +9593,7 @@ mod tests {
         assert_eq!(imported.associated_surfaces, surfaces);
     }
 
-    fn runtime_requirement_module_world() -> (phalcom_compiler_artifact::module_world::ModuleWorldV2, ModuleId, ModuleId) {
+    fn runtime_requirement_module_world() -> (phalcom_compiler_artifact::module_world_v5::ModuleWorldV5, ModuleId, ModuleId) {
         use phalcom_compiler_artifact::module_world::{ArtifactModuleId, ModuleKindV1, ModuleV2, ModuleWorldV2};
 
         let root = ModuleId::universe_root();
@@ -9658,11 +9658,11 @@ mod tests {
             topology_fingerprint: 0,
         };
         world.refresh_portable_topology_fingerprint().unwrap();
-        (world, root, dependency)
+        (world.into(), root, dependency)
     }
 
     fn empty_semantic_world_for_module_world(
-        module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+        module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     ) -> phalcom_compiler_artifact::semantic::world::SemanticWorldV4 {
         use phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV2;
         use phalcom_compiler_artifact::semantic::static_value::{StaticValueGraphV1, StaticValueV1};

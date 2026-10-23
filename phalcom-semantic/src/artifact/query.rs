@@ -984,7 +984,7 @@ pub fn reconstruct_query_image_v4_with_project_catalog_and_allocation_budget(
     snapshot: &Arc<SemanticSnapshot>,
     world: &CanonicalSemanticWorldId,
     modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,
-    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     limits: &phalcom_compiler_artifact::ValidationLimits,
     transaction: &mut AllocationBudget,
 ) -> Result<(Arc<CanonicalSemanticQueryImage>, CanonicalDependencyFingerprints), CanonicalImageError> {

@@ -2,7 +2,7 @@
 
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ImplId, ImplLocalId, ModuleId, VariantId};
 use phalcom_common::selector::Selector;
-use phalcom_compiler_artifact::module_world::ModuleWorldV2;
+use phalcom_compiler_artifact::module_world_v5::ModuleWorldV5;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use phalcom_modules::ProjectUniverse;
 use phalcom_modules::identity::{ModuleComponent, ModulePath};
@@ -12,16 +12,17 @@ use phalcom_type_meta::identity::{
 };
 
 #[cfg(test)]
-pub(crate) fn empty_owner_inputs() -> (ModuleWorldV2, ProjectUniverse) {
+pub(crate) fn empty_owner_inputs() -> (ModuleWorldV5, ProjectUniverse) {
     (
-        ModuleWorldV2 {
+        phalcom_compiler_artifact::module_world::ModuleWorldV2 {
             entry: phalcom_compiler_artifact::module_world::ArtifactModuleId(0),
             initialization_order: Vec::new(),
             modules: Vec::new(),
             semantic_rows: Vec::new(),
             external_projects: Vec::new(),
             topology_fingerprint: 0,
-        },
+        }
+        .into(),
         ProjectUniverse::new(),
     )
 }
@@ -29,12 +30,12 @@ pub(crate) fn empty_owner_inputs() -> (ModuleWorldV2, ProjectUniverse) {
 /// Resolves artifact owners only through module rows or the explicit external
 /// project allowlist and the caller's already populated project universe.
 pub struct StableOwnerCatalog<'a> {
-    module_world: &'a ModuleWorldV2,
+    module_world: &'a ModuleWorldV5,
     projects: &'a ProjectUniverse,
 }
 
 impl<'a> StableOwnerCatalog<'a> {
-    pub fn new(module_world: &'a ModuleWorldV2, projects: &'a ProjectUniverse) -> Result<Self, ArtifactError> {
+    pub fn new(module_world: &'a ModuleWorldV5, projects: &'a ProjectUniverse) -> Result<Self, ArtifactError> {
         for external in &module_world.external_projects {
             if projects.resolve_stable_project(external).is_none() {
                 return Err(referential("external project has no exact persistent workspace binding"));
