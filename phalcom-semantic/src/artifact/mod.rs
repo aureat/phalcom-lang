@@ -101,6 +101,8 @@ pub use dispatch_import::ImportedDispatchAuthority;
 pub use enum_requirement_import::ImportedEnumRequirementAuthority;
 pub use identity::StableOwnerCatalog;
 #[cfg(test)]
+pub(crate) use identity::empty_owner_inputs;
+#[cfg(test)]
 pub use inherent_import::ImportedConditionalInherentAuthority;
 pub use manifest::{
     ArtifactAuthorityDisposition, COMPILER_ATTACHMENT_MANIFEST, CompilerAttachmentDispositionRow, CompilerAttachmentFamily, IMPORTED_ARTIFACT_FAMILY_MANIFEST,
