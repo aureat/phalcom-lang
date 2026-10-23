@@ -988,7 +988,7 @@ pub fn reconstruct_query_image_v4_with_project_catalog_and_allocation_budget(
     limits: &phalcom_compiler_artifact::ValidationLimits,
     transaction: &mut AllocationBudget,
 ) -> Result<(Arc<CanonicalSemanticQueryImage>, CanonicalDependencyFingerprints), CanonicalImageError> {
-    let catalog = crate::artifact::identity::StableOwnerCatalog::new(module_world, modules.linked().universe.as_ref())
+    let catalog = crate::artifact::StableOwnerCatalog::new(module_world, modules.linked().universe.as_ref())
         .map_err(CanonicalImageError::Artifact)?;
     reconstruct_query_image_v4_with_owner_catalog_and_allocation_budget(image, snapshot, world, modules, Some(&catalog), limits, transaction)
 }
@@ -998,7 +998,7 @@ fn reconstruct_query_image_v4_with_owner_catalog_and_allocation_budget(
     snapshot: &Arc<SemanticSnapshot>,
     world: &CanonicalSemanticWorldId,
     modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,
-    owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+    owner_catalog: Option<&crate::artifact::StableOwnerCatalog<'_>>,
     limits: &phalcom_compiler_artifact::ValidationLimits,
     transaction: &mut AllocationBudget,
 ) -> Result<(Arc<CanonicalSemanticQueryImage>, CanonicalDependencyFingerprints), CanonicalImageError> {
@@ -1252,7 +1252,7 @@ fn clone_stable_declaration_with_budget(
 /// Current-schema owner resolution with a validated project/module catalog.
 fn consume_stable_module_authorized(
     module: StableModuleRef, allocations: &mut AllocationBudget,
-    owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+    owner_catalog: Option<&crate::artifact::StableOwnerCatalog<'_>>,
 ) -> Result<phalcom_modules::ModuleId, CanonicalImageError> {
     match owner_catalog {
         Some(catalog) => catalog.module_parts_with_allocation_budget(&module.project, &module.path, allocations)
@@ -1263,7 +1263,7 @@ fn consume_stable_module_authorized(
 
 fn consume_stable_declaration_authorized(
     declaration: StableDeclarationRef, allocations: &mut AllocationBudget,
-    owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+    owner_catalog: Option<&crate::artifact::StableOwnerCatalog<'_>>,
 ) -> Result<crate::identity::DeclarationId, CanonicalImageError> {
     match owner_catalog {
         Some(catalog) => catalog.declaration_with_allocation_budget(&declaration, allocations).map_err(CanonicalImageError::Artifact),
@@ -1273,7 +1273,7 @@ fn consume_stable_declaration_authorized(
 
 fn consume_stable_field_authorized(
     field: StableFieldRef, allocations: &mut AllocationBudget,
-    owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+    owner_catalog: Option<&crate::artifact::StableOwnerCatalog<'_>>,
 ) -> Result<crate::identity::FieldId, CanonicalImageError> {
     match owner_catalog {
         Some(catalog) => Ok(crate::identity::FieldId {
@@ -1287,7 +1287,7 @@ fn consume_stable_field_authorized(
 
 fn resolve_query_callable_authorized(
     callable: &StableCallableRef, allocations: &mut AllocationBudget,
-    owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+    owner_catalog: Option<&crate::artifact::StableOwnerCatalog<'_>>,
 ) -> Result<crate::identity::CallableId, CanonicalImageError> {
     match owner_catalog {
         Some(catalog) => catalog.callable_with_allocation_budget(callable, allocations).map_err(CanonicalImageError::Artifact),
@@ -1295,7 +1295,7 @@ fn resolve_query_callable_authorized(
     }
 }
 
-fn resolve_query_key_v3(key: &PortableQueryKeyV1, allocations: &mut AllocationBudget, owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>) -> Result<QueryKey, CanonicalImageError> {
+fn resolve_query_key_v3(key: &PortableQueryKeyV1, allocations: &mut AllocationBudget, owner_catalog: Option<&crate::artifact::StableOwnerCatalog<'_>>) -> Result<QueryKey, CanonicalImageError> {
     use PortableQueryKindV1 as K;
     use PortableQueryOwnerKeyV1 as O;
 
@@ -1503,7 +1503,7 @@ fn reconstruct_query_image_inner(
 #[cfg(test)]
 mod query_owner_catalog_regressions {
     use super::*;
-    use crate::artifact::identity::{StableOwnerCatalog, empty_owner_inputs};
+    use crate::artifact::{StableOwnerCatalog, empty_owner_inputs};
     use phalcom_type_meta::identity::StableProjectRef;
 
     #[test]
