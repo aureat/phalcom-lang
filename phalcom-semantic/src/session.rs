@@ -127,31 +127,54 @@ fn build_canonical_universe_linked_program(provider: &phalcom_modules::UniverseS
     semantic.to_unfinalized_program()
 }
 
-fn canonical_linked_program_for_session(db: &SemanticDb, provider: &phalcom_modules::UniverseSourceProvider) -> Arc<LinkedProgram> {
+fn canonical_linked_program_for_session(
+    db: &SemanticDb,
+    provider: &phalcom_modules::UniverseSourceProvider,
+    external_modules: Option<&Arc<dyn phalcom_modules::ExternalModuleAuthority>>,
+) -> Option<Arc<LinkedProgram>> {
     if let Some(image) = db.canonical_image() {
-        Arc::clone(image.linked())
-    } else {
-        canonical_universe_linked_program(provider)
+        return Some(Arc::clone(image.linked()));
     }
+    // A generic external module authority is already the exact linked-product
+    // source for artifact-owned modules. Do not silently introduce source-backed
+    // Universe linking as a second immutable authority.
+    external_modules.is_none().then(|| canonical_universe_linked_program(provider))
 }
 
-fn extend_canonical_trait_resolver_authority(
+fn extend_immutable_trait_resolver_authority(
     db: &SemanticDb,
     known_declarations: &mut HashSet<DeclarationId>,
     trait_associated_types: &mut BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>>,
 ) {
-    let Some(image) = db.canonical_image() else {
+    let Some(authority) = db.immutable_query_authority() else {
         return;
     };
-    for (declaration, _) in image.snapshot().trait_headers.iter() {
-        known_declarations.insert(declaration.clone());
-    }
-    for (declaration, surface) in image.snapshot().trait_surfaces.iter() {
-        let associated = trait_associated_types.entry(declaration.clone()).or_default();
-        for requirement in surface.associated_types.values() {
-            associated.insert(requirement.name.to_string(), requirement.requirement.clone());
+    for snapshot in authority.snapshots() {
+        for (declaration, _) in snapshot.trait_headers.iter() {
+            known_declarations.insert(declaration.clone());
+        }
+        for (declaration, surface) in snapshot.trait_surfaces.iter() {
+            let associated = trait_associated_types.entry(declaration.clone()).or_default();
+            for requirement in surface.associated_types.values() {
+                associated.insert(requirement.name.to_string(), requirement.requirement.clone());
+            }
         }
     }
+}
+
+fn attach_immutable_module_authority(
+    mut resolver: LinkedTypeResolver,
+    db: &SemanticDb,
+    provider: &phalcom_modules::UniverseSourceProvider,
+    external_modules: Option<&Arc<dyn phalcom_modules::ExternalModuleAuthority>>,
+) -> LinkedTypeResolver {
+    if let Some(external) = external_modules {
+        resolver = resolver.with_external_modules(Arc::clone(external));
+    }
+    if let Some(canonical) = canonical_linked_program_for_session(db, provider, external_modules) {
+        resolver = resolver.with_canonical_linked(canonical);
+    }
+    resolver
 }
 
 /// Performance and recomputation metrics for one semantic workspace update.
@@ -2449,7 +2472,7 @@ impl SemanticWorkspaceSession {
             known_declarations.insert(crate::checker::proof_predicate::proof_predicate_declaration(kind));
         }
         let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
-        extend_canonical_trait_resolver_authority(&self.db, &mut known_declarations, &mut trait_associated_types);
+        extend_immutable_trait_resolver_authority(&self.db, &mut known_declarations, &mut trait_associated_types);
         for (module, shard) in &self.semantic_structure_shards {
             for statement in &shard.source.program.statements {
                 if let Statement::Trait(trait_def) = statement {
