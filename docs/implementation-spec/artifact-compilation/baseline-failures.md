@@ -58,3 +58,13 @@ fixture and should repair this test.
 `tests/semantic_artifact_test.rs`, which `592b0aaa4` removed. `cargo test -p
 phalcom-semantic` (without `--lib`) therefore fails at target resolution.
 Use `--lib` or `--test <name>`.
+
+## `phalcom-core` targets
+
+- `cargo test -p phalcom-core --test core -- modules_canonical_artifact` gives
+  22 passed / 1 failed. The pre-existing failure is
+  `foreign_native_catalog_fingerprint_is_rejected_before_section_materialization`,
+  whose fixture uses the old schema.
+- `perf_workloads.rs` is auto-discovered as an example but has no `main`, so
+  `cargo test -p phalcom-core` and `cargo build --workspace --all-targets`
+  fail during target compilation. Use `--lib`, `--tests`, or a named target.

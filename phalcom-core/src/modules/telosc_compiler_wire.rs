@@ -10,7 +10,7 @@ use phalcom_compiler_artifact::container::TeloscContainerView;
 use phalcom_compiler_artifact::header::TeloscHeaderV2;
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::metadata::MetadataSectionV1;
-use phalcom_compiler_artifact::module_world::ModuleWorldV4;
+use phalcom_compiler_artifact::module_world_v5::ModuleWorldV5;
 use phalcom_compiler_artifact::query::QueryImageV4;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV4;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
@@ -116,7 +116,7 @@ impl ComposedArtifactSemanticBase {
 /// before the result can serve as immutable compiler/query authority.
 pub(crate) struct StagedTeloscCompilerWire {
     header: TeloscHeaderV2,
-    pub module_world: ModuleWorldV4,
+    pub module_world: ModuleWorldV5,
     pub semantic_world: SemanticWorldV4,
     pub query_image: QueryImageV4,
     pub metadata: MetadataSectionV1,
@@ -144,7 +144,7 @@ impl StagedTeloscCompilerWire {
                     "artifact dependency plan requires exact package identities".into(),
                 )).into());
             }
-            let wire = &artifact.module_world.previous.world;
+            let wire = &artifact.module_world;
             let root = wire.modules.get(wire.entry.0 as usize).ok_or_else(|| {
                 ArtifactError::from(ValidationError::ReferentialIntegrity("missing package artifact entry module".into()))
             })?;
@@ -407,13 +407,13 @@ impl StagedTeloscCompilerWire {
         let sections = StagedCompilerSections::from_container(&container)?;
         let header = container.header().clone_with_allocation_budget(&mut decode_budget)
             .map_err(ArtifactError::Allocation)?;
-        let module_world = ModuleWorldV4::decode_with_allocation_budget(sections.module_world, limits, &mut decode_budget)?;
+        let module_world = ModuleWorldV5::decode_any_with_allocation_budget(sections.module_world, limits, &mut decode_budget)?;
         let semantic_world = SemanticWorldV4::decode_with_allocation_budget(sections.semantic_world, limits, &mut decode_budget)?;
-        module_world.previous.validate_execution_authority(&semantic_world.module_execution_authority)?;
+        module_world.validate_execution_authority(&semantic_world.module_execution_authority)?;
 
         let query_image = QueryImageV4::decode_with_allocation_budget(sections.query_image, limits, &mut decode_budget)?;
         query_image.validate(limits)?;
-        query_image.validate_product_references(&module_world.previous.world, &semantic_world)?;
+        query_image.validate_product_references(&module_world, &semantic_world)?;
         query_image.validate_portable_structural_fingerprints_v4(&semantic_world)?;
 
         let metadata = MetadataSectionV1::decode_with_allocation_budget(sections.metadata, limits, &mut decode_budget)?;
@@ -451,7 +451,7 @@ impl StagedTeloscCompilerWire {
         let modules = generation_budget.arc(module_products).map_err(ArtifactError::Allocation)?;
         let parts = validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget(
             self.semantic_world,
-            &self.module_world.previous.world,
+            &self.module_world,
             modules.linked().universe.as_ref(),
             limits,
             &mut generation_budget,
@@ -477,7 +477,7 @@ impl StagedTeloscCompilerWire {
             &parts.snapshot,
             &world,
             &modules,
-            &self.module_world.previous.world,
+            &self.module_world,
             limits,
             &mut generation_budget,
         )?;
@@ -524,7 +524,7 @@ impl StagedTeloscCompilerWire {
         let parts =
             validate_and_import_semantic_world_into_type_store_with_module_world_and_project_universe_and_allocation_budget(
                 self.semantic_world,
-                &self.module_world.previous.world,
+                &self.module_world,
                 modules.linked().universe.as_ref(),
                 &mut type_candidate,
                 limits,
@@ -551,7 +551,7 @@ impl StagedTeloscCompilerWire {
             &parts.snapshot,
             &world,
             &modules,
-            &self.module_world.previous.world,
+            &self.module_world,
             limits,
             &mut generation_budget,
         )?;
@@ -597,7 +597,7 @@ impl StagedTeloscCompilerWire {
         let parts =
             validate_and_import_semantic_world_into_shared_stores_with_module_world_and_project_universe_and_allocation_budget(
                 self.semantic_world,
-                &self.module_world.previous.world,
+                &self.module_world,
                 modules.linked().universe.as_ref(),
                 &mut type_candidate,
                 &mut static_candidate,
@@ -626,7 +626,7 @@ impl StagedTeloscCompilerWire {
             &parts.snapshot,
             &world,
             &modules,
-            &self.module_world.previous.world,
+            &self.module_world,
             limits,
             &mut generation_budget,
         )?;
@@ -665,7 +665,7 @@ impl StagedTeloscCompilerWire {
             )).into());
         }
         let mut module_budget = allocations.child(allocations.remaining());
-        let portable = &self.module_world.previous.world;
+        let portable = &self.module_world;
         let candidate = phalcom_modules::compiler_artifact::stage_artifact_project_authorities(
             projects,
             portable,

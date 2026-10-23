@@ -34,6 +34,12 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 - Next action: close the remaining R4.T7 source/artifact compiler and negative-diagnostic parity gates. Source-free executable SlotMap runtime proof now exists for the focused working-tree state; broader P2/P8 acceptance remains open.
 - Branch rule: Continue on `feat/artifact-universe-consolidation`.
 
+## General artifact compilation continuation (2026-10-23)
+
+Detailed slice contracts remain in `docs/implementation-spec/artifact-compilation/`. Slice E is implemented and focused-tested: core now holds `ModuleWorldV5` above the decoder while the Universe builder retains V4 wire bytes. `RUSTFLAGS='' cargo check -p phalcom-core --lib --test core` and `RUSTFLAGS='' cargo test -p phalcom-core --lib --no-run` passed. The inherited core target failures remain recorded in that spec's `baseline-failures.md`.
+
+Slice F1 is active and unverified. Its next gate is EXP-T1…T4 plus the per-section VER-R1 digest check; the package identity context, fingerprint, and path-free source digest are in scope. F2 remains unstarted.
+
 ## Starting Baseline & Provenance
 
 | Parameter | Value |

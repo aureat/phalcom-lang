@@ -108,7 +108,7 @@ pub(crate) fn validate_compiler_header_abi(header: &TeloscHeaderV2) -> Result<()
 
 /// Source bytes are intentionally absent; require nonzero committed provenance
 /// and independently recompute each portable section digest.
-fn validate_section_provenance(
+pub(crate) fn validate_section_provenance(
     header: &TeloscHeaderV2,
     module_world: &[u8],
     semantic_world: &[u8],
