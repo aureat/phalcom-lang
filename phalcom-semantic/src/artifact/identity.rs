@@ -139,6 +139,33 @@ impl<'a> StableOwnerCatalog<'a> {
         };
         Ok(CallableId::new(owner, canonical_selector(&stable.selector)?, dispatch_side(stable.side)))
     }
+
+    /// Resolve a query callable against exact artifact owner authority while
+    /// charging its native identity and selector allocations to the caller.
+    pub(crate) fn callable_with_allocation_budget(
+        &self,
+        stable: &StableCallableRef,
+        allocations: &mut AllocationBudget,
+    ) -> Result<CallableId, ArtifactError> {
+        let owner = match &stable.owner {
+            StableCallableOwnerRef::Declaration(declaration) => {
+                CallableOwnerId::Declaration(self.declaration_with_allocation_budget(declaration, allocations)?)
+            }
+            StableCallableOwnerRef::Variant(variant) => {
+                let declaration = self.declaration_with_allocation_budget(&variant.owner, allocations)?;
+                let selector = crate::artifact::import::import_stable_selector_with_allocation_budget(&variant.selector, allocations)?;
+                CallableOwnerId::Variant(VariantId::new(declaration, selector))
+            }
+            StableCallableOwnerRef::Conformance(implementation) => {
+                let module = self.module_parts_with_allocation_budget(
+                    &implementation.module.project, &implementation.module.path, allocations,
+                )?;
+                CallableOwnerId::Conformance(ImplId::new(module, ImplLocalId(implementation.local_id)))
+            }
+        };
+        let selector = crate::artifact::import::import_stable_selector_with_allocation_budget(&stable.selector, allocations)?;
+        Ok(CallableId::new(owner, selector, dispatch_side(stable.side)))
+    }
 }
 
 pub(crate) fn dispatch_side(side: StableDispatchSide) -> DispatchSide {
