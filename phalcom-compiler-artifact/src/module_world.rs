@@ -1028,9 +1028,9 @@ tagged!(AvailabilityRequirementProducerV1 {
     8 => StaticConstantRead,
 });
 
-/// One reusable availability guarantee supplied by the canonical execution
-/// environment. Unlike a V3 runtime witness, this is not tied to one consumer
-/// requirement or source range.
+// One reusable availability guarantee supplied by the canonical execution
+// environment. Unlike a V3 runtime witness, this is not tied to one consumer
+// requirement or source range.
 record!(AvailabilityProofV1 {
     target: TargetV1,
     product: AvailabilityProductV1,
