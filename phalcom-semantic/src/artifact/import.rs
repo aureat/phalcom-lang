@@ -6579,7 +6579,7 @@ pub fn validate_and_import_semantic_world_with_module_world_and_project_universe
 /// The caller-visible store is updated only after the complete semantic import
 /// and the allocation child transaction both commit. Static-value composition
 /// remains a separate A4 step; this API shares type identity only.
-pub(crate) fn validate_and_import_semantic_world_into_type_store_with_module_world_and_project_universe_and_allocation_budget(
+pub fn validate_and_import_semantic_world_into_type_store_with_module_world_and_project_universe_and_allocation_budget(
     world: SemanticWorldV4,
     module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
     projects: &phalcom_modules::ProjectUniverse,
