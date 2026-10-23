@@ -7295,12 +7295,16 @@ impl<'source> Parser<'source> {
             let part = match segment {
                 StringSegment::Literal(value) => Expr::String { value, range: outer_range },
                 StringSegment::Expr { source, range } => {
+                    // Each synthesized `toString` send gets its own hole's
+                    // span: semantic facts are keyed by range, and holes that
+                    // shared the outer literal's span reused one call recipe.
+                    let hole_range = SourceRange::from((self.offset + range.start)..(self.offset + range.end));
                     let inner = self.parse_interp_expr(&source, range)?;
                     Expr::GetProperty(Box::new(GetPropertyExpr {
                         object: inner,
                         property: "toString".to_string(),
                         property_range: None,
-                        range: outer_range,
+                        range: hole_range,
                     }))
                 }
             };
