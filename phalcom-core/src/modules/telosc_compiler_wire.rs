@@ -63,6 +63,17 @@ impl ComposedPackageSemanticBase {
     pub(crate) fn type_store(&self) -> &Arc<TypeStore> { &self.type_store }
     pub(crate) fn static_values(&self) -> &Arc<StaticValueStore> { &self.static_values }
     pub(crate) fn query_catalogue(&self) -> &Arc<ExternalSemanticQueryCatalogue> { &self.query_catalogue }
+
+    /// Constructs a fresh mutable semantic database over this immutable
+    /// composed package authority. External products remain immutable leaves;
+    /// only local workspace queries enter mutable database state.
+    pub(crate) fn semantic_db(&self, workspace: phalcom_semantic::identity::WorkspaceId) -> phalcom_semantic::db::SemanticDb {
+        phalcom_semantic::db::SemanticDb::with_external_query_catalogue(
+            workspace,
+            Arc::clone(&self.query_catalogue),
+        )
+    }
+
     pub(crate) fn generations(&self) -> &[StagedPackageSemanticGeneration] { &self.generations }
 
     /// Exact semantic generation owning one externally provided module.
@@ -619,5 +630,9 @@ mod staging_transaction_tests {
         assert!(projects.preserves_authority_of(base.projects()));
         assert_eq!(base.type_store().id(), base.type_store().id());
         assert_eq!(base.static_values().id(), base.static_values().id());
+        let db = base.semantic_db(phalcom_semantic::identity::WorkspaceId::from_raw(77));
+        assert!(db.canonical_image().is_none());
+        assert!(db.immutable_query_authority().is_some());
+        assert_eq!(base.query_catalogue().generations().len(), 0);
     }
 }
