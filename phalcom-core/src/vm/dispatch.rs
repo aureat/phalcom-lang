@@ -1828,11 +1828,33 @@ impl VM {
     /// callable identity published by semantic analysis. The selector check is
     /// the fail-closed floor; loaded metadata supplies the owner/side identity
     /// through the VM method semantic index.
+    /// Binds canonical callable metadata for `method`'s holder when it is
+    /// still missing: `impl` blocks attach members after `FinalizeClass`
+    /// bound the declaration, so the first specialized call rebinds it.
+    pub(crate) fn ensure_method_semantics(&mut self, method: crate::heap::ObjRef) -> Result<(), RuntimeError> {
+        if self.typing_registry.method_semantics.get(method).is_some() {
+            return Ok(());
+        }
+        let Some(holder) = self.heap.method(method).holder else {
+            return Ok(());
+        };
+        let instance_class = if self.classes.values().any(|class| *class == holder) {
+            Some(holder)
+        } else {
+            self.classes.values().copied().find(|class| self.heap.class(*class).class == holder)
+        };
+        if let Some(class) = instance_class {
+            self.bind_metadata_for_class(class).map_err(|error| RuntimeError::Internal(format!("{error:?}")))?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate_specialized_call(
-        &self,
+        &mut self,
         recipe: &crate::typing::RuntimeCallEnvironmentRecipe,
         method: crate::heap::ObjRef,
     ) -> Result<(), RuntimeError> {
+        self.ensure_method_semantics(method)?;
         let selected_selector = self.resolve_symbol(self.heap.method(method).signature.selector);
         if selected_selector != recipe.callable.selector.as_ref() {
             return Err(RuntimeError::Internal(format!(
@@ -1847,9 +1869,10 @@ impl VM {
             ) {
                 return Ok(());
             }
-            return Err(RuntimeError::Internal(
-                "specialized call: selected method has no canonical runtime callable metadata".into(),
-            ));
+            return Err(RuntimeError::Internal(format!(
+                "specialized call: selected method has no canonical runtime callable metadata for {:?}",
+                recipe.callable
+            )));
         };
         let actual = self
             .typing_registry

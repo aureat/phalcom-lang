@@ -102,6 +102,20 @@ impl<'a> ExecutableMaterializer<'a> {
             self.vm.heap.module_mut(module).closure = Some(closure);
         }
 
+        // Trait default and other detached methods are reached only through
+        // conformance selection, never class lookup; register them by callable.
+        for detached in self.image.detached_methods.clone() {
+            let callable = phalcom_semantic::metadata::stable_identity::from_stable_callable(&detached.callable).map_err(internal)?;
+            if self.vm.detached_method_objects.contains_key(&callable) {
+                continue;
+            }
+            let method = self
+                .materialize_constant(detached.method_constant)?
+                .as_obj()
+                .ok_or_else(|| internal("artifact detached method is not an object"))?;
+            self.vm.detached_method_objects.insert(callable, method);
+        }
+
         let eager = self.image.bootstrap.eager_modules.clone();
         for entry in eager {
             let module_id = phalcom_semantic::metadata::stable_identity::from_stable_module(&entry.module).map_err(internal)?;
@@ -118,6 +132,21 @@ impl<'a> ExecutableMaterializer<'a> {
                 .closure
                 .ok_or_else(|| internal(format!("artifact module {module_id} has no materialized initializer")))?;
             self.vm.run_in_module(module, closure)?;
+            // `impl` blocks attach methods after `FinalizeClass` bound the
+            // class, so rebind each initialized module's classes before any
+            // dependent module dispatches through them.
+            let classes = self
+                .vm
+                .heap
+                .module(module)
+                .globals
+                .iter()
+                .filter_map(|value| value.as_obj())
+                .filter(|object| self.vm.heap.as_class(*object).is_some())
+                .collect::<Vec<_>>();
+            for class in classes {
+                self.vm.bind_metadata_for_class(class)?;
+            }
             self.vm
                 .module_registry
                 .get_mut(&module_id)

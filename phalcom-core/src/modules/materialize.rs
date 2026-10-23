@@ -899,6 +899,13 @@ impl VM {
                     &instance_methods
                 } else if declaration.class_callables.iter().any(|candidate| candidate == &callable.callable) {
                     &class_methods
+                } else if matches!(&callable.callable.owner, phalcom_type_meta::identity::StableCallableOwnerRef::Declaration(owner) if owner == &declaration.declaration) {
+                    // Inherent `impl` members are owned by the declaration but
+                    // are not listed among its primary callables.
+                    match callable.callable.side {
+                        phalcom_type_meta::identity::StableDispatchSide::Instance => &instance_methods,
+                        phalcom_type_meta::identity::StableDispatchSide::Class => &class_methods,
+                    }
                 } else {
                     continue;
                 };

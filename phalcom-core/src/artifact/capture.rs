@@ -361,6 +361,14 @@ impl ExecutableImageCapture {
         methods.sort_by(|(left, _), (right, _)| left.cmp(right));
         for (callable, method) in methods {
             let stable_callable = phalcom_semantic::metadata::stable_identity::to_stable_callable(&callable);
+            let owner_project = match &stable_callable.owner {
+                phalcom_type_meta::identity::StableCallableOwnerRef::Declaration(declaration) => &declaration.module.project,
+                phalcom_type_meta::identity::StableCallableOwnerRef::Variant(variant) => &variant.owner.module.project,
+                phalcom_type_meta::identity::StableCallableOwnerRef::Conformance(implementation) => &implementation.module.project,
+            };
+            if self.local_projects.as_ref().is_some_and(|local| !local.contains(owner_project)) {
+                continue;
+            }
             if !self.captured_detached_callables.insert(stable_callable.clone()) {
                 continue;
             }
