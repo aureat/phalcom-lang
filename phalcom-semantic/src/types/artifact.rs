@@ -3512,6 +3512,70 @@ mod artifact_owner_catalog_regressions {
     use phalcom_type_meta::fingerprint::Fingerprint128;
 
     #[test]
+    fn shared_receiver_reuses_native_type_ids_on_reimport() {
+        let limits = ValidationLimits::default();
+        let declaration = DeclarationId::new(ModuleId::universe_root(), "SharedReceiver".into());
+        let mut source = TypeStore::new();
+        let source_type = source.nominal_type(declaration.clone());
+        assert_eq!(source.get(source_type), &TypeData::Nominal { declaration: declaration.clone() });
+        let graph = source.project_artifact(&limits).unwrap();
+        let artifact_type = graph
+            .types
+            .iter()
+            .position(|entry| matches!(&entry.form, TypeV1::Nominal { declaration: owner } if owner.path.as_ref() == ["SharedReceiver"]))
+            .map(|index| ArtifactTypeId(index as u32))
+            .unwrap();
+
+        let mut receiver = TypeStore::new();
+        let mut allocations = AllocationBudget::new(8 * 1024 * 1024);
+        let first = TypeStore::import_type_graph_into_store_with_owner_catalog_and_allocation_budget(
+            &mut receiver,
+            &graph,
+            None,
+            &limits,
+            &mut allocations,
+        )
+        .unwrap();
+        assert_eq!(first.store_id, receiver.id());
+        let native = first.ty(artifact_type).unwrap();
+        assert_eq!(receiver.get(native), &TypeData::Nominal { declaration: declaration.clone() });
+        let counts = (
+            receiver.type_count(),
+            receiver.kind_count(),
+            receiver.parameter_count(),
+            receiver.row_count(),
+            receiver.family_count(),
+            receiver.variant_count(),
+            receiver.static_domain_count(),
+            receiver.static_constructor_count(),
+        );
+
+        let second = TypeStore::import_type_graph_into_store_with_owner_catalog_and_allocation_budget(
+            &mut receiver,
+            &graph,
+            None,
+            &limits,
+            &mut allocations,
+        )
+        .unwrap();
+        assert_eq!(second.store_id, receiver.id());
+        assert_eq!(second.ty(artifact_type).unwrap(), native);
+        assert_eq!(
+            counts,
+            (
+                receiver.type_count(),
+                receiver.kind_count(),
+                receiver.parameter_count(),
+                receiver.row_count(),
+                receiver.family_count(),
+                receiver.variant_count(),
+                receiver.static_domain_count(),
+                receiver.static_constructor_count(),
+            )
+        );
+    }
+
+    #[test]
     fn universe_owner_requires_explicit_module_authority_when_catalog_is_supplied() {
         let (mut wire, projects) = empty_owner_inputs();
         let stable = StableModuleRef {
