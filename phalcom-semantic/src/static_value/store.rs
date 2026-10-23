@@ -937,6 +937,80 @@ impl StaticValueStore {
         Ok(self.intern(StaticValueData::Record(id)))
     }
 
+    /// Interns a validated pack backing without manufacturing a top-level
+    /// StaticValueData::Pack. Artifact relocation needs backing identity before
+    /// it can reconstruct one or more wire slices over that backing.
+    pub(crate) fn intern_pack_backing_reconstructed(
+        &mut self,
+        backing: StaticPackBacking,
+    ) -> Result<StaticPackBackingId, StaticValueStoreError> {
+        self.check_children(
+            backing
+                .positionals
+                .iter()
+                .copied()
+                .chain(backing.labeled_values.iter().copied()),
+        )?;
+        if backing.labels.len() != backing.labeled_values.len() {
+            return Err(StaticValueStoreError::InvalidPackSliceRange);
+        }
+        let mut seen = std::collections::HashSet::new();
+        for symbol in backing.labels.iter().copied() {
+            let spelling = self
+                .get_symbol(symbol)
+                .ok_or(StaticValueStoreError::UnknownValue(symbol.0))?;
+            if !seen.insert(spelling) {
+                return Err(StaticValueStoreError::DuplicatePackLabel(spelling.into()));
+            }
+        }
+        if let Some(&id) = self.pack_backing_ids.get(&backing) {
+            return Ok(id);
+        }
+        if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_pack_backing(&backing)) {
+            return Ok(id);
+        }
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.pack_backings.len());
+        let id = StaticPackBackingId((frozen_len + self.pack_backings.len()) as u32);
+        self.pack_backings.push_back(backing.clone());
+        self.pack_backing_ids.insert(backing, id);
+        Ok(id)
+    }
+
+    /// Interns one validated slice descriptor over an already-interned backing
+    /// and returns its canonical top-level static reference.
+    pub(crate) fn intern_pack_slice_reconstructed(
+        &mut self,
+        data: StaticPackData,
+    ) -> Result<StaticValueRef, StaticValueStoreError> {
+        let backing = self.get_pack_backing(data.backing)?;
+        let positional_end = data
+            .positional_start
+            .checked_add(data.positional_len)
+            .ok_or(StaticValueStoreError::InvalidPackSliceRange)?;
+        let labeled_end = data
+            .labeled_start
+            .checked_add(data.labeled_len)
+            .ok_or(StaticValueStoreError::InvalidPackSliceRange)?;
+        if positional_end as usize > backing.positionals.len()
+            || labeled_end as usize > backing.labels.len()
+            || labeled_end as usize > backing.labeled_values.len()
+        {
+            return Err(StaticValueStoreError::InvalidPackSliceRange);
+        }
+        let id = if let Some(&id) = self.pack_ids.get(&data) {
+            id
+        } else if let Some(id) = self.frozen.as_ref().and_then(|f| f.find_pack(&data)) {
+            id
+        } else {
+            let frozen_len = self.frozen.as_ref().map_or(0, |f| f.packs.len());
+            let id = StaticPackId((frozen_len + self.packs.len()) as u32);
+            self.packs.push_back(data);
+            self.pack_ids.insert(data, id);
+            id
+        };
+        Ok(self.intern(StaticValueData::Pack(id)))
+    }
+
     /// Interns an immutable StaticPack from whole positional and labeled sequences.
     /// Labels must be unique and preserve their encounter order.
     pub fn intern_pack(
