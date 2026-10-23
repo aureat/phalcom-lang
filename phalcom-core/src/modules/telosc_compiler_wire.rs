@@ -32,7 +32,9 @@ use phalcom_semantic::static_value::StaticValueStore;
 use phalcom_semantic::types::store::TypeStore;
 use std::sync::Arc;
 
-/// A single privately imported package generation. This is deliberately not
+/// One immutable artifact generation admitted to the composed compiler base.
+/// Universe occupies generation zero; dependency packages follow in planned order.
+/// This is deliberately not
 /// a workspace-publishable external base on its own. It may have been imported
 /// into shared receiving stores, but only the composed-base publication barrier
 /// proves all package generations, module owners and query images compatible
@@ -45,7 +47,7 @@ pub(crate) struct StagedArtifactSemanticGeneration {
     pub fingerprints: Arc<CanonicalDependencyFingerprints>,
 }
 
-/// Fully validated immutable package-artifact base prior to workspace
+/// Fully validated immutable multi-artifact base prior to workspace
 /// publication. Construction is all-or-nothing: project receipts, module
 /// authority, type/static generations, semantic snapshots and every retained
 /// query image have all been checked against the final shared generation.
@@ -179,6 +181,11 @@ impl StagedTeloscCompilerWire {
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
     ) -> Result<ComposedArtifactSemanticBase, TeloscStagingError> {
+        if !universe.capabilities().portable_artifact_available || !universe.sources().is_empty() {
+            return Err(TeloscStagingError::Capability(
+                "composed artifact base requires source-free loaded Universe artifact authority",
+            ));
+        }
         Self::compose_artifact_semantic_base_impl(
             artifacts,
             universe.modules().projects().as_ref(),
