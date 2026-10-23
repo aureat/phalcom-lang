@@ -3213,7 +3213,11 @@ impl TypeStore {
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
     ) -> Result<TypeRelocation, ArtifactError> {
-        let store_id = receiver.id();
+        // TypeStore clones share persistent backing and preserve the store ID.
+        // Mutate a private candidate so validation failure cannot contaminate
+        // the receiving generation.
+        let mut candidate = receiver.clone();
+        let store_id = candidate.id();
         let (
             import_types,
             import_kinds,
@@ -3226,7 +3230,7 @@ impl TypeStore {
             import_scoped,
             import_lambdas,
         ) = {
-            let mut import = Import::new(graph, owner_catalog, Some(receiver), limits, allocations)?;
+            let mut import = Import::new(graph, owner_catalog, Some(&mut candidate), limits, allocations)?;
             for index in 0..graph.kinds.len() {
                 import.kind(ArtifactKindId(index as u32))?;
             }
@@ -3286,22 +3290,22 @@ impl TypeStore {
             );
         }
         current_parameters.sort_unstable_by(|left, right| {
-            let left = receiver.type_parameter(*left);
-            let right = receiver.type_parameter(*right);
+            let left = candidate.type_parameter(*left);
+            let right = candidate.type_parameter(*right);
             (&left.owner, left.index).cmp(&(&right.owner, right.index))
         });
         if current_parameters.windows(2).any(|pair| {
-            let left = receiver.type_parameter(pair[0]);
-            let right = receiver.type_parameter(pair[1]);
+            let left = candidate.type_parameter(pair[0]);
+            let right = candidate.type_parameter(pair[1]);
             (&left.owner, left.index) == (&right.owner, right.index)
         }) {
             return Err(invalid("duplicate current parameter slot after relocation"));
         }
         for parameter in import_parameters.iter().filter_map(|value| *value) {
-            let parameter = receiver.type_parameter(parameter);
+            let parameter = candidate.type_parameter(parameter);
             if current_parameters
                 .binary_search_by(|candidate| {
-                    let candidate = receiver.type_parameter(*candidate);
+                    let candidate = candidate.type_parameter(*candidate);
                     (&candidate.owner, candidate.index).cmp(&(&parameter.owner, parameter.index))
                 })
                 .is_err()
@@ -3320,12 +3324,12 @@ impl TypeStore {
             return Err(invalid("duplicate parameter variance override"));
         }
         for ((owner, index), variance) in variance_overrides {
-            receiver.set_parameter_variance(owner, index, variance);
+            candidate.set_parameter_variance(owner, index, variance);
         }
 
-        validate_scoped_roots(receiver, limits, allocations)?;
+        validate_scoped_roots(&candidate, limits, allocations)?;
 
-        Ok(TypeRelocation {
+        let relocation = TypeRelocation {
             store_id,
             types: complete(import_types, allocations)?,
             kinds: complete(import_kinds, allocations)?,
@@ -3337,7 +3341,9 @@ impl TypeStore {
             constructors: complete(import_constructors, allocations)?,
             scoped: complete(import_scoped, allocations)?,
             lambdas: complete(import_lambdas, allocations)?,
-        })
+        };
+        *receiver = candidate;
+        Ok(relocation)
     }
 }
 
