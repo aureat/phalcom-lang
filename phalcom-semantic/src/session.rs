@@ -1707,15 +1707,18 @@ impl SemanticWorkspaceSession {
         ] {
             signature_known_declarations.insert(crate::checker::proof_predicate::proof_predicate_declaration(kind));
         }
-        let canonical_linked = canonical_linked_program_for_session(&self.db, &self.universe_source_provider);
-        let signature_resolver = LinkedTypeResolver::with_retained_alias_forms(
-            input.linked.clone(),
-            signature_known_declarations,
-            ModuleId::universe_root(),
-            self.alias_forms.clone(),
-        )
-        .with_canonical_linked(canonical_linked)
-        .with_semantic_linked(input.semantic_linked.clone());
+        let signature_resolver = attach_immutable_module_authority(
+            LinkedTypeResolver::with_retained_alias_forms(
+                input.linked.clone(),
+                signature_known_declarations,
+                ModuleId::universe_root(),
+                self.alias_forms.clone(),
+            )
+            .with_semantic_linked(input.semantic_linked.clone()),
+            &self.db,
+            &self.universe_source_provider,
+            self.external_modules.as_ref(),
+        );
         let mut current_signature_fingerprints = self.declaration_signature_fingerprints.clone();
         for module in &structural_recomputed_modules {
             current_signature_fingerprints.retain(|node, _| signature_node_module(node) != module);
@@ -2491,16 +2494,19 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        let canonical_linked = canonical_linked_program_for_session(&self.db, &self.universe_source_provider);
-        let resolver = LinkedTypeResolver::with_retained_alias_forms(
-            input.linked.clone(),
-            known_declarations.clone(),
-            ModuleId::universe_root(),
-            self.alias_forms.clone(),
-        )
-        .with_canonical_linked(canonical_linked)
-        .with_semantic_linked(input.semantic_linked.clone())
-        .with_trait_associated_types(Arc::new(trait_associated_types.clone()));
+        let resolver = attach_immutable_module_authority(
+            LinkedTypeResolver::with_retained_alias_forms(
+                input.linked.clone(),
+                known_declarations.clone(),
+                ModuleId::universe_root(),
+                self.alias_forms.clone(),
+            )
+            .with_semantic_linked(input.semantic_linked.clone())
+            .with_trait_associated_types(Arc::new(trait_associated_types.clone())),
+            &self.db,
+            &self.universe_source_provider,
+            self.external_modules.as_ref(),
+        );
 
         // Resolve contextual binder kinds only after every nominal declaration
         // shell is visible. The legacy predeclaration path handled builtin
