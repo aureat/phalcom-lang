@@ -115,6 +115,7 @@ pub use module_static_import::ImportedModuleStaticBindingAuthority;
 pub use query_policy::{
     CanonicalQueryPersistence, canonical_query_persistence, portable_query_kind, query_kind_from_portable, query_kind_profile_support, query_root_is_reusable,
 };
+#[cfg(test)]
 pub(crate) use query_policy::{CanonicalQueryRootRequirement, canonical_query_root_requirement};
 #[cfg(test)]
 pub use query_product_import::ImportedQueryProducts;
@@ -144,6 +145,7 @@ pub use witness_import::ImportedWitnessPreflightAuthority;
 #[path = "compatibility_tests.rs"]
 mod compatibility_tests;
 
+#[cfg(test)]
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::header::TeloscHeaderV2;
 use phalcom_compiler_artifact::identity::CanonicalCompatibilityIdentity;
@@ -155,7 +157,9 @@ use phalcom_compiler_artifact::module_world::ModuleWorldV2;
 use phalcom_compiler_artifact::payload::CompilerArtifactPayload;
 use phalcom_compiler_artifact::query::QueryImageV4;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV4;
-use phalcom_compiler_artifact::{ArtifactError, ValidationError};
+use phalcom_compiler_artifact::ArtifactError;
+#[cfg(test)]
+use phalcom_compiler_artifact::ValidationError;
 #[cfg(test)]
 use phalcom_modules::canonical_products::CanonicalExternalModuleWorld;
 #[cfg(test)]
@@ -165,6 +169,7 @@ use phalcom_modules::{ProjectUniverse, TrustedPackageResolver, stage_artifact_pr
 #[cfg(test)]
 use phalcom_type_meta::SemanticMetadataBundle;
 use phalcom_type_meta::allocation::AllocationBudget;
+#[cfg(test)]
 use std::sync::Arc;
 
 /// A completed compiler image ready to be encoded into a `.telosc` container.
