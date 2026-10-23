@@ -32,6 +32,7 @@ pub mod enum_requirements;
 pub mod enum_semantics;
 pub mod explain;
 pub mod export;
+pub mod external_base;
 pub mod field_key;
 pub mod generic_evidence;
 pub mod hierarchy_product;
@@ -128,6 +129,7 @@ pub use effects::{
     infer_intraprocedural_effects,
 };
 pub use enum_requirements::{CaseRequirementResult, CaseRequirementStatus, EnumRequirement, EnumRequirementId, EnumRequirementTable};
+pub use external_base::ExternalSemanticSessionSeed;
 pub use enum_semantics::{
     EnumInfo, EnumSemanticTable, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo, VariantShape, VariantVisibility,
 };
