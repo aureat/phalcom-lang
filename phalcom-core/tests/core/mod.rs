@@ -27,6 +27,8 @@ mod modules_executable_serialization;
 mod modules_linking;
 #[path = "modules/package_artifact.rs"]
 mod modules_package_artifact;
+#[path = "modules/package_chain.rs"]
+mod modules_package_chain;
 #[path = "modules/package_info.rs"]
 mod modules_package_info;
 #[path = "modules/parity.rs"]
