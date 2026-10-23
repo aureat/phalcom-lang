@@ -1123,8 +1123,17 @@ pub fn project_package_module_world_v5(
         .collect::<Result<Vec<_>, ArtifactError>>()?;
     availability_witnesses.sort_by(v5::RuntimeAvailabilityWitnessV2::canonical_cmp);
 
+    // The V5 `entry` is the artifact's ownership root (the package's
+    // root module), not the program entry: loaders and the composition
+    // planner both key package authority on the empty-path module, and
+    // MW5 validation requires the root row to be `entry`. The executable
+    // entry (`slotmap.main`, say) belongs to executable-package authority.
+    let ownership_root = ModuleId {
+        project: executable.entry.project.clone(),
+        path: ModulePath::root(),
+    };
     let mut projected = ModuleWorldV5 {
-        entry: package_local_id(&local_ids, &executable.entry, "entry module")?,
+        entry: package_local_id(&local_ids, &ownership_root, "package root module")?,
         initialization_order: executable
             .initialization_order
             .iter()
